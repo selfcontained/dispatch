@@ -5,26 +5,10 @@
  * endpoint-level validation drift (status codes, body shapes, auth) in addition
  * to the AgentManager unit tests.
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import type { FastifyInstance } from "fastify";
-import type { Pool } from "pg";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  setupTestDb,
-  teardownTestDb,
-  runTestMigrations,
-  getTestDatabaseUrl,
-} from "./db/setup.js";
+import { useInjectApp } from "./helpers/inject-app.js";
 
-// Hoisted mock state — readable by any runCommand caller (resolveHeadSha, etc.)
 const mockState = vi.hoisted(() => ({
   headSha: "cafef00dcafef00dcafef00dcafef00dcafef00d",
 }));
@@ -42,78 +26,17 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   }),
 }));
 
-let pool: Pool;
-let app: FastifyInstance;
-let createSession: typeof import("../src/auth.js").createSession;
+const ctx = useInjectApp();
 let sessionCookie: string;
 
-// See mcp-auth-integration.test.ts — the MCP SDK's StreamableHTTP transport
-// schedules a 500 ms drain that fires a destroySoon that Fastify inject()
-// sockets don't implement. Swallow only that specific teardown error.
-const uncaughtExceptionFilter = (err: Error): void => {
-  if (
-    err instanceof TypeError &&
-    err.message.includes("destroySoon is not a function")
-  ) {
-    return;
-  }
-  throw err;
-};
-
-beforeAll(async () => {
-  process.prependListener("uncaughtException", uncaughtExceptionFilter);
-
-  pool = await setupTestDb();
-  await runTestMigrations();
-
-  process.env.DATABASE_URL = getTestDatabaseUrl();
-  process.env.DISPATCH_AGENT_RUNTIME = "inert";
-  process.env.DISPATCH_PORT = "6769";
-  process.env.DISPATCH_HOST = "127.0.0.1";
-
-  const auth = await import("../src/auth.js");
-  ({ createSession } = auth);
-
-  const serverModule = await import("../src/server.js");
-  app = await serverModule.initializeApp({
-    runMigrations: false,
-    reconcileState: false,
-  });
-
-  const setupResponse = await app.inject({
-    method: "POST",
-    url: "/api/v1/auth/setup",
-    payload: { password: "hunter2hunter2" },
-  });
-  expect(setupResponse.statusCode).toBe(200);
-});
-
-afterAll(async () => {
-  const serverModule = await import("../src/server.js");
-  await serverModule.closeApp();
-  delete process.env.DISPATCH_AGENT_RUNTIME;
-  delete process.env.DATABASE_URL;
-  delete process.env.DISPATCH_PORT;
-  delete process.env.DISPATCH_HOST;
-  await teardownTestDb();
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  process.off("uncaughtException", uncaughtExceptionFilter);
-});
-
 beforeEach(async () => {
-  await pool.query("DELETE FROM agent_feedback");
-  // persona_review_resolutions cascades from persona_reviews, which cascades
-  // from agents, but delete explicitly for clarity/order-independence.
-  await pool.query("DELETE FROM persona_review_resolutions");
-  await pool.query("DELETE FROM persona_reviews");
-  await pool.query("DELETE FROM agent_events");
-  await pool.query("DELETE FROM agents");
-  await pool.query("DELETE FROM sessions");
-  const session = await createSession(pool);
-  const signed = (
-    app as FastifyInstance & { signCookie: (value: string) => string }
-  ).signCookie(session);
-  sessionCookie = `dispatch_session=${signed}`;
+  await ctx.pool.query("DELETE FROM agent_feedback");
+  await ctx.pool.query("DELETE FROM persona_review_resolutions");
+  await ctx.pool.query("DELETE FROM persona_reviews");
+  await ctx.pool.query("DELETE FROM agent_events");
+  await ctx.pool.query("DELETE FROM agents");
+  await ctx.pool.query("DELETE FROM sessions");
+  sessionCookie = await ctx.sessionCookie();
   mockState.headSha = "cafef00dcafef00dcafef00dcafef00dcafef00d";
 });
 
@@ -131,7 +54,7 @@ async function insertAgent(
   } = {}
 ): Promise<string> {
   const id = nextAgentId();
-  await pool.query(
+  await ctx.pool.query(
     `INSERT INTO agents (id, name, type, status, cwd, parent_agent_id, persona)
      VALUES ($1, $2, 'codex', 'running', '/tmp', $3, $4)`,
     [
@@ -148,7 +71,7 @@ async function insertFeedback(
   childId: string,
   description = "finding"
 ): Promise<number> {
-  const result = await pool.query<{ id: number }>(
+  const result = await ctx.pool.query<{ id: number }>(
     `INSERT INTO agent_feedback (agent_id, severity, description)
      VALUES ($1, 'info', $2)
      RETURNING id`,
@@ -162,7 +85,7 @@ async function insertPersonaReview(
   parentId: string,
   status: "reviewing" | "complete" = "complete"
 ): Promise<number> {
-  const result = await pool.query<{ id: number }>(
+  const result = await ctx.pool.query<{ id: number }>(
     `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, status, verdict, summary)
      VALUES ($1, $2, 'security-review', $3,
              CASE WHEN $3 = 'complete' THEN 'approve' ELSE NULL END,
@@ -178,7 +101,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
     const childId = await insertAgent();
     const feedbackId = await insertFeedback(childId);
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -193,7 +116,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
     const childId = await insertAgent();
     const feedbackId = await insertFeedback(childId);
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -208,7 +131,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
     const childId = await insertAgent();
     const feedbackId = await insertFeedback(childId);
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -223,7 +146,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
     const childId = await insertAgent();
     const feedbackId = await insertFeedback(childId);
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -242,7 +165,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
     const childId = await insertAgent();
     const feedbackId = await insertFeedback(childId);
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -260,7 +183,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
     const childId = await insertAgent();
     const feedbackId = await insertFeedback(childId);
     // Pre-resolve so there's state to revert.
-    const first = await app.inject({
+    const first = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -271,7 +194,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
     // Change the mock SHA — if the server wrongly computed HEAD on a revert,
     // the new SHA would leak through.
     mockState.headSha = "deadbeefdeadbeefdeadbeefdeadbeefdeadbeef";
-    const reopen = await app.inject({
+    const reopen = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -293,7 +216,7 @@ describe("PATCH /api/v1/agents/:id/feedback/:feedbackId — resolution capture",
     const childId = await insertAgent();
     const feedbackId = await insertFeedback(childId);
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "PATCH",
       url: `/api/v1/agents/${childId}/feedback/${feedbackId}`,
       headers: { "content-type": "application/json" },
@@ -324,7 +247,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
   it("rejects an empty summary with 400", async () => {
     const { parentId, childId } = await seed();
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -338,7 +261,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
   it("rejects a whitespace-only summary with 400", async () => {
     const { parentId, childId } = await seed();
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -352,7 +275,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
   it("rejects non-string summary with 400", async () => {
     const { parentId, childId } = await seed();
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -368,7 +291,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
   it("rejects a summary above the 10,000 character limit", async () => {
     const { parentId, childId } = await seed();
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -383,7 +306,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
     const { parentId, childId } = await seed();
     const openId = await insertFeedback(childId, "still open");
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -402,12 +325,12 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
     const feedbackId = await insertFeedback(childId);
     // Mark ignored in the DB without a reason to simulate bypassing the
     // resolve tool's guard.
-    await pool.query(
+    await ctx.pool.query(
       "UPDATE agent_feedback SET status = 'ignored', resolution_reason = NULL WHERE id = $1",
       [feedbackId]
     );
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -428,7 +351,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
   it("rejects with 409 when the review is not in 'complete' state", async () => {
     const { parentId, childId } = await seed({ reviewStatus: "reviewing" });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -443,7 +366,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
     const parentId = "agt_000000000000";
     const childId = await insertAgent({ persona: "security-review" });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -465,7 +388,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
     });
     // Note: no insertPersonaReview call — both agents exist but the review row is missing.
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -479,7 +402,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
   it("persists summary + HEAD sha on the happy path", async () => {
     const { parentId, childId, reviewId } = await seed();
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -494,7 +417,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
     expect(body.resolution.reviewId).toBe(reviewId);
 
     // Confirm row is actually persisted.
-    const dbRows = await pool.query(
+    const dbRows = await ctx.pool.query(
       "SELECT summary, resolution_commit, round_number FROM persona_review_resolutions WHERE review_id = $1",
       [reviewId]
     );
@@ -507,7 +430,7 @@ describe("POST /api/v1/agents/:id/persona-reviews/:personaAgentId/resolution", (
   it("requires authentication", async () => {
     const { parentId, childId } = await seed();
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: `/api/v1/agents/${parentId}/persona-reviews/${childId}/resolution`,
       headers: { "content-type": "application/json" },

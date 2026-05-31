@@ -1,91 +1,21 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import type { FastifyInstance } from "fastify";
-import type { Pool } from "pg";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  setupTestDb,
-  teardownTestDb,
-  runTestMigrations,
-  getTestDatabaseUrl,
-} from "./db/setup.js";
+import { useInjectApp } from "./helpers/inject-app.js";
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
-let pool: Pool;
-let app: FastifyInstance;
-let createSession: typeof import("../src/auth.js").createSession;
+const ctx = useInjectApp();
 let sessionCookie: string;
 
-const uncaughtExceptionFilter = (err: Error): void => {
-  if (
-    err instanceof TypeError &&
-    err.message.includes("destroySoon is not a function")
-  ) {
-    return;
-  }
-  throw err;
-};
-
-beforeAll(async () => {
-  process.prependListener("uncaughtException", uncaughtExceptionFilter);
-
-  pool = await setupTestDb();
-  await runTestMigrations();
-
-  process.env.DATABASE_URL = getTestDatabaseUrl();
-  process.env.DISPATCH_AGENT_RUNTIME = "inert";
-  process.env.DISPATCH_PORT = "6770";
-  process.env.DISPATCH_HOST = "127.0.0.1";
-
-  const auth = await import("../src/auth.js");
-  ({ createSession } = auth);
-
-  const serverModule = await import("../src/server.js");
-  app = await serverModule.initializeApp({
-    runMigrations: false,
-    reconcileState: false,
-  });
-
-  const setupResponse = await app.inject({
-    method: "POST",
-    url: "/api/v1/auth/setup",
-    payload: { password: "hunter2hunter2" },
-  });
-  expect(setupResponse.statusCode).toBe(200);
-});
-
-afterAll(async () => {
-  const serverModule = await import("../src/server.js");
-  await serverModule.closeApp();
-  delete process.env.DISPATCH_AGENT_RUNTIME;
-  delete process.env.DATABASE_URL;
-  delete process.env.DISPATCH_PORT;
-  delete process.env.DISPATCH_HOST;
-  await teardownTestDb();
-  process.removeListener("uncaughtException", uncaughtExceptionFilter);
-});
-
 beforeEach(async () => {
-  const session = await createSession(pool);
-  const signed = (
-    app as FastifyInstance & { signCookie: (value: string) => string }
-  ).signCookie(session);
-  sessionCookie = `dispatch_session=${signed}`;
+  sessionCookie = await ctx.sessionCookie();
 });
 
 describe("GET /ping", () => {
   it("returns ok without auth", async () => {
-    const res = await app.inject({ method: "GET", url: "/ping" });
+    const res = await ctx.app.inject({ method: "GET", url: "/ping" });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ status: "ok" });
   });
@@ -93,7 +23,7 @@ describe("GET /ping", () => {
 
 describe("GET /api/v1/health", () => {
   it("returns ok with db timestamp", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/health",
       headers: { cookie: sessionCookie },
@@ -108,7 +38,7 @@ describe("GET /api/v1/health", () => {
 
 describe("GET /api/v1/app/branding", () => {
   it("returns current icon color", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/app/branding",
       headers: { cookie: sessionCookie },
@@ -121,7 +51,7 @@ describe("GET /api/v1/app/branding", () => {
 
 describe("GET /api/v1/system/defaults", () => {
   it("returns homeDir", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/defaults",
       headers: { cookie: sessionCookie },
@@ -135,7 +65,7 @@ describe("GET /api/v1/system/defaults", () => {
 
 describe("GET /api/v1/system/path-info", () => {
   it("rejects missing path parameter", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-info",
       headers: { cookie: sessionCookie },
@@ -145,7 +75,7 @@ describe("GET /api/v1/system/path-info", () => {
   });
 
   it("rejects empty path parameter", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-info?path=%20",
       headers: { cookie: sessionCookie },
@@ -154,7 +84,7 @@ describe("GET /api/v1/system/path-info", () => {
   });
 
   it("returns exists=false for non-existent path", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-info?path=/tmp/dispatch-nonexistent-path-test",
       headers: { cookie: sessionCookie },
@@ -167,7 +97,7 @@ describe("GET /api/v1/system/path-info", () => {
   });
 
   it("returns exists=true for /tmp", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-info?path=/tmp",
       headers: { cookie: sessionCookie },
@@ -179,7 +109,7 @@ describe("GET /api/v1/system/path-info", () => {
   });
 
   it("returns exists=false for relative path", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-info?path=relative/path",
       headers: { cookie: sessionCookie },
@@ -193,7 +123,7 @@ describe("GET /api/v1/system/path-info", () => {
 
 describe("GET /api/v1/system/path-completions", () => {
   it("rejects missing prefix parameter", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-completions",
       headers: { cookie: sessionCookie },
@@ -203,7 +133,7 @@ describe("GET /api/v1/system/path-completions", () => {
   });
 
   it("rejects empty prefix", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-completions?prefix=%20",
       headers: { cookie: sessionCookie },
@@ -212,7 +142,7 @@ describe("GET /api/v1/system/path-completions", () => {
   });
 
   it("returns empty completions for relative prefix", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-completions?prefix=relative",
       headers: { cookie: sessionCookie },
@@ -222,7 +152,7 @@ describe("GET /api/v1/system/path-completions", () => {
   });
 
   it("returns directory completions for /tmp/", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/system/path-completions?prefix=/tmp/",
       headers: { cookie: sessionCookie },
@@ -235,7 +165,7 @@ describe("GET /api/v1/system/path-completions", () => {
 
 describe("GET /api/v1/git/branches", () => {
   it("rejects missing cwd parameter", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/git/branches",
       headers: { cookie: sessionCookie },
@@ -245,7 +175,7 @@ describe("GET /api/v1/git/branches", () => {
   });
 
   it("rejects empty cwd parameter", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/git/branches?cwd=%20",
       headers: { cookie: sessionCookie },
@@ -256,7 +186,7 @@ describe("GET /api/v1/git/branches", () => {
 
 describe("GET /api/v1/agents/settings", () => {
   it("returns settings with defaults", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -272,7 +202,7 @@ describe("GET /api/v1/agents/settings", () => {
 
 describe("POST /api/v1/agents/settings", () => {
   it("rejects invalid worktreeLocation", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -283,7 +213,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("rejects non-string worktreeLocation", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -293,7 +223,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("accepts valid worktreeLocation", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -304,7 +234,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("rejects invalid iconColor", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -315,7 +245,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("rejects non-string iconColor", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -325,7 +255,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("accepts valid iconColor", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -336,7 +266,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("rejects non-string instanceName", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -347,7 +277,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("accepts and trims instanceName", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -358,14 +288,14 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("clears instanceName when set to empty string", async () => {
-    await app.inject({
+    await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
       payload: { instanceName: "First" },
     });
 
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -376,7 +306,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("rejects non-boolean copyModeAssistEnabled", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -387,7 +317,7 @@ describe("POST /api/v1/agents/settings", () => {
   });
 
   it("accepts boolean copyModeAssistEnabled", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -399,7 +329,7 @@ describe("POST /api/v1/agents/settings", () => {
 
   it("truncates instanceName to 100 characters", async () => {
     const longName = "A".repeat(200);
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       headers: { cookie: sessionCookie },
@@ -412,7 +342,7 @@ describe("POST /api/v1/agents/settings", () => {
 
 describe("POST /api/v1/notifications/settings", () => {
   it("rejects non-string webhookUrl", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -423,7 +353,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("rejects invalid webhookUrl", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -434,7 +364,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("accepts valid Slack webhookUrl", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -446,7 +376,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("accepts empty string to clear webhookUrl", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -456,7 +386,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("rejects non-array notifyEvents", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -467,7 +397,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("accepts array notifyEvents", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -477,7 +407,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("rejects non-boolean webNotifyEnabled", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -488,7 +418,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("accepts boolean webNotifyEnabled", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -498,7 +428,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("rejects non-array webNotifyEvents", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -509,7 +439,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("accepts array webNotifyEvents", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -521,7 +451,7 @@ describe("POST /api/v1/notifications/settings", () => {
 
 describe("GET /api/v1/notifications/settings", () => {
   it("returns settings object", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
@@ -534,14 +464,14 @@ describe("GET /api/v1/notifications/settings", () => {
 
 describe("POST /api/v1/notifications/test", () => {
   it("rejects when no webhook URL is configured or provided", async () => {
-    await app.inject({
+    await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       headers: { cookie: sessionCookie },
       payload: { webhookUrl: "" },
     });
 
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/test",
       headers: { cookie: sessionCookie },
@@ -552,7 +482,7 @@ describe("POST /api/v1/notifications/test", () => {
   });
 
   it("rejects invalid webhookUrl in body", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/test",
       headers: { cookie: sessionCookie },
@@ -565,7 +495,7 @@ describe("POST /api/v1/notifications/test", () => {
 
 describe("GET /api/v1/app/settings/agent-types", () => {
   it("returns enabled agent types", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/app/settings/agent-types",
       headers: { cookie: sessionCookie },
@@ -579,7 +509,7 @@ describe("GET /api/v1/app/settings/agent-types", () => {
 
 describe("POST /api/v1/app/settings/agent-types", () => {
   it("rejects non-array enabledAgentTypes", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/agent-types",
       headers: { cookie: sessionCookie },
@@ -590,7 +520,7 @@ describe("POST /api/v1/app/settings/agent-types", () => {
   });
 
   it("rejects empty array", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/agent-types",
       headers: { cookie: sessionCookie },
@@ -601,7 +531,7 @@ describe("POST /api/v1/app/settings/agent-types", () => {
   });
 
   it("rejects array with only invalid types", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/agent-types",
       headers: { cookie: sessionCookie },
@@ -611,7 +541,7 @@ describe("POST /api/v1/app/settings/agent-types", () => {
   });
 
   it("rejects array containing invalid types mixed with valid", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/agent-types",
       headers: { cookie: sessionCookie },
@@ -622,7 +552,7 @@ describe("POST /api/v1/app/settings/agent-types", () => {
   });
 
   it("accepts valid agent types", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/agent-types",
       headers: { cookie: sessionCookie },
@@ -633,7 +563,7 @@ describe("POST /api/v1/app/settings/agent-types", () => {
   });
 
   it("rejects duplicate-inflated array with unknown entries", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/agent-types",
       headers: { cookie: sessionCookie },
@@ -643,7 +573,7 @@ describe("POST /api/v1/app/settings/agent-types", () => {
   });
 
   it("rejects missing body", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/agent-types",
       headers: { cookie: sessionCookie },
@@ -655,7 +585,7 @@ describe("POST /api/v1/app/settings/agent-types", () => {
 
 describe("GET /api/v1/app/settings/ides", () => {
   it("returns enabled IDEs", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/app/settings/ides",
       headers: { cookie: sessionCookie },
@@ -668,7 +598,7 @@ describe("GET /api/v1/app/settings/ides", () => {
 
 describe("POST /api/v1/app/settings/ides", () => {
   it("rejects non-array enabledIdes", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/ides",
       headers: { cookie: sessionCookie },
@@ -679,7 +609,7 @@ describe("POST /api/v1/app/settings/ides", () => {
   });
 
   it("rejects array with invalid IDE types", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/ides",
       headers: { cookie: sessionCookie },
@@ -690,7 +620,7 @@ describe("POST /api/v1/app/settings/ides", () => {
   });
 
   it("accepts valid IDE types", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/ides",
       headers: { cookie: sessionCookie },
@@ -701,7 +631,7 @@ describe("POST /api/v1/app/settings/ides", () => {
   });
 
   it("accepts empty array to disable all IDEs", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/ides",
       headers: { cookie: sessionCookie },
@@ -712,7 +642,7 @@ describe("POST /api/v1/app/settings/ides", () => {
   });
 
   it("rejects missing body", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/app/settings/ides",
       headers: { cookie: sessionCookie },
@@ -724,7 +654,7 @@ describe("POST /api/v1/app/settings/ides", () => {
 
 describe("POST /api/v1/energy-report", () => {
   it("accepts any body and returns 204", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/energy-report",
       headers: { cookie: sessionCookie },

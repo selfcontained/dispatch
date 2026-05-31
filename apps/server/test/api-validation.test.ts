@@ -6,88 +6,24 @@
  * end-to-end behavior. Running them here saves ~3-5 s per test versus
  * the Playwright path.
  */
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import type { FastifyInstance } from "fastify";
-import type { Pool } from "pg";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  setupTestDb,
-  teardownTestDb,
-  runTestMigrations,
-  getTestDatabaseUrl,
-} from "./db/setup.js";
+import { useInjectApp } from "./helpers/inject-app.js";
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
-// TODO: the initializeApp + uncaughtException-filter + env-juggling harness
-// below is duplicated across launch-review-route.test.ts,
-// resolution-capture-integration.test.ts, mcp-auth-integration.test.ts, and
-// this file. Extract into a shared test/helpers/inject-app.ts before adding a
-// 5th copy. (DISPATCH_PORT here is folklore — inject() never binds it.)
-
-let pool: Pool;
-let app: FastifyInstance;
-
-const uncaughtExceptionFilter = (err: Error): void => {
-  if (
-    err instanceof TypeError &&
-    err.message.includes("destroySoon is not a function")
-  ) {
-    return;
-  }
-  throw err;
-};
-
-beforeAll(async () => {
-  process.prependListener("uncaughtException", uncaughtExceptionFilter);
-
-  pool = await setupTestDb();
-  await runTestMigrations();
-
-  process.env.DATABASE_URL = getTestDatabaseUrl();
-  process.env.DISPATCH_AGENT_RUNTIME = "inert";
-  process.env.DISPATCH_PORT = "6771";
-  process.env.DISPATCH_HOST = "127.0.0.1";
-
-  const serverModule = await import("../src/server.js");
-  app = await serverModule.initializeApp({
-    runMigrations: false,
-    reconcileState: false,
-  });
-  // No password is set in the test DB → the auth gate is open, matching
-  // the e2e environment.
-});
-
-afterAll(async () => {
-  const serverModule = await import("../src/server.js");
-  await serverModule.closeApp();
-  delete process.env.DISPATCH_AGENT_RUNTIME;
-  delete process.env.DATABASE_URL;
-  delete process.env.DISPATCH_PORT;
-  delete process.env.DISPATCH_HOST;
-  await teardownTestDb();
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  process.off("uncaughtException", uncaughtExceptionFilter);
-});
+const ctx = useInjectApp({ setupAuth: false });
 
 beforeEach(async () => {
-  await pool.query("DELETE FROM agent_events");
-  await pool.query("DELETE FROM agents");
+  await ctx.pool.query("DELETE FROM agent_events");
+  await ctx.pool.query("DELETE FROM agents");
 });
 
 describe("POST /api/v1/agents", () => {
   it("requires cwd as a string", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents",
       payload: { name: "missing-cwd" },
@@ -97,7 +33,7 @@ describe("POST /api/v1/agents", () => {
   });
 
   it("rejects unknown type", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents",
       payload: { cwd: "/tmp", type: "invalid-type" },
@@ -107,7 +43,7 @@ describe("POST /api/v1/agents", () => {
   });
 
   it("rejects non-string baseBranch", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents",
       payload: { cwd: "/tmp", baseBranch: 123, useWorktree: false },
@@ -119,7 +55,7 @@ describe("POST /api/v1/agents", () => {
   });
 
   it("rejects non-boolean useWorktree", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents",
       payload: { cwd: "/tmp", useWorktree: "not-a-boolean" },
@@ -131,7 +67,7 @@ describe("POST /api/v1/agents", () => {
   });
 
   it("rejects non-boolean autoReview", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents",
       payload: {
@@ -148,7 +84,7 @@ describe("POST /api/v1/agents", () => {
   });
 
   it("rejects oversized initialPrompt", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents",
       payload: {
@@ -165,7 +101,6 @@ describe("POST /api/v1/agents", () => {
   });
 
   it("rejects multipart startup links that aren't valid http/https URLs", async () => {
-    // Reproduce the e2e test's multipart shape with a hand-rolled form-data body.
     const boundary = "----dispatch-test-boundary";
     const parts = [
       `--${boundary}`,
@@ -189,7 +124,7 @@ describe("POST /api/v1/agents", () => {
     ];
     const body = parts.join("\r\n");
 
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents",
       headers: {
@@ -204,7 +139,7 @@ describe("POST /api/v1/agents", () => {
   });
 
   it("rejects unknown agent type with a message that mentions terminal", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents",
       payload: { type: "not-a-real-type", cwd: "/tmp", useWorktree: false },
@@ -218,7 +153,7 @@ describe("POST /api/v1/agents", () => {
 
 describe("POST /api/v1/agents/settings", () => {
   it("rejects an invalid worktree location", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/settings",
       payload: { worktreeLocation: "invalid" },
@@ -229,7 +164,7 @@ describe("POST /api/v1/agents/settings", () => {
 
 describe("POST /api/v1/notifications/settings", () => {
   it("rejects non-boolean webNotifyEnabled", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       payload: { webNotifyEnabled: "yes" },
@@ -238,7 +173,7 @@ describe("POST /api/v1/notifications/settings", () => {
   });
 
   it("rejects non-array webNotifyEvents", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/settings",
       payload: { webNotifyEvents: "done" },
@@ -249,7 +184,7 @@ describe("POST /api/v1/notifications/settings", () => {
 
 describe("POST /api/v1/notifications/ack", () => {
   it("rejects missing notificationId", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/ack",
       payload: {},
@@ -258,7 +193,7 @@ describe("POST /api/v1/notifications/ack", () => {
   });
 
   it("rejects non-string notificationId", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/notifications/ack",
       payload: { notificationId: 123 },
@@ -269,7 +204,7 @@ describe("POST /api/v1/notifications/ack", () => {
 
 describe("POST /api/v1/agents/:id/terminal/interaction", () => {
   it("rejects exit_copy_mode on the generic interaction route", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/agents/agt_validation_stub/terminal/interaction",
       payload: { interaction: "exit_copy_mode" },
@@ -284,7 +219,7 @@ describe("POST /api/v1/agents/:id/terminal/interaction", () => {
 
 describe("POST /api/v1/focus", () => {
   it("rejects empty-string agentId", async () => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/focus",
       payload: { agentId: "" },
@@ -299,7 +234,7 @@ describe("POST /api/v1/jobs/{run,enable,disable}", () => {
     ["/api/v1/jobs/enable"],
     ["/api/v1/jobs/disable"],
   ])("%s requires name and directory", async (url) => {
-    const res = await app.inject({
+    const res = await ctx.app.inject({
       method: "POST",
       url,
       payload: {},

@@ -1,110 +1,38 @@
-import {
-  afterAll,
-  beforeAll,
-  beforeEach,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
-import type { FastifyInstance } from "fastify";
-import type { Pool } from "pg";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import {
-  setupTestDb,
-  teardownTestDb,
-  runTestMigrations,
-  getTestDatabaseUrl,
-} from "./db/setup.js";
+import { useInjectApp } from "./helpers/inject-app.js";
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
 }));
 
-let pool: Pool;
-let app: FastifyInstance;
-let createAgentMcpToken: typeof import("../src/auth.js").createAgentMcpToken;
-let createJobMcpToken: typeof import("../src/auth.js").createJobMcpToken;
-let createSession: typeof import("../src/auth.js").createSession;
+const ctx = useInjectApp();
 let sessionCookie: string;
 let authToken: string;
 
-const uncaughtExceptionFilter = (err: Error): void => {
-  if (
-    err instanceof TypeError &&
-    err.message.includes("destroySoon is not a function")
-  ) {
-    return;
-  }
-  throw err;
-};
-
-beforeAll(async () => {
-  process.prependListener("uncaughtException", uncaughtExceptionFilter);
-
-  pool = await setupTestDb();
-  await runTestMigrations();
-
-  process.env.DATABASE_URL = getTestDatabaseUrl();
-  process.env.DISPATCH_AGENT_RUNTIME = "inert";
-  process.env.DISPATCH_PORT = "6769";
-  process.env.DISPATCH_HOST = "127.0.0.1";
-
-  const auth = await import("../src/auth.js");
-  ({ createAgentMcpToken, createJobMcpToken, createSession } = auth);
-
-  const serverModule = await import("../src/server.js");
-  app = await serverModule.initializeApp({
-    runMigrations: false,
-    reconcileState: false,
-  });
-
-  const setupResponse = await app.inject({
-    method: "POST",
-    url: "/api/v1/auth/setup",
-    payload: { password: "hunter2hunter2" },
-  });
-  expect(setupResponse.statusCode).toBe(200);
-
-  const tokenResult = await pool.query<{ value: string }>(
-    "SELECT value FROM settings WHERE key = 'auth_token'"
-  );
-  authToken = tokenResult.rows[0]!.value;
-});
-
-afterAll(async () => {
-  const serverModule = await import("../src/server.js");
-  await serverModule.closeApp();
-  delete process.env.DISPATCH_AGENT_RUNTIME;
-  delete process.env.DATABASE_URL;
-  delete process.env.DISPATCH_PORT;
-  delete process.env.DISPATCH_HOST;
-  await teardownTestDb();
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  process.off("uncaughtException", uncaughtExceptionFilter);
-});
-
 beforeEach(async () => {
-  await pool.query("DELETE FROM job_runs");
-  await pool.query("DELETE FROM jobs");
-  await pool.query("DELETE FROM templates");
-  await pool.query("DELETE FROM agent_token_usage");
-  await pool.query("DELETE FROM agent_feedback");
-  await pool.query("DELETE FROM persona_reviews");
-  await pool.query("DELETE FROM agent_events");
-  await pool.query("DELETE FROM media_seen");
-  await pool.query("DELETE FROM media");
-  await pool.query("DELETE FROM agents");
-  await pool.query("DELETE FROM sessions");
-  const session = await createSession(pool);
-  const signed = (
-    app as FastifyInstance & { signCookie: (value: string) => string }
-  ).signCookie(session);
-  sessionCookie = `dispatch_session=${signed}`;
+  if (!authToken) {
+    const tokenResult = await ctx.pool.query<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'auth_token'"
+    );
+    authToken = tokenResult.rows[0]!.value;
+  }
+  await ctx.pool.query("DELETE FROM job_runs");
+  await ctx.pool.query("DELETE FROM jobs");
+  await ctx.pool.query("DELETE FROM templates");
+  await ctx.pool.query("DELETE FROM agent_token_usage");
+  await ctx.pool.query("DELETE FROM agent_feedback");
+  await ctx.pool.query("DELETE FROM persona_reviews");
+  await ctx.pool.query("DELETE FROM agent_events");
+  await ctx.pool.query("DELETE FROM media_seen");
+  await ctx.pool.query("DELETE FROM media");
+  await ctx.pool.query("DELETE FROM agents");
+  await ctx.pool.query("DELETE FROM sessions");
+  sessionCookie = await ctx.sessionCookie();
 });
 
 async function mcpToolsList(url: string, token: string) {
-  return app.inject({
+  return ctx.app.inject({
     method: "POST",
     url,
     headers: {
@@ -121,11 +49,11 @@ async function mcpToolCall(
   toolName: string,
   args: Record<string, unknown>
 ) {
-  return app.inject({
+  return ctx.app.inject({
     method: "POST",
     url: `/api/mcp/${agentId}`,
     headers: {
-      authorization: `Bearer ${createAgentMcpToken(authToken, agentId)}`,
+      authorization: `Bearer ${ctx.auth.createAgentMcpToken(authToken, agentId)}`,
       accept: "application/json, text/event-stream",
       "content-type": "application/json",
     },
@@ -144,11 +72,11 @@ async function mcpJobToolCall(
   toolName: string,
   args: Record<string, unknown>
 ) {
-  return app.inject({
+  return ctx.app.inject({
     method: "POST",
     url: `/api/mcp/jobs/${runId}/${agentId}`,
     headers: {
-      authorization: `Bearer ${createJobMcpToken(authToken, runId, agentId)}`,
+      authorization: `Bearer ${ctx.auth.createJobMcpToken(authToken, runId, agentId)}`,
       accept: "application/json, text/event-stream",
       "content-type": "application/json",
     },
@@ -191,14 +119,14 @@ describe("MCP CRUD tools", () => {
   // ── Tool gating ─────────────────────────────────────────────────
   describe("tool gating", () => {
     it("exposes CRUD tools for regular agents", async () => {
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO agents (id, name, type, status, cwd, full_access)
          VALUES ('agt_crud_agent', 'crud-agent', 'claude', 'running', '/tmp', false)`
       );
 
       const response = await mcpToolsList(
         "/api/mcp/agt_crud_agent",
-        createAgentMcpToken(authToken, "agt_crud_agent")
+        ctx.auth.createAgentMcpToken(authToken, "agt_crud_agent")
       );
 
       expect(response.statusCode).toBe(200);
@@ -208,22 +136,22 @@ describe("MCP CRUD tools", () => {
     });
 
     it("exposes CRUD tools for job agents", async () => {
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO agents (id, name, type, status, cwd, full_access)
          VALUES ('agt_crud_job', 'crud-job', 'claude', 'running', '/tmp', false)`
       );
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO jobs (id, directory, name, enabled, agent_type, use_worktree, full_access, schedule, timeout_ms, needs_input_timeout_ms, auto_archive)
          VALUES ('job_crud', '/tmp', 'CRUD Job', false, 'claude', false, false, null, 1800000, 1800000, true)`
       );
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO job_runs (id, job_id, status, started_at, status_updated_at, agent_id)
          VALUES ('run_crud', 'job_crud', 'running', NOW(), NOW(), 'agt_crud_job')`
       );
 
       const response = await mcpToolsList(
         "/api/mcp/jobs/run_crud/agt_crud_job",
-        createJobMcpToken(authToken, "run_crud", "agt_crud_job")
+        ctx.auth.createJobMcpToken(authToken, "run_crud", "agt_crud_job")
       );
 
       expect(response.statusCode).toBe(200);
@@ -233,20 +161,20 @@ describe("MCP CRUD tools", () => {
     });
 
     it("does NOT expose CRUD tools for persona agents", async () => {
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
          VALUES
          ('agt_crud_parent', 'parent', 'claude', 'running', '/tmp', null, null, false),
          ('agt_crud_persona', 'persona', 'claude', 'running', '/tmp', 'security-review', 'agt_crud_parent', false)`
       );
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, status, round_number, allow_recheck)
          VALUES ('agt_crud_persona', 'agt_crud_parent', 'security-review', 'reviewing', 1, true)`
       );
 
       const response = await mcpToolsList(
         "/api/mcp/agt_crud_persona",
-        createAgentMcpToken(authToken, "agt_crud_persona")
+        ctx.auth.createAgentMcpToken(authToken, "agt_crud_persona")
       );
 
       expect(response.statusCode).toBe(200);
@@ -262,16 +190,16 @@ describe("MCP CRUD tools", () => {
     const runId = "run_jobscope";
 
     beforeEach(async () => {
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO agents (id, name, type, status, cwd, full_access)
          VALUES ($1, 'jobscope-crud', 'claude', 'running', '/tmp', false)`,
         [agentId]
       );
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO jobs (id, directory, name, enabled, agent_type, use_worktree, full_access, schedule, timeout_ms, needs_input_timeout_ms, auto_archive)
          VALUES ('job_scope', '/tmp', 'Scope Job', false, 'claude', false, false, null, 1800000, 1800000, true)`
       );
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO job_runs (id, job_id, status, started_at, status_updated_at, agent_id)
          VALUES ($1, 'job_scope', 'running', NOW(), NOW(), $2)`,
         [runId, agentId]
@@ -306,7 +234,7 @@ describe("MCP CRUD tools", () => {
     });
 
     it("rejects job-scoped CRUD calls with an invalid token", async () => {
-      const res = await app.inject({
+      const res = await ctx.app.inject({
         method: "POST",
         url: `/api/mcp/jobs/${runId}/${agentId}`,
         headers: {
@@ -330,7 +258,7 @@ describe("MCP CRUD tools", () => {
     const agentId = "agt_job_crud";
 
     beforeEach(async () => {
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO agents (id, name, type, status, cwd, full_access)
          VALUES ($1, 'job-crud-test', 'claude', 'running', '/tmp', false)`,
         [agentId]
@@ -437,7 +365,7 @@ describe("MCP CRUD tools", () => {
     const agentId = "agt_tmpl_crud";
 
     beforeEach(async () => {
-      await pool.query(
+      await ctx.pool.query(
         `INSERT INTO agents (id, name, type, status, cwd, full_access)
          VALUES ($1, 'tmpl-crud-test', 'claude', 'running', '/tmp', false)`,
         [agentId]

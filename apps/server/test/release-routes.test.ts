@@ -1,8 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { readFileSync } from "node:fs";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-
+import { mkdtempSync, readFileSync } from "node:fs";
 import {
   afterAll,
   beforeAll,
@@ -12,15 +10,9 @@ import {
   it,
   vi,
 } from "vitest";
-import type { FastifyInstance } from "fastify";
-import type { Pool } from "pg";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 
-import {
-  getTestDatabaseUrl,
-  runTestMigrations,
-  setupTestDb,
-  teardownTestDb,
-} from "./db/setup.js";
+import { useInjectApp } from "./helpers/inject-app.js";
 
 const { runCommandMock, evaluateMock } = vi.hoisted(() => ({
   runCommandMock: vi.fn(),
@@ -31,12 +23,6 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: runCommandMock,
 }));
 
-// `evaluatePendingMigrations` makes a real HTTPS call to GitHub via the
-// tarball cache, which can't run in unit tests. Mock the evaluator
-// directly so each test controls the pending-migrations result for the
-// gate decision. Tests that don't override default to "no migrations,
-// no errors" — i.e. fall through to the legacy `dispatch-update`-based
-// gating that the suite was originally written against.
 vi.mock("../src/update-migrations-evaluator.js", async (importOriginal) => {
   const actual =
     await importOriginal<
@@ -48,12 +34,11 @@ vi.mock("../src/update-migrations-evaluator.js", async (importOriginal) => {
   };
 });
 
-let pool: Pool;
-let app: FastifyInstance;
-let createSession: typeof import("../src/auth.js").createSession;
 let sessionCookie: string;
-let tempRoot: string;
-let releaseStorePath: string;
+const tempRoot = mkdtempSync(
+  path.join(os.tmpdir(), "dispatch-release-routes-")
+);
+const releaseStorePath = path.join(tempRoot, "release.json");
 const rootPackageVersion = (
   JSON.parse(
     readFileSync(
@@ -64,90 +49,38 @@ const rootPackageVersion = (
 ).version;
 const packagedCurrentTag = `v${rootPackageVersion}`;
 
-const uncaughtExceptionFilter = (err: Error): void => {
-  if (
-    err instanceof TypeError &&
-    err.message.includes("destroySoon is not a function")
-  ) {
-    return;
-  }
-  throw err;
-};
-
 beforeAll(async () => {
-  process.prependListener("uncaughtException", uncaughtExceptionFilter);
-
-  tempRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-release-routes-"));
-  releaseStorePath = path.join(tempRoot, "release.json");
   await mkdir(path.join(os.homedir(), ".dispatch", "server"), {
     recursive: true,
   });
+});
 
-  pool = await setupTestDb();
-  await runTestMigrations();
-
-  process.env.DATABASE_URL = getTestDatabaseUrl();
-  process.env.DISPATCH_AGENT_RUNTIME = "inert";
-  process.env.DISPATCH_PORT = "6771";
-  process.env.DISPATCH_HOST = "127.0.0.1";
-  process.env.DISPATCH_RELEASE_STORE_PATH = releaseStorePath;
-
-  const auth = await import("../src/auth.js");
-  ({ createSession } = auth);
-
-  const serverModule = await import("../src/server.js");
-  app = await serverModule.initializeApp({
-    runMigrations: false,
-    reconcileState: false,
-  });
-
-  const setupResponse = await app.inject({
-    method: "POST",
-    url: "/api/v1/auth/setup",
-    payload: { password: "hunter2hunter2" },
-  });
-  expect(setupResponse.statusCode).toBe(200);
+const ctx = useInjectApp({
+  env: { DISPATCH_RELEASE_STORE_PATH: releaseStorePath },
 });
 
 afterAll(async () => {
-  const serverModule = await import("../src/server.js");
-  await serverModule.closeApp();
-  delete process.env.DISPATCH_AGENT_RUNTIME;
-  delete process.env.DATABASE_URL;
-  delete process.env.DISPATCH_PORT;
-  delete process.env.DISPATCH_HOST;
-  delete process.env.DISPATCH_RELEASE_STORE_PATH;
-  await teardownTestDb();
   await rm(tempRoot, { recursive: true, force: true });
-  await new Promise((resolve) => setTimeout(resolve, 600));
-  process.off("uncaughtException", uncaughtExceptionFilter);
 });
 
 beforeEach(async () => {
   runCommandMock.mockReset();
   evaluateMock.mockReset();
-  // Default: no pending migrations, no errors. Individual tests can
-  // override to simulate a release that ships migrations or an
-  // evaluator failure.
   evaluateMock.mockResolvedValue({
     pending: [],
     all: [],
     appliedIds: new Set(),
     errors: [],
   });
-  await pool.query("DELETE FROM agent_events");
-  await pool.query("DELETE FROM agents");
-  await pool.query("DELETE FROM sessions");
+  await ctx.pool.query("DELETE FROM agent_events");
+  await ctx.pool.query("DELETE FROM agents");
+  await ctx.pool.query("DELETE FROM sessions");
   await writeReleaseStore({
     tag: "v0.18.0",
     deployedAt: "2026-04-01T00:00:00Z",
   });
 
-  const session = await createSession(pool);
-  const signed = (
-    app as FastifyInstance & { signCookie: (value: string) => string }
-  ).signCookie(session);
-  sessionCookie = `dispatch_session=${signed}`;
+  sessionCookie = await ctx.sessionCookie();
 });
 
 describe("release metadata route handling", () => {
@@ -169,7 +102,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/release/info",
       headers: { cookie: sessionCookie },
@@ -199,7 +132,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/release/info",
       headers: { cookie: sessionCookie },
@@ -238,7 +171,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/release/info",
       headers: { cookie: sessionCookie },
@@ -277,7 +210,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/release/info",
       headers: { cookie: sessionCookie },
@@ -308,7 +241,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -334,7 +267,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -364,7 +297,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/assisted/launch",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -386,7 +319,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const stateResponse = await app.inject({
+    const stateResponse = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/release/assisted/state",
       headers: { cookie: sessionCookie },
@@ -401,7 +334,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    await app.inject({
+    await ctx.app.inject({
       method: "DELETE",
       url: "/api/v1/release/assisted/state",
       headers: { cookie: sessionCookie },
@@ -417,7 +350,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/assisted/launch",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -449,7 +382,7 @@ describe("release metadata route handling", () => {
 
     // 1. Launch sets activeReleaseJob to update-assisted for v0.19.0
     //    and creates the agent that will own the bearer token.
-    const launchResp = await app.inject({
+    const launchResp = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/assisted/launch",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -462,10 +395,10 @@ describe("release metadata route handling", () => {
     //    call would 409 against its own active job. With the fix, it
     //    proceeds as a normal update kick-off (202).
     const auth = await import("../src/auth.js");
-    const authToken = await auth.getOrCreateAuthToken(pool);
+    const authToken = await auth.getOrCreateAuthToken(ctx.pool);
     const bearer = auth.createReleaseUpdateToken(authToken, agent.id);
 
-    const updateResp = await app.inject({
+    const updateResp = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: {
@@ -480,7 +413,7 @@ describe("release metadata route handling", () => {
 
     // 3. Assisted state on disk survives the takeover so the agent's
     //    later phase reports continue to update the canonical record.
-    const stateResp = await app.inject({
+    const stateResp = await ctx.app.inject({
       method: "GET",
       url: "/api/v1/release/assisted/state",
       headers: { cookie: sessionCookie },
@@ -489,7 +422,7 @@ describe("release metadata route handling", () => {
       state: { tag: "v0.19.0", metadata: { mode: "required" } },
     });
 
-    await app.inject({
+    await ctx.app.inject({
       method: "DELETE",
       url: "/api/v1/release/assisted/state",
       headers: { cookie: sessionCookie },
@@ -513,7 +446,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const launchResp = await app.inject({
+    const launchResp = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/assisted/launch",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -523,7 +456,7 @@ describe("release metadata route handling", () => {
     const { agent } = launchResp.json() as { agent: { id: string } };
 
     const auth = await import("../src/auth.js");
-    const authToken = await auth.getOrCreateAuthToken(pool);
+    const authToken = await auth.getOrCreateAuthToken(ctx.pool);
     const bearer = auth.createReleaseUpdateToken(authToken, agent.id);
 
     // The bearer token resolves to an active assisted-update agent, but
@@ -535,7 +468,7 @@ describe("release metadata route handling", () => {
     // assisted job has terminated.
     let updateResp;
     try {
-      updateResp = await app.inject({
+      updateResp = await ctx.app.inject({
         method: "POST",
         url: "/api/v1/release/update",
         headers: {
@@ -555,7 +488,7 @@ describe("release metadata route handling", () => {
       // Always tear down the assisted job so a failed assertion doesn't
       // leak `activeReleaseJob` into the next test (which then 409s on
       // an unrelated active-job conflict).
-      await app.inject({
+      await ctx.app.inject({
         method: "DELETE",
         url: "/api/v1/release/assisted/state",
         headers: { cookie: sessionCookie },
@@ -586,7 +519,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -625,7 +558,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -659,7 +592,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -687,7 +620,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -725,7 +658,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -755,7 +688,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
@@ -776,7 +709,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    const response = await app.inject({
+    const response = await ctx.app.inject({
       method: "POST",
       url: "/api/v1/release/update",
       headers: { cookie: sessionCookie, "content-type": "application/json" },
