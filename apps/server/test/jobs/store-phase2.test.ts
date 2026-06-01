@@ -29,6 +29,8 @@ const jobDefaults = {
   autoArchive: true,
   callable: false,
   singleton: true,
+  webhookEnabled: false,
+  webhookSecret: null,
   enabled: false,
 };
 

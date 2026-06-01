@@ -40,6 +40,8 @@ describe("JobStore", () => {
       autoArchive: true,
       callable: false,
       singleton: true,
+      webhookEnabled: false,
+      webhookSecret: null,
       enabled: false,
     });
     const run = await store.createRun(job.id, {

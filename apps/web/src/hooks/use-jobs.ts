@@ -11,7 +11,7 @@ export type JobRunStatus =
   | "timed_out"
   | "crashed";
 export type JobAgentType = "claude" | "codex" | "opencode" | "cursor";
-export type JobRunTriggerSource = "manual" | "scheduled";
+export type JobRunTriggerSource = "manual" | "scheduled" | "webhook";
 
 export type JobNotifyConfig = {
   onComplete: string[];
@@ -53,6 +53,8 @@ export type Job = {
   autoArchive: boolean;
   callable: boolean;
   singleton: boolean;
+  webhookEnabled: boolean;
+  webhookSecret: string | null;
   templateId: string | null;
   defaultArgs: Record<string, string>;
   createdAt: string;
@@ -105,6 +107,7 @@ export type AddJobConfig = {
   autoArchive?: boolean;
   callable?: boolean;
   singleton?: boolean;
+  webhookEnabled?: boolean;
   enabled?: boolean;
 };
 

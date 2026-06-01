@@ -293,4 +293,108 @@ test.describe("Jobs API", () => {
     });
     expect(res.status()).toBe(500);
   });
+
+  test("webhook trigger creates and runs a job via secret URL", async ({
+    request,
+  }) => {
+    const webhookDir = join(tmpdir(), `dispatch-e2e-webhook-${Date.now()}`);
+    mkdirSync(webhookDir, { recursive: true });
+    const createRes = await request.post("/api/v1/jobs", {
+      headers: HEADERS,
+      data: {
+        name: "Webhook Job",
+        directory: webhookDir,
+        prompt: "Call job_complete immediately.",
+        timeoutMs: 120000,
+        needsInputTimeoutMs: 86400000,
+        webhookEnabled: true,
+      },
+    });
+    expect(createRes.ok()).toBeTruthy();
+    const created = await createRes.json();
+    expect(created.webhookEnabled).toBe(true);
+    expect(created.webhookSecret).toBeTruthy();
+
+    // POST to webhook URL without auth headers
+    const webhookRes = await request.post(
+      `/api/v1/jobs/webhook/${created.webhookSecret}`,
+      {}
+    );
+    const webhookBody = await webhookRes.json();
+    expect(
+      webhookRes.ok(),
+      `Webhook failed: ${JSON.stringify(webhookBody)}`
+    ).toBeTruthy();
+    expect(webhookBody.jobId).toBeTruthy();
+    expect(webhookBody.runId).toBeTruthy();
+
+    // Verify triggerSource is "webhook"
+    const params = new URLSearchParams({
+      name: "Webhook Job",
+      directory: webhookDir,
+    });
+    const historyRes = await request.get(`/api/v1/jobs/history?${params}`, {
+      headers: AUTH_HEADER,
+    });
+    expect(historyRes.ok()).toBeTruthy();
+    const history = await historyRes.json();
+    const run = history.runs.find(
+      (entry: { id: string }) => entry.id === webhookBody.runId
+    );
+    expect(run.config.triggerSource).toBe("webhook");
+  });
+
+  test("webhook trigger returns 404 for invalid secret", async ({
+    request,
+  }) => {
+    const res = await request.post(
+      "/api/v1/jobs/webhook/totally-invalid-secret",
+      {}
+    );
+    expect(res.status()).toBe(404);
+  });
+
+  test("disabling webhook clears secret and rejects requests", async ({
+    request,
+  }) => {
+    const webhookDir2 = join(
+      tmpdir(),
+      `dispatch-e2e-webhook-disable-${Date.now()}`
+    );
+    mkdirSync(webhookDir2, { recursive: true });
+    // Create with webhook enabled
+    const createRes = await request.post("/api/v1/jobs", {
+      headers: HEADERS,
+      data: {
+        name: "Webhook Disable Job",
+        directory: webhookDir2,
+        prompt: "Call job_complete immediately.",
+        timeoutMs: 120000,
+        needsInputTimeoutMs: 86400000,
+        webhookEnabled: true,
+      },
+    });
+    expect(createRes.ok()).toBeTruthy();
+    const created = await createRes.json();
+    const secret = created.webhookSecret;
+    expect(secret).toBeTruthy();
+
+    // Disable webhook
+    const updateRes = await request.patch("/api/v1/jobs", {
+      headers: HEADERS,
+      data: {
+        name: "Webhook Disable Job",
+        directory: webhookDir2,
+        webhookEnabled: false,
+      },
+    });
+    expect(updateRes.ok()).toBeTruthy();
+    const updated = await updateRes.json();
+    expect(updated.webhookEnabled).toBe(false);
+    expect(updated.webhookSecret).toBeNull();
+
+    // Old secret should now return 404
+    const webhookRes = await request.post(`/api/v1/jobs/webhook/${secret}`, {});
+    expect(webhookRes.status()).toBe(404);
+  });
 });

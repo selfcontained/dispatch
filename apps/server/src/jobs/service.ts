@@ -1,3 +1,4 @@
+import { randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -33,7 +34,7 @@ type RunJobInput = {
   name: string;
   directory: string;
   wait?: boolean;
-  triggerSource?: "manual" | "scheduled";
+  triggerSource?: "manual" | "scheduled" | "webhook";
 };
 
 export type AddJobInput = {
@@ -52,6 +53,7 @@ export type AddJobInput = {
   autoArchive?: boolean;
   callable?: boolean;
   singleton?: boolean;
+  webhookEnabled?: boolean;
   defaultArgs?: Record<string, string>;
   enabled?: boolean;
 };
@@ -209,6 +211,17 @@ export class JobService {
     }
   }
 
+  async runJobByWebhook(secret: string): Promise<RunJobResult> {
+    const job = await this.store.getJobByWebhookSecret(secret);
+    if (!job) throw new WebhookNotFoundError();
+    return this.runJob({
+      name: job.name,
+      directory: job.directory,
+      wait: false,
+      triggerSource: "webhook",
+    });
+  }
+
   async reconcileActiveRuns(): Promise<void> {
     const runs = await this.store.listActiveRuns();
     for (const run of runs) {
@@ -294,6 +307,9 @@ export class JobService {
       allowMedia: false,
     });
 
+    const webhookEnabled = input.webhookEnabled ?? false;
+    const webhookSecret = webhookEnabled ? generateWebhookSecret() : null;
+
     let job: JobRecord;
     try {
       job = await this.store.createJob({
@@ -312,6 +328,8 @@ export class JobService {
         autoArchive: input.autoArchive ?? true,
         callable: input.callable ?? false,
         singleton: input.singleton ?? true,
+        webhookEnabled,
+        webhookSecret,
         templateId: template.id,
         defaultArgs: {},
         enabled: input.enabled ?? false,
@@ -381,6 +399,14 @@ export class JobService {
     if (input.autoArchive !== undefined) config.autoArchive = input.autoArchive;
     if (input.callable !== undefined) config.callable = input.callable;
     if (input.singleton !== undefined) config.singleton = input.singleton;
+    if (input.webhookEnabled !== undefined) {
+      config.webhookEnabled = input.webhookEnabled;
+      if (input.webhookEnabled && !existing.webhookEnabled) {
+        config.webhookSecret = generateWebhookSecret();
+      } else if (!input.webhookEnabled) {
+        config.webhookSecret = null;
+      }
+    }
     if (input.enabled !== undefined) config.enabled = input.enabled;
 
     const updated = await this.store.updateJobConfig(existing.id, config);
@@ -842,7 +868,7 @@ function buildAgentArgs(
 
 function buildRunConfig(
   job: JobRecord,
-  triggerSource: "manual" | "scheduled"
+  triggerSource: "manual" | "scheduled" | "webhook"
 ): JobRunConfig {
   return {
     directory: job.directory,
@@ -881,6 +907,17 @@ function normalizeOptionalString(
 ): string | undefined {
   const trimmed = value?.trim();
   return trimmed ? trimmed : undefined;
+}
+
+export class WebhookNotFoundError extends Error {
+  constructor() {
+    super("Webhook not found or disabled.");
+    this.name = "WebhookNotFoundError";
+  }
+}
+
+function generateWebhookSecret(): string {
+  return randomBytes(24).toString("base64url");
 }
 
 function normalizeNullableString(

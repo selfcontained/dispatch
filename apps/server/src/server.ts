@@ -396,6 +396,7 @@ async function registerRoutes() {
     if (url.startsWith("/api/v1/auth/")) return;
     if (url === "/api/v1/health") return;
     if (url === "/api/v1/app/branding") return;
+    if (url.startsWith("/api/v1/jobs/webhook/")) return;
     if (/^\/api\/v1\/agents\/[^/]+\/terminal\/ws$/.test(url)) return;
     // The assisted-update phase endpoint authenticates via a per-job nonce
     // embedded in the launched agent's prompt — see assisted-update.ts. The

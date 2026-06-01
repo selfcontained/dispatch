@@ -99,7 +99,9 @@ export function humanSchedule(schedule: string | null): string {
 }
 
 export function triggerSourceLabel(run: JobRun): string {
-  return run.config.triggerSource === "scheduled" ? "Scheduled" : "Manual";
+  if (run.config.triggerSource === "scheduled") return "Scheduled";
+  if (run.config.triggerSource === "webhook") return "Webhook";
+  return "Manual";
 }
 
 export function formatTimeUntil(iso: string): string {

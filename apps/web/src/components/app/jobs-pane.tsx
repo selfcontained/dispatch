@@ -2,8 +2,10 @@ import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   Activity,
   AlarmClock,
+  Check,
   CheckCircle2,
   Clock,
+  Copy,
   History,
   MessageSquareText,
   Play,
@@ -12,7 +14,15 @@ import {
   Trash2,
   XCircle,
 } from "lucide-react";
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate, useParams } from "react-router-dom";
 
 import { type Agent } from "@/components/app/types";
@@ -1002,6 +1012,46 @@ function TabButton({
   );
 }
 
+function WebhookUrl({ secret }: { secret: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const url = `${window.location.origin}/api/v1/jobs/webhook/${secret}`;
+
+  const copy = useCallback(() => {
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
+    });
+  }, [url]);
+
+  return (
+    <div className="mt-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2.5">
+      <div className="text-xs font-medium text-muted-foreground">
+        Webhook URL
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate text-xs">{url}</code>
+        <button
+          type="button"
+          className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
+          onClick={copy}
+          aria-label="Copy webhook URL"
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5 text-status-done" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </div>
+      <div className="mt-1 text-[11px] text-muted-foreground/70">
+        POST to this URL to trigger a run. No auth header required.
+      </div>
+    </div>
+  );
+}
+
 function SettingsTab({
   job,
   enabledAgentTypes,
@@ -1033,6 +1083,7 @@ function SettingsTab({
   const [keepAgent, setKeepAgent] = useState(!job.autoArchive);
   const [callable, setCallable] = useState(job.callable);
   const [singleton, setSingleton] = useState(job.singleton);
+  const [webhookEnabled, setWebhookEnabled] = useState(job.webhookEnabled);
   const [enabled, setEnabled] = useState(job.enabled);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -1059,6 +1110,7 @@ function SettingsTab({
     setKeepAgent(!job.autoArchive);
     setCallable(job.callable);
     setSingleton(job.singleton);
+    setWebhookEnabled(job.webhookEnabled);
     setEnabled(job.enabled);
     setSaveError(null);
     setRemoveError(null);
@@ -1182,7 +1234,7 @@ function SettingsTab({
             />
           </div>
         </div>
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 flex flex-col gap-3">
           <JobWorktreeOption
             checked={useWorktree}
             cwd={job.directory}
@@ -1231,6 +1283,30 @@ function SettingsTab({
               ariaLabel="Single instance"
             />
           </label>
+          <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                <span className="block font-medium text-foreground">
+                  Webhook trigger
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Trigger this job via an HTTP POST to a secret URL.
+                </span>
+              </span>
+              <SwitchToggle
+                checked={webhookEnabled}
+                onCheckedChange={setWebhookEnabled}
+                ariaLabel="Webhook trigger"
+              />
+            </label>
+            {webhookEnabled && job.webhookSecret ? (
+              <WebhookUrl secret={job.webhookSecret} />
+            ) : webhookEnabled && !job.webhookSecret ? (
+              <div className="mt-2 text-xs text-muted-foreground">
+                Save to generate a webhook URL.
+              </div>
+            ) : null}
+          </div>
         </div>
         {saveError ? (
           <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
@@ -1264,6 +1340,7 @@ function SettingsTab({
                 autoArchive: !keepAgent,
                 callable,
                 singleton,
+                webhookEnabled,
                 enabled: effectiveEnabled,
               })
                 .then(() => {
