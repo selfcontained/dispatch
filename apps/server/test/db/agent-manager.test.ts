@@ -3057,4 +3057,385 @@ describe("AgentManager", () => {
       }
     });
   });
+
+  describe("upsertPin", () => {
+    it("should add a pin to an agent", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const updated = await manager.upsertPin(agent.id, {
+        label: "URL",
+        type: "url",
+        value: "https://example.com",
+      });
+
+      expect(updated.pins).toHaveLength(1);
+      expect(updated.pins![0]).toMatchObject({
+        label: "URL",
+        type: "url",
+        value: "https://example.com",
+      });
+    });
+
+    it("should overwrite a pin with the same label (case-insensitive)", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.upsertPin(agent.id, {
+        label: "URL",
+        type: "url",
+        value: "https://old.com",
+      });
+
+      const updated = await manager.upsertPin(agent.id, {
+        label: "url",
+        type: "url",
+        value: "https://new.com",
+      });
+
+      expect(updated.pins).toHaveLength(1);
+      expect(updated.pins![0]!.value).toBe("https://new.com");
+    });
+
+    it("should keep distinct labels as separate pins", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.upsertPin(agent.id, {
+        label: "PR",
+        type: "pr",
+        value: "#42",
+      });
+
+      const updated = await manager.upsertPin(agent.id, {
+        label: "URL",
+        type: "url",
+        value: "https://example.com",
+      });
+
+      expect(updated.pins).toHaveLength(2);
+    });
+
+    it("should reject when pin cap is reached", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const pins = Array.from({ length: 50 }, (_, i) => ({
+        label: `pin-${i}`,
+        type: "string" as const,
+        value: `val-${i}`,
+      }));
+      await pool.query(`UPDATE agents SET pins = $2::jsonb WHERE id = $1`, [
+        agent.id,
+        JSON.stringify(pins),
+      ]);
+
+      await expect(
+        manager.upsertPin(agent.id, {
+          label: "one-more",
+          type: "string",
+          value: "overflow",
+        })
+      ).rejects.toThrow(/Maximum of 50 pins/);
+    });
+
+    it("should allow upsert that replaces an existing pin at the cap", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const pins = Array.from({ length: 50 }, (_, i) => ({
+        label: `pin-${i}`,
+        type: "string" as const,
+        value: `val-${i}`,
+      }));
+      await pool.query(`UPDATE agents SET pins = $2::jsonb WHERE id = $1`, [
+        agent.id,
+        JSON.stringify(pins),
+      ]);
+
+      const updated = await manager.upsertPin(agent.id, {
+        label: "pin-0",
+        type: "string",
+        value: "updated",
+      });
+
+      expect(updated.pins).toHaveLength(50);
+      expect(updated.pins!.find((p) => p.label === "pin-0")!.value).toBe(
+        "updated"
+      );
+    });
+
+    it("should throw 404 for non-existent agent", async () => {
+      await expect(
+        manager.upsertPin("agt_nope", {
+          label: "X",
+          type: "string",
+          value: "y",
+        })
+      ).rejects.toThrow(/not found/i);
+    });
+  });
+
+  describe("deletePin", () => {
+    it("should remove a pin by label (case-insensitive)", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.upsertPin(agent.id, {
+        label: "URL",
+        type: "url",
+        value: "https://example.com",
+      });
+
+      const updated = await manager.deletePin(agent.id, "url");
+      expect(updated.pins).toHaveLength(0);
+    });
+
+    it("should be a no-op when the label does not exist", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.upsertPin(agent.id, {
+        label: "Keep",
+        type: "string",
+        value: "v",
+      });
+
+      const updated = await manager.deletePin(agent.id, "nope");
+      expect(updated.pins).toHaveLength(1);
+      expect(updated.pins![0]!.label).toBe("Keep");
+    });
+
+    it("should throw 404 for non-existent agent", async () => {
+      await expect(manager.deletePin("agt_nope", "X")).rejects.toThrow(
+        /not found/i
+      );
+    });
+  });
+
+  describe("markSetupFailed", () => {
+    it("should mark agent as stopped with the error message", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const failed = await manager.markSetupFailed(
+        agent.id,
+        "git worktree add failed"
+      );
+
+      expect(failed.status).toBe("stopped");
+      expect(failed.lastError).toBe("git worktree add failed");
+    });
+
+    it("should trim whitespace from the message", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const failed = await manager.markSetupFailed(
+        agent.id,
+        "  spaced message  "
+      );
+
+      expect(failed.lastError).toBe("spaced message");
+    });
+
+    it("should truncate messages longer than 1000 characters", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const longMsg = "x".repeat(2000);
+      const failed = await manager.markSetupFailed(agent.id, longMsg);
+
+      expect(failed.lastError!.length).toBe(1000);
+    });
+
+    it("should default to 'Setup failed.' for empty messages", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const failed = await manager.markSetupFailed(agent.id, "   ");
+      expect(failed.lastError).toBe("Setup failed.");
+    });
+
+    it("should set the latest event to blocked", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.markSetupFailed(agent.id, "boom");
+      const fetched = await manager.getAgent(agent.id);
+      expect(fetched!.latestEvent?.type).toBe("blocked");
+      expect(fetched!.latestEvent?.message).toBe("boom");
+    });
+  });
+
+  describe("updateSetupPhase", () => {
+    it("should update the setup phase on a creating agent", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.updateSetupPhase(agent.id, "worktree");
+
+      const fetched = await manager.getAgent(agent.id);
+      expect(fetched!.setupPhase).toBe("worktree");
+    });
+
+    it("should transition through multiple phases", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.updateSetupPhase(agent.id, "worktree");
+      await manager.updateSetupPhase(agent.id, "workspace");
+
+      const fetched = await manager.getAgent(agent.id);
+      expect(fetched!.setupPhase).toBe("workspace");
+    });
+  });
+
+  describe("upsertLatestEventIfCurrent", () => {
+    it("should update when expectedUpdatedAt matches", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.upsertLatestEvent(agent.id, {
+        type: "working",
+        message: "first",
+      });
+
+      // The SQL comparison uses `latest_event_updated_at::text`, so we
+      // must read the timestamp in the same format the real caller
+      // (activity-monitor) uses.
+      const { rows } = await pool.query(
+        `SELECT latest_event_updated_at::text AS "ts" FROM agents WHERE id = $1`,
+        [agent.id]
+      );
+      const ts = rows[0].ts as string;
+
+      const result = await manager.upsertLatestEventIfCurrent(agent.id, ts, {
+        type: "done",
+        message: "second",
+      });
+
+      expect(result).not.toBeNull();
+      expect(result!.latestEvent!.type).toBe("done");
+      expect(result!.latestEvent!.message).toBe("second");
+    });
+
+    it("should return null when expectedUpdatedAt does not match", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.upsertLatestEvent(agent.id, {
+        type: "working",
+        message: "first",
+      });
+
+      const result = await manager.upsertLatestEventIfCurrent(
+        agent.id,
+        "1970-01-01 00:00:00",
+        { type: "done", message: "stale" }
+      );
+
+      expect(result).toBeNull();
+    });
+
+    it("should return null for a non-existent agent", async () => {
+      const result = await manager.upsertLatestEventIfCurrent(
+        "agt_missing",
+        "1970-01-01 00:00:00",
+        { type: "done", message: "ghost" }
+      );
+
+      expect(result).toBeNull();
+    });
+  });
+
+  describe("checkWorktreeStatus", () => {
+    it("should return hasWorktree false for agents without a worktree", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await manager.completeSetup(agent.id, {
+        effectiveCwd: "/tmp",
+        worktreePath: null,
+        worktreeBranch: null,
+      });
+
+      const status = await manager.checkWorktreeStatus(agent.id);
+      expect(status.hasWorktree).toBe(false);
+      expect(status.worktreePath).toBeNull();
+      expect(status.branchName).toBeNull();
+      expect(status.changedFiles).toEqual([]);
+      expect(status.uncommittedFiles).toEqual([]);
+    });
+
+    it("should throw 404 for a non-existent agent", async () => {
+      await expect(
+        manager.checkWorktreeStatus("agt_does_not_exist")
+      ).rejects.toThrow(/not found/i);
+    });
+  });
+
+  describe("resolveRuntimeCwd", () => {
+    it("should return agent cwd for stopped agents without probing runtime", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      await manager.completeSetup(agent.id, {
+        effectiveCwd: "/tmp/workspace",
+        worktreePath: null,
+        worktreeBranch: null,
+      });
+      await manager.stopAgent(agent.id);
+
+      const stopped = (await manager.getAgent(agent.id))!;
+      const cwd = await manager.resolveRuntimeCwd(stopped);
+      expect(cwd).toBe("/tmp/workspace");
+    });
+
+    it("should return agent cwd when tmuxSession is absent", async () => {
+      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
+      const agent = await inertManager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const fetched = (await inertManager.getAgent(agent.id))!;
+      const cwd = await inertManager.resolveRuntimeCwd(fetched);
+      expect(cwd).toBe("/tmp");
+    });
+  });
 });
