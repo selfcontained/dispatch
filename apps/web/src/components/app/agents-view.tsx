@@ -2,9 +2,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQueryClient } from "@tanstack/react-query";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
-import { useAtom } from "jotai";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
+import {
+  agentProjectRoot,
+  EXPANDED_AGENT_ID_KEY,
+  isFullAccessEnabled,
+  readExpandedAgentId,
+  readLastUsedAgentType,
+} from "@/components/app/agents-view-utils";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
 import {
@@ -18,7 +24,6 @@ import { MediaLightbox } from "@/components/app/media-lightbox";
 import {
   MediaSidebar,
   MediaSidebarContent,
-  MEDIA_SIDEBAR_SETTLE_FALLBACK_MS,
 } from "@/components/app/media-sidebar";
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
@@ -33,7 +38,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { api } from "@/lib/api";
-import { type AgentType, isAgentType, isCliAgentType } from "@/lib/agent-types";
+import { type AgentType, isCliAgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import {
   agentFeedbackRoute,
@@ -44,47 +49,12 @@ import { cn } from "@/lib/utils";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
+import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
-import {
-  inactiveMediaSidebarStateAtom,
-  mediaSidebarStateAtomFamily,
-  reconcileMediaSidebarStateStorage,
-  type MediaSidebarTab,
-} from "@/lib/store";
-
-const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
-const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
-const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
-const EXPANDED_AGENT_ID_KEY = "dispatch:expandedAgentId";
-function agentProjectRoot(agent: Agent | undefined | null): string | undefined {
-  return agent?.gitContext?.repoRoot?.trim() || agent?.cwd?.trim() || undefined;
-}
-
-function readLastUsedAgentType(): AgentType | null {
-  if (typeof window === "undefined") return null;
-  const stored = window.localStorage.getItem(LAST_USED_TYPE_KEY)?.trim();
-  return stored && isAgentType(stored) ? stored : null;
-}
-
-function readExpandedAgentId(): string | null {
-  if (typeof window === "undefined") return null;
-  const stored = window.localStorage.getItem(EXPANDED_AGENT_ID_KEY)?.trim();
-  return stored && stored.length > 0 ? stored : null;
-}
-
-function isFullAccessEnabled(
-  agent: Pick<Agent, "fullAccess" | "agentArgs">
-): boolean {
-  return (
-    agent.fullAccess ||
-    agent.agentArgs.includes(CODEX_FULL_ACCESS_ARG) ||
-    agent.agentArgs.includes(CLAUDE_FULL_ACCESS_ARG)
-  );
-}
 
 type AgentsViewProps = {
   enabledAgentTypes: AgentType[];
@@ -178,103 +148,26 @@ export function AgentsView({
     feedbackDetail ?? feedbackDetailStaleRef.current;
   const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
   const sidebarAgentId = sharedConnectedAgentId ?? validatedSelectedAgentId;
-  const desktopMediaSidebarAtom = useMemo(
-    () =>
-      sidebarAgentId
-        ? mediaSidebarStateAtomFamily(sidebarAgentId)
-        : inactiveMediaSidebarStateAtom,
-    [sidebarAgentId]
-  );
-  const [desktopMediaSidebarState, setDesktopMediaSidebarState] = useAtom(
-    desktopMediaSidebarAtom
-  );
-  const [deferMediaResize, setDeferMediaResize] = useState(false);
-  const [mediaResizeSettleKey, setMediaResizeSettleKey] = useState(0);
-  const mediaOpen = isMobile
-    ? mobileMediaOpen
-    : desktopMediaSidebarState.isOpen;
-  const mediaPanelOpen = mediaOpen;
-  const mediaActiveTab = desktopMediaSidebarState.activeTab;
-  const mediaPinned = desktopMediaSidebarState.isPinned ?? false;
-  // Layout only shifts (and the terminal needs a refit) when the sidebar is
-  // open AND pinned. Drawer (unpinned) mode floats over the terminal.
-  const mediaShiftsLayout = !isMobile && mediaOpen && mediaPinned;
-  const mediaResizeTimerRef = useRef<number | null>(null);
-
-  const setMediaActiveTab = useCallback(
-    (activeTab: MediaSidebarTab) => {
-      setDesktopMediaSidebarState((prev) => ({ ...prev, activeTab }));
-    },
-    [setDesktopMediaSidebarState]
-  );
-
-  const setMediaOpen = useCallback(
-    (open: boolean) => {
-      if (isMobile) {
-        if (open) setMobileLeftOpen(false);
-        setMobileMediaOpen(open);
-        return;
-      }
-
-      setDesktopMediaSidebarState((prev) =>
-        prev.isOpen === open ? prev : { ...prev, isOpen: open }
-      );
-    },
-    [
-      isMobile,
-      setDesktopMediaSidebarState,
-      setMobileLeftOpen,
-      setMobileMediaOpen,
-    ]
-  );
-
-  const toggleMediaPinned = useCallback(() => {
-    setDesktopMediaSidebarState((prev) => ({
-      ...prev,
-      isPinned: !(prev.isPinned ?? false),
-    }));
-  }, [setDesktopMediaSidebarState]);
-
-  const finishMediaResizeSettle = useCallback(() => {
-    if (mediaResizeTimerRef.current) {
-      window.clearTimeout(mediaResizeTimerRef.current);
-      mediaResizeTimerRef.current = null;
-    }
-    setDeferMediaResize(false);
-    setMediaResizeSettleKey((current) => current + 1);
-  }, []);
-
-  const prevMediaShiftsLayoutRef = useRef(mediaShiftsLayout);
-  useEffect(() => {
-    if (!agentsLoaded) return;
-    reconcileMediaSidebarStateStorage(agents.map((agent) => agent.id));
-  }, [agents, agentsLoaded]);
-
-  useEffect(() => {
-    if (isMobile) {
-      prevMediaShiftsLayoutRef.current = mediaShiftsLayout;
-      return;
-    }
-    if (prevMediaShiftsLayoutRef.current === mediaShiftsLayout) return;
-    prevMediaShiftsLayoutRef.current = mediaShiftsLayout;
-    setDeferMediaResize(true);
-    if (mediaResizeTimerRef.current) {
-      window.clearTimeout(mediaResizeTimerRef.current);
-    }
-    mediaResizeTimerRef.current = window.setTimeout(
-      finishMediaResizeSettle,
-      MEDIA_SIDEBAR_SETTLE_FALLBACK_MS
-    );
-  }, [finishMediaResizeSettle, isMobile, mediaShiftsLayout]);
-
-  useEffect(
-    () => () => {
-      if (mediaResizeTimerRef.current) {
-        window.clearTimeout(mediaResizeTimerRef.current);
-      }
-    },
-    []
-  );
+  const {
+    mediaOpen,
+    mediaPanelOpen,
+    mediaActiveTab,
+    mediaPinned,
+    deferMediaResize,
+    mediaResizeSettleKey,
+    setMediaOpen,
+    setMediaActiveTab,
+    toggleMediaPinned,
+    finishMediaResizeSettle,
+  } = useMediaSidebarState({
+    sidebarAgentId,
+    isMobile,
+    agents,
+    agentsLoaded,
+    mobileMediaOpen,
+    setMobileLeftOpen,
+    setMobileMediaOpen,
+  });
 
   const {
     connState,
