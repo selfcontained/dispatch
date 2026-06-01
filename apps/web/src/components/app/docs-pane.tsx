@@ -951,6 +951,15 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               agent to drive the run to a terminal state. Required before a run
               can start.
             </li>
+            <li>
+              <strong>Show in command palette</strong> — when on, the job
+              appears in the <Code>Mod+K</Code> palette for quick launch.
+            </li>
+            <li>
+              <strong>Single instance</strong> — when on (the default), only one
+              run can be active at a time. Turn off to allow overlapping runs of
+              the same job.
+            </li>
           </ul>
           <P>
             Open <strong>Advanced settings</strong> for the rest:
@@ -980,11 +989,6 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
               <strong>Keep agent after run completes</strong> — by default the
               agent is auto-archived once a run reaches a terminal state. Check
               this to leave the agent (and its worktree) around for inspection.
-            </li>
-            <li>
-              <strong>Single instance</strong> — when on (the default), only one
-              run can be active at a time. Turn off to allow overlapping runs of
-              the same job.
             </li>
           </ul>
         </Section>
