@@ -28,13 +28,19 @@ import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
+import {
+  MEDIA_SIDEBAR_TRANSITION_MS,
+  MEDIA_SIDEBAR_WIDTH_PX,
+} from "@/components/app/media-sidebar-constants";
+
+export {
+  MEDIA_SIDEBAR_SETTLE_FALLBACK_MS,
+  MEDIA_SIDEBAR_TRANSITION_MS,
+  MEDIA_SIDEBAR_WIDTH_PX,
+} from "@/components/app/media-sidebar-constants";
 
 const ACCEPTED_EXTENSIONS =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
-export const MEDIA_SIDEBAR_WIDTH_PX = 360;
-export const MEDIA_SIDEBAR_TRANSITION_MS = 300;
-export const MEDIA_SIDEBAR_SETTLE_FALLBACK_MS =
-  MEDIA_SIDEBAR_TRANSITION_MS + 40;
 
 function fileExtension(name: string): string {
   const dot = name.lastIndexOf(".");

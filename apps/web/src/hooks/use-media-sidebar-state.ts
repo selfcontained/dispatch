@@ -1,8 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom } from "jotai";
 
-import { type Agent } from "@/components/app/types";
-import { MEDIA_SIDEBAR_SETTLE_FALLBACK_MS } from "@/components/app/media-sidebar";
+import { MEDIA_SIDEBAR_SETTLE_FALLBACK_MS } from "@/components/app/media-sidebar-constants";
 import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
@@ -13,8 +12,7 @@ import {
 type UseMediaSidebarStateOptions = {
   sidebarAgentId: string | null;
   isMobile: boolean;
-  agents: Agent[];
-  agentsLoaded: boolean;
+  agentIds: readonly string[];
   mobileMediaOpen: boolean;
   setMobileLeftOpen: (open: boolean) => void;
   setMobileMediaOpen: (open: boolean) => void;
@@ -23,8 +21,7 @@ type UseMediaSidebarStateOptions = {
 export function useMediaSidebarState({
   sidebarAgentId,
   isMobile,
-  agents,
-  agentsLoaded,
+  agentIds,
   mobileMediaOpen,
   setMobileLeftOpen,
   setMobileMediaOpen,
@@ -95,9 +92,9 @@ export function useMediaSidebarState({
 
   const prevMediaShiftsLayoutRef = useRef(mediaShiftsLayout);
   useEffect(() => {
-    if (!agentsLoaded) return;
-    reconcileMediaSidebarStateStorage(agents.map((agent) => agent.id));
-  }, [agents, agentsLoaded]);
+    if (agentIds.length === 0) return;
+    reconcileMediaSidebarStateStorage(agentIds as string[]);
+  }, [agentIds]);
 
   useEffect(() => {
     if (isMobile) {

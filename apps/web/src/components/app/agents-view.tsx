@@ -148,6 +148,7 @@ export function AgentsView({
     feedbackDetail ?? feedbackDetailStaleRef.current;
   const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
   const sidebarAgentId = sharedConnectedAgentId ?? validatedSelectedAgentId;
+  const agentIds = useMemo(() => agents.map((a) => a.id), [agents]);
   const {
     mediaOpen,
     mediaPanelOpen,
@@ -162,8 +163,7 @@ export function AgentsView({
   } = useMediaSidebarState({
     sidebarAgentId,
     isMobile,
-    agents,
-    agentsLoaded,
+    agentIds: agentsLoaded ? agentIds : [],
     mobileMediaOpen,
     setMobileLeftOpen,
     setMobileMediaOpen,
