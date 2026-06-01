@@ -155,17 +155,21 @@ export async function registerJobRoutes(
     }
   });
 
-  app.post("/api/v1/jobs/webhook/:secret", async (request, reply) => {
-    const { secret } = request.params as { secret: string };
-    try {
-      const result = await deps.jobService.runJobByWebhook(secret);
-      return { jobId: result.jobId, runId: result.runId };
-    } catch (error) {
-      if (error instanceof WebhookNotFoundError) {
-        return reply.code(404).send({ error: error.message });
+  app.post(
+    "/api/v1/jobs/webhook/:secret",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const { secret } = request.params as { secret: string };
+      try {
+        const result = await deps.jobService.runJobByWebhook(secret);
+        return { jobId: result.jobId, runId: result.runId };
+      } catch (error) {
+        if (error instanceof WebhookNotFoundError) {
+          return reply.code(404).send({ error: error.message });
+        }
+        const message = errorMessage(error);
+        return reply.code(500).send({ error: message });
       }
-      const message = errorMessage(error);
-      return reply.code(500).send({ error: message });
     }
-  });
+  );
 }
