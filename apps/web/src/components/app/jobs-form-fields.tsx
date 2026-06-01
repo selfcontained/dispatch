@@ -1,4 +1,5 @@
-import { GitBranch } from "lucide-react";
+import { Check, Copy, GitBranch } from "lucide-react";
+import { useCallback, useRef, useState } from "react";
 
 import { BranchSelect } from "@/components/app/branch-select";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -142,5 +143,45 @@ export function JobFullAccessOption({
         </span>
       </span>
     </label>
+  );
+}
+
+export function WebhookUrl({ secret }: { secret: string }) {
+  const [copied, setCopied] = useState(false);
+  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+  const url = `${window.location.origin}/api/v1/jobs/webhook/${secret}`;
+
+  const copy = useCallback(() => {
+    void navigator.clipboard.writeText(url).then(() => {
+      setCopied(true);
+      clearTimeout(timerRef.current);
+      timerRef.current = setTimeout(() => setCopied(false), 2000);
+    });
+  }, [url]);
+
+  return (
+    <div className="mt-2 rounded-md border border-border/50 bg-muted/30 px-3 py-2.5">
+      <div className="text-xs font-medium text-muted-foreground">
+        Webhook URL
+      </div>
+      <div className="mt-1 flex items-center gap-2">
+        <code className="min-w-0 flex-1 truncate text-xs">{url}</code>
+        <button
+          type="button"
+          className="shrink-0 rounded p-1 text-muted-foreground hover:text-foreground"
+          onClick={copy}
+          aria-label="Copy webhook URL"
+        >
+          {copied ? (
+            <Check className="h-3.5 w-3.5 text-status-done" />
+          ) : (
+            <Copy className="h-3.5 w-3.5" />
+          )}
+        </button>
+      </div>
+      <div className="mt-1 text-[11px] text-muted-foreground/70">
+        POST to this URL to trigger a run. No auth header required.
+      </div>
+    </div>
   );
 }
