@@ -26,12 +26,16 @@ type ToolResult = {
   structuredContent?: Record<string, unknown>;
 };
 
+function toStructuredContent(obj: object): Record<string, unknown> {
+  return obj as Record<string, unknown>;
+}
+
 function toBrainError(error: unknown): ToolResult {
   if (error instanceof BrainRevisionConflictError) {
     return {
       content: [{ type: "text", text: error.message }],
       isError: true,
-      structuredContent: {
+      structuredContent: toStructuredContent({
         error: {
           code: error.code,
           message: error.message,
@@ -42,7 +46,7 @@ function toBrainError(error: unknown): ToolResult {
             ...("value" in error.current ? { value: error.current.value } : {}),
           },
         },
-      } as Record<string, unknown>,
+      }),
     };
   }
   if (
@@ -55,9 +59,9 @@ function toBrainError(error: unknown): ToolResult {
     return {
       content: [{ type: "text", text: error.message }],
       isError: true,
-      structuredContent: {
+      structuredContent: toStructuredContent({
         error: { code: error.code, message: error.message },
-      } as Record<string, unknown>,
+      }),
     };
   }
   return toToolError(error);
@@ -110,7 +114,7 @@ export function registerBrainTools(
           }
           return {
             content: [{ type: "text", text: JSON.stringify(obj, null, 2) }],
-            structuredContent: obj as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(obj),
           };
         } catch (error) {
           return toBrainError(error);
@@ -161,7 +165,7 @@ export function registerBrainTools(
           publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(obj, null, 2) }],
-            structuredContent: obj as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(obj),
           };
         } catch (error) {
           return toBrainError(error);
@@ -221,7 +225,7 @@ export function registerBrainTools(
           publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-            structuredContent: result as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
@@ -281,7 +285,7 @@ export function registerBrainTools(
           publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-            structuredContent: result as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
@@ -333,7 +337,7 @@ export function registerBrainTools(
           });
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-            structuredContent: result as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
@@ -385,7 +389,7 @@ export function registerBrainTools(
           publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-            structuredContent: result as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
@@ -428,7 +432,7 @@ export function registerBrainTools(
                   : `List "${args.collection}/${args.name}" not found.`,
               },
             ],
-            structuredContent: result as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
@@ -478,7 +482,7 @@ export function registerBrainTools(
           const result = { objects };
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-            structuredContent: result as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
@@ -521,7 +525,7 @@ export function registerBrainTools(
                   : `Object "${args.collection}/${args.name}" not found.`,
               },
             ],
-            structuredContent: result as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
@@ -573,7 +577,7 @@ export function registerBrainTools(
           publishBrainChanged?.();
           return {
             content: [{ type: "text", text: JSON.stringify(event, null, 2) }],
-            structuredContent: event as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(event),
           };
         } catch (error) {
           return toBrainError(error);
@@ -643,7 +647,7 @@ export function registerBrainTools(
           const result = { events };
           return {
             content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-            structuredContent: result as unknown as Record<string, unknown>,
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
