@@ -99,11 +99,12 @@ test.describe("Worktree", () => {
 
       const cwdInput = page.getByTestId("create-agent-cwd");
       await cwdInput.fill(repoPath);
-      // Wait for path validation to finish — the spinner may flash too fast to
-      // observe under parallel load, so wait for the result text directly.
-      await expect(form.getByText("Git repository")).toBeVisible({
-        timeout: 15000,
-      });
+      // Wait for path validation to finish. exact:true avoids a false match
+      // against the WorktreeSection description ("Working directory isn't a
+      // git repository…") which is always visible before validation completes.
+      await expect(
+        form.getByText("Git repository", { exact: true })
+      ).toBeVisible({ timeout: 15000 });
 
       // Worktree checkbox should exist and be checked by default
       const worktreeCheckbox = page.getByTestId("create-agent-worktree");
@@ -128,9 +129,9 @@ test.describe("Worktree", () => {
 
       const cwdInput = page.getByTestId("create-agent-cwd");
       await cwdInput.fill(repoPath);
-      await expect(form.getByText("Git repository")).toBeVisible({
-        timeout: 15000,
-      });
+      await expect(
+        form.getByText("Git repository", { exact: true })
+      ).toBeVisible({ timeout: 15000 });
 
       const worktreeCheckbox = page.getByTestId("create-agent-worktree");
       await expect(worktreeCheckbox).toHaveAttribute("aria-checked", "true");
