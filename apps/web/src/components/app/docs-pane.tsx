@@ -1190,8 +1190,8 @@ export GH_TOKEN="ghp_..."`}</CodeBlock>
           <P>
             The <strong>Create managed git worktree</strong> checkbox in the
             create dialog is enabled by default. When the working directory
-            isn't a git repository, the checkbox disables itself and the
-            controls collapse, with a note explaining why.
+            isn't a git repository, the checkbox and its controls are disabled,
+            with a note explaining why.
           </P>
           <P>
             When enabled, Dispatch creates a linked worktree directory, copies{" "}
