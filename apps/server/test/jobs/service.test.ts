@@ -64,6 +64,8 @@ function makeJob(
     autoArchive: true,
     callable: false,
     singleton: true,
+    webhookEnabled: false,
+    webhookSecret: null,
     enabled: false,
   });
 }

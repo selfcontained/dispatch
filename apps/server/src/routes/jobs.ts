@@ -2,7 +2,7 @@ import type { FastifyInstance } from "fastify";
 import * as z from "zod/v4";
 
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
-import type { JobService } from "../jobs/service.js";
+import { type JobService, WebhookNotFoundError } from "../jobs/service.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
@@ -34,6 +34,7 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   autoArchive: z.boolean().optional(),
   callable: z.boolean().optional(),
   singleton: z.boolean().optional(),
+  webhookEnabled: z.boolean().optional(),
   defaultArgs: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
 });
@@ -153,4 +154,22 @@ export async function registerJobRoutes(
       return reply.code(404).send({ error: message });
     }
   });
+
+  app.post(
+    "/api/v1/jobs/webhook/:secret",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const { secret } = request.params as { secret: string };
+      try {
+        const result = await deps.jobService.runJobByWebhook(secret);
+        return { jobId: result.jobId, runId: result.runId };
+      } catch (error) {
+        if (error instanceof WebhookNotFoundError) {
+          return reply.code(404).send({ error: error.message });
+        }
+        const message = errorMessage(error);
+        return reply.code(500).send({ error: message });
+      }
+    }
+  );
 }

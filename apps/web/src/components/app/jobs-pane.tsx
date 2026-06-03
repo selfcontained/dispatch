@@ -27,6 +27,7 @@ import {
   JobKeepAgentOption,
   JobWorktreeOption,
   SwitchToggle,
+  WebhookUrl,
 } from "@/components/app/jobs-form-fields";
 import {
   ACTIVE_RUN_STATUSES,
@@ -1033,6 +1034,7 @@ function SettingsTab({
   const [keepAgent, setKeepAgent] = useState(!job.autoArchive);
   const [callable, setCallable] = useState(job.callable);
   const [singleton, setSingleton] = useState(job.singleton);
+  const [webhookEnabled, setWebhookEnabled] = useState(job.webhookEnabled);
   const [enabled, setEnabled] = useState(job.enabled);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
@@ -1059,6 +1061,7 @@ function SettingsTab({
     setKeepAgent(!job.autoArchive);
     setCallable(job.callable);
     setSingleton(job.singleton);
+    setWebhookEnabled(job.webhookEnabled);
     setEnabled(job.enabled);
     setSaveError(null);
     setRemoveError(null);
@@ -1182,7 +1185,7 @@ function SettingsTab({
             />
           </div>
         </div>
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 flex flex-col gap-3">
           <JobWorktreeOption
             checked={useWorktree}
             cwd={job.directory}
@@ -1231,6 +1234,30 @@ function SettingsTab({
               ariaLabel="Single instance"
             />
           </label>
+          <div className="rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+            <label className="flex items-center justify-between gap-3">
+              <span>
+                <span className="block font-medium text-foreground">
+                  Webhook trigger
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Trigger this job via an HTTP POST to a secret URL.
+                </span>
+              </span>
+              <SwitchToggle
+                checked={webhookEnabled}
+                onCheckedChange={setWebhookEnabled}
+                ariaLabel="Webhook trigger"
+              />
+            </label>
+            {webhookEnabled && job.webhookSecret ? (
+              <WebhookUrl secret={job.webhookSecret} />
+            ) : webhookEnabled && !job.webhookSecret ? (
+              <div className="mt-2 text-xs text-muted-foreground">
+                Save to generate a webhook URL.
+              </div>
+            ) : null}
+          </div>
         </div>
         {saveError ? (
           <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
@@ -1264,6 +1291,7 @@ function SettingsTab({
                 autoArchive: !keepAgent,
                 callable,
                 singleton,
+                webhookEnabled,
                 enabled: effectiveEnabled,
               })
                 .then(() => {

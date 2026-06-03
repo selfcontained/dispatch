@@ -44,6 +44,8 @@ export type JobRecord = {
   autoArchive: boolean;
   callable: boolean;
   singleton: boolean;
+  webhookEnabled: boolean;
+  webhookSecret: string | null;
   templateId: string | null;
   defaultArgs: Record<string, string>;
   createdAt: string;
@@ -87,7 +89,7 @@ export type JobRunConfig = {
   timeoutMs: number;
   needsInputTimeoutMs: number;
   notify: JobNotifyConfig;
-  triggerSource?: "manual" | "scheduled";
+  triggerSource?: "manual" | "scheduled" | "webhook";
   autoArchive?: boolean;
 };
 
@@ -105,6 +107,8 @@ export type JobConfigUpdate = {
   autoArchive?: boolean;
   callable?: boolean;
   singleton?: boolean;
+  webhookEnabled?: boolean;
+  webhookSecret?: string | null;
   templateId?: string | null;
   defaultArgs?: Record<string, string>;
   enabled?: boolean;
@@ -128,6 +132,8 @@ export class JobStore {
     autoArchive: boolean;
     callable: boolean;
     singleton: boolean;
+    webhookEnabled: boolean;
+    webhookSecret: string | null;
     templateId?: string | null;
     defaultArgs?: Record<string, string>;
     enabled: boolean;
@@ -136,8 +142,8 @@ export class JobStore {
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, template_id, default_args, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17::jsonb, $18)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20)
         RETURNING ${this.jobColumns()}
         `,
         [
@@ -156,6 +162,8 @@ export class JobStore {
           input.autoArchive,
           input.callable,
           input.singleton,
+          input.webhookEnabled,
+          input.webhookSecret,
           input.templateId ?? null,
           JSON.stringify(input.defaultArgs ?? {}),
           input.enabled,
@@ -391,6 +399,8 @@ export class JobStore {
         j.auto_archive AS "autoArchive",
         j.callable,
         j.singleton,
+        j.webhook_enabled AS "webhookEnabled",
+        j.webhook_secret AS "webhookSecret",
         j.template_id AS "templateId",
         j.default_args AS "defaultArgs",
         j.created_at AS "createdAt",
@@ -520,6 +530,14 @@ export class JobStore {
     return result.rows[0] ? mapJob(result.rows[0]) : null;
   }
 
+  async getJobByWebhookSecret(secret: string): Promise<JobRecord | null> {
+    const result = await this.pool.query(
+      `SELECT ${this.jobColumns()} FROM jobs WHERE webhook_secret = $1 AND webhook_enabled = true`,
+      [secret]
+    );
+    return result.rows[0] ? mapJob(result.rows[0]) : null;
+  }
+
   async getJobByDirectoryAndName(
     directory: string,
     name: string
@@ -569,6 +587,8 @@ export class JobStore {
             singleton = COALESCE($19, singleton),
             template_id = CASE WHEN $20 THEN $21 ELSE template_id END,
             default_args = CASE WHEN $22 THEN $23::jsonb ELSE default_args END,
+            webhook_enabled = COALESCE($24, webhook_enabled),
+            webhook_secret = CASE WHEN $25 THEN $26 ELSE webhook_secret END,
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -597,6 +617,9 @@ export class JobStore {
           input.templateId ?? null,
           Object.prototype.hasOwnProperty.call(input, "defaultArgs"),
           input.defaultArgs ? JSON.stringify(input.defaultArgs) : "{}",
+          input.webhookEnabled,
+          Object.prototype.hasOwnProperty.call(input, "webhookSecret"),
+          input.webhookSecret ?? null,
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
@@ -681,6 +704,8 @@ export class JobStore {
       auto_archive AS "autoArchive",
       callable,
       singleton,
+      webhook_enabled AS "webhookEnabled",
+      webhook_secret AS "webhookSecret",
       template_id AS "templateId",
       default_args AS "defaultArgs",
       created_at AS "createdAt",
