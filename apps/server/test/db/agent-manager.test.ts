@@ -1148,6 +1148,321 @@ describe("AgentManager", () => {
     });
   });
 
+  describe("startAgent", () => {
+    async function createStoppedAgent(
+      opts: { type?: string; cliSessionId?: string; persona?: string } = {}
+    ) {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: (opts.type as "claude" | "codex" | "terminal") ?? "claude",
+        useWorktree: false,
+        cliSessionId: opts.cliSessionId,
+        persona: opts.persona,
+      });
+      await manager.stopAgent(agent.id, { force: true });
+      return agent;
+    }
+
+    function mockNoSessionThenExists() {
+      let launched = false;
+      return async (_cmd: string, args: string[]) => {
+        if (args[0] === "has-session") {
+          if (!launched) return { exitCode: 1, stdout: "", stderr: "" };
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+        if (args.includes("new-session")) launched = true;
+        return { exitCode: 0, stdout: "", stderr: "" };
+      };
+    }
+
+    it("should attach to an existing tmux session", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent();
+
+      vi.mocked(runCommand).mockImplementation(
+        async (_cmd: string, args: string[]) => {
+          if (args[0] === "has-session") {
+            return { exitCode: 0, stdout: "", stderr: "" };
+          }
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+      );
+
+      const started = await manager.startAgent(agent.id);
+
+      expect(started.status).toBe("running");
+      expect(started.latestEvent?.message).toBe(
+        "Session attached to existing tmux session."
+      );
+      expect(
+        vi
+          .mocked(runCommand)
+          .mock.calls.some(([, args]) => args?.[0] === "new-session")
+      ).toBe(false);
+    });
+
+    it("should assign a fresh cliSessionId for legacy claude agents without one", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent({ type: "claude" });
+
+      // Simulate a legacy agent that was created before cliSessionId auto-assignment
+      await pool.query(
+        "UPDATE agents SET cli_session_id = NULL WHERE id = $1",
+        [agent.id]
+      );
+
+      vi.mocked(runCommand).mockImplementation(mockNoSessionThenExists());
+
+      const started = await manager.startAgent(agent.id);
+
+      expect(started.status).toBe("running");
+      expect(started.cliSessionId).toBeTruthy();
+      expect(started.latestEvent?.message).toBe("Session started.");
+    });
+
+    it("should resume an existing CLI session when cliSessionId is set", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const sessionId = "11111111-2222-3333-4444-555555555555";
+      const agent = await createStoppedAgent({
+        type: "claude",
+        cliSessionId: sessionId,
+      });
+
+      vi.mocked(runCommand).mockImplementation(mockNoSessionThenExists());
+
+      const started = await manager.startAgent(agent.id);
+
+      expect(started.status).toBe("running");
+      expect(started.cliSessionId).toBe(sessionId);
+      expect(started.latestEvent?.message).toBe("Session resumed.");
+    });
+
+    it("should handle race condition on cliSessionId assignment", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent({ type: "claude" });
+
+      // Clear cliSessionId to simulate a legacy agent
+      await pool.query(
+        "UPDATE agents SET cli_session_id = NULL WHERE id = $1",
+        [agent.id]
+      );
+
+      // Simulate a concurrent request assigning a cliSessionId between
+      // getRequiredAgent (reads null) and the conditional UPDATE
+      const raceWinner = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+      let injected = false;
+      let launched = false;
+      vi.mocked(runCommand).mockImplementation(
+        async (_cmd: string, args: string[]) => {
+          if (args[0] === "has-session") {
+            if (!launched) {
+              // Before launch: inject the concurrent write
+              if (!injected) {
+                await pool.query(
+                  "UPDATE agents SET cli_session_id = $2 WHERE id = $1",
+                  [agent.id, raceWinner]
+                );
+                injected = true;
+              }
+              return { exitCode: 1, stdout: "", stderr: "" };
+            }
+            return { exitCode: 0, stdout: "", stderr: "" };
+          }
+          if (args.includes("new-session")) launched = true;
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+      );
+
+      const started = await manager.startAgent(agent.id);
+
+      expect(started.status).toBe("running");
+      // The conditional UPDATE returns rowCount=0, so it re-fetches
+      // and uses the race winner's session ID
+      expect(started.cliSessionId).toBe(raceWinner);
+    });
+
+    it("should not assign cliSessionId for non-claude agents", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent({ type: "codex" });
+
+      vi.mocked(runCommand).mockImplementation(mockNoSessionThenExists());
+
+      const started = await manager.startAgent(agent.id);
+
+      expect(started.status).toBe("running");
+      expect(started.cliSessionId).toBeNull();
+      expect(started.latestEvent?.message).toBe("Session started.");
+    });
+
+    it("should use terminal-specific event message for terminal agents", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent({ type: "terminal" });
+
+      vi.mocked(runCommand).mockImplementation(mockNoSessionThenExists());
+
+      const started = await manager.startAgent(agent.id);
+
+      expect(started.status).toBe("running");
+      expect(started.latestEvent?.message).toBe("Terminal session resumed.");
+    });
+
+    it("should set error status when launch fails", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent({ type: "claude" });
+
+      vi.mocked(runCommand).mockImplementation(
+        async (_cmd: string, args: string[]) => {
+          if (args[0] === "has-session") {
+            return { exitCode: 1, stdout: "", stderr: "" };
+          }
+          if (args.includes("new-session")) {
+            throw new Error("tmux not available");
+          }
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+      );
+
+      await expect(manager.startAgent(agent.id)).rejects.toThrow(
+        "Failed to start agent: tmux not available"
+      );
+
+      const failed = await manager.getAgent(agent.id);
+      expect(failed!.status).toBe("error");
+      expect(failed!.lastError).toBe("tmux not available");
+      expect(failed!.latestEvent?.type).toBe("blocked");
+      expect(failed!.latestEvent?.message).toContain("Failed to start agent");
+    });
+
+    it("should skip personality for persona agents even when one is active", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+
+      // Set an active personality in the DB
+      await pool.query(
+        `INSERT INTO settings (key, value) VALUES ('active_personality_id', 'test-personality')
+         ON CONFLICT (key) DO UPDATE SET value = 'test-personality'`
+      );
+      await pool.query(
+        `INSERT INTO personalities (id, name, prompt) VALUES ('test-personality', 'Test', 'You are very formal.')
+         ON CONFLICT (id) DO UPDATE SET prompt = 'You are very formal.'`
+      );
+
+      const agent = await createStoppedAgent({
+        type: "claude",
+        persona: "security-review",
+      });
+
+      const launchCalls: string[][] = [];
+      vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
+        if (args[0] === "has-session") {
+          if (launchCalls.length === 0)
+            return { exitCode: 1, stdout: "", stderr: "" };
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+        if (args.includes("new-session")) launchCalls.push(args);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      });
+
+      const started = await manager.startAgent(agent.id);
+
+      expect(started.status).toBe("running");
+      expect(launchCalls.length).toBe(1);
+      const launchCommand = launchCalls[0]!.join(" ");
+      expect(launchCommand).not.toContain("You are very formal.");
+    });
+
+    it("should transition through creating state during launch", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent({ type: "claude" });
+
+      const statusesDuringLaunch: string[] = [];
+      let launched = false;
+      vi.mocked(runCommand).mockImplementation(
+        async (_cmd: string, args: string[]) => {
+          if (args[0] === "has-session") {
+            if (!launched) return { exitCode: 1, stdout: "", stderr: "" };
+            return { exitCode: 0, stdout: "", stderr: "" };
+          }
+          if (args.includes("new-session")) {
+            const mid = await manager.getAgent(agent.id);
+            statusesDuringLaunch.push(mid!.status);
+            launched = true;
+          }
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+      );
+
+      await manager.startAgent(agent.id);
+
+      expect(statusesDuringLaunch).toContain("creating");
+    });
+
+    it("should include --resume flag in command for resumed sessions", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const sessionId = "22222222-3333-4444-5555-666666666666";
+      const agent = await createStoppedAgent({
+        type: "claude",
+        cliSessionId: sessionId,
+      });
+
+      const newSessionArgs: string[][] = [];
+      vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
+        if (args[0] === "has-session") {
+          if (newSessionArgs.length === 0)
+            return { exitCode: 1, stdout: "", stderr: "" };
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+        if (args.includes("new-session")) newSessionArgs.push(args);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      });
+
+      await manager.startAgent(agent.id);
+
+      expect(newSessionArgs.length).toBe(1);
+      const launchCommand = newSessionArgs[0]!.join(" ");
+      expect(launchCommand).toContain("--resume");
+      expect(launchCommand).toContain(sessionId);
+    });
+
+    it("should not include --resume flag for fresh sessions", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent({ type: "claude" });
+
+      // Clear cliSessionId to simulate legacy agent that never had one
+      await pool.query(
+        "UPDATE agents SET cli_session_id = NULL WHERE id = $1",
+        [agent.id]
+      );
+
+      const newSessionArgs: string[][] = [];
+      vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
+        if (args[0] === "has-session") {
+          if (newSessionArgs.length === 0)
+            return { exitCode: 1, stdout: "", stderr: "" };
+          return { exitCode: 0, stdout: "", stderr: "" };
+        }
+        if (args.includes("new-session")) newSessionArgs.push(args);
+        return { exitCode: 0, stdout: "", stderr: "" };
+      });
+
+      await manager.startAgent(agent.id);
+
+      expect(newSessionArgs.length).toBe(1);
+      const launchCommand = newSessionArgs[0]!.join(" ");
+      expect(launchCommand).not.toContain("--resume");
+    });
+  });
+
   describe("reconcileAgents", () => {
     it("should mark agents as stopped when tmux session is gone", async () => {
       const agent = await manager.createAgent({

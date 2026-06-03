@@ -88,8 +88,14 @@ async function navigateToBrains(page: Page): Promise<void> {
   await loadApp(page);
   await page.getByTestId("automations-button").click();
   await expect(page).toHaveURL(/\/automations/, { timeout: 5_000 });
+  const projectsLoaded = page.waitForResponse(
+    (resp) =>
+      resp.url().includes("/api/v1/brain/projects") && resp.status() === 200,
+    { timeout: 15_000 }
+  );
   await page.getByRole("button", { name: "Brains" }).click();
   await expect(page).toHaveURL(/\/automations\/brains/, { timeout: 5_000 });
+  await projectsLoaded;
 }
 
 function projectRow(page: Page) {
