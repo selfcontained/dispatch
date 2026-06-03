@@ -7,6 +7,7 @@ import {
   Zap,
 } from "lucide-react";
 import { OperationTakeover } from "@/components/app/release-operation-takeover";
+import { cleanError, formatDate } from "@/components/app/release-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import type {
@@ -57,24 +58,6 @@ const VERSION_CONFIG: Record<
 };
 
 const CREATE_PHASES = ["preflight", "triggering", "watching", "done"] as const;
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function cleanError(raw: string): string {
-  const stderrMatch = raw.match(/stderr=(.+)$/s);
-  if (stderrMatch) {
-    const stderr = stderrMatch[1].trim();
-    return stderr.replace(/^fatal:\s*/i, "");
-  }
-  return raw;
-}
 
 type ReleasesAdminProps = {
   stream: UseReleaseStreamResult;
