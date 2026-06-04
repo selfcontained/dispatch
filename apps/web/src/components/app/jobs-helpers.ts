@@ -1,6 +1,7 @@
 import cronstrue from "cronstrue";
 
 import { type JobRun, type JobRunStatus } from "@/hooks/use-jobs";
+import { formatDateTime } from "@/lib/format";
 
 export const ACTIVE_RUN_STATUSES: JobRunStatus[] = [
   "started",
@@ -43,10 +44,7 @@ export function formatDate(iso: string | null | undefined): string {
   if (!iso) return "Not scheduled";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "Unknown";
-  return new Intl.DateTimeFormat(undefined, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(date);
+  return formatDateTime(iso);
 }
 
 export function formatDuration(ms: number | null | undefined): string {

@@ -19,6 +19,7 @@ import {
 import { cn } from "@/lib/utils";
 import {
   formatDuration,
+  formatShortDate,
   formatTokenCount,
   shortProjectName,
 } from "@/lib/format";
@@ -35,8 +36,7 @@ import type {
 // ── Helpers ─────────────────────────────────────────────────────────
 
 export function formatDate(iso: string): string {
-  const d = new Date(iso + "T00:00:00");
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatShortDate(iso);
 }
 
 function formatBucketLabel(

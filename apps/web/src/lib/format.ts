@@ -23,6 +23,27 @@ export function shortProjectName(project: string): string {
   return parts.length <= 2 ? project : parts.slice(-2).join("/");
 }
 
+export function formatDateTime(iso: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(iso));
+}
+
+export function formatShortDateTime(iso: string): string {
+  return new Date(iso).toLocaleString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+export function formatShortDate(dateOnlyIso: string): string {
+  const d = new Date(dateOnlyIso + "T00:00:00");
+  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+}
+
 export function formatRelativeTime(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
   if (Number.isNaN(ms)) return "";
