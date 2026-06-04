@@ -40,7 +40,9 @@ test.describe("Jobs webhook UI", () => {
     await expect(
       page.getByRole("switch", { name: "Webhook trigger" })
     ).not.toBeChecked();
-    await expect(page.getByText("Webhook URL")).not.toBeVisible();
+    await expect(
+      page.getByText("Webhook URL", { exact: true })
+    ).not.toBeVisible();
     await expect(
       page.getByText("Save to generate a webhook URL.")
     ).not.toBeVisible();
@@ -60,7 +62,9 @@ test.describe("Jobs webhook UI", () => {
     await expect(
       page.getByText("Save to generate a webhook URL.")
     ).toBeVisible();
-    await expect(page.getByText("Webhook URL")).not.toBeVisible();
+    await expect(
+      page.getByText("Webhook URL", { exact: true })
+    ).not.toBeVisible();
   });
 
   test("saving with webhook on generates and displays URL", async ({
@@ -88,7 +92,7 @@ test.describe("Jobs webhook UI", () => {
     await toggle.waitFor();
     await expect(toggle).toBeChecked();
 
-    await expect(page.getByText("Webhook URL")).toBeVisible();
+    await expect(page.getByText("Webhook URL", { exact: true })).toBeVisible();
     await expect(
       page.getByRole("button", { name: "Copy webhook URL" })
     ).toBeVisible();
@@ -99,13 +103,16 @@ test.describe("Jobs webhook UI", () => {
     await page.goto(`/automations/jobs/${jobId}`, {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.getByText("Webhook URL")).toBeVisible();
-
     const toggle = page.getByRole("switch", { name: "Webhook trigger" });
+    await toggle.waitFor();
+    await expect(page.getByText("Webhook URL", { exact: true })).toBeVisible();
+
     await toggle.click();
     await expect(toggle).not.toBeChecked();
 
-    await expect(page.getByText("Webhook URL")).not.toBeVisible();
+    await expect(
+      page.getByText("Webhook URL", { exact: true })
+    ).not.toBeVisible();
     await expect(
       page.getByText("Save to generate a webhook URL.")
     ).not.toBeVisible();
@@ -136,6 +143,8 @@ test.describe("Jobs webhook UI", () => {
     const toggle = page.getByRole("switch", { name: "Webhook trigger" });
     await toggle.waitFor();
     await expect(toggle).not.toBeChecked();
-    await expect(page.getByText("Webhook URL")).not.toBeVisible();
+    await expect(
+      page.getByText("Webhook URL", { exact: true })
+    ).not.toBeVisible();
   });
 });
