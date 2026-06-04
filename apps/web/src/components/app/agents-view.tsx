@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { useQueryClient } from "@tanstack/react-query";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
@@ -37,7 +36,6 @@ import {
 } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
-import { api } from "@/lib/api";
 import { type AgentType, isCliAgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import {
@@ -46,7 +44,7 @@ import {
   agentRoute,
 } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
-import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
+import { useAgentActions } from "@/hooks/use-agent-actions";
 import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
@@ -90,7 +88,6 @@ export function AgentsView({
   onNavigateSection,
 }: AgentsViewProps): JSX.Element {
   const navigate = useNavigate();
-  const queryClient = useQueryClient();
   const { agentId: routeAgentId, itemId, summaryAgentId } = useParams();
 
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
@@ -353,6 +350,25 @@ export function AgentsView({
     detachTerminal();
   }, [connectedAgentId, detachTerminal, routeAgentId]);
 
+  const {
+    attachToAgent,
+    startAgent,
+    stopAgent,
+    deleteAgent,
+    handleAgentCreated,
+    detachAndClearSelection,
+  } = useAgentActions({
+    connectedAgentId,
+    routeAgentId,
+    setExpandedAgentId,
+    setCreateOpen,
+    setRequestedCreateType,
+    setLastUsedAgentType,
+    ensureTerminalConnected,
+    detachTerminal,
+    refreshMedia,
+  });
+
   const resolveCreateDefaultCwd = useCallback((): string => {
     const activeCwd =
       agentProjectRoot(selectedAgent) || agentProjectRoot(connectedAgent);
@@ -422,73 +438,6 @@ export function AgentsView({
     setExpandedAgentId((current) => (current === agentId ? null : agentId));
   }, []);
 
-  const ensureAuxExpanded = useCallback((agentId: string) => {
-    setExpandedAgentId(agentId);
-  }, []);
-
-  const attachToAgent = useCallback(
-    async (agent: Agent) => {
-      navigate(agentRoute(agent.id));
-      ensureAuxExpanded(agent.parentAgentId ?? agent.id);
-      refreshMedia(agent.id);
-      await ensureTerminalConnected(true, true, agent.id);
-    },
-    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
-  );
-
-  const startAgent = useCallback(
-    async (agent: Agent) => {
-      navigate(agentRoute(agent.id));
-      ensureAuxExpanded(agent.parentAgentId ?? agent.id);
-      await api(`/api/v1/agents/${agent.id}/start`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      refreshMedia(agent.id);
-      await ensureTerminalConnected(true, true, agent.id);
-    },
-    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
-  );
-
-  const detachAndClearSelection = useCallback(() => {
-    detachTerminal();
-    navigate("/agents");
-  }, [detachTerminal, navigate]);
-
-  const stopAgent = useCallback(
-    async (agent: Agent) => {
-      if (connectedAgentId === agent.id) {
-        detachAndClearSelection();
-      }
-      await api(`/api/v1/agents/${agent.id}/stop`, {
-        method: "POST",
-        body: JSON.stringify({ force: false }),
-      });
-    },
-    [connectedAgentId, detachAndClearSelection]
-  );
-
-  const deleteAgent = useCallback(
-    async (agent: Agent, cleanupWorktree?: string) => {
-      if (connectedAgentId === agent.id) {
-        detachTerminal();
-      }
-      setExpandedAgentId((current) => (current === agent.id ? null : current));
-      if (routeAgentId === agent.id) {
-        navigate("/agents", { replace: true });
-      }
-      const params = new URLSearchParams();
-      if (cleanupWorktree) {
-        params.set("cleanupWorktree", cleanupWorktree);
-      }
-      const qs = params.toString();
-      await api(`/api/v1/agents/${agent.id}${qs ? `?${qs}` : ""}`, {
-        method: "DELETE",
-      });
-    },
-    [connectedAgentId, detachTerminal, navigate, routeAgentId]
-  );
-
   const borderForAgentState = useCallback((state: AgentVisualState): string => {
     if (state === "active") return "border-r-status-done";
     return "border-r-transparent";
@@ -501,38 +450,6 @@ export function AgentsView({
         fn(...args);
       },
     [isMobile, setMobileLeftOpen]
-  );
-
-  const handleAgentCreated = useCallback(
-    async (agent: Agent, agentType: AgentType) => {
-      setCreateOpen(false);
-      setRequestedCreateType(null);
-      setLastUsedAgentType(agentType);
-      // Align with SSE `agent.upsert`: the POST already finished, but the next
-      // render can briefly see `/agents/:id` before the SSE round-trip updates
-      // React Query — that used to satisfy the "unknown agent" redirect effect.
-      queryClient.setQueryData<Agent[]>(["agents"], (old) => {
-        if (!old) return [agent];
-        const index = old.findIndex((a) => a.id === agent.id);
-        if (index === -1) {
-          return sortAgentsByCreatedAtDesc([agent, ...old]);
-        }
-        const next = [...old];
-        next[index] = agent;
-        return sortAgentsByCreatedAtDesc(next);
-      });
-      navigate(agentRoute(agent.id));
-      ensureAuxExpanded(agent.id);
-      refreshMedia(agent.id);
-      await ensureTerminalConnected(true, true, agent.id);
-    },
-    [
-      ensureAuxExpanded,
-      ensureTerminalConnected,
-      navigate,
-      queryClient,
-      refreshMedia,
-    ]
   );
 
   const handleCreateOpenChange = useCallback((open: boolean) => {
