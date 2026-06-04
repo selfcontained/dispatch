@@ -4,6 +4,7 @@ import type {
   ReleaseProgress,
 } from "@/hooks/use-release-stream";
 import type { ReleaseInfoSnapshot } from "@/hooks/use-cached-release-info";
+import { formatShortDateTime } from "@/lib/format";
 
 export type AppVersionInfo = {
   releaseTag: string | null;
@@ -21,12 +22,7 @@ export const UPDATE_PHASES = [
 ] as const;
 
 export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
+  return formatShortDateTime(iso);
 }
 
 export function cleanError(raw: string): string {
