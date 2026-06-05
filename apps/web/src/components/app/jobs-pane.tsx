@@ -34,7 +34,6 @@ import {
   cronError,
   errorMessage,
   formatDate,
-  formatDuration,
   formatTimeUntil,
   formatTimeUntilDate,
   humanSchedule,
@@ -68,7 +67,7 @@ import {
   useJobStats,
 } from "@/hooks/use-jobs";
 import { StatCard } from "@/components/app/stat-card";
-import { formatRelativeTime } from "@/lib/format";
+import { formatDuration, formatRelativeTime } from "@/lib/format";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
