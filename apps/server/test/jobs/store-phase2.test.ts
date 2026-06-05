@@ -209,3 +209,55 @@ describe("JobStore Phase 2 — list, history, enable/disable", () => {
     expect(runs.length).toBe(1);
   });
 });
+
+describe("JobStore — getJobByWebhookSecret", () => {
+  it("returns the job when secret matches and webhook is enabled", async () => {
+    const job = await store.createJob({
+      ...jobDefaults,
+      name: "wh-store-match",
+      directory: "/tmp/wh-store-test",
+      prompt: "Webhook store test",
+      webhookEnabled: true,
+      webhookSecret: "test-secret-abc123",
+    });
+
+    const found = await store.getJobByWebhookSecret("test-secret-abc123");
+    expect(found).not.toBeNull();
+    expect(found!.id).toBe(job.id);
+    expect(found!.webhookEnabled).toBe(true);
+    expect(found!.webhookSecret).toBe("test-secret-abc123");
+  });
+
+  it("returns null when secret matches but webhook is disabled", async () => {
+    await store.createJob({
+      ...jobDefaults,
+      name: "wh-store-disabled",
+      directory: "/tmp/wh-store-disabled",
+      prompt: "Webhook disabled",
+      webhookEnabled: false,
+      webhookSecret: "disabled-secret-xyz",
+    });
+
+    const found = await store.getJobByWebhookSecret("disabled-secret-xyz");
+    expect(found).toBeNull();
+  });
+
+  it("returns null for an unknown secret", async () => {
+    const found = await store.getJobByWebhookSecret("no-such-secret");
+    expect(found).toBeNull();
+  });
+
+  it("returns null for an empty-string lookup against a null-secret row", async () => {
+    await store.createJob({
+      ...jobDefaults,
+      name: "wh-store-null",
+      directory: "/tmp/wh-store-null",
+      prompt: "No secret",
+      webhookEnabled: false,
+      webhookSecret: null,
+    });
+
+    const found = await store.getJobByWebhookSecret("");
+    expect(found).toBeNull();
+  });
+});

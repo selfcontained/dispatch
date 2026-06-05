@@ -5,6 +5,9 @@ import {
   formatTokenCount,
   shortProjectName,
   formatRelativeTime,
+  formatDateTime,
+  formatShortDateTime,
+  formatShortDate,
 } from "./format";
 
 describe("formatDuration", () => {
@@ -101,5 +104,50 @@ describe("formatRelativeTime", () => {
     const iso = new Date(2026, 0, 15).toISOString();
     const result = formatRelativeTime(iso);
     expect(result).toContain("Jan");
+  });
+});
+
+describe("formatDateTime", () => {
+  it("includes date and time parts", () => {
+    const result = formatDateTime("2026-03-15T14:30:00Z");
+    expect(result).toMatch(/2026/);
+    expect(result).toMatch(/:/);
+  });
+
+  it("produces different output for different timestamps", () => {
+    const a = formatDateTime("2026-01-01T00:00:00Z");
+    const b = formatDateTime("2026-06-15T12:00:00Z");
+    expect(a).not.toBe(b);
+  });
+});
+
+describe("formatShortDateTime", () => {
+  it("contains the day number", () => {
+    const result = formatShortDateTime("2026-06-15T09:15:00Z");
+    expect(result).toMatch(/15/);
+  });
+
+  it("produces different output for different months", () => {
+    const jan = formatShortDateTime("2026-01-15T09:00:00Z");
+    const jun = formatShortDateTime("2026-06-15T09:00:00Z");
+    expect(jan).not.toBe(jun);
+  });
+});
+
+describe("formatShortDate", () => {
+  it("contains the day number", () => {
+    const result = formatShortDate("2026-01-15");
+    expect(result).toMatch(/15/);
+  });
+
+  it("does not shift dates due to timezone offset", () => {
+    const result = formatShortDate("2026-12-31");
+    expect(result).toMatch(/31/);
+  });
+
+  it("produces different output for different months", () => {
+    const jan = formatShortDate("2026-01-15");
+    const dec = formatShortDate("2026-12-15");
+    expect(jan).not.toBe(dec);
   });
 });
