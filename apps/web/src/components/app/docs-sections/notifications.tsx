@@ -70,10 +70,11 @@ export function NotificationsContent() {
         <P>
           A soft synthesized tone on status changes. Cues are per-device — they
           don't touch server state and only play in tabs where you've enabled
-          them. Four cues are available: <Code>done</Code>,{" "}
+          them. Four status cues are available: <Code>done</Code>,{" "}
           <Code>waiting_user</Code>, <Code>blocked</Code>, and a distinct chord
-          when a persona reviewer completes its review. Use the preview buttons
-          in settings to hear each one.
+          when a persona reviewer completes its review. A fifth cue provides
+          tactile feedback for mobile toolbar taps. Use the preview buttons in
+          settings to hear each one.
         </P>
       </Section>
 
