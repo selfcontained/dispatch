@@ -11,6 +11,11 @@ import {
 } from "./format";
 
 describe("formatDuration", () => {
+  it("returns n/a for null or undefined", () => {
+    expect(formatDuration(null)).toBe("n/a");
+    expect(formatDuration(undefined)).toBe("n/a");
+  });
+
   it("returns 0s for sub-second values", () => {
     expect(formatDuration(0)).toBe("0s");
     expect(formatDuration(999)).toBe("0s");

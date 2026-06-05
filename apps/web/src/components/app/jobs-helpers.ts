@@ -47,15 +47,6 @@ export function formatDate(iso: string | null | undefined): string {
   return formatDateTime(iso);
 }
 
-export function formatDuration(ms: number | null | undefined): string {
-  if (!ms) return "n/a";
-  const seconds = Math.round(ms / 1000);
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  const remaining = seconds % 60;
-  return `${minutes}m ${remaining}s`;
-}
-
 export function minutesFromMs(ms: number | null | undefined): string {
   if (!ms) return "";
   return String(Math.max(1, Math.round(ms / 60_000)));

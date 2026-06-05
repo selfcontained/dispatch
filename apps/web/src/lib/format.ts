@@ -1,4 +1,5 @@
-export function formatDuration(ms: number): string {
+export function formatDuration(ms: number | null | undefined): string {
+  if (ms == null) return "n/a";
   if (ms < 1000) return "0s";
   const secs = Math.floor(ms / 1000);
   if (secs < 60) return `${secs}s`;
