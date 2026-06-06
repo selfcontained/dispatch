@@ -295,11 +295,13 @@ describe("POST /api/v1/jobs/run", () => {
     expect(body.jobId).toBe(job.id);
     expect(body.runId).toBeTruthy();
     expect(body.agentId).toBeTruthy();
-    // Mark the run as completed so the background monitor exits cleanly
+    // Mark the run as completed and wait for the 2s monitor poll to see it,
+    // preventing "Cannot use pool after end" errors during teardown.
     await ctx.pool.query(
       `UPDATE job_runs SET status = 'completed' WHERE id = $1`,
       [body.runId]
     );
+    await new Promise((resolve) => setTimeout(resolve, 2500));
   });
 
   it("returns 500 for non-existent job", async () => {
@@ -352,11 +354,12 @@ describe("POST /api/v1/jobs/run", () => {
     expect(second.statusCode).toBe(500);
     expect(second.json().error).toContain("already has active run");
 
-    // Clean up: mark the first run as completed so the monitor exits
+    // Mark the first run as completed and wait for the 2s monitor poll to see it.
     await ctx.pool.query(
       `UPDATE job_runs SET status = 'completed' WHERE id = $1`,
       [first.json().runId]
     );
+    await new Promise((resolve) => setTimeout(resolve, 2500));
   });
 
   it("rejects missing name", async () => {
