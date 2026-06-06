@@ -611,13 +611,20 @@ export class JobService {
     );
   }
 
-  /** Stop all in-process schedulers and signal monitors to exit. Called on server shutdown. */
+  /** Stop all in-process schedulers and signal monitors to exit. */
   stopAllSchedulers(): void {
     this.stopping = true;
     for (const cron of this.schedulers.values()) {
       cron.stop();
     }
     this.schedulers.clear();
+  }
+
+  /** Stop schedulers and wait for all in-flight monitors to finish. */
+  async shutdown(): Promise<void> {
+    this.stopAllSchedulers();
+    const pending = [...this.monitors.values()];
+    await Promise.allSettled(pending);
   }
 
   private scheduleJob(job: JobRecord): void {
