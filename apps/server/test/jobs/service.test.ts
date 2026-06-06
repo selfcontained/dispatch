@@ -157,7 +157,7 @@ describe("JobService", () => {
         "onRunStateChange callback error"
       );
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
   });
 
@@ -182,7 +182,7 @@ describe("JobService", () => {
       await service.startSchedulers();
 
       // stopAllSchedulers should clean up without error
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("startSchedulers is safe to call with no jobs", async () => {
@@ -193,7 +193,7 @@ describe("JobService", () => {
         mockConfig
       );
       await service.startSchedulers();
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
   });
 
@@ -206,7 +206,7 @@ describe("JobService", () => {
         mockConfig
       );
       await service.reconcileActiveRuns();
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
   });
 
@@ -233,7 +233,7 @@ describe("JobService", () => {
       expect(found!.nextRun).toBeTruthy();
       expect(new Date(found!.nextRun!).getTime()).toBeGreaterThan(Date.now());
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("nextRun is null for disabled jobs", async () => {
@@ -257,7 +257,7 @@ describe("JobService", () => {
       expect(found).toBeDefined();
       expect(found!.nextRun).toBeNull();
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
   });
 
@@ -327,7 +327,7 @@ describe("JobService", () => {
         summary: "done",
         tasks: [],
       });
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("runJob throws when job has no prompt", async () => {
@@ -349,7 +349,7 @@ describe("JobService", () => {
         service.runJob({ name: "no-prompt", directory: "/tmp/test-noprompt" })
       ).rejects.toThrow("no prompt configured");
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("removeJob throws when job has active run", async () => {
@@ -375,7 +375,7 @@ describe("JobService", () => {
         })
       ).rejects.toThrow("has active run");
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
   });
 
@@ -400,7 +400,7 @@ describe("JobService", () => {
       expect(typeof job.webhookSecret).toBe("string");
       expect(job.webhookSecret!.length).toBeGreaterThan(10);
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("addJob without webhookEnabled has no secret", async () => {
@@ -420,7 +420,7 @@ describe("JobService", () => {
       expect(job.webhookEnabled).toBe(false);
       expect(job.webhookSecret).toBeNull();
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("updateJob enabling webhook generates a new secret", async () => {
@@ -447,7 +447,7 @@ describe("JobService", () => {
       expect(updated.webhookEnabled).toBe(true);
       expect(updated.webhookSecret).toBeTruthy();
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("updateJob disabling webhook clears the secret", async () => {
@@ -474,7 +474,7 @@ describe("JobService", () => {
       expect(updated.webhookEnabled).toBe(false);
       expect(updated.webhookSecret).toBeNull();
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("updateJob re-enabling webhook does not change existing secret", async () => {
@@ -501,7 +501,7 @@ describe("JobService", () => {
 
       expect(updated.webhookSecret).toBe(originalSecret);
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("runJobByWebhook runs the matching job", async () => {
@@ -567,7 +567,7 @@ describe("JobService", () => {
         summary: "done",
         tasks: [],
       });
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("runJobByWebhook throws WebhookNotFoundError for unknown secret", async () => {
@@ -582,7 +582,7 @@ describe("JobService", () => {
         service.runJobByWebhook("nonexistent-secret")
       ).rejects.toThrow(WebhookNotFoundError);
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
 
     it("runJobByWebhook throws for disabled webhook", async () => {
@@ -611,7 +611,7 @@ describe("JobService", () => {
         WebhookNotFoundError
       );
 
-      service.stopAllSchedulers();
+      await service.shutdown();
     });
   });
 });

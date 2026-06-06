@@ -730,7 +730,6 @@ async function cleanupAppResources(): Promise<void> {
   }
   shuttingDown = true;
 
-  jobService.stopAllSchedulers();
   streamManager.stopAll();
   agentLifecycleRuntime.stopReconcileLoop();
   authRuntime.stopSessionCleanupTimer();
@@ -738,6 +737,7 @@ async function cleanupAppResources(): Promise<void> {
 
   notificationRuntime.clearPendingWebNotifications();
 
+  await jobService.shutdown();
   await agentLifecycleRuntime.waitForActiveArchives(10_000);
 
   await pool.end().catch(() => null);
