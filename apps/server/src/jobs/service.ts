@@ -675,7 +675,7 @@ export class JobService {
   }
 
   private startMonitor(runId: string): void {
-    if (this.monitors.has(runId)) return;
+    if (this.stopping || this.monitors.has(runId)) return;
     const monitor = this.monitorRun(runId)
       .catch(async (error) => {
         this.logger.warn({ err: error, runId }, "Job monitor failed.");
