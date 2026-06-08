@@ -201,6 +201,12 @@ export function AutomationsContent() {
             run can be active at a time. Turn off to allow overlapping runs of
             the same job.
           </li>
+          <li>
+            <strong>Webhook trigger</strong> — enable to generate a secret URL
+            that triggers a run via HTTP POST. The URL is shown after saving and
+            can be copied from the settings panel. No auth header is required —
+            the secret in the URL is the credential.
+          </li>
         </ul>
         <P>
           Open <strong>Advanced settings</strong> for the rest:
@@ -240,7 +246,9 @@ export function AutomationsContent() {
           Every job has a <strong>Run now</strong> button on its detail pane.
           This spawns a run immediately with{" "}
           <Code>triggerSource: "manual"</Code> — useful for both on-demand-only
-          jobs and for kicking a scheduled job off-cycle. When{" "}
+          jobs and for kicking a scheduled job off-cycle. Jobs with{" "}
+          <strong>Webhook trigger</strong> enabled can also be fired by POSTing
+          to their webhook URL (<Code>triggerSource: "webhook"</Code>). When{" "}
           <strong>Single instance</strong> is on (the default), only one run can
           be active per job at a time; with it off, overlapping runs are
           allowed.
@@ -389,7 +397,7 @@ export function AutomationsContent() {
           Each job card shows the last run's status, when it finished, and the
           next scheduled fire time. Open the <strong>History</strong> tab on a
           job to browse past runs with their reports, durations, and trigger
-          source (manual vs. scheduled).
+          source (Manual, Scheduled, or Webhook).
         </P>
       </Section>
 
