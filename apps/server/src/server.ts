@@ -97,7 +97,7 @@ import {
 } from "./generated/runtime-assets.js";
 import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity.js";
-import { registerAgentRoutes } from "./routes/agents.js";
+import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
