@@ -19,7 +19,6 @@ import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { PersonalitySettings } from "@/components/app/personality-settings";
 import { ReleasesAdmin } from "@/components/app/release-admin";
-import { RewriteLocalhostPinsSettings } from "@/components/app/rewrite-localhost-pins-settings";
 import { UpdatesSection } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { ServiceStatus } from "@/components/app/service-status";
@@ -291,9 +290,6 @@ export function SettingsContent({
                 iconColorError={iconColorError}
                 clearIconColorError={clearIconColorError}
               />
-            </div>
-            <div className="border-t border-border p-4 md:p-6">
-              <RewriteLocalhostPinsSettings />
             </div>
             <div className="border-t border-border">
               <SecuritySettings onLogout={onLogout} />
