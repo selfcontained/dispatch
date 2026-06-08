@@ -2,24 +2,15 @@ import { randomUUID } from "node:crypto";
 
 import type { FastifyInstance } from "fastify";
 
-import { getCopyModeAssistEnabled } from "../../copy-mode-assist-settings.js";
 import { spawn as spawnPty } from "../../shared/terminal/bun-pty.js";
 import { TmuxTerminal } from "../../terminal/tmux-terminal.js";
 import { errorMessage } from "../../shared/lib/error-message.js";
-import {
-  COPY_MODE_ASSIST_DISABLED_ERROR,
-  decodeClientMessage,
-  type AgentRouteDeps,
-} from "./shared.js";
+import { decodeClientMessage, type AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentTerminalRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
-  const isCopyModeAssistEnabled = async (): Promise<boolean> => {
-    return getCopyModeAssistEnabled(deps.pool);
-  };
-
   app.post("/api/v1/agents/:id/terminal/token", async (request, reply) => {
     const params = request.params as { id?: string };
     const id = params.id ?? "";
@@ -57,11 +48,6 @@ export async function registerAgentTerminalRoutes(
       const id = params.id ?? "";
 
       try {
-        if (!(await isCopyModeAssistEnabled())) {
-          return reply
-            .code(409)
-            .send({ error: COPY_MODE_ASSIST_DISABLED_ERROR });
-        }
         const access = await deps.agentManager.getTerminalAccess(id);
         if (access.mode !== "tmux") {
           return reply.code(409).send({ error: access.message });
@@ -86,9 +72,6 @@ export async function registerAgentTerminalRoutes(
     const id = params.id ?? "";
 
     try {
-      if (!(await isCopyModeAssistEnabled())) {
-        return reply.code(409).send({ error: COPY_MODE_ASSIST_DISABLED_ERROR });
-      }
       const access = await deps.agentManager.getTerminalAccess(id);
       if (access.mode !== "tmux") {
         return reply.code(409).send({ error: access.message });
@@ -117,11 +100,6 @@ export async function registerAgentTerminalRoutes(
       }
 
       try {
-        if (!(await isCopyModeAssistEnabled())) {
-          return reply
-            .code(409)
-            .send({ error: COPY_MODE_ASSIST_DISABLED_ERROR });
-        }
         const access = await deps.agentManager.getTerminalAccess(id);
         if (access.mode !== "tmux") {
           return reply.code(409).send({ error: access.message });
@@ -174,26 +152,17 @@ export async function registerAgentTerminalRoutes(
           throw new Error(access.message);
         }
         tmuxSession = access.sessionName;
-        // ⚠️ CRITICAL — this gate controls ONLY the copy-mode banner UI
-        // and the passive observer. Tmux mouse mode (the actual scroll
-        // mechanism) is enabled unconditionally at session launch in
-        // runtime.ts. Do NOT pull mouse-mode setup, wheel listeners, or
-        // any scroll plumbing inside this if-block — that's how PR #459
-        // silently broke scroll for everyone with the toggle off.
-        if (await isCopyModeAssistEnabled()) {
-          const detachCopyModeViewer =
-            deps.copyModeObserverManager.attachViewer(
-              agentId,
-              tmuxSession,
-              randomUUID()
-            );
-          const assistConnection = await deps.copyModeAssistManager.attach(
-            tmuxSession,
-            detachCopyModeViewer
-          );
-          assistState.activeRef = assistConnection.activeRef;
-          assistState.connectionId = assistConnection.connectionId;
-        }
+        const detachCopyModeViewer = deps.copyModeObserverManager.attachViewer(
+          agentId,
+          tmuxSession,
+          randomUUID()
+        );
+        const assistConnection = await deps.copyModeAssistManager.attach(
+          tmuxSession,
+          detachCopyModeViewer
+        );
+        assistState.activeRef = assistConnection.activeRef;
+        assistState.connectionId = assistConnection.connectionId;
       } catch (error) {
         socket.send(
           JSON.stringify({ type: "error", message: errorMessage(error) })

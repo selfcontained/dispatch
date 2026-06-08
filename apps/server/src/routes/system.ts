@@ -6,11 +6,6 @@ import { readdir, stat, unlink, writeFile } from "node:fs/promises";
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
-import {
-  COPY_MODE_ASSIST_ENABLED_KEY,
-  getCopyModeAssistEnabled,
-  parseBooleanSetting,
-} from "../copy-mode-assist-settings.js";
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
 import { JobService } from "../jobs/service.js";
 import {
@@ -40,9 +35,6 @@ type SystemRouteDeps = {
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
   publishUiEvent: (event: unknown) => void;
-  copyModeAssistManager: {
-    disableAll: () => Promise<void>;
-  };
 };
 
 export async function registerSystemRoutes(
@@ -283,12 +275,10 @@ export async function registerSystemRoutes(
         ? raw
         : "sibling";
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
-    const copyModeAssistEnabled = await getCopyModeAssistEnabled(deps.pool);
     return {
       worktreeLocation,
       iconColor: deps.getCachedIconColor(),
       instanceName,
-      copyModeAssistEnabled,
     };
   });
 
@@ -297,7 +287,6 @@ export async function registerSystemRoutes(
       worktreeLocation?: unknown;
       iconColor?: unknown;
       instanceName?: unknown;
-      copyModeAssistEnabled?: unknown;
     };
 
     if (body.worktreeLocation !== undefined) {
@@ -341,39 +330,16 @@ export async function registerSystemRoutes(
       }
     }
 
-    if (body.copyModeAssistEnabled !== undefined) {
-      if (typeof body.copyModeAssistEnabled !== "boolean") {
-        return reply.code(400).send({
-          error: "copyModeAssistEnabled must be a boolean.",
-        });
-      }
-      const previousValue = parseBooleanSetting(
-        await getSetting(deps.pool, COPY_MODE_ASSIST_ENABLED_KEY),
-        false
-      );
-      await setSetting(
-        deps.pool,
-        COPY_MODE_ASSIST_ENABLED_KEY,
-        String(body.copyModeAssistEnabled)
-      );
-      deps.publishUiEvent({ type: "agents.settings_changed" });
-      if (previousValue && !body.copyModeAssistEnabled) {
-        await deps.copyModeAssistManager.disableAll();
-      }
-    }
-
     const raw = await getSetting(deps.pool, WORKTREE_LOCATION_KEY);
     const worktreeLocation =
       raw && (VALID_WORKTREE_LOCATIONS as readonly string[]).includes(raw)
         ? raw
         : "sibling";
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
-    const copyModeAssistEnabled = await getCopyModeAssistEnabled(deps.pool);
     return {
       worktreeLocation,
       iconColor: deps.getCachedIconColor(),
       instanceName,
-      copyModeAssistEnabled,
     };
   });
 

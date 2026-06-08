@@ -14,17 +14,6 @@ function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${AUTH_TOKEN}` };
 }
 
-async function setCopyModeAssistEnabled(
-  request: APIRequestContext,
-  enabled: boolean
-): Promise<void> {
-  const response = await request.post("/api/v1/agents/settings", {
-    headers: authHeaders(),
-    data: { copyModeAssistEnabled: enabled },
-  });
-  expect(response.ok()).toBe(true);
-}
-
 async function createAndStartAgent(
   request: APIRequestContext,
   name: string
@@ -172,7 +161,6 @@ test.describe("Terminal live connection", () => {
   test.skip(!IS_LIVE, "Requires --live agent runtime");
 
   test.afterEach(async ({ request }) => {
-    await setCopyModeAssistEnabled(request, false);
     await cleanupE2EAgents(request, "all");
   });
 
@@ -446,7 +434,6 @@ test.describe("Terminal live connection", () => {
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     expect(agent.tmuxSession).toBeTruthy();
     const tmuxSession = agent.tmuxSession!;
-    await setCopyModeAssistEnabled(request, true);
 
     await page.addInitScript(() => {
       const sentInput: string[] = [];

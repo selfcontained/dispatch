@@ -11,7 +11,6 @@ import type {
 import type { CopyModeAssistManager } from "../../terminal/copy-mode-assist-manager.js";
 
 export const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
-export const COPY_MODE_ASSIST_DISABLED_ERROR = "Copy mode assist is disabled.";
 export const AGENT_LATEST_EVENT_TYPES = [
   "working",
   "blocked",

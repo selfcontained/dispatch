@@ -505,7 +505,6 @@ async function registerRoutes() {
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
-    copyModeAssistManager,
   });
 
   await registerBrainRoutes(app, {

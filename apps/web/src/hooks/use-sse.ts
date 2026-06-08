@@ -19,7 +19,6 @@ import {
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
   | { type: "agent.upsert"; agent: Agent }
-  | { type: "agents.settings_changed" }
   | {
       type: "agent.terminal_state_changed";
       agentId: string;
@@ -106,11 +105,6 @@ export function useSSE(authState: AuthState): void {
             next[index] = payload.agent;
             return sortAgentsByCreatedAtDesc(next);
           });
-          return;
-        }
-
-        if (payload.type === "agents.settings_changed") {
-          void queryClient.invalidateQueries({ queryKey: ["agents-settings"] });
           return;
         }
 

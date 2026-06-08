@@ -12,7 +12,6 @@ import {
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { AppearanceSettings } from "@/components/app/appearance-settings";
-import { CopyModeAssistSettings } from "@/components/app/copy-mode-assist-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
 import { InstanceNameSettings } from "@/components/app/instance-name-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
@@ -299,9 +298,6 @@ export function SettingsContent({
         {activeSection === "agents" && (
           <div className="flex flex-col">
             <PersonalitySettings />
-            <div className="border-t border-border p-6">
-              <CopyModeAssistSettings />
-            </div>
             <div className="border-t border-border">
               <AgentTypeSettings
                 enabledAgentTypes={enabledAgentTypes}
