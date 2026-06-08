@@ -833,6 +833,46 @@ export function useTerminal(args: {
     };
     host.addEventListener("copy", handleCopy, true);
 
+    // On some platforms (iPad Safari), Cmd+C doesn't fire a `copy` event
+    // when xterm has a canvas-based selection. Intercept the keydown and
+    // write to clipboard directly. Try the async Clipboard API first
+    // (requires secure context), fall back to execCommand('copy') with
+    // a temporary textarea.
+    const copyToClipboard = (text: string): void => {
+      if (navigator.clipboard?.writeText) {
+        void navigator.clipboard.writeText(text).catch(() => {
+          copyViaTextarea(text);
+        });
+      } else {
+        copyViaTextarea(text);
+      }
+    };
+    const copyViaTextarea = (text: string): void => {
+      const ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.position = "fixed";
+      ta.style.opacity = "0";
+      document.body.appendChild(ta);
+      ta.select();
+      document.execCommand("copy");
+      ta.remove();
+    };
+    term.attachCustomKeyEventHandler((event) => {
+      if (
+        event.type === "keydown" &&
+        event.key === "c" &&
+        (event.metaKey || event.ctrlKey) &&
+        !event.shiftKey &&
+        !event.altKey &&
+        term.hasSelection()
+      ) {
+        copyToClipboard(cleanCopiedText(term.getSelection()));
+        event.preventDefault();
+        return false;
+      }
+      return true;
+    });
+
     // Upload a clipboard image to the host pasteboard, then send Ctrl+V so CLI
     // tools read it natively. This bridges the browser clipboard to the server.
     const syncClipboardImage = (blob: File): void => {
@@ -872,6 +912,32 @@ export function useTerminal(args: {
     host.addEventListener("paste", handlePaste, true);
 
     const screenEl = host.querySelector(".xterm-screen") as HTMLElement | null;
+
+    // Enable native long-press text selection for touch interactions.
+    // xterm's accessibility tree has user-select:text but its container
+    // has pointer-events:none. Override so long-press → drag handles work.
+    // Also override user-select inheritance from `.xterm { user-select: none }`
+    // and make the selection highlight visible over the terminal canvas.
+    if (isTouchDevice) {
+      const a11yEl = host.querySelector(
+        ".xterm-accessibility"
+      ) as HTMLElement | null;
+      if (a11yEl) {
+        a11yEl.style.pointerEvents = "auto";
+        a11yEl.style.userSelect = "text";
+        a11yEl.style.setProperty("-webkit-user-select", "text");
+        a11yEl.style.setProperty("-webkit-touch-callout", "default");
+        a11yEl.style.touchAction = "auto";
+      }
+      const selStyle = document.createElement("style");
+      selStyle.textContent = [
+        ".xterm .xterm-accessibility-tree *::selection {",
+        "  background: rgba(65, 132, 228, 0.35) !important;",
+        "}",
+      ].join("\n");
+      host.appendChild(selStyle);
+    }
+
     let touchY = 0;
     let touchAccum = 0;
     const TOUCH_SCROLL_SENSITIVITY_PX = 30;
@@ -896,6 +962,9 @@ export function useTerminal(args: {
     const onTouchMove = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
       if (!screenEl) return;
+      // Don't synthesize scroll while user is adjusting a text selection
+      const sel = window.getSelection();
+      if (sel && !sel.isCollapsed) return;
       const currentY = e.touches[0].clientY;
       const delta = touchY - currentY;
       touchY = currentY;
@@ -913,19 +982,33 @@ export function useTerminal(args: {
         );
       }
     };
-    // On touch devices, xterm's text-selection mousedown handler doesn't
-    // fire from a real touch tap. Re-dispatch with shift+alt set so xterm
-    // treats the tap as the start of a selection, which in turn focuses
-    // the screen so subsequent input events route correctly.
+    // Track the most recent pointer type so we can distinguish
+    // trackpad/mouse clicks from touch-originated synthetic mousedowns.
+    let lastPointerType: string = "mouse";
+    const onPointerDownTrack = (e: PointerEvent) => {
+      lastPointerType = e.pointerType;
+    };
+    host.addEventListener("pointerdown", onPointerDownTrack, true);
+
+    // Re-dispatch mouse/trackpad clicks with shift+alt so xterm treats
+    // them as forced selection instead of forwarding to tmux. Skip
+    // touch-originated mousedowns — those should fall through to native
+    // browser selection (long-press → drag handles → copy menu).
+    //
+    // Attached to `host` rather than `.xterm-screen` because xterm wraps
+    // the screen element inside a SmoothScrollableElement whose wrapper
+    // div receives the actual click target on some platforms (iPad).
     let dispatchingMouseDown = false;
     const onMouseDown = (e: MouseEvent) => {
       if (dispatchingMouseDown) return;
+      if (lastPointerType === "touch") return;
       if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)
         return;
       e.stopPropagation();
       e.preventDefault();
       dispatchingMouseDown = true;
-      (e.target as HTMLElement).dispatchEvent(
+      const dispatchTarget = screenEl ?? (e.target as HTMLElement);
+      dispatchTarget.dispatchEvent(
         new MouseEvent("mousedown", {
           bubbles: true,
           cancelable: true,
@@ -945,11 +1028,6 @@ export function useTerminal(args: {
       dispatchingMouseDown = false;
     };
 
-    // Intercept right-click (button 2) before xterm forwards it to tmux
-    // as an SGR mouse event, which triggers tmux's display-menu. Stopping
-    // propagation here keeps the browser's native contextmenu event intact
-    // so the user gets the standard copy/paste menu without a tmux menu
-    // overlapping it. Focus xterm's textarea so native Paste targets it.
     const onRightMouseDown = (e: MouseEvent) => {
       if (e.button !== 2) return;
       e.stopPropagation();
@@ -962,9 +1040,9 @@ export function useTerminal(args: {
 
     host.addEventListener("touchstart", onTouchStart, { passive: true });
     host.addEventListener("touchmove", onTouchMove, { passive: true });
+    host.addEventListener("mousedown", onMouseDown, true);
     const onWheel = () => noteScrollInteractionRef.current();
     if (screenEl) {
-      screenEl.addEventListener("mousedown", onMouseDown, true);
       screenEl.addEventListener("wheel", onWheel, { passive: true });
     }
 
@@ -1010,11 +1088,12 @@ export function useTerminal(args: {
       resizeObserver.disconnect();
       host.removeEventListener("copy", handleCopy, true);
       host.removeEventListener("paste", handlePaste, true);
-      host.removeEventListener("mousedown", onRightMouseDown, true);
       host.removeEventListener("touchstart", onTouchStart);
       host.removeEventListener("touchmove", onTouchMove);
+      host.removeEventListener("pointerdown", onPointerDownTrack, true);
+      host.removeEventListener("mousedown", onMouseDown, true);
+      host.removeEventListener("mousedown", onRightMouseDown, true);
       if (screenEl) {
-        screenEl.removeEventListener("mousedown", onMouseDown, true);
         screenEl.removeEventListener("wheel", onWheel);
       }
       window.removeEventListener("resize", onResize);
