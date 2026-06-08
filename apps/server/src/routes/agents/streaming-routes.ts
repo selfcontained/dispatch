@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import { errorMessage } from "../../shared/lib/error-message.js";
-import { escapeHtml, type AgentRouteDeps } from "./types.js";
+import { escapeHtml, type AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentStreamingRoutes(
   app: FastifyInstance,

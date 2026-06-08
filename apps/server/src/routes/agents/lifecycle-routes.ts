@@ -10,7 +10,7 @@ import {
   AGENT_LATEST_EVENT_TYPES,
   isAgentLatestEventType,
   type AgentRouteDeps,
-} from "./types.js";
+} from "./shared.js";
 
 export async function registerAgentLifecycleRoutes(
   app: FastifyInstance,

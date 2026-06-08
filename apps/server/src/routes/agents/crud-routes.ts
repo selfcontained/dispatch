@@ -25,7 +25,7 @@ import {
   CODEX_FULL_ACCESS_ARG,
   CLAUDE_FULL_ACCESS_ARG,
   type AgentRouteDeps,
-} from "./types.js";
+} from "./shared.js";
 
 export async function registerAgentCrudRoutes(
   app: FastifyInstance,

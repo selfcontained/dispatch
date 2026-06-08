@@ -10,7 +10,7 @@ import {
   COPY_MODE_ASSIST_DISABLED_ERROR,
   decodeClientMessage,
   type AgentRouteDeps,
-} from "./types.js";
+} from "./shared.js";
 
 export async function registerAgentTerminalRoutes(
   app: FastifyInstance,

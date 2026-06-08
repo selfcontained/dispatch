@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
-import type { AgentRouteDeps } from "./types.js";
+import type { AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentEventRoutes(
   app: FastifyInstance,
