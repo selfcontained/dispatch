@@ -22,13 +22,18 @@ import {
 import { api } from "@/lib/api";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
-
-const TERMINAL_HEARTBEAT_INTERVAL_MS = 20_000;
-const TERMINAL_LIVENESS_GRACE_MS = 5_000;
-const TERMINAL_FRESHNESS_MS =
-  TERMINAL_HEARTBEAT_INTERVAL_MS + TERMINAL_LIVENESS_GRACE_MS;
-const RESUME_RECONNECT_DEDUPE_MS = 150;
-const SOCKET_PROBE_TIMEOUT_MS = 1_500;
+import {
+  RESUME_RECONNECT_DEDUPE_MS,
+  clearSocketHealth,
+  createSocketHealth,
+  isRetriableTerminalFailure,
+  isSocketFresh,
+  isTerminalSessionGone,
+  markSocketHealthy,
+  noteSocketError,
+  openTerminalSocket,
+  probeTerminalSocket,
+} from "@/hooks/terminal-socket";
 
 function getTerminalFontFamily(): string {
   const fontFamily = getComputedStyle(document.documentElement)
@@ -37,29 +42,6 @@ function getTerminalFontFamily(): string {
   return fontFamily.length > 0
     ? fontFamily
     : '"JetBrains Mono", Menlo, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace';
-}
-
-type TerminalSocketMessage =
-  | { type: "heartbeat"; ts: number }
-  | { type: "output"; data: string }
-  | { type: "error"; message: string }
-  | { type: "exit"; exitCode?: number };
-
-function isTerminalSessionGone(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("session no longer exists") ||
-    normalized.includes("session is not available") ||
-    normalized.includes("tmux session is no longer running")
-  );
-}
-
-function isRetriableTerminalFailure(message: string): boolean {
-  const normalized = message.toLowerCase();
-  return (
-    normalized.includes("invalid or expired terminal token") ||
-    normalized.includes("attach failed")
-  );
 }
 
 /** Strip terminal line-wrap artifacts from copied text. */
@@ -176,14 +158,7 @@ export function useTerminal(args: {
     promise: Promise<void>;
   } | null>(null);
   const lastResumeTriggerAtRef = useRef(0);
-  const socketHealthRef = useRef({
-    lastHeartbeatAt: 0,
-    lastOutputAt: 0,
-    lastHealthyAt: 0,
-    lastOpenAt: 0,
-    lastErrorMessage: null as string | null,
-    sessionGone: false,
-  });
+  const socketHealthRef = useRef(createSocketHealth());
 
   // Ref for agents so ensureTerminalConnected doesn't get recreated on every
   // SSE-driven agents array update (which would trigger the visibility/focus
@@ -258,94 +233,27 @@ export function useTerminal(args: {
     }, 300);
   }, []);
 
-  const clearSocketHealth = useCallback(() => {
-    socketHealthRef.current = {
-      lastHeartbeatAt: 0,
-      lastOutputAt: 0,
-      lastHealthyAt: 0,
-      lastOpenAt: 0,
-      lastErrorMessage: null,
-      sessionGone: false,
-    };
-  }, []);
-
   const resetTerminalState = useCallback(() => {
     setExitPending(false);
-  }, []);
-
-  const markSocketHealthy = useCallback(
-    (source: "open" | "heartbeat" | "output") => {
-      const now = Date.now();
-      if (source === "open") {
-        socketHealthRef.current.lastOpenAt = now;
-      } else if (source === "heartbeat") {
-        socketHealthRef.current.lastHeartbeatAt = now;
-      } else {
-        socketHealthRef.current.lastOutputAt = now;
-      }
-      socketHealthRef.current.lastHealthyAt = now;
-      socketHealthRef.current.lastErrorMessage = null;
-      socketHealthRef.current.sessionGone = false;
-    },
-    []
-  );
-
-  const noteTerminalError = useCallback((message: string) => {
-    socketHealthRef.current.lastErrorMessage = message;
-    socketHealthRef.current.sessionGone = isTerminalSessionGone(message);
   }, []);
 
   const hasFreshSocket = useCallback((agentId: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     if (connectedAgentIdRef.current !== agentId) return false;
-    return (
-      Date.now() - socketHealthRef.current.lastHealthyAt <=
-      TERMINAL_FRESHNESS_MS
-    );
+    return isSocketFresh(socketHealthRef.current);
   }, []);
 
-  /** Probe an open-but-stale socket: send a resize and wait for any server message. */
-  const probeSocket = useCallback(
-    (agentId: string): Promise<boolean> => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN)
-        return Promise.resolve(false);
-      if (connectedAgentIdRef.current !== agentId)
-        return Promise.resolve(false);
-
-      return new Promise((resolve) => {
-        let settled = false;
-        const settle = (alive: boolean) => {
-          if (settled) return;
-          settled = true;
-          ws.removeEventListener("message", onMsg);
-          ws.removeEventListener("close", onClose);
-          clearTimeout(timer);
-          resolve(alive);
-        };
-
-        const onMsg = () => {
-          markSocketHealthy("heartbeat");
-          settle(true);
-        };
-        const onClose = () => settle(false);
-        const timer = setTimeout(() => settle(false), SOCKET_PROBE_TIMEOUT_MS);
-
-        ws.addEventListener("message", onMsg);
-        ws.addEventListener("close", onClose);
-
-        // Trigger server activity by sending a resize.
-        const term = terminalRef.current;
-        if (term) {
-          ws.send(
-            JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows })
-          );
-        }
-      });
-    },
-    [markSocketHealthy]
-  );
+  const probeSocket = useCallback((agentId: string): Promise<boolean> => {
+    const ws = wsRef.current;
+    if (!ws || ws.readyState !== WebSocket.OPEN) return Promise.resolve(false);
+    if (connectedAgentIdRef.current !== agentId) return Promise.resolve(false);
+    const term = terminalRef.current;
+    if (!term) return Promise.resolve(false);
+    return probeTerminalSocket(ws, term.cols, term.rows, () =>
+      markSocketHealthy(socketHealthRef.current, "heartbeat")
+    );
+  }, []);
 
   const clearReconnectTimer = useCallback(() => {
     if (reconnectTimerRef.current) {
@@ -372,8 +280,8 @@ export function useTerminal(args: {
       } catch {}
       wsRef.current = null;
     }
-    clearSocketHealth();
-  }, [clearSocketHealth]);
+    clearSocketHealth(socketHealthRef.current);
+  }, []);
 
   const restoreConnectedState = useCallback(
     (agent: Agent, mode: "tmux" | "inert", message?: string) => {
@@ -546,95 +454,75 @@ export function useTerminal(args: {
             return;
           }
 
-          const protocol =
-            window.location.protocol === "https:" ? "wss:" : "ws:";
           const term = terminalRef.current;
           const cols = term?.cols ?? 140;
           const rows = term?.rows ?? 42;
           setTerminalMode("tmux");
           setTerminalPlaceholderMessage(null);
-          const ws = new WebSocket(
-            `${protocol}//${window.location.host}${terminalSession.wsUrl}&cols=${cols}&rows=${rows}`
+          const ws = openTerminalSocket(
+            terminalSession.wsUrl,
+            cols,
+            rows,
+            {
+              onOpen: () => {
+                markSocketHealthy(socketHealthRef.current, "open");
+                restoreConnectedState(agent, "tmux");
+                focusTerminalSurface(terminalRef.current);
+                void queryClient.invalidateQueries({
+                  queryKey: ["terminal-state", agent.id],
+                  exact: true,
+                });
+              },
+              onHeartbeat: () =>
+                markSocketHealthy(socketHealthRef.current, "heartbeat"),
+              onOutput: (data) => {
+                markSocketHealthy(socketHealthRef.current, "output");
+                terminalRef.current?.write(data);
+              },
+              onError: (message) => {
+                noteSocketError(socketHealthRef.current, message);
+                setStatusMessage(`Session error: ${message}`);
+                if (isTerminalSessionGone(message)) {
+                  shouldKeepAttachedRef.current = false;
+                }
+              },
+              onSessionEnd: () => {
+                noteSocketError(socketHealthRef.current, "Session ended.");
+                socketHealthRef.current.sessionGone = true;
+                shouldKeepAttachedRef.current = false;
+                setStatusMessage("Session ended.");
+              },
+              onClose: (event) => {
+                wsRef.current = null;
+                const lastErrorMessage =
+                  socketHealthRef.current.lastErrorMessage;
+                const sessionGone = socketHealthRef.current.sessionGone;
+                clearSocketHealth(socketHealthRef.current);
+
+                if (sessionGone) {
+                  shouldKeepAttachedRef.current = false;
+                  setConnectedAgentId(null);
+                  setTerminalMode(null);
+                  resetTerminalSurface();
+                  setConnState("disconnected");
+                  return;
+                }
+
+                if (
+                  event.code === 1008 &&
+                  lastErrorMessage &&
+                  isRetriableTerminalFailure(lastErrorMessage)
+                ) {
+                  scheduleReconnect("Session token expired, retrying...");
+                  return;
+                }
+
+                scheduleReconnect("Session disconnected, reconnecting...");
+              },
+            },
+            () => wsRef.current !== ws || !isCurrentAttempt()
           );
           wsRef.current = ws;
-
-          ws.addEventListener("open", () => {
-            if (wsRef.current !== ws || !isCurrentAttempt()) {
-              try {
-                ws.close();
-              } catch {}
-              return;
-            }
-            markSocketHealthy("open");
-            restoreConnectedState(agent, "tmux");
-            focusTerminalSurface(terminalRef.current);
-            void queryClient.invalidateQueries({
-              queryKey: ["terminal-state", agent.id],
-              exact: true,
-            });
-          });
-
-          ws.addEventListener("message", (event) => {
-            if (wsRef.current !== ws || !isCurrentAttempt()) {
-              return;
-            }
-            const payload = JSON.parse(
-              String(event.data)
-            ) as TerminalSocketMessage;
-
-            if (payload.type === "heartbeat") {
-              markSocketHealthy("heartbeat");
-              return;
-            }
-
-            if (payload.type === "output") {
-              markSocketHealthy("output");
-              terminalRef.current?.write(payload.data);
-              return;
-            }
-
-            if (payload.type === "error") {
-              noteTerminalError(payload.message);
-              setStatusMessage(`Session error: ${payload.message}`);
-              if (isTerminalSessionGone(payload.message)) {
-                shouldKeepAttachedRef.current = false;
-              }
-              return;
-            }
-
-            noteTerminalError("Session ended.");
-            socketHealthRef.current.sessionGone = true;
-            shouldKeepAttachedRef.current = false;
-            setStatusMessage("Session ended.");
-          });
-
-          ws.addEventListener("close", (event) => {
-            if (wsRef.current !== ws || !isCurrentAttempt()) return;
-            wsRef.current = null;
-            const lastErrorMessage = socketHealthRef.current.lastErrorMessage;
-            const sessionGone = socketHealthRef.current.sessionGone;
-            clearSocketHealth();
-
-            if (sessionGone) {
-              shouldKeepAttachedRef.current = false;
-              setConnectedAgentId(null);
-              setTerminalMode(null);
-              resetTerminalSurface();
-              setConnState("disconnected");
-              return;
-            }
-
-            if (
-              event.code === 1008 &&
-              lastErrorMessage &&
-              isRetriableTerminalFailure(lastErrorMessage)
-            ) {
-              scheduleReconnect("Session token expired, retrying...");
-              return;
-            }
-
-            scheduleReconnect("Session disconnected, reconnecting...");
-          });
         } catch (error) {
           if (!isCurrentAttempt()) {
             return;
@@ -676,12 +564,9 @@ export function useTerminal(args: {
     },
     [
       clearReconnectTimer,
-      clearSocketHealth,
       closeSocket,
       closeSocketTransport,
       hasFreshSocket,
-      markSocketHealthy,
-      noteTerminalError,
       probeSocket,
       queryClient,
       resetTerminalState,
