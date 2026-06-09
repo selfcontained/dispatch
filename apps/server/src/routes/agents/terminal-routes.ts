@@ -117,6 +117,30 @@ export async function registerAgentTerminalRoutes(
     }
   );
 
+  app.post("/api/v1/agents/:id/terminal/inject", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const body = request.body as { text?: unknown } | null;
+    const id = params.id ?? "";
+    const text = typeof body?.text === "string" ? body.text : "";
+
+    if (!text) {
+      return reply.code(400).send({ error: "text is required." });
+    }
+
+    try {
+      const access = await deps.agentManager.getTerminalAccess(id);
+      if (access.mode !== "tmux") {
+        return reply.code(409).send({ error: access.message });
+      }
+
+      const terminal = new TmuxTerminal(access.sessionName);
+      await terminal.sendCommand(text);
+      return reply.code(204).send();
+    } catch (error) {
+      return deps.handleAgentError(reply, error);
+    }
+  });
+
   app.get(
     "/api/v1/agents/:id/terminal/ws",
     { websocket: true },
