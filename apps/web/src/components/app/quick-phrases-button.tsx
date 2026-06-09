@@ -9,6 +9,8 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { toast } from "sonner";
+
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -50,6 +52,7 @@ export function QuickPhrasesButton({
       setNewText("");
       inputRef.current?.focus();
     },
+    onError: () => toast.error("Failed to save phrase"),
   });
 
   const deleteMutation = useMutation({
@@ -58,6 +61,7 @@ export function QuickPhrasesButton({
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["quick-phrases"] });
     },
+    onError: () => toast.error("Failed to delete phrase"),
   });
 
   const injectMutation = useMutation({
@@ -70,6 +74,7 @@ export function QuickPhrasesButton({
       setOpen(false);
       focusTerminal();
     },
+    onError: () => toast.error("Failed to send phrase"),
   });
 
   const handleAdd = useCallback(() => {
@@ -114,14 +119,17 @@ export function QuickPhrasesButton({
                     "flex-1 truncate px-3 py-2 text-left text-sm text-foreground hover:bg-white/[0.06]",
                     injectMutation.isPending && "pointer-events-none opacity-50"
                   )}
-                  onClick={() => injectMutation.mutate(phrase.text)}
+                  onClick={() => {
+                    if (injectMutation.isPending) return;
+                    injectMutation.mutate(phrase.text);
+                  }}
                   title={phrase.text}
                 >
                   {phrase.text}
                 </button>
                 <button
                   type="button"
-                  className="mr-1 hidden rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground group-hover:block"
+                  className="mr-1 hidden rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground group-hover:block group-focus-within:block"
                   onClick={() => deleteMutation.mutate(phrase.id)}
                   title="Remove phrase"
                 >
