@@ -29,6 +29,8 @@
 * Split routes/agents.ts into domain-focused modules by @selfcontained in https://github.com/selfcontained/dispatch/pull/653
 * Docs: add webhook trigger to in-app Jobs section by @selfcontained in https://github.com/selfcontained/dispatch/pull/640
 * Fix terminal copy/selection for tablets and mobile by @selfcontained in https://github.com/selfcontained/dispatch/pull/654
+* Remove settings toggles: always-on localhost rewrite & scrollback banner by @selfcontained in https://github.com/selfcontained/dispatch/pull/655
+* Skip flaky jobs/service.test.ts to unblock release by @selfcontained in https://github.com/selfcontained/dispatch/pull/656
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.21.9...v0.22.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.21.9...v0.23.0
