@@ -53,9 +53,30 @@ describe("POST /api/v1/quick-phrases", () => {
     expect(res.statusCode).toBe(201);
     const { phrase } = res.json();
     expect(phrase.text).toBe("looks good");
+    expect(phrase.label).toBeNull();
     expect(phrase.id).toBeDefined();
     expect(phrase.sortOrder).toBe(0);
     expect(phrase.createdAt).toBeDefined();
+  });
+
+  it("creates a phrase with a label", async () => {
+    const res = await authedInject("POST", "/api/v1/quick-phrases", {
+      text: "please continue with the implementation",
+      label: "Continue",
+    });
+    expect(res.statusCode).toBe(201);
+    const { phrase } = res.json();
+    expect(phrase.text).toBe("please continue with the implementation");
+    expect(phrase.label).toBe("Continue");
+  });
+
+  it("trims label whitespace and normalizes empty to null", async () => {
+    const res = await authedInject("POST", "/api/v1/quick-phrases", {
+      text: "hello",
+      label: "   ",
+    });
+    expect(res.statusCode).toBe(201);
+    expect(res.json().phrase.label).toBeNull();
   });
 
   it("rejects empty text", async () => {
@@ -72,12 +93,90 @@ describe("POST /api/v1/quick-phrases", () => {
     expect(res.statusCode).toBe(400);
   });
 
+  it("rejects label over 200 characters", async () => {
+    const res = await authedInject("POST", "/api/v1/quick-phrases", {
+      text: "hello",
+      label: "x".repeat(201),
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
   it("trims whitespace", async () => {
     const res = await authedInject("POST", "/api/v1/quick-phrases", {
       text: "  hello  ",
     });
     expect(res.statusCode).toBe(201);
     expect(res.json().phrase.text).toBe("hello");
+  });
+});
+
+describe("PATCH /api/v1/quick-phrases/:id", () => {
+  it("updates text only", async () => {
+    const createRes = await authedInject("POST", "/api/v1/quick-phrases", {
+      text: "original",
+    });
+    const { id } = createRes.json().phrase;
+    const res = await authedInject("PATCH", `/api/v1/quick-phrases/${id}`, {
+      text: "updated",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().phrase.text).toBe("updated");
+    expect(res.json().phrase.label).toBeNull();
+  });
+
+  it("updates label only", async () => {
+    const createRes = await authedInject("POST", "/api/v1/quick-phrases", {
+      text: "some text",
+    });
+    const { id } = createRes.json().phrase;
+    const res = await authedInject("PATCH", `/api/v1/quick-phrases/${id}`, {
+      label: "My Label",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().phrase.label).toBe("My Label");
+    expect(res.json().phrase.text).toBe("some text");
+  });
+
+  it("clears label by sending null", async () => {
+    const createRes = await authedInject("POST", "/api/v1/quick-phrases", {
+      text: "text",
+      label: "Label",
+    });
+    const { id } = createRes.json().phrase;
+    const res = await authedInject("PATCH", `/api/v1/quick-phrases/${id}`, {
+      label: null,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().phrase.label).toBeNull();
+  });
+
+  it("rejects empty text", async () => {
+    const createRes = await authedInject("POST", "/api/v1/quick-phrases", {
+      text: "original",
+    });
+    const { id } = createRes.json().phrase;
+    const res = await authedInject("PATCH", `/api/v1/quick-phrases/${id}`, {
+      text: "",
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects empty body", async () => {
+    const createRes = await authedInject("POST", "/api/v1/quick-phrases", {
+      text: "original",
+    });
+    const { id } = createRes.json().phrase;
+    const res = await authedInject("PATCH", `/api/v1/quick-phrases/${id}`, {});
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("returns 404 for non-existent phrase", async () => {
+    const res = await authedInject(
+      "PATCH",
+      "/api/v1/quick-phrases/00000000-0000-0000-0000-000000000000",
+      { text: "nope" }
+    );
+    expect(res.statusCode).toBe(404);
   });
 });
 

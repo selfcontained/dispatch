@@ -5,9 +5,11 @@ import {
   createQuickPhrase,
   deleteQuickPhrase,
   listQuickPhrases,
+  updateQuickPhrase,
 } from "../db/quick-phrases.js";
 
 const TEXT_MAX = 1000;
+const LABEL_MAX = 200;
 
 type QuickPhraseRouteDeps = {
   pool: Pool;
@@ -25,8 +27,12 @@ export async function registerQuickPhraseRoutes(
   });
 
   app.post("/api/v1/quick-phrases", async (request, reply) => {
-    const body = request.body as { text?: unknown } | null;
+    const body = request.body as {
+      text?: unknown;
+      label?: unknown;
+    } | null;
     const text = typeof body?.text === "string" ? body.text.trim() : "";
+    const label = typeof body?.label === "string" ? body.label.trim() : null;
 
     if (!text) {
       return reply.code(400).send({ error: "text is required." });
@@ -36,9 +42,63 @@ export async function registerQuickPhraseRoutes(
         .code(400)
         .send({ error: `text must be ${TEXT_MAX} characters or fewer.` });
     }
+    if (label && label.length > LABEL_MAX) {
+      return reply
+        .code(400)
+        .send({ error: `label must be ${LABEL_MAX} characters or fewer.` });
+    }
 
-    const phrase = await createQuickPhrase(pool, { text });
+    const phrase = await createQuickPhrase(pool, {
+      text,
+      label: label || null,
+    });
     return reply.code(201).send({ phrase });
+  });
+
+  app.patch("/api/v1/quick-phrases/:id", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const body = request.body as {
+      text?: unknown;
+      label?: unknown;
+    } | null;
+
+    const updates: { text?: string; label?: string | null } = {};
+
+    if (body && "text" in body) {
+      const text = typeof body.text === "string" ? body.text.trim() : "";
+      if (!text) {
+        return reply.code(400).send({ error: "text must not be empty." });
+      }
+      if (text.length > TEXT_MAX) {
+        return reply
+          .code(400)
+          .send({ error: `text must be ${TEXT_MAX} characters or fewer.` });
+      }
+      updates.text = text;
+    }
+
+    if (body && "label" in body) {
+      const label = typeof body.label === "string" ? body.label.trim() : null;
+      if (label && label.length > LABEL_MAX) {
+        return reply
+          .code(400)
+          .send({ error: `label must be ${LABEL_MAX} characters or fewer.` });
+      }
+      updates.label = label || null;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return reply
+        .code(400)
+        .send({ error: "At least one field (text, label) must be provided." });
+    }
+
+    const phrase = await updateQuickPhrase(pool, id, updates);
+    if (!phrase) {
+      return reply.code(404).send({ error: "Phrase not found." });
+    }
+    return { phrase };
   });
 
   app.delete("/api/v1/quick-phrases/:id", async (request, reply) => {
