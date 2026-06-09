@@ -156,17 +156,11 @@ export function AgentsContent() {
       <Section>
         <H3>Tmux scrollback</H3>
         <P>
-          By default, attaching to an agent puts you in tmux's live mode and
-          scrolling the wheel sends arrow-key events to whatever program is
-          running. Turn on{" "}
-          <strong>Settings → Agents → Tmux scrollback assist</strong> (off by
-          default) to enable a passive copy-mode helper: when you scroll up (or
-          otherwise enter tmux copy mode), Dispatch shows an{" "}
+          Attaching to an agent puts you in tmux's live mode. When you scroll up
+          (or otherwise enter tmux copy mode), Dispatch shows an{" "}
           <em>Input paused — scroll · click · Esc</em> banner over the terminal.
           Clicking the banner or pressing <Code>Esc</Code> drops you back to
-          live so your next keystroke goes to the agent. With the assist off,
-          Dispatch makes no changes to tmux's mouse mode and does not observe
-          copy mode at all.
+          live so your next keystroke goes to the agent.
         </P>
       </Section>
 

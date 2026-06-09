@@ -352,12 +352,12 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 
-| Method | Path                        | Description                                                                         |
-| ------ | --------------------------- | ----------------------------------------------------------------------------------- |
-| GET    | `/agents/settings`          | Get agent settings (worktree location, icon color, instance name, copy-mode assist) |
-| POST   | `/agents/settings`          | Update agent settings (all fields optional)                                         |
-| GET    | `/app/settings/agent-types` | Get enabled agent types                                                             |
-| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`)       |
+| Method | Path                        | Description                                                                   |
+| ------ | --------------------------- | ----------------------------------------------------------------------------- |
+| GET    | `/agents/settings`          | Get agent settings (worktree location, icon color, instance name)             |
+| POST   | `/agents/settings`          | Update agent settings (all fields optional)                                   |
+| GET    | `/app/settings/agent-types` | Get enabled agent types                                                       |
+| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`) |
 
 ## System
 

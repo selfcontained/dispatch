@@ -20,7 +20,7 @@ dispatch/
 │   │   │   ├── reviews/       # review injection prompts
 │   │   │   ├── routes/        # HTTP route handlers
 │   │   │   ├── server/        # server runtime helpers (lifecycle, auth, prompts)
-│   │   │   ├── shared/        # shared utilities — git/, github/, mcp/, lib/ (run-command)
+│   │   │   ├── shared/        # shared utilities — git/, github/, lib/, mcp/, terminal/
 │   │   │   ├── templates/     # template service and storage
 │   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
