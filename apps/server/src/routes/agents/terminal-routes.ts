@@ -123,8 +123,16 @@ export async function registerAgentTerminalRoutes(
     const id = params.id ?? "";
     const text = typeof body?.text === "string" ? body.text : "";
 
+    const TEXT_INJECT_MAX = 10_000;
     if (!text) {
       return reply.code(400).send({ error: "text is required." });
+    }
+    if (text.length > TEXT_INJECT_MAX) {
+      return reply
+        .code(400)
+        .send({
+          error: `text must be ${TEXT_INJECT_MAX} characters or fewer.`,
+        });
     }
 
     try {
