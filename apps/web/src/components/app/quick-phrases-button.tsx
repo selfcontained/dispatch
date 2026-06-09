@@ -35,9 +35,10 @@ export function QuickPhrasesButton({
   agentId,
   focusTerminal,
 }: {
-  agentId: string;
+  agentId: string | null;
   focusTerminal: () => void;
 }) {
+  const canInject = agentId !== null;
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<EditingPhrase>(null);
   const queryClient = useQueryClient();
@@ -93,11 +94,13 @@ export function QuickPhrasesButton({
   });
 
   const injectMutation = useMutation({
-    mutationFn: (text: string) =>
-      api<null>(`/api/v1/agents/${agentId}/terminal/inject`, {
+    mutationFn: (text: string) => {
+      if (!agentId) throw new Error("No active session");
+      return api<null>(`/api/v1/agents/${agentId}/terminal/inject`, {
         method: "POST",
         body: JSON.stringify({ text }),
-      }),
+      });
+    },
     onSuccess: () => {
       setOpen(false);
       focusTerminal();
@@ -162,15 +165,22 @@ export function QuickPhrasesButton({
                   <button
                     type="button"
                     className={cn(
-                      "flex-1 truncate px-3 py-2 text-left text-sm hover:bg-white/[0.06]",
+                      "flex-1 truncate px-3 py-2 text-left text-sm",
+                      canInject
+                        ? "hover:bg-white/[0.06]"
+                        : "cursor-default opacity-50",
                       injectMutation.isPending &&
                         "pointer-events-none opacity-50"
                     )}
                     onClick={() => {
-                      if (injectMutation.isPending) return;
+                      if (!canInject || injectMutation.isPending) return;
                       injectMutation.mutate(phrase.text);
                     }}
-                    title={phrase.text}
+                    title={
+                      canInject
+                        ? phrase.text
+                        : "Connect to an agent session to inject"
+                    }
                   >
                     <span className="text-foreground">
                       {phrase.label || phrase.text}

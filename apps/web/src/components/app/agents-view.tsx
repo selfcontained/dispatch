@@ -567,12 +567,14 @@ export function AgentsView({
                     <PanelRightOpen className="h-4 w-4" />
                   </Button>
                 ) : null}
-                {hasActiveAgent && connState === "connected" ? (
-                  <QuickPhrasesButton
-                    agentId={focusedAgentId!}
-                    focusTerminal={focusTerminal}
-                  />
-                ) : null}
+                <QuickPhrasesButton
+                  agentId={
+                    hasActiveAgent && connState === "connected"
+                      ? focusedAgentId!
+                      : null
+                  }
+                  focusTerminal={focusTerminal}
+                />
               </div>
               <div className="relative h-full min-h-0 min-w-0 pb-14 pt-14">
                 {focusedAgent?.name ? (
