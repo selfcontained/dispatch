@@ -242,7 +242,6 @@ export class JobService {
     report: unknown
   ): Promise<JobRunRecord> {
     const run = await this.store.completeRunForAgent(agentId, report);
-    this.monitors.delete(run.id);
     this.emitRunStateChange(run);
     return run;
   }
@@ -252,7 +251,6 @@ export class JobService {
     report: unknown
   ): Promise<JobRunRecord> {
     const run = await this.store.failRunForAgent(agentId, report);
-    this.monitors.delete(run.id);
     this.emitRunStateChange(run);
     return run;
   }
@@ -678,6 +676,7 @@ export class JobService {
     if (this.stopping || this.monitors.has(runId)) return;
     const monitor = this.monitorRun(runId)
       .catch(async (error) => {
+        if (this.stopping) return undefined as unknown as JobRunRecord;
         this.logger.warn({ err: error, runId }, "Job monitor failed.");
         const run = await this.store.getRun(runId);
         if (run && ACTIVE_RUN_STATUSES.has(run.status)) {
@@ -736,6 +735,7 @@ export class JobService {
         );
       }
       await sleep(2_000);
+      if (this.stopping) break;
       const refreshed = await this.store.getRun(runId);
       if (!refreshed) throw new Error(`Job run ${runId} disappeared.`);
       current = refreshed;

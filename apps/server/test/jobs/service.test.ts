@@ -105,7 +105,7 @@ beforeEach(async () => {
   } as Awaited<ReturnType<AgentManager["getAgent"]>>);
 });
 
-describe.skip("JobService", () => {
+describe("JobService", () => {
   describe("onRunStateChange callbacks", () => {
     it("fires callbacks and handles errors in individual callbacks", async () => {
       const service = new JobService(
