@@ -12,14 +12,12 @@ import {
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { AppearanceSettings } from "@/components/app/appearance-settings";
-import { CopyModeAssistSettings } from "@/components/app/copy-mode-assist-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
 import { InstanceNameSettings } from "@/components/app/instance-name-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { PersonalitySettings } from "@/components/app/personality-settings";
 import { ReleasesAdmin } from "@/components/app/release-admin";
-import { RewriteLocalhostPinsSettings } from "@/components/app/rewrite-localhost-pins-settings";
 import { UpdatesSection } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { ServiceStatus } from "@/components/app/service-status";
@@ -292,9 +290,6 @@ export function SettingsContent({
                 clearIconColorError={clearIconColorError}
               />
             </div>
-            <div className="border-t border-border p-4 md:p-6">
-              <RewriteLocalhostPinsSettings />
-            </div>
             <div className="border-t border-border">
               <SecuritySettings onLogout={onLogout} />
             </div>
@@ -303,9 +298,6 @@ export function SettingsContent({
         {activeSection === "agents" && (
           <div className="flex flex-col">
             <PersonalitySettings />
-            <div className="border-t border-border p-6">
-              <CopyModeAssistSettings />
-            </div>
             <div className="border-t border-border">
               <AgentTypeSettings
                 enabledAgentTypes={enabledAgentTypes}

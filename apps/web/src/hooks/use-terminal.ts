@@ -19,7 +19,6 @@ import {
   type TerminalCopyMode,
   type TerminalUiState,
 } from "@/components/app/types";
-import { useAgentSettings } from "@/hooks/use-agent-settings";
 import { api } from "@/lib/api";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
@@ -195,11 +194,6 @@ export function useTerminal(args: {
   deferMediaResizeRef.current = deferMediaResize;
   const lastInteractionHintAtRef = useRef(0);
 
-  const { data: agentSettings } = useAgentSettings();
-  const copyModeAssistEnabled = agentSettings?.copyModeAssistEnabled ?? false;
-  const copyModeAssistEnabledRef = useRef(copyModeAssistEnabled);
-  copyModeAssistEnabledRef.current = copyModeAssistEnabled;
-
   const { data: terminalState } = useQuery<TerminalUiState>({
     queryKey: ["terminal-state", connectedAgentId],
     queryFn: async () => {
@@ -212,7 +206,6 @@ export function useTerminal(args: {
       return payload.terminalState;
     },
     enabled:
-      copyModeAssistEnabled &&
       terminalMode === "tmux" &&
       connState === "connected" &&
       connectedAgentId !== null,
@@ -220,9 +213,7 @@ export function useTerminal(args: {
     staleTime: Number.POSITIVE_INFINITY,
   });
   const serverCopyMode =
-    terminalMode !== "tmux" || !copyModeAssistEnabled
-      ? "live"
-      : (terminalState?.copyMode ?? "unknown");
+    terminalMode !== "tmux" ? "live" : (terminalState?.copyMode ?? "unknown");
   const copyMode: TerminalCopyMode | "unknown" =
     exitPending &&
     (serverCopyMode === "unknown" || serverCopyMode === "exiting")
@@ -725,11 +716,7 @@ export function useTerminal(args: {
 
   const noteScrollInteraction = useCallback(() => {
     const agentId = connectedAgentIdRef.current;
-    if (
-      !copyModeAssistEnabledRef.current ||
-      !agentId ||
-      terminalMode !== "tmux"
-    ) {
+    if (!agentId || terminalMode !== "tmux") {
       return;
     }
     const now = Date.now();
@@ -752,12 +739,7 @@ export function useTerminal(args: {
 
   const exitCopyMode = useCallback(async () => {
     const agentId = connectedAgentIdRef.current;
-    if (
-      !copyModeAssistEnabled ||
-      !agentId ||
-      terminalMode !== "tmux" ||
-      copyMode === "live"
-    ) {
+    if (!agentId || terminalMode !== "tmux" || copyMode === "live") {
       return;
     }
 
@@ -776,7 +758,7 @@ export function useTerminal(args: {
       setExitPending(false);
       throw error;
     }
-  }, [copyMode, copyModeAssistEnabled, terminalMode]);
+  }, [copyMode, terminalMode]);
   exitCopyModeRef.current = exitCopyMode;
   noteScrollInteractionRef.current = noteScrollInteraction;
 
@@ -941,19 +923,6 @@ export function useTerminal(args: {
     let touchY = 0;
     let touchAccum = 0;
     const TOUCH_SCROLL_SENSITIVITY_PX = 30;
-    // ⚠️ CRITICAL — DO NOT add a copyModeAssistEnabled (or similar)
-    // gate to these touch handlers. Tmux scroll on mobile is critical
-    // functionality and is independent of the assist toggle.
-    //
-    // xterm has no native touch handling, so this synthesis is the ONLY
-    // path that makes touch scroll work at all. tmux mouse mode is
-    // enabled unconditionally at session launch (see
-    // apps/server/src/agents/tmux/runtime.ts), so the synthetic wheel
-    // events are forwarded to tmux as SGR mouse codes regardless of the
-    // toggle. The toggle controls *only* the banner UI / the passive
-    // copy-mode observer. PR #459 originally tied this synthesis to the
-    // toggle and silently killed scroll for everyone with the toggle
-    // off — do not repeat that mistake.
     const onTouchStart = (e: TouchEvent) => {
       if (!isTouchDevice || e.touches.length !== 1) return;
       touchY = e.touches[0].clientY;

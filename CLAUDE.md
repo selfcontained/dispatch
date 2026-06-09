@@ -41,6 +41,15 @@ dispatch/
 - Use `pnpm` (not npm) for all package management.
 - Shared utilities live in `apps/server/src/shared/` — import via relative paths (e.g. `../shared/lib/run-command.js`).
 
+## CRITICAL: Stay in Your Worktree
+
+If you were started in a git worktree (check: does your working directory contain `.dispatch/worktrees/`?), **every file path you read, write, edit, or delete MUST use the worktree path**. Never `cd` to or reference the parent repo at `/Users/brad/dev/apps/dispatch/` directly — that is the main working tree and other agents or the user may be working there. Edits to the wrong tree silently land in the wrong place, cause merge conflicts, and get lost.
+
+- Your working directory is your worktree root. Use relative paths or the full worktree-prefixed absolute path.
+- Run `git` commands from your worktree — they automatically operate on the correct branch.
+- Run `pnpm`, `vitest`, and other tools from the worktree root so they pick up your changes.
+- If you need to verify which tree you are in: `git rev-parse --show-toplevel`.
+
 ## CRITICAL: Dispatch Status Events (Mandatory)
 
 - You MUST call the `dispatch_event` MCP tool throughout every task turn. These events drive the agent status indicator in the Dispatch UI — the more frequently and accurately you report, the more useful the dashboard becomes.

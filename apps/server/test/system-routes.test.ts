@@ -196,7 +196,6 @@ describe("GET /api/v1/agents/settings", () => {
     expect(body.worktreeLocation).toBe("sibling");
     expect(typeof body.iconColor).toBe("string");
     expect(typeof body.instanceName).toBe("string");
-    expect(typeof body.copyModeAssistEnabled).toBe("boolean");
   });
 });
 
@@ -303,28 +302,6 @@ describe("POST /api/v1/agents/settings", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().instanceName).toBe("");
-  });
-
-  it("rejects non-boolean copyModeAssistEnabled", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/agents/settings",
-      headers: { cookie: sessionCookie },
-      payload: { copyModeAssistEnabled: "yes" },
-    });
-    expect(res.statusCode).toBe(400);
-    expect(res.json().error).toMatch(/copyModeAssistEnabled/);
-  });
-
-  it("accepts boolean copyModeAssistEnabled", async () => {
-    const res = await ctx.app.inject({
-      method: "POST",
-      url: "/api/v1/agents/settings",
-      headers: { cookie: sessionCookie },
-      payload: { copyModeAssistEnabled: true },
-    });
-    expect(res.statusCode).toBe(200);
-    expect(res.json().copyModeAssistEnabled).toBe(true);
   });
 
   it("truncates instanceName to 100 characters", async () => {

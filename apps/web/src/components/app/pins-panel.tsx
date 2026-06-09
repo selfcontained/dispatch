@@ -4,7 +4,6 @@ import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
-import { useRewriteLocalhostPins } from "@/hooks/use-rewrite-localhost-pins";
 import { splitPinValues } from "@/lib/pins";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -289,9 +288,8 @@ export function PinItem({
   pin: AgentPin;
   workspaceRoot: string | null;
 }): JSX.Element {
-  const { enabled: rewriteLocalhost } = useRewriteLocalhostPins();
   const effectiveValue =
-    rewriteLocalhost && pin.type === "url"
+    pin.type === "url"
       ? rewritePinUrl(pin.value, window.location.host)
       : pin.value;
   const values = splitPinValues(pin.type, effectiveValue);
