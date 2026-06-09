@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS quick_phrases (
+  id TEXT PRIMARY KEY,
+  text TEXT NOT NULL,
+  sort_order INTEGER NOT NULL DEFAULT 0,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
