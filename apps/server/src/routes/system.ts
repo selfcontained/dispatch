@@ -229,6 +229,12 @@ export async function registerSystemRoutes(
             proc.on("error", reject);
             let settled = false;
             proc.on("exit", (code) => {
+              // Stop tracking a PID once its xclip has exited, so the next
+              // paste never SIGTERMs a recycled PID that now belongs to an
+              // unrelated process (PID-reuse TOCTOU).
+              if (lastXclipPid === proc.pid) {
+                lastXclipPid = null;
+              }
               // A quick non-zero exit (e.g. bad DISPLAY) is a real failure.
               if (!settled && code && code !== 0) {
                 reject(new Error(`xclip exited ${code}: ${stderr.trim()}`));
