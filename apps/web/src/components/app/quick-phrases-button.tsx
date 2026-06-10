@@ -145,14 +145,18 @@ export function QuickPhrasesButton({
   const handleInject = useCallback(
     (phrase: QuickPhrase, submit: boolean) => {
       if (!canInject || injectMutation.isPending) return;
-      if (phrase.args.length > 0) {
-        setOpen(false);
-        setFilling({ phrase, argValues: {} });
-      } else {
-        injectMutation.mutate({ phraseId: phrase.id, submit });
-      }
+      injectMutation.mutate({ phraseId: phrase.id, submit });
     },
     [canInject, injectMutation]
+  );
+
+  const handleFill = useCallback(
+    (phrase: QuickPhrase) => {
+      if (!canInject) return;
+      setOpen(false);
+      setFilling({ phrase, argValues: {} });
+    },
+    [canInject]
   );
 
   const handleInjectWithArgs = useCallback(
@@ -213,11 +217,11 @@ export function QuickPhrasesButton({
             </h4>
             <button
               type="button"
-              className="rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+              className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
               onClick={() => setEditing({ id: "", label: "", text: "" })}
               title="Add phrase"
             >
-              <Plus className="h-3.5 w-3.5" />
+              <Plus className="h-4 w-4" />
             </button>
           </div>
           {!canInject ? (
@@ -238,6 +242,7 @@ export function QuickPhrasesButton({
                   canInject={canInject}
                   isPending={injectMutation.isPending}
                   onInject={(submit) => handleInject(phrase, submit)}
+                  onFill={() => handleFill(phrase)}
                   onEdit={() =>
                     setEditing({
                       id: phrase.id,
@@ -448,6 +453,7 @@ function PhraseRow({
   canInject,
   isPending,
   onInject,
+  onFill,
   onEdit,
   onDelete,
 }: {
@@ -455,38 +461,54 @@ function PhraseRow({
   canInject: boolean;
   isPending: boolean;
   onInject: (submit: boolean) => void;
+  onFill: () => void;
   onEdit: () => void;
   onDelete: () => void;
 }) {
+  const hasArgs = phrase.args.length > 0;
+
   return (
-    <div className="flex items-center gap-1 border-b border-border/50 px-2 py-1.5 last:border-b-0">
+    <div className="flex items-center gap-1.5 border-b border-border/50 px-2 py-1.5 last:border-b-0">
       <span className="min-w-0 flex-1 truncate text-sm text-foreground">
         {phrase.label || phrase.text}
       </span>
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div className="flex shrink-0 items-center gap-1">
         {canInject ? (
-          <InjectSplitButton
-            disabled={isPending}
-            isPending={isPending}
-            onInject={onInject}
-            size="sm"
-          />
+          hasArgs ? (
+            <Button
+              type="button"
+              size="sm"
+              disabled={isPending}
+              className="h-7 min-w-[5.5rem] px-2 text-xs"
+              onClick={onFill}
+            >
+              Send…
+            </Button>
+          ) : (
+            <InjectSplitButton
+              disabled={isPending}
+              isPending={isPending}
+              onInject={onInject}
+              size="sm"
+              insidePopover
+            />
+          )
         ) : null}
         <button
           type="button"
-          className="rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+          className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
           onClick={onEdit}
           title="Edit phrase"
         >
-          <Pencil className="h-3 w-3" />
+          <Pencil className="h-3.5 w-3.5" />
         </button>
         <button
           type="button"
-          className="rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+          className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
           onClick={onDelete}
           title="Delete phrase"
         >
-          <Trash2 className="h-3 w-3" />
+          <Trash2 className="h-3.5 w-3.5" />
         </button>
       </div>
     </div>
@@ -498,21 +520,23 @@ function InjectSplitButton({
   isPending,
   onInject,
   size = "default",
+  insidePopover = false,
 }: {
   disabled: boolean;
   isPending: boolean;
   onInject: (submit: boolean) => void;
   size?: "sm" | "default";
+  insidePopover?: boolean;
 }) {
   const isSm = size === "sm";
 
   return (
-    <div className="flex items-stretch">
+    <div className={cn("flex items-stretch", isSm && "min-w-[5.5rem]")}>
       <Button
         type={isSm ? "button" : "submit"}
         size={isSm ? "sm" : "default"}
         disabled={disabled}
-        className={cn("rounded-r-none", isSm && "h-6 gap-1 px-1.5 text-xs")}
+        className={cn("rounded-r-none", isSm && "h-7 gap-1 px-2 text-xs")}
         onClick={
           isSm
             ? (e: React.MouseEvent) => {
@@ -532,14 +556,17 @@ function InjectSplitButton({
             size={isSm ? "sm" : "default"}
             disabled={disabled}
             className={cn(
-              "rounded-l-none border-l border-l-white/20 px-1",
-              isSm && "h-6"
+              "rounded-l-none border-l border-l-white/20 px-1.5",
+              isSm && "h-7"
             )}
           >
-            <ChevronDown className={cn(isSm ? "h-2.5 w-2.5" : "h-3 w-3")} />
+            <ChevronDown className={cn(isSm ? "h-3 w-3" : "h-3.5 w-3.5")} />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end" className="min-w-[160px]">
+        <DropdownMenuContent
+          align="end"
+          className={cn("min-w-[180px]", insidePopover && "z-[90]")}
+        >
           <DropdownMenuItem
             className="text-foreground"
             onSelect={() => onInject(false)}
