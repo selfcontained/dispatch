@@ -6,6 +6,7 @@ import type { Agent } from "@/components/app/types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import {
   parseTemplateArgs as parseSharedTemplateArgs,
+  substituteArgs as substituteSharedArgs,
   type TemplatePromptArg as TemplateArg,
 } from "../../../server/src/templates/arg-parser";
 
@@ -48,6 +49,13 @@ export type LaunchResult = {
 
 export function parseTemplateArgs(prompt: string): TemplateArg[] {
   return parseSharedTemplateArgs(prompt);
+}
+
+export function substituteArgs(
+  prompt: string,
+  args: Record<string, string>
+): string {
+  return substituteSharedArgs(prompt, args);
 }
 
 export function useTemplates(enabled = true) {

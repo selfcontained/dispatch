@@ -28,6 +28,7 @@ import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
 import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
+import { QuickPhrasesButton } from "@/components/app/quick-phrases";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import {
   type Agent,
@@ -554,8 +555,8 @@ export function AgentsView({
             }}
           >
             <div className="relative h-full min-h-0 min-w-0">
-              {!leftPanelOpen ? (
-                <div className="pointer-events-none absolute left-3 top-3 z-10">
+              <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1">
+                {!leftPanelOpen ? (
                   <Button
                     size="icon"
                     variant="ghost"
@@ -565,8 +566,16 @@ export function AgentsView({
                   >
                     <PanelRightOpen className="h-4 w-4" />
                   </Button>
-                </div>
-              ) : null}
+                ) : null}
+                <QuickPhrasesButton
+                  agentId={
+                    hasActiveAgent && connState === "connected"
+                      ? focusedAgentId!
+                      : null
+                  }
+                  focusTerminal={focusTerminal}
+                />
+              </div>
               <div className="relative h-full min-h-0 min-w-0 pb-14 pt-14">
                 {focusedAgent?.name ? (
                   <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center px-16">

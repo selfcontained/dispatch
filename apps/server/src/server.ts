@@ -108,6 +108,7 @@ import { registerMediaRoutes } from "./routes/media.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
+import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
 import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
@@ -637,6 +638,10 @@ async function registerRoutes() {
   // --- Personalities ---
 
   await registerPersonalityRoutes(app, { pool });
+
+  // --- Quick Phrases ---
+
+  await registerQuickPhraseRoutes(app, { pool });
 }
 
 async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
