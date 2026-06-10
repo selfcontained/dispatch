@@ -1,5 +1,4 @@
 import { useCallback, useMemo, useState } from "react";
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ChevronDown,
   Info,
@@ -9,7 +8,6 @@ import {
   Plus,
   Trash2,
 } from "lucide-react";
-import { toast } from "sonner";
 
 import { ArgInput } from "@/components/app/arg-input";
 import { Button } from "@/components/ui/button";
@@ -39,18 +37,13 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { parseTemplateArgs, type TemplateArg } from "@/hooks/use-templates";
-import { api } from "@/lib/api";
+import { parseTemplateArgs } from "@/hooks/use-templates";
+import {
+  useQuickPhrases,
+  useQuickPhraseActions,
+  type QuickPhrase,
+} from "@/hooks/use-quick-phrases";
 import { cn } from "@/lib/utils";
-
-type QuickPhrase = {
-  id: string;
-  label: string | null;
-  text: string;
-  args: TemplateArg[];
-  sortOrder: number;
-  createdAt: string;
-};
 
 type EditingPhrase = { id: string; label: string; text: string } | null;
 
@@ -70,84 +63,25 @@ export function QuickPhrasesButton({
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<EditingPhrase>(null);
   const [filling, setFilling] = useState<FillingPhrase>(null);
-  const queryClient = useQueryClient();
 
-  const { data } = useQuery({
-    queryKey: ["quick-phrases"],
-    queryFn: () => api<{ phrases: QuickPhrase[] }>("/api/v1/quick-phrases"),
-    staleTime: 60_000,
-  });
-
+  const { data } = useQuickPhrases();
   const phrases = data?.phrases ?? [];
 
-  const createMutation = useMutation({
-    mutationFn: (input: { label?: string; text: string }) =>
-      api<{ phrase: QuickPhrase }>("/api/v1/quick-phrases", {
-        method: "POST",
-        body: JSON.stringify(input),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["quick-phrases"] });
-      setEditing(null);
-    },
-    onError: () => toast.error("Failed to save phrase"),
-  });
-
-  const updateMutation = useMutation({
-    mutationFn: ({
-      id,
-      ...fields
-    }: {
-      id: string;
-      label?: string | null;
-      text?: string;
-    }) =>
-      api<{ phrase: QuickPhrase }>(`/api/v1/quick-phrases/${id}`, {
-        method: "PATCH",
-        body: JSON.stringify(fields),
-      }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["quick-phrases"] });
-      setEditing(null);
-    },
-    onError: () => toast.error("Failed to update phrase"),
-  });
-
-  const deleteMutation = useMutation({
-    mutationFn: (id: string) =>
-      api<null>(`/api/v1/quick-phrases/${id}`, { method: "DELETE" }),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["quick-phrases"] });
-    },
-    onError: () => toast.error("Failed to delete phrase"),
-  });
-
-  const injectMutation = useMutation({
-    mutationFn: (input: {
-      phraseId: string;
-      args?: Record<string, string>;
-      submit?: boolean;
-    }) => {
-      if (!agentId) throw new Error("No active session");
-      return api<null>(`/api/v1/agents/${agentId}/terminal/inject-phrase`, {
-        method: "POST",
-        body: JSON.stringify(input),
-      });
-    },
-    onSuccess: () => {
+  const actions = useQuickPhraseActions({
+    onSaved: () => setEditing(null),
+    onInjected: () => {
       setOpen(false);
       setFilling(null);
       focusTerminal();
     },
-    onError: () => toast.error("Failed to send phrase"),
   });
 
   const handleInject = useCallback(
     (phrase: QuickPhrase, submit: boolean) => {
-      if (!canInject || injectMutation.isPending) return;
-      injectMutation.mutate({ phraseId: phrase.id, submit });
+      if (!agentId || actions.injectPhrase.isPending) return;
+      actions.injectPhrase.mutate({ agentId, phraseId: phrase.id, submit });
     },
-    [canInject, injectMutation]
+    [agentId, actions.injectPhrase]
   );
 
   const handleFill = useCallback(
@@ -161,14 +95,15 @@ export function QuickPhrasesButton({
 
   const handleInjectWithArgs = useCallback(
     (submit: boolean) => {
-      if (!filling) return;
-      injectMutation.mutate({
+      if (!filling || !agentId) return;
+      actions.injectPhrase.mutate({
+        agentId,
         phraseId: filling.phrase.id,
         args: filling.argValues,
         submit,
       });
     },
-    [filling, injectMutation]
+    [agentId, filling, actions.injectPhrase]
   );
 
   const handleSave = useCallback(() => {
@@ -178,13 +113,15 @@ export function QuickPhrasesButton({
     const label = editing.label.trim() || undefined;
 
     if (editing.id) {
-      updateMutation.mutate({ id: editing.id, label: label ?? null, text });
+      actions.updatePhrase.mutate({
+        id: editing.id,
+        label: label ?? null,
+        text,
+      });
     } else {
-      createMutation.mutate({ label, text });
+      actions.createPhrase.mutate({ label, text });
     }
-  }, [editing, createMutation, updateMutation]);
-
-  const isSaving = createMutation.isPending || updateMutation.isPending;
+  }, [editing, actions.createPhrase, actions.updatePhrase]);
 
   const editingDetectedArgs = useMemo(
     () => (editing?.text ? parseTemplateArgs(editing.text) : []),
@@ -240,7 +177,7 @@ export function QuickPhrasesButton({
                   key={phrase.id}
                   phrase={phrase}
                   canInject={canInject}
-                  isPending={injectMutation.isPending}
+                  isPending={actions.injectPhrase.isPending}
                   onInject={(submit) => handleInject(phrase, submit)}
                   onFill={() => handleFill(phrase)}
                   onEdit={() =>
@@ -250,7 +187,7 @@ export function QuickPhrasesButton({
                       text: phrase.text,
                     })
                   }
-                  onDelete={() => deleteMutation.mutate(phrase.id)}
+                  onDelete={() => actions.deletePhrase.mutate(phrase.id)}
                 />
               ))
             )}
@@ -258,193 +195,232 @@ export function QuickPhrasesButton({
         </PopoverContent>
       </Popover>
 
-      {/* Add / Edit phrase dialog */}
-      <Dialog
-        open={editing !== null}
-        onOpenChange={(v) => {
-          if (!v) setEditing(null);
-        }}
-      >
-        {editing !== null ? (
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>
-                {editing.id ? "Edit Phrase" : "Add Phrase"}
-              </DialogTitle>
-              <DialogDescription>
-                {editing.id
-                  ? "Update the label or text for this phrase."
-                  : "Add a new phrase to inject into agent sessions."}
-              </DialogDescription>
-            </DialogHeader>
-            <form
-              className="flex flex-col gap-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleSave();
-              }}
-            >
-              <div className="flex flex-col gap-1.5">
+      <EditPhraseDialog
+        editing={editing}
+        onClose={() => setEditing(null)}
+        onSave={handleSave}
+        onChange={setEditing}
+        isSaving={actions.isSaving}
+        detectedArgs={editingDetectedArgs}
+      />
+
+      <FillVariablesDialog
+        filling={filling}
+        onClose={() => setFilling(null)}
+        onFillChange={setFilling}
+        onInject={handleInjectWithArgs}
+        isPending={actions.injectPhrase.isPending}
+        requiredMissing={fillingRequiredMissing}
+      />
+    </>
+  );
+}
+
+function EditPhraseDialog({
+  editing,
+  onClose,
+  onSave,
+  onChange,
+  isSaving,
+  detectedArgs,
+}: {
+  editing: EditingPhrase;
+  onClose: () => void;
+  onSave: () => void;
+  onChange: (value: EditingPhrase) => void;
+  isSaving: boolean;
+  detectedArgs: ReturnType<typeof parseTemplateArgs>;
+}) {
+  return (
+    <Dialog
+      open={editing !== null}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
+      {editing !== null ? (
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {editing.id ? "Edit Phrase" : "Add Phrase"}
+            </DialogTitle>
+            <DialogDescription>
+              {editing.id
+                ? "Update the label or text for this phrase."
+                : "Add a new phrase to inject into agent sessions."}
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onSave();
+            }}
+          >
+            <div className="flex flex-col gap-1.5">
+              <label
+                htmlFor="phrase-label"
+                className="text-xs font-medium text-muted-foreground"
+              >
+                Label (optional)
+              </label>
+              <Input
+                id="phrase-label"
+                value={editing.label}
+                onChange={(e) =>
+                  onChange({ ...editing, label: e.target.value })
+                }
+                placeholder="Short display name…"
+                maxLength={200}
+                autoFocus
+              />
+            </div>
+            <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1.5">
                 <label
-                  htmlFor="phrase-label"
+                  htmlFor="phrase-text"
                   className="text-xs font-medium text-muted-foreground"
                 >
-                  Label (optional)
+                  Phrase text
                 </label>
-                <Input
-                  id="phrase-label"
-                  value={editing.label}
-                  onChange={(e) =>
-                    setEditing({ ...editing, label: e.target.value })
-                  }
-                  placeholder="Short display name…"
-                  maxLength={200}
-                  autoFocus
-                />
+                <TooltipProvider delayDuration={120}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <button
+                        type="button"
+                        className="text-muted-foreground/60 hover:text-muted-foreground"
+                      >
+                        <Info className="h-3 w-3" />
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" className="max-w-64">
+                      <p>
+                        Use{" "}
+                        <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
+                          {"{{D:Name}}"}
+                        </code>{" "}
+                        for fill-in variables. Add{" "}
+                        <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
+                          |required
+                        </code>{" "}
+                        or{" "}
+                        <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
+                          |multiline
+                        </code>{" "}
+                        modifiers after the name.
+                      </p>
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
               </div>
-              <div className="flex flex-col gap-1.5">
-                <div className="flex items-center gap-1.5">
-                  <label
-                    htmlFor="phrase-text"
-                    className="text-xs font-medium text-muted-foreground"
-                  >
-                    Phrase text
-                  </label>
-                  <TooltipProvider delayDuration={120}>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          className="text-muted-foreground/60 hover:text-muted-foreground"
-                        >
-                          <Info className="h-3 w-3" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" className="max-w-64">
-                        <p>
-                          Use{" "}
-                          <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
-                            {"{{D:Name}}"}
-                          </code>{" "}
-                          for fill-in variables. Add{" "}
-                          <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
-                            |required
-                          </code>{" "}
-                          or{" "}
-                          <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
-                            |multiline
-                          </code>{" "}
-                          modifiers after the name.
-                        </p>
-                      </TooltipContent>
-                    </Tooltip>
-                  </TooltipProvider>
+              <Textarea
+                id="phrase-text"
+                value={editing.text}
+                onChange={(e) => onChange({ ...editing, text: e.target.value })}
+                placeholder="Text to inject into the terminal…"
+                maxLength={1000}
+                rows={3}
+                className="resize-none"
+              />
+              {detectedArgs.length > 0 ? (
+                <div className="mt-0.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <span className="shrink-0">Detected variables:</span>
+                  <span className="flex flex-wrap gap-1">
+                    {detectedArgs.map((a) => (
+                      <span
+                        key={a.key}
+                        className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                      >
+                        {a.name}
+                        {a.required ? " *" : ""}
+                        {a.multiline ? " (multiline)" : ""}
+                      </span>
+                    ))}
+                  </span>
                 </div>
-                <Textarea
-                  id="phrase-text"
-                  value={editing.text}
-                  onChange={(e) =>
-                    setEditing({ ...editing, text: e.target.value })
-                  }
-                  placeholder="Text to inject into the terminal…"
-                  maxLength={1000}
-                  rows={3}
-                  className="resize-none"
-                />
-                {editingDetectedArgs.length > 0 ? (
-                  <div className="mt-0.5 flex items-start gap-1.5 text-xs text-muted-foreground">
-                    <span className="shrink-0">Detected variables:</span>
-                    <span className="flex flex-wrap gap-1">
-                      {editingDetectedArgs.map((a) => (
-                        <span
-                          key={a.key}
-                          className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
-                        >
-                          {a.name}
-                          {a.required ? " *" : ""}
-                          {a.multiline ? " (multiline)" : ""}
-                        </span>
-                      ))}
-                    </span>
-                  </div>
-                ) : null}
-              </div>
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setEditing(null)}
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={!editing.text.trim() || isSaving}
-                >
-                  {isSaving ? "Saving…" : "Save"}
-                </Button>
-              </div>
-            </form>
-          </DialogContent>
-        ) : null}
-      </Dialog>
+              ) : null}
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={onClose}>
+                Cancel
+              </Button>
+              <Button type="submit" disabled={!editing.text.trim() || isSaving}>
+                {isSaving ? "Saving…" : "Save"}
+              </Button>
+            </div>
+          </form>
+        </DialogContent>
+      ) : null}
+    </Dialog>
+  );
+}
 
-      {/* Fill variables dialog */}
-      <Dialog
-        open={filling !== null}
-        onOpenChange={(v) => {
-          if (!v) setFilling(null);
-        }}
-      >
-        {filling !== null ? (
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>
-                {filling.phrase.label || "Fill Variables"}
-              </DialogTitle>
-              <DialogDescription>
-                Fill in the variables below, then inject the phrase.
-              </DialogDescription>
-            </DialogHeader>
-            <form
-              className="flex flex-col gap-3"
-              onSubmit={(e) => {
-                e.preventDefault();
-                handleInjectWithArgs(true);
-              }}
-            >
-              {filling.phrase.args.map((arg) => (
-                <ArgInput
-                  key={arg.key}
-                  arg={arg}
-                  value={filling.argValues[arg.key] ?? ""}
-                  onChange={(value) =>
-                    setFilling({
-                      ...filling,
-                      argValues: { ...filling.argValues, [arg.key]: value },
-                    })
-                  }
-                />
-              ))}
-              <div className="flex justify-end gap-2">
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => setFilling(null)}
-                >
-                  Cancel
-                </Button>
-                <InjectSplitButton
-                  disabled={fillingRequiredMissing || injectMutation.isPending}
-                  isPending={injectMutation.isPending}
-                  onInject={(submit) => handleInjectWithArgs(submit)}
-                />
-              </div>
-            </form>
-          </DialogContent>
-        ) : null}
-      </Dialog>
-    </>
+function FillVariablesDialog({
+  filling,
+  onClose,
+  onFillChange,
+  onInject,
+  isPending,
+  requiredMissing,
+}: {
+  filling: FillingPhrase;
+  onClose: () => void;
+  onFillChange: (value: FillingPhrase) => void;
+  onInject: (submit: boolean) => void;
+  isPending: boolean;
+  requiredMissing: boolean;
+}) {
+  return (
+    <Dialog
+      open={filling !== null}
+      onOpenChange={(v) => {
+        if (!v) onClose();
+      }}
+    >
+      {filling !== null ? (
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>
+              {filling.phrase.label || "Fill Variables"}
+            </DialogTitle>
+            <DialogDescription>
+              Fill in the variables below, then inject the phrase.
+            </DialogDescription>
+          </DialogHeader>
+          <form
+            className="flex flex-col gap-3"
+            onSubmit={(e) => {
+              e.preventDefault();
+              onInject(true);
+            }}
+          >
+            {filling.phrase.args.map((arg) => (
+              <ArgInput
+                key={arg.key}
+                arg={arg}
+                value={filling.argValues[arg.key] ?? ""}
+                onChange={(value) =>
+                  onFillChange({
+                    ...filling,
+                    argValues: { ...filling.argValues, [arg.key]: value },
+                  })
+                }
+              />
+            ))}
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="ghost" onClick={onClose}>
+                Cancel
+              </Button>
+              <InjectSplitButton
+                disabled={requiredMissing || isPending}
+                isPending={isPending}
+                onInject={onInject}
+              />
+            </div>
+          </form>
+        </DialogContent>
+      ) : null}
+    </Dialog>
   );
 }
 

@@ -119,36 +119,6 @@ export async function registerAgentTerminalRoutes(
     }
   );
 
-  app.post("/api/v1/agents/:id/terminal/inject", async (request, reply) => {
-    const params = request.params as { id?: string };
-    const body = request.body as { text?: unknown } | null;
-    const id = params.id ?? "";
-    const text = typeof body?.text === "string" ? body.text : "";
-
-    const TEXT_INJECT_MAX = 10_000;
-    if (!text) {
-      return reply.code(400).send({ error: "text is required." });
-    }
-    if (text.length > TEXT_INJECT_MAX) {
-      return reply.code(400).send({
-        error: `text must be ${TEXT_INJECT_MAX} characters or fewer.`,
-      });
-    }
-
-    try {
-      const access = await deps.agentManager.getTerminalAccess(id);
-      if (access.mode !== "tmux") {
-        return reply.code(409).send({ error: access.message });
-      }
-
-      const terminal = new TmuxTerminal(access.sessionName);
-      await terminal.sendCommand(text);
-      return reply.code(204).send();
-    } catch (error) {
-      return deps.handleAgentError(reply, error);
-    }
-  });
-
   app.post(
     "/api/v1/agents/:id/terminal/inject-phrase",
     async (request, reply) => {
@@ -171,10 +141,27 @@ export async function registerAgentTerminalRoutes(
         return reply.code(404).send({ error: "Phrase not found." });
       }
 
-      const args =
+      const TEXT_INJECT_MAX = 10_000;
+      const ARG_VALUE_MAX = 2_000;
+      const rawArgs =
         body?.args && typeof body.args === "object" && !Array.isArray(body.args)
-          ? (body.args as Record<string, string>)
+          ? (body.args as Record<string, unknown>)
           : {};
+
+      const args: Record<string, string> = {};
+      for (const [key, val] of Object.entries(rawArgs)) {
+        if (typeof val !== "string") {
+          return reply
+            .code(400)
+            .send({ error: `arg "${key}" must be a string.` });
+        }
+        if (val.length > ARG_VALUE_MAX) {
+          return reply.code(400).send({
+            error: `arg "${key}" must be ${ARG_VALUE_MAX} characters or fewer.`,
+          });
+        }
+        args[key] = val;
+      }
 
       let text: string;
       try {
@@ -185,6 +172,12 @@ export async function registerAgentTerminalRoutes(
             error instanceof Error
               ? error.message
               : "Failed to substitute variables.",
+        });
+      }
+
+      if (text.length > TEXT_INJECT_MAX) {
+        return reply.code(400).send({
+          error: `Rendered phrase must be ${TEXT_INJECT_MAX} characters or fewer.`,
         });
       }
 
