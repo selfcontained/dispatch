@@ -2,7 +2,7 @@
 
 ## States
 
-`AgentStatus` (in `apps/server/src/agents/manager.ts`):
+`AgentStatus` (in `apps/server/src/agents/types.ts`):
 
 - `creating` — row inserted, setup script running, tmux session not yet ready
 - `running` — tmux session is up; agent CLI may still be initializing
@@ -79,7 +79,7 @@ For each agent with status in (`running`, `stopping`, `creating`, `archiving`):
 - **status `stopping`** for >60s: → `running` (revert; user can retry stop). Surfaces an "agent reverted" latest_event.
 - **status `archiving`** for >30s: archive is resumed.
 
-Cleanup of orphaned tmux sessions (sessions with the `<prefix>_agt_` prefix that no longer have a matching agent row) runs alongside reconciliation when `agentRuntime === "tmux"`.
+Cleanup of orphaned tmux sessions (sessions with the `<prefix>_agt_` prefix whose matching agent row is in a terminal state — `stopped` or `error`) runs alongside reconciliation when `agentRuntime === "tmux"`. Sessions with no matching DB record are left alone — they may belong to another server instance sharing the tmux namespace.
 
 ## tmux Session Contract
 
@@ -101,7 +101,7 @@ The generated setup script (`/tmp/dispatch_setup_<agentId>.sh`) does, in order:
 1. Source `~/.dispatch/env` (if it exists).
 2. POST `setup/phase: worktree`, then create the git worktree (if requested).
 3. POST `setup/phase: env`, then copy `.env` if present.
-4. POST `setup/phase: deps`, then install dependencies based on detected lockfile (npm/pnpm/yarn/bun/uv/poetry).
+4. POST `setup/phase: deps`, then install dependencies based on detected lockfile (pnpm/yarn/npm/bun). Skipped for `terminal` agent type.
 5. POST `setup/phase: session`, then `exec` into the agent CLI command.
 
 If any step fails non-recoverably, the script POSTs `setup/error` with a message before exiting.
@@ -155,7 +155,7 @@ There are three independent state axes attached to an agent. Code that talks abo
 
 ## Assisted-Update Phase Axis
 
-The assisted-update agent (role `assisted_update`) drives a separate state machine stored in `~/.dispatch/release/assisted-update.json` and managed by `apps/server/src/assisted-update-store.ts`. Phase order is:
+The assisted-update agent (role `assisted_update`) drives a separate state machine stored in `~/.dispatch/assisted-update.json` and managed by `apps/server/src/assisted-update-store.ts`. Phase order is:
 
 `inspect → prepare → apply → restarting → validate → done`
 
