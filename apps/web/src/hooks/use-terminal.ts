@@ -21,6 +21,7 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 import { isAcceptedUploadFile, uploadAgentMedia } from "@/lib/media-upload";
+import { useSystemDefaults } from "@/hooks/use-system-defaults";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
 import {
@@ -118,8 +119,12 @@ export function useTerminal(args: {
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
   // Per-agent `[File #N]` sequence for dropped/pasted uploads. Monotonic per
-  // agent and kept across agent switches (a Map keyed by agentId), so it keeps
-  // incrementing across separate drops and never repeats a number for an agent.
+  // agent within a mount and kept across agent switches (a Map keyed by
+  // agentId), so it keeps incrementing across separate drops. N is a cosmetic
+  // label, not a stable identifier — the CLI opens `media.path`, not the number
+  // — and the ref resets if the terminal subtree remounts (route teardown / full
+  // reconnect), so a number can repeat for an agent across remounts. That's an
+  // accepted tradeoff; cross-mount stability isn't worth persisting a label.
   const fileSeqRef = useRef<Map<string, number>>(new Map());
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
@@ -689,10 +694,17 @@ export function useTerminal(args: {
         toast.error("Connect to an agent before pasting.");
         return;
       }
+      // Not capable — uploadAndInsertFiles owns the uploading indicator for the
+      // whole fallback; we never touch it here.
       if (!clipboardCapableRef.current) {
         uploadAndInsertFiles([file]);
         return;
       }
+      // The uploadingFiles flag has a single owner per phase: this IIFE owns it
+      // for the native attempt and clears it on success; before delegating to
+      // the path-based fallback we clear it and hand ownership to
+      // uploadAndInsertFiles (which manages the flag over its own lifetime).
+      // We never leave it set across the handoff.
       setUploadingFiles(true);
       void (async () => {
         try {
@@ -719,14 +731,15 @@ export function useTerminal(args: {
           // for; if the user switched, fall back so the image isn't lost.
           if (connectedAgentIdRef.current === agentId) {
             sendTerminalInput("\x16"); // Ctrl+V — CLI inserts [Image #N]
+            setUploadingFiles(false);
             return;
           }
+          setUploadingFiles(false);
           uploadAndInsertFiles([file]);
         } catch (err) {
           console.warn("Native clipboard paste failed; using upload:", err);
-          uploadAndInsertFiles([file]);
-        } finally {
           setUploadingFiles(false);
+          uploadAndInsertFiles([file]);
         }
       })();
     },
@@ -734,19 +747,13 @@ export function useTerminal(args: {
   );
   pasteImageRef.current = pasteImage;
 
-  // Detect whether the host supports native clipboard-image paste.
+  // Whether the host supports native clipboard-image paste. Sourced from the
+  // shared React Query hook (cached/deduped across the app) and mirrored into a
+  // ref so the pasteImage callback can read it synchronously without resubscribing.
+  const { data: systemDefaults } = useSystemDefaults();
   useEffect(() => {
-    let cancelled = false;
-    void api<{ clipboardImagePaste?: boolean }>("/api/v1/system/defaults")
-      .then((defaults) => {
-        if (!cancelled)
-          clipboardCapableRef.current = !!defaults.clipboardImagePaste;
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+    clipboardCapableRef.current = !!systemDefaults?.clipboardImagePaste;
+  }, [systemDefaults]);
 
   const noteScrollInteraction = useCallback(() => {
     const agentId = connectedAgentIdRef.current;

@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { useInjectApp } from "./helpers/inject-app.js";
+import { hostClipboardImageCapable } from "../src/shared/lib/clipboard-capability.js";
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ exitCode: 0, stdout: "", stderr: "" })),
@@ -71,11 +72,9 @@ describe("GET /api/v1/system/defaults", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(typeof body.clipboardImagePaste).toBe("boolean");
-    // darwin → always; linux → only when DISPATCH_COPY_DISPLAY is configured.
-    const expected =
-      process.platform === "darwin" ||
-      (process.platform === "linux" && !!process.env.DISPATCH_COPY_DISPLAY);
-    expect(body.clipboardImagePaste).toBe(expected);
+    // Assert against the same predicate the route uses, rather than
+    // re-deriving the platform/env logic a second time here.
+    expect(body.clipboardImagePaste).toBe(hostClipboardImageCapable());
   });
 });
 

@@ -47,6 +47,7 @@ import { Input } from "@/components/ui/input";
 import { type Agent } from "@/components/app/types";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
+import { useSystemDefaults } from "@/hooks/use-system-defaults";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
@@ -146,25 +147,18 @@ function CreateAgentDialogContent({
     setCreateWorktreeBranch("");
   }, [createCwd]);
 
+  const { data: systemDefaults, isError: systemDefaultsError } =
+    useSystemDefaults();
   useEffect(() => {
     if (createCwdInitialized) return;
-    let cancelled = false;
-
-    void api<{ homeDir: string }>("/api/v1/system/defaults")
-      .then((payload) => {
-        if (cancelled) return;
-        setCreateCwd(payload.homeDir);
-        setCreateCwdInitialized(true);
-      })
-      .catch(() => {
-        if (cancelled) return;
-        setCreateCwdInitialized(true);
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [createCwdInitialized]);
+    if (systemDefaults) {
+      setCreateCwd(systemDefaults.homeDir);
+      setCreateCwdInitialized(true);
+    } else if (systemDefaultsError) {
+      // Seed nothing on failure, but unblock the dialog as before.
+      setCreateCwdInitialized(true);
+    }
+  }, [createCwdInitialized, systemDefaults, systemDefaultsError]);
 
   useEffect(() => {
     if (enabledAgentTypes.includes(createType)) return;

@@ -268,6 +268,16 @@ export function buildAgentCommand(
   // DISPATCH_COPY_DISPLAY (Dispatch's own var) and the standard DISPLAY — the
   // CLI's Ctrl+V image paste reads $DISPLAY, so without it a browser-clipboard
   // image lands on the Xvfb clipboard but the agent can't read it back.
+  //
+  // Limitation (by design): all Linux agent sessions point at the SAME Xvfb
+  // display, and an X clipboard selection is global to a display. So the
+  // clipboard is shared across agents — two agents pasting images concurrently
+  // race for the selection, and one agent could read an image another just
+  // pasted. This is acceptable because the selection is consumed immediately
+  // (set → Ctrl+V → done) and path-based drag-drop is the isolation-safe route;
+  // per-agent isolation would require a dedicated Xvfb per session. Exporting
+  // the standard DISPLAY also means any X-aware tool the agent launches will
+  // attach to this shared display, not just the intended CLI paste.
   if (process.platform === "linux" && process.env.DISPATCH_COPY_DISPLAY) {
     const copyDisplay = shellEscape(process.env.DISPATCH_COPY_DISPLAY);
     envPrefixParts.push(
