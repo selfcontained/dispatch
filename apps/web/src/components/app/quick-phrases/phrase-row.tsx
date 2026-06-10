@@ -62,7 +62,10 @@ export function PhraseRow({
         <button
           type="button"
           className="rounded p-1.5 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-          onClick={onDelete}
+          onClick={() => {
+            const name = phrase.label || phrase.text.slice(0, 40);
+            if (window.confirm(`Delete "${name}"?`)) onDelete();
+          }}
           title="Delete phrase"
         >
           <Trash2 className="h-3.5 w-3.5" />

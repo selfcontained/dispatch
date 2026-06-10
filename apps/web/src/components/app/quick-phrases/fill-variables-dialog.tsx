@@ -52,7 +52,7 @@ export function FillVariablesDialog({
             className="flex flex-col gap-3"
             onSubmit={(e) => {
               e.preventDefault();
-              onInject(true);
+              if (!requiredMissing && !isPending) onInject(true);
             }}
           >
             {filling.phrase.args.map((arg) => (
