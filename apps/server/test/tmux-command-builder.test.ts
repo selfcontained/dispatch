@@ -520,6 +520,9 @@ describe("buildAgentCommand — host-env reads (process.env / process.platform)"
         false
       );
       expect(cmd).toContain(`DISPATCH_COPY_DISPLAY=':99'`);
+      // Also exported as the standard DISPLAY so the agent CLI's Ctrl+V image
+      // paste can read the Xvfb clipboard.
+      expect(cmd).toContain(`DISPLAY=':99'`);
     } finally {
       Object.defineProperty(process, "platform", {
         value: process.platform === "linux" ? "linux" : "darwin",

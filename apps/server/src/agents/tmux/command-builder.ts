@@ -264,10 +264,15 @@ export function buildAgentCommand(
   }
 
   // Forward the clipboard display to agent sessions so CLI tools can read
-  // images pasted via the browser clipboard (xclip needs a DISPLAY).
+  // images pasted via the browser clipboard. Exported under BOTH names:
+  // DISPATCH_COPY_DISPLAY (Dispatch's own var) and the standard DISPLAY — the
+  // CLI's Ctrl+V image paste reads $DISPLAY, so without it a browser-clipboard
+  // image lands on the Xvfb clipboard but the agent can't read it back.
   if (process.platform === "linux" && process.env.DISPATCH_COPY_DISPLAY) {
+    const copyDisplay = shellEscape(process.env.DISPATCH_COPY_DISPLAY);
     envPrefixParts.push(
-      `DISPATCH_COPY_DISPLAY=${shellEscape(process.env.DISPATCH_COPY_DISPLAY)}`
+      `DISPATCH_COPY_DISPLAY=${copyDisplay}`,
+      `DISPLAY=${copyDisplay}`
     );
   }
 

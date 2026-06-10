@@ -58,6 +58,13 @@ export async function registerSystemRoutes(
     return { status: "ok" };
   });
 
+  // Clipboard-image bridge: writes a browser-uploaded image to the host
+  // clipboard so a CLI can paste it inline via Ctrl+V (macOS pasteboard /
+  // Linux Xvfb+xclip). NOT currently called by the bundled web UI — terminal
+  // drag-and-drop went path-based (files are uploaded and referenced by path).
+  // Retained deliberately because the deployment provisions Xvfb specifically
+  // for this bridge and it's a plausible re-enable; remove this route if that
+  // capability is abandoned.
   app.post("/api/v1/clipboard/image", async (request, reply) => {
     const data = await request.file();
     if (!data) {
@@ -71,13 +78,17 @@ export async function registerSystemRoutes(
     }
 
     const buffer = await data.toBuffer();
-    const ext =
-      mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "png";
-    const tmpPath = `/tmp/dispatch-clipboard-${Date.now()}.${ext}`;
-    await writeFile(tmpPath, buffer);
+    // Only the macOS path needs a temp file (osascript reads from disk). The
+    // Linux path streams the buffer straight to xclip's stdin, so we avoid a
+    // pointless temp-file write/delete there.
+    let tmpPath: string | null = null;
 
     try {
       if (os.platform() === "darwin") {
+        const ext =
+          mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "png";
+        tmpPath = `/tmp/dispatch-clipboard-${Date.now()}.${ext}`;
+        await writeFile(tmpPath, buffer);
         const pasteboardClass = ext === "jpg" ? "JPEG" : "PNGf";
         await new Promise<void>((resolve, reject) => {
           const proc = spawn("osascript", [
@@ -100,15 +111,50 @@ export async function registerSystemRoutes(
           });
         }
         await new Promise<void>((resolve, reject) => {
-          const proc = spawn(
-            "xclip",
-            ["-selection", "clipboard", "-t", mime, "-i", tmpPath],
-            { env: { ...process.env, DISPLAY: display } }
-          );
-          proc.on("close", (code) =>
-            code === 0 ? resolve() : reject(new Error(`xclip exited ${code}`))
-          );
+          // xclip stays resident to OWN the X clipboard selection — it does not
+          // exit until another app takes ownership. Waiting for "close" would
+          // hang the request forever (the paste that would release it can't
+          // happen until this request returns and the client sends Ctrl+V).
+          // So feed the image via stdin and resolve once the bytes are flushed
+          // and xclip has had a moment to take the selection; let it run on
+          // detached + unref'd.
+          const proc = spawn("xclip", ["-selection", "clipboard", "-t", mime], {
+            env: { ...process.env, DISPLAY: display },
+            stdio: ["pipe", "ignore", "pipe"],
+            detached: true,
+          });
+          let stderr = "";
+          proc.stderr?.on("data", (chunk) => {
+            stderr += String(chunk);
+          });
           proc.on("error", reject);
+          let settled = false;
+          proc.on("exit", (code) => {
+            // A quick non-zero exit (e.g. bad DISPLAY) is a real failure.
+            if (!settled && code && code !== 0) {
+              reject(new Error(`xclip exited ${code}: ${stderr.trim()}`));
+            }
+          });
+          // Guard the stdin pipe: if xclip has already died (bad DISPLAY,
+          // missing binary), writing the image buffer raises EPIPE on the
+          // Writable. An unhandled stream 'error' is an uncaught exception that
+          // would crash the whole server — reject instead (the catch returns a
+          // 500). proc.on("error") only catches spawn failures, not pipe writes.
+          proc.stdin?.on("error", (err) => {
+            if (!settled) reject(err);
+          });
+          proc.stdin?.end(buffer, () => {
+            // Best-effort: resolve shortly after the bytes are flushed. We do
+            // NOT wait for X SelectionNotify, so on a slow/loaded Xvfb the
+            // client could send Ctrl+V before xclip owns the selection — the
+            // 150ms is a heuristic, not a guarantee. (Acceptable: the drag-drop
+            // UI is path-based and no longer calls this endpoint.)
+            setTimeout(() => {
+              settled = true;
+              proc.unref();
+              resolve();
+            }, 150);
+          });
         });
       }
       return reply.code(200).send({ ok: true });
@@ -118,12 +164,19 @@ export async function registerSystemRoutes(
         .code(500)
         .send({ error: `Failed to write to clipboard: ${message}` });
     } finally {
-      await unlink(tmpPath).catch(() => {});
+      if (tmpPath) await unlink(tmpPath).catch(() => {});
     }
   });
 
   app.get("/api/v1/system/defaults", async () => {
-    return { homeDir: os.homedir() };
+    // Whether the host can put a browser-pasted image on a clipboard the agent
+    // CLI can read (macOS pasteboard, or Linux + Xvfb display). The web client
+    // uses this to decide whether Cmd/Ctrl+V should attempt native clipboard
+    // paste vs. fall back to a path-based media upload.
+    const clipboardImagePaste =
+      os.platform() === "darwin" ||
+      (os.platform() === "linux" && !!process.env.DISPATCH_COPY_DISPLAY);
+    return { homeDir: os.homedir(), clipboardImagePaste };
   });
 
   app.get("/api/v1/system/path-info", async (request, reply) => {

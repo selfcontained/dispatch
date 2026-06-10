@@ -1,9 +1,12 @@
 import type { ClipboardEvent } from "react";
 
-const URL_PROTOCOLS = new Set(["http:", "https:"]);
+// The accepted-extension list now lives in a dependency-free lib module;
+// re-exported here so existing importers of this module keep working without
+// lib depending on a feature component (and without pulling in media-upload's
+// browser-only transitive deps, which break non-jsdom unit tests).
+export { STARTUP_FILE_ACCEPT } from "@/lib/media-accept";
 
-export const STARTUP_FILE_ACCEPT =
-  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
+const URL_PROTOCOLS = new Set(["http:", "https:"]);
 
 export function startupFileKey(file: File): string {
   return `${file.name}:${file.size}:${file.lastModified}`;

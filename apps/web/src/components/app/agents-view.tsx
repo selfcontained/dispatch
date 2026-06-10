@@ -37,6 +37,7 @@ import {
 } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
+import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType, isCliAgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import {
@@ -182,6 +183,8 @@ export function AgentsView({
     sendTerminalInput,
     exitCopyMode,
     resyncing,
+    draggingFiles,
+    uploadingFiles,
   } = useTerminal({
     authState: "authenticated",
     agents,
@@ -257,20 +260,7 @@ export function AgentsView({
   }, [leftPanelOpen, mediaPanelOpen, focusTerminal]);
 
   const uploadFile = useCallback(async (agentId: string, file: File) => {
-    const form = new FormData();
-    form.append("source", "user");
-    form.append("file", file, file.name);
-    const res = await fetch(`/api/v1/agents/${agentId}/media`, {
-      method: "POST",
-      credentials: "include",
-      body: form,
-    });
-    if (!res.ok) {
-      const body = (await res.json().catch(() => null)) as {
-        error?: string;
-      } | null;
-      throw new Error(body?.error ?? `Upload failed (${res.status})`);
-    }
+    await uploadAgentMedia(agentId, file);
   }, []);
 
   useEffect(() => {
@@ -619,6 +609,8 @@ export function AgentsView({
                   terminalPlaceholderMessage={terminalPlaceholderMessage}
                   terminalHostRef={terminalHostRef}
                   resyncing={resyncing}
+                  draggingFiles={draggingFiles}
+                  uploadingFiles={uploadingFiles}
                   archivePhase={
                     selectedAgent?.status === "archiving"
                       ? selectedAgent.archivePhase

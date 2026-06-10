@@ -18,6 +18,9 @@ import {
   type TerminalUiState,
 } from "@/components/app/types";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
+
+import { isAcceptedUploadFile, uploadAgentMedia } from "@/lib/media-upload";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
 import {
@@ -75,6 +78,8 @@ export function useTerminal(args: {
   sendTerminalInput: (data: string) => void;
   exitCopyMode: () => Promise<void>;
   resyncing: boolean;
+  draggingFiles: boolean;
+  uploadingFiles: boolean;
 } {
   const {
     authState,
@@ -103,9 +108,19 @@ export function useTerminal(args: {
   // calm "Resizing…" overlay instead of the empty / reconnect overlays
   // that the underlying detach → reattach transition would otherwise expose.
   const [resyncing, setResyncing] = useState(false);
+  // True while a file is being dragged over the terminal, so the UI can show a
+  // "Drop files to upload" overlay.
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  // True while dropped/pasted files are being uploaded, so the UI can show a
+  // loading indicator.
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
+  // Per-agent `[File #N]` sequence for dropped/pasted uploads. Monotonic per
+  // agent and kept across agent switches (a Map keyed by agentId), so it keeps
+  // incrementing across separate drops and never repeats a number for an agent.
+  const fileSeqRef = useRef<Map<string, number>>(new Map());
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const [terminalHostElement, setTerminalHostElement] =
@@ -125,6 +140,14 @@ export function useTerminal(args: {
   // lets requestFit trigger an auto-RESYNC without needing those defined
   // earlier in the hook body.
   const resyncOnResizeRef = useRef<() => void>(() => {});
+  // Filled in below; let the terminal surface's drag/drop + paste handlers call
+  // the latest logic without re-creating the terminal when the callback changes.
+  const uploadAndInsertFilesRef = useRef<(files: File[]) => void>(() => {});
+  const pasteImageRef = useRef<(file: File) => void>(() => {});
+  // Whether the host can place a pasted image on a clipboard the agent CLI can
+  // read (macOS pasteboard / Linux+Xvfb). Populated from /system/defaults; until
+  // then we conservatively fall back to path-based paste.
+  const clipboardCapableRef = useRef(false);
 
   const wsRef = useRef<WebSocket | null>(null);
   const shouldKeepAttachedRef = useRef(false);
@@ -577,6 +600,154 @@ export function useTerminal(args: {
     terminalRef.current?.focus();
   }, []);
 
+  // Upload dropped/pasted files (images included) to the connected agent's
+  // media store and reference them in the prompt as `[File #N] <path> ` so the
+  // CLI can open them. N increments per file inserted into the agent's prompt
+  // and persists across separate drops (per-agent, via fileSeqRef). Works for
+  // every agent without any host-clipboard / X display dependency. Surfaces
+  // failures and skips via toast so a deliberate drop never silently no-ops.
+  const uploadAndInsertFiles = useCallback(
+    (files: File[]) => {
+      if (files.length === 0) return;
+      const agentId = connectedAgentIdRef.current;
+      if (!agentId) {
+        toast.error("Connect to an agent before dropping files.");
+        return;
+      }
+      const accepted = files.filter((file) => isAcceptedUploadFile(file.name));
+      const skipped = files.filter((file) => !isAcceptedUploadFile(file.name));
+      if (accepted.length === 0) {
+        toast.error(
+          files.length === 1
+            ? `Unsupported file type: ${files[0].name}`
+            : "None of the dropped files are a supported type."
+        );
+        return;
+      }
+      if (skipped.length > 0) {
+        toast.info(
+          `Skipped ${skipped.length} unsupported file${
+            skipped.length > 1 ? "s" : ""
+          }: ${skipped.map((file) => file.name).join(", ")}`
+        );
+      }
+      setUploadingFiles(true);
+      void (async () => {
+        const failures: string[] = [];
+        let misrouted = 0;
+        try {
+          for (const file of accepted) {
+            try {
+              const media = await uploadAgentMedia(agentId, file);
+              // The upload targeted `agentId`, but sendTerminalInput always
+              // writes to the currently-connected terminal. If the user
+              // switched agents mid-upload, don't type this agent's path into a
+              // different agent's prompt.
+              if (connectedAgentIdRef.current !== agentId) {
+                misrouted += 1;
+                continue;
+              }
+              const seq = (fileSeqRef.current.get(agentId) ?? 0) + 1;
+              fileSeqRef.current.set(agentId, seq);
+              sendTerminalInput(`[File #${seq}] ${media.path} `);
+            } catch (err) {
+              console.warn(`Upload failed for ${file.name}:`, err);
+              failures.push(file.name);
+            }
+          }
+        } finally {
+          setUploadingFiles(false);
+        }
+        if (failures.length > 0) {
+          toast.error(
+            failures.length === 1
+              ? `Failed to upload ${failures[0]}.`
+              : `Failed to upload ${failures.length} files.`
+          );
+        }
+        if (misrouted > 0) {
+          toast.info(
+            `Switched agents — ${misrouted} uploaded file${
+              misrouted > 1 ? "s were" : " was"
+            } not added to the new prompt.`
+          );
+        }
+      })();
+    },
+    [sendTerminalInput]
+  );
+  uploadAndInsertFilesRef.current = uploadAndInsertFiles;
+
+  // Hybrid image paste (Cmd/Ctrl+V): when the host can put the image on a
+  // clipboard the agent CLI can read, inject it natively (POST it to the host
+  // clipboard, then send Ctrl+V so the CLI inserts its own [Image #N] inline);
+  // otherwise — or if that fails — fall back to the path-based media upload.
+  const pasteImage = useCallback(
+    (file: File) => {
+      const agentId = connectedAgentIdRef.current;
+      if (!agentId) {
+        toast.error("Connect to an agent before pasting.");
+        return;
+      }
+      if (!clipboardCapableRef.current) {
+        uploadAndInsertFiles([file]);
+        return;
+      }
+      setUploadingFiles(true);
+      void (async () => {
+        try {
+          const form = new FormData();
+          form.append(
+            "file",
+            file,
+            file.name ||
+              `clipboard.${file.type === "image/jpeg" ? "jpg" : "png"}`
+          );
+          // Safety timeout so a wedged endpoint can't hang the paste.
+          const controller = new AbortController();
+          const timeout = setTimeout(() => controller.abort(), 10_000);
+          try {
+            await api<{ ok: boolean }>("/api/v1/clipboard/image", {
+              method: "POST",
+              body: form,
+              signal: controller.signal,
+            });
+          } finally {
+            clearTimeout(timeout);
+          }
+          // Native paste only makes sense for the agent we set the clipboard
+          // for; if the user switched, fall back so the image isn't lost.
+          if (connectedAgentIdRef.current === agentId) {
+            sendTerminalInput("\x16"); // Ctrl+V — CLI inserts [Image #N]
+            return;
+          }
+          uploadAndInsertFiles([file]);
+        } catch (err) {
+          console.warn("Native clipboard paste failed; using upload:", err);
+          uploadAndInsertFiles([file]);
+        } finally {
+          setUploadingFiles(false);
+        }
+      })();
+    },
+    [sendTerminalInput, uploadAndInsertFiles]
+  );
+  pasteImageRef.current = pasteImage;
+
+  // Detect whether the host supports native clipboard-image paste.
+  useEffect(() => {
+    let cancelled = false;
+    void api<{ clipboardImagePaste?: boolean }>("/api/v1/system/defaults")
+      .then((defaults) => {
+        if (!cancelled)
+          clipboardCapableRef.current = !!defaults.clipboardImagePaste;
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   const noteScrollInteraction = useCallback(() => {
     const agentId = connectedAgentIdRef.current;
     if (!agentId || terminalMode !== "tmux") {
@@ -644,8 +815,10 @@ export function useTerminal(args: {
         ctrlPendingRef,
         noteScrollInteractionRef,
         deferMediaResizeRef,
+        uploadAndInsertFilesRef,
+        pasteImageRef,
       },
-      { requestFit, invalidateAttachAttempt }
+      { requestFit, invalidateAttachAttempt, setDraggingFiles }
     );
   }, [authState, invalidateAttachAttempt, requestFit, terminalHostElement]);
 
@@ -826,6 +999,8 @@ export function useTerminal(args: {
       exitCopyMode,
       setTerminalHostRef,
       resyncing,
+      draggingFiles,
+      uploadingFiles,
     }),
     [
       connState,
@@ -841,6 +1016,8 @@ export function useTerminal(args: {
       exitCopyMode,
       setTerminalHostRef,
       resyncing,
+      uploadingFiles,
+      draggingFiles,
     ]
   );
 }

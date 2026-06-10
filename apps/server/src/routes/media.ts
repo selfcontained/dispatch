@@ -163,6 +163,7 @@ export async function registerMediaRoutes(
         sizeBytes: buffer.length,
         createdAt: result.rows[0].created_at.toISOString(),
         url: `/api/v1/agents/${id}/media/${encodeURIComponent(timestampedFileName)}`,
+        path: path.join(mediaDir, timestampedFileName),
       },
     });
   });

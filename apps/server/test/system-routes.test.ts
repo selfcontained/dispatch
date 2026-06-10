@@ -61,6 +61,22 @@ describe("GET /api/v1/system/defaults", () => {
     expect(typeof body.homeDir).toBe("string");
     expect(body.homeDir.length).toBeGreaterThan(0);
   });
+
+  it("reports clipboardImagePaste capability", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/system/defaults",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(typeof body.clipboardImagePaste).toBe("boolean");
+    // darwin → always; linux → only when DISPATCH_COPY_DISPLAY is configured.
+    const expected =
+      process.platform === "darwin" ||
+      (process.platform === "linux" && !!process.env.DISPATCH_COPY_DISPLAY);
+    expect(body.clipboardImagePaste).toBe(expected);
+  });
 });
 
 describe("GET /api/v1/system/path-info", () => {

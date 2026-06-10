@@ -33,11 +33,17 @@ export interface TerminalSurfaceRefs {
   ctrlPendingRef: MutableRefObject<boolean>;
   noteScrollInteractionRef: MutableRefObject<() => void>;
   deferMediaResizeRef: MutableRefObject<boolean>;
+  // Drag-and-drop upload: always path-based (upload + insert `[File #N] path`).
+  uploadAndInsertFilesRef: MutableRefObject<(files: File[]) => void>;
+  // Image paste (Cmd/Ctrl+V): hybrid (native clipboard paste when the host can,
+  // else path-based) — owned by use-terminal, called with the pasted image.
+  pasteImageRef: MutableRefObject<(file: File) => void>;
 }
 
 export interface TerminalSurfaceCallbacks {
   requestFit: () => void;
   invalidateAttachAttempt: () => void;
+  setDraggingFiles: (dragging: boolean) => void;
 }
 
 /**
@@ -58,8 +64,10 @@ export function createTerminalSurface(
     ctrlPendingRef,
     noteScrollInteractionRef,
     deferMediaResizeRef,
+    uploadAndInsertFilesRef,
+    pasteImageRef,
   } = refs;
-  const { requestFit, invalidateAttachAttempt } = callbacks;
+  const { requestFit, invalidateAttachAttempt, setDraggingFiles } = callbacks;
 
   const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
   const palette = getTerminalPalette(theme);
@@ -141,29 +149,9 @@ export function createTerminalSurface(
     return true;
   });
 
-  // -- Clipboard image paste -----------------------------------------------
-
-  const syncClipboardImage = (blob: File): void => {
-    const form = new FormData();
-    form.append(
-      "file",
-      blob,
-      `clipboard.${blob.type === "image/png" ? "png" : "jpg"}`
-    );
-    fetch("/api/v1/clipboard/image", {
-      method: "POST",
-      body: form,
-      credentials: "include",
-    })
-      .then((res) => {
-        if (!res.ok) throw new Error(`clipboard upload: ${res.status}`);
-        const ws = wsRef.current;
-        if (ws && ws.readyState === WebSocket.OPEN) {
-          ws.send(JSON.stringify({ type: "input", data: "\x16" }));
-        }
-      })
-      .catch((err) => console.warn("Clipboard image paste failed:", err));
-  };
+  // -- Image paste (Cmd/Ctrl+V) --------------------------------------------
+  // Delegated to use-terminal's hybrid handler: native clipboard-injection
+  // when the host supports it, else a path-based media upload.
 
   const handlePaste = (e: ClipboardEvent) => {
     const imageItem = Array.from(e.clipboardData?.items ?? []).find((item) =>
@@ -174,9 +162,43 @@ export function createTerminalSurface(
     if (!blob) return;
     e.preventDefault();
     e.stopPropagation();
-    syncClipboardImage(blob);
+    pasteImageRef.current(blob);
   };
   host.addEventListener("paste", handlePaste, true);
+
+  // -- Drag-and-drop file upload (always path-based) -----------------------
+  // A nesting counter avoids overlay flicker as the pointer moves over child
+  // elements (each fires dragenter/dragleave).
+  let dragDepth = 0;
+  const hasFiles = (e: DragEvent): boolean =>
+    Array.from(e.dataTransfer?.types ?? []).includes("Files");
+  const onDragEnter = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth += 1;
+    setDraggingFiles(true);
+  };
+  const onDragOver = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    if (e.dataTransfer) e.dataTransfer.dropEffect = "copy";
+  };
+  const onDragLeave = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    dragDepth = Math.max(0, dragDepth - 1);
+    if (dragDepth === 0) setDraggingFiles(false);
+  };
+  const onDrop = (e: DragEvent) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault();
+    dragDepth = 0;
+    setDraggingFiles(false);
+    uploadAndInsertFilesRef.current(Array.from(e.dataTransfer?.files ?? []));
+  };
+  host.addEventListener("dragenter", onDragEnter, true);
+  host.addEventListener("dragover", onDragOver, true);
+  host.addEventListener("dragleave", onDragLeave, true);
+  host.addEventListener("drop", onDrop, true);
 
   // -- Touch / pointer / mouse handling ------------------------------------
 
@@ -333,6 +355,10 @@ export function createTerminalSurface(
     resizeObserver.disconnect();
     host.removeEventListener("copy", handleCopy, true);
     host.removeEventListener("paste", handlePaste, true);
+    host.removeEventListener("dragenter", onDragEnter, true);
+    host.removeEventListener("dragover", onDragOver, true);
+    host.removeEventListener("dragleave", onDragLeave, true);
+    host.removeEventListener("drop", onDrop, true);
     host.removeEventListener("touchstart", onTouchStart);
     host.removeEventListener("touchmove", onTouchMove);
     host.removeEventListener("pointerdown", onPointerDownTrack, true);
