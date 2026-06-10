@@ -280,7 +280,11 @@ export async function registerSystemRoutes(
           .code(500)
           .send({ error: `Failed to write to clipboard: ${message}` });
       } finally {
-        if (tmpPath) await rm(path.dirname(tmpPath), { recursive: true, force: true }).catch(() => {});
+        if (tmpPath)
+          await rm(path.dirname(tmpPath), {
+            recursive: true,
+            force: true,
+          }).catch(() => {});
       }
     }
   );
