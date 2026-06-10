@@ -6,10 +6,16 @@ import {
   deleteQuickPhrase,
   listQuickPhrases,
   updateQuickPhrase,
+  type QuickPhrase,
 } from "../db/quick-phrases.js";
+import { parseTemplateArgs } from "../templates/arg-parser.js";
 
 const TEXT_MAX = 1000;
 const LABEL_MAX = 200;
+
+function withArgs(phrase: QuickPhrase) {
+  return { ...phrase, args: parseTemplateArgs(phrase.text) };
+}
 
 type QuickPhraseRouteDeps = {
   pool: Pool;
@@ -23,7 +29,7 @@ export async function registerQuickPhraseRoutes(
 
   app.get("/api/v1/quick-phrases", async () => {
     const phrases = await listQuickPhrases(pool);
-    return { phrases };
+    return { phrases: phrases.map(withArgs) };
   });
 
   app.post("/api/v1/quick-phrases", async (request, reply) => {
@@ -52,7 +58,7 @@ export async function registerQuickPhraseRoutes(
       text,
       label: label || null,
     });
-    return reply.code(201).send({ phrase });
+    return reply.code(201).send({ phrase: withArgs(phrase) });
   });
 
   app.patch("/api/v1/quick-phrases/:id", async (request, reply) => {
@@ -98,7 +104,7 @@ export async function registerQuickPhraseRoutes(
     if (!phrase) {
       return reply.code(404).send({ error: "Phrase not found." });
     }
-    return { phrase };
+    return { phrase: withArgs(phrase) };
   });
 
   app.delete("/api/v1/quick-phrases/:id", async (request, reply) => {

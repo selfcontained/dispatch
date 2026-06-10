@@ -2,7 +2,6 @@ import {
   type DragEvent,
   useCallback,
   useEffect,
-  useId,
   useMemo,
   useRef,
   useState,
@@ -11,6 +10,7 @@ import { useNavigate } from "react-router-dom";
 import { Play } from "lucide-react";
 import { toast } from "sonner";
 
+import { ArgInput } from "@/components/app/arg-input";
 import { ContextPicker } from "@/components/app/context-picker";
 import { startupFileKey } from "@/components/app/create-agent-dialog-clipboard";
 import { AgentTypeCombobox } from "@/components/app/automations-form-fields";
@@ -23,58 +23,15 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import {
   useTemplateActions,
   parseTemplateArgs,
   type Template,
-  type TemplateArg,
 } from "@/hooks/use-templates";
 import { type AgentType } from "@/lib/agent-types";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
-
-function ArgInput({
-  arg,
-  value,
-  onChange,
-}: {
-  arg: TemplateArg;
-  value: string;
-  onChange: (value: string) => void;
-}): JSX.Element {
-  const inputId = useId();
-
-  return (
-    <div className="space-y-2">
-      <label htmlFor={inputId} className="text-sm text-muted-foreground">
-        {arg.name}
-        {arg.required ? (
-          <span className="ml-1 text-status-blocked">*</span>
-        ) : null}
-      </label>
-      {arg.multiline ? (
-        <Textarea
-          id={inputId}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={`Enter ${arg.name}`}
-          className="min-h-24 resize-y text-sm"
-        />
-      ) : (
-        <Input
-          id={inputId}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          placeholder={`Enter ${arg.name}`}
-          className="h-8 text-sm"
-        />
-      )}
-    </div>
-  );
-}
 
 export function LaunchTemplateDialog({
   template,

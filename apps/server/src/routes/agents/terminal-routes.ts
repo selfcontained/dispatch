@@ -2,7 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import type { FastifyInstance } from "fastify";
 
+import { getQuickPhrase } from "../../db/quick-phrases.js";
 import { spawn as spawnPty } from "../../shared/terminal/bun-pty.js";
+import { substituteArgs } from "../../templates/arg-parser.js";
 import { TmuxTerminal } from "../../terminal/tmux-terminal.js";
 import { errorMessage } from "../../shared/lib/error-message.js";
 import { decodeClientMessage, type AgentRouteDeps } from "./shared.js";
@@ -128,11 +130,9 @@ export async function registerAgentTerminalRoutes(
       return reply.code(400).send({ error: "text is required." });
     }
     if (text.length > TEXT_INJECT_MAX) {
-      return reply
-        .code(400)
-        .send({
-          error: `text must be ${TEXT_INJECT_MAX} characters or fewer.`,
-        });
+      return reply.code(400).send({
+        error: `text must be ${TEXT_INJECT_MAX} characters or fewer.`,
+      });
     }
 
     try {
@@ -148,6 +148,58 @@ export async function registerAgentTerminalRoutes(
       return deps.handleAgentError(reply, error);
     }
   });
+
+  app.post(
+    "/api/v1/agents/:id/terminal/inject-phrase",
+    async (request, reply) => {
+      const params = request.params as { id?: string };
+      const body = request.body as {
+        phraseId?: unknown;
+        args?: unknown;
+      } | null;
+      const agentId = params.id ?? "";
+      const phraseId = typeof body?.phraseId === "string" ? body.phraseId : "";
+
+      if (!phraseId) {
+        return reply.code(400).send({ error: "phraseId is required." });
+      }
+
+      const phrase = await getQuickPhrase(deps.pool, phraseId);
+      if (!phrase) {
+        return reply.code(404).send({ error: "Phrase not found." });
+      }
+
+      const args =
+        body?.args && typeof body.args === "object" && !Array.isArray(body.args)
+          ? (body.args as Record<string, string>)
+          : {};
+
+      let text: string;
+      try {
+        text = substituteArgs(phrase.text, args);
+      } catch (error) {
+        return reply.code(400).send({
+          error:
+            error instanceof Error
+              ? error.message
+              : "Failed to substitute variables.",
+        });
+      }
+
+      try {
+        const access = await deps.agentManager.getTerminalAccess(agentId);
+        if (access.mode !== "tmux") {
+          return reply.code(409).send({ error: access.message });
+        }
+
+        const terminal = new TmuxTerminal(access.sessionName);
+        await terminal.sendCommand(text);
+        return reply.code(204).send();
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
 
   app.get(
     "/api/v1/agents/:id/terminal/ws",

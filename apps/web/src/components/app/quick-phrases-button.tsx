@@ -3,6 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { MessageSquare, Pencil, Plus, X } from "lucide-react";
 import { toast } from "sonner";
 
+import { ArgInput } from "@/components/app/arg-input";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -18,6 +19,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { type TemplateArg } from "@/hooks/use-templates";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -25,11 +27,17 @@ type QuickPhrase = {
   id: string;
   label: string | null;
   text: string;
+  args: TemplateArg[];
   sortOrder: number;
   createdAt: string;
 };
 
 type EditingPhrase = { id: string; label: string; text: string } | null;
+
+type FillingPhrase = {
+  phrase: QuickPhrase;
+  argValues: Record<string, string>;
+} | null;
 
 export function QuickPhrasesButton({
   agentId,
@@ -41,6 +49,7 @@ export function QuickPhrasesButton({
   const canInject = agentId !== null;
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState<EditingPhrase>(null);
+  const [filling, setFilling] = useState<FillingPhrase>(null);
   const queryClient = useQueryClient();
 
   const { data } = useQuery({
@@ -94,19 +103,44 @@ export function QuickPhrasesButton({
   });
 
   const injectMutation = useMutation({
-    mutationFn: (text: string) => {
+    mutationFn: (input: {
+      phraseId: string;
+      args?: Record<string, string>;
+    }) => {
       if (!agentId) throw new Error("No active session");
-      return api<null>(`/api/v1/agents/${agentId}/terminal/inject`, {
+      return api<null>(`/api/v1/agents/${agentId}/terminal/inject-phrase`, {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify(input),
       });
     },
     onSuccess: () => {
       setOpen(false);
+      setFilling(null);
       focusTerminal();
     },
     onError: () => toast.error("Failed to send phrase"),
   });
+
+  const handlePhraseClick = useCallback(
+    (phrase: QuickPhrase) => {
+      if (!canInject || injectMutation.isPending) return;
+      if (phrase.args.length > 0) {
+        setOpen(false);
+        setFilling({ phrase, argValues: {} });
+      } else {
+        injectMutation.mutate({ phraseId: phrase.id });
+      }
+    },
+    [canInject, injectMutation]
+  );
+
+  const handleInjectWithArgs = useCallback(() => {
+    if (!filling) return;
+    injectMutation.mutate({
+      phraseId: filling.phrase.id,
+      args: filling.argValues,
+    });
+  }, [filling, injectMutation]);
 
   const handleSave = useCallback(() => {
     if (!editing) return;
@@ -122,6 +156,11 @@ export function QuickPhrasesButton({
   }, [editing, createMutation, updateMutation]);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const fillingRequiredMissing =
+    filling?.phrase.args.some(
+      (a) => a.required && !filling.argValues[a.key]?.trim()
+    ) ?? false;
 
   return (
     <>
@@ -172,10 +211,7 @@ export function QuickPhrasesButton({
                       injectMutation.isPending &&
                         "pointer-events-none opacity-50"
                     )}
-                    onClick={() => {
-                      if (!canInject || injectMutation.isPending) return;
-                      injectMutation.mutate(phrase.text);
-                    }}
+                    onClick={() => handlePhraseClick(phrase)}
                     title={
                       canInject
                         ? phrase.text
@@ -222,6 +258,7 @@ export function QuickPhrasesButton({
         </PopoverContent>
       </Popover>
 
+      {/* Add / Edit phrase dialog */}
       <Dialog
         open={editing !== null}
         onOpenChange={(v) => {
@@ -283,6 +320,21 @@ export function QuickPhrasesButton({
                   rows={3}
                   className="resize-none"
                 />
+                <p className="text-xs text-muted-foreground">
+                  Use{" "}
+                  <code className="rounded bg-white/[0.06] px-1 py-0.5">
+                    {"{{D:Variable Name}}"}
+                  </code>{" "}
+                  for fill-in variables.{" "}
+                  <code className="rounded bg-white/[0.06] px-1 py-0.5">
+                    |required
+                  </code>{" "}
+                  and{" "}
+                  <code className="rounded bg-white/[0.06] px-1 py-0.5">
+                    |multiline
+                  </code>{" "}
+                  modifiers are supported.
+                </p>
               </div>
               <div className="flex justify-end gap-2">
                 <Button
@@ -297,6 +349,63 @@ export function QuickPhrasesButton({
                   disabled={!editing.text.trim() || isSaving}
                 >
                   {isSaving ? "Saving…" : "Save"}
+                </Button>
+              </div>
+            </form>
+          </DialogContent>
+        ) : null}
+      </Dialog>
+
+      {/* Fill variables dialog */}
+      <Dialog
+        open={filling !== null}
+        onOpenChange={(v) => {
+          if (!v) setFilling(null);
+        }}
+      >
+        {filling !== null ? (
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>
+                {filling.phrase.label || "Fill Variables"}
+              </DialogTitle>
+              <DialogDescription>
+                Fill in the variables below, then inject the phrase.
+              </DialogDescription>
+            </DialogHeader>
+            <form
+              className="flex flex-col gap-3"
+              onSubmit={(e) => {
+                e.preventDefault();
+                handleInjectWithArgs();
+              }}
+            >
+              {filling.phrase.args.map((arg) => (
+                <ArgInput
+                  key={arg.key}
+                  arg={arg}
+                  value={filling.argValues[arg.key] ?? ""}
+                  onChange={(value) =>
+                    setFilling({
+                      ...filling,
+                      argValues: { ...filling.argValues, [arg.key]: value },
+                    })
+                  }
+                />
+              ))}
+              <div className="flex justify-end gap-2">
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setFilling(null)}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="submit"
+                  disabled={fillingRequiredMissing || injectMutation.isPending}
+                >
+                  {injectMutation.isPending ? "Sending…" : "Inject"}
                 </Button>
               </div>
             </form>

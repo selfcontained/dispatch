@@ -78,6 +78,17 @@ export async function updateQuickPhrase(
   return result.rows[0] ? rowToQuickPhrase(result.rows[0]) : null;
 }
 
+export async function getQuickPhrase(
+  pool: Pool,
+  id: string
+): Promise<QuickPhrase | null> {
+  const result = await pool.query<QuickPhraseRow>(
+    "SELECT id, label, text, sort_order, created_at FROM quick_phrases WHERE id = $1",
+    [id]
+  );
+  return result.rows[0] ? rowToQuickPhrase(result.rows[0]) : null;
+}
+
 export async function deleteQuickPhrase(
   pool: Pool,
   id: string
