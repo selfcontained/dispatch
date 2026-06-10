@@ -28,7 +28,7 @@ import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
 import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
-import { QuickPhrasesButton } from "@/components/app/quick-phrases-button";
+import { QuickPhrasesButton } from "@/components/app/quick-phrases";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import {
   type Agent,
