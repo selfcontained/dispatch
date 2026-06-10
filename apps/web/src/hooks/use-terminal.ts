@@ -10,8 +10,6 @@ import {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
-import { ClipboardAddon } from "@xterm/addon-clipboard";
-import { Unicode11Addon } from "@xterm/addon-unicode11";
 import {
   type Agent,
   type AuthState,
@@ -34,27 +32,7 @@ import {
   openTerminalSocket,
   probeTerminalSocket,
 } from "@/hooks/terminal-socket";
-
-function getTerminalFontFamily(): string {
-  const fontFamily = getComputedStyle(document.documentElement)
-    .getPropertyValue("--font-terminal")
-    .trim();
-  return fontFamily.length > 0
-    ? fontFamily
-    : '"JetBrains Mono", Menlo, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace';
-}
-
-/** Strip terminal line-wrap artifacts from copied text. */
-function cleanCopiedText(text: string): string {
-  const joined = text.replace(/[ \t]*\r?\n[ \t]*/g, "");
-  if (
-    /^https?:\/\//.test(joined) ||
-    (/\S/.test(joined) && !joined.includes(" "))
-  ) {
-    return joined;
-  }
-  return text;
-}
+import { createTerminalSurface } from "@/hooks/terminal-surface";
 
 function focusTerminalSurface(term: XTerm | null): void {
   if (!term) return;
@@ -652,313 +630,23 @@ export function useTerminal(args: {
   const themeRef = useRef(theme);
   themeRef.current = theme;
 
-  // xterm initialization.
+  // xterm initialization — imperative setup extracted to terminal-surface.ts.
   useEffect(() => {
-    const host = terminalHostElement;
-    if (!host) return;
-
-    const isTouchDevice = window.matchMedia("(pointer: coarse)").matches;
-    const palette = getTerminalPalette(themeRef.current);
-    const term = new XTerm({
-      allowProposedApi: true,
-      convertEol: false,
-      cursorBlink: true,
-      fontFamily: getTerminalFontFamily(),
-      fontSize: 13,
-      scrollback: 1000,
-      macOptionClickForcesSelection: true,
-      screenReaderMode: isTouchDevice,
-      minimumContrastRatio: palette.minimumContrastRatio ?? 1,
-      theme: palette,
-    });
-
-    const fit = new FitAddon();
-    const unicode11 = new Unicode11Addon();
-
-    terminalRef.current = term;
-    fitAddonRef.current = fit;
-    term.loadAddon(unicode11);
-    term.unicode.activeVersion = "11";
-    term.loadAddon(fit);
-    try {
-      term.loadAddon(new ClipboardAddon());
-    } catch (e) {
-      console.warn("ClipboardAddon failed:", e);
-    }
-    term.open(host);
-    fit.fit();
-
-    const handleCopy = (e: ClipboardEvent) => {
-      if (term.hasSelection()) {
-        e.preventDefault();
-        e.stopPropagation();
-        e.clipboardData?.setData(
-          "text/plain",
-          cleanCopiedText(term.getSelection())
-        );
-      }
-    };
-    host.addEventListener("copy", handleCopy, true);
-
-    // On some platforms (iPad Safari), Cmd+C doesn't fire a `copy` event
-    // when xterm has a canvas-based selection. Intercept the keydown and
-    // write to clipboard directly. Try the async Clipboard API first
-    // (requires secure context), fall back to execCommand('copy') with
-    // a temporary textarea.
-    const copyToClipboard = (text: string): void => {
-      if (navigator.clipboard?.writeText) {
-        void navigator.clipboard.writeText(text).catch(() => {
-          copyViaTextarea(text);
-        });
-      } else {
-        copyViaTextarea(text);
-      }
-    };
-    const copyViaTextarea = (text: string): void => {
-      const ta = document.createElement("textarea");
-      ta.value = text;
-      ta.style.position = "fixed";
-      ta.style.opacity = "0";
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand("copy");
-      ta.remove();
-    };
-    term.attachCustomKeyEventHandler((event) => {
-      if (
-        event.type === "keydown" &&
-        event.key === "c" &&
-        (event.metaKey || event.ctrlKey) &&
-        !event.shiftKey &&
-        !event.altKey &&
-        term.hasSelection()
-      ) {
-        copyToClipboard(cleanCopiedText(term.getSelection()));
-        event.preventDefault();
-        return false;
-      }
-      return true;
-    });
-
-    // Upload a clipboard image to the host pasteboard, then send Ctrl+V so CLI
-    // tools read it natively. This bridges the browser clipboard to the server.
-    const syncClipboardImage = (blob: File): void => {
-      const form = new FormData();
-      form.append(
-        "file",
-        blob,
-        `clipboard.${blob.type === "image/png" ? "png" : "jpg"}`
-      );
-      fetch("/api/v1/clipboard/image", {
-        method: "POST",
-        body: form,
-        credentials: "include",
-      })
-        .then((res) => {
-          if (!res.ok) throw new Error(`clipboard upload: ${res.status}`);
-          const ws = wsRef.current;
-          if (ws && ws.readyState === WebSocket.OPEN) {
-            ws.send(JSON.stringify({ type: "input", data: "\x16" }));
-          }
-        })
-        .catch((err) => console.warn("Clipboard image paste failed:", err));
-    };
-
-    // Intercept paste events (Cmd+V) — clipboard data is available directly.
-    const handlePaste = (e: ClipboardEvent) => {
-      const imageItem = Array.from(e.clipboardData?.items ?? []).find((item) =>
-        item.type.startsWith("image/")
-      );
-      if (!imageItem) return; // no image — let xterm handle text paste normally
-      const blob = imageItem.getAsFile();
-      if (!blob) return;
-      e.preventDefault();
-      e.stopPropagation();
-      syncClipboardImage(blob);
-    };
-    host.addEventListener("paste", handlePaste, true);
-
-    const screenEl = host.querySelector(".xterm-screen") as HTMLElement | null;
-
-    // Enable native long-press text selection for touch interactions.
-    // xterm's accessibility tree has user-select:text but its container
-    // has pointer-events:none. Override so long-press → drag handles work.
-    // Also override user-select inheritance from `.xterm { user-select: none }`
-    // and make the selection highlight visible over the terminal canvas.
-    if (isTouchDevice) {
-      const a11yEl = host.querySelector(
-        ".xterm-accessibility"
-      ) as HTMLElement | null;
-      if (a11yEl) {
-        a11yEl.style.pointerEvents = "auto";
-        a11yEl.style.userSelect = "text";
-        a11yEl.style.setProperty("-webkit-user-select", "text");
-        a11yEl.style.setProperty("-webkit-touch-callout", "default");
-        a11yEl.style.touchAction = "auto";
-      }
-      const selStyle = document.createElement("style");
-      selStyle.textContent = [
-        ".xterm .xterm-accessibility-tree *::selection {",
-        "  background: rgba(65, 132, 228, 0.35) !important;",
-        "}",
-      ].join("\n");
-      host.appendChild(selStyle);
-    }
-
-    let touchY = 0;
-    let touchAccum = 0;
-    const TOUCH_SCROLL_SENSITIVITY_PX = 30;
-    const onTouchStart = (e: TouchEvent) => {
-      if (!isTouchDevice || e.touches.length !== 1) return;
-      touchY = e.touches[0].clientY;
-      touchAccum = 0;
-    };
-    const onTouchMove = (e: TouchEvent) => {
-      if (!isTouchDevice || e.touches.length !== 1) return;
-      if (!screenEl) return;
-      // Don't synthesize scroll while user is adjusting a text selection
-      const sel = window.getSelection();
-      if (sel && !sel.isCollapsed) return;
-      const currentY = e.touches[0].clientY;
-      const delta = touchY - currentY;
-      touchY = currentY;
-      touchAccum += delta;
-      while (Math.abs(touchAccum) >= TOUCH_SCROLL_SENSITIVITY_PX) {
-        const direction = touchAccum > 0 ? 1 : -1;
-        touchAccum -= direction * TOUCH_SCROLL_SENSITIVITY_PX;
-        screenEl.dispatchEvent(
-          new WheelEvent("wheel", {
-            deltaY: direction * 100,
-            deltaMode: 0,
-            bubbles: true,
-            cancelable: true,
-          })
-        );
-      }
-    };
-    // Track the most recent pointer type so we can distinguish
-    // trackpad/mouse clicks from touch-originated synthetic mousedowns.
-    let lastPointerType: string = "mouse";
-    const onPointerDownTrack = (e: PointerEvent) => {
-      lastPointerType = e.pointerType;
-    };
-    host.addEventListener("pointerdown", onPointerDownTrack, true);
-
-    // Re-dispatch mouse/trackpad clicks with shift+alt so xterm treats
-    // them as forced selection instead of forwarding to tmux. Skip
-    // touch-originated mousedowns — those should fall through to native
-    // browser selection (long-press → drag handles → copy menu).
-    //
-    // Attached to `host` rather than `.xterm-screen` because xterm wraps
-    // the screen element inside a SmoothScrollableElement whose wrapper
-    // div receives the actual click target on some platforms (iPad).
-    let dispatchingMouseDown = false;
-    const onMouseDown = (e: MouseEvent) => {
-      if (dispatchingMouseDown) return;
-      if (lastPointerType === "touch") return;
-      if (e.button !== 0 || e.shiftKey || e.ctrlKey || e.metaKey || e.altKey)
-        return;
-      e.stopPropagation();
-      e.preventDefault();
-      dispatchingMouseDown = true;
-      const dispatchTarget = screenEl ?? (e.target as HTMLElement);
-      dispatchTarget.dispatchEvent(
-        new MouseEvent("mousedown", {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          detail: e.detail,
-          screenX: e.screenX,
-          screenY: e.screenY,
-          clientX: e.clientX,
-          clientY: e.clientY,
-          button: e.button,
-          buttons: e.buttons,
-          relatedTarget: e.relatedTarget,
-          shiftKey: true,
-          altKey: true,
-        })
-      );
-      dispatchingMouseDown = false;
-    };
-
-    const onRightMouseDown = (e: MouseEvent) => {
-      if (e.button !== 2) return;
-      e.stopPropagation();
-      const textarea = host.querySelector(
-        "textarea.xterm-helper-textarea"
-      ) as HTMLTextAreaElement | null;
-      if (textarea) textarea.focus();
-    };
-    host.addEventListener("mousedown", onRightMouseDown, true);
-
-    host.addEventListener("touchstart", onTouchStart, { passive: true });
-    host.addEventListener("touchmove", onTouchMove, { passive: true });
-    host.addEventListener("mousedown", onMouseDown, true);
-    const onWheel = () => noteScrollInteractionRef.current();
-    if (screenEl) {
-      screenEl.addEventListener("wheel", onWheel, { passive: true });
-    }
-
-    const disposable = term.onData((data) => {
-      const ws = wsRef.current;
-      if (!ws || ws.readyState !== WebSocket.OPEN) return;
-      if (ctrlPendingRef.current && data.length === 1) {
-        const code = data.toUpperCase().charCodeAt(0);
-        if (code >= 65 && code <= 90) {
-          ctrlPendingRef.current = false;
-          window.dispatchEvent(new Event("ctrl-consumed"));
-          ws.send(
-            JSON.stringify({
-              type: "input",
-              data: String.fromCharCode(code - 64),
-            })
-          );
-          return;
-        }
-      }
-      ws.send(JSON.stringify({ type: "input", data }));
-    });
-
-    const onResize = () => {
-      if (deferMediaResizeRef.current) return;
-      requestFit();
-    };
-
-    window.addEventListener("resize", onResize);
-
-    // ResizeObserver so the terminal reflows when its container changes size
-    // (e.g. feedback panel opening/closing via CSS grid transition).
-    const resizeObserver = new ResizeObserver(onResize);
-    resizeObserver.observe(host);
-
-    return () => {
-      invalidateAttachAttempt();
-      if (fitDebounceRef.current !== null) {
-        window.clearTimeout(fitDebounceRef.current);
-        fitDebounceRef.current = null;
-      }
-      disposable.dispose();
-      resizeObserver.disconnect();
-      host.removeEventListener("copy", handleCopy, true);
-      host.removeEventListener("paste", handlePaste, true);
-      host.removeEventListener("touchstart", onTouchStart);
-      host.removeEventListener("touchmove", onTouchMove);
-      host.removeEventListener("pointerdown", onPointerDownTrack, true);
-      host.removeEventListener("mousedown", onMouseDown, true);
-      host.removeEventListener("mousedown", onRightMouseDown, true);
-      if (screenEl) {
-        screenEl.removeEventListener("wheel", onWheel);
-      }
-      window.removeEventListener("resize", onResize);
-      try {
-        wsRef.current?.close();
-      } catch {}
-      wsRef.current = null;
-      term.dispose();
-      terminalRef.current = null;
-      fitAddonRef.current = null;
-    };
+    if (!terminalHostElement) return;
+    return createTerminalSurface(
+      terminalHostElement,
+      themeRef.current,
+      {
+        terminalRef,
+        fitAddonRef,
+        fitDebounceRef,
+        wsRef,
+        ctrlPendingRef,
+        noteScrollInteractionRef,
+        deferMediaResizeRef,
+      },
+      { requestFit, invalidateAttachAttempt }
+    );
   }, [authState, invalidateAttachAttempt, requestFit, terminalHostElement]);
 
   // Reconnect on visibility/focus.
