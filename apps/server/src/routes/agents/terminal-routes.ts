@@ -156,9 +156,11 @@ export async function registerAgentTerminalRoutes(
       const body = request.body as {
         phraseId?: unknown;
         args?: unknown;
+        submit?: unknown;
       } | null;
       const agentId = params.id ?? "";
       const phraseId = typeof body?.phraseId === "string" ? body.phraseId : "";
+      const submit = body?.submit !== false;
 
       if (!phraseId) {
         return reply.code(400).send({ error: "phraseId is required." });
@@ -193,7 +195,11 @@ export async function registerAgentTerminalRoutes(
         }
 
         const terminal = new TmuxTerminal(access.sessionName);
-        await terminal.sendCommand(text);
+        if (submit) {
+          await terminal.sendCommand(text);
+        } else {
+          await terminal.pasteText(text);
+        }
         return reply.code(204).send();
       } catch (error) {
         return deps.handleAgentError(reply, error);

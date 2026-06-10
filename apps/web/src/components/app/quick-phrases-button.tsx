@@ -1,6 +1,14 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { MessageSquare, Pencil, Plus, X } from "lucide-react";
+import {
+  ChevronDown,
+  Info,
+  MessageSquare,
+  Pencil,
+  Play,
+  Plus,
+  Trash2,
+} from "lucide-react";
 import { toast } from "sonner";
 
 import { ArgInput } from "@/components/app/arg-input";
@@ -12,6 +20,12 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -19,7 +33,13 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
-import { type TemplateArg } from "@/hooks/use-templates";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
+import { parseTemplateArgs, type TemplateArg } from "@/hooks/use-templates";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -106,6 +126,7 @@ export function QuickPhrasesButton({
     mutationFn: (input: {
       phraseId: string;
       args?: Record<string, string>;
+      submit?: boolean;
     }) => {
       if (!agentId) throw new Error("No active session");
       return api<null>(`/api/v1/agents/${agentId}/terminal/inject-phrase`, {
@@ -121,26 +142,30 @@ export function QuickPhrasesButton({
     onError: () => toast.error("Failed to send phrase"),
   });
 
-  const handlePhraseClick = useCallback(
-    (phrase: QuickPhrase) => {
+  const handleInject = useCallback(
+    (phrase: QuickPhrase, submit: boolean) => {
       if (!canInject || injectMutation.isPending) return;
       if (phrase.args.length > 0) {
         setOpen(false);
         setFilling({ phrase, argValues: {} });
       } else {
-        injectMutation.mutate({ phraseId: phrase.id });
+        injectMutation.mutate({ phraseId: phrase.id, submit });
       }
     },
     [canInject, injectMutation]
   );
 
-  const handleInjectWithArgs = useCallback(() => {
-    if (!filling) return;
-    injectMutation.mutate({
-      phraseId: filling.phrase.id,
-      args: filling.argValues,
-    });
-  }, [filling, injectMutation]);
+  const handleInjectWithArgs = useCallback(
+    (submit: boolean) => {
+      if (!filling) return;
+      injectMutation.mutate({
+        phraseId: filling.phrase.id,
+        args: filling.argValues,
+        submit,
+      });
+    },
+    [filling, injectMutation]
+  );
 
   const handleSave = useCallback(() => {
     if (!editing) return;
@@ -156,6 +181,11 @@ export function QuickPhrasesButton({
   }, [editing, createMutation, updateMutation]);
 
   const isSaving = createMutation.isPending || updateMutation.isPending;
+
+  const editingDetectedArgs = useMemo(
+    () => (editing?.text ? parseTemplateArgs(editing.text) : []),
+    [editing?.text]
+  );
 
   const fillingRequiredMissing =
     filling?.phrase.args.some(
@@ -176,7 +206,7 @@ export function QuickPhrasesButton({
             <MessageSquare className="h-4 w-4" />
           </Button>
         </PopoverTrigger>
-        <PopoverContent align="start" className="w-72 p-0">
+        <PopoverContent align="start" className="w-80 p-0">
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
               Quick Phrases
@@ -190,6 +220,11 @@ export function QuickPhrasesButton({
               <Plus className="h-3.5 w-3.5" />
             </button>
           </div>
+          {!canInject ? (
+            <div className="border-b border-border/50 bg-yellow-500/5 px-3 py-1.5 text-xs text-yellow-400/90">
+              Connect to an agent session to inject phrases
+            </div>
+          ) : null}
           <div className="max-h-64 overflow-y-auto">
             {phrases.length === 0 ? (
               <div className="px-3 py-4 text-center text-xs text-muted-foreground">
@@ -197,61 +232,21 @@ export function QuickPhrasesButton({
               </div>
             ) : (
               phrases.map((phrase) => (
-                <div
+                <PhraseRow
                   key={phrase.id}
-                  className="group flex items-center gap-1 border-b border-border/50 last:border-b-0"
-                >
-                  <button
-                    type="button"
-                    className={cn(
-                      "flex-1 truncate px-3 py-2 text-left text-sm",
-                      canInject
-                        ? "hover:bg-white/[0.06]"
-                        : "cursor-default opacity-50",
-                      injectMutation.isPending &&
-                        "pointer-events-none opacity-50"
-                    )}
-                    onClick={() => handlePhraseClick(phrase)}
-                    title={
-                      canInject
-                        ? phrase.text
-                        : "Connect to an agent session to inject"
-                    }
-                  >
-                    <span className="text-foreground">
-                      {phrase.label || phrase.text}
-                    </span>
-                    {phrase.label ? (
-                      <span className="block truncate text-xs text-muted-foreground">
-                        {phrase.text}
-                      </span>
-                    ) : null}
-                  </button>
-                  <div className="mr-1 hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
-                    <button
-                      type="button"
-                      className="rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-                      onClick={() =>
-                        setEditing({
-                          id: phrase.id,
-                          label: phrase.label ?? "",
-                          text: phrase.text,
-                        })
-                      }
-                      title="Edit phrase"
-                    >
-                      <Pencil className="h-3 w-3" />
-                    </button>
-                    <button
-                      type="button"
-                      className="rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
-                      onClick={() => deleteMutation.mutate(phrase.id)}
-                      title="Remove phrase"
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </div>
-                </div>
+                  phrase={phrase}
+                  canInject={canInject}
+                  isPending={injectMutation.isPending}
+                  onInject={(submit) => handleInject(phrase, submit)}
+                  onEdit={() =>
+                    setEditing({
+                      id: phrase.id,
+                      label: phrase.label ?? "",
+                      text: phrase.text,
+                    })
+                  }
+                  onDelete={() => deleteMutation.mutate(phrase.id)}
+                />
               ))
             )}
           </div>
@@ -303,12 +298,43 @@ export function QuickPhrasesButton({
                 />
               </div>
               <div className="flex flex-col gap-1.5">
-                <label
-                  htmlFor="phrase-text"
-                  className="text-xs font-medium text-muted-foreground"
-                >
-                  Phrase text
-                </label>
+                <div className="flex items-center gap-1.5">
+                  <label
+                    htmlFor="phrase-text"
+                    className="text-xs font-medium text-muted-foreground"
+                  >
+                    Phrase text
+                  </label>
+                  <TooltipProvider delayDuration={120}>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <button
+                          type="button"
+                          className="text-muted-foreground/60 hover:text-muted-foreground"
+                        >
+                          <Info className="h-3 w-3" />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" className="max-w-64">
+                        <p>
+                          Use{" "}
+                          <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
+                            {"{{D:Name}}"}
+                          </code>{" "}
+                          for fill-in variables. Add{" "}
+                          <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
+                            |required
+                          </code>{" "}
+                          or{" "}
+                          <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
+                            |multiline
+                          </code>{" "}
+                          modifiers after the name.
+                        </p>
+                      </TooltipContent>
+                    </Tooltip>
+                  </TooltipProvider>
+                </div>
                 <Textarea
                   id="phrase-text"
                   value={editing.text}
@@ -320,21 +346,23 @@ export function QuickPhrasesButton({
                   rows={3}
                   className="resize-none"
                 />
-                <p className="text-xs text-muted-foreground">
-                  Use{" "}
-                  <code className="rounded bg-white/[0.06] px-1 py-0.5">
-                    {"{{D:Variable Name}}"}
-                  </code>{" "}
-                  for fill-in variables.{" "}
-                  <code className="rounded bg-white/[0.06] px-1 py-0.5">
-                    |required
-                  </code>{" "}
-                  and{" "}
-                  <code className="rounded bg-white/[0.06] px-1 py-0.5">
-                    |multiline
-                  </code>{" "}
-                  modifiers are supported.
-                </p>
+                {editingDetectedArgs.length > 0 ? (
+                  <div className="mt-0.5 flex items-start gap-1.5 text-xs text-muted-foreground">
+                    <span className="shrink-0">Detected variables:</span>
+                    <span className="flex flex-wrap gap-1">
+                      {editingDetectedArgs.map((a) => (
+                        <span
+                          key={a.key}
+                          className="inline-block rounded bg-primary/10 px-1.5 py-0.5 text-primary"
+                        >
+                          {a.name}
+                          {a.required ? " *" : ""}
+                          {a.multiline ? " (multiline)" : ""}
+                        </span>
+                      ))}
+                    </span>
+                  </div>
+                ) : null}
               </div>
               <div className="flex justify-end gap-2">
                 <Button
@@ -377,7 +405,7 @@ export function QuickPhrasesButton({
               className="flex flex-col gap-3"
               onSubmit={(e) => {
                 e.preventDefault();
-                handleInjectWithArgs();
+                handleInjectWithArgs(true);
               }}
             >
               {filling.phrase.args.map((arg) => (
@@ -401,17 +429,125 @@ export function QuickPhrasesButton({
                 >
                   Cancel
                 </Button>
-                <Button
-                  type="submit"
+                <InjectSplitButton
                   disabled={fillingRequiredMissing || injectMutation.isPending}
-                >
-                  {injectMutation.isPending ? "Sending…" : "Inject"}
-                </Button>
+                  isPending={injectMutation.isPending}
+                  onInject={(submit) => handleInjectWithArgs(submit)}
+                />
               </div>
             </form>
           </DialogContent>
         ) : null}
       </Dialog>
     </>
+  );
+}
+
+function PhraseRow({
+  phrase,
+  canInject,
+  isPending,
+  onInject,
+  onEdit,
+  onDelete,
+}: {
+  phrase: QuickPhrase;
+  canInject: boolean;
+  isPending: boolean;
+  onInject: (submit: boolean) => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1 border-b border-border/50 px-2 py-1.5 last:border-b-0">
+      <span className="min-w-0 flex-1 truncate text-sm text-foreground">
+        {phrase.label || phrase.text}
+      </span>
+      <div className="flex shrink-0 items-center gap-0.5">
+        {canInject ? (
+          <InjectSplitButton
+            disabled={isPending}
+            isPending={isPending}
+            onInject={onInject}
+            size="sm"
+          />
+        ) : null}
+        <button
+          type="button"
+          className="rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+          onClick={onEdit}
+          title="Edit phrase"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          className="rounded p-1 text-muted-foreground hover:bg-white/[0.1] hover:text-foreground"
+          onClick={onDelete}
+          title="Delete phrase"
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function InjectSplitButton({
+  disabled,
+  isPending,
+  onInject,
+  size = "default",
+}: {
+  disabled: boolean;
+  isPending: boolean;
+  onInject: (submit: boolean) => void;
+  size?: "sm" | "default";
+}) {
+  const isSm = size === "sm";
+
+  return (
+    <div className="flex items-stretch">
+      <Button
+        type={isSm ? "button" : "submit"}
+        size={isSm ? "sm" : "default"}
+        disabled={disabled}
+        className={cn("rounded-r-none", isSm && "h-6 gap-1 px-1.5 text-xs")}
+        onClick={
+          isSm
+            ? (e: React.MouseEvent) => {
+                e.preventDefault();
+                onInject(true);
+              }
+            : undefined
+        }
+      >
+        {isSm ? <Play className="h-2.5 w-2.5 fill-current" /> : null}
+        {isPending ? "Sending…" : isSm ? "Send" : "Send & Submit"}
+      </Button>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            size={isSm ? "sm" : "default"}
+            disabled={disabled}
+            className={cn(
+              "rounded-l-none border-l border-l-white/20 px-1",
+              isSm && "h-6"
+            )}
+          >
+            <ChevronDown className={cn(isSm ? "h-2.5 w-2.5" : "h-3 w-3")} />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[160px]">
+          <DropdownMenuItem
+            className="text-foreground"
+            onSelect={() => onInject(false)}
+          >
+            Paste without submitting
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
   );
 }
