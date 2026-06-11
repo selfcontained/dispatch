@@ -380,6 +380,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
             summary: input.summary,
             feedbackCount,
             roundNumber: review.roundNumber,
+            cursorRuntime: parent?.type === "cursor",
           });
       await sendAgentPrompt(review.parentAgentId, parentPrompt);
     },
@@ -616,6 +617,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
       const prompt = assemblePersonaPrompt(persona, opts.context, diffResult, {
         includeDiff,
+        agentType: personaAgentType,
       });
 
       const personaArgs: string[] = ["--append-system-prompt", prompt];

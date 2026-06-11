@@ -105,6 +105,51 @@ describe("buildParentReviewCompletePrompt", () => {
     expect(text).toContain("dispatch_get_feedback");
   });
 
+  it("tells Cursor parents to reply to reviewers after requested changes", () => {
+    const text = buildParentReviewCompletePrompt({
+      persona: "mobile-ux",
+      personaAgentId: "agt_reviewer",
+      verdict: "request_changes",
+      summary: "Still needs work",
+      feedbackCount: 2,
+      roundNumber: 2,
+      cursorRuntime: true,
+    });
+
+    expect(text).toContain("dispatch_send_message");
+    expect(text).toContain("reply to reviewer agent agt_reviewer");
+    expect(text).toContain("fix commit");
+    expect(text).toContain("resolved feedback IDs");
+    expect(text).toContain("no further recheck round is available");
+  });
+
+  it("does not add the reviewer reply nudge for non-Cursor parents", () => {
+    const text = buildParentReviewCompletePrompt({
+      persona: "mobile-ux",
+      personaAgentId: "agt_reviewer",
+      verdict: "request_changes",
+      summary: "Still needs work",
+      feedbackCount: 2,
+      roundNumber: 2,
+    });
+
+    expect(text).not.toContain("dispatch_send_message");
+  });
+
+  it("does not add the reviewer reply nudge for Cursor approvals", () => {
+    const text = buildParentReviewCompletePrompt({
+      persona: "mobile-ux",
+      personaAgentId: "agt_reviewer",
+      verdict: "approve",
+      summary: "All good",
+      feedbackCount: 0,
+      roundNumber: 2,
+      cursorRuntime: true,
+    });
+
+    expect(text).not.toContain("dispatch_send_message");
+  });
+
   it("nudges the parent to wrap up", () => {
     const text = buildParentReviewCompletePrompt({
       persona: "p",

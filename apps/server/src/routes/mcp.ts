@@ -190,6 +190,7 @@ export async function registerMcpRoutes(
       agent: {
         id: agent.id,
         cwd: agent.cwd,
+        type: agent.type,
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
@@ -212,6 +213,10 @@ export async function registerMcpRoutes(
       submitResolution: deps.mcpSubmitResolution,
       cancelRecheck: deps.mcpCancelRecheck,
       sendMessage: deps.mcpSendMessage,
+      allowedMessageTargets:
+        agent.persona && agent.type === "cursor" && agent.parentAgentId
+          ? [agent.parentAgentId]
+          : undefined,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
@@ -273,6 +278,7 @@ export async function registerMcpRoutes(
       agent: {
         id: agent.id,
         cwd: agent.cwd,
+        type: agent.type,
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
@@ -293,6 +299,10 @@ export async function registerMcpRoutes(
       submitResolution: deps.mcpSubmitResolution,
       cancelRecheck: deps.mcpCancelRecheck,
       sendMessage: deps.mcpSendMessage,
+      allowedMessageTargets:
+        agent.persona && agent.type === "cursor" && agent.parentAgentId
+          ? [agent.parentAgentId]
+          : undefined,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,

@@ -46,10 +46,15 @@ vi.mock("../src/reviews/injection-prompts.js", () => ({
 }));
 
 vi.mock("../src/agent-type-settings.js", () => ({
-  CLI_AGENT_TYPES: ["claude", "codex", "opencode"],
-  getEnabledAgentTypes: vi.fn(async () => ["claude", "codex", "opencode"]),
+  CLI_AGENT_TYPES: ["claude", "codex", "cursor", "opencode"],
+  getEnabledAgentTypes: vi.fn(async () => [
+    "claude",
+    "codex",
+    "cursor",
+    "opencode",
+  ]),
   isCliAgentType: vi.fn((t: string) =>
-    ["claude", "codex", "opencode"].includes(t)
+    ["claude", "codex", "cursor", "opencode"].includes(t)
   ),
 }));
 
@@ -88,7 +93,10 @@ import {
   buildReviewerRecheckReadyPrompt,
   buildReviewerRecheckCancelledPrompt,
 } from "../src/reviews/injection-prompts.js";
-import { loadPersonaBySlug } from "../src/personas/loader.js";
+import {
+  assemblePersonaPrompt,
+  loadPersonaBySlug,
+} from "../src/personas/loader.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { isMediaFile, isTextFile } from "../src/shared/media.js";
 
@@ -591,11 +599,52 @@ describe("createMcpHandlers", () => {
         summary: "all clear",
         feedbackCount: 3,
         roundNumber: 2,
+        cursorRuntime: false,
       });
       expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
         "agt_parent1",
         "complete-prompt"
       );
+    });
+
+    it("marks complete prompts as Cursor runtime for Cursor parent agents", async () => {
+      deps.agentManager.getAgent.mockImplementation(async (id: string) => ({
+        id,
+        name: id === "agt_parent1" ? "parent" : "child",
+        cwd: "/repo",
+        status: "running",
+        type: id === "agt_parent1" ? "cursor" : "claude",
+        fullAccess: false,
+        pins: [],
+        latestEvent: null,
+        worktreePath: null,
+        worktreeBranch: null,
+        baseBranch: null,
+        reviewAgentType: null,
+        mediaDir: null,
+      }));
+      deps.agentManager.completePersonaReview.mockResolvedValue({
+        id: 1,
+        parentAgentId: "agt_parent1",
+        persona: "mobile-ux",
+        roundNumber: 2,
+        status: "complete",
+      });
+
+      await handlers.completeReview("agt_child1", {
+        verdict: "request_changes",
+        summary: "still cramped",
+      });
+
+      expect(buildParentReviewCompletePrompt).toHaveBeenCalledWith({
+        persona: "mobile-ux",
+        personaAgentId: "agt_child1",
+        verdict: "request_changes",
+        summary: "still cramped",
+        feedbackCount: 3,
+        roundNumber: 2,
+        cursorRuntime: true,
+      });
     });
 
     it("publishes events for both child and parent agents", async () => {
@@ -851,6 +900,36 @@ describe("createMcpHandlers", () => {
         })
       );
       expect(deps.agentManager.createPersonaReview).toHaveBeenCalled();
+    });
+
+    it("passes the Cursor runtime to persona prompt assembly for Cursor review agents", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test",
+        cwd: "/repo",
+        type: "cursor",
+        fullAccess: false,
+        worktreePath: null,
+        worktreeBranch: null,
+        baseBranch: null,
+        reviewAgentType: "cursor",
+        status: "running",
+      });
+
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review this PR",
+      });
+
+      expect(assemblePersonaPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        "review this PR",
+        expect.anything(),
+        expect.objectContaining({ agentType: "cursor" })
+      );
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "cursor" })
+      );
     });
 
     it("throws when parent not found", async () => {

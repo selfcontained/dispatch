@@ -250,6 +250,53 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain("Do NOT submit positive affirmations");
   });
 
+  it("keeps reviewer startup guidance generic by default", () => {
+    const result = assemblePersonaPrompt(basePersona, "", null);
+    expect(result).toContain("Call `review_status`");
+    expect(result).not.toContain("MANDATORY FIRST ACTION");
+    expect(result).not.toContain("functions.dispatch-dispatch_event");
+    expect(result).not.toContain("functions.dispatch-review_status");
+  });
+
+  it("includes mechanical Dispatch tool calls for Cursor reviewer startup", () => {
+    const result = assemblePersonaPrompt(basePersona, "", null, {
+      agentType: "cursor",
+    });
+    expect(result).toContain("MANDATORY FIRST ACTION");
+    expect(result).toContain(
+      'functions.dispatch-dispatch_event({ type: "working", message: "Starting review" })'
+    );
+    expect(result).toContain(
+      'functions.dispatch-review_status({ message: "Starting review" })'
+    );
+    expect(result).toContain("dispatch-dispatch_complete_review");
+    expect(result).toContain("dispatch-dispatch_get_recheck_context");
+    expect(result).toContain("report the exact tool error");
+  });
+
+  it("includes the full reviewer lifecycle recipe for Cursor reviewers", () => {
+    const result = assemblePersonaPrompt(basePersona, "", null, {
+      agentType: "cursor",
+    });
+    const eventIdx = result.indexOf('dispatch_event(type="working")');
+    const statusIdx = result.indexOf('review_status("Starting review")');
+    const feedbackIdx = result.indexOf(
+      "call `dispatch_feedback` once per finding"
+    );
+    const recheckIdx = result.indexOf("call `dispatch_get_recheck_context`");
+    const unresolvedIdx = result.indexOf(
+      "unresolved items only, with `respondsToFeedbackId`"
+    );
+    const doneIdx = result.indexOf('dispatch_event(type="done")');
+
+    expect(eventIdx).toBeGreaterThanOrEqual(0);
+    expect(statusIdx).toBeGreaterThan(eventIdx);
+    expect(feedbackIdx).toBeGreaterThan(statusIdx);
+    expect(recheckIdx).toBeGreaterThan(feedbackIdx);
+    expect(unresolvedIdx).toBeGreaterThan(recheckIdx);
+    expect(doneIdx).toBeGreaterThan(unresolvedIdx);
+  });
+
   it("always includes the recheck round-trip block", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
     expect(result).toContain("Recheck round-trip");
