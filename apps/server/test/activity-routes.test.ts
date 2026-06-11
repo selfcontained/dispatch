@@ -40,6 +40,7 @@ async function createAgent(
   });
   expect(res.statusCode).toBe(201);
   const id = res.json().agent.id;
+  await ctx.pool.query("DELETE FROM agent_events WHERE agent_id = $1", [id]);
 
   const updates: string[] = [];
   const params: unknown[] = [];
