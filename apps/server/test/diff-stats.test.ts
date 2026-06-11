@@ -50,10 +50,14 @@ function withCommands(
   return vi.fn(async (_command: string, args: string[]) => {
     const key = args.join(" ");
     const handler = merged[key];
-    if (!handler) {
-      throw new Error(`Unexpected command: ${key}`);
+    if (handler) return handler();
+
+    // check-ignore args vary with tracked paths; default to "none ignored"
+    if (args.includes("check-ignore")) {
+      return { exitCode: 1, stdout: "", stderr: "" };
     }
-    return handler();
+
+    throw new Error(`Unexpected command: ${key}`);
   });
 }
 
@@ -246,6 +250,9 @@ describe("getDiffStats", () => {
       if (key === `-C ${worktreePath} ls-files --others --exclude-standard`) {
         return ok("");
       }
+      if (args.includes("check-ignore")) {
+        return fail("");
+      }
       throw new Error(`Unexpected command: ${key}`);
     });
 
@@ -270,6 +277,9 @@ describe("getDiffStats", () => {
       }
       if (key === `-C ${worktreePath} ls-files --others --exclude-standard`) {
         return ok("");
+      }
+      if (args.includes("check-ignore")) {
+        return fail("");
       }
       if (key === `-C ${worktreePath} rev-parse --verify --quiet main`) {
         throw new Error("resolveBaseRef should not consult local main first");
@@ -306,6 +316,34 @@ describe("getDiffStats", () => {
     for (const args of seen) {
       expect(args).not.toContain("--all");
     }
+  });
+
+  it("excludes gitignored tracked files from diff stats", async () => {
+    const worktreePath = tempRoot;
+    const runCommand = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      if (key === `-C ${worktreePath} rev-parse --verify --quiet main`) {
+        return ok("main");
+      }
+      if (key === `-C ${worktreePath} merge-base HEAD main`) {
+        return ok(MERGE_BASE_SHA);
+      }
+      if (key === `-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`) {
+        return ok(
+          "10\t2\tsrc/foo.ts\n500\t0\tdist/bundle.js\n3\t1\tsrc/bar.ts"
+        );
+      }
+      if (key === `-C ${worktreePath} ls-files --others --exclude-standard`) {
+        return ok("");
+      }
+      if (args.includes("check-ignore")) {
+        return ok("dist/bundle.js");
+      }
+      throw new Error(`Unexpected command: ${key}`);
+    });
+
+    const result = await getDiffStats(worktreePath, "main", { runCommand });
+    expect(result).toMatchObject({ added: 13, deleted: 3, files: 2 });
   });
 
   it("does not follow symlinks for untracked-file line counting", async () => {
