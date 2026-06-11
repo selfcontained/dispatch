@@ -92,6 +92,13 @@ export async function getDiffStats(
       ),
     ]);
 
+    const trackedPaths = extractPathsFromNumstat(tracked.stdout);
+    const ignoredPaths = await getGitIgnoredPaths(
+      worktreePath,
+      trackedPaths,
+      run
+    );
+
     let added = 0;
     let deleted = 0;
     const seenFiles = new Set<string>();
@@ -104,6 +111,7 @@ export async function getDiffStats(
       const filePath = rest.join("\t");
       if (!filePath) continue;
       if (shouldIgnoreDiffStatsPath(filePath)) continue;
+      if (ignoredPaths.has(filePath)) continue;
       if (seenFiles.has(filePath)) continue;
       seenFiles.add(filePath);
       if (a === "-" && d === "-") continue;
@@ -165,6 +173,47 @@ function countLines(content: string): number {
   if (content.length === 0) return 0;
   const parts = content.split("\n");
   return parts[parts.length - 1] === "" ? parts.length - 1 : parts.length;
+}
+
+function extractPathsFromNumstat(numstatOutput: string): string[] {
+  const paths: string[] = [];
+  for (const line of numstatOutput.split("\n")) {
+    if (!line) continue;
+    const parts = line.split("\t");
+    if (parts.length < 3) continue;
+    const filePath = parts.slice(2).join("\t");
+    if (filePath) paths.push(filePath);
+  }
+  return paths;
+}
+
+const CHECK_IGNORE_BATCH_SIZE = 500;
+
+async function getGitIgnoredPaths(
+  worktreePath: string,
+  paths: string[],
+  run: CommandRunner
+): Promise<Set<string>> {
+  if (paths.length === 0) return new Set();
+  const ignored = new Set<string>();
+  try {
+    for (let i = 0; i < paths.length; i += CHECK_IGNORE_BATCH_SIZE) {
+      const batch = paths.slice(i, i + CHECK_IGNORE_BATCH_SIZE);
+      const result = await run(
+        "git",
+        ["-C", worktreePath, "check-ignore", "--", ...batch],
+        { allowedExitCodes: [0, 1], timeoutMs: GIT_TIMEOUT_MS }
+      );
+      if (result.exitCode === 0 && result.stdout) {
+        for (const p of result.stdout.split("\n")) {
+          if (p) ignored.add(p);
+        }
+      }
+    }
+    return ignored;
+  } catch {
+    return ignored;
+  }
 }
 
 function shouldIgnoreDiffStatsPath(filePath: string): boolean {
