@@ -165,6 +165,42 @@ export function AgentsContent() {
       </Section>
 
       <Section>
+        <H3>Quick Phrases</H3>
+        <P>
+          The <strong>Quick Phrases</strong> button (speech-bubble icon) in the
+          terminal top rail lets you save reusable text snippets and inject them
+          into agent sessions. Phrases are always available for management; the
+          inject action is enabled when you're connected to an agent session.
+        </P>
+        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
+          <li>
+            <strong>Creating</strong> — click the <Code>+</Code> button in the
+            popover to open the Add Phrase dialog. Each phrase has an optional{" "}
+            <strong>Label</strong> (short display name) and the{" "}
+            <strong>Phrase text</strong> that gets injected.
+          </li>
+          <li>
+            <strong>Variables</strong> — use{" "}
+            <Code>{"{{D:Variable Name}}"}</Code> placeholders in the phrase
+            text. Add <Code>|required</Code> or <Code>|multiline</Code>{" "}
+            modifiers after the name (same syntax as Templates). When injecting
+            a phrase with variables, a fill-in dialog appears first.
+          </li>
+          <li>
+            <strong>Injecting</strong> — phrases without variables show a split
+            button: <strong>Send</strong> pastes the text and submits it; the
+            dropdown offers <strong>Paste without submitting</strong> which
+            pastes only. Phrases with variables show a <strong>Send…</strong>{" "}
+            button that opens the fill-in dialog.
+          </li>
+          <li>
+            <strong>Editing and deleting</strong> — each phrase row has edit and
+            delete buttons. Deleting prompts for confirmation.
+          </li>
+        </ul>
+      </Section>
+
+      <Section>
         <H3>Renaming agents</H3>
         <P>
           Agents created without an explicit name start with a placeholder (
