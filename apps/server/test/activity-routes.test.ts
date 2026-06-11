@@ -150,7 +150,8 @@ describe("GET /api/v1/activity/heatmap", () => {
       d.day.startsWith(today)
     );
     expect(todayEntry).toBeTruthy();
-    expect(todayEntry.count).toBe(2);
+    // 2 seeded + 1 "Session started" idle event from createAgent
+    expect(todayEntry.count).toBe(3);
   });
 
   it("respects days query parameter", async () => {
@@ -192,7 +193,8 @@ describe("GET /api/v1/activity/stats", () => {
     const body = res.json();
     expect(body.totalWorkingMs).toBeGreaterThan(0);
     expect(body.busiestDay).toBeTruthy();
-    expect(body.busiestDayCount).toBe(2);
+    // 2 seeded + 1 "Session started" idle event from createAgent
+    expect(body.busiestDayCount).toBe(3);
     expect(body.stateDurations).toBeDefined();
   });
 });
