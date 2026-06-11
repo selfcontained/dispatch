@@ -1,35 +1,19 @@
 import React from "react";
 import {
-  AlertTriangle,
-  Archive,
-  Check,
-  ChevronDown,
   AlarmClock,
   ArrowDownToLine,
-  Copy,
-  Folder,
-  FolderTree,
-  GitBranch,
+  ChevronDown,
   Play,
-  Pause,
   Tag,
 } from "lucide-react";
-
-import { AgentMeta, FrontTruncatedValue } from "@/components/app/agent-meta";
+import { AgentCardDetails } from "@/components/app/agent-card-details";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { DiffStatBadge } from "@/components/app/diff-stat-badge";
-import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import {
   latestEventLabel,
   latestEventColor,
   formatRelativeTime,
 } from "@/components/app/agent-event-utils";
-import {
-  type FeedbackDetailState,
-  ParentFeedbackPanel,
-} from "@/components/app/feedback-panel";
-import { IdeLaunchButton } from "@/components/app/ide-launch-button";
-import { PersonaLauncher } from "@/components/app/persona-launcher";
+import { type FeedbackDetailState } from "@/components/app/feedback-panel";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Badge } from "@/components/ui/badge";
@@ -42,7 +26,6 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { toast } from "sonner";
 
-import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
 import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
@@ -113,49 +96,6 @@ export type AgentCardProps = {
   enabledIdes: IdeType[];
 };
 
-function CompactMetaRow({
-  label,
-  icon,
-  value,
-  mono = false,
-  truncateStart = false,
-}: {
-  label: string;
-  icon?: React.ReactNode;
-  value: string;
-  mono?: boolean;
-  truncateStart?: boolean;
-}): JSX.Element {
-  return (
-    <div className="flex items-start justify-between gap-3">
-      <span className="shrink-0 text-muted-foreground/75" title={label}>
-        {icon ?? (
-          <span className="text-[10px] uppercase tracking-wide">{label}</span>
-        )}
-      </span>
-      <div className="min-w-0 flex-1 text-left">
-        {truncateStart ? (
-          <FrontTruncatedValue
-            value={value}
-            mono={mono}
-            className="text-left text-foreground"
-            tooltipClassName="max-w-[420px]"
-          />
-        ) : (
-          <div
-            className={cn(
-              "text-foreground break-all",
-              mono && "font-mono text-[11px]"
-            )}
-          >
-            {value}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function AgentCard({
   agent,
   agents,
@@ -190,8 +130,6 @@ export function AgentCard({
   const isSelected = selectedAgentId === agent.id && !hasActiveChild;
   const isStopped = state === "stopped";
   const isExpanded = expandedAgentId === agent.id;
-  const fullAccessEnabled = isFullAccessEnabled(agent);
-  const [worktreePathCopied, copyWorktreePath] = useCopyText();
   const [renamePromptPending, setRenamePromptPending] = React.useState(false);
   const needsAttention = agent.status === "error";
   const isJobAgent = agent.name.startsWith("job-");
@@ -212,20 +150,12 @@ export function AgentCard({
         description: err instanceof Error ? err.message : undefined,
       });
     } finally {
-      // Clear after a short delay so a rapid double-click doesn't fire twice
-      // even if the agent hasn't renamed itself yet (which would otherwise
-      // hide the button via canPromptRename going false).
       setTimeout(() => setRenamePromptPending(false), 1500);
     }
   }, [agent.id, renamePromptPending]);
-  const sidebarBaseBranch = agent.baseBranch ?? "main";
   const collapsedRepoName = agent.gitContext
     ? (agent.gitContext.repoRoot.split("/").pop() ?? null)
     : (agent.cwd.split("/").pop() ?? null);
-  const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
-    agent.id,
-    isExpanded
-  );
 
   return (
     <React.Fragment>
@@ -285,12 +215,6 @@ export function AgentCard({
                     data-agent-control="true"
                     data-testid={`agent-prompt-rename-${agent.id}`}
                     aria-label="Ask agent to set a session name"
-                    // Compact 24×24 visual on fine pointers (desktop), bumps
-                    // to ~40×40 on coarse pointers (touch) so the hit area
-                    // clears the rough 44px touch-target guideline. The
-                    // `[@media(pointer:coarse)]:` arbitrary variant is the
-                    // closest Tailwind 3.4 native equivalent to a `touch:`
-                    // modifier — see `index.css` for the generated rule.
                     className="h-6 w-6 shrink-0 text-muted-foreground/70 hover:text-foreground [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
                     disabled={renamePromptPending}
                     onClick={() => {
@@ -377,7 +301,6 @@ export function AgentCard({
                 data-agent-control="true"
                 data-testid={`agent-expand-toggle-${agent.id}`}
                 onClick={() => {
-                  // If collapsing while a child persona is connected, detach it
                   if (
                     isExpanded &&
                     connectedAgentId &&
@@ -502,253 +425,29 @@ export function AgentCard({
               transition={{ duration: 0.2, ease: "easeOut" }}
               className="mt-2 overflow-hidden"
             >
-              <div className="flex flex-col gap-3 px-0 pb-0.5 pt-0.5">
-                <div className="space-y-1.5">
-                  <div className="relative space-y-2 rounded-xl border border-border/60 bg-background/25 px-3 py-3 text-xs text-muted-foreground">
-                    <div className="absolute right-3 top-3">
-                      <DiffStatBadge
-                        diffStats={diffStats}
-                        latestEventAt={agent.latestEvent?.updatedAt ?? null}
-                        onRefresh={refreshDiffStats}
-                      />
-                    </div>
-                    {agent.gitContext?.isWorktree ? (
-                      <>
-                        <div className="flex items-start justify-between gap-3">
-                          <span
-                            className="shrink-0 text-muted-foreground/75"
-                            title="Branch"
-                          >
-                            <GitBranch className="h-3.5 w-3.5" />
-                          </span>
-                          <div className="min-w-0 flex-1 text-left">
-                            <div className="text-muted-foreground">
-                              <FrontTruncatedValue
-                                value={sidebarBaseBranch}
-                                mono
-                                className="text-left text-muted-foreground"
-                                tooltipClassName=""
-                                tooltipValue={`Base branch: ${sidebarBaseBranch}`}
-                              />
-                            </div>
-                            <div className="mt-0.5 flex items-center gap-1 pl-2">
-                              <span className="shrink-0 font-mono text-[11px] text-muted-foreground/50">
-                                ↳
-                              </span>
-                              <FrontTruncatedValue
-                                value={agent.gitContext.branch}
-                                mono
-                                className="text-left"
-                                tooltipValue={`Working branch: ${agent.gitContext.branch}`}
-                              />
-                            </div>
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <>
-                        <CompactMetaRow
-                          label="Working dir"
-                          icon={<Folder className="h-3.5 w-3.5" />}
-                          value={agent.cwd}
-                          mono
-                          truncateStart
-                        />
-                        {agent.gitContext ? (
-                          <CompactMetaRow
-                            label="Branch"
-                            icon={<GitBranch className="h-3.5 w-3.5" />}
-                            value={agent.gitContext.branch}
-                            mono
-                            truncateStart
-                          />
-                        ) : null}
-                      </>
-                    )}
-                    <div className="flex items-center justify-between gap-2 pt-1">
-                      <div className="flex items-center gap-2">
-                        {agent.cwd ? (
-                          <IdeLaunchButton
-                            path={agent.cwd}
-                            enabledIdes={enabledIdes}
-                          />
-                        ) : null}
-                        {agent.gitContext?.isWorktree && agent.cwd ? (
-                          <Tooltip>
-                            <TooltipTrigger asChild>
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                onClick={() =>
-                                  agent.cwd && copyWorktreePath(agent.cwd)
-                                }
-                                aria-label={
-                                  worktreePathCopied
-                                    ? "Worktree path copied"
-                                    : `Copy worktree path: ${agent.cwd}`
-                                }
-                                className="group relative h-auto min-h-6 gap-1 rounded-full border border-border bg-muted/35 px-2 py-0.5 text-[10px] font-normal text-muted-foreground before:absolute before:inset-x-0 before:-inset-y-1.5 before:content-[''] hover:bg-muted/60 hover:text-foreground"
-                              >
-                                {worktreePathCopied ? (
-                                  <Check className="h-3 w-3 text-status-done" />
-                                ) : (
-                                  <>
-                                    <FolderTree className="h-3 w-3 group-hover:hidden group-focus-visible:hidden" />
-                                    <Copy className="hidden h-3 w-3 group-hover:block group-focus-visible:block" />
-                                  </>
-                                )}
-                                <span>Worktree</span>
-                                <span className="sr-only" aria-live="polite">
-                                  {worktreePathCopied
-                                    ? "Worktree path copied"
-                                    : ""}
-                                </span>
-                              </Button>
-                            </TooltipTrigger>
-                            <TooltipContent className="max-w-[420px] break-all">
-                              {agent.cwd}
-                              <div className="mt-1 text-[10px] opacity-70">
-                                Click to copy
-                              </div>
-                            </TooltipContent>
-                          </Tooltip>
-                        ) : null}
-                      </div>
-                      {isTerminalAgent ? (
-                        <span />
-                      ) : (
-                        <div
-                          className={cn(
-                            "inline-flex min-h-6 items-center gap-1 rounded-full px-2 py-0.5 text-[10px]",
-                            fullAccessEnabled
-                              ? "border border-status-waiting/35 bg-status-waiting/10 text-status-waiting"
-                              : "border border-border bg-muted/40 text-muted-foreground"
-                          )}
-                        >
-                          {fullAccessEnabled ? (
-                            <AlertTriangle className="h-3 w-3" />
-                          ) : null}
-                          <span>
-                            {fullAccessEnabled ? "Full access" : "Sandboxed"}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {agent.lastError ? (
-                  <AgentMeta label="Last error" value={agent.lastError} />
-                ) : null}
-                {agent.persona ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
-                      Persona
-                    </span>
-                    <Badge variant="running">{agent.persona}</Badge>
-                    {agent.parentAgentId ? (
-                      <span className="text-[10px] text-muted-foreground">
-                        from{" "}
-                        {agents.find((a) => a.id === agent.parentAgentId)
-                          ?.name ?? agent.parentAgentId.slice(-6)}
-                      </span>
-                    ) : null}
-                  </div>
-                ) : null}
-              </div>
-              {!agent.persona ? (
-                <div className="flex flex-col gap-3 px-0 pb-1">
-                  {isTerminalAgent ? null : (
-                    <ParentFeedbackPanel
-                      parentAgentId={agent.id}
-                      sendTerminalInput={sendTerminalInput}
-                      isConnected={connectedAgentId === agent.id}
-                      onRequestClose={onRequestClose}
-                      closeOnSessionAction={closeOnSessionAction}
-                      onOpenDetail={onOpenFeedbackDetail}
-                      activeDetailItemId={
-                        feedbackDetailState?.parentAgentId === agent.id &&
-                        "itemId" in feedbackDetailState
-                          ? feedbackDetailState.itemId
-                          : null
-                      }
-                      childAgents={childAgents}
-                      selectedAgentId={selectedAgentId}
-                      agentVisualState={getVisualState}
-                      detachTerminal={detachTerminal}
-                      attachToAgent={attachToAgent}
-                    />
-                  )}
-                  <div className="flex min-h-9 items-center justify-between gap-2 pt-2">
-                    <div className="min-h-9 min-w-0 flex items-center">
-                      {isTerminalAgent ? null : (
-                        <PersonaLauncher
-                          agent={agent}
-                          enabledAgentTypes={enabledAgentTypes}
-                          disabled={isStopped || agent.status === "archiving"}
-                          disabledReason={
-                            isStopped
-                              ? "Agent is stopped — start it before launching a review."
-                              : agent.status === "archiving"
-                                ? "Agent is archiving."
-                                : undefined
-                          }
-                        />
-                      )}
-                      {/* Keep review visible for every parent agent; lifecycle controls stay on the right. */}
-                    </div>
-                    <div className="flex h-9 shrink-0 items-center gap-[18px]">
-                      {isStopped && agent.status !== "archiving" ? (
-                        <Button
-                          size="sm"
-                          variant="ghost-primary"
-                          className="h-8 w-8 rounded-full border border-status-done/35 bg-status-done/10 p-0"
-                          aria-label="Resume"
-                          title="Resume"
-                          onClick={() => {
-                            if (closeOnSessionAction) onRequestClose?.();
-                            void startAgent(agent);
-                          }}
-                        >
-                          <Play className="h-3.5 w-3.5" />
-                        </Button>
-                      ) : !isStopped && agent.status !== "archiving" ? (
-                        <Button
-                          size="sm"
-                          variant="ghost-warning"
-                          className="h-8 w-8 rounded-full border border-status-waiting/35 bg-status-waiting/10 p-0"
-                          aria-label="Pause"
-                          title="Pause"
-                          onClick={() => {
-                            setStopTarget(agent);
-                            setStopConfirmOpen(true);
-                          }}
-                        >
-                          <Pause className="h-3.5 w-3.5" />
-                        </Button>
-                      ) : null}
-                      <Button
-                        size="sm"
-                        variant="ghost-destructive"
-                        className="h-8 w-8 rounded-full border border-status-blocked/35 bg-status-blocked/10 p-0"
-                        data-testid={`agent-archive-${agent.id}`}
-                        aria-label="Archive"
-                        title="Archive"
-                        disabled={
-                          agent.status === "archiving" ||
-                          agent.status === "creating"
-                        }
-                        onClick={() => {
-                          setDeleteTarget(agent);
-                          setDeleteConfirmOpen(true);
-                        }}
-                      >
-                        <Archive className="h-3.5 w-3.5" />
-                      </Button>
-                    </div>
-                  </div>
-                </div>
-              ) : null}
+              <AgentCardDetails
+                agent={agent}
+                agents={agents}
+                childAgents={childAgents}
+                selectedAgentId={selectedAgentId}
+                agentVisualState={getVisualState}
+                isFullAccessEnabled={isFullAccessEnabled}
+                detachTerminal={detachTerminal}
+                attachToAgent={attachToAgent}
+                startAgent={startAgent}
+                setDeleteTarget={setDeleteTarget}
+                setDeleteConfirmOpen={setDeleteConfirmOpen}
+                setStopTarget={setStopTarget}
+                setStopConfirmOpen={setStopConfirmOpen}
+                sendTerminalInput={sendTerminalInput}
+                connectedAgentId={connectedAgentId}
+                onOpenFeedbackDetail={onOpenFeedbackDetail}
+                feedbackDetailState={feedbackDetailState}
+                onRequestClose={onRequestClose}
+                closeOnSessionAction={closeOnSessionAction}
+                enabledAgentTypes={enabledAgentTypes}
+                enabledIdes={enabledIdes}
+              />
             </motion.div>
           ) : null}
         </AnimatePresence>
