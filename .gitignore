@@ -23,5 +23,6 @@ playwright-report/
 .dispatch/dev-cache/
 .dispatch/worktrees/
 opencode.json
+.cursor/mcp.json
 apps/server/src/generated/runtime-assets/
 apps/server/src/generated/runtime-assets.js
