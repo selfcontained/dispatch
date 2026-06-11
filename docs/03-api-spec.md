@@ -182,6 +182,20 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 
 The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session.
 
+## Quick Phrases
+
+Reusable text snippets that can be injected into agent terminal sessions.
+
+| Method | Path                                 | Description                                         |
+| ------ | ------------------------------------ | --------------------------------------------------- |
+| GET    | `/quick-phrases`                     | List all phrases (with parsed template args)        |
+| POST   | `/quick-phrases`                     | Create a phrase (`text` required, `label` optional) |
+| PATCH  | `/quick-phrases/:id`                 | Update phrase `text` and/or `label`                 |
+| DELETE | `/quick-phrases/:id`                 | Delete a phrase                                     |
+| POST   | `/agents/:id/terminal/inject-phrase` | Inject a phrase into an agent's tmux session        |
+
+The inject-phrase endpoint accepts `phraseId`, optional `args` (key-value map for template variables), and optional `submit` (default `true` — sends Enter after pasting; `false` pastes only). Text is capped at 1000 chars per phrase, 2000 chars per arg value, and 10000 chars after variable substitution.
+
 ## Media
 
 | Method | Path                      | Description                                                |

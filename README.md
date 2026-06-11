@@ -39,6 +39,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 - Theming with multiple color themes and per-theme terminal palettes.
 - Password-based login with first-run setup and per-device session cookies.
 - Browser UI with:
+  - quick phrases — reusable text snippets with template variables, injectable into agent terminals
   - interactive terminal access (xterm.js over WebSocket, resumable after browser reconnect)
   - agent lifecycle controls (create, start, stop, delete — with background archive cleanup)
   - media pane for screenshots, video, text snippets, and live Playwright browser streaming (MJPEG over CDP)
