@@ -121,14 +121,15 @@ export async function loadPersonaBySlug(
  */
 function buildStandardFeedbackGuidance(
   includeDiff: boolean,
-  opts: { cursorRuntime?: boolean } = {}
+  opts: { agentType?: Exclude<AgentType, "terminal"> } = {}
 ): string {
   const scopeLine = includeDiff
     ? "- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes."
     : "- Only flag issues that are within the scope of the work under review described in the parent context. Do not flag pre-existing issues unless directly caused or worsened by the work under review.";
-  const cursorCallHint = opts.cursorRuntime
-    ? ' In Cursor, use `functions.dispatch-review_status({ message: "Starting review" })`.'
-    : "";
+  const cursorCallHint =
+    opts.agentType === "cursor"
+      ? ' In Cursor, use `functions.dispatch-review_status({ message: "Starting review" })`.'
+      : "";
   const reviewLifecycle = [
     `- Call \`review_status\` with a short message when you begin reviewing.${cursorCallHint} Ping it again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you're working on.`,
     "- Call `dispatch_feedback` for each finding as you go.",
@@ -257,7 +258,7 @@ export function assemblePersonaPrompt(
   }
   sections.push(
     buildStandardFeedbackGuidance(includeDiff, {
-      cursorRuntime: options.agentType === "cursor",
+      agentType: options.agentType,
     })
   );
   sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
