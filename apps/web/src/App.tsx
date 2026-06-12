@@ -28,6 +28,7 @@ import {
 } from "@/lib/agent-types";
 import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
+import { TipQueueProvider } from "@/components/tips/tip-queue-provider";
 import { agentRoute } from "@/lib/agent-routes";
 import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
@@ -240,7 +241,7 @@ export function DashboardLayout(): JSX.Element {
   };
 
   return (
-    <>
+    <TipQueueProvider>
       <Outlet context={context} />
       <ReleaseAvailableToast />
       <UpdateAvailableToast />
@@ -254,7 +255,7 @@ export function DashboardLayout(): JSX.Element {
         richColors
         toastOptions={{ duration: 3000 }}
       />
-    </>
+    </TipQueueProvider>
   );
 }
 
