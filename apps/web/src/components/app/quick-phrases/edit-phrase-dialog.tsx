@@ -1,4 +1,6 @@
+import { useRef, useState } from "react";
 import { Info } from "lucide-react";
+import { Link } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -11,11 +13,10 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import { parseTemplateArgs } from "@/hooks/use-templates";
 
 export type EditingPhrase = { id: string; label: string; text: string } | null;
@@ -35,15 +36,21 @@ export function EditPhraseDialog({
   isSaving: boolean;
   detectedArgs: ReturnType<typeof parseTemplateArgs>;
 }) {
+  const [variableHelpOpen, setVariableHelpOpen] = useState(false);
+  const dialogContentRef = useRef<HTMLDivElement | null>(null);
+
   return (
     <Dialog
       open={editing !== null}
       onOpenChange={(v) => {
-        if (!v) onClose();
+        if (!v) {
+          setVariableHelpOpen(false);
+          onClose();
+        }
       }}
     >
       {editing !== null ? (
-        <DialogContent className="sm:max-w-md">
+        <DialogContent ref={dialogContentRef} className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editing.id ? "Edit Phrase" : "Add Phrase"}
@@ -87,35 +94,41 @@ export function EditPhraseDialog({
                 >
                   Phrase text
                 </label>
-                <TooltipProvider delayDuration={120}>
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        className="text-muted-foreground/60 hover:text-muted-foreground"
-                      >
-                        <Info className="h-3 w-3" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right" className="max-w-64">
-                      <p>
-                        Use{" "}
-                        <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
-                          {"{{D:Name}}"}
-                        </code>{" "}
-                        for fill-in variables. Add{" "}
-                        <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
-                          |required
-                        </code>{" "}
-                        or{" "}
-                        <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
-                          |multiline
-                        </code>{" "}
-                        modifiers after the name.
-                      </p>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
+                <Popover
+                  open={variableHelpOpen}
+                  onOpenChange={setVariableHelpOpen}
+                >
+                  <PopoverTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label="Phrase variable help"
+                      className="text-muted-foreground/60 hover:text-muted-foreground"
+                      onMouseEnter={() => setVariableHelpOpen(true)}
+                    >
+                      <Info className="h-3 w-3" />
+                    </button>
+                  </PopoverTrigger>
+                  <PopoverContent
+                    container={dialogContentRef.current}
+                    side="right"
+                    className="z-[90] w-64 px-2 py-1 text-xs"
+                  >
+                    <p>
+                      Variables like{" "}
+                      <code className="rounded bg-white/[0.08] px-1 py-0.5 text-[11px]">
+                        {"{{D:Name}}"}
+                      </code>{" "}
+                      become prompts before the phrase is sent.
+                    </p>
+                    <Link
+                      to="/settings/help/agents"
+                      className="mt-1 block text-right text-primary underline-offset-2 hover:underline"
+                      onClick={() => setVariableHelpOpen(false)}
+                    >
+                      More info
+                    </Link>
+                  </PopoverContent>
+                </Popover>
               </div>
               <Textarea
                 id="phrase-text"
