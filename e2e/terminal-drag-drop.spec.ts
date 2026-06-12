@@ -63,7 +63,7 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("shows a shiny drop overlay and uploads a non-image file with a [File #N] label", async ({
+  test("shows a drop overlay, uploads a file, and creates a media entry", async ({
     page,
     request,
   }) => {
@@ -83,17 +83,18 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await dispatchDragEvent(page, "dragover", TXT);
     await expect(overlay).toBeVisible();
     await expect(overlay).toContainText("Drop files to upload");
-    await page.screenshot({ path: "/tmp/terminal-drop-overlay.png" });
 
     // Leaving the terminal hides the overlay again.
     await dispatchDragEvent(page, "dragleave", TXT);
     await expect(overlay).toBeHidden();
 
     // Slow the media upload so the uploading indicator is observable.
-    await page.route(`**/api/v1/agents/${agent.id}/media`, async (route) => {
+    const slowUpload = async (route: import("@playwright/test").Route) => {
+      if (route.request().method() !== "POST") return route.continue();
       await new Promise((r) => setTimeout(r, 800));
       await route.continue();
-    });
+    };
+    await page.route(`**/api/v1/agents/${agent.id}/media`, slowUpload);
 
     const uploadPromise = page.waitForRequest(
       (req) =>
@@ -103,21 +104,25 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await dispatchDragEvent(page, "dragover", TXT);
     await dispatchDragEvent(page, "drop", TXT);
 
-    // Non-image files go to the media endpoint, and the uploading indicator
-    // (shared ActivityBars loader) shows while the slowed request is in flight.
+    // The uploading indicator shows while the slowed request is in flight.
     await expect(page.getByTestId("terminal-uploading-overlay")).toBeVisible();
     const uploadReq = await uploadPromise;
     expect(uploadReq.url()).toContain(`/api/v1/agents/${agent.id}/media`);
     await expect(overlay).toBeHidden();
     await expect(page.getByTestId("terminal-uploading-overlay")).toBeHidden();
 
-    // The resulting `[File #N] <path>` prompt insertion is sent over the
-    // terminal WebSocket via sendTerminalInput — only observable against a live
-    // tmux session, so it's validated on the deployed VM rather than here
-    // (the inert e2e stack has no live terminal to echo it).
+    // The upload created a media entry in the DB.
+    const mediaRes = await request.get(`/api/v1/agents/${agent.id}/media`);
+    const mediaList = (await mediaRes.json()) as {
+      files: { name: string; source: string; size: number }[];
+    };
+    const entry = mediaList.files.find((f) => f.name.includes("notes"));
+    expect(entry).toBeDefined();
+    expect(entry!.source).toBe("user");
+    expect(entry!.size).toBeGreaterThan(0);
   });
 
-  test("uploads images to the media endpoint too (same path as other files)", async ({
+  test("dropping an image creates a media entry and never hits the clipboard endpoint", async ({
     page,
     request,
   }) => {
@@ -129,8 +134,6 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await page.getByTestId(`agent-row-${agent.id}`).click();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
 
-    // Images are handled like any other file: uploaded to the media store and
-    // referenced in the prompt — they do NOT use the clipboard endpoint.
     let mediaSeen = false;
     let clipboardSeen = false;
     page.on("request", (req) => {
@@ -141,9 +144,6 @@ test.describe("Terminal drag-and-drop file upload", () => {
       if (req.url().includes("/api/v1/clipboard/image")) clipboardSeen = true;
     });
 
-    // Re-attempt the drop until it fires the upload — the upload no-ops until
-    // the terminal has connected (connectedAgentId set), which can lag the
-    // pane becoming visible.
     await expect
       .poll(
         async () => {
@@ -156,9 +156,21 @@ test.describe("Terminal drag-and-drop file upload", () => {
       .toBe(true);
 
     expect(clipboardSeen).toBe(false);
+
+    // A media entry was persisted for the image.
+    const mediaRes = await request.get(`/api/v1/agents/${agent.id}/media`);
+    const mediaList = (await mediaRes.json()) as {
+      files: { name: string; source: string; size: number }[];
+    };
+    const entry = mediaList.files.find((f) => f.name.includes("shot"));
+    expect(entry).toBeDefined();
+    expect(entry!.size).toBeGreaterThan(0);
   });
 
-  test("pastes images via the media endpoint", async ({ page, request }) => {
+  test("pasting an image creates a media entry via the media endpoint", async ({
+    page,
+    request,
+  }) => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-agent-paste-${Date.now()}`,
     });
@@ -186,5 +198,16 @@ test.describe("Terminal drag-and-drop file upload", () => {
         { timeout: 15_000, intervals: [200, 300, 500] }
       )
       .toBe(true);
+
+    // A media entry was persisted for the pasted image.
+    const mediaRes = await request.get(`/api/v1/agents/${agent.id}/media`);
+    const mediaList = (await mediaRes.json()) as {
+      files: { name: string; source: string; size: number }[];
+    };
+    expect(mediaList.files.length).toBeGreaterThanOrEqual(1);
+    const entry = mediaList.files[0];
+    expect(entry.name).toMatch(/\.png$/);
+    expect(entry.source).toBe("user");
+    expect(entry.size).toBeGreaterThan(0);
   });
 });
