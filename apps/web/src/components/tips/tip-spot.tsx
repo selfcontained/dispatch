@@ -89,9 +89,9 @@ export function TipSpot({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <PopoverPrimitive.Arrow
-          width={14}
-          height={7}
-          className="fill-[hsl(var(--card))] [&>polygon]:stroke-white/20"
+          width={12}
+          height={6}
+          className="fill-white/20"
         />
         <TipPopoverContent
           tip={tip}
