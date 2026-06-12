@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { AgentType } from "../agents/types.js";
 import { buildCursorDispatchToolGuidance } from "../shared/mcp/cursor-dispatch-guidance.js";
 import type { ReviewDiffResult } from "./review-diff.js";
 
@@ -173,7 +174,7 @@ export type AssemblePersonaPromptOptions = {
   /** When false, omits the git diff section from the prompt. Defaults to true. */
   includeDiff?: boolean;
   /** Runtime that will execute this persona prompt. Cursor gets tool-call hardening. */
-  agentType?: "claude" | "codex" | "cursor" | "opencode";
+  agentType?: Exclude<AgentType, "terminal">;
 };
 
 function buildDiffCommands(baseRef: string): string {
