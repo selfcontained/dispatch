@@ -5,7 +5,6 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import * as z from "zod/v4";
 
 import type { BrainStore } from "../../brain/store.js";
-import { createPr, getPrStatus } from "../github/pr.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
@@ -15,6 +14,7 @@ import {
   type LaunchPersonaAgentType,
 } from "./persona-interaction-tools.js";
 import { registerPersonaTools } from "./persona-tools.js";
+import { registerPrTools } from "./pr-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { toToolError } from "./tool-error.js";
 
@@ -453,99 +453,11 @@ async function createDispatchMcpServer(
     });
   }
 
-  // ── create_pr ─────────────────────────────────────────────────────
-  if (allowed.has("create_pr")) {
-    const agentBaseBranch = context.agent?.baseBranch;
-    const defaultBaseBranch = agentBaseBranch || "main";
-    server.registerTool(
-      "create_pr",
-      {
-        description: "Create a GitHub pull request for the current branch.",
-        inputSchema: {
-          cwd: cwdSchema(
-            defaultCwd,
-            "Absolute path inside the git repository."
-          ),
-          baseBranch: z
-            .string()
-            .default(defaultBaseBranch)
-            .describe("Base branch to target."),
-          title: z.string().optional().describe("Explicit PR title."),
-          body: z.string().optional().describe("Explicit PR body."),
-          draft: z
-            .boolean()
-            .default(false)
-            .describe("Create the PR as a draft."),
-          fillFromCommits: z
-            .boolean()
-            .default(false)
-            .describe("Let gh derive title/body from commits."),
-        },
-      },
-      async (args) => {
-        try {
-          const result = await createPr({
-            ...args,
-            cwd: resolveCwd(args.cwd, defaultCwd),
-          });
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Created PR ${result.url} from ${result.branchName} into ${result.baseBranch}.`,
-              },
-            ],
-            structuredContent: result,
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  // ── get_pr_status ─────────────────────────────────────────────────
-  if (allowed.has("get_pr_status")) {
-    server.registerTool(
-      "get_pr_status",
-      {
-        description: "Fetch status details for a pull request.",
-        inputSchema: {
-          cwd: cwdSchema(
-            defaultCwd,
-            "Absolute path inside the git repository."
-          ),
-          prNumber: z
-            .number()
-            .int()
-            .positive()
-            .optional()
-            .describe(
-              "Specific PR number. Defaults to the PR for the current branch."
-            ),
-        },
-      },
-      async (args) => {
-        try {
-          const result = await getPrStatus({
-            ...args,
-            cwd: resolveCwd(args.cwd, defaultCwd),
-          });
-          return {
-            content: [
-              {
-                type: "text",
-                text: `PR #${result.number} is ${result.state} with merge state ${result.mergeStateStatus ?? "unknown"}.`,
-              },
-            ],
-            structuredContent: result,
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
+  // ── PR tools (create_pr, get_pr_status) ────────────────────────────
+  registerPrTools(server, allowed, {
+    defaultCwd,
+    baseBranch: context.agent?.baseBranch ?? undefined,
+  });
 
   // ── dispatch_event ────────────────────────────────────────────────
   // dispatch_event and dispatch_share are implemented as native MCP tools below.
@@ -1191,29 +1103,6 @@ function registerFeedbackTool(
       }
     }
   );
-}
-
-function cwdSchema(
-  defaultCwd: string | undefined,
-  description: string
-): z.ZodType<string | undefined> {
-  const suffix = defaultCwd
-    ? ` Defaults to the agent working directory (${defaultCwd}) when omitted on agent-scoped MCP routes.`
-    : "";
-  return defaultCwd
-    ? z.string().optional().describe(`${description}${suffix}`)
-    : z.string().describe(description);
-}
-
-function resolveCwd(
-  value: string | undefined,
-  defaultCwd: string | undefined
-): string {
-  const cwd = value?.trim() || defaultCwd?.trim();
-  if (!cwd) {
-    throw new Error("cwd is required.");
-  }
-  return cwd;
 }
 
 function buildParamSchema(params?: RepoToolParam[]): Record<string, z.ZodType> {
