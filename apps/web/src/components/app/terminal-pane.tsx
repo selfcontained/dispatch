@@ -1,5 +1,5 @@
 import { memo, type RefCallback, useEffect, useState } from "react";
-import { Archive, TerminalSquare } from "lucide-react";
+import { Archive, TerminalSquare, Upload } from "lucide-react";
 
 import { type Agent, type ConnState } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -14,6 +14,8 @@ type TerminalPaneProps = {
   terminalHostRef: RefCallback<HTMLDivElement>;
   archivePhase: Agent["archivePhase"];
   resyncing: boolean;
+  draggingFiles: boolean;
+  uploadingFiles: boolean;
 };
 
 export const TerminalPane = memo(function TerminalPane({
@@ -25,6 +27,8 @@ export const TerminalPane = memo(function TerminalPane({
   terminalHostRef,
   archivePhase,
   resyncing,
+  draggingFiles,
+  uploadingFiles,
 }: TerminalPaneProps): JSX.Element {
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false);
 
@@ -138,6 +142,28 @@ export const TerminalPane = memo(function TerminalPane({
         </div>
       ) : null}
 
+      {draggingFiles ? (
+        <div
+          data-testid="terminal-drop-overlay"
+          className="pointer-events-none absolute inset-0 z-40 m-2 overflow-hidden rounded-xl bg-[linear-gradient(to_right,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)))] p-[2px] saturate-[1.35] brightness-[1.05]"
+        >
+          <div className="relative grid h-full w-full place-items-center overflow-hidden rounded-[10px] bg-background/85 backdrop-blur-sm">
+            {/* Shiny scan sweep — same status gradient + keyframes as the
+                reconnect overlay and ActivityBars. */}
+            <div className="dispatch-reconnect-scan pointer-events-none absolute inset-y-0 left-0 w-1/3 animate-[reconnect-scan_1350ms_ease-in-out_infinite] bg-[linear-gradient(to_right,transparent,hsl(var(--status-working)),transparent)] opacity-25 will-change-transform motion-reduce:hidden" />
+            <div className="relative flex flex-col items-center gap-2 px-6 text-center text-foreground">
+              <Upload className="h-8 w-8" />
+              <p className="text-sm font-medium">Drop files to upload</p>
+              <p className="text-xs text-muted-foreground">
+                Files are uploaded and added to the prompt as [File&nbsp;#1].
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {uploadingFiles ? <UploadingOverlay /> : null}
+
       <div
         data-testid="terminal-resyncing-state"
         aria-hidden={!resyncing}
@@ -149,3 +175,23 @@ export const TerminalPane = memo(function TerminalPane({
     </div>
   );
 });
+
+function UploadingOverlay() {
+  useEffect(() => {
+    console.log("[dispatch:uploading-overlay] mounted");
+  }, []);
+
+  return (
+    <div
+      data-testid="terminal-uploading-overlay"
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none absolute inset-x-0 bottom-3 z-40 flex justify-center"
+    >
+      <div className="flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur-sm">
+        <ActivityBars size={16} />
+        <span>Uploading…</span>
+      </div>
+    </div>
+  );
+}

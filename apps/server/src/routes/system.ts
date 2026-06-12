@@ -1,7 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import { readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
@@ -58,72 +57,10 @@ export async function registerSystemRoutes(
     return { status: "ok" };
   });
 
-  app.post("/api/v1/clipboard/image", async (request, reply) => {
-    const data = await request.file();
-    if (!data) {
-      return reply
-        .code(400)
-        .send({ error: "An image file field is required." });
-    }
-    const mime = data.mimetype;
-    if (!mime.startsWith("image/")) {
-      return reply.code(400).send({ error: "Only image files are accepted." });
-    }
-
-    const buffer = await data.toBuffer();
-    const ext =
-      mime === "image/png" ? "png" : mime === "image/jpeg" ? "jpg" : "png";
-    const tmpPath = `/tmp/dispatch-clipboard-${Date.now()}.${ext}`;
-    await writeFile(tmpPath, buffer);
-
-    try {
-      if (os.platform() === "darwin") {
-        const pasteboardClass = ext === "jpg" ? "JPEG" : "PNGf";
-        await new Promise<void>((resolve, reject) => {
-          const proc = spawn("osascript", [
-            "-e",
-            `set the clipboard to (read (POSIX file "${tmpPath}") as «class ${pasteboardClass}»)`,
-          ]);
-          proc.on("close", (code) =>
-            code === 0
-              ? resolve()
-              : reject(new Error(`osascript exited ${code}`))
-          );
-          proc.on("error", reject);
-        });
-      } else {
-        const display = process.env.DISPATCH_COPY_DISPLAY;
-        if (!display) {
-          return reply.code(500).send({
-            error:
-              "DISPATCH_COPY_DISPLAY is not set. Clipboard image paste on Linux requires Xvfb and xclip.",
-          });
-        }
-        await new Promise<void>((resolve, reject) => {
-          const proc = spawn(
-            "xclip",
-            ["-selection", "clipboard", "-t", mime, "-i", tmpPath],
-            { env: { ...process.env, DISPLAY: display } }
-          );
-          proc.on("close", (code) =>
-            code === 0 ? resolve() : reject(new Error(`xclip exited ${code}`))
-          );
-          proc.on("error", reject);
-        });
-      }
-      return reply.code(200).send({ ok: true });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      return reply
-        .code(500)
-        .send({ error: `Failed to write to clipboard: ${message}` });
-    } finally {
-      await unlink(tmpPath).catch(() => {});
-    }
-  });
-
   app.get("/api/v1/system/defaults", async () => {
-    return { homeDir: os.homedir() };
+    return {
+      homeDir: os.homedir(),
+    };
   });
 
   app.get("/api/v1/system/path-info", async (request, reply) => {

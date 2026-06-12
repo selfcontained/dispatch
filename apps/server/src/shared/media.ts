@@ -114,6 +114,21 @@ export function toMediaKey(file: { name: string; updatedAt: string }): string {
   return `${file.name}:${file.updatedAt}`;
 }
 
+const MIME_TO_EXT: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "video/mp4": ".mp4",
+  "application/pdf": ".pdf",
+};
+
+export function extensionForMime(mime: string): string {
+  if (MIME_TO_EXT[mime]) return MIME_TO_EXT[mime];
+  if (mime.startsWith("image/")) return ".png";
+  return ".bin";
+}
+
 export function isValidMediaKey(key: string): boolean {
   if (key.length === 0 || key.length > 1024) {
     return false;

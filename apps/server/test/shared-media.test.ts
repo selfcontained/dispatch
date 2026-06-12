@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  extensionForMime,
   isDocumentFile,
   isMediaFile,
   isTextFile,
@@ -188,5 +189,29 @@ describe("isValidMediaKey", () => {
     expect(isValidMediaKey("abc\x00def")).toBe(false);
     expect(isValidMediaKey("abc\ndef")).toBe(false);
     expect(isValidMediaKey("abc\tdef")).toBe(false);
+  });
+});
+
+describe("extensionForMime", () => {
+  it("returns .png for image/png", () => {
+    expect(extensionForMime("image/png")).toBe(".png");
+  });
+  it("returns .jpg for image/jpeg", () => {
+    expect(extensionForMime("image/jpeg")).toBe(".jpg");
+  });
+  it("returns .gif for image/gif", () => {
+    expect(extensionForMime("image/gif")).toBe(".gif");
+  });
+  it("returns .webp for image/webp", () => {
+    expect(extensionForMime("image/webp")).toBe(".webp");
+  });
+  it("returns .png for unknown image types", () => {
+    expect(extensionForMime("image/avif")).toBe(".png");
+  });
+  it("returns .mp4 for video/mp4", () => {
+    expect(extensionForMime("video/mp4")).toBe(".mp4");
+  });
+  it("returns .bin for non-media MIME types", () => {
+    expect(extensionForMime("application/octet-stream")).toBe(".bin");
   });
 });

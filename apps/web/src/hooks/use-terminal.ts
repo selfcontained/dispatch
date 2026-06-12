@@ -18,6 +18,9 @@ import {
   type TerminalUiState,
 } from "@/components/app/types";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
+
+import { isAcceptedUploadFile, uploadAgentMedia } from "@/lib/media-upload";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
 import {
@@ -75,6 +78,8 @@ export function useTerminal(args: {
   sendTerminalInput: (data: string) => void;
   exitCopyMode: () => Promise<void>;
   resyncing: boolean;
+  draggingFiles: boolean;
+  uploadingFiles: boolean;
 } {
   const {
     authState,
@@ -103,6 +108,12 @@ export function useTerminal(args: {
   // calm "Resizing…" overlay instead of the empty / reconnect overlays
   // that the underlying detach → reattach transition would otherwise expose.
   const [resyncing, setResyncing] = useState(false);
+  // True while a file is being dragged over the terminal, so the UI can show a
+  // "Drop files to upload" overlay.
+  const [draggingFiles, setDraggingFiles] = useState(false);
+  // True while dropped/pasted files are being uploaded, so the UI can show a
+  // loading indicator.
+  const [uploadingFiles, setUploadingFiles] = useState(false);
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
@@ -125,6 +136,9 @@ export function useTerminal(args: {
   // lets requestFit trigger an auto-RESYNC without needing those defined
   // earlier in the hook body.
   const resyncOnResizeRef = useRef<() => void>(() => {});
+  // Filled in below; let the terminal surface's drag/drop + paste handlers call
+  // the latest logic without re-creating the terminal when the callback changes.
+  const uploadFilesRef = useRef<(files: File[]) => void>(() => {});
 
   const wsRef = useRef<WebSocket | null>(null);
   const shouldKeepAttachedRef = useRef(false);
@@ -577,6 +591,59 @@ export function useTerminal(args: {
     terminalRef.current?.focus();
   }, []);
 
+  // Unified upload for both drag-and-drop and clipboard paste. The server
+  // handles delivery (clipboard injection or typed path) via the `inject`
+  // flag — the client just uploads and lets the server decide.
+  const uploadFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    const agentId = connectedAgentIdRef.current;
+    if (!agentId) {
+      toast.error("Connect to an agent before uploading files.");
+      return;
+    }
+    const accepted = files.filter((file) => isAcceptedUploadFile(file.name));
+    const skipped = files.filter((file) => !isAcceptedUploadFile(file.name));
+    if (accepted.length === 0) {
+      toast.error(
+        files.length === 1
+          ? `Unsupported file type: ${files[0].name}`
+          : "None of the dropped files are a supported type."
+      );
+      return;
+    }
+    if (skipped.length > 0) {
+      toast.info(
+        `Skipped ${skipped.length} unsupported file${
+          skipped.length > 1 ? "s" : ""
+        }: ${skipped.map((file) => file.name).join(", ")}`
+      );
+    }
+    setUploadingFiles(true);
+    void (async () => {
+      const failures: string[] = [];
+      try {
+        for (const file of accepted) {
+          try {
+            await uploadAgentMedia(agentId, file, { inject: true });
+          } catch (err) {
+            console.warn(`Upload failed for ${file.name}:`, err);
+            failures.push(file.name);
+          }
+        }
+      } finally {
+        setUploadingFiles(false);
+      }
+      if (failures.length > 0) {
+        toast.error(
+          failures.length === 1
+            ? `Failed to upload ${failures[0]}.`
+            : `Failed to upload ${failures.length} files.`
+        );
+      }
+    })();
+  }, []);
+  uploadFilesRef.current = uploadFiles;
+
   const noteScrollInteraction = useCallback(() => {
     const agentId = connectedAgentIdRef.current;
     if (!agentId || terminalMode !== "tmux") {
@@ -644,8 +711,9 @@ export function useTerminal(args: {
         ctrlPendingRef,
         noteScrollInteractionRef,
         deferMediaResizeRef,
+        uploadFilesRef,
       },
-      { requestFit, invalidateAttachAttempt }
+      { requestFit, invalidateAttachAttempt, setDraggingFiles }
     );
   }, [authState, invalidateAttachAttempt, requestFit, terminalHostElement]);
 
@@ -826,6 +894,8 @@ export function useTerminal(args: {
       exitCopyMode,
       setTerminalHostRef,
       resyncing,
+      draggingFiles,
+      uploadingFiles,
     }),
     [
       connState,
@@ -841,6 +911,8 @@ export function useTerminal(args: {
       exitCopyMode,
       setTerminalHostRef,
       resyncing,
+      uploadingFiles,
+      draggingFiles,
     ]
   );
 }
