@@ -3,7 +3,7 @@ import { atomFamily } from "jotai/utils";
 
 import { type IdeType } from "./ide-types";
 
-function atomWithLocalStorage<T>(key: string, initialValue: T) {
+export function atomWithLocalStorage<T>(key: string, initialValue: T) {
   const baseAtom = atom<T>(
     (() => {
       if (typeof window === "undefined") return initialValue;
