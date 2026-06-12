@@ -211,7 +211,7 @@ export async function registerMediaRoutes(
           if (access.mode === "tmux") {
             const seq = nextFileSeq(id);
             const terminal = new TmuxTerminal(access.sessionName);
-            await terminal.sendCommand(`[File #${seq}] ${mediaPath} `);
+            await terminal.pasteText(`[File #${seq}] ${mediaPath} `);
             delivery = "path";
           }
         } catch (err) {
