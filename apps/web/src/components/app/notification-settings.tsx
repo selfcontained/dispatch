@@ -1,11 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtom } from "jotai";
-import { Play } from "lucide-react";
+import { useAtom, useSetAtom } from "jotai";
+import { Play, RotateCcw } from "lucide-react";
+import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { soundCuesEnabledAtom } from "@/lib/store";
+import { dismissedTipsAtom, tipsEnabledAtom } from "@/lib/tips/tips-state";
 import { CUE_INTENTS, playCueForIntent, playTapCue } from "@/lib/sound-cues";
 import {
   getNotificationPermission,
@@ -86,6 +88,48 @@ function SoundCuesSection(): JSX.Element {
             </Button>
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+function TipsSection(): JSX.Element {
+  const [enabled, setEnabled] = useAtom(tipsEnabledAtom);
+  const setDismissed = useSetAtom(dismissedTipsAtom);
+
+  return (
+    <div>
+      <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
+        Tips & Guidance
+      </h3>
+      <p className="mb-3 text-sm text-muted-foreground">
+        Contextual tips that highlight features and link to docs. This device
+        only.
+      </p>
+      <div className="max-w-lg space-y-3">
+        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
+          <Checkbox
+            checked={enabled}
+            onCheckedChange={(checked) => setEnabled(checked === true)}
+            data-testid="tips-enabled"
+          />
+          <div className="text-sm font-medium text-foreground">Show tips</div>
+        </label>
+        <Button
+          variant="default"
+          size="sm"
+          onClick={() => {
+            setDismissed([]);
+            toast.success(
+              "Tips reset — you'll see them again as you use the app."
+            );
+          }}
+          data-testid="reset-dismissed-tips"
+          className="gap-1.5"
+        >
+          <RotateCcw className="h-3 w-3" />
+          Reset dismissed tips
+        </Button>
       </div>
     </div>
   );
@@ -365,6 +409,10 @@ export function NotificationSettings(): JSX.Element {
   return (
     <div className="flex flex-col gap-8 overflow-y-auto p-6">
       <SoundCuesSection />
+
+      <div className="border-t border-border pt-8">
+        <TipsSection />
+      </div>
 
       {/* Browser Notifications */}
       <div className="border-t border-border pt-8">
