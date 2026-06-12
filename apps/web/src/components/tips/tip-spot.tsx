@@ -91,7 +91,7 @@ export function TipSpot({
         <PopoverPrimitive.Arrow
           width={14}
           height={7}
-          className="fill-popover drop-shadow-[0_-1px_0_hsl(var(--border)/0.4)]"
+          className="fill-[hsl(var(--card))] [&>polygon]:stroke-white/20"
         />
         <TipPopoverContent
           tip={tip}
