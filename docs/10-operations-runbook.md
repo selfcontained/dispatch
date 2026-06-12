@@ -118,7 +118,7 @@ The server update flow operates on `~/.dispatch/server/` and:
 
 1. **Gates the request.** If the target release has pending update-migrations (CRU-146) or its body declares `mode: required` in a `dispatch-update` block (and the install isn't already past `appliesFrom`), responds `409` with `ASSISTED_UPDATE_REQUIRED` — caller must use `/release/assisted/launch` instead, or pass `force: true` to override. Returns `503` `MIGRATION_EVALUATION_UNAVAILABLE` if the migration evaluator can't reach the tarball (transient — retry).
 2. **Fetches** tags from origin and verifies the target ref exists.
-3. **Deploys.** Tries the artifact-first path: downloads `dispatch-release.tar.gz` from the GitHub release into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates entries are not absolute / `..`-traversing, extracts into `~/.dispatch/server/`. If `gh` isn't available or the tarball can't be fetched, falls back to `git checkout <tag> && pnpm install --frozen-lockfile && pnpm run build:bun`.
+3. **Deploys.** Tries the artifact-first path: downloads `dispatch-release.tar.gz` via direct HTTPS from the GitHub release into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates entries are not absolute / `..`-traversing, extracts into `~/.dispatch/server/`. If the artifact can't be downloaded or extracted, falls back to `git checkout <tag> && pnpm install --frozen-lockfile && pnpm run build:bun`.
 4. **Verifies the runtime binary** matches `dist/bun/dispatch-*-bun-<platform>-<arch>` and writes the new tag to `~/.dispatch/release.json`.
 5. **Restarts the service** by detaching `launchctl kickstart -k gui/$(id -u)/com.dispatch.server` (or `systemctl --user restart dispatch` on Linux). The new process binds the port itself; the standard update flow does not poll for health afterwards. Use `bin/dispatch-server status` (or hit `/api/v1/health`) to confirm.
 
@@ -160,7 +160,7 @@ curl -X DELETE http://127.0.0.1:6767/api/v1/release/assisted/state
 
 What the launch endpoint does:
 
-- Picks the first enabled CLI agent type (`claude` / `codex` / `opencode`) — terminal-type agents can't drive assisted updates.
+- Picks the first enabled CLI agent type (`claude` / `codex` / `cursor` / `opencode`) — terminal-type agents can't drive assisted updates.
 - Snapshots pending update-migrations from `update-migrations/*.yaml` in the target tarball, or falls back to the `dispatch-update` block in the release body.
 - Creates an `assisted_update` agent rooted at `~/.dispatch/server/` with `fullAccess: true`, no worktree, and an initial prompt that includes recovery instructions plus a bearer token (`DISPATCH_RELEASE_UPDATE_TOKEN`).
 - Persists `~/.dispatch/assisted-update.json` with the token, target tag, snapshotted manifests, and the required-checks list.
@@ -177,7 +177,7 @@ When the agent moves to `validate`, the server runs `runAndRecordChecks`, which 
 
 - `expected_runtime_artifact` — the platform-matching `dist/bun/dispatch-*` binary and `apps/web/dist/index.html` both exist after deploy
 - `service_entrypoint` — `apps/server/package.json` has a `scripts.start` entry
-- `service_restarted` — `~/.dispatch/release.json` reflects the target tag (set on boot)
+- `service_restarted` — `~/.dispatch/release.json` is present (lenient proxy for restart; the deeper check is `health_endpoint`)
 - `version_converged` — `~/.dispatch/release.json` tag matches the target tag
 - `health_endpoint` — the new process is serving HTTP/HTTPS with `status: "ok"`
 
