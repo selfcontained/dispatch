@@ -53,6 +53,11 @@ describe("parseActivityQuery", () => {
     expect(result.tz).toBe("America/New_York");
   });
 
+  it("accepts UTC timezone shorthand", () => {
+    const result = parseActivityQuery({ tz: "UTC" });
+    expect(result.tz).toBe("UTC");
+  });
+
   it("falls back to system timezone for invalid tz", () => {
     const fallback = Intl.DateTimeFormat().resolvedOptions().timeZone;
     const result = parseActivityQuery({ tz: "Invalid/Timezone" });

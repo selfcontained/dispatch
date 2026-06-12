@@ -84,6 +84,27 @@ async function seedEvent(
   );
 }
 
+async function waitForAgentEvent(
+  agentId: string,
+  eventType: string,
+  message: string
+): Promise<string> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const result = await ctx.pool.query<{ day: string }>(
+      `SELECT date_trunc('day', created_at AT TIME ZONE 'UTC')::date::text AS day
+       FROM agent_events
+       WHERE agent_id = $1 AND event_type = $2 AND message = $3
+       LIMIT 1`,
+      [agentId, eventType, message]
+    );
+    if (result.rows[0]) return result.rows[0].day;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  throw new Error(
+    `Timed out waiting for ${eventType} event "${message}" for ${agentId}`
+  );
+}
+
 async function seedTokenUsage(
   agentId: string,
   opts: {
@@ -138,16 +159,20 @@ describe("GET /api/v1/activity/heatmap", () => {
 
   it("returns day counts for seeded events", async () => {
     const agentId = await createAgent();
-    const today = new Date().toISOString().slice(0, 10);
-    await seedEvent(agentId, "working", `${today}T10:00:00Z`);
-    await seedEvent(agentId, "working", `${today}T11:00:00Z`);
+    const eventDay = await waitForAgentEvent(
+      agentId,
+      "idle",
+      "Session started."
+    );
+    await seedEvent(agentId, "working", `${eventDay}T10:00:00Z`);
+    await seedEvent(agentId, "working", `${eventDay}T11:00:00Z`);
 
     const res = await authedInject("GET", "/api/v1/activity/heatmap?tz=UTC");
     expect(res.statusCode).toBe(200);
     const { days } = res.json();
     expect(days.length).toBeGreaterThanOrEqual(1);
     const todayEntry = days.find((d: { day: string }) =>
-      d.day.startsWith(today)
+      d.day.startsWith(eventDay)
     );
     expect(todayEntry).toBeTruthy();
     // 2 seeded + 1 "Session started" idle event from createAgent
@@ -184,9 +209,13 @@ describe("GET /api/v1/activity/stats", () => {
 
   it("returns computed stats for seeded events", async () => {
     const agentId = await createAgent();
-    const today = new Date().toISOString().slice(0, 10);
-    await seedEvent(agentId, "working", `${today}T10:00:00Z`);
-    await seedEvent(agentId, "done", `${today}T10:30:00Z`);
+    const eventDay = await waitForAgentEvent(
+      agentId,
+      "idle",
+      "Session started."
+    );
+    await seedEvent(agentId, "working", `${eventDay}T10:00:00Z`);
+    await seedEvent(agentId, "done", `${eventDay}T10:30:00Z`);
 
     const res = await authedInject("GET", "/api/v1/activity/stats?tz=UTC");
     expect(res.statusCode).toBe(200);

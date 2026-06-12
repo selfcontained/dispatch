@@ -19,6 +19,7 @@ const VALID_GRANULARITIES = new Set<ActivityGranularity>([
 ]);
 const FALLBACK_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
 const VALID_TIMEZONES = new Set(Intl.supportedValuesOf("timeZone"));
+VALID_TIMEZONES.add("UTC");
 
 export function parseActivityQuery(
   query: Record<string, unknown>
