@@ -91,35 +91,20 @@ export function TipSpot({
     eligibleRef.current = true;
   }
 
-  // Track trigger visibility via IntersectionObserver (element-scoped).
-  const [triggerVisible, setTriggerVisible] = useState(false);
-
   useEffect(() => {
-    const el = triggerRef.current;
-    if (!el) return;
-    const io = new IntersectionObserver(
-      ([entry]) => setTriggerVisible(entry!.isIntersecting),
-      { threshold: 0.5 }
-    );
-    io.observe(el);
-    return () => io.disconnect();
-  }, []);
-
-  // Open the tip when eligible and the trigger is in the viewport,
-  // with an elementFromPoint gate to skip if an overlay covers it.
-  useEffect(() => {
-    if (!shouldShowInline || !triggerVisible || open) return;
+    if (!shouldShowInline || open) return;
     const timer = setTimeout(() => {
-      if (
-        triggerRef.current &&
-        isTriggerReachable(triggerRef.current) &&
-        requestOpen(tipId)
-      ) {
-        setOpen(true);
-      }
+      if (requestOpen(tipId)) setOpen(true);
     }, 500);
     return () => clearTimeout(timer);
-  }, [shouldShowInline, triggerVisible, open, tipId, requestOpen]);
+  }, [shouldShowInline, open, tipId, requestOpen]);
+
+  // Render-time reachability: the popover only shows when the trigger
+  // isn't covered by an overlay. Any parent re-render (agent status,
+  // SSE events, etc.) re-evaluates this automatically.
+  const isReachable = triggerRef.current
+    ? isTriggerReachable(triggerRef.current)
+    : false;
 
   // Compute arrow offset so it points at the trigger, not the popover center
   useEffect(() => {
@@ -173,7 +158,7 @@ export function TipSpot({
   }
 
   return (
-    <Popover open={open} onOpenChange={handleOpenChange}>
+    <Popover open={open && isReachable} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <span ref={triggerRef} className="inline-flex">
           {children}
