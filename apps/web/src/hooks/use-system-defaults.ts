@@ -5,12 +5,6 @@ import { api } from "@/lib/api";
 export type SystemDefaults = {
   /** Server's home directory — used to seed the default agent cwd. */
   homeDir: string;
-  /**
-   * Whether the host can place a browser-pasted image on a clipboard the agent
-   * CLI can read (macOS pasteboard, or Linux + Xvfb). Drives the choice between
-   * native Ctrl+V paste and a path-based media upload.
-   */
-  clipboardImagePaste: boolean;
 };
 
 /**

@@ -19,7 +19,6 @@ import {
 } from "../notifications/slack.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
-import { hostClipboardImageCapable } from "../shared/lib/clipboard-capability.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 
 const WORKTREE_LOCATION_KEY = "worktree_location";
@@ -61,7 +60,6 @@ export async function registerSystemRoutes(
   app.get("/api/v1/system/defaults", async () => {
     return {
       homeDir: os.homedir(),
-      clipboardImagePaste: hostClipboardImageCapable(),
     };
   });
 
