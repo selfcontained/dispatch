@@ -21,7 +21,6 @@ import { api } from "@/lib/api";
 import { toast } from "sonner";
 
 import { isAcceptedUploadFile, uploadAgentMedia } from "@/lib/media-upload";
-import { useSystemDefaults } from "@/hooks/use-system-defaults";
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
 import {
@@ -118,14 +117,6 @@ export function useTerminal(args: {
 
   const connectedAgentIdRef = useRef<string | null>(null);
   connectedAgentIdRef.current = connectedAgentId;
-  // Per-agent `[File #N]` sequence for dropped/pasted uploads. Monotonic per
-  // agent within a mount and kept across agent switches (a Map keyed by
-  // agentId), so it keeps incrementing across separate drops. N is a cosmetic
-  // label, not a stable identifier — the CLI opens `media.path`, not the number
-  // — and the ref resets if the terminal subtree remounts (route teardown / full
-  // reconnect), so a number can repeat for an agent across remounts. That's an
-  // accepted tradeoff; cross-mount stability isn't worth persisting a label.
-  const fileSeqRef = useRef<Map<string, number>>(new Map());
 
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const [terminalHostElement, setTerminalHostElement] =
@@ -147,12 +138,7 @@ export function useTerminal(args: {
   const resyncOnResizeRef = useRef<() => void>(() => {});
   // Filled in below; let the terminal surface's drag/drop + paste handlers call
   // the latest logic without re-creating the terminal when the callback changes.
-  const uploadAndInsertFilesRef = useRef<(files: File[]) => void>(() => {});
-  const pasteImageRef = useRef<(file: File) => void>(() => {});
-  // Whether the host can place a pasted image on a clipboard the agent CLI can
-  // read (macOS pasteboard / Linux+Xvfb). Populated from /system/defaults; until
-  // then we conservatively fall back to path-based paste.
-  const clipboardCapableRef = useRef(false);
+  const uploadFilesRef = useRef<(files: File[]) => void>(() => {});
 
   const wsRef = useRef<WebSocket | null>(null);
   const shouldKeepAttachedRef = useRef(false);
@@ -605,155 +591,58 @@ export function useTerminal(args: {
     terminalRef.current?.focus();
   }, []);
 
-  // Upload dropped/pasted files (images included) to the connected agent's
-  // media store and reference them in the prompt as `[File #N] <path> ` so the
-  // CLI can open them. N increments per file inserted into the agent's prompt
-  // and persists across separate drops (per-agent, via fileSeqRef). Works for
-  // every agent without any host-clipboard / X display dependency. Surfaces
-  // failures and skips via toast so a deliberate drop never silently no-ops.
-  const uploadAndInsertFiles = useCallback(
-    (files: File[]) => {
-      if (files.length === 0) return;
-      const agentId = connectedAgentIdRef.current;
-      if (!agentId) {
-        toast.error("Connect to an agent before dropping files.");
-        return;
-      }
-      const accepted = files.filter((file) => isAcceptedUploadFile(file.name));
-      const skipped = files.filter((file) => !isAcceptedUploadFile(file.name));
-      if (accepted.length === 0) {
-        toast.error(
-          files.length === 1
-            ? `Unsupported file type: ${files[0].name}`
-            : "None of the dropped files are a supported type."
-        );
-        return;
-      }
-      if (skipped.length > 0) {
-        toast.info(
-          `Skipped ${skipped.length} unsupported file${
-            skipped.length > 1 ? "s" : ""
-          }: ${skipped.map((file) => file.name).join(", ")}`
-        );
-      }
-      setUploadingFiles(true);
-      void (async () => {
-        const failures: string[] = [];
-        let misrouted = 0;
-        try {
-          for (const file of accepted) {
-            try {
-              const media = await uploadAgentMedia(agentId, file);
-              // The upload targeted `agentId`, but sendTerminalInput always
-              // writes to the currently-connected terminal. If the user
-              // switched agents mid-upload, don't type this agent's path into a
-              // different agent's prompt.
-              if (connectedAgentIdRef.current !== agentId) {
-                misrouted += 1;
-                continue;
-              }
-              const seq = (fileSeqRef.current.get(agentId) ?? 0) + 1;
-              fileSeqRef.current.set(agentId, seq);
-              sendTerminalInput(`[File #${seq}] ${media.path} `);
-            } catch (err) {
-              console.warn(`Upload failed for ${file.name}:`, err);
-              failures.push(file.name);
-            }
-          }
-        } finally {
-          setUploadingFiles(false);
-        }
-        if (failures.length > 0) {
-          toast.error(
-            failures.length === 1
-              ? `Failed to upload ${failures[0]}.`
-              : `Failed to upload ${failures.length} files.`
-          );
-        }
-        if (misrouted > 0) {
-          toast.info(
-            `Switched agents — ${misrouted} uploaded file${
-              misrouted > 1 ? "s were" : " was"
-            } not added to the new prompt.`
-          );
-        }
-      })();
-    },
-    [sendTerminalInput]
-  );
-  uploadAndInsertFilesRef.current = uploadAndInsertFiles;
-
-  // Hybrid image paste (Cmd/Ctrl+V): when the host can put the image on a
-  // clipboard the agent CLI can read, inject it natively (POST it to the host
-  // clipboard, then send Ctrl+V so the CLI inserts its own [Image #N] inline);
-  // otherwise — or if that fails — fall back to the path-based media upload.
-  const pasteImage = useCallback(
-    (file: File) => {
-      const agentId = connectedAgentIdRef.current;
-      if (!agentId) {
-        toast.error("Connect to an agent before pasting.");
-        return;
-      }
-      // Not capable — uploadAndInsertFiles owns the uploading indicator for the
-      // whole fallback; we never touch it here.
-      if (!clipboardCapableRef.current) {
-        uploadAndInsertFiles([file]);
-        return;
-      }
-      // The uploadingFiles flag has a single owner per phase: this IIFE owns it
-      // for the native attempt and clears it on success; before delegating to
-      // the path-based fallback we clear it and hand ownership to
-      // uploadAndInsertFiles (which manages the flag over its own lifetime).
-      // We never leave it set across the handoff.
-      setUploadingFiles(true);
-      void (async () => {
-        try {
-          const form = new FormData();
-          form.append(
-            "file",
-            file,
-            file.name ||
-              `clipboard.${file.type === "image/jpeg" ? "jpg" : "png"}`
-          );
-          // Safety timeout so a wedged endpoint can't hang the paste.
-          const controller = new AbortController();
-          const timeout = setTimeout(() => controller.abort(), 10_000);
+  // Unified upload for both drag-and-drop and clipboard paste. The server
+  // handles delivery (clipboard injection or typed path) via the `inject`
+  // flag — the client just uploads and lets the server decide.
+  const uploadFiles = useCallback((files: File[]) => {
+    if (files.length === 0) return;
+    const agentId = connectedAgentIdRef.current;
+    if (!agentId) {
+      toast.error("Connect to an agent before uploading files.");
+      return;
+    }
+    const accepted = files.filter((file) => isAcceptedUploadFile(file.name));
+    const skipped = files.filter((file) => !isAcceptedUploadFile(file.name));
+    if (accepted.length === 0) {
+      toast.error(
+        files.length === 1
+          ? `Unsupported file type: ${files[0].name}`
+          : "None of the dropped files are a supported type."
+      );
+      return;
+    }
+    if (skipped.length > 0) {
+      toast.info(
+        `Skipped ${skipped.length} unsupported file${
+          skipped.length > 1 ? "s" : ""
+        }: ${skipped.map((file) => file.name).join(", ")}`
+      );
+    }
+    setUploadingFiles(true);
+    void (async () => {
+      const failures: string[] = [];
+      try {
+        for (const file of accepted) {
           try {
-            await api<{ ok: boolean }>("/api/v1/clipboard/image", {
-              method: "POST",
-              body: form,
-              signal: controller.signal,
-            });
-          } finally {
-            clearTimeout(timeout);
+            await uploadAgentMedia(agentId, file, { inject: true });
+          } catch (err) {
+            console.warn(`Upload failed for ${file.name}:`, err);
+            failures.push(file.name);
           }
-          // Native paste only makes sense for the agent we set the clipboard
-          // for; if the user switched, fall back so the image isn't lost.
-          if (connectedAgentIdRef.current === agentId) {
-            sendTerminalInput("\x16"); // Ctrl+V — CLI inserts [Image #N]
-            setUploadingFiles(false);
-            return;
-          }
-          setUploadingFiles(false);
-          uploadAndInsertFiles([file]);
-        } catch (err) {
-          console.warn("Native clipboard paste failed; using upload:", err);
-          setUploadingFiles(false);
-          uploadAndInsertFiles([file]);
         }
-      })();
-    },
-    [sendTerminalInput, uploadAndInsertFiles]
-  );
-  pasteImageRef.current = pasteImage;
-
-  // Whether the host supports native clipboard-image paste. Sourced from the
-  // shared React Query hook (cached/deduped across the app) and mirrored into a
-  // ref so the pasteImage callback can read it synchronously without resubscribing.
-  const { data: systemDefaults } = useSystemDefaults();
-  useEffect(() => {
-    clipboardCapableRef.current = !!systemDefaults?.clipboardImagePaste;
-  }, [systemDefaults]);
+      } finally {
+        setUploadingFiles(false);
+      }
+      if (failures.length > 0) {
+        toast.error(
+          failures.length === 1
+            ? `Failed to upload ${failures[0]}.`
+            : `Failed to upload ${failures.length} files.`
+        );
+      }
+    })();
+  }, []);
+  uploadFilesRef.current = uploadFiles;
 
   const noteScrollInteraction = useCallback(() => {
     const agentId = connectedAgentIdRef.current;
@@ -822,8 +711,7 @@ export function useTerminal(args: {
         ctrlPendingRef,
         noteScrollInteractionRef,
         deferMediaResizeRef,
-        uploadAndInsertFilesRef,
-        pasteImageRef,
+        uploadFilesRef,
       },
       { requestFit, invalidateAttachAttempt, setDraggingFiles }
     );

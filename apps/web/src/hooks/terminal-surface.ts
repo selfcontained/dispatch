@@ -4,6 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { ClipboardAddon } from "@xterm/addon-clipboard";
 import { Unicode11Addon } from "@xterm/addon-unicode11";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
+import { extensionForMime } from "@/lib/media-upload";
 
 function getTerminalFontFamily(): string {
   const fontFamily = getComputedStyle(document.documentElement)
@@ -33,11 +34,7 @@ export interface TerminalSurfaceRefs {
   ctrlPendingRef: MutableRefObject<boolean>;
   noteScrollInteractionRef: MutableRefObject<() => void>;
   deferMediaResizeRef: MutableRefObject<boolean>;
-  // Drag-and-drop upload: always path-based (upload + insert `[File #N] path`).
-  uploadAndInsertFilesRef: MutableRefObject<(files: File[]) => void>;
-  // Image paste (Cmd/Ctrl+V): hybrid (native clipboard paste when the host can,
-  // else path-based) — owned by use-terminal, called with the pasted image.
-  pasteImageRef: MutableRefObject<(file: File) => void>;
+  uploadFilesRef: MutableRefObject<(files: File[]) => void>;
 }
 
 export interface TerminalSurfaceCallbacks {
@@ -64,8 +61,7 @@ export function createTerminalSurface(
     ctrlPendingRef,
     noteScrollInteractionRef,
     deferMediaResizeRef,
-    uploadAndInsertFilesRef,
-    pasteImageRef,
+    uploadFilesRef,
   } = refs;
   const { requestFit, invalidateAttachAttempt, setDraggingFiles } = callbacks;
 
@@ -150,8 +146,8 @@ export function createTerminalSurface(
   });
 
   // -- Image paste (Cmd/Ctrl+V) --------------------------------------------
-  // Delegated to use-terminal's hybrid handler: native clipboard-injection
-  // when the host supports it, else a path-based media upload.
+  // Delegated to use-terminal's unified upload handler. The server decides
+  // how to deliver the file (clipboard injection vs typed path).
 
   const handlePaste = (e: ClipboardEvent) => {
     const imageItem = Array.from(e.clipboardData?.items ?? []).find((item) =>
@@ -162,11 +158,17 @@ export function createTerminalSurface(
     if (!blob) return;
     e.preventDefault();
     e.stopPropagation();
-    pasteImageRef.current(blob);
+    const named =
+      blob.name && blob.name.length > 0
+        ? blob
+        : new File([blob], `clipboard${extensionForMime(blob.type)}`, {
+            type: blob.type,
+          });
+    uploadFilesRef.current([named]);
   };
   host.addEventListener("paste", handlePaste, true);
 
-  // -- Drag-and-drop file upload (always path-based) -----------------------
+  // -- Drag-and-drop file upload --------------------------------------------
   // A nesting counter avoids overlay flicker as the pointer moves over child
   // elements (each fires dragenter/dragleave).
   let dragDepth = 0;
@@ -193,7 +195,7 @@ export function createTerminalSurface(
     e.preventDefault();
     dragDepth = 0;
     setDraggingFiles(false);
-    uploadAndInsertFilesRef.current(Array.from(e.dataTransfer?.files ?? []));
+    uploadFilesRef.current(Array.from(e.dataTransfer?.files ?? []));
   };
   host.addEventListener("dragenter", onDragEnter, true);
   host.addEventListener("dragover", onDragOver, true);

@@ -27,6 +27,8 @@ export type UploadedMedia = {
    * depend on it from other media consumers.
    */
   path: string;
+  /** How the server delivered the file to the agent session. */
+  delivery: "none" | "clipboard" | "path";
 };
 
 /** Lower-cased extensions (with leading dot) the upload endpoint accepts. */
@@ -50,18 +52,35 @@ export function isAcceptedUploadFile(name: string): boolean {
  * server (under the agent's media dir), records it in the media DB, and
  * returns the saved metadata — including the absolute server path, which
  * callers can type into the terminal so the CLI can read the file.
+ *
+ * When `opts.inject` is true the server also delivers the file to the
+ * agent's terminal session (clipboard or typed path, depending on the
+ * host's capabilities and the file type).
  */
 export async function uploadAgentMedia(
   agentId: string,
   file: File,
-  source: MediaUploadSource = "user"
+  opts: { source?: MediaUploadSource; inject?: boolean } = {}
 ): Promise<UploadedMedia> {
   const form = new FormData();
-  form.append("source", source);
+  form.append("source", opts.source ?? "user");
+  if (opts.inject) form.append("inject", "true");
   form.append("file", file, file.name);
   const res = await api<{ ok: true; media: UploadedMedia }>(
     `/api/v1/agents/${agentId}/media`,
     { method: "POST", body: form }
   );
   return res.media;
+}
+
+const MIME_TO_EXT: Record<string, string> = {
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+};
+
+/** Map a MIME type to a file extension (with leading dot). Falls back to `.png`. */
+export function extensionForMime(mime: string): string {
+  return MIME_TO_EXT[mime] ?? ".png";
 }
