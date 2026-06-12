@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Info } from "lucide-react";
 import { Link } from "react-router-dom";
 
@@ -37,6 +37,7 @@ export function EditPhraseDialog({
   detectedArgs: ReturnType<typeof parseTemplateArgs>;
 }) {
   const [variableHelpOpen, setVariableHelpOpen] = useState(false);
+  const dialogContentRef = useRef<HTMLDivElement | null>(null);
 
   return (
     <Dialog
@@ -49,7 +50,7 @@ export function EditPhraseDialog({
       }}
     >
       {editing !== null ? (
-        <DialogContent className="sm:max-w-md">
+        <DialogContent ref={dialogContentRef} className="sm:max-w-md">
           <DialogHeader>
             <DialogTitle>
               {editing.id ? "Edit Phrase" : "Add Phrase"}
@@ -108,6 +109,7 @@ export function EditPhraseDialog({
                     </button>
                   </PopoverTrigger>
                   <PopoverContent
+                    container={dialogContentRef.current}
                     side="right"
                     className="z-[90] w-64 px-2 py-1 text-xs"
                   >
