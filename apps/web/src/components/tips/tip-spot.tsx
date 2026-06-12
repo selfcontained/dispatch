@@ -1,4 +1,10 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
 import { useNavigate } from "react-router-dom";
 
 import {
@@ -99,12 +105,18 @@ export function TipSpot({
     return () => clearTimeout(timer);
   }, [shouldShowInline, open, tipId, requestOpen]);
 
-  // Render-time reachability: the popover only shows when the trigger
-  // isn't covered by an overlay. Any parent re-render (agent status,
-  // SSE events, etc.) re-evaluates this automatically.
-  const isReachable = triggerRef.current
-    ? isTriggerReachable(triggerRef.current)
-    : false;
+  // Post-commit reachability: checked in useLayoutEffect so we read
+  // the actual committed DOM (not the stale previous-commit snapshot
+  // that a render-time read would see).
+  const [reachable, setReachable] = useState(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs every commit; external DOM state (overlays) isn't in deps
+  useLayoutEffect(() => {
+    const next =
+      open && triggerRef.current
+        ? isTriggerReachable(triggerRef.current)
+        : false;
+    if (next !== reachable) setReachable(next);
+  });
 
   // Compute arrow offset so it points at the trigger, not the popover center
   useEffect(() => {
@@ -138,11 +150,11 @@ export function TipSpot({
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
-      if (!nextOpen) {
+      if (!nextOpen && reachable) {
         handleDismiss();
       }
     },
-    [handleDismiss]
+    [handleDismiss, reachable]
   );
 
   const handleOpenDocs = useCallback(
@@ -158,7 +170,7 @@ export function TipSpot({
   }
 
   return (
-    <Popover open={open && isReachable} onOpenChange={handleOpenChange}>
+    <Popover open={open && reachable} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
         <span ref={triggerRef} className="inline-flex">
           {children}
