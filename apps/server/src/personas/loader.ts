@@ -1,6 +1,8 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
+import type { AgentType } from "../agents/types.js";
+import { buildCursorDispatchToolGuidance } from "../shared/mcp/cursor-dispatch-guidance.js";
 import type { ReviewDiffResult } from "./review-diff.js";
 
 export type PersonaDefinition = {
@@ -117,10 +119,23 @@ export async function loadPersonaBySlug(
  * This ensures consistent severity definitions and feedback hygiene
  * regardless of what the repo-specific persona markdown contains.
  */
-function buildStandardFeedbackGuidance(includeDiff: boolean): string {
+function buildStandardFeedbackGuidance(
+  includeDiff: boolean,
+  opts: { agentType?: Exclude<AgentType, "terminal"> } = {}
+): string {
   const scopeLine = includeDiff
     ? "- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes."
     : "- Only flag issues that are within the scope of the work under review described in the parent context. Do not flag pre-existing issues unless directly caused or worsened by the work under review.";
+  const cursorCallHint =
+    opts.agentType === "cursor"
+      ? ' In Cursor, use `functions.dispatch-review_status({ message: "Starting review" })`.'
+      : "";
+  const reviewLifecycle = [
+    `- Call \`review_status\` with a short message when you begin reviewing.${cursorCallHint} Ping it again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you're working on.`,
+    "- Call `dispatch_feedback` for each finding as you go.",
+    '- When finished with this round, call `dispatch_complete_review` with a `verdict` (`approve` or `request_changes`) and a `summary`. This is the single canonical completion call; do not also try `review_status` with a "complete" status — that path has been removed and the schema will reject it.',
+    "- Emit a terminal `dispatch_event` (type `done` or `idle`) to signal end of turn.",
+  ].join("\n");
 
   return `
 ## Feedback Guidelines (from Dispatch)
@@ -130,10 +145,7 @@ function buildStandardFeedbackGuidance(includeDiff: boolean): string {
 ${scopeLine}
 
 ### Review lifecycle
-- Call \`review_status\` with a short message when you begin reviewing. Ping it again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you're working on.
-- Call \`dispatch_feedback\` for each finding as you go.
-- When finished with this round, call \`dispatch_complete_review\` with a \`verdict\` (\`approve\` or \`request_changes\`) and a \`summary\`. This is the single canonical completion call; do not also try \`review_status\` with a "complete" status — that path has been removed and the schema will reject it.
-- Emit a terminal \`dispatch_event\` (type \`done\` or \`idle\`) to signal end of turn.
+${reviewLifecycle}
 
 ### Severity levels
 - **critical**: Exploitable vulnerability, data loss risk, or broken core functionality
@@ -162,6 +174,8 @@ This is a two-round review. You have a round-1 obligation (already described abo
 export type AssemblePersonaPromptOptions = {
   /** When false, omits the git diff section from the prompt. Defaults to true. */
   includeDiff?: boolean;
+  /** Runtime that will execute this persona prompt. Cursor gets tool-call hardening. */
+  agentType?: Exclude<AgentType, "terminal">;
 };
 
 function buildDiffCommands(baseRef: string): string {
@@ -238,10 +252,15 @@ export function assemblePersonaPrompt(
     .replace(/\{\{context\}\}/g, "")
     .replace(/\{\{diff\}\}/g, "");
 
-  const sections: string[] = [
-    personaBody.trimEnd(),
-    buildStandardFeedbackGuidance(includeDiff),
-  ];
+  const sections: string[] = [personaBody.trimEnd()];
+  if (options.agentType === "cursor") {
+    sections.push(buildCursorDispatchToolGuidance());
+  }
+  sections.push(
+    buildStandardFeedbackGuidance(includeDiff, {
+      agentType: options.agentType,
+    })
+  );
   sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
   sections.push(`## Context from parent agent\n${context}`);
   if (includeDiff && diffResult) {

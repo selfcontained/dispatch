@@ -190,6 +190,7 @@ export async function registerMcpRoutes(
       agent: {
         id: agent.id,
         cwd: agent.cwd,
+        type: agent.type,
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
@@ -273,6 +274,7 @@ export async function registerMcpRoutes(
       agent: {
         id: agent.id,
         cwd: agent.cwd,
+        type: agent.type,
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,

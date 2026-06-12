@@ -4,6 +4,7 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 
+import type { AgentType as CliAgentType } from "../../agents/types.js";
 import type { BrainStore } from "../../brain/store.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
@@ -21,6 +22,7 @@ import { toToolError } from "./tool-error.js";
 export type McpAgent = {
   id: string;
   cwd: string;
+  type?: CliAgentType | null;
   persona?: string | null;
   parentAgentId?: string | null;
   baseBranch?: string | null;

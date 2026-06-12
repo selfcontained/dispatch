@@ -6,6 +6,7 @@ import {
   createReleaseUpdateToken,
 } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
+import { buildCursorDispatchToolGuidance } from "../../shared/mcp/cursor-dispatch-guidance.js";
 import type { AgentPin, AgentRole, AgentType } from "../types.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape } from "./quoting.js";
@@ -133,13 +134,17 @@ export function buildStartupPrompt(
 export function buildLaunchGuidance(
   agentId: string,
   opts: {
+    agentType?: AgentType;
     jobRunId?: string;
     suggestSessionRename?: boolean;
     autoReview?: boolean;
   }
 ): string {
-  const { jobRunId, suggestSessionRename, autoReview } = opts;
+  const { agentType, jobRunId, suggestSessionRename, autoReview } = opts;
   const rules: string[] = [];
+  if (agentType === "cursor") {
+    rules.push(buildCursorDispatchToolGuidance());
+  }
 
   if (jobRunId) {
     rules.push(
@@ -228,6 +233,7 @@ export function buildAgentCommand(
 ): string {
   const agentId = agentIdFromSessionName(sessionName);
   const launchGuidance = buildLaunchGuidance(agentId, {
+    agentType: type,
     jobRunId,
     suggestSessionRename,
     autoReview,

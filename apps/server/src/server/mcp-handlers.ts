@@ -616,6 +616,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
       const prompt = assemblePersonaPrompt(persona, opts.context, diffResult, {
         includeDiff,
+        agentType: personaAgentType,
       });
 
       const personaArgs: string[] = ["--append-system-prompt", prompt];

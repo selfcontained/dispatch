@@ -71,6 +71,7 @@ const testConfig = {
   codexBin: "echo",
   claudeBin: "echo",
   opencodeBin: "echo",
+  cursorBin: "echo",
   agentRuntime: "tmux",
   sessionPrefix: "dispatch",
   tls: null,
@@ -389,6 +390,7 @@ describe("AgentManager", () => {
       );
       expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
       expect(setupScript).toMatch(/Dispatch startup rules:\n1\. /);
+      expect(setupScript).not.toContain("dispatch-<tool_name>");
       expect(setupScript).toContain(
         "infer a task from branch/worktree context alone"
       );
@@ -399,6 +401,21 @@ describe("AgentManager", () => {
       expect(setupScript).toContain(
         "stable label describing what the session is about"
       );
+    });
+
+    it("should include Cursor-specific Dispatch tool guidance for Cursor launches", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "cursor",
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).toContain("dispatch-<tool_name>");
+      expect(setupScript).toContain("report the exact tool error");
     });
 
     it("should skip rename guidance when the user provided a custom name", async () => {
@@ -413,7 +430,9 @@ describe("AgentManager", () => {
         `/tmp/dispatch_setup_${agent.id}.sh`,
         "utf-8"
       );
-      expect(setupScript).not.toContain("dispatch_rename_session");
+      expect(setupScript).not.toContain(
+        "Name the session. Once the topic of work is clear"
+      );
     });
 
     it("should skip rename guidance for custom names that resemble the default pattern", async () => {
@@ -428,7 +447,9 @@ describe("AgentManager", () => {
         `/tmp/dispatch_setup_${agent.id}.sh`,
         "utf-8"
       );
-      expect(setupScript).not.toContain("dispatch_rename_session");
+      expect(setupScript).not.toContain(
+        "Name the session. Once the topic of work is clear"
+      );
     });
 
     it("should skip rename guidance for persona agents", async () => {
@@ -444,7 +465,9 @@ describe("AgentManager", () => {
         `/tmp/dispatch_setup_${agent.id}.sh`,
         "utf-8"
       );
-      expect(setupScript).not.toContain("dispatch_rename_session");
+      expect(setupScript).not.toContain(
+        "Name the session. Once the topic of work is clear"
+      );
     });
 
     it("should translate appended system prompts into a single Codex startup prompt", async () => {
@@ -696,6 +719,7 @@ describe("AgentManager", () => {
         "utf-8"
       );
       expect(setupScript).toMatch(/Dispatch job startup rules:\n1\. /);
+      expect(setupScript).not.toContain("dispatch-<tool_name>");
       expect(setupScript).toContain(
         "Report status with dispatch_event to keep the UI current"
       );
@@ -704,6 +728,24 @@ describe("AgentManager", () => {
       expect(setupScript).toContain(
         "short name for that topic, task, or feature"
       );
+    });
+
+    it("should include Cursor-specific Dispatch tool guidance for Cursor job agents", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        type: "cursor",
+        name: "job-cursor-test-run_abc1",
+        jobRunId: "run_abc123",
+        useWorktree: false,
+      });
+
+      const setupScript = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
+      expect(setupScript).toMatch(/Dispatch job startup rules:\n1\. /);
+      expect(setupScript).toContain("dispatch-<tool_name>");
+      expect(setupScript).toContain("Log task-level progress with job_log");
     });
 
     it("should generate a setup script with worktree steps when useWorktree is true", async () => {

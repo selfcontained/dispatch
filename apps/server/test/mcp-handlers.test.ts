@@ -46,10 +46,15 @@ vi.mock("../src/reviews/injection-prompts.js", () => ({
 }));
 
 vi.mock("../src/agent-type-settings.js", () => ({
-  CLI_AGENT_TYPES: ["claude", "codex", "opencode"],
-  getEnabledAgentTypes: vi.fn(async () => ["claude", "codex", "opencode"]),
+  CLI_AGENT_TYPES: ["claude", "codex", "cursor", "opencode"],
+  getEnabledAgentTypes: vi.fn(async () => [
+    "claude",
+    "codex",
+    "cursor",
+    "opencode",
+  ]),
   isCliAgentType: vi.fn((t: string) =>
-    ["claude", "codex", "opencode"].includes(t)
+    ["claude", "codex", "cursor", "opencode"].includes(t)
   ),
 }));
 
@@ -88,7 +93,10 @@ import {
   buildReviewerRecheckReadyPrompt,
   buildReviewerRecheckCancelledPrompt,
 } from "../src/reviews/injection-prompts.js";
-import { loadPersonaBySlug } from "../src/personas/loader.js";
+import {
+  assemblePersonaPrompt,
+  loadPersonaBySlug,
+} from "../src/personas/loader.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { isMediaFile, isTextFile } from "../src/shared/media.js";
 
@@ -851,6 +859,36 @@ describe("createMcpHandlers", () => {
         })
       );
       expect(deps.agentManager.createPersonaReview).toHaveBeenCalled();
+    });
+
+    it("passes the Cursor runtime to persona prompt assembly for Cursor review agents", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test",
+        cwd: "/repo",
+        type: "cursor",
+        fullAccess: false,
+        worktreePath: null,
+        worktreeBranch: null,
+        baseBranch: null,
+        reviewAgentType: "cursor",
+        status: "running",
+      });
+
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review this PR",
+      });
+
+      expect(assemblePersonaPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        "review this PR",
+        expect.anything(),
+        expect.objectContaining({ agentType: "cursor" })
+      );
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "cursor" })
+      );
     });
 
     it("throws when parent not found", async () => {

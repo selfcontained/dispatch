@@ -250,6 +250,24 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain("Do NOT submit positive affirmations");
   });
 
+  it("does not include Cursor tool guidance by default", () => {
+    const result = assemblePersonaPrompt(basePersona, "", null);
+    expect(result).toContain("Call `review_status`");
+    expect(result).not.toContain("dispatch-<tool_name>");
+    expect(result).not.toContain("functions.dispatch-review_status");
+  });
+
+  it("includes Cursor tool guidance and call syntax hint for Cursor reviewers", () => {
+    const result = assemblePersonaPrompt(basePersona, "", null, {
+      agentType: "cursor",
+    });
+    expect(result).toContain("dispatch-<tool_name>");
+    expect(result).toContain("report the exact tool error");
+    expect(result).toContain(
+      'functions.dispatch-review_status({ message: "Starting review" })'
+    );
+  });
+
   it("always includes the recheck round-trip block", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
     expect(result).toContain("Recheck round-trip");

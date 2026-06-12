@@ -18,6 +18,7 @@ const baseConfig: AppConfig = {
   codexBin: "/opt/codex",
   claudeBin: "/opt/claude",
   opencodeBin: "/opt/opencode",
+  cursorBin: "/opt/cursor",
   agentRuntime: "inert",
   sessionPrefix: "dispatch",
   tls: null,
