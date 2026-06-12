@@ -30,11 +30,15 @@ export function TipSpot({
   const { tip, shouldShowInline, dismiss, disableAll } = useTip(tipId);
   const { requestOpen, release } = useTipQueue();
   const [open, setOpen] = useState(false);
-  const mountedRef = useRef(false);
+  const eligibleRef = useRef(false);
+
+  // Latch eligibility so the popover survives lastSeenVersion updates
+  if (shouldShowInline) {
+    eligibleRef.current = true;
+  }
 
   useEffect(() => {
-    if (!shouldShowInline || mountedRef.current) return;
-    mountedRef.current = true;
+    if (!shouldShowInline) return;
 
     const timer = setTimeout(() => {
       if (requestOpen(tipId)) {
@@ -66,13 +70,15 @@ export function TipSpot({
     [handleDismiss]
   );
 
-  if (!tip || !shouldShowInline) {
+  if (!tip || !eligibleRef.current) {
     return <>{children}</>;
   }
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
-      <PopoverTrigger asChild>{children}</PopoverTrigger>
+      <PopoverTrigger asChild>
+        <span className="contents">{children}</span>
+      </PopoverTrigger>
       <PopoverContent
         side={side}
         align={align}
