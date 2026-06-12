@@ -1,7 +1,7 @@
 import path from "node:path";
 import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 
-import type { FastifyInstance } from "fastify";
+import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
@@ -19,6 +19,10 @@ import {
   sanitizeUploadedFileName,
   toMediaKey,
 } from "../shared/media.js";
+import { TmuxTerminal } from "../terminal/tmux-terminal.js";
+import { hostClipboardImageCapable } from "../shared/lib/clipboard-capability.js";
+import { writeImageToClipboard } from "../shared/lib/clipboard-write.js";
+import { runCommand } from "../shared/lib/run-command.js";
 
 // Per-agent [File #N] sequence counter for terminal injection. In-memory,
 // resets on server restart — N is a cosmetic prompt label, not a stable ID.
@@ -34,6 +38,7 @@ type MediaRouteDeps = {
   pool: Pool;
   mediaRoot: string;
   agentManager: AgentManager;
+  appLog: FastifyBaseLogger;
   publishUiEvent: (event: unknown) => void;
 };
 
@@ -164,6 +169,60 @@ export async function registerMediaRoutes(
     );
 
     deps.publishUiEvent({ type: "media.changed", agentId: id });
+
+    const injectField = (data.fields.inject as { value?: string } | undefined)
+      ?.value;
+    const shouldInject = injectField === "true";
+    let delivery: "none" | "clipboard" | "path" = "none";
+
+    if (shouldInject) {
+      const mediaPath = path.join(mediaDir, timestampedFileName);
+      const isImage = /\.(png|jpe?g|gif|webp)$/i.test(timestampedFileName);
+      let clipboardOk = false;
+
+      // For images, try the native clipboard path first
+      if (isImage && hostClipboardImageCapable()) {
+        try {
+          await writeImageToClipboard(buffer, data.mimetype);
+          // Send Ctrl+V to the agent's tmux session
+          const access = await deps.agentManager.getTerminalAccess(id);
+          if (access.mode === "tmux") {
+            await runCommand("tmux", [
+              "send-keys",
+              "-t",
+              access.sessionName,
+              "C-v",
+            ]);
+            clipboardOk = true;
+            delivery = "clipboard";
+          }
+        } catch (err) {
+          deps.appLog.warn(
+            { err, agentId: id },
+            "Clipboard paste failed; falling back to path injection"
+          );
+        }
+      }
+
+      // Path-based injection: type [File #N] <path> into tmux
+      if (!clipboardOk) {
+        try {
+          const access = await deps.agentManager.getTerminalAccess(id);
+          if (access.mode === "tmux") {
+            const seq = nextFileSeq(id);
+            const terminal = new TmuxTerminal(access.sessionName);
+            await terminal.sendCommand(`[File #${seq}] ${mediaPath} `);
+            delivery = "path";
+          }
+        } catch (err) {
+          deps.appLog.warn(
+            { err, agentId: id },
+            "Terminal path injection failed"
+          );
+        }
+      }
+    }
+
     return reply.code(201).send({
       ok: true,
       media: {
@@ -174,6 +233,7 @@ export async function registerMediaRoutes(
         createdAt: result.rows[0].created_at.toISOString(),
         url: `/api/v1/agents/${id}/media/${encodeURIComponent(timestampedFileName)}`,
         path: path.join(mediaDir, timestampedFileName),
+        delivery,
       },
     });
   });

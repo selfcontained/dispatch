@@ -572,6 +572,7 @@ async function registerRoutes() {
     pool,
     mediaRoot: config.mediaRoot,
     agentManager,
+    appLog: app.log,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 
