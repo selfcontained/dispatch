@@ -7,7 +7,11 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import { api } from "@/lib/api";
 import { soundCuesEnabledAtom } from "@/lib/store";
-import { dismissedTipsAtom, tipsEnabledAtom } from "@/lib/tips/tips-state";
+import {
+  dismissedTipsAtom,
+  lastSeenVersionAtom,
+  tipsEnabledAtom,
+} from "@/lib/tips/tips-state";
 import { CUE_INTENTS, playCueForIntent, playTapCue } from "@/lib/sound-cues";
 import {
   getNotificationPermission,
@@ -96,6 +100,7 @@ function SoundCuesSection(): JSX.Element {
 function TipsSection(): JSX.Element {
   const [enabled, setEnabled] = useAtom(tipsEnabledAtom);
   const setDismissed = useSetAtom(dismissedTipsAtom);
+  const setLastSeenVersion = useSetAtom(lastSeenVersionAtom);
 
   return (
     <div>
@@ -120,6 +125,7 @@ function TipsSection(): JSX.Element {
           size="sm"
           onClick={() => {
             setDismissed([]);
+            setLastSeenVersion("0.0.0");
             toast.success(
               "Tips reset — you'll see them again as you use the app."
             );
