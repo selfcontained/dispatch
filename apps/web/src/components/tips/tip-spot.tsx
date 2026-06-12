@@ -91,46 +91,35 @@ export function TipSpot({
     eligibleRef.current = true;
   }
 
-  // Track whether the trigger is reachable (not covered by an overlay).
-  // A single MutationObserver + resize listener drives this state so both
-  // the "wait to open" and "close when occluded" paths are event-driven.
-  const [triggerReachable, setTriggerReachable] = useState(false);
+  // Track trigger visibility via IntersectionObserver (element-scoped).
+  const [triggerVisible, setTriggerVisible] = useState(false);
 
   useEffect(() => {
     const el = triggerRef.current;
-    if (!el || !eligibleRef.current) return;
-    let rafId: number | undefined;
-    const check = () => {
-      if (rafId) return;
-      rafId = requestAnimationFrame(() => {
-        rafId = undefined;
-        setTriggerReachable(isTriggerReachable(el));
-      });
-    };
-    check();
-    window.addEventListener("resize", check);
-    const observer = new MutationObserver(check);
-    observer.observe(document.body, { childList: true, subtree: true });
-    return () => {
-      if (rafId) cancelAnimationFrame(rafId);
-      window.removeEventListener("resize", check);
-      observer.disconnect();
-    };
+    if (!el) return;
+    const io = new IntersectionObserver(
+      ([entry]) => setTriggerVisible(entry!.isIntersecting),
+      { threshold: 0.5 }
+    );
+    io.observe(el);
+    return () => io.disconnect();
   }, []);
 
-  // Open the tip once the trigger becomes reachable
+  // Open the tip when eligible and the trigger is in the viewport,
+  // with an elementFromPoint gate to skip if an overlay covers it.
   useEffect(() => {
-    if (!shouldShowInline || !triggerReachable || open) return;
+    if (!shouldShowInline || !triggerVisible || open) return;
     const timer = setTimeout(() => {
-      if (requestOpen(tipId)) setOpen(true);
+      if (
+        triggerRef.current &&
+        isTriggerReachable(triggerRef.current) &&
+        requestOpen(tipId)
+      ) {
+        setOpen(true);
+      }
     }, 500);
     return () => clearTimeout(timer);
-  }, [shouldShowInline, triggerReachable, open, tipId, requestOpen]);
-
-  // Close (without dismissing) when the trigger becomes occluded
-  useEffect(() => {
-    if (open && !triggerReachable) setOpen(false);
-  }, [open, triggerReachable]);
+  }, [shouldShowInline, triggerVisible, open, tipId, requestOpen]);
 
   // Compute arrow offset so it points at the trigger, not the popover center
   useEffect(() => {
