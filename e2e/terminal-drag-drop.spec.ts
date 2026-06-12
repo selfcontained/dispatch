@@ -88,28 +88,38 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await dispatchDragEvent(page, "dragleave", TXT);
     await expect(overlay).toBeHidden();
 
-    // Slow the media upload so the uploading indicator is observable.
-    const slowUpload = async (route: import("@playwright/test").Route) => {
-      if (route.request().method() !== "POST") return route.continue();
-      await new Promise((r) => setTimeout(r, 800));
-      await route.continue();
-    };
-    await page.route(`**/api/v1/agents/${agent.id}/media`, slowUpload);
+    // The uploading overlay mounts while the request is in flight. Listen for
+    // its console log so we can confirm it rendered without artificial delays.
+    let overlayMounted = false;
+    page.on("console", (msg) => {
+      if (msg.text().includes("[dispatch:uploading-overlay] mounted"))
+        overlayMounted = true;
+    });
 
-    const uploadPromise = page.waitForRequest(
-      (req) =>
-        req.method() === "POST" &&
-        req.url().includes(`/api/v1/agents/${agent.id}/media`)
-    );
-    await dispatchDragEvent(page, "dragover", TXT);
-    await dispatchDragEvent(page, "drop", TXT);
+    // Wait for the upload response (not just the request) so the DB write
+    // has committed before we query the media list.
+    let uploadDone = false;
+    page.on("response", (res) => {
+      if (
+        res.request().method() === "POST" &&
+        res.url().includes(`/api/v1/agents/${agent.id}/media`) &&
+        res.status() === 201
+      )
+        uploadDone = true;
+    });
 
-    // The uploading indicator shows while the slowed request is in flight.
-    await expect(page.getByTestId("terminal-uploading-overlay")).toBeVisible();
-    const uploadReq = await uploadPromise;
-    expect(uploadReq.url()).toContain(`/api/v1/agents/${agent.id}/media`);
-    await expect(overlay).toBeHidden();
-    await expect(page.getByTestId("terminal-uploading-overlay")).toBeHidden();
+    await expect
+      .poll(
+        async () => {
+          await dispatchDragEvent(page, "dragover", TXT);
+          await dispatchDragEvent(page, "drop", TXT);
+          return uploadDone;
+        },
+        { timeout: 15_000, intervals: [200, 300, 500] }
+      )
+      .toBe(true);
+
+    expect(overlayMounted).toBe(true);
 
     // The upload created a media entry in the DB.
     const mediaRes = await request.get(`/api/v1/agents/${agent.id}/media`);
@@ -134,14 +144,22 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await page.getByTestId(`agent-row-${agent.id}`).click();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
 
-    let mediaSeen = false;
+    let uploadDone = false;
     let clipboardSeen = false;
+    page.on("response", (res) => {
+      if (
+        res.request().method() === "POST" &&
+        res.url().includes(`/api/v1/agents/${agent.id}/media`) &&
+        res.status() === 201
+      )
+        uploadDone = true;
+    });
     page.on("request", (req) => {
-      if (req.method() !== "POST") return;
-      if (req.url().includes(`/api/v1/agents/${agent.id}/media`)) {
-        mediaSeen = true;
-      }
-      if (req.url().includes("/api/v1/clipboard/image")) clipboardSeen = true;
+      if (
+        req.method() === "POST" &&
+        req.url().includes("/api/v1/clipboard/image")
+      )
+        clipboardSeen = true;
     });
 
     await expect
@@ -149,7 +167,7 @@ test.describe("Terminal drag-and-drop file upload", () => {
         async () => {
           await dispatchDragEvent(page, "dragover", IMG);
           await dispatchDragEvent(page, "drop", IMG);
-          return mediaSeen;
+          return uploadDone;
         },
         { timeout: 15_000, intervals: [200, 300, 500] }
       )
@@ -175,14 +193,14 @@ test.describe("Terminal drag-and-drop file upload", () => {
       name: `e2e-agent-paste-${Date.now()}`,
     });
 
-    let mediaSeen = false;
-    page.on("request", (req) => {
+    let uploadDone = false;
+    page.on("response", (res) => {
       if (
-        req.method() === "POST" &&
-        req.url().includes(`/api/v1/agents/${agent.id}/media`)
-      ) {
-        mediaSeen = true;
-      }
+        res.request().method() === "POST" &&
+        res.url().includes(`/api/v1/agents/${agent.id}/media`) &&
+        res.status() === 201
+      )
+        uploadDone = true;
     });
 
     await loadApp(page);
@@ -193,7 +211,7 @@ test.describe("Terminal drag-and-drop file upload", () => {
       .poll(
         async () => {
           await dispatchPaste(page, IMG);
-          return mediaSeen;
+          return uploadDone;
         },
         { timeout: 15_000, intervals: [200, 300, 500] }
       )

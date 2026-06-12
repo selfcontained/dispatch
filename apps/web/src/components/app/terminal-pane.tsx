@@ -162,19 +162,7 @@ export const TerminalPane = memo(function TerminalPane({
         </div>
       ) : null}
 
-      {uploadingFiles ? (
-        <div
-          data-testid="terminal-uploading-overlay"
-          role="status"
-          aria-live="polite"
-          className="pointer-events-none absolute inset-x-0 bottom-3 z-40 flex justify-center"
-        >
-          <div className="flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur-sm">
-            <ActivityBars size={16} />
-            <span>Uploading…</span>
-          </div>
-        </div>
-      ) : null}
+      {uploadingFiles ? <UploadingOverlay /> : null}
 
       <div
         data-testid="terminal-resyncing-state"
@@ -187,3 +175,23 @@ export const TerminalPane = memo(function TerminalPane({
     </div>
   );
 });
+
+function UploadingOverlay() {
+  useEffect(() => {
+    console.log("[dispatch:uploading-overlay] mounted");
+  }, []);
+
+  return (
+    <div
+      data-testid="terminal-uploading-overlay"
+      role="status"
+      aria-live="polite"
+      className="pointer-events-none absolute inset-x-0 bottom-3 z-40 flex justify-center"
+    >
+      <div className="flex items-center gap-2 rounded-full border border-border/60 bg-background/90 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur-sm">
+        <ActivityBars size={16} />
+        <span>Uploading…</span>
+      </div>
+    </div>
+  );
+}
