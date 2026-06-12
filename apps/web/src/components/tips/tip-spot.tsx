@@ -91,18 +91,23 @@ export function TipSpot({
     eligibleRef.current = true;
   }
 
-  // Close popover if trigger becomes occluded (e.g. mobile sidebar opens)
+  // Track whether the trigger is reachable (not covered by an overlay).
+  // A single MutationObserver + resize listener drives this state so both
+  // the "wait to open" and "close when occluded" paths are event-driven.
+  const [triggerReachable, setTriggerReachable] = useState(false);
+
   useEffect(() => {
-    if (!open || !triggerRef.current) return;
     const el = triggerRef.current;
+    if (!el || !eligibleRef.current) return;
     let rafId: number | undefined;
     const check = () => {
       if (rafId) return;
       rafId = requestAnimationFrame(() => {
         rafId = undefined;
-        if (!isTriggerReachable(el)) setOpen(false);
+        setTriggerReachable(isTriggerReachable(el));
       });
     };
+    check();
     window.addEventListener("resize", check);
     const observer = new MutationObserver(check);
     observer.observe(document.body, { childList: true, subtree: true });
@@ -111,7 +116,21 @@ export function TipSpot({
       window.removeEventListener("resize", check);
       observer.disconnect();
     };
-  }, [open]);
+  }, []);
+
+  // Open the tip once the trigger becomes reachable
+  useEffect(() => {
+    if (!shouldShowInline || !triggerReachable || open) return;
+    const timer = setTimeout(() => {
+      if (requestOpen(tipId)) setOpen(true);
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [shouldShowInline, triggerReachable, open, tipId, requestOpen]);
+
+  // Close (without dismissing) when the trigger becomes occluded
+  useEffect(() => {
+    if (open && !triggerReachable) setOpen(false);
+  }, [open, triggerReachable]);
 
   // Compute arrow offset so it points at the trigger, not the popover center
   useEffect(() => {
@@ -130,37 +149,6 @@ export function TipSpot({
     });
     return () => cancelAnimationFrame(frame);
   }, [open]);
-
-  // Poll for trigger reachability — retries until the trigger is visible,
-  // so the tip appears after the mobile sidebar closes.
-  useEffect(() => {
-    if (!shouldShowInline || open) return;
-
-    const attempt = () => {
-      if (
-        triggerRef.current &&
-        isTriggerReachable(triggerRef.current) &&
-        requestOpen(tipId)
-      ) {
-        setOpen(true);
-        return true;
-      }
-      return false;
-    };
-
-    const timer = setTimeout(() => {
-      if (attempt()) return;
-    }, 500);
-
-    const interval = setInterval(() => {
-      attempt();
-    }, 500);
-
-    return () => {
-      clearTimeout(timer);
-      clearInterval(interval);
-    };
-  }, [shouldShowInline, open, tipId, requestOpen]);
 
   const handleDismiss = useCallback(() => {
     setOpen(false);
