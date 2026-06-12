@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Lightbulb, X } from "lucide-react";
 import { useAtomValue, useSetAtom } from "jotai";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { tips, type Tip } from "@/lib/tips/tips";
 import { dismissedTipsAtom, tipsEnabledAtom } from "@/lib/tips/tips-state";
@@ -10,11 +11,8 @@ const IDLE_DELAY_MS = 2.5 * 60 * 1000; // 2.5 minutes
 const SHOW_CHANCE = 0.4;
 const AUTO_HIDE_MS = 30_000;
 
-export function AmbientTipBar({
-  onOpenDocs,
-}: {
-  onOpenDocs?: (section: string) => void;
-}) {
+export function AmbientTipBar() {
+  const navigate = useNavigate();
   const enabled = useAtomValue(tipsEnabledAtom);
   const dismissed = useAtomValue(dismissedTipsAtom);
   const setDismissed = useSetAtom(dismissedTipsAtom);
@@ -138,7 +136,9 @@ export function AmbientTipBar({
               </span>
               {visibleTip.docsSection ? (
                 <button
-                  onClick={() => onOpenDocs?.(visibleTip.docsSection!)}
+                  onClick={() =>
+                    navigate(`/settings/help/${visibleTip.docsSection}`)
+                  }
                   className="shrink-0 text-[11px] text-purple-400/60 transition-colors hover:text-purple-300"
                 >
                   Learn more →

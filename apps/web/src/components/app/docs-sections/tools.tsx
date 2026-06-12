@@ -214,7 +214,7 @@ export function ToolsContent() {
       </Section>
 
       <Section>
-        <H3>Brain (shared memory)</H3>
+        <H3 id="brain">Brain (shared memory)</H3>
         <P>
           The Brain is a repo-scoped key-value store and event log that lets
           agents share structured state. Objects are organized into collections,

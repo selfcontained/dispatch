@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 
 import {
   Popover,
@@ -10,20 +11,31 @@ import { useTip } from "@/lib/tips/use-tip";
 import { TipPopoverContent } from "./tip-popover-content";
 import { useTipQueue } from "./tip-queue-provider";
 
-function TipArrow({ side }: { side: string }) {
+/** Check if the element is actually reachable (not covered by an overlay). */
+function isTriggerReachable(el: HTMLElement): boolean {
+  const rect = el.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const topEl = document.elementFromPoint(cx, cy);
+  if (!topEl) return false;
+  return el.contains(topEl) || el === topEl;
+}
+
+function TipArrow({ side, offset }: { side: string; offset?: number }) {
   const isBottom = side === "bottom" || side === "right";
-  // Arrow dimensions: 16px wide, 8px tall
-  // Polygon fills the arrow interior, open path draws only the two diagonal edges.
-  // The SVG is positioned absolutely to overlap the popover border by 1px.
   return (
     <svg
       width="16"
       height="8"
       viewBox="0 0 16 8"
-      className="absolute left-1/2 -translate-x-1/2 pointer-events-none"
-      style={
-        isBottom ? { top: -8, marginTop: 1 } : { bottom: -8, marginBottom: 1 }
-      }
+      className="absolute pointer-events-none"
+      style={{
+        left: offset ?? "50%",
+        transform: "translateX(-50%)",
+        ...(isBottom
+          ? { top: -8, marginTop: 1 }
+          : { bottom: -8, marginBottom: 1 }),
+      }}
     >
       {isBottom ? (
         <>
@@ -55,7 +67,6 @@ type TipSpotProps = {
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
   sideOffset?: number;
-  onOpenDocs?: (section: string) => void;
   children: React.ReactNode;
 };
 
@@ -64,30 +75,92 @@ export function TipSpot({
   side = "right",
   align = "center",
   sideOffset = 8,
-  onOpenDocs,
   children,
 }: TipSpotProps) {
+  const navigate = useNavigate();
   const { tip, shouldShowInline, dismiss, disableAll } = useTip(tipId);
   const { requestOpen, release } = useTipQueue();
   const [open, setOpen] = useState(false);
   const eligibleRef = useRef(false);
+  const triggerRef = useRef<HTMLSpanElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const [arrowOffset, setArrowOffset] = useState<number | undefined>();
 
   // Latch eligibility so the popover survives lastSeenVersion updates
   if (shouldShowInline) {
     eligibleRef.current = true;
   }
 
+  // Close popover if trigger becomes occluded (e.g. mobile sidebar opens)
   useEffect(() => {
-    if (!shouldShowInline) return;
+    if (!open || !triggerRef.current) return;
+    const el = triggerRef.current;
+    let rafId: number | undefined;
+    const check = () => {
+      if (rafId) return;
+      rafId = requestAnimationFrame(() => {
+        rafId = undefined;
+        if (!isTriggerReachable(el)) setOpen(false);
+      });
+    };
+    window.addEventListener("resize", check);
+    const observer = new MutationObserver(check);
+    observer.observe(document.body, { childList: true, subtree: true });
+    return () => {
+      if (rafId) cancelAnimationFrame(rafId);
+      window.removeEventListener("resize", check);
+      observer.disconnect();
+    };
+  }, [open]);
+
+  // Compute arrow offset so it points at the trigger, not the popover center
+  useEffect(() => {
+    if (!open) {
+      setArrowOffset(undefined);
+      return;
+    }
+    const frame = requestAnimationFrame(() => {
+      const trigger = triggerRef.current;
+      const content = contentRef.current;
+      if (!trigger || !content) return;
+      const triggerRect = trigger.getBoundingClientRect();
+      const contentRect = content.getBoundingClientRect();
+      const triggerCenter = triggerRect.left + triggerRect.width / 2;
+      setArrowOffset(triggerCenter - contentRect.left);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [open]);
+
+  // Poll for trigger reachability — retries until the trigger is visible,
+  // so the tip appears after the mobile sidebar closes.
+  useEffect(() => {
+    if (!shouldShowInline || open) return;
+
+    const attempt = () => {
+      if (
+        triggerRef.current &&
+        isTriggerReachable(triggerRef.current) &&
+        requestOpen(tipId)
+      ) {
+        setOpen(true);
+        return true;
+      }
+      return false;
+    };
 
     const timer = setTimeout(() => {
-      if (requestOpen(tipId)) {
-        setOpen(true);
-      }
+      if (attempt()) return;
     }, 500);
 
-    return () => clearTimeout(timer);
-  }, [shouldShowInline, tipId, requestOpen]);
+    const interval = setInterval(() => {
+      attempt();
+    }, 500);
+
+    return () => {
+      clearTimeout(timer);
+      clearInterval(interval);
+    };
+  }, [shouldShowInline, open, tipId, requestOpen]);
 
   const handleDismiss = useCallback(() => {
     setOpen(false);
@@ -110,6 +183,14 @@ export function TipSpot({
     [handleDismiss]
   );
 
+  const handleOpenDocs = useCallback(
+    (section: string) => {
+      handleDismiss();
+      navigate(`/settings/help/${section}`);
+    },
+    [handleDismiss, navigate]
+  );
+
   if (!tip || !eligibleRef.current) {
     return <>{children}</>;
   }
@@ -117,21 +198,25 @@ export function TipSpot({
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <span className="inline-flex">{children}</span>
+        <span ref={triggerRef} className="inline-flex">
+          {children}
+        </span>
       </PopoverTrigger>
       <PopoverContent
+        ref={contentRef}
         side={side}
         align={align}
         sideOffset={sideOffset + 8}
+        collisionPadding={8}
         className="tip-popover w-auto border-purple-500/20"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
-        <TipArrow side={side} />
+        <TipArrow side={side} offset={arrowOffset} />
         <TipPopoverContent
           tip={tip}
           onDismiss={handleDismiss}
           onDisableAll={handleDisableAll}
-          onOpenDocs={onOpenDocs}
+          onOpenDocs={handleOpenDocs}
         />
       </PopoverContent>
     </Popover>

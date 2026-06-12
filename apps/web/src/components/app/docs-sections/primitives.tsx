@@ -20,9 +20,17 @@ export function P({ children }: { children: React.ReactNode }) {
   );
 }
 
-export function H3({ children }: { children: React.ReactNode }) {
+export function H3({
+  id,
+  children,
+}: {
+  id?: string;
+  children: React.ReactNode;
+}) {
   return (
-    <h3 className="text-base font-semibold text-foreground">{children}</h3>
+    <h3 id={id} className="text-base font-semibold text-foreground">
+      {children}
+    </h3>
   );
 }
 

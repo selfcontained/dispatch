@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useLocation } from "react-router-dom";
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   ArrowDownToLine,
@@ -160,18 +161,30 @@ export function DocsContent({
   onSectionChange: _onSectionChange,
   title = "Docs",
 }: DocsContentProps): JSX.Element {
+  const location = useLocation();
   const resolvedInitial = isValidDocsSection(initialSection)
     ? initialSection
     : null;
   const [activeSection, setActiveSectionState] = useState<DocsSection | null>(
     resolvedInitial
   );
+  const contentRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isValidDocsSection(initialSection)) {
       setActiveSectionState(initialSection);
     }
   }, [initialSection]);
+
+  useEffect(() => {
+    const hash = location.hash.replace("#", "");
+    if (!hash || !contentRef.current) return;
+    const frame = requestAnimationFrame(() => {
+      const el = contentRef.current?.querySelector(`#${CSS.escape(hash)}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [location.hash, activeSection]);
 
   const active =
     SECTIONS.find((section) => section.id === activeSection) ?? SECTIONS[0];
@@ -180,7 +193,10 @@ export function DocsContent({
     <div className="flex min-h-0 flex-1 items-stretch">
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         <ScrollArea className="h-full">
-          <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-6 md:px-8 md:py-8">
+          <div
+            ref={contentRef}
+            className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-5 py-6 md:px-8 md:py-8"
+          >
             <div className="border-b border-border pb-5">
               <div>
                 <div className="text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground">
