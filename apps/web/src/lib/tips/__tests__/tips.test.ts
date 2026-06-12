@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { tips } from "./tips";
+import { tips } from "../tips";
 
 describe("tips registry", () => {
   it("exports a non-empty array of tips", () => {
