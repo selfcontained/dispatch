@@ -380,7 +380,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
             summary: input.summary,
             feedbackCount,
             roundNumber: review.roundNumber,
-            cursorRuntime: parent?.type === "cursor",
           });
       await sendAgentPrompt(review.parentAgentId, parentPrompt);
     },

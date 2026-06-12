@@ -390,11 +390,7 @@ describe("AgentManager", () => {
       );
       expect(setupScript).toContain("DISPATCH_AUTH_TOKEN=");
       expect(setupScript).toMatch(/Dispatch startup rules:\n1\. /);
-      expect(setupScript).not.toContain("MANDATORY FIRST ACTION");
-      expect(setupScript).not.toContain("functions.dispatch-dispatch_event");
-      expect(setupScript).not.toContain(
-        "Do not say Dispatch tools are unavailable"
-      );
+      expect(setupScript).not.toContain("dispatch-<tool_name>");
       expect(setupScript).toContain(
         "infer a task from branch/worktree context alone"
       );
@@ -418,17 +414,7 @@ describe("AgentManager", () => {
         `/tmp/dispatch_setup_${agent.id}.sh`,
         "utf-8"
       );
-      expect(setupScript).toContain("MANDATORY FIRST ACTION");
-      expect(setupScript).toContain(
-        "Before reading files, running git, or replying"
-      );
-      expect(setupScript).toContain(
-        'functions.dispatch-dispatch_event({ type: "working", message: "Starting" })'
-      );
-      expect(setupScript).toContain(
-        "Do not say Dispatch tools are unavailable"
-      );
-      expect(setupScript).toContain("dispatch-dispatch_feedback");
+      expect(setupScript).toContain("dispatch-<tool_name>");
       expect(setupScript).toContain("report the exact tool error");
     });
 
@@ -733,8 +719,7 @@ describe("AgentManager", () => {
         "utf-8"
       );
       expect(setupScript).toMatch(/Dispatch job startup rules:\n1\. /);
-      expect(setupScript).not.toContain("MANDATORY FIRST ACTION");
-      expect(setupScript).not.toContain("functions.dispatch-dispatch_event");
+      expect(setupScript).not.toContain("dispatch-<tool_name>");
       expect(setupScript).toContain(
         "Report status with dispatch_event to keep the UI current"
       );
@@ -759,13 +744,7 @@ describe("AgentManager", () => {
         "utf-8"
       );
       expect(setupScript).toMatch(/Dispatch job startup rules:\n1\. /);
-      expect(setupScript).toContain("MANDATORY FIRST ACTION");
-      expect(setupScript).toContain(
-        'functions.dispatch-dispatch_event({ type: "working", message: "Starting" })'
-      );
-      expect(setupScript).toContain(
-        "Do not say Dispatch tools are unavailable"
-      );
+      expect(setupScript).toContain("dispatch-<tool_name>");
       expect(setupScript).toContain("Log task-level progress with job_log");
     });
 

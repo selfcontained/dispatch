@@ -599,52 +599,11 @@ describe("createMcpHandlers", () => {
         summary: "all clear",
         feedbackCount: 3,
         roundNumber: 2,
-        cursorRuntime: false,
       });
       expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
         "agt_parent1",
         "complete-prompt"
       );
-    });
-
-    it("marks complete prompts as Cursor runtime for Cursor parent agents", async () => {
-      deps.agentManager.getAgent.mockImplementation(async (id: string) => ({
-        id,
-        name: id === "agt_parent1" ? "parent" : "child",
-        cwd: "/repo",
-        status: "running",
-        type: id === "agt_parent1" ? "cursor" : "claude",
-        fullAccess: false,
-        pins: [],
-        latestEvent: null,
-        worktreePath: null,
-        worktreeBranch: null,
-        baseBranch: null,
-        reviewAgentType: null,
-        mediaDir: null,
-      }));
-      deps.agentManager.completePersonaReview.mockResolvedValue({
-        id: 1,
-        parentAgentId: "agt_parent1",
-        persona: "mobile-ux",
-        roundNumber: 2,
-        status: "complete",
-      });
-
-      await handlers.completeReview("agt_child1", {
-        verdict: "request_changes",
-        summary: "still cramped",
-      });
-
-      expect(buildParentReviewCompletePrompt).toHaveBeenCalledWith({
-        persona: "mobile-ux",
-        personaAgentId: "agt_child1",
-        verdict: "request_changes",
-        summary: "still cramped",
-        feedbackCount: 3,
-        roundNumber: 2,
-        cursorRuntime: true,
-      });
     });
 
     it("publishes events for both child and parent agents", async () => {

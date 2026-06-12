@@ -1,7 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
-import { buildCursorDispatchEventFirstActionRule } from "../shared/mcp/cursor-dispatch-guidance.js";
+import { buildCursorDispatchToolGuidance } from "../shared/mcp/cursor-dispatch-guidance.js";
 import type { ReviewDiffResult } from "./review-diff.js";
 
 export type PersonaDefinition = {
@@ -125,27 +125,15 @@ function buildStandardFeedbackGuidance(
   const scopeLine = includeDiff
     ? "- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes."
     : "- Only flag issues that are within the scope of the work under review described in the parent context. Do not flag pre-existing issues unless directly caused or worsened by the work under review.";
-  const reviewLifecycle = opts.cursorRuntime
-    ? [
-        `- ${buildCursorDispatchEventFirstActionRule("Starting review", [
-          "dispatch-dispatch_event",
-          "dispatch-review_status",
-          "dispatch-dispatch_feedback",
-          "dispatch-dispatch_complete_review",
-          "dispatch-dispatch_get_recheck_context",
-        ])}`,
-        '- Immediately after that, call `review_status` with "Starting review". In Cursor, use `functions.dispatch-review_status({ message: "Starting review" })`.',
-        '- Lifecycle recipe: 1. `dispatch_event(type="working")`; 2. `review_status("Starting review")`; 3. inspect the diff; 4. call `dispatch_feedback` once per finding; 5. call `dispatch_complete_review` with a verdict and summary; 6. wait for the round-2 prompt when required; 7. call `dispatch_get_recheck_context`; 8. call `dispatch_feedback` for unresolved items only, with `respondsToFeedbackId`; 9. call `dispatch_complete_review` again; 10. call `dispatch_event(type="done")`.',
-        '- Ping `review_status` again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you\'re working on.',
-        '- When finished with a review round, call `dispatch_complete_review` with a `verdict` (`approve` or `request_changes`) and a `summary`. This is the single canonical completion call; do not also try `review_status` with a "complete" status — that path has been removed and the schema will reject it.',
-        "- Emit a terminal `dispatch_event` (type `done` or `idle`) only when your review obligations for this turn are complete.",
-      ].join("\n")
-    : [
-        '- Call `review_status` with a short message when you begin reviewing. Ping it again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you\'re working on.',
-        "- Call `dispatch_feedback` for each finding as you go.",
-        '- When finished with this round, call `dispatch_complete_review` with a `verdict` (`approve` or `request_changes`) and a `summary`. This is the single canonical completion call; do not also try `review_status` with a "complete" status — that path has been removed and the schema will reject it.',
-        "- Emit a terminal `dispatch_event` (type `done` or `idle`) to signal end of turn.",
-      ].join("\n");
+  const cursorCallHint = opts.cursorRuntime
+    ? ' In Cursor, use `functions.dispatch-review_status({ message: "Starting review" })`.'
+    : "";
+  const reviewLifecycle = [
+    `- Call \`review_status\` with a short message when you begin reviewing.${cursorCallHint} Ping it again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you're working on.`,
+    "- Call `dispatch_feedback` for each finding as you go.",
+    '- When finished with this round, call `dispatch_complete_review` with a `verdict` (`approve` or `request_changes`) and a `summary`. This is the single canonical completion call; do not also try `review_status` with a "complete" status — that path has been removed and the schema will reject it.',
+    "- Emit a terminal `dispatch_event` (type `done` or `idle`) to signal end of turn.",
+  ].join("\n");
 
   return `
 ## Feedback Guidelines (from Dispatch)
@@ -262,12 +250,15 @@ export function assemblePersonaPrompt(
     .replace(/\{\{context\}\}/g, "")
     .replace(/\{\{diff\}\}/g, "");
 
-  const sections: string[] = [
-    personaBody.trimEnd(),
+  const sections: string[] = [personaBody.trimEnd()];
+  if (options.agentType === "cursor") {
+    sections.push(buildCursorDispatchToolGuidance());
+  }
+  sections.push(
     buildStandardFeedbackGuidance(includeDiff, {
       cursorRuntime: options.agentType === "cursor",
-    }),
-  ];
+    })
+  );
   sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
   sections.push(`## Context from parent agent\n${context}`);
   if (includeDiff && diffResult) {

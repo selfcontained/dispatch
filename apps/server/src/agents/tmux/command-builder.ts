@@ -6,7 +6,7 @@ import {
   createReleaseUpdateToken,
 } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
-import { buildCursorDispatchEventFirstActionRule } from "../../shared/mcp/cursor-dispatch-guidance.js";
+import { buildCursorDispatchToolGuidance } from "../../shared/mcp/cursor-dispatch-guidance.js";
 import type { AgentPin, AgentRole, AgentType } from "../types.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape } from "./quoting.js";
@@ -142,21 +142,11 @@ export function buildLaunchGuidance(
 ): string {
   const { agentType, jobRunId, suggestSessionRename, autoReview } = opts;
   const rules: string[] = [];
-  const cursorFirstActionRule =
-    agentType === "cursor"
-      ? buildCursorDispatchEventFirstActionRule("Starting", [
-          "dispatch-dispatch_event",
-          "dispatch-dispatch_feedback",
-          "dispatch-dispatch_rename_session",
-          "dispatch-dispatch_pin",
-          "dispatch-dispatch_share",
-        ])
-      : null;
+  if (agentType === "cursor") {
+    rules.push(buildCursorDispatchToolGuidance());
+  }
 
   if (jobRunId) {
-    if (cursorFirstActionRule) {
-      rules.push(cursorFirstActionRule);
-    }
     rules.push(
       `You are running a Dispatch job run (${jobRunId}). Job agents have a dedicated MCP route — use repo tools when relevant.`
     );
@@ -171,9 +161,6 @@ export function buildLaunchGuidance(
       "Call a job terminal tool when the run is complete, failed, or needs input."
     );
   } else {
-    if (cursorFirstActionRule) {
-      rules.push(cursorFirstActionRule);
-    }
     rules.push(
       "No task, no work. If the user hasn't explicitly asked for a change, fix, review, or investigation, ask what they want — don't infer a task from branch/worktree context alone."
     );

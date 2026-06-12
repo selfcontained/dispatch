@@ -363,7 +363,6 @@ export type McpRequestContext = {
     targetAgentId: string;
     targetAgentName: string;
   }>;
-  allowedMessageTargets?: string[];
   listAgentsForAgent?: (
     agentId: string,
     senderRepoRoot: string | null
@@ -441,11 +440,6 @@ async function createDispatchMcpServer(
       ? "job"
       : "agent";
   const allowed = new Set(TOOL_SETS[agentType]);
-  if (agentType === "persona" && context.agent?.type === "cursor") {
-    if (context.agent.parentAgentId) {
-      allowed.add("dispatch_send_message");
-    }
-  }
 
   // ── Persona / review lifecycle tools ────────────────────────────────
   if (context.agent) {
@@ -803,11 +797,6 @@ async function createDispatchMcpServer(
   ) {
     const agentId = context.agent.id;
     const sendMessage = context.sendMessage;
-    const allowedMessageTargets = context.allowedMessageTargets;
-    const targetDescription =
-      allowedMessageTargets && allowedMessageTargets.length > 0
-        ? ` For this session, target must be one of: ${allowedMessageTargets.join(", ")}.`
-        : "";
 
     server.registerTool(
       "dispatch_send_message",
@@ -816,7 +805,7 @@ async function createDispatchMcpServer(
           "Send a message to another running agent. The message is injected into the target agent's session. " +
           "The target agent can reply using the same tool. Use list_agents to discover available agents. " +
           "Target can be an agent ID (agt_xxx) or a name (partial match). " +
-          `Only works for agents that are currently running.${targetDescription}`,
+          "Only works for agents that are currently running.",
         inputSchema: {
           target: z
             .string()
@@ -833,14 +822,6 @@ async function createDispatchMcpServer(
       },
       async (args) => {
         try {
-          if (
-            allowedMessageTargets &&
-            !allowedMessageTargets.includes(args.target)
-          ) {
-            throw new Error(
-              `dispatch_send_message target must be one of: ${allowedMessageTargets.join(", ")}.`
-            );
-          }
           const result = await sendMessage(agentId, {
             target: args.target,
             message: args.message,

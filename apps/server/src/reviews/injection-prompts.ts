@@ -50,7 +50,6 @@ export type ParentReviewCompleteInput = {
   summary: string;
   feedbackCount: number;
   roundNumber: number;
-  cursorRuntime?: boolean;
 };
 
 export function buildParentReviewCompletePrompt(
@@ -63,36 +62,22 @@ export function buildParentReviewCompletePrompt(
     summary,
     feedbackCount,
     roundNumber,
-    cursorRuntime,
   } = input;
   const roundLabel = roundNumber >= 2 ? "round 2" : "the review";
   const findingsLine =
     feedbackCount > 0
       ? `${feedbackCount} feedback item(s) recorded — read with dispatch_get_feedback (personaAgentId="${personaAgentId}").`
       : "No feedback items were recorded.";
-  const reviewerReplyLine =
-    cursorRuntime && verdict === "request_changes"
-      ? `Before emitting your terminal dispatch_event, reply to reviewer agent ${personaAgentId} with dispatch_send_message. Summarize the fix commit, resolved feedback IDs, what changed for each item, and verification you ran. Do this even though the review is marked complete and no further recheck round is available.`
-      : null;
 
-  const lines = [
+  return [
     `Reviewer "${persona}" (agent ${personaAgentId}) finished ${roundLabel} with verdict ${verdict}. The review is now complete.`,
     "",
     `Summary: ${summary}`,
     "",
     findingsLine,
-  ];
-
-  if (reviewerReplyLine) {
-    lines.push("", reviewerReplyLine);
-  }
-
-  lines.push(
     "",
-    "Wrap up your work and emit a terminal dispatch_event when you're done."
-  );
-
-  return lines.join("\n");
+    "Wrap up your work and emit a terminal dispatch_event when you're done.",
+  ].join("\n");
 }
 
 export function buildReviewerRecheckReadyPrompt(): string {
