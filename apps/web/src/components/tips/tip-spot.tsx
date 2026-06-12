@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import * as PopoverPrimitive from "@radix-ui/react-popover";
+
 import {
   Popover,
   PopoverContent,
@@ -77,7 +79,7 @@ export function TipSpot({
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <span className="contents">{children}</span>
+        <span className="inline-flex">{children}</span>
       </PopoverTrigger>
       <PopoverContent
         side={side}
@@ -86,6 +88,11 @@ export function TipSpot({
         className="w-auto border-purple-500/20"
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
+        <PopoverPrimitive.Arrow
+          width={14}
+          height={7}
+          className="fill-popover drop-shadow-[0_-1px_0_hsl(var(--border)/0.4)]"
+        />
         <TipPopoverContent
           tip={tip}
           onDismiss={handleDismiss}

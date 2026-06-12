@@ -569,7 +569,7 @@ export function AgentsView({
                     <PanelRightOpen className="h-4 w-4" />
                   </Button>
                 ) : null}
-                <TipSpot tipId="quick-phrases" side="bottom" align="start">
+                <TipSpot tipId="quick-phrases" side="bottom" align="center">
                   <QuickPhrasesButton
                     agentId={
                       hasActiveAgent && connState === "connected"
