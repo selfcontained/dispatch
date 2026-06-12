@@ -158,72 +158,19 @@ test.describe("Terminal drag-and-drop file upload", () => {
     expect(clipboardSeen).toBe(false);
   });
 
-  test("pastes an image via the native clipboard endpoint when the host supports it", async ({
-    page,
-    request,
-  }) => {
+  test("pastes images via the media endpoint", async ({ page, request }) => {
     const agent = await createAgentViaAPI(request, {
-      name: `e2e-agent-paste-native-${Date.now()}`,
+      name: `e2e-agent-paste-${Date.now()}`,
     });
 
-    // Host advertises clipboard-image capability, and the native set succeeds.
-    await page.route("**/api/v1/system/defaults", (route) =>
-      route.fulfill({ json: { homeDir: "/tmp", clipboardImagePaste: true } })
-    );
-    await page.route("**/api/v1/clipboard/image", (route) =>
-      route.fulfill({ json: { ok: true } })
-    );
-
-    let clipboardSeen = false;
+    let mediaSeen = false;
     page.on("request", (req) => {
       if (
         req.method() === "POST" &&
-        req.url().includes("/api/v1/clipboard/image")
+        req.url().includes(`/api/v1/agents/${agent.id}/media`)
       ) {
-        clipboardSeen = true;
-      }
-    });
-
-    await loadApp(page);
-    await page.getByTestId(`agent-row-${agent.id}`).click();
-    await expect(page.getByTestId("terminal-pane")).toBeVisible();
-
-    // Capable + connected → paste routes to the clipboard-image endpoint
-    // (native [Image #N]) rather than a media upload. Re-attempt to cover
-    // connection + capability-load timing.
-    await expect
-      .poll(
-        async () => {
-          await dispatchPaste(page, IMG);
-          return clipboardSeen;
-        },
-        { timeout: 15_000, intervals: [200, 300, 500] }
-      )
-      .toBe(true);
-  });
-
-  test("falls back to path-based upload when the host can't do clipboard paste", async ({
-    page,
-    request,
-  }) => {
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-agent-paste-fallback-${Date.now()}`,
-    });
-
-    // Host reports NO clipboard-image capability → paste must fall back to a
-    // media upload and never hit the clipboard endpoint. (Stubbed explicitly so
-    // the test doesn't depend on the server's DISPATCH_COPY_DISPLAY env.)
-    await page.route("**/api/v1/system/defaults", (route) =>
-      route.fulfill({ json: { homeDir: "/tmp", clipboardImagePaste: false } })
-    );
-    let mediaSeen = false;
-    let clipboardSeen = false;
-    page.on("request", (req) => {
-      if (req.method() !== "POST") return;
-      if (req.url().includes(`/api/v1/agents/${agent.id}/media`)) {
         mediaSeen = true;
       }
-      if (req.url().includes("/api/v1/clipboard/image")) clipboardSeen = true;
     });
 
     await loadApp(page);
@@ -239,7 +186,5 @@ test.describe("Terminal drag-and-drop file upload", () => {
         { timeout: 15_000, intervals: [200, 300, 500] }
       )
       .toBe(true);
-
-    expect(clipboardSeen).toBe(false);
   });
 });
