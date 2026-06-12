@@ -20,6 +20,16 @@ import {
   toMediaKey,
 } from "../shared/media.js";
 
+// Per-agent [File #N] sequence counter for terminal injection. In-memory,
+// resets on server restart — N is a cosmetic prompt label, not a stable ID.
+const fileSeqByAgent = new Map<string, number>();
+
+function nextFileSeq(agentId: string): number {
+  const seq = (fileSeqByAgent.get(agentId) ?? 0) + 1;
+  fileSeqByAgent.set(agentId, seq);
+  return seq;
+}
+
 type MediaRouteDeps = {
   pool: Pool;
   mediaRoot: string;
