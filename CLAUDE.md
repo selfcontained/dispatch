@@ -31,11 +31,11 @@ dispatch/
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
 ├── .dispatch/                 # repo-level Dispatch config
 │   ├── config.json            # repo-level settings (e.g. Linear integration)
-│   ├── job-prompts/           # job prompt definitions
 │   ├── job-state/             # persistent state files for recurring jobs
 │   ├── personas/              # persona definitions (*.md)
 │   └── tools.json             # repo-specific MCP tools + lifecycle hooks
 └── docs/
+    └── jobs/                  # job prompt definitions (backup copies)
 ```
 
 - Use `pnpm` (not npm) for all package management.

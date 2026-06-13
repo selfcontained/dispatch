@@ -29,7 +29,7 @@ export const tips: Tip[] = [
   {
     id: "brain",
     title: "Brain",
-    body: "Repo-scoped shared memory that persists across agent sessions. Store objects, lists, and event logs your agents can access.",
+    body: "Repo-scoped shared memory that persists across agent sessions. Store objects, lists, and event logs your agents can manage.",
     docsSection: "tools#brain",
     since: "0.20.0",
     surfaces: ["inline", "ambient"],
@@ -49,6 +49,38 @@ export const tips: Tip[] = [
     docsSection: "media",
     since: "0.19.0",
     surfaces: ["inline", "ambient"],
+  },
+  {
+    id: "keyboard-shortcuts",
+    title: "Keyboard Shortcuts",
+    body: "Press ⌘K to open the command palette. Navigate agents, toggle sidebars, and control the terminal without touching the mouse.",
+    docsSection: "shortcuts",
+    since: "0.24.0",
+    surfaces: ["ambient"],
+  },
+  {
+    id: "worktrees",
+    title: "Worktrees",
+    body: "Each agent gets its own git worktree by default — isolated branches, no conflicts. Run multiple agents in parallel on the same repo.",
+    docsSection: "worktrees",
+    since: "0.24.0",
+    surfaces: ["ambient"],
+  },
+  {
+    id: "personalities",
+    title: "Personalities",
+    body: "Customize how agents communicate. Add a personality to shape tone, preferences, or standing instructions across all new agents.",
+    docsSection: "personalities",
+    since: "0.24.0",
+    surfaces: ["ambient"],
+  },
+  {
+    id: "notifications",
+    title: "Notifications",
+    body: "Get notified when agents finish, need input, or get stuck. Set up Slack, browser, or sound alerts in Settings.",
+    docsSection: "notifications",
+    since: "0.24.0",
+    surfaces: ["ambient"],
   },
 ];
 

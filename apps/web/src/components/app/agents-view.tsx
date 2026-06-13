@@ -629,9 +629,11 @@ export function AgentsView({
                       : null
                   }
                 />
-                <div className="absolute inset-x-0 bottom-0 z-10">
-                  <AmbientTipBar />
-                </div>
+                {!isMobile ? (
+                  <div className="absolute inset-x-0 bottom-0 z-10 h-14">
+                    <AmbientTipBar />
+                  </div>
+                ) : null}
               </div>
 
               {!isMobile ? (

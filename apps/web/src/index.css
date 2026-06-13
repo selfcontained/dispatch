@@ -1159,4 +1159,5 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5) !important;
   backdrop-filter: none !important;
   -webkit-backdrop-filter: none !important;
+  animation-duration: 300ms !important;
 }
