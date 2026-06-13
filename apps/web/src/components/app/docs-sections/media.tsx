@@ -74,6 +74,26 @@ export function MediaContent() {
       </Section>
 
       <Section>
+        <H3 id="uploading-files">Uploading files to agents</H3>
+        <P>
+          You can send files directly to a running agent by{" "}
+          <strong>dragging and dropping</strong> them onto the terminal or by{" "}
+          <strong>pasting an image</strong> from your clipboard (
+          <Code>Cmd+V</Code> / <Code>Ctrl+V</Code>). Uploaded files are saved to
+          the agent's media store and automatically injected into the agent's
+          prompt — images go through the native clipboard when available, and
+          all other files are typed into tmux as{" "}
+          <Code>[File&nbsp;#N]&nbsp;/path/to/file</Code>.
+        </P>
+        <P>
+          You can also upload files via the <strong>Share file</strong> button
+          in the media sidebar. Sidebar uploads are <em>not</em> injected into
+          the terminal — tell the agent about the file afterward so it knows to
+          look.
+        </P>
+      </Section>
+
+      <Section>
         <H3>Media sidebar</H3>
         <P>
           Click any agent's media count badge (or press{" "}
@@ -102,9 +122,10 @@ export function MediaContent() {
         </P>
         <P>
           The <strong>Share file</strong> button at the top of the sidebar lets
-          you upload a file directly to the agent's media stream (stored with{" "}
-          <Code>source: "user"</Code>). Tell the agent afterward so it knows to
-          look.
+          you upload a file directly to the agent's media store (stored with{" "}
+          <Code>source: "user"</Code>). These uploads are not injected into the
+          terminal — see <em>Uploading files to agents</em> above for methods
+          that inject automatically.
         </P>
       </Section>
     </>

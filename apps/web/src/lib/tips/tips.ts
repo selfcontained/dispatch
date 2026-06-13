@@ -51,6 +51,14 @@ export const tips: Tip[] = [
     surfaces: ["inline", "ambient"],
   },
   {
+    id: "file-upload",
+    title: "File Upload",
+    body: "Drag and drop files onto the terminal to upload and inject them into the agent's prompt. You can also paste images from your clipboard.",
+    docsSection: "media#uploading-files",
+    since: "0.23.6",
+    surfaces: ["ambient"],
+  },
+  {
     id: "keyboard-shortcuts",
     title: "Keyboard Shortcuts",
     body: "Press ⌘K to open the command palette. Navigate agents, toggle sidebars, and control the terminal without touching the mouse.",
