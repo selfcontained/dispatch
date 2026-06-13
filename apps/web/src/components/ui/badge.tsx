@@ -36,4 +36,4 @@ function Badge({ className, variant, ...props }: BadgeProps): JSX.Element {
   );
 }
 
-export { Badge, badgeVariants };
+export { Badge };

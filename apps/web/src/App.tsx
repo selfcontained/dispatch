@@ -1,15 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import {
-  Outlet,
-  useMatches,
-  useNavigate,
-  useOutletContext,
-} from "react-router-dom";
+import { Outlet, useMatches, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import "@xterm/xterm/css/xterm.css";
 
 import { type NavSection } from "@/components/app/sidebar-shell";
-import { type Agent, type ServiceState } from "@/components/app/types";
+import { type Agent } from "@/components/app/types";
+import { type DashboardContextValue } from "@/components/app/dashboard-context";
 import { initEnergyMetrics } from "@/lib/energy-metrics";
 import { api } from "@/lib/api";
 import { useAuthContext } from "@/contexts/auth-context";
@@ -30,7 +26,6 @@ import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { TipQueueProvider } from "@/components/tips/tip-queue-provider";
 import { TipsVersionInit } from "@/components/tips/tips-version-init";
-import { agentRoute } from "@/lib/agent-routes";
 import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
 import { Toaster } from "sonner";
@@ -38,41 +33,6 @@ import { Toaster } from "sonner";
 type RouteHandle = {
   navSection?: NavSection;
 };
-
-export type DashboardContextValue = {
-  agents: Agent[];
-  enabledAgentTypes: AgentType[];
-  setEnabledAgentTypes: React.Dispatch<React.SetStateAction<AgentType[]>>;
-  enabledIdes: IdeType[];
-  setEnabledIdes: React.Dispatch<React.SetStateAction<IdeType[]>>;
-  handleLogout: () => void;
-  isMobile: boolean;
-  leftOpen: boolean;
-  leftPanelOpen: boolean;
-  mobileLeftOpen: boolean;
-  mobileMediaOpen: boolean;
-  setLeftOpen: (open: boolean) => void;
-  setMobileLeftOpen: (open: boolean) => void;
-  setMobileMediaOpen: (open: boolean) => void;
-  handleSetLeftPanelOpen: (open: boolean) => void;
-  apiState: ServiceState;
-  dbState: ServiceState;
-  pulsingNavItem: string | null;
-  triggerNavAnimation: (navItem: string) => void;
-  handleSidebarNavigate: (section: NavSection) => void;
-  currentNavItem: NavSection | null;
-  theme: ReturnType<typeof useTheme>["theme"];
-  setTheme: ReturnType<typeof useTheme>["setTheme"];
-  iconColor: ReturnType<typeof useIconColor>["iconColor"];
-  setIconColor: ReturnType<typeof useIconColor>["setIconColor"];
-  isIconColorSaving: boolean;
-  iconColorError: string | null;
-  clearIconColorError: () => void;
-};
-
-export function useDashboardContext(): DashboardContextValue {
-  return useOutletContext<DashboardContextValue>();
-}
 
 export function DashboardLayout(): JSX.Element {
   const navigate = useNavigate();
@@ -259,11 +219,4 @@ export function DashboardLayout(): JSX.Element {
       />
     </TipQueueProvider>
   );
-}
-
-export async function openAgentFromJobs(
-  navigate: ReturnType<typeof useNavigate>,
-  agent: Agent
-): Promise<void> {
-  navigate(agentRoute(agent.id));
 }

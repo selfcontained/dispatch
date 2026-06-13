@@ -13,7 +13,7 @@ import { cn } from "@/lib/utils";
 
 // ── Shared primitives ──────────────────────────────────────────
 
-export function formatRelative(date: Date): string {
+function formatRelative(date: Date): string {
   const diffMs = Date.now() - date.getTime();
   const diffMin = Math.floor(diffMs / 60_000);
   const diffHr = Math.floor(diffMin / 60);
@@ -25,7 +25,7 @@ export function formatRelative(date: Date): string {
   return `${diffDay}d ago`;
 }
 
-export function RelativeTime({ iso }: { iso: string }): JSX.Element {
+function RelativeTime({ iso }: { iso: string }): JSX.Element {
   const date = new Date(iso);
   return (
     <time
@@ -38,7 +38,7 @@ export function RelativeTime({ iso }: { iso: string }): JSX.Element {
   );
 }
 
-export function CopyButton({
+function CopyButton({
   value,
   className,
 }: {
@@ -112,7 +112,7 @@ export function CollapsibleSection({
 
 // ── Value renderers ─────────────────────────────────────────────
 
-export function formatPrimitive(v: unknown): {
+function formatPrimitive(v: unknown): {
   text: string;
   className: string;
 } {
@@ -185,7 +185,7 @@ function AgentIdLabel({ agentId }: { agentId: string }): JSX.Element {
 
 // ── Kind styles ────────────────────────────────────────────────
 
-export const KIND_STYLES: Record<
+const KIND_STYLES: Record<
   string,
   { dot: string; text: string; badge: string }
 > = {
@@ -206,7 +206,7 @@ export const KIND_STYLES: Record<
   },
 };
 
-export function getKindStyle(kind: string) {
+function getKindStyle(kind: string) {
   return (
     KIND_STYLES[kind] ?? {
       dot: "bg-muted-foreground",

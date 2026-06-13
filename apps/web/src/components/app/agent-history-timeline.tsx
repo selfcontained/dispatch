@@ -3,29 +3,15 @@ import { CheckCircle2, ChevronRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
+import {
+  EVENT_TYPE_COLORS,
+  EVENT_TYPE_LABELS,
+} from "@/components/app/agent-history-event-types";
 import { cn } from "@/lib/utils";
 import {
   type HistoryEvent,
   type HistoryFeedbackItem,
 } from "@/hooks/use-agent-history";
-
-// ── Shared constants ────────────────────────────────────────────────
-
-export const EVENT_TYPE_COLORS: Record<string, string> = {
-  working: "bg-status-working",
-  blocked: "bg-status-blocked",
-  waiting_user: "bg-status-waiting",
-  done: "bg-status-done",
-  idle: "bg-muted-foreground",
-};
-
-export const EVENT_TYPE_LABELS: Record<string, string> = {
-  working: "Working",
-  blocked: "Blocked",
-  waiting_user: "Waiting",
-  done: "Done",
-  idle: "Idle",
-};
 
 // ── Event timeline ──────────────────────────────────────────────────
 

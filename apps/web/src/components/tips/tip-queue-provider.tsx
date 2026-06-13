@@ -1,27 +1,6 @@
-import {
-  createContext,
-  useCallback,
-  useContext,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 
-type TipQueueContextValue = {
-  activeTipId: string | null;
-  requestOpen: (tipId: string) => boolean;
-  release: (tipId: string) => void;
-};
-
-const TipQueueContext = createContext<TipQueueContextValue>({
-  activeTipId: null,
-  requestOpen: () => false,
-  release: () => {},
-});
-
-export function useTipQueue() {
-  return useContext(TipQueueContext);
-}
+import { TipQueueContext } from "@/components/tips/tip-queue-context";
 
 export function TipQueueProvider({ children }: { children: React.ReactNode }) {
   const [activeTipId, setActiveTipId] = useState<string | null>(null);

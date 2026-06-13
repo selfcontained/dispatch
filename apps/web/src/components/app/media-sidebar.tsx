@@ -17,11 +17,8 @@ import {
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
 import { type MediaSidebarTab } from "@/lib/store";
-import {
-  MediaActions,
-  isTextFile,
-  stripTimestamp,
-} from "@/components/app/media-lightbox";
+import { MediaActions } from "@/components/app/media-lightbox";
+import { isTextFile, stripTimestamp } from "@/components/app/media-file-utils";
 import { BrainTabContent } from "@/components/app/brain-tab-content";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { ActivityBars } from "@/components/ui/activity-bars";

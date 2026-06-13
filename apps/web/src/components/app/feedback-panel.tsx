@@ -5,10 +5,10 @@ import { ChevronLeft, ChevronRight, X } from "lucide-react";
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { reviewVerdictLabel } from "@/components/app/agent-event-utils";
 import {
-  PersonaAgentRow,
   getVerdict,
   getReviewSummary,
-} from "@/components/app/persona-agent-row";
+} from "@/components/app/persona-agent-review-utils";
+import { PersonaAgentRow } from "@/components/app/persona-agent-row";
 import {
   type FeedbackDetailState,
   bySeverity,

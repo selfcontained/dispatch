@@ -16,10 +16,10 @@ import {
   ChartLegendContent,
   type ChartConfig,
 } from "@/components/ui/chart";
+import { formatDate } from "@/components/app/activity-chart-utils";
 import { cn } from "@/lib/utils";
 import {
   formatDuration,
-  formatShortDate,
   formatTokenCount,
   shortProjectName,
 } from "@/lib/format";
@@ -34,10 +34,6 @@ import type {
 } from "@/hooks/use-activity";
 
 // ── Helpers ─────────────────────────────────────────────────────────
-
-export function formatDate(iso: string): string {
-  return formatShortDate(iso);
-}
 
 function formatBucketLabel(
   iso: string,
