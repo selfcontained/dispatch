@@ -88,25 +88,32 @@ Do not spend meaningful time adding coverage while unresolved local failures sti
    - `pnpm run test`
    - `pnpm run test:e2e`
    - If any file under `apps/web/` changes during the run, also run `pnpm run finalize:web`
-2. Triage every failure from the first full run.
-3. Fix failures and flakiness.
-4. Re-run the affected tests, then the relevant full commands again to confirm stability.
-5. Once the suite is green, look for the highest-value coverage gaps.
-6. Add targeted tests.
-7. Re-run the affected suites and final validation commands.
-8. If files changed, launch exactly one review agent to review only the diff from this run.
+2. Check recent GitHub Actions CI runs for test failures:
+   - `gh run list --limit 50` and inspect any failed runs with `gh run view <id> --log-failed`
+   - look for test failures that differ from local results — these indicate CI-only flakes or environment-sensitive tests
+   - cross-reference failures across multiple unrelated branches to distinguish real flakes from branch-specific issues
+   - if a test passes locally but fails across multiple CI branches, investigate the root cause (timing, environment, fire-and-forget writes, timezone sensitivity, etc.)
+   - add confirmed CI-only flakes to the `flakes` brain list with enough context for the next run
+3. Triage every failure from the local run and the CI scan.
+4. Fix failures and flakiness.
+5. Re-run the affected tests, then the relevant full commands again to confirm stability.
+6. Once the suite is green, look for the highest-value coverage gaps.
+7. Add targeted tests.
+8. Re-run the affected suites and final validation commands.
+9. If files changed, launch exactly one review agent to review only the diff from this run.
    - the review agent should focus on correctness issues, flaky-test risk, cleanup leakage, and over-scoped or low-value test additions
    - if it finds actionable issues, fix them and re-run the relevant validation before continuing
    - do not launch multiple reviewers
    - do not turn review into an open-ended loop; one review round is enough
-9. If files changed, complete the landing flow:
-   - commit the changes on the job branch
-   - push the branch
-   - create a PR targeting `main`
-   - wait for CI to finish
-   - if CI fails because of your diff, fix it, push again, and keep polling
-   - if CI fails for a likely unrelated flake, retry once and re-check
-   - merge the PR only after CI is green
+10. If files changed, complete the landing flow:
+
+- commit the changes on the job branch
+- push the branch
+- create a PR targeting `main`
+- wait for CI to finish
+- if CI fails because of your diff, fix it, push again, and keep polling
+- if CI fails for a likely unrelated flake, retry once and re-check
+- merge the PR only after CI is green
 
 If required tooling, credentials, or environment capabilities are missing, document that precisely and use the appropriate terminal job report.
 
