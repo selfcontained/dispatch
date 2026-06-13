@@ -66,6 +66,8 @@ export function AmbientTipBar() {
     }, IDLE_DELAY_MS);
   }, [enabled, visibleTip, getEligibleTip, startAutoHide]);
 
+  const lastResetRef = useRef(0);
+
   useEffect(() => {
     if (!enabled) {
       setVisibleTip(null);
@@ -74,6 +76,9 @@ export function AmbientTipBar() {
 
     const onActivity = () => {
       if (visibleTip) return;
+      const now = Date.now();
+      if (now - lastResetRef.current < 10_000) return;
+      lastResetRef.current = now;
       resetIdleTimer();
     };
 
@@ -155,9 +160,9 @@ export function AmbientTipBar() {
       {/* 1: lightbulb — always in the same spot */}
       <button
         onClick={showBar ? undefined : handleRequestTip}
-        title={showBar ? undefined : "Show a tip"}
+        aria-label="Show a tip"
         className={cn(
-          "shrink-0 rounded p-0.5 transition-colors",
+          "pointer-events-auto shrink-0 rounded p-0.5 transition-colors",
           showBar
             ? "cursor-default text-muted-foreground/40"
             : "cursor-pointer text-muted-foreground/20 hover:text-muted-foreground/60"
@@ -189,7 +194,8 @@ export function AmbientTipBar() {
                 onClick={() =>
                   navigate(`/settings/help/${visibleTip.docsSection}`)
                 }
-                className="ml-1.5 text-purple-400/60 transition-colors hover:text-purple-300"
+                aria-label={`Learn more about ${visibleTip.title}`}
+                className="pointer-events-auto ml-1.5 text-purple-400/60 transition-colors hover:text-purple-300"
               >
                 Learn more
               </button>
@@ -224,13 +230,13 @@ export function AmbientTipBar() {
           >
             <button
               onClick={handleDisableAll}
-              className="rounded-sm px-2 py-1 text-[11px] text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-muted-foreground"
+              className="pointer-events-auto rounded-sm px-2 py-1 text-[11px] text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-muted-foreground"
             >
               Disable
             </button>
             <button
               onClick={handleDismiss}
-              className="rounded-sm px-2 py-1 text-[11px] text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-foreground"
+              className="pointer-events-auto rounded-sm px-2 py-1 text-[11px] text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-foreground"
             >
               Dismiss
             </button>
@@ -246,7 +252,7 @@ export function AmbientTipBar() {
           >
             <button
               onClick={() => setAllSeenMessage(false)}
-              className="rounded-sm px-2 py-1 text-[11px] text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-foreground"
+              className="pointer-events-auto rounded-sm px-2 py-1 text-[11px] text-muted-foreground/40 transition-colors hover:bg-white/5 hover:text-foreground"
             >
               Dismiss
             </button>

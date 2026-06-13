@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtom } from "jotai";
 import {
   Outlet,
   useMatches,
@@ -30,8 +29,7 @@ import {
 import { type IdeType, sanitizeEnabledIdes } from "@/lib/ide-types";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { TipQueueProvider } from "@/components/tips/tip-queue-provider";
-import { BUILD_VERSION } from "@/lib/version";
-import { lastSeenVersionAtom } from "@/lib/tips/tips-state";
+import { TipsVersionInit } from "@/components/tips/tips-version-init";
 import { agentRoute } from "@/lib/agent-routes";
 import { ReleaseAvailableToast } from "@/components/app/release-available-toast";
 import { UpdateAvailableToast } from "@/components/app/update-available-toast";
@@ -74,22 +72,6 @@ export type DashboardContextValue = {
 
 export function useDashboardContext(): DashboardContextValue {
   return useOutletContext<DashboardContextValue>();
-}
-
-function TipsVersionInit() {
-  const [lastSeen, setLastSeen] = useAtom(lastSeenVersionAtom);
-  const didInit = useRef(false);
-
-  useEffect(() => {
-    if (didInit.current) return;
-    didInit.current = true;
-    if (lastSeen !== BUILD_VERSION) {
-      const timer = setTimeout(() => setLastSeen(BUILD_VERSION), 2000);
-      return () => clearTimeout(timer);
-    }
-  }, [lastSeen, setLastSeen]);
-
-  return null;
 }
 
 export function DashboardLayout(): JSX.Element {

@@ -157,6 +157,15 @@ export function TipSpot({
     [handleDismiss, reachable]
   );
 
+  useEffect(() => {
+    if (!open || !reachable) return;
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") handleDismiss();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  }, [open, reachable, handleDismiss]);
+
   const handleOpenDocs = useCallback(
     (section: string) => {
       handleDismiss();
