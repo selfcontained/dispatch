@@ -16,7 +16,8 @@ import {
 } from "@/lib/format";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { StatCard } from "@/components/app/stat-card";
-import { MediaLightbox, stripTimestamp } from "@/components/app/media-lightbox";
+import { MediaLightbox } from "@/components/app/media-lightbox";
+import { stripTimestamp } from "@/components/app/media-file-utils";
 import { PinItem } from "@/components/app/pins-panel";
 import { type AgentPin } from "@/components/app/types";
 import {
@@ -28,6 +29,8 @@ import {
 import {
   EVENT_TYPE_COLORS,
   EVENT_TYPE_LABELS,
+} from "@/components/app/agent-history-event-types";
+import {
   EventTimeline,
   FeedbackTimeline,
 } from "@/components/app/agent-history-timeline";

@@ -37,10 +37,10 @@ import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import {
   DailyStackedBarChart,
   DailyTokenChart,
-  formatDate,
   ModelBreakdown,
   ProjectBreakdown,
 } from "@/components/app/activity-charts";
+import { formatDate } from "@/components/app/activity-chart-utils";
 import { ActiveHoursGrid, Heatmap } from "@/components/app/activity-heatmaps";
 import type { TokenStats } from "@/hooks/use-activity";
 

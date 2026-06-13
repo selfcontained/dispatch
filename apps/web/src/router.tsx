@@ -1,11 +1,4 @@
-import {
-  createBrowserRouter,
-  Navigate,
-  Outlet,
-  useParams,
-} from "react-router-dom";
-import { useAuth } from "@/hooks/use-auth";
-import { AuthContextProvider } from "@/contexts/auth-context";
+import { createBrowserRouter, Navigate } from "react-router-dom";
 import { AuthLayout } from "@/layouts/auth-layout";
 import { DashboardLayout } from "@/App";
 import {
@@ -16,15 +9,11 @@ import {
   SettingsRoute,
 } from "@/layouts/dashboard-sections";
 import { LoginRoute } from "@/components/app/login-page";
-
-function RootLayout(): JSX.Element {
-  const auth = useAuth();
-  return (
-    <AuthContextProvider value={auth}>
-      <Outlet />
-    </AuthContextProvider>
-  );
-}
+import {
+  LegacyDocsRedirect,
+  LegacyJobsRedirect,
+  RootLayout,
+} from "@/router-layouts";
 
 export const router = createBrowserRouter([
   {
@@ -167,18 +156,3 @@ export const router = createBrowserRouter([
     ],
   },
 ]);
-
-function LegacyDocsRedirect(): JSX.Element {
-  const { section } = useParams();
-  return (
-    <Navigate
-      to={section ? `/settings/help/${section}` : "/settings/help"}
-      replace
-    />
-  );
-}
-
-function LegacyJobsRedirect(): JSX.Element {
-  const { "*": rest } = useParams();
-  return <Navigate to={`/automations/jobs/${rest ?? ""}`} replace />;
-}

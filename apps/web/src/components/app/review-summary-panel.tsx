@@ -12,7 +12,7 @@ import {
   getVerdict,
   getReviewSummary,
   getFilesReviewed,
-} from "@/components/app/persona-agent-row";
+} from "@/components/app/persona-agent-review-utils";
 import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

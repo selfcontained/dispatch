@@ -11,15 +11,15 @@ import {
 import {
   SettingsContent,
   SettingsNavContent,
-  useSettingsState,
 } from "@/components/app/settings-pane";
+import { useSettingsState } from "@/components/app/settings-state";
 import { type NavSection, SidebarShell } from "@/components/app/sidebar-shell";
 import { type ServiceState } from "@/components/app/types";
 import { DesignLab } from "@/components/app/design-lab";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import { useDashboardContext } from "@/App";
+import { useDashboardContext } from "@/components/app/dashboard-context";
 
 function serviceDotClass(state: ServiceState): string {
   if (state === "ok") return "bg-status-working";

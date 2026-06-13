@@ -2,7 +2,7 @@ import { Link } from "react-router-dom";
 import { ArrowRight, Brain, Database, List, Radio } from "lucide-react";
 
 import { useAgentBrainActivity } from "@/hooks/use-brain";
-import { encodeRepoRoot, decodeRepoRoot } from "@/lib/brain-encoding";
+import { encodeRepoRoot } from "@/lib/brain-encoding";
 import { cn } from "@/lib/utils";
 import {
   CollapsibleSection,
@@ -10,8 +10,6 @@ import {
   ListCard,
   EventCard,
 } from "@/components/app/brain-cards";
-
-export { encodeRepoRoot, decodeRepoRoot };
 
 type BrainTabContentProps = {
   agentId: string | null;

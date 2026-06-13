@@ -15,7 +15,7 @@ import {
 import { useTip } from "@/lib/tips/use-tip";
 
 import { TipPopoverContent } from "./tip-popover-content";
-import { useTipQueue } from "./tip-queue-provider";
+import { useTipQueue } from "./tip-queue-context";
 
 /** Check if the element is actually reachable (not covered by an overlay). */
 function isTriggerReachable(el: HTMLElement): boolean {

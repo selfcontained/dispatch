@@ -69,6 +69,11 @@ hljs.registerLanguage("nim", nim);
 import { Button } from "@/components/ui/button";
 import { LogStream } from "@/components/ui/log-stream";
 import { Markdown } from "@/components/ui/markdown";
+import {
+  fileExtension,
+  isTextFile,
+  stripTimestamp,
+} from "@/components/app/media-file-utils";
 import { useCopyText } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 
@@ -116,72 +121,8 @@ const EXT_TO_LANG: Record<string, string> = {
   ".m": "objectivec",
 };
 
-const TEXT_EXTENSIONS = new Set([
-  ".txt",
-  ".md",
-  ".json",
-  ".yaml",
-  ".yml",
-  ".toml",
-  ".csv",
-  ".log",
-  ".xml",
-  ".html",
-  ".css",
-  ".js",
-  ".jsx",
-  ".ts",
-  ".tsx",
-  ".py",
-  ".go",
-  ".rs",
-  ".sh",
-  ".sql",
-  ".diff",
-  ".patch",
-  ".env",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".swift",
-  ".kt",
-  ".java",
-  ".c",
-  ".cpp",
-  ".h",
-  ".hpp",
-  ".rb",
-  ".php",
-  ".lua",
-  ".zig",
-  ".nim",
-  ".r",
-  ".m",
-  ".ex",
-  ".exs",
-  ".erl",
-  ".hs",
-]);
-
-function fileExtension(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot === -1 ? "" : name.slice(dot).toLowerCase();
-}
-
-export function isTextFile(name: string): boolean {
-  const ext = fileExtension(name);
-  return ext !== "" && TEXT_EXTENSIONS.has(ext);
-}
-
 function isMarkdownFile(name: string): boolean {
   return fileExtension(name) === ".md";
-}
-
-const TIMESTAMP_RE = /-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}-\d+/;
-
-/** Strip the timestamp suffix that the server appends to media filenames. */
-export function stripTimestamp(name: string): string {
-  return name.replace(TIMESTAMP_RE, "");
 }
 
 const HAS_CLIPBOARD_WRITE =
