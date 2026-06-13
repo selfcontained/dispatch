@@ -56,6 +56,7 @@ test.describe("Jobs webhook UI", () => {
     });
     const toggle = page.getByRole("switch", { name: "Webhook trigger" });
     await toggle.waitFor();
+    await expect(toggle).not.toBeChecked();
     await toggle.click();
 
     await expect(toggle).toBeChecked();
@@ -105,6 +106,7 @@ test.describe("Jobs webhook UI", () => {
     });
     const toggle = page.getByRole("switch", { name: "Webhook trigger" });
     await toggle.waitFor();
+    await expect(toggle).toBeChecked();
     await expect(page.getByText("Webhook URL", { exact: true })).toBeVisible();
 
     await toggle.click();
