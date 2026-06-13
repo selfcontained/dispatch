@@ -556,7 +556,34 @@ describe("createMcpHandlers", () => {
   });
 
   describe("completeReview", () => {
-    it("sends round1 prompt when roundNumber < 2", async () => {
+    it("sends complete prompt on clean approval (round 1, approve, 0 feedback)", async () => {
+      deps.agentManager.completePersonaReview.mockResolvedValue({
+        id: 1,
+        parentAgentId: "agt_parent1",
+        persona: "security",
+        roundNumber: 1,
+        status: "complete",
+      });
+      deps.agentManager.countFeedbackForAgent.mockResolvedValue(0);
+      await handlers.completeReview("agt_child1", {
+        verdict: "approve",
+        summary: "all clear",
+      });
+      expect(buildParentReviewCompletePrompt).toHaveBeenCalledWith({
+        persona: "security",
+        personaAgentId: "agt_child1",
+        verdict: "approve",
+        summary: "all clear",
+        feedbackCount: 0,
+        roundNumber: 1,
+      });
+      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
+        "agt_parent1",
+        "complete-prompt"
+      );
+    });
+
+    it("sends round1 prompt when roundNumber < 2 with feedback", async () => {
       deps.agentManager.completePersonaReview.mockResolvedValue({
         id: 1,
         parentAgentId: "agt_parent1",

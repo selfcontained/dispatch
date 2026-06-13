@@ -366,21 +366,24 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
       const feedbackCount = await agentManager.countFeedbackForAgent(agentId);
       const isMidRoundTrip = review.roundNumber < 2;
-      const parentPrompt = isMidRoundTrip
-        ? buildParentRound1FeedbackPrompt({
-            persona: review.persona,
-            personaAgentId: agentId,
-            verdict: input.verdict,
-            feedbackCount,
-          })
-        : buildParentReviewCompletePrompt({
-            persona: review.persona,
-            personaAgentId: agentId,
-            verdict: input.verdict,
-            summary: input.summary,
-            feedbackCount,
-            roundNumber: review.roundNumber,
-          });
+      const cleanApproval =
+        isMidRoundTrip && input.verdict === "approve" && feedbackCount === 0;
+      const parentPrompt =
+        isMidRoundTrip && !cleanApproval
+          ? buildParentRound1FeedbackPrompt({
+              persona: review.persona,
+              personaAgentId: agentId,
+              verdict: input.verdict,
+              feedbackCount,
+            })
+          : buildParentReviewCompletePrompt({
+              persona: review.persona,
+              personaAgentId: agentId,
+              verdict: input.verdict,
+              summary: input.summary,
+              feedbackCount,
+              roundNumber: review.roundNumber,
+            });
       await sendAgentPrompt(review.parentAgentId, parentPrompt);
     },
 
