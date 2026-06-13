@@ -30,6 +30,8 @@ import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
 import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
 import { QuickPhrasesButton } from "@/components/app/quick-phrases";
 import { TerminalPane } from "@/components/app/terminal-pane";
+import { AmbientTipBar } from "@/components/tips/ambient-tip-bar";
+import { TipSpot } from "@/components/tips/tip-spot";
 import {
   type Agent,
   type AgentVisualState,
@@ -557,14 +559,16 @@ export function AgentsView({
                     <PanelRightOpen className="h-4 w-4" />
                   </Button>
                 ) : null}
-                <QuickPhrasesButton
-                  agentId={
-                    hasActiveAgent && connState === "connected"
-                      ? focusedAgentId!
-                      : null
-                  }
-                  focusTerminal={focusTerminal}
-                />
+                <TipSpot tipId="quick-phrases" side="bottom" align="center">
+                  <QuickPhrasesButton
+                    agentId={
+                      hasActiveAgent && connState === "connected"
+                        ? focusedAgentId!
+                        : null
+                    }
+                    focusTerminal={focusTerminal}
+                  />
+                </TipSpot>
               </div>
               <div className="relative h-full min-h-0 min-w-0 pb-14 pt-14">
                 {focusedAgent?.name ? (
@@ -617,6 +621,11 @@ export function AgentsView({
                       : null
                   }
                 />
+                {!isMobile ? (
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14">
+                    <AmbientTipBar />
+                  </div>
+                ) : null}
               </div>
 
               {!isMobile ? (

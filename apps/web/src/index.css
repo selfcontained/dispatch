@@ -1152,3 +1152,12 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 [data-sonner-toaster] [data-button]:hover {
   background: hsl(var(--muted)) !important;
 }
+
+/* Tip popover — remove inset shadow and backdrop-blur so the SVG arrow
+   fill matches the popover background exactly. */
+.tip-popover {
+  box-shadow: 0 16px 64px rgba(0, 0, 0, 0.5) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  animation-duration: 300ms !important;
+}

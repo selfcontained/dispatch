@@ -55,6 +55,20 @@ For each section in scope, verify:
 
 When the app's behavior has changed, update the JSX content in `docs-pane.tsx`. Keep the copy tight — match the existing tone.
 
+## Phase 2b: Check ambient tips for gaps
+
+Dispatch has a guided tips system that surfaces feature discovery hints in the UI. Tips are defined in `apps/web/src/lib/tips/tips.ts`. Each tip has an `id`, `title`, `body`, optional `docsSection` link, `since` version, and `surfaces` array.
+
+When your Phase 1 diff or deep-dive area touches a feature that has no corresponding ambient tip, consider whether adding one would genuinely help an end user discover or understand that feature. Not every feature needs a tip — only add one if:
+
+- The feature is non-obvious or easy to miss (e.g. a keyboard shortcut, a settings toggle, a capability that isn't surfaced in the main UI chrome).
+- A short sentence or two would meaningfully help someone who doesn't know the feature exists.
+- There isn't already a tip that covers the same ground.
+
+Do **not** add tips for internal implementation details, developer-facing APIs, or features that are self-evident from the UI. The bar is "would an end user benefit from being told about this?" — if the answer is marginal, skip it.
+
+When you do add a tip, follow the existing format in `tips.ts`. Set `since` to the current release version (check `package.json`). Use `surfaces: ["ambient"]` unless you're also wiring up an inline `TipSpot` placement (which is a separate code change). Keep the `body` concise — it renders in a small footer bar. Link `docsSection` to the matching in-app docs section if one exists.
+
 ## Phase 3: Audit secondary docs (only as needed)
 
 Only touch these if the Phase 1 diff points to them or they're explicitly in `next_focus`:

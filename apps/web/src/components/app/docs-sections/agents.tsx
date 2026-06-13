@@ -165,7 +165,7 @@ export function AgentsContent() {
       </Section>
 
       <Section>
-        <H3>Quick Phrases</H3>
+        <H3 id="quick-phrases">Quick Phrases</H3>
         <P>
           The <strong>Quick Phrases</strong> button (speech-bubble icon) in the
           terminal top rail lets you save reusable text snippets and inject them
