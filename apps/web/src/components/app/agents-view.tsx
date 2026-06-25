@@ -488,7 +488,7 @@ export function AgentsView({
             onTransitionEnd={handleFeedbackTransitionEnd}
           >
             <div className="relative h-full min-h-0 min-w-0">
-              <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1">
+              <div className="pointer-events-none absolute left-3 top-3 z-20 flex items-center gap-1">
                 {!leftPanelOpen ? (
                   <Button
                     size="icon"
@@ -530,7 +530,7 @@ export function AgentsView({
                   ) : null}
                 </div>
                 {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
-                  <div className="pointer-events-none absolute right-3 top-3 z-10">
+                  <div className="pointer-events-none absolute right-3 top-3 z-20">
                     <Button
                       size="icon"
                       variant="ghost"
