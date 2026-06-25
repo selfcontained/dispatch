@@ -1,8 +1,9 @@
 ## What's Changed
-* [codex] Fix Fast Refresh lint warnings by @selfcontained in https://github.com/selfcontained/dispatch/pull/676
-* Document file upload to agents and add ambient tip by @selfcontained in https://github.com/selfcontained/dispatch/pull/677
-* Add persona-reviews route tests, fix webhook toggle flake by @selfcontained in https://github.com/selfcontained/dispatch/pull/678
-* Skip recheck round-trip on clean approval by @selfcontained in https://github.com/selfcontained/dispatch/pull/679
+* Add personalities route tests by @selfcontained in https://github.com/selfcontained/dispatch/pull/681
+* Add quick-phrases and auth route tests by @selfcontained in https://github.com/selfcontained/dispatch/pull/683
+* Add Cursor CLI to preflight check and setup docs by @selfcontained in https://github.com/selfcontained/dispatch/pull/684
+* Add read-only Changes tab with unified diff viewer by @selfcontained in https://github.com/selfcontained/dispatch/pull/685
+* Extract routing hook and feedback subcomponents from agents-view by @selfcontained in https://github.com/selfcontained/dispatch/pull/686
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.23.6...v0.23.7
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.23.7...v0.23.8
