@@ -36,17 +36,7 @@ export const router = createBrowserRouter([
                 handle: { navSection: "agents" },
               },
               {
-                path: "agents/:agentId",
-                element: <AgentsRoute />,
-                handle: { navSection: "agents" },
-              },
-              {
-                path: "agents/:agentId/feedback/:itemId",
-                element: <AgentsRoute />,
-                handle: { navSection: "agents" },
-              },
-              {
-                path: "agents/:agentId/review/:summaryAgentId",
+                path: "agents/:agentId/*",
                 element: <AgentsRoute />,
                 handle: { navSection: "agents" },
               },

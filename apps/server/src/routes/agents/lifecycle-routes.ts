@@ -6,6 +6,7 @@ import {
 } from "../../agent-type-settings.js";
 import { RENAME_PROMPT } from "../../agents/auto-rename-prompter.js";
 import { shouldSuggestSessionRename } from "../../agents/tmux/session-name.js";
+import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
 import {
   AGENT_LATEST_EVENT_TYPES,
   isAgentLatestEventType,
@@ -304,5 +305,85 @@ export async function registerAgentLifecycleRoutes(
     await deps.diffStatsRefresher.signal(id);
 
     return { diffStats: deps.diffStatsRefresher.getStats(id) };
+  });
+
+  app.get("/api/v1/agents/:id/diff", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const gitContextWorktreePath = agent.gitContext?.isWorktree
+      ? agent.gitContext.worktreePath
+      : null;
+    const worktreePath =
+      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
+    if (!worktreePath) {
+      return reply
+        .code(404)
+        .send({ error: "Agent has no associated worktree." });
+    }
+
+    const baseRef =
+      agent.baseBranch ??
+      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+
+    try {
+      const result = await getAgentDiff(worktreePath, baseRef);
+      if (!result) {
+        return { baseRef: null, files: [] };
+      }
+      return result;
+    } catch (error) {
+      deps.appLog.warn({ err: error, agentId: id }, "Agent diff failed");
+      return reply.code(500).send({ error: "Failed to compute diff." });
+    }
+  });
+
+  app.get("/api/v1/agents/:id/diff/file", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const query = request.query as { path?: string; force?: string };
+    const id = params.id ?? "";
+
+    if (!query.path) {
+      return reply.code(400).send({ error: "path query parameter required." });
+    }
+
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const gitContextWorktreePath = agent.gitContext?.isWorktree
+      ? agent.gitContext.worktreePath
+      : null;
+    const worktreePath =
+      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
+    if (!worktreePath) {
+      return reply
+        .code(404)
+        .send({ error: "Agent has no associated worktree." });
+    }
+
+    const baseRef =
+      agent.baseBranch ??
+      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+
+    try {
+      const result = await getAgentFileDiff(worktreePath, baseRef, query.path);
+      if (!result) {
+        return reply.code(404).send({ error: "File not found in diff." });
+      }
+      return result;
+    } catch (error) {
+      deps.appLog.warn(
+        { err: error, agentId: id, filePath: query.path },
+        "Agent file diff failed"
+      );
+      return reply.code(500).send({ error: "Failed to compute file diff." });
+    }
   });
 }

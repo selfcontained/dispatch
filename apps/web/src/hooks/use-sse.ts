@@ -7,6 +7,7 @@ import {
   type MediaFile,
   type TerminalUiState,
 } from "@/components/app/types";
+import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
@@ -121,6 +122,9 @@ export function useSSE(authState: AuthState): void {
             diffStatsQueryKey(payload.agentId),
             payload.diffStats
           );
+          void queryClient.invalidateQueries({
+            queryKey: agentDiffQueryKey(payload.agentId),
+          });
           return;
         }
 

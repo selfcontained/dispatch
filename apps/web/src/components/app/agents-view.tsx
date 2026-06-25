@@ -1,6 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import {
+  Routes,
+  Route,
+  useMatch,
+  useNavigate,
+  useParams,
+} from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+
+import { ChangesTab } from "@/components/app/changes-tab";
+import { CenterPaneTabBar } from "@/components/app/center-pane-tab-bar";
+import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
 import {
@@ -43,6 +53,7 @@ import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType, isCliAgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import {
+  agentChangesRoute,
   agentFeedbackRoute,
   agentReviewRoute,
   agentRoute,
@@ -92,7 +103,12 @@ export function AgentsView({
   onNavigateSection,
 }: AgentsViewProps): JSX.Element {
   const navigate = useNavigate();
-  const { agentId: routeAgentId, itemId, summaryAgentId } = useParams();
+  const { agentId: routeAgentId } = useParams();
+  const feedbackMatch = useMatch("/agents/:agentId/feedback/:itemId");
+  const reviewMatch = useMatch("/agents/:agentId/review/:summaryAgentId");
+  const changesMatch = useMatch("/agents/:agentId/changes");
+  const itemId = feedbackMatch?.params.itemId;
+  const summaryAgentId = reviewMatch?.params.summaryAgentId;
 
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
     string | null
@@ -247,6 +263,23 @@ export function AgentsView({
   }, [focusedAgentHasStream, setMediaOpen]);
 
   useAgentFocus(focusedAgentId, "authenticated");
+
+  const onTabChange = useCallback(
+    (tab: "terminal" | "changes") => {
+      if (!routeAgentId) return;
+      navigate(
+        tab === "changes"
+          ? agentChangesRoute(routeAgentId)
+          : agentRoute(routeAgentId),
+        { replace: true }
+      );
+    },
+    [navigate, routeAgentId]
+  );
+  const { diffStats: focusedDiffStats } = useAgentDiffStats(
+    focusedAgentId ?? "",
+    !!focusedAgentId
+  );
 
   const prevLeftOpenRef = useRef(leftPanelOpen);
   const prevMediaOpenRef = useRef(mediaPanelOpen);
@@ -571,16 +604,23 @@ export function AgentsView({
                 </TipSpot>
               </div>
               <div className="relative h-full min-h-0 min-w-0 pb-14 pt-14">
-                {focusedAgent?.name ? (
-                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 items-center justify-center px-16">
-                    <div
-                      data-testid="current-session-name"
-                      className="max-w-full truncate text-center text-xs font-semibold uppercase tracking-[0.24em] text-muted-foreground"
-                    >
-                      {focusedAgent.name}
-                    </div>
-                  </div>
-                ) : null}
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 flex-col items-center justify-center bg-background px-16">
+                  {focusedAgent?.name ? (
+                    <>
+                      <span
+                        data-testid="current-session-name"
+                        className="sr-only"
+                      >
+                        {focusedAgent.name}
+                      </span>
+                      <CenterPaneTabBar
+                        activeTab={changesMatch ? "changes" : "terminal"}
+                        onTabChange={onTabChange}
+                        diffStats={focusedDiffStats}
+                      />
+                    </>
+                  ) : null}
+                </div>
                 {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
                   <div className="pointer-events-none absolute right-3 top-3 z-10">
                     <Button
@@ -605,22 +645,32 @@ export function AgentsView({
                     <div className="dispatch-reconnect-scan h-full w-1/3 will-change-transform bg-[linear-gradient(to_right,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)] saturate-[1.35] brightness-[1.05] animate-[reconnect-scan_1350ms_ease-in-out_infinite] motion-reduce:animate-none motion-reduce:translate-x-[140%]" />
                   </div>
                 ) : null}
-                <TerminalPane
-                  isAttached={isAttached}
-                  connState={connState}
-                  statusMessage={statusMessage}
-                  terminalMode={terminalMode}
-                  terminalPlaceholderMessage={terminalPlaceholderMessage}
-                  terminalHostRef={terminalHostRef}
-                  resyncing={resyncing}
-                  draggingFiles={draggingFiles}
-                  uploadingFiles={uploadingFiles}
-                  archivePhase={
-                    selectedAgent?.status === "archiving"
-                      ? selectedAgent.archivePhase
-                      : null
-                  }
-                />
+                <div className={cn("h-full", changesMatch && "hidden")}>
+                  <TerminalPane
+                    isAttached={isAttached}
+                    connState={connState}
+                    statusMessage={statusMessage}
+                    terminalMode={terminalMode}
+                    terminalPlaceholderMessage={terminalPlaceholderMessage}
+                    terminalHostRef={terminalHostRef}
+                    resyncing={resyncing}
+                    draggingFiles={draggingFiles}
+                    uploadingFiles={uploadingFiles}
+                    archivePhase={
+                      selectedAgent?.status === "archiving"
+                        ? selectedAgent.archivePhase
+                        : null
+                    }
+                  />
+                </div>
+                <Routes>
+                  <Route
+                    path="changes"
+                    element={
+                      <ChangesTab agentId={focusedAgentId} active={true} />
+                    }
+                  />
+                </Routes>
                 {!isMobile ? (
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14">
                     <AmbientTipBar />
