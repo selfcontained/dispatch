@@ -117,7 +117,7 @@ export function AgentsView({
     changesMatch,
     feedbackDetail,
     feedbackDetailRendered,
-    feedbackDetailStaleRef,
+    handleFeedbackTransitionEnd,
     closeFeedbackDetail,
     openFeedbackDetail,
     navigateFeedbackItem,
@@ -485,11 +485,7 @@ export function AgentsView({
                   ? "grid-rows-[minmax(0,1fr)_minmax(0,1fr)]"
                   : "grid-rows-[minmax(0,1fr)_0fr]"
             )}
-            onTransitionEnd={(e) => {
-              if (e.propertyName === "grid-template-rows" && !feedbackDetail) {
-                feedbackDetailStaleRef.current = null;
-              }
-            }}
+            onTransitionEnd={handleFeedbackTransitionEnd}
           >
             <div className="relative h-full min-h-0 min-w-0">
               <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1">

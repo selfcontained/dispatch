@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, type TransitionEvent } from "react";
 import { useMatch, useNavigate } from "react-router-dom";
 
 import { type FeedbackDetailState } from "@/components/app/feedback-utils";
@@ -116,11 +116,21 @@ export function useAgentsViewRouting({
     [navigate]
   );
 
+  const hasFeedbackDetail = !!feedbackDetail;
+  const handleFeedbackTransitionEnd = useCallback(
+    (e: TransitionEvent) => {
+      if (e.propertyName === "grid-template-rows" && !hasFeedbackDetail) {
+        feedbackDetailStaleRef.current = null;
+      }
+    },
+    [hasFeedbackDetail]
+  );
+
   return {
     changesMatch: !!changesMatch,
     feedbackDetail,
     feedbackDetailRendered,
-    feedbackDetailStaleRef,
+    handleFeedbackTransitionEnd,
     closeFeedbackDetail,
     openFeedbackDetail,
     navigateFeedbackItem,
