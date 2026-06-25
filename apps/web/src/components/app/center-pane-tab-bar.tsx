@@ -20,9 +20,11 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
     diffStats && (diffStats.added > 0 || diffStats.deleted > 0);
 
   return (
-    <div className="pointer-events-auto flex items-center">
+    <div role="tablist" className="pointer-events-auto flex items-center">
       <button
         type="button"
+        role="tab"
+        aria-selected={activeTab === "terminal"}
         data-testid="center-tab-terminal"
         className={cn(
           "px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
@@ -41,6 +43,8 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
       </button>
       <button
         type="button"
+        role="tab"
+        aria-selected={activeTab === "changes"}
         data-testid="center-tab-changes"
         className={cn(
           "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",

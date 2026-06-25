@@ -43,6 +43,7 @@ export const ChangesTab = memo(function ChangesTab({
 }: ChangesTabProps): JSX.Element {
   const { data, isLoading } = useAgentDiff(agentId, active);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const files = useMemo(
@@ -51,6 +52,7 @@ export const ChangesTab = memo(function ChangesTab({
   );
 
   const scrollToFile = useCallback((path: string) => {
+    setSelectedFile(path);
     const el = fileRefs.current.get(path);
     if (el) {
       el.scrollIntoView({ behavior: "smooth", block: "start" });
@@ -85,7 +87,11 @@ export const ChangesTab = memo(function ChangesTab({
 
   return (
     <div className="flex h-full min-h-0">
-      <FileTree files={files} selectedFile={null} onSelectFile={scrollToFile} />
+      <FileTree
+        files={files}
+        selectedFile={selectedFile}
+        onSelectFile={scrollToFile}
+      />
       <DiffPane
         agentId={agentId}
         files={files}
@@ -260,6 +266,7 @@ function TreeEntry({
           type="button"
           className="flex w-full items-center gap-1.5 px-2 py-1 text-left text-xs text-muted-foreground hover:bg-muted/40"
           style={{ paddingLeft: `${indent}px` }}
+          title={node.name}
           onClick={() => onToggleDir(node.path)}
         >
           {isCollapsed ? (
@@ -308,6 +315,7 @@ function TreeEntry({
         isSelected && "bg-muted/60 text-foreground"
       )}
       style={{ paddingLeft: `${indent}px` }}
+      title={node.file.path}
       onClick={() => onSelectFile(node.file!.path)}
     >
       {treeFileIcon(node.file)}
@@ -369,13 +377,10 @@ function FileDiffSection({
   setRef,
 }: FileDiffSectionProps): JSX.Element {
   return (
-    <div
-      ref={setRef}
-      className="overflow-hidden rounded-md border border-border/50"
-    >
+    <div ref={setRef} className="rounded-md border border-border/50">
       <button
         type="button"
-        className="sticky top-0 z-10 flex w-full items-center gap-2 border-b border-border/50 bg-muted/40 px-3 py-2 text-left text-xs hover:bg-muted/60"
+        className="sticky top-0 z-10 flex w-full items-center gap-2 rounded-t-md border-b border-border/50 bg-muted/40 px-3 py-2 text-left text-xs hover:bg-muted/60"
         onClick={onToggleCollapse}
       >
         {collapsed ? (
