@@ -279,7 +279,14 @@ export function generateSetupScript(
       //     the message entirely.
       //   - `iconv -c` discards any multi-byte codepoint the slice severed.
       //   - `sed` escapes backslash and double-quote for the JSON string.
-      `    SETUP_ERROR_MSG=$(printf "%s" "\${WORKTREE_ADD_OUTPUT:0:800}" | tr -d '\\000-\\037' | iconv -f utf-8 -t utf-8 -c | sed 's/[\\\\\\"]/\\\\&/g')`,
+      // The trailing `|| true` is load-bearing: this runs under `set -euo
+      // pipefail`, and the pipeline can exit non-zero — glibc `iconv` returns 1
+      // on a severed multi-byte tail even with `-c`, and a missing `iconv`
+      // would fail the substitution outright. Without `|| true`, errexit would
+      // abort here before the error is reported, re-creating #682's silent
+      // death inside the handler itself. The `[ -z … ]` fallback below
+      // substitutes a generic message if the pipeline produced nothing.
+      `    SETUP_ERROR_MSG=$(printf "%s" "\${WORKTREE_ADD_OUTPUT:0:800}" | tr -d '\\000-\\037' | iconv -f utf-8 -t utf-8 -c | sed 's/[\\\\\\"]/\\\\&/g') || true`,
       `    if [ -z "$SETUP_ERROR_MSG" ]; then SETUP_ERROR_MSG="git worktree add failed"; fi`,
       `    ${curlSetupError("SETUP_ERROR_MSG")}`,
       // `git worktree add` can leave the worktree dir (and, with -b, the new

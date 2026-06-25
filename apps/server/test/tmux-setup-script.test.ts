@@ -284,6 +284,26 @@ describe("generateSetupScript — server callbacks", () => {
     expect(script).not.toContain("head -c 800");
   });
 
+  it("makes the error-message sanitizer assignment unable to abort the script if a pipeline tool (e.g. iconv) is missing (issue #682)", () => {
+    // The sanitizer pipeline runs under `set -euo pipefail` and depends on
+    // iconv. If iconv is absent/errors, pipefail fails the `VAR=$(…)`
+    // substitution and errexit would abort before the error is reported —
+    // re-creating #682's silent death inside the handler. `|| true` keeps the
+    // assignment from aborting; the `if [ -z "$SETUP_ERROR_MSG" ]` fallback
+    // below substitutes a generic message so the error is still surfaced.
+    const script = generateSetupScript(baseConfig, {
+      ...baseParams,
+      useWorktree: true,
+      createNewBranch: true,
+      worktreeBranchName: "my-branch",
+    });
+    const assignLine = script
+      .split("\n")
+      .find((l) => l.includes("SETUP_ERROR_MSG=$("));
+    expect(assignLine).toBeDefined();
+    expect(assignLine!.trimEnd().endsWith("|| true")).toBe(true);
+  });
+
   it("rolls back the partial worktree (and the just-created branch) on failure so relaunch starts clean (issue #682)", () => {
     // `git worktree add` can leave the worktree dir and, for createNewBranch,
     // the new branch on disk even when it exits non-zero (hook failure). With
