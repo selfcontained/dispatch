@@ -352,6 +352,10 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(400).send({ error: "path query parameter required." });
     }
 
+    if (query.path.includes("..")) {
+      return reply.code(400).send({ error: "Invalid file path." });
+    }
+
     const agent = await deps.agentManager.getAgent(id);
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });

@@ -42,7 +42,14 @@ export async function readUntrackedFile(
   worktreePath: string,
   filePath: string
 ): Promise<{ lines: number; content: string | null }> {
-  const fullPath = path.join(worktreePath, filePath);
+  const fullPath = path.resolve(worktreePath, filePath);
+  const realWorktree = path.resolve(worktreePath);
+  if (
+    !fullPath.startsWith(realWorktree + path.sep) &&
+    fullPath !== realWorktree
+  ) {
+    return { lines: 0, content: null };
+  }
   try {
     const info = await lstat(fullPath);
     if (!info.isFile()) return { lines: 0, content: null };

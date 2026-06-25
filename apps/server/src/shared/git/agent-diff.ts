@@ -21,6 +21,7 @@ export type DiffFile = {
 export type DiffResponse = {
   baseRef: string;
   files: DiffFile[];
+  truncatedFileCount?: number;
 };
 
 export type FileDiffResponse = {
@@ -35,6 +36,7 @@ export type FileDiffResponse = {
 const GIT_TIMEOUT_MS = 15_000;
 const DIFF_TRUNCATION_BYTES = 100_000;
 const DIFF_TRUNCATION_LINES = 2_000;
+const MAX_FILES = 1_000;
 
 type CommandRunner = (
   command: string,
@@ -255,36 +257,39 @@ export async function getAgentDiff(
     .split("\n")
     .filter((p) => p && !shouldExcludePath(p) && !trackedPaths.has(p));
 
-  const untrackedFiles = await Promise.all(
-    untrackedPaths.map(async (filePath) => {
-      const { lines, content } = await readUntrackedFile(
-        worktreePath,
-        filePath
-      );
-      if (lines === 0 && content === null) {
-        return {
-          path: filePath,
-          status: "added" as DiffFileStatus,
-          added: 0,
-          deleted: 0,
-          diff: null,
-          truncated: false,
-        };
-      }
+  for (const filePath of untrackedPaths) {
+    const { lines, content } = await readUntrackedFile(worktreePath, filePath);
+    if (lines === 0 && content === null) {
+      files.push({
+        path: filePath,
+        status: "added" as DiffFileStatus,
+        added: 0,
+        deleted: 0,
+        diff: null,
+        truncated: false,
+      });
+    } else {
       const syntheticDiff = buildUntrackedDiff(filePath, content!);
       const truncated = isFileTruncated(syntheticDiff);
-      return {
+      files.push({
         path: filePath,
         status: "added" as DiffFileStatus,
         added: lines,
         deleted: 0,
         diff: truncated ? null : syntheticDiff,
         truncated,
-      };
-    })
-  );
+      });
+    }
+  }
 
-  files.push(...untrackedFiles);
+  const totalFiles = files.length;
+  if (totalFiles > MAX_FILES) {
+    return {
+      baseRef: mergeBaseSha,
+      files: files.slice(0, MAX_FILES),
+      truncatedFileCount: totalFiles,
+    };
+  }
 
   return { baseRef: mergeBaseSha, files };
 }
