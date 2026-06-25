@@ -40,7 +40,7 @@ Set up Dispatch on this machine. The repo is at https://github.com/selfcontained
 7. Install the launchd service: bin/install-launchd --port 6767. This should install and run the compiled Bun binary.
 8. Verify production: curl http://127.0.0.1:6767/api/v1/health and launchctl list com.dispatch.server
 9. Optional: if you want agents to open PRs or work with GitHub from this machine, install GitHub CLI and run gh auth login.
-10. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
+10. Configure enabled agent types: check which agent CLIs are already installed (claude --version, codex --version, agent --version, opencode --version), then use the API to enable only those types: curl -X POST http://127.0.0.1:6767/api/v1/app/settings/agent-types -H 'Content-Type: application/json' -d '{"enabledAgentTypes": ["claude"]}' (adjust the array to match installed CLIs).
 Read docs/12-new-machine-setup.md for full details and troubleshooting. Report any issues you hit.
 ```
 
@@ -153,12 +153,16 @@ claude --version
 npm install -g codex
 codex --version
 
+# Cursor CLI (binary is called "agent")
+# Install Cursor from https://www.cursor.com/
+agent --version
+
 # OpenCode CLI
 npm install -g opencode
 opencode --version
 ```
 
-The config defaults to `claude`, `codex`, and `opencode` on PATH. To override, set `DISPATCH_CLAUDE_BIN`, `DISPATCH_CODEX_BIN`, or `DISPATCH_OPENCODE_BIN` in `.env`.
+The config defaults to `claude`, `codex`, `agent` (Cursor), and `opencode` on PATH. To override, set `DISPATCH_CLAUDE_BIN`, `DISPATCH_CODEX_BIN`, `DISPATCH_CURSOR_BIN`, or `DISPATCH_OPENCODE_BIN` in `.env`.
 
 After setup, configure which agent types are available in the create-agent dialog. In the Dispatch UI go to **Settings > Agent Types** and enable only the CLIs you have installed. Or use the API:
 
