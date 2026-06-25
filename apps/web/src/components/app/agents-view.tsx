@@ -1,11 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Routes,
-  Route,
-  useMatch,
-  useNavigate,
-  useParams,
-} from "react-router-dom";
+import { Routes, Route, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { ChangesTab } from "@/components/app/changes-tab";
@@ -23,12 +17,9 @@ import {
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
 import {
-  type FeedbackDetailState,
-  FeedbackDetailPanel,
-  MobileFeedbackSheet,
-  MobileReviewSummarySheet,
-  ReviewSummaryPanel,
-} from "@/components/app/feedback-panel";
+  DesktopFeedbackDetail,
+  MobileFeedbackDetail,
+} from "@/components/app/agents-view-feedback-detail";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import {
   MediaSidebar,
@@ -52,12 +43,6 @@ import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType, isCliAgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
-import {
-  agentChangesRoute,
-  agentFeedbackRoute,
-  agentReviewRoute,
-  agentRoute,
-} from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
 import { useAgents } from "@/hooks/use-agents";
@@ -65,6 +50,7 @@ import { useMedia } from "@/hooks/use-media";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
+import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
@@ -102,13 +88,7 @@ export function AgentsView({
   triggerNavAnimation,
   onNavigateSection,
 }: AgentsViewProps): JSX.Element {
-  const navigate = useNavigate();
   const { agentId: routeAgentId } = useParams();
-  const feedbackMatch = useMatch("/agents/:agentId/feedback/:itemId");
-  const reviewMatch = useMatch("/agents/:agentId/review/:summaryAgentId");
-  const changesMatch = useMatch("/agents/:agentId/changes");
-  const itemId = feedbackMatch?.params.itemId;
-  const summaryAgentId = reviewMatch?.params.summaryAgentId;
 
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
     string | null
@@ -133,6 +113,22 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
+  const {
+    changesMatch,
+    feedbackDetail,
+    feedbackDetailRendered,
+    feedbackDetailStaleRef,
+    closeFeedbackDetail,
+    openFeedbackDetail,
+    navigateFeedbackItem,
+    onTabChange,
+  } = useAgentsViewRouting({
+    routeAgentId,
+    agents,
+    agentsLoaded,
+    validatedSelectedAgentId,
+  });
+
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
@@ -147,22 +143,6 @@ export function AgentsView({
     readExpandedAgentId()
   );
 
-  const feedbackItemId =
-    itemId !== undefined && Number.isInteger(Number(itemId))
-      ? Number(itemId)
-      : null;
-  const feedbackDetail = routeAgentId
-    ? summaryAgentId
-      ? { parentAgentId: routeAgentId, summaryAgentId }
-      : feedbackItemId !== null
-        ? { parentAgentId: routeAgentId, itemId: feedbackItemId }
-        : null
-    : null;
-  const feedbackDetailStaleRef =
-    useRef<NonNullable<FeedbackDetailState> | null>(null);
-  if (feedbackDetail) feedbackDetailStaleRef.current = feedbackDetail;
-  const feedbackDetailRendered =
-    feedbackDetail ?? feedbackDetailStaleRef.current;
   const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
   const sidebarAgentId = sharedConnectedAgentId ?? validatedSelectedAgentId;
   const agentIds = useMemo(() => agents.map((a) => a.id), [agents]);
@@ -264,18 +244,6 @@ export function AgentsView({
 
   useAgentFocus(focusedAgentId, "authenticated");
 
-  const onTabChange = useCallback(
-    (tab: "terminal" | "changes") => {
-      if (!routeAgentId) return;
-      navigate(
-        tab === "changes"
-          ? agentChangesRoute(routeAgentId)
-          : agentRoute(routeAgentId),
-        { replace: true }
-      );
-    },
-    [navigate, routeAgentId]
-  );
   const { diffStats: focusedDiffStats } = useAgentDiffStats(
     focusedAgentId ?? "",
     !!focusedAgentId
@@ -319,13 +287,6 @@ export function AgentsView({
   const prevSelectedExpansionTargetRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!routeAgentId) return;
-    if (!agentsLoaded) return;
-    if (validatedSelectedAgentId) return;
-    navigate("/agents", { replace: true });
-  }, [agentsLoaded, navigate, routeAgentId, validatedSelectedAgentId]);
-
-  useEffect(() => {
     if (!selectedExpansionTarget) {
       prevSelectedExpansionTargetRef.current = null;
       return;
@@ -338,25 +299,6 @@ export function AgentsView({
       current === selectedExpansionTarget ? current : selectedExpansionTarget
     );
   }, [selectedExpansionTarget]);
-
-  useEffect(() => {
-    if (!routeAgentId) return;
-    if (!agentsLoaded) return;
-    if (itemId !== undefined && feedbackItemId === null) {
-      navigate(agentRoute(routeAgentId), { replace: true });
-    }
-  }, [agentsLoaded, feedbackItemId, itemId, navigate, routeAgentId]);
-
-  useEffect(() => {
-    if (!routeAgentId || !summaryAgentId) return;
-    if (!agentsLoaded) return;
-    const summaryAgentExists = agents.some(
-      (agent) => agent.id === summaryAgentId
-    );
-    if (!summaryAgentExists) {
-      navigate(agentRoute(routeAgentId), { replace: true });
-    }
-  }, [agents, agentsLoaded, navigate, routeAgentId, summaryAgentId]);
 
   useEffect(() => {
     if (!validatedSelectedAgentId) return;
@@ -429,36 +371,6 @@ export function AgentsView({
     handleSetLeftPanelOpen,
     openCreateDialog,
   });
-
-  const closeFeedbackDetail = useCallback(() => {
-    if (validatedSelectedAgentId) {
-      navigate(agentRoute(validatedSelectedAgentId), { replace: true });
-      return;
-    }
-    navigate("/agents", { replace: true });
-  }, [navigate, validatedSelectedAgentId]);
-
-  const openFeedbackDetail = useCallback(
-    (state: FeedbackDetailState) => {
-      if (!state) {
-        closeFeedbackDetail();
-        return;
-      }
-      if ("summaryAgentId" in state) {
-        navigate(agentReviewRoute(state.parentAgentId, state.summaryAgentId));
-        return;
-      }
-      navigate(agentFeedbackRoute(state.parentAgentId, state.itemId));
-    },
-    [closeFeedbackDetail, navigate]
-  );
-
-  const navigateFeedbackItem = useCallback(
-    (parentAgentId: string, nextItemId: number) => {
-      navigate(agentFeedbackRoute(parentAgentId, nextItemId));
-    },
-    [navigate]
-  );
 
   const toggleAgentDetails = useCallback((agentId: string) => {
     setExpandedAgentId((current) => (current === agentId ? null : agentId));
@@ -699,39 +611,14 @@ export function AgentsView({
                 )}
               >
                 {feedbackDetailRendered ? (
-                  "summaryAgentId" in feedbackDetailRendered ? (
-                    (() => {
-                      const summaryAgent = agents.find(
-                        (a) => a.id === feedbackDetailRendered.summaryAgentId
-                      );
-                      return summaryAgent ? (
-                        <ReviewSummaryPanel
-                          key={`summary-${feedbackDetailRendered.summaryAgentId}`}
-                          parentAgentId={feedbackDetailRendered.parentAgentId}
-                          agent={summaryAgent}
-                          onClose={closeFeedbackDetail}
-                        />
-                      ) : null;
-                    })()
-                  ) : (
-                    <FeedbackDetailPanel
-                      key={feedbackDetailRendered.parentAgentId}
-                      parentAgentId={feedbackDetailRendered.parentAgentId}
-                      itemId={feedbackDetailRendered.itemId}
-                      isConnected={
-                        connectedAgentId ===
-                        feedbackDetailRendered.parentAgentId
-                      }
-                      sendTerminalInput={sendTerminalInput}
-                      onClose={closeFeedbackDetail}
-                      onNavigate={(nextItemId) =>
-                        navigateFeedbackItem(
-                          feedbackDetailRendered.parentAgentId,
-                          nextItemId
-                        )
-                      }
-                    />
-                  )
+                  <DesktopFeedbackDetail
+                    detail={feedbackDetailRendered}
+                    agents={agents}
+                    connectedAgentId={connectedAgentId}
+                    sendTerminalInput={sendTerminalInput}
+                    onClose={closeFeedbackDetail}
+                    onNavigateItem={navigateFeedbackItem}
+                  />
                 ) : null}
               </div>
             ) : null}
@@ -783,31 +670,14 @@ export function AgentsView({
       </div>
 
       {isMobile && feedbackDetail ? (
-        "summaryAgentId" in feedbackDetail ? (
-          (() => {
-            const summaryAgent = agents.find(
-              (a) => a.id === feedbackDetail.summaryAgentId
-            );
-            return summaryAgent ? (
-              <MobileReviewSummarySheet
-                parentAgentId={feedbackDetail.parentAgentId}
-                agent={summaryAgent}
-                onClose={closeFeedbackDetail}
-              />
-            ) : null;
-          })()
-        ) : (
-          <MobileFeedbackSheet
-            parentAgentId={feedbackDetail.parentAgentId}
-            itemId={feedbackDetail.itemId}
-            isConnected={connectedAgentId === feedbackDetail.parentAgentId}
-            sendTerminalInput={sendTerminalInput}
-            onClose={closeFeedbackDetail}
-            onNavigate={(nextItemId) =>
-              navigateFeedbackItem(feedbackDetail.parentAgentId, nextItemId)
-            }
-          />
-        )
+        <MobileFeedbackDetail
+          detail={feedbackDetail}
+          agents={agents}
+          connectedAgentId={connectedAgentId}
+          sendTerminalInput={sendTerminalInput}
+          onClose={closeFeedbackDetail}
+          onNavigateItem={navigateFeedbackItem}
+        />
       ) : null}
 
       {isMobile ? (
