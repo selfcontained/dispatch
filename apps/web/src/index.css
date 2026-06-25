@@ -1207,8 +1207,22 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   border-right: 1px solid hsl(var(--diff-fg) / 0.1);
   padding: 0 8px;
   text-align: right;
-  cursor: default;
+  cursor: pointer;
   user-select: none;
+}
+.changes-diff-view .diff-gutter:hover {
+  background: hsl(var(--primary) / 0.15);
+}
+.changes-diff-view .diff-gutter-selected {
+  background: hsl(var(--primary) / 0.2) !important;
+  color: hsl(var(--primary)) !important;
+}
+.changes-diff-view .diff-code-selected {
+  background: hsl(var(--primary) / 0.08) !important;
+}
+.changes-diff-view .diff-widget {
+  border: none;
+  padding: 0;
 }
 .changes-diff-view .diff-code {
   background: transparent;

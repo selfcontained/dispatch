@@ -398,4 +398,145 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(500).send({ error: "Failed to compute file diff." });
     }
   });
+
+  app.post("/api/v1/agents/:id/diff/comment", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+
+    const body = request.body as {
+      filePath?: string;
+      startLine?: number;
+      endLine?: number;
+      comment?: string;
+    } | null;
+
+    if (
+      !body?.filePath ||
+      typeof body.startLine !== "number" ||
+      typeof body.endLine !== "number" ||
+      !body.comment?.trim()
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "filePath, startLine, endLine, and comment required." });
+    }
+
+    if (body.filePath.includes("..")) {
+      return reply.code(400).send({ error: "Invalid file path." });
+    }
+
+    if (
+      body.startLine < 1 ||
+      body.endLine < body.startLine ||
+      !Number.isInteger(body.startLine) ||
+      !Number.isInteger(body.endLine)
+    ) {
+      return reply.code(400).send({ error: "Invalid line range." });
+    }
+
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const gitContextWorktreePath = agent.gitContext?.isWorktree
+      ? agent.gitContext.worktreePath
+      : null;
+    const worktreePath =
+      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
+    if (!worktreePath) {
+      return reply
+        .code(404)
+        .send({ error: "Agent has no associated worktree." });
+    }
+
+    const baseRef =
+      agent.baseBranch ??
+      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+
+    let fileDiff;
+    try {
+      fileDiff = await getAgentFileDiff(worktreePath, baseRef, body.filePath);
+    } catch (error) {
+      deps.appLog.warn(
+        { err: error, agentId: id, filePath: body.filePath },
+        "Diff comment: failed to get file diff"
+      );
+      return reply.code(500).send({ error: "Failed to retrieve diff." });
+    }
+
+    if (!fileDiff) {
+      return reply.code(404).send({ error: "File not found in diff." });
+    }
+
+    const lines = extractNewFileLines(
+      fileDiff.diff,
+      body.startLine,
+      body.endLine
+    );
+
+    const lineLabel =
+      body.startLine === body.endLine
+        ? `Line ${body.startLine}`
+        : `Lines ${body.startLine}-${body.endLine}`;
+    const codeBlock =
+      lines.length > 0
+        ? "\n" + lines.map((l) => `│ ${l}`).join("\n") + "\n"
+        : "";
+
+    const prompt = [
+      "--- DISPATCH: Code Comment ---",
+      `File: ${body.filePath}`,
+      `${lineLabel}:`,
+      codeBlock,
+      `Comment: ${body.comment.trim()}`,
+      "--- END ---",
+    ].join("\n");
+
+    try {
+      await deps.sendAgentPrompt(id, prompt);
+    } catch (error) {
+      deps.appLog.warn(
+        { err: error, agentId: id },
+        "Diff comment: tmux delivery failed"
+      );
+      return reply
+        .code(500)
+        .send({ error: "Failed to deliver comment to agent." });
+    }
+
+    return { delivered: true };
+  });
+}
+
+function extractNewFileLines(
+  diffText: string,
+  startLine: number,
+  endLine: number
+): string[] {
+  const lines: string[] = [];
+  const diffLines = diffText.split("\n");
+  let newLineNum = 0;
+
+  for (const line of diffLines) {
+    const hunkMatch = /^@@ -\d+(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+    if (hunkMatch) {
+      newLineNum = parseInt(hunkMatch[1]!, 10) - 1;
+      continue;
+    }
+
+    if (newLineNum === 0) continue;
+
+    if (line.startsWith("-")) continue;
+
+    if (line.startsWith("+") || line.startsWith(" ")) {
+      newLineNum++;
+      if (newLineNum >= startLine && newLineNum <= endLine) {
+        lines.push(line.slice(1));
+      }
+      if (newLineNum > endLine) break;
+    }
+  }
+
+  return lines;
 }

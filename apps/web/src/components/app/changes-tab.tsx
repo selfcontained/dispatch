@@ -1,4 +1,5 @@
 import { memo, useCallback, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
@@ -8,11 +9,23 @@ import {
   FilePlus,
   FileText,
   Loader2,
+  MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Diff, Hunk, markEdits, parseDiff, tokenize } from "react-diff-view";
+import {
+  Diff,
+  Hunk,
+  markEdits,
+  parseDiff,
+  tokenize,
+  getChangeKey,
+  type ChangeData,
+  type HunkData,
+  type EventMap,
+} from "react-diff-view";
 import "react-diff-view/style/index.css";
 import { refractor as baseRefractor } from "refractor";
 import jsx from "refractor/jsx";
@@ -71,7 +84,15 @@ import {
   type DiffFile,
   type DiffFileStatus,
 } from "@/hooks/use-agent-diff";
+import { agentRoute } from "@/lib/agent-routes";
 import { cn } from "@/lib/utils";
+
+type LineSelection = {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  anchorLine: number;
+};
 
 type ChangesTabProps = {
   agentId: string | null;
@@ -86,6 +107,9 @@ export const ChangesTab = memo(function ChangesTab({
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [showFileTree, setShowFileTree] = useState(true);
+  const [lineSelection, setLineSelection] = useState<LineSelection | null>(
+    null
+  );
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const files = useMemo(
@@ -155,6 +179,8 @@ export const ChangesTab = memo(function ChangesTab({
           });
         }}
         fileRefs={fileRefs}
+        lineSelection={lineSelection}
+        onLineSelection={setLineSelection}
       />
     </div>
   );
@@ -391,6 +417,8 @@ type DiffPaneProps = {
   onShowFileTree: () => void;
   onToggleCollapse: (path: string) => void;
   fileRefs: React.RefObject<Map<string, HTMLDivElement> | null>;
+  lineSelection: LineSelection | null;
+  onLineSelection: (sel: LineSelection | null) => void;
 };
 
 function DiffPane({
@@ -401,6 +429,8 @@ function DiffPane({
   onShowFileTree,
   onToggleCollapse,
   fileRefs,
+  lineSelection,
+  onLineSelection,
 }: DiffPaneProps): JSX.Element {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -431,6 +461,8 @@ function DiffPane({
                 fileRefs.current?.delete(file.path);
               }
             }}
+            lineSelection={lineSelection}
+            onLineSelection={onLineSelection}
           />
         ))}
       </div>
@@ -444,6 +476,8 @@ type FileDiffSectionProps = {
   collapsed: boolean;
   onToggleCollapse: () => void;
   setRef: (el: HTMLDivElement | null) => void;
+  lineSelection: LineSelection | null;
+  onLineSelection: (sel: LineSelection | null) => void;
 };
 
 function FileDiffSection({
@@ -452,6 +486,8 @@ function FileDiffSection({
   collapsed,
   onToggleCollapse,
   setRef,
+  lineSelection,
+  onLineSelection,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div ref={setRef} className="rounded-md border border-border/50">
@@ -494,7 +530,12 @@ function FileDiffSection({
             transition={{ duration: 0.2, ease: "easeInOut" }}
             className="overflow-hidden"
           >
-            <FileDiffContent agentId={agentId} file={file} />
+            <FileDiffContent
+              agentId={agentId}
+              file={file}
+              lineSelection={lineSelection}
+              onLineSelection={onLineSelection}
+            />
           </motion.div>
         )}
       </AnimatePresence>
@@ -505,9 +546,16 @@ function FileDiffSection({
 type FileDiffContentProps = {
   agentId: string | null;
   file: DiffFile;
+  lineSelection: LineSelection | null;
+  onLineSelection: (sel: LineSelection | null) => void;
 };
 
-function FileDiffContent({ agentId, file }: FileDiffContentProps): JSX.Element {
+function FileDiffContent({
+  agentId,
+  file,
+  lineSelection,
+  onLineSelection,
+}: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
     agentId,
@@ -558,7 +606,17 @@ function FileDiffContent({ agentId, file }: FileDiffContentProps): JSX.Element {
     );
   }
 
-  return <UnifiedDiffView diffText={diffText} filePath={file.path} />;
+  return (
+    <UnifiedDiffView
+      agentId={agentId}
+      diffText={diffText}
+      filePath={file.path}
+      lineSelection={
+        lineSelection?.filePath === file.path ? lineSelection : null
+      }
+      onLineSelection={onLineSelection}
+    />
+  );
 }
 
 const EXT_TO_LANGUAGE: Record<string, string> = {
@@ -629,14 +687,60 @@ function languageFromPath(filePath: string): string | null {
   return lang;
 }
 
+function getNewLineNumber(change: ChangeData): number | null {
+  if (change.type === "insert") return change.lineNumber;
+  if (change.type === "normal") return change.newLineNumber;
+  return null;
+}
+
+function collectSelectedChangeKeys(
+  hunks: HunkData[],
+  startLine: number,
+  endLine: number
+): string[] {
+  const keys: string[] = [];
+  for (const hunk of hunks) {
+    for (const change of hunk.changes) {
+      const ln = getNewLineNumber(change);
+      if (ln !== null && ln >= startLine && ln <= endLine) {
+        keys.push(getChangeKey(change));
+      }
+    }
+  }
+  return keys;
+}
+
+function findLastChangeKeyInRange(
+  hunks: HunkData[],
+  startLine: number,
+  endLine: number
+): string | null {
+  let lastKey: string | null = null;
+  for (const hunk of hunks) {
+    for (const change of hunk.changes) {
+      const ln = getNewLineNumber(change);
+      if (ln !== null && ln >= startLine && ln <= endLine) {
+        lastKey = getChangeKey(change);
+      }
+    }
+  }
+  return lastKey;
+}
+
 type UnifiedDiffViewProps = {
+  agentId: string | null;
   diffText: string;
   filePath: string;
+  lineSelection: LineSelection | null;
+  onLineSelection: (sel: LineSelection | null) => void;
 };
 
 const UnifiedDiffView = memo(function UnifiedDiffView({
+  agentId,
   diffText,
   filePath,
+  lineSelection,
+  onLineSelection,
 }: UnifiedDiffViewProps): JSX.Element {
   const parsed = useMemo(() => {
     try {
@@ -667,7 +771,71 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     }
   }, [parsed, language]);
 
-  if (parsed.length === 0) {
+  const gutterEvents: EventMap = useMemo(
+    () => ({
+      onClick: ({ change }, e) => {
+        if (!change) return;
+        const ln = getNewLineNumber(change);
+        if (ln === null) return;
+
+        const mouseEvent = e as unknown as MouseEvent;
+
+        if (mouseEvent.shiftKey && lineSelection) {
+          const start = Math.min(lineSelection.anchorLine, ln);
+          const end = Math.max(lineSelection.anchorLine, ln);
+          onLineSelection({
+            filePath,
+            startLine: start,
+            endLine: end,
+            anchorLine: lineSelection.anchorLine,
+          });
+        } else {
+          onLineSelection({
+            filePath,
+            startLine: ln,
+            endLine: ln,
+            anchorLine: ln,
+          });
+        }
+      },
+    }),
+    [filePath, lineSelection, onLineSelection]
+  );
+
+  const file = parsed.length > 0 ? parsed[0]! : null;
+
+  const selectedChanges = useMemo(() => {
+    if (!file || !lineSelection) return [];
+    return collectSelectedChangeKeys(
+      file.hunks,
+      lineSelection.startLine,
+      lineSelection.endLine
+    );
+  }, [file, lineSelection]);
+
+  const widgets = useMemo(() => {
+    if (!file || !lineSelection || !agentId) return {};
+    const lastKey = findLastChangeKeyInRange(
+      file.hunks,
+      lineSelection.startLine,
+      lineSelection.endLine
+    );
+    if (!lastKey) return {};
+    return {
+      [lastKey]: (
+        <InlineCommentForm
+          agentId={agentId}
+          filePath={filePath}
+          startLine={lineSelection.startLine}
+          endLine={lineSelection.endLine}
+          onCancel={() => onLineSelection(null)}
+          onSubmitted={() => onLineSelection(null)}
+        />
+      ),
+    };
+  }, [file, lineSelection, agentId, filePath, onLineSelection]);
+
+  if (!file) {
     return (
       <div className="px-4 py-3 text-xs text-muted-foreground">
         Unable to parse diff
@@ -675,7 +843,6 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     );
   }
 
-  const file = parsed[0]!;
   const diffType =
     file.type === "add"
       ? "add"
@@ -692,6 +859,9 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
         diffType={diffType}
         hunks={file.hunks}
         tokens={tokens}
+        gutterEvents={gutterEvents}
+        selectedChanges={selectedChanges}
+        widgets={widgets}
       >
         {(hunks) =>
           hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)
@@ -700,3 +870,120 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     </div>
   );
 });
+
+function InlineCommentForm({
+  agentId,
+  filePath,
+  startLine,
+  endLine,
+  onCancel,
+  onSubmitted,
+}: {
+  agentId: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  onCancel: () => void;
+  onSubmitted: () => void;
+}): JSX.Element {
+  const [comment, setComment] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+  const navigate = useNavigate();
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  const lineLabel =
+    startLine === endLine
+      ? `Line ${startLine}`
+      : `Lines ${startLine}–${endLine}`;
+
+  const handleSubmit = useCallback(async () => {
+    if (!comment.trim() || submitting) return;
+    setSubmitting(true);
+    try {
+      const res = await fetch(`/api/v1/agents/${agentId}/diff/comment`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ filePath, startLine, endLine, comment }),
+      });
+      if (!res.ok) {
+        const data = (await res.json().catch(() => ({}))) as {
+          error?: string;
+        };
+        throw new Error(data.error ?? "Failed to send comment");
+      }
+      onSubmitted();
+      navigate(agentRoute(agentId), { replace: true });
+    } catch {
+      setSubmitting(false);
+    }
+  }, [
+    agentId,
+    comment,
+    endLine,
+    filePath,
+    navigate,
+    onSubmitted,
+    startLine,
+    submitting,
+  ]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSubmit();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
+    },
+    [handleSubmit, onCancel]
+  );
+
+  return (
+    <div className="border-t border-border/50 bg-muted/20 px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+        <MessageSquare className="h-3 w-3" />
+        <span className="font-mono">{filePath}</span>
+        <span>·</span>
+        <span>{lineLabel}</span>
+      </div>
+      <textarea
+        ref={textareaRef}
+        className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        placeholder="Leave a comment for the agent…"
+        rows={3}
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        onKeyDown={handleKeyDown}
+        autoFocus
+        disabled={submitting}
+      />
+      <div className="mt-2 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40"
+          onClick={onCancel}
+          disabled={submitting}
+        >
+          <X className="h-3 w-3" />
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          onClick={handleSubmit}
+          disabled={!comment.trim() || submitting}
+        >
+          {submitting ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Send className="h-3 w-3" />
+          )}
+          Send
+        </button>
+      </div>
+    </div>
+  );
+}
