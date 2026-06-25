@@ -1,7 +1,5 @@
-import { lstat, readFile } from "node:fs/promises";
-import path from "node:path";
-
 import { resolveBaseRef } from "./base-ref.js";
+import { readUntrackedFile, shouldExcludePath } from "./diff-file-rules.js";
 import { runCommand, type RunCommandResult } from "../lib/run-command.js";
 
 export type DiffStats = {
@@ -11,24 +9,7 @@ export type DiffStats = {
   computedAt: number;
 };
 
-const UNTRACKED_LINE_COUNT_MAX_BYTES = 1_000_000;
 const GIT_TIMEOUT_MS = 15_000;
-const BINARY_PROBE_BYTES = 8 * 1024;
-const DIFF_STATS_EXCLUDED_BASENAMES = new Set([
-  "pnpm-lock.yaml",
-  "package-lock.json",
-  "yarn.lock",
-  "bun.lockb",
-  "bun.lock",
-  "Cargo.lock",
-  "Gemfile.lock",
-  "poetry.lock",
-  "uv.lock",
-  "Podfile.lock",
-  "Package.resolved",
-  "composer.lock",
-  "mix.lock",
-]);
 
 type CommandRunner = (
   command: string,
@@ -110,7 +91,7 @@ export async function getDiffStats(
       const [a, d, ...rest] = parts;
       const filePath = rest.join("\t");
       if (!filePath) continue;
-      if (shouldIgnoreDiffStatsPath(filePath)) continue;
+      if (shouldExcludePath(filePath)) continue;
       if (ignoredPaths.has(filePath)) continue;
       if (seenFiles.has(filePath)) continue;
       seenFiles.add(filePath);
@@ -121,10 +102,10 @@ export async function getDiffStats(
 
     for (const filePath of untracked.stdout.split("\n")) {
       if (!filePath) continue;
-      if (shouldIgnoreDiffStatsPath(filePath)) continue;
+      if (shouldExcludePath(filePath)) continue;
       if (seenFiles.has(filePath)) continue;
       seenFiles.add(filePath);
-      const lines = await countUntrackedLines(worktreePath, filePath);
+      const { lines } = await readUntrackedFile(worktreePath, filePath);
       added += lines;
     }
 
@@ -137,42 +118,6 @@ export async function getDiffStats(
   } catch {
     return null;
   }
-}
-
-async function countUntrackedLines(
-  worktreePath: string,
-  filePath: string
-): Promise<number> {
-  const fullPath = path.join(worktreePath, filePath);
-  try {
-    // `lstat` does NOT follow symlinks. Untracked symlinks pointing outside
-    // the worktree would otherwise let the badge act as a small file-content
-    // oracle for arbitrary paths the server can read. Skip them entirely —
-    // they still count as 1 file via the seenFiles set above.
-    const info = await lstat(fullPath);
-    if (!info.isFile()) return 0;
-    if (info.size === 0) return 0;
-    if (info.size > UNTRACKED_LINE_COUNT_MAX_BYTES) return 0;
-    const buffer = await readFile(fullPath);
-    if (looksBinary(buffer)) return 0;
-    return countLines(buffer.toString("utf8"));
-  } catch {
-    return 0;
-  }
-}
-
-function looksBinary(buffer: Buffer): boolean {
-  const probeLength = Math.min(buffer.length, BINARY_PROBE_BYTES);
-  for (let i = 0; i < probeLength; i++) {
-    if (buffer[i] === 0) return true;
-  }
-  return false;
-}
-
-function countLines(content: string): number {
-  if (content.length === 0) return 0;
-  const parts = content.split("\n");
-  return parts[parts.length - 1] === "" ? parts.length - 1 : parts.length;
 }
 
 function extractPathsFromNumstat(numstatOutput: string): string[] {
@@ -214,8 +159,4 @@ async function getGitIgnoredPaths(
   } catch {
     return ignored;
   }
-}
-
-function shouldIgnoreDiffStatsPath(filePath: string): boolean {
-  return DIFF_STATS_EXCLUDED_BASENAMES.has(path.basename(filePath));
 }
