@@ -244,4 +244,80 @@ describe("generateSetupScript — server callbacks", () => {
     expect(script).toContain('if [ "$WT_RC" -eq 0 ]; then');
     expect(script).not.toContain("if [ $? -eq 0 ]; then");
   });
+
+  it("sanitizes the worktree-add error for a valid JSON body — strips ALL C0 control chars, not just CR/LF (issue #682)", () => {
+    // The hook stderr that lands in WORKTREE_ADD_OUTPUT (e.g. a Git LFS
+    // post-checkout hook) routinely contains tabs (0x09) and ANSI escapes
+    // (0x1b). JSON forbids unescaped control chars (U+0000–U+001F), so a body
+    // containing them is rejected by the server's JSON.parse — and because the
+    // setup/error curl ends in `|| true`, that 400 is swallowed and last_error
+    // stays empty for exactly the failure this fix exists to surface. Strip
+    // the whole C0 range, and guard against a byte-truncated multi-byte UTF-8
+    // codepoint so the body stays valid.
+    const script = generateSetupScript(baseConfig, {
+      ...baseParams,
+      useWorktree: true,
+      createNewBranch: true,
+      worktreeBranchName: "my-branch",
+    });
+    // Strips the entire C0 control range, not just \n and \r.
+    expect(script).toContain("tr -d '\\000-\\037'");
+    expect(script).not.toContain('tr -d "\\n\\r"');
+    // Drops any severed trailing UTF-8 codepoint after the byte cap.
+    expect(script).toContain("iconv -f utf-8 -t utf-8 -c");
+  });
+
+  it("bounds the error message with a bash slice, not `head -c`, so huge hook output can't SIGPIPE the pipeline under pipefail (issue #682)", () => {
+    // `printf … | head -c 800` makes `head` close the pipe early once it has
+    // its 800 bytes; on output larger than the pipe buffer `printf` takes
+    // SIGPIPE and, with `pipefail` + `errexit`, the `VAR=$(…)` assignment
+    // aborts the script before the error is ever reported — the exact silent
+    // death #682 fixes, just at a higher output threshold. A bash substring
+    // bounds the size with no pipe at all.
+    const script = generateSetupScript(baseConfig, {
+      ...baseParams,
+      useWorktree: true,
+      createNewBranch: true,
+      worktreeBranchName: "my-branch",
+    });
+    expect(script).toContain("${WORKTREE_ADD_OUTPUT:0:800}");
+    expect(script).not.toContain("head -c 800");
+  });
+
+  it("rolls back the partial worktree (and the just-created branch) on failure so relaunch starts clean (issue #682)", () => {
+    // `git worktree add` can leave the worktree dir and, for createNewBranch,
+    // the new branch on disk even when it exits non-zero (hook failure). With
+    // the failure path now live, a relaunch reuses the same deterministic
+    // WT_PATH and `-b <branch>` and would fail with "already exists", masking
+    // the real error. Clean up best-effort before exiting.
+    const script = generateSetupScript(baseConfig, {
+      ...baseParams,
+      useWorktree: true,
+      createNewBranch: true,
+      worktreeBranchName: "my-branch",
+    });
+    expect(script).toContain(
+      'git -C "$REPO_ROOT" worktree remove --force "$WT_PATH" 2>/dev/null || true'
+    );
+    // The new branch is git's to delete only because this run just created it.
+    expect(script).toContain(
+      'git -C "$REPO_ROOT" branch -D "my-branch" 2>/dev/null || true'
+    );
+  });
+
+  it("does NOT delete the branch on cleanup when checking out an existing branch (createNewBranch=false)", () => {
+    // With createNewBranch=false the branch pre-existed — deleting it would be
+    // destructive. Only the worktree dir should be rolled back.
+    const script = generateSetupScript(baseConfig, {
+      ...baseParams,
+      useWorktree: true,
+      createNewBranch: false,
+      worktreeBranchName: "main",
+      baseBranch: "main",
+    });
+    expect(script).toContain(
+      'git -C "$REPO_ROOT" worktree remove --force "$WT_PATH" 2>/dev/null || true'
+    );
+    expect(script).not.toContain("branch -D");
+  });
 });

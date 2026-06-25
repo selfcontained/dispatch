@@ -266,9 +266,35 @@ export function generateSetupScript(
       // session-died monitor will reconcile status to stopped.
       `    fail "Worktree creation failed"`,
       `    fail "$WORKTREE_ADD_OUTPUT"`,
-      `    SETUP_ERROR_MSG=$(printf "%s" "$WORKTREE_ADD_OUTPUT" | head -c 800 | tr -d "\\n\\r" | sed 's/[\\\\\\"]/\\\\&/g')`,
+      // Build a JSON-safe error message for the /setup/error body:
+      //   - `${VAR:0:800}` bounds the size with a bash slice rather than
+      //     `… | head -c 800`; the pipe form lets head close stdin early, so
+      //     on output larger than the pipe buffer printf takes SIGPIPE and,
+      //     under `pipefail`+`errexit`, this assignment would abort before the
+      //     error is ever reported (the same silent death #682 fixes).
+      //   - `tr -d '\\000-\\037'` strips the WHOLE C0 control range (tab, ESC,
+      //     CR, LF, …). JSON forbids unescaped control chars, and the
+      //     /setup/error curl swallows a 400 via `|| true`, so leaving tabs or
+      //     ANSI (common in git-lfs / post-checkout hook output) would drop
+      //     the message entirely.
+      //   - `iconv -c` discards any multi-byte codepoint the slice severed.
+      //   - `sed` escapes backslash and double-quote for the JSON string.
+      `    SETUP_ERROR_MSG=$(printf "%s" "\${WORKTREE_ADD_OUTPUT:0:800}" | tr -d '\\000-\\037' | iconv -f utf-8 -t utf-8 -c | sed 's/[\\\\\\"]/\\\\&/g')`,
       `    if [ -z "$SETUP_ERROR_MSG" ]; then SETUP_ERROR_MSG="git worktree add failed"; fi`,
       `    ${curlSetupError("SETUP_ERROR_MSG")}`,
+      // `git worktree add` can leave the worktree dir (and, with -b, the new
+      // branch) behind even when it exits non-zero — e.g. a post-checkout hook
+      // failing after checkout. Roll that back best-effort so a relaunch with
+      // the same deterministic path/branch starts clean instead of failing
+      // with "already exists" and masking the original error.
+      `    git -C "$REPO_ROOT" worktree remove --force "$WT_PATH" 2>/dev/null || true`,
+      // Only delete the branch when this run created it; for an existing-branch
+      // checkout the branch predates us and deleting it would be destructive.
+      ...(createNewBranch
+        ? [
+            `    git -C "$REPO_ROOT" branch -D "${worktreeBranchName}" 2>/dev/null || true`,
+          ]
+        : []),
       `    exit 1`,
       `  fi`,
       `fi`,
