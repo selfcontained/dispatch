@@ -211,4 +211,37 @@ describe("generateSetupScript — server callbacks", () => {
     expect(script).toContain("SETUP_ERROR_MSG=");
     expect(script).toContain("exit 1");
   });
+
+  it("captures the worktree-add exit code explicitly so `set -e` cannot abort before the error handler (issue #682)", () => {
+    // Regression: under `set -euo pipefail`, a `VAR=$(cmd)` assignment whose
+    // command substitution fails terminates the script immediately — so the
+    // `if [ $? -eq 0 ]; else … /setup/error … fi` block is dead code and the
+    // failure (e.g. a non-zero post-checkout git hook) is silently swallowed.
+    // The fix must disable errexit around the assignment and capture the
+    // status into a variable that the success check reads.
+    const script = generateSetupScript(baseConfig, {
+      ...baseParams,
+      useWorktree: true,
+      createNewBranch: true,
+      worktreeBranchName: "my-branch",
+    });
+    const lines = script.split("\n");
+    const addIdx = lines.findIndex((l) => l.includes("WORKTREE_ADD_OUTPUT=$("));
+    expect(addIdx).toBeGreaterThan(-1);
+
+    // errexit is disabled immediately before the capture and restored after.
+    const before = lines.slice(Math.max(0, addIdx - 2), addIdx);
+    expect(before.some((l) => l.trim() === "set +e")).toBe(true);
+
+    // The return code is captured into a variable on the line right after the
+    // assignment, and errexit is restored.
+    const after = lines.slice(addIdx + 1, addIdx + 4);
+    expect(after.some((l) => /^\s*WT_RC=\$\?\s*$/.test(l))).toBe(true);
+    expect(after.some((l) => l.trim() === "set -euo pipefail")).toBe(true);
+
+    // The success check must read the captured code, NOT `$?` (which would be
+    // clobbered by the intervening `set` command).
+    expect(script).toContain('if [ "$WT_RC" -eq 0 ]; then');
+    expect(script).not.toContain("if [ $? -eq 0 ]; then");
+  });
 });

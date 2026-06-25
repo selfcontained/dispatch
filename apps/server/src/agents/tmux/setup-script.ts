@@ -199,8 +199,19 @@ export function generateSetupScript(
 
     lines.push(
       ``,
+      // Under `set -euo pipefail`, a `VAR=$(cmd)` assignment whose command
+      // substitution exits non-zero aborts the script *immediately* — before
+      // the `if [ $? -eq 0 ]; else …` handler below can run. `git worktree
+      // add` can exit non-zero even after creating the worktree (e.g. a repo's
+      // post-checkout hook failing because git-lfs isn't installed), so we
+      // must disable errexit around the capture and stash the status in a
+      // variable the success check reads. Reading `$?` directly here would be
+      // wrong too: the intervening `set` command would clobber it. (issue #682)
+      `  set +e`,
       `  WORKTREE_ADD_OUTPUT=$(${addCmd} 2>&1)`,
-      `  if [ $? -eq 0 ]; then`,
+      `  WT_RC=$?`,
+      `  set -euo pipefail`,
+      `  if [ "$WT_RC" -eq 0 ]; then`,
       `    ok "Worktree created at $WT_PATH"`,
       ...(upstreamLine ? [upstreamLine] : []),
       `    EFFECTIVE_CWD="$WT_PATH"`,
