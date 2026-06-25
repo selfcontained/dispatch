@@ -488,6 +488,9 @@ export function AgentsView({
             onTransitionEnd={handleFeedbackTransitionEnd}
           >
             <div className="relative h-full min-h-0 min-w-0">
+              {/* z-20: corner controls must sit above the opaque z-10 tab-bar
+                  backdrop below (the `bg-background inset-x-0` strip), which
+                  spans the full top band and would otherwise occlude them. */}
               <div className="pointer-events-none absolute left-3 top-3 z-20 flex items-center gap-1">
                 {!leftPanelOpen ? (
                   <Button
@@ -512,7 +515,12 @@ export function AgentsView({
                 </TipSpot>
               </div>
               <div className="relative h-full min-h-0 min-w-0 pb-14 pt-14">
-                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 flex-col items-center justify-center bg-background px-16">
+                {/* px-24 keeps the centered tab bar clear of the corner
+                    controls (the left group can be two ~32px buttons reaching
+                    ~80px from the edge), so the z-20 controls never paint over
+                    the tab bar when the sidebar is collapsed with an agent
+                    focused. */}
+                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 flex-col items-center justify-center bg-background px-24">
                   {focusedAgent?.name ? (
                     <>
                       <span
@@ -530,6 +538,8 @@ export function AgentsView({
                   ) : null}
                 </div>
                 {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
+                  // z-20: keep this control above the opaque z-10 tab-bar
+                  // backdrop above (the `bg-background inset-x-0` strip).
                   <div className="pointer-events-none absolute right-3 top-3 z-20">
                     <Button
                       size="icon"
