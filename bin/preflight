@@ -81,6 +81,13 @@ else
   warn "opencode — needed to spawn OpenCode agents: npm install -g opencode"
 fi
 
+# Cursor CLI (binary is called "agent")
+if command -v agent &>/dev/null; then
+  ok "cursor/agent ($(which agent))"
+else
+  warn "cursor (agent) — needed to spawn Cursor agents: install Cursor (https://www.cursor.com/)"
+fi
+
 # Playwright browsers
 PW_CHROMIUM_DIR="$HOME/Library/Caches/ms-playwright"
 if [[ -d "$PW_CHROMIUM_DIR" ]] && ls "$PW_CHROMIUM_DIR"/chromium-* &>/dev/null 2>&1; then
