@@ -154,6 +154,25 @@ export function AgentsContent() {
       </Section>
 
       <Section>
+        <H3>Changes tab</H3>
+        <P>
+          The <strong>Changes</strong> tab next to <strong>Terminal</strong> in
+          the center pane shows a unified diff of the agent's uncommitted work
+          against its base branch. Each file is syntax-highlighted and can be
+          collapsed individually. A file tree sidebar lists all changed files
+          with their status (added, modified, deleted) and line counts — click a
+          file to scroll to it. Large diffs are truncated by default with a
+          button to load the full content.
+        </P>
+        <P>
+          Select one or more lines in a diff, then click the comment icon to
+          leave a note for the agent. The comment is injected into the agent's
+          terminal with the file path and line range so the agent can act on it
+          immediately.
+        </P>
+      </Section>
+
+      <Section>
         <H3>Tmux scrollback</H3>
         <P>
           Attaching to an agent puts you in tmux's live mode. When you scroll up

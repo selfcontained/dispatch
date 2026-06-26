@@ -111,10 +111,12 @@ issues caused or worsened by this diff.`}</CodeBlock>
       <Section>
         <H3>Round-trip reviews</H3>
         <P>
-          Every review includes a recheck pass. The reviewer stays alive after
-          its round-1 verdict, waiting for the parent to resolve feedback and
-          submit a resolution — then performs a second pass and emits a final
-          verdict.
+          When a reviewer finishes round 1 with <Code>request_changes</Code> (or{" "}
+          <Code>approve</Code> with feedback), the review enters a recheck pass.
+          The reviewer stays alive, waiting for the parent to resolve feedback
+          and submit a resolution — then performs a second pass and emits a
+          final verdict. If the reviewer approves with no feedback, the recheck
+          is skipped and the review completes immediately.
         </P>
         <P>
           The handoff is push-based: when each round transitions, the server

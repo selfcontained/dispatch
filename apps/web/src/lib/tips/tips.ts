@@ -59,6 +59,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "changes-tab",
+    title: "Changes Tab",
+    body: "Switch to the Changes tab next to Terminal to browse an agent's diff with syntax highlighting. Select lines to leave inline comments.",
+    docsSection: "agents",
+    since: "0.23.9",
+    surfaces: ["ambient"],
+  },
+  {
     id: "keyboard-shortcuts",
     title: "Keyboard Shortcuts",
     body: "Press ⌘K to open the command palette. Navigate agents, toggle sidebars, and control the terminal without touching the mouse.",
