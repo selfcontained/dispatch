@@ -68,10 +68,15 @@
           midnight: { background: "#000000", foreground: "#f1f1f4" },
           mytra: { background: "#030303", foreground: "#dee2e7" },
         };
+        var lightThemes = { light: 1, "solarized-light": 1, daylight: 1 };
         var selected = palette[theme] || palette.default;
         if (theme && theme !== "default") {
           document.documentElement.setAttribute("data-theme", theme);
         }
+        document.documentElement.setAttribute(
+          "data-theme-mode",
+          lightThemes[theme] ? "light" : "dark"
+        );
         document.documentElement.style.backgroundColor = selected.background;
         document.body.style.backgroundColor = selected.background;
         document.body.style.color = selected.foreground;

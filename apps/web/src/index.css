@@ -40,6 +40,12 @@
   --chart-5: 158 64% 42%; /* deep teal — model bars */
   --chart-6: 45 96% 54%; /* deep amber — project bars */
 
+  /* Diff colors — GitHub Dark */
+  --diff-bg: 215 15% 16%;
+  --diff-fg: 210 67% 96%;
+  --diff-add: 137 40% 30%;
+  --diff-delete: 2 50% 40%;
+
   /* Surface & terminal */
   --surface: 50 15% 5%;
   --log-stream-bg: 48 10% 10%;
@@ -200,6 +206,12 @@
   --chart-4: 280 60% 50%;
   --chart-5: 217 80% 45%;
   --chart-6: 142 60% 30%;
+
+  /* Diff colors — GitHub Light */
+  --diff-bg: 0 0% 100%;
+  --diff-fg: 216 14% 14%;
+  --diff-add: 137 50% 55%;
+  --diff-delete: 0 80% 60%;
 
   --surface: 207 22% 90%;
   --log-stream-bg: 210 29% 97%;
@@ -401,6 +413,12 @@
   --chart-5: 205 70% 38%;
   --chart-6: 68 80% 25%;
 
+  /* Diff colors — GitHub Light */
+  --diff-bg: 0 0% 100%;
+  --diff-fg: 216 14% 14%;
+  --diff-add: 137 50% 55%;
+  --diff-delete: 0 80% 60%;
+
   --surface: 46 42% 88%;
   --log-stream-bg: 46 42% 88%;
   --log-stream-foreground: 196 13% 35%;
@@ -480,6 +498,12 @@
   --chart-4: 270 70% 35%;
   --chart-5: 217 80% 30%;
   --chart-6: 30 80% 28%;
+
+  /* Diff colors — GitHub Light */
+  --diff-bg: 0 0% 100%;
+  --diff-fg: 216 14% 14%;
+  --diff-add: 137 50% 55%;
+  --diff-delete: 0 80% 60%;
 
   --surface: 220 14% 96%;
   --log-stream-bg: 0 0% 100%;
@@ -1162,21 +1186,25 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   animation-duration: 300ms !important;
 }
 
-/* react-diff-view dark theme overrides */
+/* react-diff-view theme overrides */
 .changes-diff-view .diff {
   font-family: var(--font-terminal);
   font-size: 12px;
   line-height: 1.5;
-  color: hsl(var(--foreground));
+  background: hsl(var(--diff-bg));
+  color: hsl(var(--diff-fg));
   border: none;
+  table-layout: auto;
+  width: max-content;
+  min-width: 100%;
 }
 .changes-diff-view .diff-gutter-col {
   width: 50px;
 }
 .changes-diff-view .diff-gutter {
-  color: hsl(var(--muted-foreground));
-  background: hsl(var(--muted) / 0.3);
-  border-right: 1px solid hsl(var(--border) / 0.4);
+  color: hsl(var(--diff-fg) / 0.5);
+  background: hsl(var(--diff-bg));
+  border-right: 1px solid hsl(var(--diff-fg) / 0.1);
   padding: 0 8px;
   text-align: right;
   cursor: default;
@@ -1188,78 +1216,155 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   white-space: pre;
 }
 .changes-diff-view .diff-code-insert {
-  background: hsl(158 64% 52% / 0.08);
+  background: hsl(var(--diff-add) / 0.22);
 }
 .changes-diff-view .diff-code-delete {
-  background: hsl(0 84% 60% / 0.08);
+  background: hsl(var(--diff-delete) / 0.22);
+}
+.changes-diff-view .diff-code-insert .diff-code-edit {
+  background: hsl(var(--diff-add) / 0.5);
+  border-radius: 2px;
+  padding: 1px 0;
+}
+.changes-diff-view .diff-code-delete .diff-code-edit {
+  background: hsl(var(--diff-delete) / 0.5);
+  border-radius: 2px;
+  padding: 1px 0;
 }
 .changes-diff-view .diff-gutter-insert {
-  background: hsl(158 64% 52% / 0.12);
-  color: hsl(var(--status-working));
+  background: hsl(var(--diff-add) / 0.28);
+  color: hsl(var(--diff-fg));
 }
 .changes-diff-view .diff-gutter-delete {
-  background: hsl(0 84% 60% / 0.12);
-  color: hsl(var(--status-blocked));
+  background: hsl(var(--diff-delete) / 0.28);
+  color: hsl(var(--diff-fg));
 }
 .changes-diff-view .diff-hunk-header {
-  background: hsl(var(--muted) / 0.5);
-  color: hsl(var(--muted-foreground));
+  background: hsl(var(--diff-fg) / 0.08);
+  color: hsl(var(--diff-fg) / 0.5);
 }
 .changes-diff-view .diff-hunk-header-gutter {
-  background: hsl(var(--muted) / 0.5);
+  background: hsl(var(--diff-fg) / 0.08);
 }
 .changes-diff-view .diff-hunk-header-content {
   padding: 4px 12px;
 }
 
-/* Syntax highlighting tokens (refractor/Prism) */
+/* Syntax highlighting — dark mode (GitHub Dark) */
 .changes-diff-view .token.comment,
 .changes-diff-view .token.prolog,
 .changes-diff-view .token.doctype,
 .changes-diff-view .token.cdata {
-  color: #6a737d;
+  color: #8b949e;
 }
 .changes-diff-view .token.punctuation {
-  color: #b3b9c5;
+  color: #f0f6fc;
+}
+.changes-diff-view .token.tag {
+  color: #f0f6fc;
 }
 .changes-diff-view .token.property,
-.changes-diff-view .token.tag,
 .changes-diff-view .token.constant,
 .changes-diff-view .token.symbol,
 .changes-diff-view .token.deleted {
-  color: #f97583;
+  color: #79c0ff;
 }
 .changes-diff-view .token.boolean,
 .changes-diff-view .token.number {
-  color: #79b8ff;
+  color: #79c0ff;
+}
+.changes-diff-view .token.string,
+.changes-diff-view .token.char,
+.changes-diff-view .token.inserted {
+  color: #a5d6ff;
 }
 .changes-diff-view .token.selector,
 .changes-diff-view .token.attr-name,
-.changes-diff-view .token.string,
-.changes-diff-view .token.char,
-.changes-diff-view .token.builtin,
-.changes-diff-view .token.inserted {
-  color: #9ecbff;
+.changes-diff-view .token.builtin {
+  color: #ffa657;
 }
 .changes-diff-view .token.operator,
 .changes-diff-view .token.entity,
 .changes-diff-view .token.url {
-  color: #b3b9c5;
+  color: #79c0ff;
 }
 .changes-diff-view .token.atrule,
 .changes-diff-view .token.attr-value,
 .changes-diff-view .token.keyword {
-  color: #f97583;
+  color: #ff7b72;
 }
-.changes-diff-view .token.function,
+.changes-diff-view .token.function {
+  color: #d2a8ff;
+}
 .changes-diff-view .token.class-name {
-  color: #b392f0;
+  color: #ffa657;
 }
 .changes-diff-view .token.regex,
 .changes-diff-view .token.important,
 .changes-diff-view .token.variable {
-  color: #ffab70;
+  color: #ffa657;
 }
 .changes-diff-view .token.template-string .token.interpolation {
-  color: #ffab70;
+  color: #ff7b72;
+}
+
+/* Syntax highlighting — light mode (GitHub Light) */
+[data-theme-mode="light"] .changes-diff-view .token.comment,
+[data-theme-mode="light"] .changes-diff-view .token.prolog,
+[data-theme-mode="light"] .changes-diff-view .token.doctype,
+[data-theme-mode="light"] .changes-diff-view .token.cdata {
+  color: #59636e;
+}
+[data-theme-mode="light"] .changes-diff-view .token.punctuation {
+  color: #1f2328;
+}
+[data-theme-mode="light"] .changes-diff-view .token.tag {
+  color: #1f2328;
+}
+[data-theme-mode="light"] .changes-diff-view .token.property,
+[data-theme-mode="light"] .changes-diff-view .token.constant,
+[data-theme-mode="light"] .changes-diff-view .token.symbol,
+[data-theme-mode="light"] .changes-diff-view .token.deleted {
+  color: #0550ae;
+}
+[data-theme-mode="light"] .changes-diff-view .token.boolean,
+[data-theme-mode="light"] .changes-diff-view .token.number {
+  color: #0550ae;
+}
+[data-theme-mode="light"] .changes-diff-view .token.string,
+[data-theme-mode="light"] .changes-diff-view .token.char,
+[data-theme-mode="light"] .changes-diff-view .token.inserted {
+  color: #0a3069;
+}
+[data-theme-mode="light"] .changes-diff-view .token.selector,
+[data-theme-mode="light"] .changes-diff-view .token.attr-name,
+[data-theme-mode="light"] .changes-diff-view .token.builtin {
+  color: #953800;
+}
+[data-theme-mode="light"] .changes-diff-view .token.operator,
+[data-theme-mode="light"] .changes-diff-view .token.entity,
+[data-theme-mode="light"] .changes-diff-view .token.url {
+  color: #0550ae;
+}
+[data-theme-mode="light"] .changes-diff-view .token.atrule,
+[data-theme-mode="light"] .changes-diff-view .token.attr-value,
+[data-theme-mode="light"] .changes-diff-view .token.keyword {
+  color: #cf222e;
+}
+[data-theme-mode="light"] .changes-diff-view .token.function {
+  color: #6639ba;
+}
+[data-theme-mode="light"] .changes-diff-view .token.class-name {
+  color: #953800;
+}
+[data-theme-mode="light"] .changes-diff-view .token.regex,
+[data-theme-mode="light"] .changes-diff-view .token.important,
+[data-theme-mode="light"] .changes-diff-view .token.variable {
+  color: #953800;
+}
+[data-theme-mode="light"]
+  .changes-diff-view
+  .token.template-string
+  .token.interpolation {
+  color: #cf222e;
 }

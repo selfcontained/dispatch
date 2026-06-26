@@ -396,6 +396,8 @@ function applyTheme(themeId: ThemeId): void {
   } else {
     root.setAttribute("data-theme", themeId);
   }
+  const mode = THEMES.find((t) => t.id === themeId)?.mode ?? "dark";
+  root.setAttribute("data-theme-mode", mode);
   // The pre-paint script in index.html sets inline body bg/color and the
   // theme-color meta to avoid FOUC. After data-theme changes we re-derive
   // those from the live CSS tokens so the shell tracks the selected theme
