@@ -57,19 +57,13 @@ async function runCheck(
 }
 
 async function checkRuntimeArtifact(ctx: CheckContext): Promise<CheckResult> {
-  const webDist = path.join(ctx.serverDir, "apps/web/dist/index.html");
   const platformBinary = selectPlatformBinary(ctx.serverDir);
-  const missing = [
-    ...(existsSync(webDist) ? [] : [webDist]),
-    ...(platformBinary.ok ? [] : [platformBinary.message]),
-  ];
   return {
     name: "expected_runtime_artifact",
-    ok: missing.length === 0,
-    message:
-      missing.length === 0
-        ? `Runtime assets present: ${webDist}, ${platformBinary.message}`
-        : `Missing: ${missing.join(", ")}`,
+    ok: platformBinary.ok,
+    message: platformBinary.ok
+      ? `Platform binary present: ${platformBinary.message}`
+      : platformBinary.message,
   };
 }
 

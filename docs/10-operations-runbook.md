@@ -175,7 +175,7 @@ inspect → prepare → apply → restarting → validate → done
 
 When the agent moves to `validate`, the server runs `runAndRecordChecks`, which evaluates the required checks listed in the manifests/metadata. The known check names (defined in `apps/server/src/release-metadata.ts`):
 
-- `expected_runtime_artifact` — the platform-matching `dist/bun/dispatch-*` binary and `apps/web/dist/index.html` both exist after deploy
+- `expected_runtime_artifact` — the platform-matching `dist/bun/dispatch-*` binary exists after deploy
 - `service_entrypoint` — `apps/server/package.json` has a `scripts.start` entry
 - `service_restarted` — `~/.dispatch/release.json` is present (lenient proxy for restart; the deeper check is `health_endpoint`)
 - `version_converged` — `~/.dispatch/release.json` tag matches the target tag

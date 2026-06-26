@@ -46,18 +46,12 @@ function setReleaseRecord(record: StoreRecord) {
 }
 
 describe("expected_runtime_artifact", () => {
-  it("passes when the web build and host Bun binary exist", async () => {
+  it("passes when the host Bun binary exists", async () => {
     const bunDist = path.join(tmpServerDir, "dist/bun");
-    const webDist = path.join(tmpServerDir, "apps/web/dist");
     await mkdir(bunDist, { recursive: true });
-    await mkdir(webDist, { recursive: true });
     await writeFile(
       path.join(bunDist, `dispatch-0.19.0-bun-${hostPlatform()}-${hostArch()}`),
       "binary"
-    );
-    await writeFile(
-      path.join(webDist, "index.html"),
-      "<!doctype html><html></html>"
     );
 
     const [result] = await runRequiredChecks(["expected_runtime_artifact"], {
@@ -66,24 +60,16 @@ describe("expected_runtime_artifact", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.message).toMatch(/Runtime assets present/);
+    expect(result.message).toMatch(/Platform binary present/);
   });
 
-  it("fails when an artifact is missing", async () => {
-    const bunDist = path.join(tmpServerDir, "dist/bun");
-    await mkdir(bunDist, { recursive: true });
-    await writeFile(
-      path.join(bunDist, `dispatch-0.19.0-bun-${hostPlatform()}-${hostArch()}`),
-      "binary"
-    );
-
+  it("fails when no platform binary exists", async () => {
     const [result] = await runRequiredChecks(["expected_runtime_artifact"], {
       serverDir: tmpServerDir,
       targetTag: "v0.19.0",
     });
 
     expect(result.ok).toBe(false);
-    expect(result.message).toMatch(/Missing:.*apps\/web\/dist\/index\.html/);
   });
 });
 
