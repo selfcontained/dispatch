@@ -487,32 +487,31 @@ export function AgentsView({
             )}
             onTransitionEnd={handleFeedbackTransitionEnd}
           >
-            <div className="relative h-full min-h-0 min-w-0">
-              <div className="pointer-events-none absolute left-3 top-3 z-10 flex items-center gap-1">
-                {!leftPanelOpen ? (
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    className="pointer-events-auto"
-                    onClick={() => handleSetLeftPanelOpen(true)}
-                    title="Open sidebar"
-                  >
-                    <PanelRightOpen className="h-4 w-4" />
-                  </Button>
-                ) : null}
-                <TipSpot tipId="quick-phrases" side="bottom" align="center">
-                  <QuickPhrasesButton
-                    agentId={
-                      hasActiveAgent && connState === "connected"
-                        ? focusedAgentId!
-                        : null
-                    }
-                    focusTerminal={focusTerminal}
-                  />
-                </TipSpot>
-              </div>
-              <div className="relative h-full min-h-0 min-w-0 pb-14 pt-14">
-                <div className="pointer-events-none absolute inset-x-0 top-0 z-10 flex h-14 flex-col items-center justify-center bg-background px-16">
+            <div className="relative flex h-full min-h-0 min-w-0 flex-col">
+              <div className="relative z-10 flex h-14 shrink-0 items-center bg-background px-3">
+                <div className="flex items-center gap-1">
+                  {!leftPanelOpen ? (
+                    <Button
+                      size="icon"
+                      variant="ghost"
+                      onClick={() => handleSetLeftPanelOpen(true)}
+                      title="Open sidebar"
+                    >
+                      <PanelRightOpen className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                  <TipSpot tipId="quick-phrases" side="bottom" align="center">
+                    <QuickPhrasesButton
+                      agentId={
+                        hasActiveAgent && connState === "connected"
+                          ? focusedAgentId!
+                          : null
+                      }
+                      focusTerminal={focusTerminal}
+                    />
+                  </TipSpot>
+                </div>
+                <div className="flex flex-1 items-center justify-center">
                   {focusedAgent?.name ? (
                     <>
                       <span
@@ -529,12 +528,12 @@ export function AgentsView({
                     </>
                   ) : null}
                 </div>
-                {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
-                  <div className="pointer-events-none absolute right-3 top-3 z-10">
+                <div className="flex items-center gap-1">
+                  {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
                     <Button
                       size="icon"
                       variant="ghost"
-                      className="pointer-events-auto relative"
+                      className="relative"
                       onClick={() => setMediaOpen(true)}
                       title="Open media sidebar"
                       data-testid="toggle-media-sidebar"
@@ -546,13 +545,15 @@ export function AgentsView({
                         </span>
                       ) : null}
                     </Button>
-                  </div>
-                ) : null}
+                  ) : null}
+                </div>
                 {connState === "reconnecting" ? (
-                  <div className="pointer-events-none absolute inset-x-0 top-0 z-10 h-0.5 overflow-hidden">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
                     <div className="dispatch-reconnect-scan h-full w-1/3 will-change-transform bg-[linear-gradient(to_right,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)] saturate-[1.35] brightness-[1.05] animate-[reconnect-scan_1350ms_ease-in-out_infinite] motion-reduce:animate-none motion-reduce:translate-x-[140%]" />
                   </div>
                 ) : null}
+              </div>
+              <div className="relative min-h-0 flex-1">
                 <div className={cn("h-full", changesMatch && "hidden")}>
                   <TerminalPane
                     isAttached={isAttached}
@@ -580,7 +581,7 @@ export function AgentsView({
                   />
                 </Routes>
                 {!isMobile ? (
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14">
+                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14 bg-background">
                     <AmbientTipBar />
                   </div>
                 ) : null}

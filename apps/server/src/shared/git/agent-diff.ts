@@ -187,7 +187,8 @@ function buildUntrackedDiff(filePath: string, content: string): string {
 export async function getAgentDiff(
   worktreePath: string,
   baseRef: string | null,
-  run: CommandRunner = runCommand
+  run: CommandRunner = runCommand,
+  options?: { ignoreWhitespace?: boolean }
 ): Promise<DiffResponse | null> {
   const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
     runCommand: run,
@@ -204,19 +205,36 @@ export async function getAgentDiff(
   }
   const mergeBaseSha = mergeBaseResult.stdout.trim();
 
+  const wsFlag = options?.ignoreWhitespace ? ["-w"] : [];
   const [numstatResult, statusResult, diffResult, untrackedResult] =
     await Promise.all([
-      run("git", ["-C", worktreePath, "diff", mergeBaseSha, "--numstat"], {
-        allowedExitCodes: [0],
-        timeoutMs: GIT_TIMEOUT_MS,
-      }),
-      run("git", ["-C", worktreePath, "diff", mergeBaseSha, "--name-status"], {
-        allowedExitCodes: [0],
-        timeoutMs: GIT_TIMEOUT_MS,
-      }),
       run(
         "git",
-        ["-C", worktreePath, "diff", mergeBaseSha, "-U3", "--no-color"],
+        ["-C", worktreePath, "diff", mergeBaseSha, "--numstat", ...wsFlag],
+        {
+          allowedExitCodes: [0],
+          timeoutMs: GIT_TIMEOUT_MS,
+        }
+      ),
+      run(
+        "git",
+        ["-C", worktreePath, "diff", mergeBaseSha, "--name-status", ...wsFlag],
+        {
+          allowedExitCodes: [0],
+          timeoutMs: GIT_TIMEOUT_MS,
+        }
+      ),
+      run(
+        "git",
+        [
+          "-C",
+          worktreePath,
+          "diff",
+          mergeBaseSha,
+          "-U3",
+          "--no-color",
+          ...wsFlag,
+        ],
         {
           allowedExitCodes: [0],
           timeoutMs: GIT_TIMEOUT_MS,
@@ -298,7 +316,8 @@ export async function getAgentFileDiff(
   worktreePath: string,
   baseRef: string | null,
   filePath: string,
-  run: CommandRunner = runCommand
+  run: CommandRunner = runCommand,
+  options?: { ignoreWhitespace?: boolean }
 ): Promise<FileDiffResponse | null> {
   const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
     runCommand: run,
@@ -315,10 +334,20 @@ export async function getAgentFileDiff(
   }
   const mergeBaseSha = mergeBaseResult.stdout.trim();
 
+  const wsFlag2 = options?.ignoreWhitespace ? ["-w"] : [];
   const [numstatResult, statusResult, diffResult] = await Promise.all([
     run(
       "git",
-      ["-C", worktreePath, "diff", mergeBaseSha, "--numstat", "--", filePath],
+      [
+        "-C",
+        worktreePath,
+        "diff",
+        mergeBaseSha,
+        "--numstat",
+        ...wsFlag2,
+        "--",
+        filePath,
+      ],
       { allowedExitCodes: [0], timeoutMs: GIT_TIMEOUT_MS }
     ),
     run(
@@ -329,6 +358,7 @@ export async function getAgentFileDiff(
         "diff",
         mergeBaseSha,
         "--name-status",
+        ...wsFlag2,
         "--",
         filePath,
       ],
@@ -343,6 +373,7 @@ export async function getAgentFileDiff(
         mergeBaseSha,
         "-U3",
         "--no-color",
+        ...wsFlag2,
         "--",
         filePath,
       ],
