@@ -403,33 +403,37 @@ function DiffPane({
   fileRefs,
 }: DiffPaneProps): JSX.Element {
   return (
-    <div className="relative min-h-0 flex-1 space-y-3 overflow-y-auto bg-background px-3 pb-3">
+    <div className="flex min-h-0 flex-1 flex-col">
       {showFileTreeToggle && (
-        <button
-          type="button"
-          onClick={onShowFileTree}
-          className="absolute left-1 top-1 z-20 min-h-7 min-w-7 rounded border border-border/50 bg-muted/80 p-1.5 text-muted-foreground backdrop-blur-sm hover:bg-muted hover:text-foreground"
-          title="Show file tree"
-        >
-          <PanelLeftOpen className="h-3.5 w-3.5" />
-        </button>
+        <div className="shrink-0 border-b border-border/40 bg-muted/20 px-2 py-1">
+          <button
+            type="button"
+            onClick={onShowFileTree}
+            className="min-h-7 min-w-7 rounded border border-border/50 bg-muted/60 p-1.5 text-muted-foreground hover:bg-muted hover:text-foreground"
+            title="Show file tree"
+          >
+            <PanelLeftOpen className="h-3.5 w-3.5" />
+          </button>
+        </div>
       )}
-      {files.map((file) => (
-        <FileDiffSection
-          key={file.path}
-          agentId={agentId}
-          file={file}
-          collapsed={collapsedFiles.has(file.path)}
-          onToggleCollapse={() => onToggleCollapse(file.path)}
-          setRef={(el) => {
-            if (el) {
-              fileRefs.current?.set(file.path, el);
-            } else {
-              fileRefs.current?.delete(file.path);
-            }
-          }}
-        />
-      ))}
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background px-3 pb-3">
+        {files.map((file) => (
+          <FileDiffSection
+            key={file.path}
+            agentId={agentId}
+            file={file}
+            collapsed={collapsedFiles.has(file.path)}
+            onToggleCollapse={() => onToggleCollapse(file.path)}
+            setRef={(el) => {
+              if (el) {
+                fileRefs.current?.set(file.path, el);
+              } else {
+                fileRefs.current?.delete(file.path);
+              }
+            }}
+          />
+        ))}
+      </div>
     </div>
   );
 }
