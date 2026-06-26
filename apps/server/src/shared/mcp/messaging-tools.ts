@@ -1,0 +1,111 @@
+import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import * as z from "zod/v4";
+
+import { toToolError } from "./tool-error.js";
+
+export type MessagingToolsContext = {
+  agentId: string;
+  repoRoot: string | null;
+  listAgentsForAgent?: (
+    agentId: string,
+    senderRepoRoot: string | null
+  ) => Promise<
+    Array<{
+      id: string;
+      name: string;
+      status: string;
+      latestEvent: { type: string; message: string } | null;
+    }>
+  >;
+  sendMessage?: (
+    agentId: string,
+    input: { target: string; message: string; senderRepoRoot: string | null }
+  ) => Promise<{
+    delivered: boolean;
+    targetAgentId: string;
+    targetAgentName: string;
+  }>;
+};
+
+export function registerMessagingTools(
+  server: McpServer,
+  allowed: Set<string>,
+  context: MessagingToolsContext
+): void {
+  if (allowed.has("list_agents") && context.listAgentsForAgent) {
+    const agentId = context.agentId;
+    const listAgentsForAgent = context.listAgentsForAgent;
+
+    server.registerTool(
+      "list_agents",
+      {
+        description:
+          "List other agents on this Dispatch server with their IDs, names, statuses, and latest activity. " +
+          "Use this to discover agents you can communicate with via dispatch_send_message.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const agents = await listAgentsForAgent(agentId, context.repoRoot);
+          return {
+            content: [
+              { type: "text", text: JSON.stringify({ agents }, null, 2) },
+            ],
+            structuredContent: { agents },
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("dispatch_send_message") && context.sendMessage) {
+    const agentId = context.agentId;
+    const sendMessage = context.sendMessage;
+
+    server.registerTool(
+      "dispatch_send_message",
+      {
+        description:
+          "Send a message to another running agent. The message is injected into the target agent's session. " +
+          "The target agent can reply using the same tool. Use list_agents to discover available agents. " +
+          "Target can be an agent ID (agt_xxx) or a name (partial match). " +
+          "Only works for agents that are currently running.",
+        inputSchema: {
+          target: z
+            .string()
+            .min(1)
+            .describe(
+              "Agent ID (agt_xxx) or name to send the message to. Names are fuzzy-matched against running agents."
+            ),
+          message: z
+            .string()
+            .min(1)
+            .max(10000)
+            .describe("The message content to send."),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await sendMessage(agentId, {
+            target: args.target,
+            message: args.message,
+            senderRepoRoot: context.repoRoot,
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Message delivered to "${result.targetAgentName}" (${result.targetAgentId}).`,
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+}
