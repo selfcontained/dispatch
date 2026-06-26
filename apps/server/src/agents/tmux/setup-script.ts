@@ -199,14 +199,7 @@ export function generateSetupScript(
 
     lines.push(
       ``,
-      // Under `set -euo pipefail`, a `VAR=$(cmd)` assignment whose command
-      // substitution exits non-zero aborts the script *immediately* — before
-      // the `if [ $? -eq 0 ]; else …` handler below can run. `git worktree
-      // add` can exit non-zero even after creating the worktree (e.g. a repo's
-      // post-checkout hook failing because git-lfs isn't installed), so we
-      // must disable errexit around the capture and stash the status in a
-      // variable the success check reads. Reading `$?` directly here would be
-      // wrong too: the intervening `set` command would clobber it. (issue #682)
+      // errexit would abort on non-zero before the error handler runs (#682)
       `  set +e`,
       `  WORKTREE_ADD_OUTPUT=$(${addCmd} 2>&1)`,
       `  WT_RC=$?`,
@@ -266,37 +259,12 @@ export function generateSetupScript(
       // session-died monitor will reconcile status to stopped.
       `    fail "Worktree creation failed"`,
       `    fail "$WORKTREE_ADD_OUTPUT"`,
-      // Build a JSON-safe error message for the /setup/error body:
-      //   - `${VAR:0:800}` bounds the size with a bash slice rather than
-      //     `… | head -c 800`; the pipe form lets head close stdin early, so
-      //     on output larger than the pipe buffer printf takes SIGPIPE and,
-      //     under `pipefail`+`errexit`, this assignment would abort before the
-      //     error is ever reported (the same silent death #682 fixes).
-      //   - `tr -d '\\000-\\037'` strips the WHOLE C0 control range (tab, ESC,
-      //     CR, LF, …). JSON forbids unescaped control chars, and the
-      //     /setup/error curl swallows a 400 via `|| true`, so leaving tabs or
-      //     ANSI (common in git-lfs / post-checkout hook output) would drop
-      //     the message entirely.
-      //   - `iconv -c` discards any multi-byte codepoint the slice severed.
-      //   - `sed` escapes backslash and double-quote for the JSON string.
-      // The trailing `|| true` is load-bearing: this runs under `set -euo
-      // pipefail`, and the pipeline can exit non-zero — glibc `iconv` returns 1
-      // on a severed multi-byte tail even with `-c`, and a missing `iconv`
-      // would fail the substitution outright. Without `|| true`, errexit would
-      // abort here before the error is reported, re-creating #682's silent
-      // death inside the handler itself. The `[ -z … ]` fallback below
-      // substitutes a generic message if the pipeline produced nothing.
+      // `|| true` is load-bearing: pipeline can fail (missing iconv, severed UTF-8) and errexit would abort before the error is reported
       `    SETUP_ERROR_MSG=$(printf "%s" "\${WORKTREE_ADD_OUTPUT:0:800}" | tr -d '\\000-\\037' | iconv -f utf-8 -t utf-8 -c | sed 's/[\\\\\\"]/\\\\&/g') || true`,
       `    if [ -z "$SETUP_ERROR_MSG" ]; then SETUP_ERROR_MSG="git worktree add failed"; fi`,
       `    ${curlSetupError("SETUP_ERROR_MSG")}`,
-      // `git worktree add` can leave the worktree dir (and, with -b, the new
-      // branch) behind even when it exits non-zero — e.g. a post-checkout hook
-      // failing after checkout. Roll that back best-effort so a relaunch with
-      // the same deterministic path/branch starts clean instead of failing
-      // with "already exists" and masking the original error.
+      // Clean up partial worktree/branch so relaunch doesn't hit "already exists"
       `    git -C "$REPO_ROOT" worktree remove --force "$WT_PATH" 2>/dev/null || true`,
-      // Only delete the branch when this run created it; for an existing-branch
-      // checkout the branch predates us and deleting it would be destructive.
       ...(createNewBranch
         ? [
             `    git -C "$REPO_ROOT" branch -D "${worktreeBranchName}" 2>/dev/null || true`,
