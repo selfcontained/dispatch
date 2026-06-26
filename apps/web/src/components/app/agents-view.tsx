@@ -553,7 +553,9 @@ export function AgentsView({
                   </div>
                 ) : null}
               </div>
-              <div className="relative min-h-0 flex-1">
+              <div
+                className={cn("relative min-h-0 flex-1", !isMobile && "pb-14")}
+              >
                 <div className={cn("h-full", changesMatch && "hidden")}>
                   <TerminalPane
                     isAttached={isAttached}
