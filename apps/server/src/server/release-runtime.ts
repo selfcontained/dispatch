@@ -505,45 +505,29 @@ Suggested workflow:
   async function deployFromArtifact(
     job: ReleaseJob,
     tag: string
-  ): Promise<boolean> {
-    let repo: string;
-    try {
-      repo = await getGitHubRepo();
-    } catch {
-      appendReleaseLog(
-        job,
-        "could not resolve GitHub repo, skipping artifact download"
-      );
-      return false;
-    }
+  ): Promise<void> {
+    const repo = await getGitHubRepo();
 
-    let cached: { path: string };
-    try {
-      cached = await deps.ensureCachedTarball({
-        tag,
-        repo,
-        onProgress: ({ message, bytesReceived, totalBytes }) => {
-          appendReleaseLog(job, message);
-          setReleaseProgress(job, {
-            step:
-              bytesReceived !== undefined
-                ? "downloading-artifact"
-                : "preparing-artifact",
-            label:
-              bytesReceived !== undefined
-                ? "Downloading release package"
-                : "Preparing release package",
-            detail: message,
-            bytesReceived: bytesReceived ?? null,
-            totalBytes: totalBytes ?? null,
-          });
-        },
-      });
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
-      appendReleaseLog(job, `release artifact download failed: ${message}`);
-      return false;
-    }
+    const cached = await deps.ensureCachedTarball({
+      tag,
+      repo,
+      onProgress: ({ message, bytesReceived, totalBytes }) => {
+        appendReleaseLog(job, message);
+        setReleaseProgress(job, {
+          step:
+            bytesReceived !== undefined
+              ? "downloading-artifact"
+              : "preparing-artifact",
+          label:
+            bytesReceived !== undefined
+              ? "Downloading release package"
+              : "Preparing release package",
+          detail: message,
+          bytesReceived: bytesReceived ?? null,
+          totalBytes: totalBytes ?? null,
+        });
+      },
+    });
 
     appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
     setReleaseProgress(job, {
@@ -607,7 +591,6 @@ Suggested workflow:
       "==> deployed from pre-built artifact (no build needed)"
     );
     await deps.pruneCacheExcept([tag]);
-    return true;
   }
 
   function currentReleaseBinaryGlob(): string {
@@ -661,68 +644,11 @@ Suggested workflow:
     );
   }
 
-  async function assertCommandOnPath(
-    job: ReleaseJob,
-    command: string,
-    purpose: string
-  ): Promise<void> {
-    const quotedCommand = `'${command.replace(/'/g, `'\\''`)}'`;
-    const result = await deps.runCommand(
-      "bash",
-      ["-lc", `command -v -- ${quotedCommand} >/dev/null 2>&1`],
-      { cwd: deps.serverDir, allowedExitCodes: [0, 1] }
-    );
-
-    if (result.exitCode !== 0) {
-      throw new Error(
-        `${command} is required to ${purpose}, but was not found on PATH`
-      );
-    }
-
-    appendReleaseLog(job, `==> found ${command} on PATH`);
-  }
-
   async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
     setReleasePhase(job, "deploying");
     appendReleaseLog(job, `==> deploying ${tag}`);
 
-    const usedArtifact = await deployFromArtifact(job, tag);
-
-    if (!usedArtifact) {
-      appendReleaseLog(job, "==> falling back to build from source");
-      appendReleaseLog(job, `==> checking out ${tag}`);
-      setReleaseProgress(job, {
-        step: "checking-out-source",
-        label: `Loading ${tag}`,
-        detail: "Preparing the source checkout for a local build.",
-      });
-      await deps.runCommand("git", ["-C", deps.serverDir, "checkout", tag]);
-      await assertCommandOnPath(job, "pnpm", "build Dispatch from source");
-      appendReleaseLog(job, "==> installing dependencies");
-      setReleaseProgress(job, {
-        step: "installing-dependencies",
-        label: "Installing dependencies",
-        detail: "Preparing the source build environment.",
-      });
-      await streamProcess(
-        "pnpm",
-        ["install", "--frozen-lockfile"],
-        { cwd: deps.serverDir },
-        job
-      );
-      appendReleaseLog(job, "==> building from source");
-      setReleaseProgress(job, {
-        step: "building-release",
-        label: "Building release",
-        detail: "Compiling Dispatch from source because no artifact was used.",
-      });
-      await streamProcess(
-        "pnpm",
-        ["run", "build:bun"],
-        { cwd: deps.serverDir },
-        job
-      );
-    }
+    await deployFromArtifact(job, tag);
 
     setReleaseProgress(job, {
       step: "verifying-runtime",
