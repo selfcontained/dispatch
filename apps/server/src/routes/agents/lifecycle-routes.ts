@@ -434,6 +434,14 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(400).send({ error: "Invalid line range." });
     }
 
+    if (body.endLine - body.startLine > 500) {
+      return reply.code(400).send({ error: "Line range too large." });
+    }
+
+    if (body.comment.length > 10_000) {
+      return reply.code(400).send({ error: "Comment too long." });
+    }
+
     const agent = await deps.agentManager.getAgent(id);
     if (!agent) {
       return reply.code(404).send({ error: "Agent not found." });
