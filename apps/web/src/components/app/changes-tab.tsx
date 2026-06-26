@@ -937,7 +937,7 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
 
   return (
     <div ref={diffRef} className="changes-diff-view text-xs relative">
-      <div className="overflow-x-auto">
+      <div className="overflow-x-auto overflow-y-clip">
         <Diff
           viewType="unified"
           diffType={diffType}
