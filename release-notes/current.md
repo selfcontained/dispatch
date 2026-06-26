@@ -1,6 +1,7 @@
 ## What's Changed
-* Extract agent lifecycle tools from MCP server.ts by @selfcontained in https://github.com/selfcontained/dispatch/pull/680
-* Add GitHub Primer syntax highlighting to Changes tab by @selfcontained in https://github.com/selfcontained/dispatch/pull/691
+* Add diff-file-rules tests, fix terminal drag-drop flake by @selfcontained in https://github.com/selfcontained/dispatch/pull/692
+* Remove source build fallback from release update flow by @selfcontained in https://github.com/selfcontained/dispatch/pull/693
+* Add quick comment to diff viewer (Phase 2) by @selfcontained in https://github.com/selfcontained/dispatch/pull/690
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.23.8...v0.23.9
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.23.9...v0.23.10
