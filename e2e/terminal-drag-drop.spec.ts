@@ -74,6 +74,9 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await loadApp(page);
     await page.getByTestId(`agent-row-${agent.id}`).click();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await expect(page.getByTestId("terminal-connected-state")).toBeAttached({
+      timeout: 15_000,
+    });
 
     const overlay = page.getByTestId("terminal-drop-overlay");
     await expect(overlay).toBeHidden();
@@ -143,6 +146,9 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await loadApp(page);
     await page.getByTestId(`agent-row-${agent.id}`).click();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await expect(page.getByTestId("terminal-connected-state")).toBeAttached({
+      timeout: 15_000,
+    });
 
     let uploadDone = false;
     let clipboardSeen = false;
@@ -206,6 +212,9 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await loadApp(page);
     await page.getByTestId(`agent-row-${agent.id}`).click();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await expect(page.getByTestId("terminal-connected-state")).toBeAttached({
+      timeout: 15_000,
+    });
 
     await expect
       .poll(
