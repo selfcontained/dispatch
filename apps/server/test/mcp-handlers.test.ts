@@ -1124,7 +1124,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("delivers cross-repo when DISPATCH_CROSS_REPO_MESSAGING is enabled", async () => {
-      process.env.DISPATCH_CROSS_REPO_MESSAGING = "1";
+      process.env.DISPATCH_CROSS_REPO_MESSAGING = "true";
       try {
         deps.agentManager.listAgents.mockResolvedValue([
           {
@@ -1198,7 +1198,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("lists agents across repos when DISPATCH_CROSS_REPO_MESSAGING is enabled", async () => {
-      process.env.DISPATCH_CROSS_REPO_MESSAGING = "1";
+      process.env.DISPATCH_CROSS_REPO_MESSAGING = "true";
       try {
         deps.agentManager.listAgents.mockResolvedValue([
           {

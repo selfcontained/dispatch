@@ -115,13 +115,42 @@ export function mcpMethodNotAllowed(): {
  * list_agents) address agents in *other* repositories. By default the
  * addressable peer set is scoped to the sender's git repo root; for local
  * multi-repo workflows (e.g. an agent in repo A messaging an agent in repo B)
- * set DISPATCH_CROSS_REPO_MESSAGING=1 to lift that scoping.
+ * set DISPATCH_CROSS_REPO_MESSAGING=true to lift that scoping.
  */
 const CROSS_REPO_MESSAGING_ENV = "DISPATCH_CROSS_REPO_MESSAGING";
 
 function crossRepoMessagingEnabled(): boolean {
-  const value = process.env[CROSS_REPO_MESSAGING_ENV]?.toLowerCase();
-  return value === "1" || value === "true" || value === "yes";
+  return process.env[CROSS_REPO_MESSAGING_ENV] === "true";
+}
+
+/**
+ * The set of agents a sender may address via dispatch_send_message and
+ * list_agents: every other agent (self excluded), scoped to the sender's git
+ * repo root unless cross-repo messaging is enabled. This is the single
+ * definition of that visibility boundary — both message delivery and agent
+ * listing consult it, so they can never disagree about who is reachable.
+ */
+async function addressableAgents<T extends { id: string; cwd: string }>(
+  all: T[],
+  agentId: string,
+  senderRepoRoot: string | null
+): Promise<T[]> {
+  const crossRepo = crossRepoMessagingEnabled();
+  const result: T[] = [];
+  for (const a of all) {
+    if (a.id === agentId) continue;
+    if (crossRepo) {
+      result.push(a);
+      continue;
+    }
+    try {
+      const aRoot = await resolveRepoRoot(a.cwd);
+      if (aRoot === senderRepoRoot) result.push(a);
+    } catch {
+      // agent cwd not in a git repo — skip
+    }
+  }
+  return result;
 }
 
 export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
@@ -804,29 +833,17 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       if (!sender) throw new Error("Sender agent not found.");
 
       const senderRepoRoot = input.senderRepoRoot;
-      const crossRepo = crossRepoMessagingEnabled();
-      if (!crossRepo && !senderRepoRoot) {
+      if (!crossRepoMessagingEnabled() && !senderRepoRoot) {
         throw new Error(
           "Cannot send messages: unable to determine your project's repository root."
         );
       }
 
-      const allAgentsRaw = await agentManager.listAgents();
-      const allAgents: typeof allAgentsRaw = [];
-      for (const a of allAgentsRaw) {
-        if (a.id === agentId) continue;
-        if (crossRepo) {
-          // Cross-repo messaging enabled: address every other agent.
-          allAgents.push(a);
-          continue;
-        }
-        try {
-          const aRoot = await resolveRepoRoot(a.cwd);
-          if (aRoot === senderRepoRoot) allAgents.push(a);
-        } catch {
-          // agent cwd not in a git repo — skip
-        }
-      }
+      const allAgents = await addressableAgents(
+        await agentManager.listAgents(),
+        agentId,
+        senderRepoRoot
+      );
 
       const isAgentId = input.target.startsWith("agt_");
 
@@ -911,14 +928,17 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         latestEvent: { type: string; message: string } | null;
       }>
     > {
-      const crossRepo = crossRepoMessagingEnabled();
-      if (!crossRepo && !senderRepoRoot) {
+      if (!crossRepoMessagingEnabled() && !senderRepoRoot) {
         throw new Error(
           "Cannot list agents: unable to determine your project's repository root."
         );
       }
 
-      const agents = await agentManager.listAgents();
+      const agents = await addressableAgents(
+        await agentManager.listAgents(),
+        agentId,
+        senderRepoRoot
+      );
       const result: Array<{
         id: string;
         name: string;
@@ -926,16 +946,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         latestEvent: { type: string; message: string } | null;
       }> = [];
       for (const a of agents) {
-        if (a.id === agentId) continue;
-        if (!crossRepo) {
-          // Default: only list agents sharing the sender's repo root.
-          try {
-            const aRoot = await resolveRepoRoot(a.cwd);
-            if (aRoot !== senderRepoRoot) continue;
-          } catch {
-            continue;
-          }
-        }
         result.push({
           id: a.id,
           name: a.name,
