@@ -79,6 +79,9 @@ export function SettingsTab({
     !!msFromMinutes(timeoutMinutes) &&
     !!msFromMinutes(needsInputTimeoutMinutes);
 
+  // Reset form state only when switching to a different job — not on every
+  // refetch of the same job.  SSE-driven invalidations change volatile fields
+  // (updatedAt, lastRun*, nextRun) which would otherwise clobber unsaved edits.
   useEffect(() => {
     setDisplayName(job.name);
     setSchedule(job.schedule ?? "");
@@ -98,7 +101,8 @@ export function SettingsTab({
     setRemoveError(null);
     setRemoveDialogOpen(false);
     setSaved(false);
-  }, [job]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [job.id]);
 
   return (
     <div className="mt-4 grid gap-4">
