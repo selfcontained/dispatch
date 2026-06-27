@@ -35,6 +35,12 @@ describe("git worktree services", () => {
         case `-C ${repoRoot} rev-parse --show-toplevel`:
         case `-C ${path.join(repoRoot, "nested")} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} remote get-url origin`:
+          return {
+            exitCode: 0,
+            stdout: "git@github.com:test/repo.git",
+            stderr: "",
+          };
         case `-C ${repoRoot} fetch origin main --quiet`:
           return { exitCode: 0, stdout: "", stderr: "" };
         case `-C ${repoRoot} rev-parse --verify origin/main`:
@@ -83,6 +89,12 @@ describe("git worktree services", () => {
       switch (key) {
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} remote get-url origin`:
+          return {
+            exitCode: 0,
+            stdout: "git@github.com:test/repo.git",
+            stderr: "",
+          };
         case `-C ${repoRoot} fetch origin feature/x --quiet`:
         case `-C ${repoRoot} fetch origin feature-x --quiet`:
           return { exitCode: 0, stdout: "", stderr: "" };
@@ -132,6 +144,12 @@ describe("git worktree services", () => {
       switch (key) {
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} remote get-url origin`:
+          return {
+            exitCode: 0,
+            stdout: "git@github.com:test/repo.git",
+            stderr: "",
+          };
         case `-C ${repoRoot} fetch origin feature/x --quiet`:
           return { exitCode: 0, stdout: "", stderr: "" };
         case `-C ${repoRoot} rev-parse --verify origin/feature/x`:
@@ -174,6 +192,12 @@ describe("git worktree services", () => {
       switch (key) {
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} remote get-url origin`:
+          return {
+            exitCode: 0,
+            stdout: "git@github.com:test/repo.git",
+            stderr: "",
+          };
         case `-C ${repoRoot} fetch origin main --quiet`:
           return { exitCode: 0, stdout: "", stderr: "" };
         case `-C ${repoRoot} rev-parse --verify origin/main`:
@@ -196,6 +220,41 @@ describe("git worktree services", () => {
       message: 'Local branch "existing-branch" already exists.',
       statusCode: 409,
     });
+  });
+
+  it("falls back to local branch when no origin remote exists", async () => {
+    const repoRoot = path.join(tempRoot, "repo");
+    const expectedWorktreePath = path.join(tempRoot, "repo-feature-local");
+
+    vi.mocked(runCommand).mockImplementation(async (_command, args) => {
+      const key = args.join(" ");
+
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} remote get-url origin`:
+          throw new Error("fatal: No such remote 'origin'");
+        case `-C ${repoRoot} rev-parse --verify main`:
+          return { exitCode: 0, stdout: "localsha", stderr: "" };
+        case `-C ${repoRoot} show-ref --verify --quiet refs/heads/feature-local`:
+        case `-C ${repoRoot} show-ref --verify --quiet refs/remotes/origin/feature-local`:
+          return { exitCode: 1, stdout: "", stderr: "" };
+        case `-C ${repoRoot} worktree add -b feature-local ${expectedWorktreePath} main`:
+        case `-C ${expectedWorktreePath} branch --set-upstream-to main feature-local`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    const result = await createGitWorktree({
+      cwd: repoRoot,
+      name: "Feature Local",
+      createNewBranch: true,
+    });
+
+    expect(result.baseRef).toBe("main");
+    expect(result.baseSha).toBe("localsha");
   });
 
   it("removes a linked worktree, updates main, and deletes the branch", async () => {

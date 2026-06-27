@@ -141,21 +141,24 @@ export async function createGitWorktree(
   await ensurePathDoesNotExist(worktreePath);
 
   const updateBase = input.updateBase ?? true;
-  const baseRef = updateBase ? `origin/${baseBranch}` : baseBranch;
+  let baseRef = updateBase ? `origin/${baseBranch}` : baseBranch;
 
   if (updateBase) {
-    await commandRunner("git", [
-      "-C",
-      repoRoot,
-      "fetch",
-      "origin",
-      baseBranch,
-      "--quiet",
-    ]);
-    await ensureGitRefExists(repoRoot, baseRef, commandRunner);
-  } else {
-    await ensureGitRefExists(repoRoot, baseRef, commandRunner);
+    const hasOrigin = await hasRemote(repoRoot, "origin", commandRunner);
+    if (hasOrigin) {
+      await commandRunner("git", [
+        "-C",
+        repoRoot,
+        "fetch",
+        "origin",
+        baseBranch,
+        "--quiet",
+      ]);
+    } else {
+      baseRef = baseBranch;
+    }
   }
+  await ensureGitRefExists(repoRoot, baseRef, commandRunner);
 
   const baseSha = await resolveGitRef(repoRoot, baseRef, commandRunner);
 
@@ -521,6 +524,25 @@ async function ensurePrimaryCheckoutCanUpdate(
       `Primary checkout at ${repoRoot} has uncommitted changes. Refusing to update "${baseBranch}".`,
       409
     );
+  }
+}
+
+async function hasRemote(
+  repoRoot: string,
+  remoteName: string,
+  commandRunner: CommandRunner
+): Promise<boolean> {
+  try {
+    await commandRunner("git", [
+      "-C",
+      repoRoot,
+      "remote",
+      "get-url",
+      remoteName,
+    ]);
+    return true;
+  } catch {
+    return false;
   }
 }
 
