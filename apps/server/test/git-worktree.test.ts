@@ -233,7 +233,11 @@ describe("git worktree services", () => {
         case `-C ${repoRoot} rev-parse --show-toplevel`:
           return { exitCode: 0, stdout: repoRoot, stderr: "" };
         case `-C ${repoRoot} remote get-url origin`:
-          throw new Error("fatal: No such remote 'origin'");
+          return {
+            exitCode: 2,
+            stdout: "",
+            stderr: "fatal: No such remote 'origin'",
+          };
         case `-C ${repoRoot} rev-parse --verify main`:
           return { exitCode: 0, stdout: "localsha", stderr: "" };
         case `-C ${repoRoot} show-ref --verify --quiet refs/heads/feature-local`:
@@ -255,6 +259,31 @@ describe("git worktree services", () => {
 
     expect(result.baseRef).toBe("main");
     expect(result.baseSha).toBe("localsha");
+  });
+
+  it("propagates unexpected remote-probe failures instead of falling back", async () => {
+    const repoRoot = path.join(tempRoot, "repo");
+
+    vi.mocked(runCommand).mockImplementation(async (_command, args) => {
+      const key = args.join(" ");
+
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} remote get-url origin`:
+          throw new Error("spawn git ENOENT");
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    await expect(
+      createGitWorktree({
+        cwd: repoRoot,
+        name: "Should Fail",
+        createNewBranch: true,
+      })
+    ).rejects.toThrow("spawn git ENOENT");
   });
 
   it("removes a linked worktree, updates main, and deletes the branch", async () => {

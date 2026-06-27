@@ -532,18 +532,13 @@ async function hasRemote(
   remoteName: string,
   commandRunner: CommandRunner
 ): Promise<boolean> {
-  try {
-    await commandRunner("git", [
-      "-C",
-      repoRoot,
-      "remote",
-      "get-url",
-      remoteName,
-    ]);
-    return true;
-  } catch {
-    return false;
-  }
+  // exit 2 = remote doesn't exist; other non-zero exits or spawn failures propagate
+  const result = await commandRunner(
+    "git",
+    ["-C", repoRoot, "remote", "get-url", remoteName],
+    { allowedExitCodes: [0, 2] }
+  );
+  return result.exitCode === 0;
 }
 
 async function ensurePathDoesNotExist(targetPath: string): Promise<void> {
