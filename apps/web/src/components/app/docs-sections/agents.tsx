@@ -38,7 +38,9 @@ export function AgentsContent() {
             controls whether Dispatch forks a new working branch from the
             starting branch (on, default — the authoring flow) or just checks
             out the starting branch directly (off — review/investigation flows).
-            See the Worktrees section for details.
+            When on, a <strong>New branch name</strong> input appears — leave it
+            empty and Dispatch auto-generates a name, or type one to use a
+            specific branch. See the Worktrees section for details.
           </li>
           <li>
             <strong>Full access mode</strong> (CLI types only) — starts the CLI
