@@ -332,8 +332,11 @@ export async function registerAgentLifecycleRoutes(
       (agent.worktreePath || gitContextWorktreePath ? "main" : null);
 
     try {
+      const ignoreWhitespace =
+        (request.query as { ignoreWhitespace?: string }).ignoreWhitespace !==
+        "false";
       const result = await getAgentDiff(worktreePath, baseRef, undefined, {
-        ignoreWhitespace: true,
+        ignoreWhitespace,
       });
       if (!result) {
         return { baseRef: null, files: [] };
@@ -379,12 +382,15 @@ export async function registerAgentLifecycleRoutes(
       (agent.worktreePath || gitContextWorktreePath ? "main" : null);
 
     try {
+      const ignoreWhitespace =
+        (request.query as { ignoreWhitespace?: string }).ignoreWhitespace !==
+        "false";
       const result = await getAgentFileDiff(
         worktreePath,
         baseRef,
         query.path,
         undefined,
-        { ignoreWhitespace: true }
+        { ignoreWhitespace }
       );
       if (!result) {
         return reply.code(404).send({ error: "File not found in diff." });

@@ -82,6 +82,23 @@ export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
   atomWithLocalStorage<boolean>(`dispatch:dismissedReleaseToast:${tag}`, false)
 );
 
+export type DiffViewType = "unified" | "split";
+
+export const diffViewTypeAtom = atomWithLocalStorage<DiffViewType>(
+  "dispatch:diffViewType",
+  "unified"
+);
+
+export const diffIgnoreWhitespaceAtom = atomWithLocalStorage<boolean>(
+  "dispatch:diffIgnoreWhitespace",
+  true
+);
+
+export const diffFileTreeOpenAtom = atomWithLocalStorage<boolean>(
+  "dispatch:diffFileTreeOpen",
+  true
+);
+
 export type MediaSidebarTab = "pins" | "media" | "brain";
 
 export type MediaSidebarState = {

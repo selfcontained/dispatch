@@ -35,7 +35,8 @@ export function agentDiffQueryKey(agentId: string): [string, string] {
 
 export function useAgentDiff(
   agentId: string | null,
-  enabled: boolean
+  enabled: boolean,
+  ignoreWhitespace = true
 ): {
   data: DiffResponse | undefined;
   isLoading: boolean;
@@ -44,9 +45,11 @@ export function useAgentDiff(
   const queryClient = useQueryClient();
 
   const query = useQuery<DiffResponse>({
-    queryKey: agentDiffQueryKey(agentId ?? ""),
+    queryKey: [...agentDiffQueryKey(agentId ?? ""), ignoreWhitespace],
     queryFn: async () => {
-      return api<DiffResponse>(`/api/v1/agents/${agentId}/diff`);
+      return api<DiffResponse>(
+        `/api/v1/agents/${agentId}/diff?ignoreWhitespace=${ignoreWhitespace}`
+      );
     },
     enabled: enabled && !!agentId,
     refetchOnWindowFocus: true,
@@ -67,16 +70,17 @@ export function useAgentDiff(
 export function useAgentFileDiff(
   agentId: string | null,
   filePath: string | null,
-  enabled: boolean
+  enabled: boolean,
+  ignoreWhitespace = true
 ): {
   data: FileDiffResponse | undefined;
   isLoading: boolean;
 } {
   const query = useQuery<FileDiffResponse>({
-    queryKey: ["agent-diff-file", agentId, filePath],
+    queryKey: ["agent-diff-file", agentId, filePath, ignoreWhitespace],
     queryFn: async () => {
       return api<FileDiffResponse>(
-        `/api/v1/agents/${agentId}/diff/file?path=${encodeURIComponent(filePath!)}&force=true`
+        `/api/v1/agents/${agentId}/diff/file?path=${encodeURIComponent(filePath!)}&force=true&ignoreWhitespace=${ignoreWhitespace}`
       );
     },
     enabled: enabled && !!agentId && !!filePath,

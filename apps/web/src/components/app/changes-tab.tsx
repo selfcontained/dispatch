@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useAtom, useAtomValue } from "jotai";
 import { useNavigate } from "react-router-dom";
 import {
   ChevronDown,
@@ -85,6 +86,12 @@ import {
   type DiffFileStatus,
 } from "@/hooks/use-agent-diff";
 import { agentRoute } from "@/lib/agent-routes";
+import {
+  type DiffViewType,
+  diffViewTypeAtom,
+  diffIgnoreWhitespaceAtom,
+  diffFileTreeOpenAtom,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type LineSelection = {
@@ -97,20 +104,25 @@ type LineSelection = {
 type ChangesTabProps = {
   agentId: string | null;
   active: boolean;
+  isMobile?: boolean;
 };
 
 export const ChangesTab = memo(function ChangesTab({
   agentId,
   active,
+  isMobile,
 }: ChangesTabProps): JSX.Element {
-  const { data, isLoading } = useAgentDiff(agentId, active);
+  const storedViewType = useAtomValue(diffViewTypeAtom);
+  const viewType = isMobile ? "unified" : storedViewType;
+  const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
+  const { data, isLoading } = useAgentDiff(agentId, active, ignoreWhitespace);
   const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(
     null
   );
   const [commentOpen, setCommentOpen] = useState(false);
-  const [fileTreeOpen, setFileTreeOpen] = useState(true);
+  const [fileTreeOpen, setFileTreeOpen] = useAtom(diffFileTreeOpenAtom);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const handleLineSelection = useCallback((sel: LineSelection | null) => {
@@ -186,6 +198,8 @@ export const ChangesTab = memo(function ChangesTab({
         onLineSelection={handleLineSelection}
         commentOpen={commentOpen}
         onCommentOpen={setCommentOpen}
+        viewType={viewType}
+        ignoreWhitespace={ignoreWhitespace}
       />
     </div>
   );
@@ -439,6 +453,8 @@ type DiffPaneProps = {
   onLineSelection: (sel: LineSelection | null) => void;
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
+  viewType: DiffViewType;
+  ignoreWhitespace: boolean;
 };
 
 function DiffPane({
@@ -451,6 +467,8 @@ function DiffPane({
   onLineSelection,
   commentOpen,
   onCommentOpen,
+  viewType,
+  ignoreWhitespace,
 }: DiffPaneProps): JSX.Element {
   return (
     <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background px-3 pb-3">
@@ -472,6 +490,8 @@ function DiffPane({
           onLineSelection={onLineSelection}
           commentOpen={commentOpen}
           onCommentOpen={onCommentOpen}
+          viewType={viewType}
+          ignoreWhitespace={ignoreWhitespace}
         />
       ))}
     </div>
@@ -488,6 +508,8 @@ type FileDiffSectionProps = {
   onLineSelection: (sel: LineSelection | null) => void;
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
+  viewType: DiffViewType;
+  ignoreWhitespace: boolean;
 };
 
 function FileDiffSection({
@@ -500,6 +522,8 @@ function FileDiffSection({
   onLineSelection,
   commentOpen,
   onCommentOpen,
+  viewType,
+  ignoreWhitespace,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div ref={setRef} className="rounded-md border border-border/50">
@@ -549,6 +573,8 @@ function FileDiffSection({
               onLineSelection={onLineSelection}
               commentOpen={commentOpen}
               onCommentOpen={onCommentOpen}
+              viewType={viewType}
+              ignoreWhitespace={ignoreWhitespace}
             />
           </motion.div>
         )}
@@ -564,6 +590,8 @@ type FileDiffContentProps = {
   onLineSelection: (sel: LineSelection | null) => void;
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
+  viewType: DiffViewType;
+  ignoreWhitespace: boolean;
 };
 
 function FileDiffContent({
@@ -573,12 +601,15 @@ function FileDiffContent({
   onLineSelection,
   commentOpen,
   onCommentOpen,
+  viewType,
+  ignoreWhitespace,
 }: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
     agentId,
     file.path,
-    file.truncated && forceLoad
+    file.truncated && forceLoad,
+    ignoreWhitespace
   );
 
   const diffText = file.truncated
@@ -635,6 +666,7 @@ function FileDiffContent({
       onLineSelection={onLineSelection}
       commentOpen={commentOpen}
       onCommentOpen={onCommentOpen}
+      viewType={viewType}
     />
   );
 }
@@ -755,6 +787,7 @@ type UnifiedDiffViewProps = {
   onLineSelection: (sel: LineSelection | null) => void;
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
+  viewType: DiffViewType;
 };
 
 const UnifiedDiffView = memo(function UnifiedDiffView({
@@ -765,6 +798,7 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   onLineSelection,
   commentOpen,
   onCommentOpen,
+  viewType,
 }: UnifiedDiffViewProps): JSX.Element {
   const parsed = useMemo(() => {
     try {
@@ -939,7 +973,7 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     <div ref={diffRef} className="changes-diff-view text-xs relative">
       <div className="overflow-x-auto overflow-y-clip">
         <Diff
-          viewType="unified"
+          viewType={viewType}
           diffType={diffType}
           hunks={file.hunks}
           tokens={tokens}
