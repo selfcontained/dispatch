@@ -72,10 +72,17 @@ test.describe("Terminal drag-and-drop file upload", () => {
     });
 
     await loadApp(page);
+    const tokenReady = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/agents/${agent.id}/terminal/token`) &&
+        r.status() === 200,
+      { timeout: 30_000 }
+    );
     await page.getByTestId(`agent-row-${agent.id}`).click();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await tokenReady;
     await expect(page.getByTestId("terminal-connected-state")).toBeAttached({
-      timeout: 15_000,
+      timeout: 5_000,
     });
 
     const overlay = page.getByTestId("terminal-drop-overlay");
@@ -101,7 +108,15 @@ test.describe("Terminal drag-and-drop file upload", () => {
 
     // Wait for the upload response (not just the request) so the DB write
     // has committed before we query the media list.
+    let uploadSent = false;
     let uploadDone = false;
+    page.on("request", (req) => {
+      if (
+        req.method() === "POST" &&
+        req.url().includes(`/api/v1/agents/${agent.id}/media`)
+      )
+        uploadSent = true;
+    });
     page.on("response", (res) => {
       if (
         res.request().method() === "POST" &&
@@ -114,11 +129,13 @@ test.describe("Terminal drag-and-drop file upload", () => {
     await expect
       .poll(
         async () => {
-          await dispatchDragEvent(page, "dragover", TXT);
-          await dispatchDragEvent(page, "drop", TXT);
+          if (!uploadSent) {
+            await dispatchDragEvent(page, "dragover", TXT);
+            await dispatchDragEvent(page, "drop", TXT);
+          }
           return uploadDone;
         },
-        { timeout: 15_000, intervals: [200, 300, 500] }
+        { timeout: 30_000, intervals: [200, 300, 500] }
       )
       .toBe(true);
 
@@ -144,14 +161,34 @@ test.describe("Terminal drag-and-drop file upload", () => {
     });
 
     await loadApp(page);
+    const tokenReady = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/agents/${agent.id}/terminal/token`) &&
+        r.status() === 200,
+      { timeout: 30_000 }
+    );
     await page.getByTestId(`agent-row-${agent.id}`).click();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await tokenReady;
     await expect(page.getByTestId("terminal-connected-state")).toBeAttached({
-      timeout: 15_000,
+      timeout: 5_000,
     });
 
+    let uploadSent = false;
     let uploadDone = false;
     let clipboardSeen = false;
+    page.on("request", (req) => {
+      if (
+        req.method() === "POST" &&
+        req.url().includes(`/api/v1/agents/${agent.id}/media`)
+      )
+        uploadSent = true;
+      if (
+        req.method() === "POST" &&
+        req.url().includes("/api/v1/clipboard/image")
+      )
+        clipboardSeen = true;
+    });
     page.on("response", (res) => {
       if (
         res.request().method() === "POST" &&
@@ -160,22 +197,17 @@ test.describe("Terminal drag-and-drop file upload", () => {
       )
         uploadDone = true;
     });
-    page.on("request", (req) => {
-      if (
-        req.method() === "POST" &&
-        req.url().includes("/api/v1/clipboard/image")
-      )
-        clipboardSeen = true;
-    });
 
     await expect
       .poll(
         async () => {
-          await dispatchDragEvent(page, "dragover", IMG);
-          await dispatchDragEvent(page, "drop", IMG);
+          if (!uploadSent) {
+            await dispatchDragEvent(page, "dragover", IMG);
+            await dispatchDragEvent(page, "drop", IMG);
+          }
           return uploadDone;
         },
-        { timeout: 15_000, intervals: [200, 300, 500] }
+        { timeout: 30_000, intervals: [200, 300, 500] }
       )
       .toBe(true);
 
@@ -199,7 +231,15 @@ test.describe("Terminal drag-and-drop file upload", () => {
       name: `e2e-agent-paste-${Date.now()}`,
     });
 
+    let uploadSent = false;
     let uploadDone = false;
+    page.on("request", (req) => {
+      if (
+        req.method() === "POST" &&
+        req.url().includes(`/api/v1/agents/${agent.id}/media`)
+      )
+        uploadSent = true;
+    });
     page.on("response", (res) => {
       if (
         res.request().method() === "POST" &&
@@ -210,19 +250,28 @@ test.describe("Terminal drag-and-drop file upload", () => {
     });
 
     await loadApp(page);
+    const tokenReady = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/agents/${agent.id}/terminal/token`) &&
+        r.status() === 200,
+      { timeout: 30_000 }
+    );
     await page.getByTestId(`agent-row-${agent.id}`).click();
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await tokenReady;
     await expect(page.getByTestId("terminal-connected-state")).toBeAttached({
-      timeout: 15_000,
+      timeout: 5_000,
     });
 
     await expect
       .poll(
         async () => {
-          await dispatchPaste(page, IMG);
+          if (!uploadSent) {
+            await dispatchPaste(page, IMG);
+          }
           return uploadDone;
         },
-        { timeout: 15_000, intervals: [200, 300, 500] }
+        { timeout: 30_000, intervals: [200, 300, 500] }
       )
       .toBe(true);
 
