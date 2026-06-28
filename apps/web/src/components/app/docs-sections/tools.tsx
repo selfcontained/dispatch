@@ -85,10 +85,10 @@ export function ToolsContent() {
         <P>
           By default a repo tool is exposed to every agent type. Add an optional{" "}
           <Code>scope</Code> array to restrict where a tool shows up. Valid
-          scopes are <Code>"agent"</Code> (standard agents),{" "}
-          <Code>"reviewer"</Code> (persona reviewers), and <Code>"job"</Code>{" "}
-          (scheduled job runs). Useful for job-only maintenance commands that
-          shouldn't clutter a regular agent's toolset.
+          scopes are <Code>"agent"</Code> (standard agents and persona
+          reviewers) and <Code>"job"</Code> (scheduled job runs). Useful for
+          job-only maintenance commands that shouldn't clutter a regular agent's
+          toolset.
         </P>
         <CodeBlock>{`
 {
