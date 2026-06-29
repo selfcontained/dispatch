@@ -3,6 +3,7 @@ import { Routes, Route, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { ChangesTab } from "@/components/app/changes-tab";
+import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
 import { CenterPaneTabBar } from "@/components/app/center-pane-tab-bar";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 
@@ -529,6 +530,9 @@ export function AgentsView({
                   ) : null}
                 </div>
                 <div className="flex items-center gap-1">
+                  {changesMatch && !isMobile ? (
+                    <ChangesSettingsPopover />
+                  ) : null}
                   {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
                     <Button
                       size="icon"
@@ -578,7 +582,11 @@ export function AgentsView({
                   <Route
                     path="changes"
                     element={
-                      <ChangesTab agentId={focusedAgentId} active={true} />
+                      <ChangesTab
+                        agentId={focusedAgentId}
+                        active={true}
+                        isMobile={isMobile}
+                      />
                     }
                   />
                 </Routes>

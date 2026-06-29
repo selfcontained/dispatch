@@ -1264,6 +1264,17 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   padding: 4px 12px;
 }
 
+/* Split diff view adjustments */
+.changes-diff-view .diff-split .diff-gutter-col {
+  width: 40px;
+}
+.changes-diff-view .diff-split .diff-gutter {
+  padding: 0 4px;
+}
+.changes-diff-view .diff-split .diff-code {
+  padding: 0 8px;
+}
+
 /* Syntax highlighting — dark mode (GitHub Dark) */
 .changes-diff-view .token.comment,
 .changes-diff-view .token.prolog,
