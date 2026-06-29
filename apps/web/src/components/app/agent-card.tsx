@@ -30,6 +30,7 @@ import {
 } from "@/components/app/feedback-panel";
 import { IdeLaunchButton } from "@/components/app/ide-launch-button";
 import { PersonaLauncher } from "@/components/app/persona-launcher";
+import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Badge } from "@/components/ui/badge";
@@ -193,6 +194,7 @@ export function AgentCard({
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
   const [renamePromptPending, setRenamePromptPending] = React.useState(false);
+  const [settingsOpen, setSettingsOpen] = React.useState(false);
   const needsAttention = agent.status === "error";
   const isJobAgent = agent.name.startsWith("job-");
   const isAssistedUpdateAgent = agent.role === "assisted_update";
@@ -258,24 +260,36 @@ export function AgentCard({
           }}
         >
           <div className="flex flex-1 min-w-0 items-center gap-1.5">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <div className="min-w-0 flex items-center gap-2 text-left text-sm font-semibold">
-                  <AgentTypeIcon
-                    type={agent.type}
-                    eventType={
-                      isTerminalAgent
-                        ? null
-                        : agent.status === "running"
-                          ? agent.latestEvent?.type
-                          : null
-                    }
-                  />
-                  <span className="truncate">{agent.name}</span>
-                </div>
-              </TooltipTrigger>
-              <TooltipContent>{agent.cwd}</TooltipContent>
-            </Tooltip>
+            <div className="min-w-0 flex items-center gap-2 text-left text-sm font-semibold">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <span className="shrink-0">
+                    <AgentTypeIcon
+                      type={agent.type}
+                      eventType={
+                        isTerminalAgent
+                          ? null
+                          : agent.status === "running"
+                            ? agent.latestEvent?.type
+                            : null
+                      }
+                    />
+                  </span>
+                </TooltipTrigger>
+                <TooltipContent>{agent.cwd}</TooltipContent>
+              </Tooltip>
+              <button
+                type="button"
+                data-agent-control="true"
+                data-testid={`agent-session-name-${agent.id}`}
+                aria-label={`Session settings for ${agent.name}`}
+                title="Session settings"
+                className="min-w-0 truncate rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-muted transition-colors"
+                onClick={() => setSettingsOpen(true)}
+              >
+                {agent.name}
+              </button>
+            </div>
             {canPromptRename ? (
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -285,12 +299,6 @@ export function AgentCard({
                     data-agent-control="true"
                     data-testid={`agent-prompt-rename-${agent.id}`}
                     aria-label="Ask agent to set a session name"
-                    // Compact 24×24 visual on fine pointers (desktop), bumps
-                    // to ~40×40 on coarse pointers (touch) so the hit area
-                    // clears the rough 44px touch-target guideline. The
-                    // `[@media(pointer:coarse)]:` arbitrary variant is the
-                    // closest Tailwind 3.4 native equivalent to a `touch:`
-                    // modifier — see `index.css` for the generated rule.
                     className="h-6 w-6 shrink-0 text-muted-foreground/70 hover:text-foreground [@media(pointer:coarse)]:h-10 [@media(pointer:coarse)]:w-10"
                     disabled={renamePromptPending}
                     onClick={() => {
@@ -753,6 +761,11 @@ export function AgentCard({
           ) : null}
         </AnimatePresence>
       </div>
+      <SessionSettingsDialog
+        agent={agent}
+        open={settingsOpen}
+        onOpenChange={setSettingsOpen}
+      />
     </React.Fragment>
   );
 }
