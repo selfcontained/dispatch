@@ -1,6 +1,7 @@
 import { test, expect } from "@playwright/test";
 import {
   cleanupE2EAgents,
+  clickAgentRow,
   createAgentViaAPI,
   loadApp,
   setAgentLatestEventViaAPI,
@@ -305,7 +306,7 @@ test.describe("Agent CRUD", () => {
     const attachedCard = page.getByTestId(`agent-card-${attachedAgent.id}`);
     const peekCard = page.getByTestId(`agent-card-${peekAgent.id}`);
 
-    await page.getByTestId(`agent-row-${attachedAgent.id}`).click();
+    await clickAgentRow(page, attachedAgent.id);
     await expect(attachedCard.getByText("/tmp")).toBeVisible({
       timeout: 5_000,
     });
@@ -336,7 +337,7 @@ test.describe("Agent CRUD", () => {
     const attachedCard = page.getByTestId(`agent-card-${attachedAgent.id}`);
     const peekCard = page.getByTestId(`agent-card-${peekAgent.id}`);
 
-    await page.getByTestId(`agent-row-${attachedAgent.id}`).click();
+    await clickAgentRow(page, attachedAgent.id);
     await expect(attachedCard.getByText("/tmp")).toBeVisible({
       timeout: 5_000,
     });
@@ -392,7 +393,7 @@ test.describe("Agent CRUD", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await expect(agentCard.getByText("/tmp")).toBeVisible({ timeout: 5_000 });
 
     await page.getByTestId(`agent-archive-${agent.id}`).click();

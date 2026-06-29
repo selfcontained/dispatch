@@ -280,12 +280,14 @@ export function AgentCard({
               </Tooltip>
               <button
                 type="button"
-                data-agent-control="true"
                 data-testid={`agent-session-name-${agent.id}`}
                 aria-label={`Session settings for ${agent.name}`}
                 title="Session settings"
                 className="min-w-0 truncate rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-muted transition-colors"
-                onClick={() => setSettingsOpen(true)}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setSettingsOpen(true);
+                }}
               >
                 {agent.name}
               </button>

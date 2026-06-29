@@ -2,6 +2,7 @@ import { test, expect } from "@playwright/test";
 
 import {
   cleanupE2EAgents,
+  clickAgentRow,
   createAgentViaAPI,
   loadApp,
   setAgentLatestEventViaAPI,
@@ -30,7 +31,7 @@ test.describe("Chrome overflow", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 10_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
 
     const dimensions = await page.evaluate(() => {
       const main = document.querySelector("main");

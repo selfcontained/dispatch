@@ -8,6 +8,7 @@ import {
 
 import {
   cleanupE2EAgents,
+  clickAgentRow,
   createAgentViaAPI,
   loadApp,
   setAgentLatestEventViaAPI,
@@ -135,7 +136,7 @@ test.describe("Overflow layout", () => {
     );
 
     await loadApp(page);
-    await page.getByText(focusAgent.name, { exact: true }).click();
+    await clickAgentRow(page, focusAgent.id);
     await page.getByTestId("toggle-media-sidebar").click();
 
     const agentSidebarScroll = page.getByTestId("agent-sidebar-scroll");

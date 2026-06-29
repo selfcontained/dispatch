@@ -5,7 +5,7 @@ import {
   type APIRequestContext,
 } from "@playwright/test";
 import { execSync } from "child_process";
-import { cleanupE2EAgents, loadApp } from "./helpers";
+import { cleanupE2EAgents, clickAgentRow, loadApp } from "./helpers";
 
 const AUTH_TOKEN = process.env.AUTH_TOKEN ?? "dev-token";
 const IS_LIVE = process.env.DISPATCH_AGENT_RUNTIME === "tmux";
@@ -172,7 +172,7 @@ test.describe("Terminal live connection", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
 
     // Terminal should connect within 3 seconds
     await waitForTerminalConnected(page, agent.name, 3_000);
@@ -190,7 +190,7 @@ test.describe("Terminal live connection", () => {
     // Attach to the agent's terminal
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
 
     // Now create 3 agents rapidly to trigger SSE agent.upsert events
@@ -222,7 +222,7 @@ test.describe("Terminal live connection", () => {
     // Attach to terminal
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
 
     // Stop the agent
@@ -265,12 +265,12 @@ test.describe("Terminal live connection", () => {
     // Switch back and forth 5 times
     for (let i = 0; i < 5; i++) {
       const targetAgentId = i % 2 === 0 ? agentA.id : agentB.id;
-      await page.getByTestId(`agent-row-${targetAgentId}`).click();
+      await clickAgentRow(page, targetAgentId);
       await page.waitForTimeout(300);
     }
 
     // Finish with an explicit attach to the final target after the burst.
-    await page.getByTestId(`agent-row-${agentB.id}`).click();
+    await clickAgentRow(page, agentB.id);
     await waitForTerminalConnected(page, agentB.name, 5_000);
   });
 
@@ -295,7 +295,7 @@ test.describe("Terminal live connection", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
     await expect.poll(() => tokenRequests).toBeGreaterThan(0);
     const initialTokenRequests = tokenRequests;
@@ -320,7 +320,7 @@ test.describe("Terminal live connection", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
     await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
 
@@ -350,7 +350,7 @@ test.describe("Terminal live connection", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
 
     const pinsButton = page.getByRole("button", { name: "Pins" });
@@ -375,7 +375,7 @@ test.describe("Terminal live connection", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
 
     // Plant a focused text input outside the terminal host.
@@ -406,7 +406,7 @@ test.describe("Terminal live connection", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
 
     // Open the real create-agent dialog (portal-backed via Radix). This
@@ -465,7 +465,7 @@ test.describe("Terminal live connection", () => {
 
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
 
     execSync(
