@@ -2,6 +2,7 @@ import { expect, test, type Page } from "@playwright/test";
 
 import {
   cleanupE2EAgents,
+  clickAgentRow,
   createAgentViaAPI,
   loadApp,
   setAgentPinsViaDB,
@@ -13,7 +14,7 @@ async function openMediaSidebarForAgent(
   page: Page,
   agent: { id: string; name: string }
 ) {
-  await page.getByTestId(`agent-row-${agent.id}`).click();
+  await clickAgentRow(page, agent.id);
   const toggle = page.getByTestId("toggle-media-sidebar");
   await expect(toggle).toBeVisible();
   await toggle.click();
@@ -51,14 +52,14 @@ test.describe("Media sidebar", () => {
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
     await expect(mediaSidebar.getByText("First image")).toBeVisible();
 
-    await page.getByTestId(`agent-row-${secondAgent.id}`).click();
+    await clickAgentRow(page, secondAgent.id);
     await uploadMediaViaAPI(
       request,
       firstAgent.id,
       "Second image",
       "second-image.png"
     );
-    await page.getByTestId(`agent-row-${firstAgent.id}`).click();
+    await clickAgentRow(page, firstAgent.id);
 
     await expect(mediaSidebar.getByText("Second image")).toBeVisible({
       timeout: 10_000,
@@ -98,16 +99,16 @@ test.describe("Media sidebar", () => {
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
     await expect(mediaSidebar.getByText("Remembered image")).toBeVisible();
 
-    await page.getByTestId(`agent-row-${secondAgent.id}`).click();
+    await clickAgentRow(page, secondAgent.id);
     await page.getByTestId("toggle-media-sidebar").click();
     await mediaSidebar.getByRole("button", { name: "Pins" }).click();
     await expect(mediaSidebar.getByText("Pinned for agent B")).toBeVisible();
 
-    await page.getByTestId(`agent-row-${firstAgent.id}`).click();
+    await clickAgentRow(page, firstAgent.id);
     await expect(page.getByTestId("toggle-media-sidebar")).toBeHidden();
     await expect(mediaSidebar.getByText("Remembered image")).toBeVisible();
 
-    await page.getByTestId(`agent-row-${secondAgent.id}`).click();
+    await clickAgentRow(page, secondAgent.id);
     await expect(page.getByTestId("toggle-media-sidebar")).toBeHidden();
     await expect(mediaSidebar.getByText("Pinned for agent B")).toBeVisible();
   });

@@ -1,7 +1,12 @@
 import { expect, test, type Page } from "@playwright/test";
 import { Pool } from "pg";
 
-import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
+import {
+  cleanupE2EAgents,
+  clickAgentRow,
+  createAgentViaAPI,
+  loadApp,
+} from "./helpers";
 
 const AUTH_HEADER = {
   Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
@@ -91,7 +96,7 @@ async function openMediaSidebarForAgent(
   page: Page,
   agent: { id: string; name: string }
 ) {
-  await page.getByTestId(`agent-row-${agent.id}`).click();
+  await clickAgentRow(page, agent.id);
   const toggle = page.getByTestId("toggle-media-sidebar");
   await expect(toggle).toBeVisible();
   await toggle.click();

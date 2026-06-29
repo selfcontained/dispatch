@@ -3,6 +3,7 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { test, expect } from "@playwright/test";
 import {
   cleanupE2EAgents,
+  clickAgentRow,
   createAgentViaAPI,
   loadApp,
   trackAgent,
@@ -192,7 +193,7 @@ test.describe("Agent base branch", () => {
     const agentCard = page.getByTestId(`agent-card-${agent.id}`);
     await expect(agentCard).toBeVisible({ timeout: 5_000 });
 
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
 
     await expect(agentCard.getByText("main", { exact: true })).toBeVisible();
     const visibleBranchSuffix = agent.worktreeBranch!.split("/").at(-1)!;

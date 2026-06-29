@@ -1,6 +1,11 @@
 import { expect, test, type Page } from "@playwright/test";
 
-import { cleanupE2EAgents, createAgentViaAPI, loadApp } from "./helpers";
+import {
+  cleanupE2EAgents,
+  clickAgentRow,
+  createAgentViaAPI,
+  loadApp,
+} from "./helpers";
 
 // Dispatch a synthetic drag event carrying a file onto the terminal host.
 // We add a real File so dataTransfer.types includes "Files", which is what the
@@ -78,7 +83,7 @@ test.describe("Terminal drag-and-drop file upload", () => {
         r.status() === 200,
       { timeout: 30_000 }
     );
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
     await tokenReady;
     await expect(page.getByTestId("terminal-connected-state")).toBeAttached({
@@ -167,7 +172,7 @@ test.describe("Terminal drag-and-drop file upload", () => {
         r.status() === 200,
       { timeout: 30_000 }
     );
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
     await tokenReady;
     await expect(page.getByTestId("terminal-connected-state")).toBeAttached({
@@ -256,7 +261,7 @@ test.describe("Terminal drag-and-drop file upload", () => {
         r.status() === 200,
       { timeout: 30_000 }
     );
-    await page.getByTestId(`agent-row-${agent.id}`).click();
+    await clickAgentRow(page, agent.id);
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
     await tokenReady;
     await expect(page.getByTestId("terminal-connected-state")).toBeAttached({

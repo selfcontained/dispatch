@@ -235,6 +235,34 @@ export async function registerAgentLifecycleRoutes(
     }
   });
 
+  app.patch("/api/v1/agents/:id/name", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const id = params.id ?? "";
+    const body = request.body as { name?: unknown } | null;
+
+    if (typeof body?.name !== "string" || !body.name.trim()) {
+      return reply
+        .code(400)
+        .send({ error: "name must be a non-empty string." });
+    }
+    if (body.name.length > 120) {
+      return reply
+        .code(400)
+        .send({ error: "name must be 120 characters or fewer." });
+    }
+
+    try {
+      const agent = await deps.agentManager.renameAgent(id, body.name);
+      deps.publishUiEvent({
+        type: "agent.upsert",
+        agent: deps.withStreamFlag(agent),
+      });
+      return { agent: deps.withStreamFlag(agent) };
+    } catch (error) {
+      return deps.handleAgentError(reply, error);
+    }
+  });
+
   app.post("/api/v1/agents/:id/prompt-rename", async (request, reply) => {
     const params = request.params as { id?: string };
     const id = params.id ?? "";

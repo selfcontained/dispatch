@@ -6,6 +6,19 @@ const AUTH_TOKEN = process.env.AUTH_TOKEN ?? "dev-token";
 
 const trackedAgentIds = new Set<string>();
 
+/**
+ * Click an agent row to attach/focus it. Clicks the icon area (left edge)
+ * to avoid hitting the session name button which opens the settings dialog.
+ */
+export async function clickAgentRow(
+  page: Page,
+  agentId: string
+): Promise<void> {
+  await page
+    .getByTestId(`agent-row-${agentId}`)
+    .click({ position: { x: 4, y: 8 } });
+}
+
 /** Register an agent ID for cleanup — use when creating agents outside createAgentViaAPI. */
 export function trackAgent(id: string): void {
   trackedAgentIds.add(id);

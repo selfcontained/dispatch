@@ -269,6 +269,57 @@ describe("POST /api/v1/agents/:id/diff/comment", () => {
 });
 
 // ---------------------------------------------------------------------------
+// PATCH /api/v1/agents/:id/name
+// ---------------------------------------------------------------------------
+describe("PATCH /api/v1/agents/:id/name", () => {
+  it("returns 404 for unknown agent", async () => {
+    const res = await authedInject("PATCH", "/api/v1/agents/nonexistent/name", {
+      name: "new-name",
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns 400 when name is missing", async () => {
+    const agent = await createAgent({ name: "rename-test" });
+    const res = await authedInject(
+      "PATCH",
+      `/api/v1/agents/${agent.id}/name`,
+      {}
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/name must be a non-empty string/i);
+  });
+
+  it("returns 400 when name is whitespace-only", async () => {
+    const agent = await createAgent({ name: "rename-test" });
+    const res = await authedInject("PATCH", `/api/v1/agents/${agent.id}/name`, {
+      name: "   ",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/name must be a non-empty string/i);
+  });
+
+  it("returns 400 when name exceeds 120 characters", async () => {
+    const agent = await createAgent({ name: "rename-test" });
+    const res = await authedInject("PATCH", `/api/v1/agents/${agent.id}/name`, {
+      name: "a".repeat(121),
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/120 characters or fewer/i);
+  });
+
+  it("renames the agent and returns updated record", async () => {
+    const agent = await createAgent({ name: "old-name" });
+    const res = await authedInject("PATCH", `/api/v1/agents/${agent.id}/name`, {
+      name: "shiny-new-name",
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.agent.name).toBe("shiny-new-name");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/v1/agents/:id/prompt-rename
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/prompt-rename", () => {
