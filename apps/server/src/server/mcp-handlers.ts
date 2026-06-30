@@ -673,6 +673,78 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       };
     },
 
+    async launchAgent(
+      agentId: string,
+      input: {
+        name: string;
+        prompt: string;
+        type?: string;
+        useWorktree?: boolean;
+        createNewBranch?: boolean;
+        baseBranch?: string;
+        worktreeBranch?: string;
+        fullAccess?: boolean;
+        agentArgs?: string;
+        templateId?: string;
+        cwd?: string;
+      }
+    ): Promise<{ agentId: string; name: string }> {
+      const parent = await agentManager.getAgent(agentId);
+      if (!parent) throw new Error("Parent agent not found.");
+
+      const agentType = input.type ?? parent.type ?? "claude";
+      if (
+        !CLI_AGENT_TYPES.includes(agentType as (typeof CLI_AGENT_TYPES)[number])
+      ) {
+        throw new Error(
+          `Unsupported agent type "${agentType}". Must be one of: ${CLI_AGENT_TYPES.join(", ")}.`
+        );
+      }
+
+      const enabledAgentTypes = await getEnabledAgentTypes(pool);
+      if (
+        !enabledAgentTypes.includes(
+          agentType as (typeof CLI_AGENT_TYPES)[number]
+        )
+      ) {
+        throw new Error(`${agentType} agents are disabled in settings.`);
+      }
+
+      const parentCwd = parent.worktreePath ?? parent.cwd;
+      const useWorktree = input.useWorktree ?? false;
+      const createNewBranch = input.createNewBranch ?? false;
+      const fullAccess = input.fullAccess ?? parent.fullAccess;
+
+      const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
+
+      const agentArgs: string[] = input.agentArgs
+        ? input.agentArgs.split(/\s+/).filter(Boolean)
+        : [];
+
+      const agent = await agentManager.createAgent({
+        name: input.name,
+        type: agentType as (typeof CLI_AGENT_TYPES)[number],
+        cwd: input.cwd ?? parentCwd,
+        agentArgs,
+        fullAccess,
+        useWorktree,
+        createNewBranch,
+        baseBranch: input.baseBranch,
+        worktreeBranch: input.worktreeBranch,
+        parentAgentId: agentId,
+        cliSessionId,
+        initialPrompt: input.prompt,
+        templateId: input.templateId,
+      });
+
+      publishUiEvent({
+        type: "agent.upsert",
+        agent: withStreamFlag(agent),
+      });
+
+      return { agentId: agent.id, name: agent.name };
+    },
+
     async shareMedia(
       agentId: string,
       opts: {
