@@ -112,7 +112,7 @@ export function AgentsContent() {
         <H3>Starting and stopping</H3>
         <P>
           Press the play button to resume a stopped agent. Press the stop button
-          to terminate it. Click an agent's name to attach your terminal to its
+          to terminate it. Click an agent card to attach your terminal to its
           session, or click again to detach without stopping.
         </P>
       </Section>
@@ -159,12 +159,20 @@ export function AgentsContent() {
         <H3>Changes tab</H3>
         <P>
           The <strong>Changes</strong> tab next to <strong>Terminal</strong> in
-          the center pane shows a unified diff of the agent's uncommitted work
-          against its base branch. Each file is syntax-highlighted and can be
-          collapsed individually. A file tree sidebar lists all changed files
-          with their status (added, modified, deleted) and line counts — click a
-          file to scroll to it. Large diffs are truncated by default with a
-          button to load the full content.
+          the center pane shows a diff of the agent's uncommitted work against
+          its base branch. Each file is syntax-highlighted and can be collapsed
+          individually. A file tree sidebar lists all changed files with their
+          status (added, modified, deleted) and line counts — click a file to
+          scroll to it. Large diffs are truncated by default with a button to
+          load the full content.
+        </P>
+        <P>
+          Click the <strong>gear icon</strong> in the tab bar to open diff
+          settings. Toggle between <strong>Unified</strong> and{" "}
+          <strong>Split</strong> view, and check{" "}
+          <strong>Hide whitespace changes</strong> to filter out whitespace-only
+          edits. These settings persist across sessions. On mobile, the diff
+          always renders in unified mode.
         </P>
         <P>
           Select one or more lines in a diff, then click the comment icon to
@@ -232,6 +240,11 @@ export function AgentsContent() {
           manually by clicking the <strong>Tag</strong> icon that appears next
           to a running agent that still has a default name. Terminal agents,
           persona agents, and job agents are excluded from both paths.
+        </P>
+        <P>
+          To rename any agent yourself, click the agent's name in the sidebar
+          card to open the <strong>Session settings</strong> dialog and type a
+          new name.
         </P>
       </Section>
 

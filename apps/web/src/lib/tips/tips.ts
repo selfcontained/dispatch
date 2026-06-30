@@ -61,9 +61,17 @@ export const tips: Tip[] = [
   {
     id: "changes-tab",
     title: "Changes Tab",
-    body: "Switch to the Changes tab next to Terminal to browse an agent's diff with syntax highlighting. Select lines to leave inline comments.",
+    body: "Switch to the Changes tab next to Terminal to browse an agent's diff. Use the gear icon to toggle split/unified view and hide whitespace changes.",
     docsSection: "agents",
     since: "0.23.9",
+    surfaces: ["ambient"],
+  },
+  {
+    id: "session-rename",
+    title: "Rename Sessions",
+    body: "Click any agent's name in the sidebar to open session settings and rename it directly.",
+    docsSection: "agents",
+    since: "0.23.13",
     surfaces: ["ambient"],
   },
   {
