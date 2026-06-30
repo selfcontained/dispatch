@@ -7,7 +7,10 @@ vi.mock("node:fs/promises", async (importOriginal) => {
 
 import { readdir } from "node:fs/promises";
 
-import { discoverSessionFiles } from "../src/agents/token-harvester.js";
+import {
+  discoverSessionFiles,
+  discoverCodexRolloutFilesForTest,
+} from "../src/agents/token-harvester.js";
 import { mountIO } from "../src/shared/mount-io/index.js";
 
 describe("discoverSessionFiles under a stalled mount", () => {
@@ -43,5 +46,27 @@ describe("discoverSessionFiles under a stalled mount", () => {
       "/p/a.jsonl",
       "/p/c.jsonl",
     ]);
+  });
+});
+
+describe("codex rollout discovery under a stalled mount", () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    mountIO.reset();
+  });
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.mocked(readdir).mockReset();
+    mountIO.reset();
+  });
+
+  it("returns [] instead of hanging when the top-level readdir never resolves", async () => {
+    vi.mocked(readdir).mockReturnValue(
+      new Promise(() => {}) as unknown as ReturnType<typeof readdir>,
+    );
+    const p = discoverCodexRolloutFilesForTest();
+    const assertion = expect(p).resolves.toEqual([]);
+    await vi.advanceTimersByTimeAsync(5001);
+    await assertion;
   });
 });

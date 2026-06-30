@@ -210,9 +210,9 @@ async function discoverCodexRolloutFiles(): Promise<string[]> {
   async function walk(dir: string): Promise<void> {
     let entries: import("node:fs").Dirent[];
     try {
-      entries = (await readdir(dir, {
-        withFileTypes: true,
-      })) as import("node:fs").Dirent[];
+      entries = await mountIO.run("readdir:codex-sessions", (signal) =>
+        readdir(dir, { withFileTypes: true, signal }),
+      );
     } catch {
       return;
     }
@@ -230,6 +230,10 @@ async function discoverCodexRolloutFiles(): Promise<string[]> {
   return files;
 }
 
+export function discoverCodexRolloutFilesForTest(): Promise<string[]> {
+  return discoverCodexRolloutFiles();
+}
+
 /**
  * Parse a Codex rollout JSONL in a single pass: check for the agent tag
  * in the first 20 lines, then extract model and cumulative token usage.
@@ -237,66 +241,62 @@ async function discoverCodexRolloutFiles(): Promise<string[]> {
  */
 async function parseCodexRolloutForAgent(
   filePath: string,
-  agentId: string
+  agentId: string,
 ): Promise<{
   usage: CodexTokenUsage;
   model: string;
   sessionStart: string | null;
   sessionEnd: string | null;
 } | null> {
-  let matched = false;
-  let lastUsage: CodexTokenUsage | null = null;
-  let model = "unknown";
-  let sessionStart: string | null = null;
-  let sessionEnd: string | null = null;
-  let linesRead = 0;
+  return mountIO.run(`read:codex:${path.basename(filePath)}`, async (signal) => {
+    let matched = false;
+    let lastUsage: CodexTokenUsage | null = null;
+    let model = "unknown";
+    let sessionStart: string | null = null;
+    let sessionEnd: string | null = null;
+    let linesRead = 0;
 
-  const rl = createInterface({
-    input: createReadStream(filePath, { encoding: "utf-8" }),
-    crlfDelay: Infinity,
-  });
+    const rl = createInterface({
+      input: createReadStream(filePath, { encoding: "utf-8", signal }),
+      crlfDelay: Infinity,
+    });
 
-  for await (const line of rl) {
-    linesRead++;
-
-    // Check for agent tag in the first 20 lines
-    if (!matched) {
-      if (linesRead > 20) break;
-      const tagMatch = DISPATCH_TAG_RE.exec(line);
-      if (tagMatch && tagMatch[1] === agentId) matched = true;
-      continue;
-    }
-
-    if (!line.trim()) continue;
-    let entry: Record<string, unknown>;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    const ts = entry.timestamp as string | undefined;
-    if (ts && !sessionStart) sessionStart = ts;
-    if (ts) sessionEnd = ts;
-
-    if (entry.type === "turn_context") {
-      const payload = entry.payload as Record<string, unknown> | undefined;
-      if (payload?.model) model = payload.model as string;
-    }
-
-    if (entry.type === "event_msg") {
-      const payload = entry.payload as Record<string, unknown> | undefined;
-      if (payload?.type === "token_count") {
-        const info = payload.info as Record<string, unknown> | undefined;
-        if (info?.total_token_usage) {
-          lastUsage = info.total_token_usage as CodexTokenUsage;
+    for await (const line of rl) {
+      linesRead++;
+      if (!matched) {
+        if (linesRead > 20) break;
+        const tagMatch = DISPATCH_TAG_RE.exec(line);
+        if (tagMatch && tagMatch[1] === agentId) matched = true;
+        continue;
+      }
+      if (!line.trim()) continue;
+      let entry: Record<string, unknown>;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+      const ts = entry.timestamp as string | undefined;
+      if (ts && !sessionStart) sessionStart = ts;
+      if (ts) sessionEnd = ts;
+      if (entry.type === "turn_context") {
+        const payload = entry.payload as Record<string, unknown> | undefined;
+        if (payload?.model) model = payload.model as string;
+      }
+      if (entry.type === "event_msg") {
+        const payload = entry.payload as Record<string, unknown> | undefined;
+        if (payload?.type === "token_count") {
+          const info = payload.info as Record<string, unknown> | undefined;
+          if (info?.total_token_usage) {
+            lastUsage = info.total_token_usage as CodexTokenUsage;
+          }
         }
       }
     }
-  }
 
-  if (!matched || !lastUsage) return null;
-  return { usage: lastUsage, model, sessionStart, sessionEnd };
+    if (!matched || !lastUsage) return null;
+    return { usage: lastUsage, model, sessionStart, sessionEnd };
+  });
 }
 
 async function harvestCodexTokenUsage(
@@ -308,6 +308,10 @@ async function harvestCodexTokenUsage(
   if (rolloutFiles.length === 0) return;
 
   for (const file of rolloutFiles) {
+    if (!mountIO.available()) {
+      logger?.warn({}, "mount unavailable, aborting Codex harvest");
+      break;
+    }
     try {
       const result = await parseCodexRolloutForAgent(file, agent.id);
       if (!result) continue;
