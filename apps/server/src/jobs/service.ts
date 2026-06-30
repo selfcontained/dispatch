@@ -85,7 +85,10 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 export class JobService {
   private readonly store: JobStore;
   private readonly templateStore: TemplateStore;
-  private readonly monitors = new Map<string, Promise<JobRunRecord>>();
+  private readonly monitors = new Map<
+    string,
+    Promise<JobRunRecord | undefined>
+  >();
   private readonly schedulers = new Map<string, Cron>();
   private readonly onRunStateChangeCallbacks: JobRunCallback[] = [];
   private stopping = false;
@@ -676,7 +679,7 @@ export class JobService {
     if (this.stopping || this.monitors.has(runId)) return;
     const monitor = this.monitorRun(runId)
       .catch(async (error) => {
-        if (this.stopping) return undefined as unknown as JobRunRecord;
+        if (this.stopping) return;
         this.logger.warn({ err: error, runId }, "Job monitor failed.");
         const run = await this.store.getRun(runId);
         if (run && ACTIVE_RUN_STATUSES.has(run.status)) {
@@ -696,7 +699,10 @@ export class JobService {
 
   private async waitForTerminal(runId: string): Promise<JobRunRecord> {
     const monitor = this.monitors.get(runId);
-    if (monitor) return await monitor;
+    if (monitor) {
+      const result = await monitor;
+      if (result) return result;
+    }
     const run = await this.store.getRun(runId);
     if (!run) throw new Error(`Job run ${runId} not found.`);
     return run;
