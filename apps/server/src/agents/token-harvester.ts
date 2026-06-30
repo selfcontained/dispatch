@@ -66,8 +66,9 @@ export function cwdToClaudeProjectDir(cwd: string): string {
 export async function discoverSessionFiles(dir: string): Promise<string[]> {
   let entries: string[];
   try {
-    entries = await mountIO.run("readdir:claude-projects", (signal) =>
-      readdir(dir, { signal }),
+    // @types/node@24 readdir has no {signal} overload; bounded by MountIO timeout only
+    entries = await mountIO.run("readdir:claude-projects", (_signal) =>
+      readdir(dir)
     );
   } catch {
     return [];
@@ -78,7 +79,7 @@ export async function discoverSessionFiles(dir: string): Promise<string[]> {
 }
 
 async function parseClaudeSessionTokenUsage(
-  filePath: string,
+  filePath: string
 ): Promise<SessionTokenSummary> {
   const sessionId = path.basename(filePath, ".jsonl");
   return mountIO.run(`read:claude:${sessionId}`, async (signal) => {
@@ -157,7 +158,10 @@ async function harvestClaudeTokenUsage(
 
   for (const file of files) {
     if (!mountIO.available()) {
-      logger?.warn({ projectDir }, "mount unavailable, aborting Claude harvest");
+      logger?.warn(
+        { projectDir },
+        "mount unavailable, aborting Claude harvest"
+      );
       break;
     }
     try {
@@ -210,8 +214,9 @@ async function discoverCodexRolloutFiles(): Promise<string[]> {
   async function walk(dir: string): Promise<void> {
     let entries: import("node:fs").Dirent[];
     try {
-      entries = await mountIO.run("readdir:codex-sessions", (signal) =>
-        readdir(dir, { withFileTypes: true, signal }),
+      // @types/node@24 readdir has no {signal} overload; bounded by MountIO timeout only
+      entries = await mountIO.run("readdir:codex-sessions", (_signal) =>
+        readdir(dir, { withFileTypes: true })
       );
     } catch {
       return;
@@ -241,62 +246,65 @@ export function discoverCodexRolloutFilesForTest(): Promise<string[]> {
  */
 async function parseCodexRolloutForAgent(
   filePath: string,
-  agentId: string,
+  agentId: string
 ): Promise<{
   usage: CodexTokenUsage;
   model: string;
   sessionStart: string | null;
   sessionEnd: string | null;
 } | null> {
-  return mountIO.run(`read:codex:${path.basename(filePath)}`, async (signal) => {
-    let matched = false;
-    let lastUsage: CodexTokenUsage | null = null;
-    let model = "unknown";
-    let sessionStart: string | null = null;
-    let sessionEnd: string | null = null;
-    let linesRead = 0;
+  return mountIO.run(
+    `read:codex:${path.basename(filePath)}`,
+    async (signal) => {
+      let matched = false;
+      let lastUsage: CodexTokenUsage | null = null;
+      let model = "unknown";
+      let sessionStart: string | null = null;
+      let sessionEnd: string | null = null;
+      let linesRead = 0;
 
-    const rl = createInterface({
-      input: createReadStream(filePath, { encoding: "utf-8", signal }),
-      crlfDelay: Infinity,
-    });
+      const rl = createInterface({
+        input: createReadStream(filePath, { encoding: "utf-8", signal }),
+        crlfDelay: Infinity,
+      });
 
-    for await (const line of rl) {
-      linesRead++;
-      if (!matched) {
-        if (linesRead > 20) break;
-        const tagMatch = DISPATCH_TAG_RE.exec(line);
-        if (tagMatch && tagMatch[1] === agentId) matched = true;
-        continue;
-      }
-      if (!line.trim()) continue;
-      let entry: Record<string, unknown>;
-      try {
-        entry = JSON.parse(line);
-      } catch {
-        continue;
-      }
-      const ts = entry.timestamp as string | undefined;
-      if (ts && !sessionStart) sessionStart = ts;
-      if (ts) sessionEnd = ts;
-      if (entry.type === "turn_context") {
-        const payload = entry.payload as Record<string, unknown> | undefined;
-        if (payload?.model) model = payload.model as string;
-      }
-      if (entry.type === "event_msg") {
-        const payload = entry.payload as Record<string, unknown> | undefined;
-        if (payload?.type === "token_count") {
-          const info = payload.info as Record<string, unknown> | undefined;
-          if (info?.total_token_usage) {
-            lastUsage = info.total_token_usage as CodexTokenUsage;
+      for await (const line of rl) {
+        linesRead++;
+        if (!matched) {
+          if (linesRead > 20) break;
+          const tagMatch = DISPATCH_TAG_RE.exec(line);
+          if (tagMatch && tagMatch[1] === agentId) matched = true;
+          continue;
+        }
+        if (!line.trim()) continue;
+        let entry: Record<string, unknown>;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const ts = entry.timestamp as string | undefined;
+        if (ts && !sessionStart) sessionStart = ts;
+        if (ts) sessionEnd = ts;
+        if (entry.type === "turn_context") {
+          const payload = entry.payload as Record<string, unknown> | undefined;
+          if (payload?.model) model = payload.model as string;
+        }
+        if (entry.type === "event_msg") {
+          const payload = entry.payload as Record<string, unknown> | undefined;
+          if (payload?.type === "token_count") {
+            const info = payload.info as Record<string, unknown> | undefined;
+            if (info?.total_token_usage) {
+              lastUsage = info.total_token_usage as CodexTokenUsage;
+            }
           }
         }
       }
-    }
 
-    if (!matched || !lastUsage) return null;
-    return { usage: lastUsage, model, sessionStart, sessionEnd };
-  });
+      if (!matched || !lastUsage) return null;
+      return { usage: lastUsage, model, sessionStart, sessionEnd };
+    }
+  );
 }
 
 async function harvestCodexTokenUsage(
