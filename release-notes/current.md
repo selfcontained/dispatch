@@ -1,5 +1,6 @@
 ## What's Changed
-* Add dispatch_launch_agent MCP tool for agent orchestration by @selfcontained in https://github.com/selfcontained/dispatch/pull/708
+* feat: add agent orchestration tip for dispatch_launch_agent by @selfcontained in https://github.com/selfcontained/dispatch/pull/711
+* Don't cascade-archive child agents launched via dispatch_launch_agent by @selfcontained in https://github.com/selfcontained/dispatch/pull/712
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.23.15...v0.24.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.24.0...v0.24.1
