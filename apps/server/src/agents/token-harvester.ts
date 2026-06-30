@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 
 import type { Pool } from "pg";
 
+import { mountIO } from "../shared/mount-io/index.js";
 import type { AgentRecord } from "./manager.js";
 
 type ModelTokenTotals = {
@@ -65,7 +66,9 @@ export function cwdToClaudeProjectDir(cwd: string): string {
 export async function discoverSessionFiles(dir: string): Promise<string[]> {
   let entries: string[];
   try {
-    entries = await readdir(dir);
+    entries = await mountIO.run("readdir:claude-projects", (signal) =>
+      readdir(dir, { signal }),
+    );
   } catch {
     return [];
   }
@@ -75,60 +78,62 @@ export async function discoverSessionFiles(dir: string): Promise<string[]> {
 }
 
 async function parseClaudeSessionTokenUsage(
-  filePath: string
+  filePath: string,
 ): Promise<SessionTokenSummary> {
   const sessionId = path.basename(filePath, ".jsonl");
-  const totals = new Map<string, ModelTokenTotals>();
-  let sessionStart: string | null = null;
-  let sessionEnd: string | null = null;
+  return mountIO.run(`read:claude:${sessionId}`, async (signal) => {
+    const totals = new Map<string, ModelTokenTotals>();
+    let sessionStart: string | null = null;
+    let sessionEnd: string | null = null;
 
-  const rl = createInterface({
-    input: createReadStream(filePath, { encoding: "utf-8" }),
-    crlfDelay: Infinity,
+    const rl = createInterface({
+      input: createReadStream(filePath, { encoding: "utf-8", signal }),
+      crlfDelay: Infinity,
+    });
+
+    for await (const line of rl) {
+      if (!line.trim()) continue;
+      let entry: Record<string, unknown>;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      if (entry.type !== "assistant") continue;
+      const message = entry.message as Record<string, unknown> | undefined;
+      if (!message?.usage) continue;
+
+      const usage = message.usage as Record<string, number>;
+      const model = (message.model as string) ?? "unknown";
+      const ts = entry.timestamp as string | undefined;
+
+      if (ts) {
+        if (!sessionStart) sessionStart = ts;
+        sessionEnd = ts;
+      }
+
+      let bucket = totals.get(model);
+      if (!bucket) {
+        bucket = {
+          inputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          messageCount: 0,
+        };
+        totals.set(model, bucket);
+      }
+
+      bucket.inputTokens += usage.input_tokens ?? 0;
+      bucket.cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
+      bucket.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
+      bucket.outputTokens += usage.output_tokens ?? 0;
+      bucket.messageCount += 1;
+    }
+
+    return { sessionId, totals, sessionStart, sessionEnd };
   });
-
-  for await (const line of rl) {
-    if (!line.trim()) continue;
-    let entry: Record<string, unknown>;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    if (entry.type !== "assistant") continue;
-    const message = entry.message as Record<string, unknown> | undefined;
-    if (!message?.usage) continue;
-
-    const usage = message.usage as Record<string, number>;
-    const model = (message.model as string) ?? "unknown";
-    const ts = entry.timestamp as string | undefined;
-
-    if (ts) {
-      if (!sessionStart) sessionStart = ts;
-      sessionEnd = ts;
-    }
-
-    let bucket = totals.get(model);
-    if (!bucket) {
-      bucket = {
-        inputTokens: 0,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 0,
-        outputTokens: 0,
-        messageCount: 0,
-      };
-      totals.set(model, bucket);
-    }
-
-    bucket.inputTokens += usage.input_tokens ?? 0;
-    bucket.cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
-    bucket.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
-    bucket.outputTokens += usage.output_tokens ?? 0;
-    bucket.messageCount += 1;
-  }
-
-  return { sessionId, totals, sessionStart, sessionEnd };
 }
 
 async function harvestClaudeTokenUsage(
@@ -151,6 +156,10 @@ async function harvestClaudeTokenUsage(
   }
 
   for (const file of files) {
+    if (!mountIO.available()) {
+      logger?.warn({ projectDir }, "mount unavailable, aborting Claude harvest");
+      break;
+    }
     try {
       const summary = await parseClaudeSessionTokenUsage(file);
 
