@@ -2,6 +2,7 @@ import { Database, Server, Settings } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { AppearanceSettings } from "@/components/app/appearance-settings";
+import { CrossRepoMessagingSettings } from "@/components/app/cross-repo-messaging-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
 import { InstanceNameSettings } from "@/components/app/instance-name-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
@@ -216,6 +217,9 @@ export function SettingsContent({
                 enabledIdes={enabledIdes}
                 onChange={onEnabledIdesChange}
               />
+            </div>
+            <div className="border-t border-border">
+              <CrossRepoMessagingSettings />
             </div>
             <div className="px-6 pb-6">
               <WorktreeLocationSettings />

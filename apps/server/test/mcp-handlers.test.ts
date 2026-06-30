@@ -1123,32 +1123,29 @@ describe("createMcpHandlers", () => {
       ).rejects.toThrow('No agent found matching "other"');
     });
 
-    it("delivers cross-repo when DISPATCH_CROSS_REPO_MESSAGING is enabled", async () => {
-      process.env.DISPATCH_CROSS_REPO_MESSAGING = "true";
-      try {
-        deps.agentManager.listAgents.mockResolvedValue([
-          {
-            id: "agt_test1",
-            name: "sender",
-            cwd: "/repo-a",
-            status: "running",
-          },
-          { id: "agt_other", name: "other", cwd: "/repo-b", status: "running" },
-        ]);
-        vi.mocked(resolveRepoRoot).mockImplementation(
-          async (cwd) => cwd as string
-        );
-        // senderRepoRoot null is tolerated once cross-repo messaging is on.
-        const result = await handlers.sendMessage("agt_test1", {
-          target: "other",
-          message: "hi",
-          senderRepoRoot: null,
-        });
-        expect(result.delivered).toBe(true);
-        expect(result.targetAgentId).toBe("agt_other");
-      } finally {
-        delete process.env.DISPATCH_CROSS_REPO_MESSAGING;
-      }
+    it("delivers cross-repo when the cross-repo messaging setting is enabled", async () => {
+      // getSetting(cross_repo_messaging_enabled) -> "true"
+      deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_test1",
+          name: "sender",
+          cwd: "/repo-a",
+          status: "running",
+        },
+        { id: "agt_other", name: "other", cwd: "/repo-b", status: "running" },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+      // senderRepoRoot null is tolerated once cross-repo messaging is on.
+      const result = await handlers.sendMessage("agt_test1", {
+        target: "other",
+        message: "hi",
+        senderRepoRoot: null,
+      });
+      expect(result.delivered).toBe(true);
+      expect(result.targetAgentId).toBe("agt_other");
     });
   });
 
@@ -1197,34 +1194,31 @@ describe("createMcpHandlers", () => {
       ).rejects.toThrow("Cannot list agents");
     });
 
-    it("lists agents across repos when DISPATCH_CROSS_REPO_MESSAGING is enabled", async () => {
-      process.env.DISPATCH_CROSS_REPO_MESSAGING = "true";
-      try {
-        deps.agentManager.listAgents.mockResolvedValue([
-          {
-            id: "agt_self",
-            name: "self",
-            cwd: "/repo",
-            status: "running",
-            latestEvent: null,
-          },
-          {
-            id: "agt_other",
-            name: "other",
-            cwd: "/other-repo",
-            status: "running",
-            latestEvent: null,
-          },
-        ]);
-        vi.mocked(resolveRepoRoot).mockImplementation(
-          async (cwd) => cwd as string
-        );
-        // senderRepoRoot null is tolerated once cross-repo messaging is on.
-        const result = await handlers.listAgentsForAgent("agt_self", null);
-        expect(result.map((a) => a.id)).toEqual(["agt_other"]);
-      } finally {
-        delete process.env.DISPATCH_CROSS_REPO_MESSAGING;
-      }
+    it("lists agents across repos when the cross-repo messaging setting is enabled", async () => {
+      // getSetting(cross_repo_messaging_enabled) -> "true"
+      deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "self",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+        },
+        {
+          id: "agt_other",
+          name: "other",
+          cwd: "/other-repo",
+          status: "running",
+          latestEvent: null,
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+      // senderRepoRoot null is tolerated once cross-repo messaging is on.
+      const result = await handlers.listAgentsForAgent("agt_self", null);
+      expect(result.map((a) => a.id)).toEqual(["agt_other"]);
     });
   });
 

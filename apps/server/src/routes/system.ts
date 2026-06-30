@@ -6,6 +6,10 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
+import {
+  isCrossRepoMessagingEnabled,
+  setCrossRepoMessagingEnabled,
+} from "../cross-repo-messaging-settings.js";
 import { JobService } from "../jobs/service.js";
 import {
   AGENT_TYPES,
@@ -415,6 +419,22 @@ export async function registerSystemRoutes(
 
     return { enabledIdes: await setEnabledIdes(deps.pool, uniqueIdes) };
   });
+
+  app.get("/api/v1/app/settings/cross-repo-messaging", async () => {
+    return { enabled: await isCrossRepoMessagingEnabled(deps.pool) };
+  });
+
+  app.post(
+    "/api/v1/app/settings/cross-repo-messaging",
+    async (request, reply) => {
+      const body = request.body as { enabled?: unknown } | null;
+      if (typeof body?.enabled !== "boolean") {
+        return reply.code(400).send({ error: "enabled must be a boolean." });
+      }
+      await setCrossRepoMessagingEnabled(deps.pool, body.enabled);
+      return { enabled: body.enabled };
+    }
+  );
 
   app.post("/api/v1/energy-report", async (request, reply) => {
     try {
