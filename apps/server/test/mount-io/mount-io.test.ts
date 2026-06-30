@@ -62,25 +62,18 @@ describe("MountIO", () => {
     const io = new MountIO({ ...cfg, maxConcurrency: 2 });
     let active = 0;
     let peak = 0;
-    const release: Array<() => void> = [];
 
-    const starts = Array.from({ length: 5 }, (_, i) =>
-      io.run(`c-${i}`, () => {
+    const task = (i: number) =>
+      io.run(`c-${i}`, async () => {
         active++;
         peak = Math.max(peak, active);
-        return new Promise<number>((resolve) => {
-          release.push(() => {
-            active--;
-            resolve(i);
-          });
-        });
-      }),
-    );
+        await Promise.resolve();
+        active--;
+        return i;
+      });
 
-    await vi.advanceTimersByTimeAsync(0);
+    await Promise.all(Array.from({ length: 10 }, (_, i) => task(i)));
     expect(peak).toBeLessThanOrEqual(2);
-    release.forEach((r) => r());
-    await Promise.all(starts);
   });
 
   it("does not emit an unhandled rejection when fn rejects after timeout", async () => {
