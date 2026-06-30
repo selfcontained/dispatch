@@ -53,7 +53,7 @@ describe("MountIO", () => {
       io.run("blocked", async () => {
         called = true;
         return 1;
-      }),
+      })
     ).rejects.toBeInstanceOf(MountUnavailableError);
     expect(called).toBe(false);
   });
@@ -82,8 +82,8 @@ describe("MountIO", () => {
       "late-reject",
       () =>
         new Promise<never>((_, reject) =>
-          setTimeout(() => reject(new Error("late")), 10_000),
-        ),
+          setTimeout(() => reject(new Error("late")), 10_000)
+        )
     );
     const a = expect(p).rejects.toBeInstanceOf(MountStallError);
     await vi.advanceTimersByTimeAsync(5001);

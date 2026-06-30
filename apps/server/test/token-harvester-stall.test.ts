@@ -26,7 +26,7 @@ describe("discoverSessionFiles under a stalled mount", () => {
 
   it("returns [] instead of hanging when readdir never resolves", async () => {
     vi.mocked(readdir).mockReturnValue(
-      new Promise(() => {}) as unknown as ReturnType<typeof readdir>,
+      new Promise(() => {}) as unknown as ReturnType<typeof readdir>
     );
 
     const p = discoverSessionFiles("/mnt/claude/projects/whatever");
@@ -62,7 +62,7 @@ describe("codex rollout discovery under a stalled mount", () => {
 
   it("returns [] instead of hanging when the top-level readdir never resolves", async () => {
     vi.mocked(readdir).mockReturnValue(
-      new Promise(() => {}) as unknown as ReturnType<typeof readdir>,
+      new Promise(() => {}) as unknown as ReturnType<typeof readdir>
     );
     const p = discoverCodexRolloutFilesForTest();
     const assertion = expect(p).resolves.toEqual([]);

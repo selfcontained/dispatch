@@ -33,7 +33,7 @@ export class MountIO {
     this.breaker = new CircuitBreaker(
       cfg.breakerThreshold,
       cfg.breakerCooldownMs,
-      cfg.now,
+      cfg.now
     );
     this.timeoutMs = cfg.timeoutMs;
   }
@@ -44,7 +44,7 @@ export class MountIO {
 
   async run<T>(
     label: string,
-    fn: (signal: AbortSignal) => Promise<T>,
+    fn: (signal: AbortSignal) => Promise<T>
   ): Promise<T> {
     if (!this.breaker.canProceed()) {
       throw new MountUnavailableError(label);

@@ -7,7 +7,7 @@ export class CircuitBreaker {
   constructor(
     private readonly threshold: number,
     private readonly cooldownMs: number,
-    private readonly now: () => number = Date.now,
+    private readonly now: () => number = Date.now
   ) {}
 
   state(): BreakerState {
