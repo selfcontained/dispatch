@@ -342,10 +342,11 @@ export async function getReviewChildAgentIds(
   parentAgentId: string
 ): Promise<string[]> {
   const result = await pool.query<{ agentId: string }>(
-    `SELECT pr.agent_id AS "agentId"
+    `SELECT DISTINCT pr.agent_id AS "agentId"
        FROM persona_reviews pr
        JOIN agents a ON a.id = pr.agent_id
       WHERE pr.parent_agent_id = $1
+        AND a.parent_agent_id = $1
         AND a.deleted_at IS NULL`,
     [parentAgentId]
   );
