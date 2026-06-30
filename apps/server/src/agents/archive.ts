@@ -9,6 +9,7 @@ import {
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
+import { getReviewChildAgentIds } from "./persona-reviews.js";
 import type {
   AgentRecord,
   AgentStatus,
@@ -201,23 +202,20 @@ export async function executeArchive(
     durations.db = Date.now() - tDb;
     diffStatsRefresher?.clear(id);
 
-    // Cascade: archive child agents (persona agents spawned by this parent)
+    // Cascade: archive review child agents only (not regular launched agents)
     const tCascade = Date.now();
-    const children = await pool.query<{ id: string }>(
-      "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
-      [id]
-    );
-    for (const child of children.rows) {
+    const reviewChildIds = await getReviewChildAgentIds(pool, id);
+    for (const childId of reviewChildIds) {
       try {
-        await deleteAgentDirect(deps, child.id, true, cleanupWorktree);
+        await deleteAgentDirect(deps, childId, true, cleanupWorktree);
       } catch (err) {
         logger.warn(
-          { err, childId: child.id, parentId: id },
+          { err, childId, parentId: id },
           "Failed to cascade-delete child agent"
         );
       }
     }
-    if (children.rows.length > 0) {
+    if (reviewChildIds.length > 0) {
       durations.cascadeChildren = Date.now() - tCascade;
     }
 
@@ -227,7 +225,7 @@ export async function executeArchive(
       .join(", ");
     logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
 
-    const deletedIds = [id, ...children.rows.map((r) => r.id)];
+    const deletedIds = [id, ...reviewChildIds];
     callbacks.onComplete(deletedIds);
   } catch (error) {
     logger.error({ err: error, agentId: id }, "Archive failed");
@@ -296,17 +294,14 @@ export async function deleteAgentDirect(
   durations.db = Date.now() - tDb;
   diffStatsRefresher?.clear(id);
 
-  // Cascade to any children (recursive to handle multi-level nesting)
-  const children = await pool.query<{ id: string }>(
-    "SELECT id FROM agents WHERE parent_agent_id = $1 AND deleted_at IS NULL",
-    [id]
-  );
-  for (const child of children.rows) {
+  // Cascade to review children only (not regular launched agents)
+  const reviewChildIds = await getReviewChildAgentIds(pool, id);
+  for (const childId of reviewChildIds) {
     try {
-      await deleteAgentDirect(deps, child.id, true, cleanupWorktree);
+      await deleteAgentDirect(deps, childId, true, cleanupWorktree);
     } catch (err) {
       logger.warn(
-        { err, childId: child.id, parentId: id },
+        { err, childId, parentId: id },
         "Failed to cascade-delete child agent"
       );
     }
