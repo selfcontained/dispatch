@@ -199,8 +199,12 @@ export function generateSetupScript(
 
     lines.push(
       ``,
+      // errexit would abort on non-zero before the error handler runs (#682)
+      `  set +e`,
       `  WORKTREE_ADD_OUTPUT=$(${addCmd} 2>&1)`,
-      `  if [ $? -eq 0 ]; then`,
+      `  WT_RC=$?`,
+      `  set -euo pipefail`,
+      `  if [ "$WT_RC" -eq 0 ]; then`,
       `    ok "Worktree created at $WT_PATH"`,
       ...(upstreamLine ? [upstreamLine] : []),
       `    EFFECTIVE_CWD="$WT_PATH"`,
@@ -255,9 +259,17 @@ export function generateSetupScript(
       // session-died monitor will reconcile status to stopped.
       `    fail "Worktree creation failed"`,
       `    fail "$WORKTREE_ADD_OUTPUT"`,
-      `    SETUP_ERROR_MSG=$(printf "%s" "$WORKTREE_ADD_OUTPUT" | head -c 800 | tr -d "\\n\\r" | sed 's/[\\\\\\"]/\\\\&/g')`,
+      // `|| true` is load-bearing: pipeline can fail (missing iconv, severed UTF-8) and errexit would abort before the error is reported
+      `    SETUP_ERROR_MSG=$(printf "%s" "\${WORKTREE_ADD_OUTPUT:0:800}" | tr -d '\\000-\\037' | iconv -f utf-8 -t utf-8 -c | sed 's/[\\\\\\"]/\\\\&/g') || true`,
       `    if [ -z "$SETUP_ERROR_MSG" ]; then SETUP_ERROR_MSG="git worktree add failed"; fi`,
       `    ${curlSetupError("SETUP_ERROR_MSG")}`,
+      // Clean up partial worktree/branch so relaunch doesn't hit "already exists"
+      `    git -C "$REPO_ROOT" worktree remove --force "$WT_PATH" 2>/dev/null || true`,
+      ...(createNewBranch
+        ? [
+            `    git -C "$REPO_ROOT" branch -D "${worktreeBranchName}" 2>/dev/null || true`,
+          ]
+        : []),
       `    exit 1`,
       `  fi`,
       `fi`,

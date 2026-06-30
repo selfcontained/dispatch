@@ -9,6 +9,7 @@ import {
   useState,
 } from "react";
 import { Check, ChevronDown, ChevronLeft } from "lucide-react";
+import { toast } from "sonner";
 
 import { ContextPicker } from "@/components/app/context-picker";
 import {
@@ -373,6 +374,10 @@ function CreateAgentDialogContent({
         }
         addCwdHistory(cwd);
         await onCreated(payload.agent, createType);
+      } catch (err) {
+        const message =
+          err instanceof Error ? err.message : "Failed to create agent.";
+        toast.error(message);
       } finally {
         setCreating(false);
       }
