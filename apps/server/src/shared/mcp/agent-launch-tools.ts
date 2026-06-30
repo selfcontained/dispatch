@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { CLI_AGENT_TYPES } from "../../agent-type-settings.js";
 import { toToolError } from "./tool-error.js";
 
 export type LaunchAgentResult = {
@@ -58,7 +59,7 @@ export function registerAgentLaunchTools(
           .max(100000)
           .describe("Initial prompt describing what the agent should do."),
         type: z
-          .enum(["claude", "codex", "cursor", "opencode"])
+          .enum(CLI_AGENT_TYPES)
           .optional()
           .describe(
             "Agent type. Defaults to the same type as the launching agent."
