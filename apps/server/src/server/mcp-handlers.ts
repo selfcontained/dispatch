@@ -713,12 +713,19 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       const parentCwd = parent.worktreePath ?? parent.cwd;
       const useWorktree = input.useWorktree ?? false;
       const createNewBranch = input.createNewBranch ?? false;
-      const fullAccess = input.fullAccess ?? parent.fullAccess;
+      const fullAccess = parent.fullAccess && input.fullAccess !== false;
 
       const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
 
+      const DANGEROUS_FLAGS = [
+        "--dangerously-skip-permissions",
+        "--dangerously-bypass-approvals-and-sandbox",
+      ];
       const agentArgs: string[] = input.agentArgs
-        ? input.agentArgs.split(/\s+/).filter(Boolean)
+        ? input.agentArgs
+            .split(/\s+/)
+            .filter(Boolean)
+            .filter((arg) => !DANGEROUS_FLAGS.includes(arg))
         : [];
 
       const agent = await agentManager.createAgent({
