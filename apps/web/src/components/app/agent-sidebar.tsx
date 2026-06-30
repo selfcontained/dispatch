@@ -160,14 +160,14 @@ export function AgentListContent({
           ) : (
             <React.Fragment>
               {agents
-                .filter((a) => !a.parentAgentId)
+                .filter((a) => !a.parentAgentId || !a.persona)
                 .map((agent) => (
                   <AgentCard
                     key={agent.id}
                     agent={agent}
                     agents={agents}
                     childAgents={agents.filter(
-                      (a) => a.parentAgentId === agent.id
+                      (a) => a.parentAgentId === agent.id && !!a.persona
                     )}
                     selectedAgentId={selectedAgentId}
                     expandedAgentId={expandedAgentId}

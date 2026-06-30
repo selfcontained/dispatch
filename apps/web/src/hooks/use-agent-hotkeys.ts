@@ -88,7 +88,7 @@ export function useAgentHotkeys({
 
   const cycleAgent = useCallback(
     (direction: -1 | 1) => {
-      const cycleAgents = agents.filter((a) => !a.parentAgentId);
+      const cycleAgents = agents.filter((a) => !a.parentAgentId || !a.persona);
       if (cycleAgents.length === 0) return;
       const currentIdx = validatedSelectedAgentId
         ? cycleAgents.findIndex((a) => a.id === validatedSelectedAgentId)

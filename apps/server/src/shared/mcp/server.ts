@@ -6,6 +6,7 @@ import * as z from "zod/v4";
 
 import type { AgentType as CliAgentType } from "../../agents/types.js";
 import type { BrainStore } from "../../brain/store.js";
+import { registerAgentLaunchTools } from "./agent-launch-tools.js";
 import { registerAgentLifecycleTools } from "./agent-lifecycle-tools.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
@@ -96,6 +97,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_cancel_recheck",
   "list_agents",
   "dispatch_send_message",
+  "dispatch_launch_agent",
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
@@ -143,6 +145,7 @@ const JOB_TOOLS = new Set([
   "job_log",
   "list_agents",
   "dispatch_send_message",
+  "dispatch_launch_agent",
   "list_personas",
   "list_recent_persona_reviews",
   "list_recent_feedback",
@@ -310,6 +313,22 @@ export type McpRequestContext = {
       includeDiff?: boolean;
     }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
+  launchAgent?: (
+    agentId: string,
+    input: {
+      name: string;
+      prompt: string;
+      type?: string;
+      useWorktree?: boolean;
+      createNewBranch?: boolean;
+      baseBranch?: string;
+      worktreeBranch?: string;
+      fullAccess?: boolean;
+      agentArgs?: string;
+      templateId?: string;
+      cwd?: string;
+    }
+  ) => Promise<{ agentId: string; name: string }>;
   getFeedback?: (
     agentId: string,
     opts: { persona?: string; limit?: number }
@@ -502,6 +521,14 @@ async function createDispatchMcpServer(
         ? undefined
         : context.listAgentsForAgent,
       sendMessage: context.sendMessage,
+    });
+  }
+
+  // ── Agent launch tools ───────────────────────────────────────────
+  if (context.agent) {
+    registerAgentLaunchTools(server, allowed, {
+      agentId: context.agent.id,
+      launchAgent: context.launchAgent,
     });
   }
 

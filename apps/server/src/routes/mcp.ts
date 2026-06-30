@@ -52,6 +52,7 @@ type McpRouteDeps = {
   mcpSubmitFeedback: unknown;
   mcpListPersonas: unknown;
   mcpLaunchPersona: unknown;
+  mcpLaunchAgent: unknown;
   mcpGetFeedback: unknown;
   mcpResolveFeedback: unknown;
   mcpSubmitResolution: unknown;
@@ -208,6 +209,7 @@ export async function registerMcpRoutes(
       deletePin: deps.mcpDeletePin,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
+      launchAgent: deps.mcpLaunchAgent,
       getFeedback: deps.mcpGetFeedback,
       resolveFeedback: deps.mcpResolveFeedback,
       submitResolution: deps.mcpSubmitResolution,
@@ -290,6 +292,7 @@ export async function registerMcpRoutes(
       submitFeedback: deps.mcpSubmitFeedback,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
+      launchAgent: deps.mcpLaunchAgent,
       getFeedback: deps.mcpGetFeedback,
       resolveFeedback: deps.mcpResolveFeedback,
       submitResolution: deps.mcpSubmitResolution,

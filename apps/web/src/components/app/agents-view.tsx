@@ -283,7 +283,10 @@ export function AgentsView({
   const selectedExpansionTarget = useMemo(() => {
     if (!validatedSelectedAgentId) return null;
     const selected = agents.find((a) => a.id === validatedSelectedAgentId);
-    return selected?.parentAgentId ?? validatedSelectedAgentId;
+    return (
+      (selected?.persona ? selected.parentAgentId : null) ??
+      validatedSelectedAgentId
+    );
   }, [agents, validatedSelectedAgentId]);
   const prevSelectedExpansionTargetRef = useRef<string | null>(null);
 
