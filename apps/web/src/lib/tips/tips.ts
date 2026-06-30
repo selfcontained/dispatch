@@ -11,6 +11,14 @@ export type Tip = {
 
 export const tips: Tip[] = [
   {
+    id: "agent-orchestration",
+    title: "Agent Orchestration",
+    body: "Agents can now launch other agents using the dispatch_launch_agent tool. Delegate subtasks, run parallel workstreams, or hand off work — launched agents coordinate via messaging.",
+    docsSection: "tools#dispatch-launch-agent",
+    since: "0.24.0",
+    surfaces: ["ambient"],
+  },
+  {
     id: "quick-phrases",
     title: "Quick Phrases",
     body: "Inject saved phrases into your terminal session with one click. Create reusable snippets for common commands.",
