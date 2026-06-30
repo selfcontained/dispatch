@@ -18,7 +18,6 @@ export type LaunchAgentInput = {
   baseBranch?: string;
   worktreeBranch?: string;
   fullAccess?: boolean;
-  agentArgs?: string;
   templateId?: string;
   cwd?: string;
 };
@@ -88,10 +87,6 @@ export function registerAgentLaunchTools(
           .describe(
             "Run the agent with full tool access (no permission prompts). Defaults to the parent's setting."
           ),
-        agentArgs: z
-          .string()
-          .optional()
-          .describe("Additional CLI arguments passed to the agent."),
         templateId: z
           .string()
           .optional()
@@ -119,7 +114,6 @@ export function registerAgentLaunchTools(
         if (args.worktreeBranch !== undefined)
           input.worktreeBranch = args.worktreeBranch;
         if (args.fullAccess !== undefined) input.fullAccess = args.fullAccess;
-        if (args.agentArgs !== undefined) input.agentArgs = args.agentArgs;
         if (args.templateId !== undefined) input.templateId = args.templateId;
         if (args.cwd !== undefined) input.cwd = args.cwd;
 

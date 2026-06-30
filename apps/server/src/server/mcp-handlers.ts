@@ -684,7 +684,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         baseBranch?: string;
         worktreeBranch?: string;
         fullAccess?: boolean;
-        agentArgs?: string;
         templateId?: string;
         cwd?: string;
       }
@@ -717,22 +716,10 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
       const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
 
-      const DANGEROUS_FLAGS = [
-        "--dangerously-skip-permissions",
-        "--dangerously-bypass-approvals-and-sandbox",
-      ];
-      const agentArgs: string[] = input.agentArgs
-        ? input.agentArgs
-            .split(/\s+/)
-            .filter(Boolean)
-            .filter((arg) => !DANGEROUS_FLAGS.includes(arg))
-        : [];
-
       const agent = await agentManager.createAgent({
         name: input.name,
         type: agentType as (typeof CLI_AGENT_TYPES)[number],
         cwd: input.cwd ?? parentCwd,
-        agentArgs,
         fullAccess,
         useWorktree,
         createNewBranch,
