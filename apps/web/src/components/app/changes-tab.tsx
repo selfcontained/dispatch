@@ -970,7 +970,16 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
           : "modify";
 
   return (
-    <div ref={diffRef} className="changes-diff-view text-xs relative">
+    <div
+      ref={diffRef}
+      className={cn(
+        "changes-diff-view text-xs relative",
+        "[&_.diff.diff-split]:table-fixed [&_.diff.diff-split]:w-full",
+        "[&_.diff.diff-split_.diff-gutter-col]:w-10",
+        "[&_.diff.diff-split_.diff-gutter]:px-1 [&_.diff.diff-split_.diff-gutter]:py-0",
+        "[&_.diff.diff-split_.diff-code]:px-2 [&_.diff.diff-split_.diff-code]:py-0 [&_.diff.diff-split_.diff-code]:whitespace-pre-wrap [&_.diff.diff-split_.diff-code]:break-words"
+      )}
+    >
       <div className="overflow-x-auto overflow-y-clip">
         <Diff
           viewType={viewType}
