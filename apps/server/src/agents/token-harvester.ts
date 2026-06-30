@@ -82,7 +82,7 @@ async function parseClaudeSessionTokenUsage(
   filePath: string
 ): Promise<SessionTokenSummary> {
   const sessionId = path.basename(filePath, ".jsonl");
-  return mountIO.run(`read:claude:${sessionId}`, async (signal) => {
+  return mountIO.run(`read:claude:${sessionId}`, async (signal, heartbeat) => {
     const totals = new Map<string, ModelTokenTotals>();
     let sessionStart: string | null = null;
     let sessionEnd: string | null = null;
@@ -93,6 +93,9 @@ async function parseClaudeSessionTokenUsage(
     });
 
     for await (const line of rl) {
+      // Progress made — re-arm the idle deadline so a slow-but-streaming read
+      // is not mistaken for a stall.
+      heartbeat();
       if (!line.trim()) continue;
       let entry: Record<string, unknown>;
       try {
@@ -208,7 +211,8 @@ type CodexTokenUsage = {
  * Recursively discover all rollout JSONL files under ~/.codex/sessions/.
  * Files are organized as YYYY/MM/DD/rollout-*.jsonl.
  */
-async function discoverCodexRolloutFiles(): Promise<string[]> {
+/** Exported for testing (stall behavior); no production caller besides harvest. */
+export async function discoverCodexRolloutFiles(): Promise<string[]> {
   const files: string[] = [];
 
   async function walk(dir: string): Promise<void> {
@@ -235,10 +239,6 @@ async function discoverCodexRolloutFiles(): Promise<string[]> {
   return files;
 }
 
-export function discoverCodexRolloutFilesForTest(): Promise<string[]> {
-  return discoverCodexRolloutFiles();
-}
-
 /**
  * Parse a Codex rollout JSONL in a single pass: check for the agent tag
  * in the first 20 lines, then extract model and cumulative token usage.
@@ -255,7 +255,7 @@ async function parseCodexRolloutForAgent(
 } | null> {
   return mountIO.run(
     `read:codex:${path.basename(filePath)}`,
-    async (signal) => {
+    async (signal, heartbeat) => {
       let matched = false;
       let lastUsage: CodexTokenUsage | null = null;
       let model = "unknown";
@@ -269,6 +269,8 @@ async function parseCodexRolloutForAgent(
       });
 
       for await (const line of rl) {
+        // Progress made — re-arm the idle deadline (see Claude parser above).
+        heartbeat();
         linesRead++;
         if (!matched) {
           if (linesRead > 20) break;

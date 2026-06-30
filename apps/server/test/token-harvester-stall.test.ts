@@ -9,7 +9,7 @@ import { readdir } from "node:fs/promises";
 
 import {
   discoverSessionFiles,
-  discoverCodexRolloutFilesForTest,
+  discoverCodexRolloutFiles,
 } from "../src/agents/token-harvester.js";
 import { mountIO } from "../src/shared/mount-io/index.js";
 
@@ -31,7 +31,7 @@ describe("discoverSessionFiles under a stalled mount", () => {
 
     const p = discoverSessionFiles("/mnt/claude/projects/whatever");
     const assertion = expect(p).resolves.toEqual([]);
-    await vi.advanceTimersByTimeAsync(5001);
+    await vi.advanceTimersByTimeAsync(10_001);
     await assertion;
   });
 
@@ -64,9 +64,9 @@ describe("codex rollout discovery under a stalled mount", () => {
     vi.mocked(readdir).mockReturnValue(
       new Promise(() => {}) as unknown as ReturnType<typeof readdir>
     );
-    const p = discoverCodexRolloutFilesForTest();
+    const p = discoverCodexRolloutFiles();
     const assertion = expect(p).resolves.toEqual([]);
-    await vi.advanceTimersByTimeAsync(5001);
+    await vi.advanceTimersByTimeAsync(10_001);
     await assertion;
   });
 });
