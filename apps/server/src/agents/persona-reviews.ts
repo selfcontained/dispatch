@@ -337,6 +337,21 @@ export async function getPersonaReviewsByParent(
   return result.rows;
 }
 
+export async function getReviewChildAgentIds(
+  pool: Pool,
+  parentAgentId: string
+): Promise<string[]> {
+  const result = await pool.query<{ agentId: string }>(
+    `SELECT pr.agent_id AS "agentId"
+       FROM persona_reviews pr
+       JOIN agents a ON a.id = pr.agent_id
+      WHERE pr.parent_agent_id = $1
+        AND a.deleted_at IS NULL`,
+    [parentAgentId]
+  );
+  return result.rows.map((r) => r.agentId);
+}
+
 export async function listRecentPersonaReviews(
   pool: Pool,
   sinceDays: number
