@@ -60,8 +60,9 @@ export class MountIO {
 
       const timeout = new Promise<never>((_, reject) => {
         timer = setTimeout(() => {
-          ac.abort(new MountStallError(label, this.timeoutMs));
-          reject(new MountStallError(label, this.timeoutMs));
+          const err = new MountStallError(label, this.timeoutMs);
+          ac.abort(err);
+          reject(err);
         }, this.timeoutMs);
       });
 
