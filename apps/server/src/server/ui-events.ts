@@ -20,6 +20,12 @@ export type UiEvent =
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
   | { type: "media.seen"; agentId: string; keys: string[] }
+  | {
+      type: "message.created";
+      senderAgentId: string;
+      recipientAgentId: string;
+    }
+  | { type: "message.read"; agentId: string }
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
   | {
