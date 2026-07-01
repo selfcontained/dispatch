@@ -28,6 +28,7 @@ import { resolveHeadSha } from "../shared/git/worktree.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
+import { MessageStore } from "../messages/store.js";
 
 const AGENT_LATEST_EVENT_TYPES = [
   "working",
@@ -538,14 +539,51 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       });
       const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nReply with dispatch_send_message using the replyTarget above.`;
 
+      // Deliver first: a persistence failure must never block delivery.
+      let delivered = false;
+      let deliveryError: unknown = null;
       try {
         await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+        delivered = true;
       } catch (err) {
+        deliveryError = err;
         appLog.error(
           { err, senderId: agentId, targetId: target.id },
           "dispatch_send_message: tmux delivery failed"
         );
-        throw err;
+      }
+
+      // Record the message (including failed deliveries) so it is viewable.
+      const messageStore = new MessageStore(pool);
+      await messageStore
+        .insertMessage({
+          senderAgentId: agentId,
+          recipientAgentId: target.id,
+          senderName: sender.name,
+          recipientName: target.name,
+          content: input.message,
+          delivered,
+          senderRepoRoot,
+          // Same repo today (send rule); stored for future cross-repo support.
+          recipientRepoRoot: senderRepoRoot,
+        })
+        .catch((err) =>
+          appLog.error(
+            { err, senderId: agentId, targetId: target.id },
+            "dispatch_send_message: failed to persist message"
+          )
+        );
+
+      publishUiEvent({
+        type: "message.created",
+        senderAgentId: agentId,
+        recipientAgentId: target.id,
+      });
+
+      if (!delivered) {
+        throw deliveryError instanceof Error
+          ? deliveryError
+          : new Error(`Failed to deliver message to "${target.name}".`);
       }
 
       appLog.info(
