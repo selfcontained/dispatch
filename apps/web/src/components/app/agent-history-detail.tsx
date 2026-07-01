@@ -34,6 +34,8 @@ import {
   EventTimeline,
   FeedbackTimeline,
 } from "@/components/app/agent-history-timeline";
+import { MessageTimeline } from "@/components/app/message-timeline";
+import { type AgentMessage } from "@/hooks/use-agent-messages";
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
@@ -94,13 +96,14 @@ function DurationBar({ durations }: { durations: Record<string, number> }) {
 
 // ── Detail tabs ─────────────────────────────────────────────────────
 
-type DetailTab = "events" | "media" | "pins" | "feedback";
+type DetailTab = "events" | "media" | "pins" | "feedback" | "messages";
 
 function DetailTabs({
   events,
   media,
   pins,
   feedback,
+  messages,
   agentId,
   workspaceRoot,
 }: {
@@ -108,6 +111,7 @@ function DetailTabs({
   media: HistoryMedia[];
   pins: AgentPin[];
   feedback: HistoryFeedbackItem[];
+  messages: AgentMessage[];
   agentId: string;
   workspaceRoot: string | null;
 }) {
@@ -137,6 +141,7 @@ function DetailTabs({
     { key: "media", label: "Media", count: media.length },
     { key: "pins", label: "Pins", count: pins.length },
     { key: "feedback", label: "Feedback", count: feedback.length },
+    { key: "messages", label: "Messages", count: messages.length },
   ];
 
   return (
@@ -244,6 +249,15 @@ function DetailTabs({
               No feedback received.
             </p>
           )}
+
+          {tab === "messages" && messages.length > 0 && (
+            <MessageTimeline messages={messages} />
+          )}
+          {tab === "messages" && messages.length === 0 && (
+            <p className="py-6 text-center text-xs text-muted-foreground">
+              No messages recorded.
+            </p>
+          )}
         </div>
       </div>
 
@@ -307,7 +321,8 @@ export function AgentHistoryDetail({
     );
   }
 
-  const { agent, events, tokenUsage, media, feedback, stateDurations } = data;
+  const { agent, events, tokenUsage, media, feedback, messages, stateDurations } =
+    data;
   const durationMs =
     new Date(agent.updatedAt).getTime() - new Date(agent.createdAt).getTime();
   const totalTokens =
@@ -443,12 +458,13 @@ export function AgentHistoryDetail({
         </div>
       )}
 
-      {/* Tabbed: Events / Media / Pins / Feedback */}
+      {/* Tabbed: Events / Media / Pins / Feedback / Messages */}
       <DetailTabs
         events={events}
         media={media}
         pins={agent.pins ?? []}
         feedback={feedback}
+        messages={messages}
         agentId={agentId}
         workspaceRoot={agent.gitContext?.repoRoot ?? agent.cwd}
       />
