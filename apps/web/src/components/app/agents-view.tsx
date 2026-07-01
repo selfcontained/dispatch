@@ -65,6 +65,7 @@ import { type IdeType } from "@/lib/ide-types";
 import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
+import { useAgentMessages } from "@/hooks/use-agent-messages";
 import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
@@ -328,6 +329,13 @@ export function AgentsView({
     mediaViewportRef,
     refreshMedia,
   } = useMedia(focusedAgentId, mediaPanelOpen);
+
+  const { unreadCount: unreadMessageCount, markRead: markMessagesRead } =
+    useAgentMessages(focusedAgentId);
+
+  useEffect(() => {
+    if (mediaActiveTab === "messages") markMessagesRead();
+  }, [mediaActiveTab, markMessagesRead]);
 
   const focusedAgentHasStream = focusedAgent?.hasStream ?? false;
   const focusedAgentStreamUrl = focusedAgentId
@@ -899,6 +907,7 @@ export function AgentsView({
             selectedAgentPins={focusedAgent?.pins ?? []}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
+            unreadMessageCount={unreadMessageCount}
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
             activeTab={mediaActiveTab}
@@ -950,6 +959,7 @@ export function AgentsView({
             selectedAgentPins={focusedAgent?.pins ?? []}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
+            unreadMessageCount={unreadMessageCount}
             mediaViewportRef={mediaViewportRef}
             activeTab={mediaActiveTab}
             setActiveTab={setMediaActiveTab}
