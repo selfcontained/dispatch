@@ -156,9 +156,14 @@ agent A calls dispatch_send_message
    -> INSERT agent_messages row (delivered=?)
    -> publishUiEvent("message.created")
         -> SSE /api/v1/events
-             -> web: invalidate ["messages", agentId] and history detail query
-                  -> MessagesPanel (sidebar) + MessageTimeline (history) re-render
+             -> web: invalidate ["messages", senderAgentId] and ["messages", recipientAgentId]
+                  -> MessagesPanel (sidebar) re-renders live
 ```
+
+The **sidebar** Messages tab updates live via SSE. The **History** detail view is a
+retrospective surface and is *not* live-invalidated on `message.created` — consistent with
+its sibling tabs (Events/Media/Pins/Feedback), it refetches on remount/refocus and per its
+`staleTime`. This is intentional; History does not need to reflect in-flight messages.
 
 ## Error handling
 
