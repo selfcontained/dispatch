@@ -44,7 +44,6 @@ export function PhraseRow({
           ) : (
             <InjectSplitButton
               disabled={isPending}
-              isPending={isPending}
               onInject={onInject}
               size="sm"
               insidePopover
