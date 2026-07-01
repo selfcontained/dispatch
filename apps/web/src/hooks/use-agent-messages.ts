@@ -58,9 +58,10 @@ export function useAgentMessages(agentId: string | null): {
     },
   });
 
+  const { mutate: markMutate } = markMutation;
   const markRead = useCallback(() => {
-    if (agentId && unreadCount > 0) markMutation.mutate();
-  }, [agentId, unreadCount, markMutation]);
+    if (agentId && unreadCount > 0) markMutate();
+  }, [agentId, unreadCount, markMutate]);
 
   return { messages, unreadCount, markRead, isLoading };
 }
