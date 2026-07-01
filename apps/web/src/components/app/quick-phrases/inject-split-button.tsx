@@ -11,18 +11,17 @@ import { cn } from "@/lib/utils";
 
 export function InjectSplitButton({
   disabled,
-  isPending,
   onInject,
   size = "default",
   insidePopover = false,
 }: {
   disabled: boolean;
-  isPending: boolean;
   onInject: (submit: boolean) => void;
   size?: "sm" | "default";
   insidePopover?: boolean;
 }) {
   const isSm = size === "sm";
+  const label = isSm ? "Send" : "Send & Submit";
 
   return (
     <div className={cn("flex items-stretch", isSm && "min-w-[5.5rem]")}>
@@ -41,7 +40,7 @@ export function InjectSplitButton({
         }
       >
         {isSm ? <Play className="h-2.5 w-2.5 fill-current" /> : null}
-        {isPending ? "Sending…" : isSm ? "Send" : "Send & Submit"}
+        {label}
       </Button>
       <DropdownMenu>
         <DropdownMenuTrigger asChild>

@@ -74,7 +74,6 @@ export function FillVariablesDialog({
               </Button>
               <InjectSplitButton
                 disabled={requiredMissing || isPending}
-                isPending={isPending}
                 onInject={onInject}
               />
             </div>
