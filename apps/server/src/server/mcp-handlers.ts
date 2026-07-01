@@ -65,6 +65,18 @@ const AGENT_LATEST_EVENT_TYPES = [
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
+function buildChildAgentInitialPrompt(
+  parentAgentId: string,
+  prompt: string
+): string {
+  return [
+    `You were launched by Dispatch agent "${parentAgentId}" via dispatch_launch_agent.`,
+    "Use that parent agent ID when coordinating back with dispatch_send_message.",
+    "",
+    prompt,
+  ].join("\n");
+}
+
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
 
 type PublishUiEvent = (event: unknown) => void;
@@ -727,7 +739,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         worktreeBranch: input.worktreeBranch,
         parentAgentId: agentId,
         cliSessionId,
-        initialPrompt: input.prompt,
+        initialPrompt: buildChildAgentInitialPrompt(agentId, input.prompt),
         templateId: input.templateId,
       });
 

@@ -983,6 +983,30 @@ describe("createMcpHandlers", () => {
     });
   });
 
+  describe("launchAgent", () => {
+    it("includes the launching agent id in the child initial prompt", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "Investigate the flaky test.",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          name: "worker",
+          parentAgentId: "agt_test1",
+          initialPrompt: expect.stringContaining(
+            'You were launched by Dispatch agent "agt_test1"'
+          ),
+        })
+      );
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initialPrompt: expect.stringContaining("Investigate the flaky test."),
+        })
+      );
+    });
+  });
+
   describe("sendMessage", () => {
     it("delivers message to matching running agent", async () => {
       const target = {
