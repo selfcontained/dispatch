@@ -43,7 +43,7 @@ export function MessagesPanel({
 }: {
   agentId: string | null;
 }): JSX.Element {
-  const { messages } = useAgentMessages(agentId);
+  const { messages, isLoading } = useAgentMessages(agentId);
 
   const threads = useMemo(
     () => (agentId ? groupByParticipant(messages, agentId) : []),
@@ -57,6 +57,14 @@ export function MessagesPanel({
           <MessageSquare className="h-8 w-8 text-muted-foreground" />
           <div className="mt-4">No agent selected.</div>
         </div>
+      </div>
+    );
+  }
+
+  if (isLoading && messages.length === 0) {
+    return (
+      <div className="grid h-full place-items-center p-4">
+        <div className="h-5 w-5 animate-spin rounded-full border-2 border-muted-foreground border-t-transparent" />
       </div>
     );
   }

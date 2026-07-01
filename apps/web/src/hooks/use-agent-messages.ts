@@ -18,10 +18,11 @@ export function useAgentMessages(agentId: string | null): {
   messages: AgentMessage[];
   unreadCount: number;
   markRead: () => void;
+  isLoading: boolean;
 } {
   const queryClient = useQueryClient();
 
-  const { data: messages = [] } = useQuery<AgentMessage[]>({
+  const { data: messages = [], isLoading } = useQuery<AgentMessage[]>({
     queryKey: ["messages", agentId],
     queryFn: async () => {
       const payload = await api<{ messages: AgentMessage[] }>(
@@ -61,5 +62,5 @@ export function useAgentMessages(agentId: string | null): {
     if (agentId && unreadCount > 0) markMutation.mutate();
   }, [agentId, unreadCount, markMutation]);
 
-  return { messages, unreadCount, markRead };
+  return { messages, unreadCount, markRead, isLoading };
 }
