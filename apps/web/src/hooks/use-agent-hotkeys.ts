@@ -1,16 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import {
-  ArrowDown,
-  ArrowUp,
-  BetweenHorizonalStart,
-  PanelLeft,
-  PanelLeftOpen,
-  PanelRight,
-  PanelRightOpen,
-  Play,
-  Plus,
-} from "lucide-react";
+import { Keyboard, Play, Plus } from "lucide-react";
 
 import {
   type CommandAction,
@@ -117,66 +107,21 @@ export function useAgentHotkeys({
         run: () => openCreateDialog(),
       },
       {
-        id: "focus-terminal-input",
-        title: "Focus terminal input",
-        keywords: ["terminal", "input", "cursor", "shell"],
-        hotkey: "focus-terminal-input",
-        icon: BetweenHorizonalStart,
-        disabled: !canFocusTerminal,
-        run: () => {
-          if (!canFocusTerminal) return;
-          focusTerminal();
-        },
-      },
-      {
-        id: "toggle-media-sidebar",
-        title: "Toggle media sidebar",
-        keywords: ["pins", "media", "right"],
-        hotkey: "toggle-media-sidebar",
-        icon: mediaOpen ? PanelRight : PanelRightOpen,
-        disabled: !isMobile && !sidebarAgentId,
-        run: () => {
-          if (!isMobile && !sidebarAgentId) return;
-          setMediaOpen(!mediaOpen);
-        },
-      },
-      {
-        id: "toggle-agent-sidebar",
-        title: "Toggle agent sidebar",
-        keywords: ["agents", "left", "list"],
-        hotkey: "toggle-agent-sidebar",
-        icon: leftPanelOpen ? PanelLeft : PanelLeftOpen,
-        run: () => handleSetLeftPanelOpen(!leftPanelOpen),
-      },
-      {
-        id: "focus-next-agent",
-        title: "Focus next agent",
-        keywords: ["cycle", "switch", "down"],
-        hotkey: "focus-next-agent",
-        icon: ArrowDown,
-        run: () => cycleAgent(1),
-      },
-      {
-        id: "focus-prev-agent",
-        title: "Focus previous agent",
-        keywords: ["cycle", "switch", "up"],
-        hotkey: "focus-prev-agent",
-        icon: ArrowUp,
-        run: () => cycleAgent(-1),
+        id: "keyboard-shortcuts",
+        title: "Keyboard shortcuts",
+        keywords: [
+          "shortcut",
+          "hotkey",
+          "terminal",
+          "sidebar",
+          "focus",
+          "help",
+        ],
+        icon: Keyboard,
+        run: () => navigate("/settings/help/shortcuts"),
       },
     ],
-    [
-      canFocusTerminal,
-      cycleAgent,
-      focusTerminal,
-      handleSetLeftPanelOpen,
-      isMobile,
-      leftPanelOpen,
-      mediaOpen,
-      openCreateDialog,
-      setMediaOpen,
-      sidebarAgentId,
-    ]
+    [navigate, openCreateDialog]
   );
 
   const paletteGroups = useMemo<CommandGroup[]>(() => {
