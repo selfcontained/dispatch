@@ -5,7 +5,9 @@ import {
   Check,
   ChevronDown,
   AlarmClock,
+  ArrowDown,
   ArrowDownToLine,
+  ArrowUp,
   Copy,
   Folder,
   FolderTree,
@@ -85,6 +87,20 @@ function hasDefaultSessionName(agent: Agent): boolean {
   return agent.name.trim() === `agent-${agent.id.slice(-6)}`;
 }
 
+type AgentCardNativeDragHandlers = Partial<{
+  dragstart: (event: DragEvent) => void;
+  dragenter: (event: DragEvent) => void;
+  dragover: (event: DragEvent) => void;
+  dragleave: (event: DragEvent) => void;
+  drop: (event: DragEvent) => void;
+}>;
+
+type AgentCardContainerProps = {
+  className?: string;
+  draggable?: boolean;
+  nativeDragHandlers?: AgentCardNativeDragHandlers;
+};
+
 export type AgentCardProps = {
   agent: Agent;
   agents: Agent[];
@@ -112,6 +128,11 @@ export type AgentCardProps = {
   closeOnSessionAction?: boolean;
   enabledAgentTypes: AgentType[];
   enabledIdes: IdeType[];
+  containerProps?: AgentCardContainerProps;
+  canMoveUp?: boolean;
+  canMoveDown?: boolean;
+  onMoveUp?: () => void;
+  onMoveDown?: () => void;
 };
 
 function CompactMetaRow({
@@ -182,7 +203,18 @@ export function AgentCard({
   closeOnSessionAction = false,
   enabledAgentTypes,
   enabledIdes,
+  containerProps,
+  canMoveUp = false,
+  canMoveDown = false,
+  onMoveUp,
+  onMoveDown,
 }: AgentCardProps): JSX.Element {
+  const {
+    className: containerClassName,
+    nativeDragHandlers,
+    ...rootProps
+  } = containerProps ?? {};
+  const rootRef = React.useRef<HTMLDivElement | null>(null);
   const state = getVisualState(agent);
   const hasActiveChild = childAgents.some(
     (child) => child.id === connectedAgentId
@@ -229,12 +261,34 @@ export function AgentCard({
     isExpanded
   );
 
+  React.useEffect(() => {
+    const node = rootRef.current;
+    if (!node || !nativeDragHandlers) return;
+
+    const entries = Object.entries(nativeDragHandlers) as Array<
+      [keyof AgentCardNativeDragHandlers, (event: DragEvent) => void]
+    >;
+    entries.forEach(([eventName, handler]) => {
+      node.addEventListener(eventName, handler);
+    });
+    return () => {
+      entries.forEach(([eventName, handler]) => {
+        node.removeEventListener(eventName, handler);
+      });
+    };
+  }, [nativeDragHandlers]);
+
   return (
     <React.Fragment>
-      <div
+      <motion.div
+        ref={rootRef}
+        {...rootProps}
+        layout="position"
+        transition={{ layout: { duration: 0.18, ease: "easeOut" } }}
         data-testid={`agent-card-${agent.id}`}
         className={cn(
           "border-b border-r-4 border-border px-2 py-2 transition-colors duration-300",
+          containerClassName,
           borderForAgentState(effectiveState),
           isSelected && "bg-muted/60",
           isStopped && "opacity-60"
@@ -377,6 +431,45 @@ export function AgentCard({
                 </span>
               </TooltipContent>
             </Tooltip>
+          ) : null}
+
+          {onMoveUp || onMoveDown ? (
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    data-agent-control="true"
+                    aria-label={`Move ${agent.name} up`}
+                    data-testid={`agent-move-up-${agent.id}`}
+                    className="h-7 w-7 text-muted-foreground/70 hover:text-foreground disabled:opacity-30"
+                    disabled={!canMoveUp}
+                    onClick={() => onMoveUp?.()}
+                  >
+                    <ArrowUp className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Move up</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    data-agent-control="true"
+                    aria-label={`Move ${agent.name} down`}
+                    data-testid={`agent-move-down-${agent.id}`}
+                    className="h-7 w-7 text-muted-foreground/70 hover:text-foreground disabled:opacity-30"
+                    disabled={!canMoveDown}
+                    onClick={() => onMoveDown?.()}
+                  >
+                    <ArrowDown className="h-3.5 w-3.5" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Move down</TooltipContent>
+              </Tooltip>
+            </div>
           ) : null}
 
           <Tooltip>
@@ -762,7 +855,7 @@ export function AgentCard({
             </motion.div>
           ) : null}
         </AnimatePresence>
-      </div>
+      </motion.div>
       <SessionSettingsDialog
         agent={agent}
         open={settingsOpen}
