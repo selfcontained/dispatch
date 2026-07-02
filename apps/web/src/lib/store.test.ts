@@ -2,10 +2,31 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
+  reconcileAgentSidebarOrder,
   reconcileMediaSidebarStateStorage,
   MEDIA_SIDEBAR_STATE_STORAGE_PREFIX,
   defaultMediaSidebarState,
 } from "./store";
+
+describe("reconcileAgentSidebarOrder", () => {
+  it("puts new agents first and keeps stored order for live agents", () => {
+    expect(
+      reconcileAgentSidebarOrder(
+        ["agt_2", "agt_1"],
+        ["agt_1", "agt_2", "agt_3"]
+      )
+    ).toEqual(["agt_3", "agt_2", "agt_1"]);
+  });
+
+  it("drops archived and duplicate agent ids", () => {
+    expect(
+      reconcileAgentSidebarOrder(
+        ["agt_2", "agt_old", "agt_2", "agt_1"],
+        ["agt_1", "agt_2"]
+      )
+    ).toEqual(["agt_2", "agt_1"]);
+  });
+});
 
 describe("reconcileMediaSidebarStateStorage", () => {
   beforeEach(() => {

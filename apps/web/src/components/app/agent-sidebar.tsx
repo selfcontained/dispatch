@@ -1,4 +1,5 @@
 import { ChevronDown } from "lucide-react";
+import { useAtom } from "jotai";
 
 import { AgentCard } from "@/components/app/agent-card";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -12,13 +13,15 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import React, { useMemo } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
   sortAgentTypes,
 } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
+import { agentSidebarOrderAtom, reconcileAgentSidebarOrder } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 export type AgentListContentProps = {
   agents: Agent[];
@@ -81,6 +84,14 @@ export function AgentListContent({
   onRequestClose,
   closeOnSessionAction = false,
 }: AgentListContentProps): JSX.Element {
+  const [agentSidebarOrder, setAgentSidebarOrder] = useAtom(
+    agentSidebarOrderAtom
+  );
+  const [draggingAgentId, setDraggingAgentId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<{
+    agentId: string;
+    position: "before" | "after";
+  } | null>(null);
   const sortedAgentTypes = useMemo(
     () => sortAgentTypes(enabledAgentTypes),
     [enabledAgentTypes]
@@ -90,6 +101,146 @@ export function AgentListContent({
       ? lastUsedAgentType
       : (enabledAgentTypes[0] ?? "codex");
   const showCreateTypePicker = enabledAgentTypes.length > 1;
+  const topLevelAgents = useMemo(
+    () => agents.filter((a) => !a.parentAgentId || !a.persona),
+    [agents]
+  );
+  const topLevelAgentIds = useMemo(
+    () => topLevelAgents.map((agent) => agent.id),
+    [topLevelAgents]
+  );
+  const orderedTopLevelAgents = useMemo(() => {
+    const reconciledOrder = reconcileAgentSidebarOrder(
+      agentSidebarOrder,
+      topLevelAgentIds
+    );
+    const agentById = new Map(topLevelAgents.map((agent) => [agent.id, agent]));
+    return reconciledOrder
+      .map((agentId) => agentById.get(agentId))
+      .filter((agent): agent is Agent => Boolean(agent));
+  }, [agentSidebarOrder, topLevelAgentIds, topLevelAgents]);
+
+  const moveAgent = (
+    draggedAgentId: string,
+    targetAgentId: string,
+    position: "before" | "after"
+  ) => {
+    if (draggedAgentId === targetAgentId) return;
+    setAgentSidebarOrder((currentOrder) => {
+      const reconciledOrder = reconcileAgentSidebarOrder(
+        currentOrder,
+        topLevelAgentIds
+      );
+      const nextOrder = reconciledOrder.filter(
+        (agentId) => agentId !== draggedAgentId
+      );
+      const targetIndex = nextOrder.indexOf(targetAgentId);
+      if (targetIndex === -1) return reconciledOrder;
+      nextOrder.splice(
+        position === "after" ? targetIndex + 1 : targetIndex,
+        0,
+        draggedAgentId
+      );
+      return nextOrder;
+    });
+  };
+
+  const moveAgentToBoundary = (
+    draggedAgentId: string,
+    position: "first" | "last"
+  ) => {
+    setAgentSidebarOrder((currentOrder) => {
+      const reconciledOrder = reconcileAgentSidebarOrder(
+        currentOrder,
+        topLevelAgentIds
+      );
+      if (!reconciledOrder.includes(draggedAgentId)) return reconciledOrder;
+      const nextOrder = reconciledOrder.filter(
+        (agentId) => agentId !== draggedAgentId
+      );
+      if (position === "first") {
+        nextOrder.unshift(draggedAgentId);
+      } else {
+        nextOrder.push(draggedAgentId);
+      }
+      return nextOrder;
+    });
+  };
+
+  const moveAgentByOffset = (agentId: string, offset: -1 | 1) => {
+    setAgentSidebarOrder((currentOrder) => {
+      const reconciledOrder = reconcileAgentSidebarOrder(
+        currentOrder,
+        topLevelAgentIds
+      );
+      const currentIndex = reconciledOrder.indexOf(agentId);
+      const nextIndex = currentIndex + offset;
+      if (
+        currentIndex === -1 ||
+        nextIndex < 0 ||
+        nextIndex >= reconciledOrder.length
+      ) {
+        return reconciledOrder;
+      }
+      const nextOrder = [...reconciledOrder];
+      [nextOrder[currentIndex], nextOrder[nextIndex]] = [
+        nextOrder[nextIndex],
+        nextOrder[currentIndex],
+      ];
+      return nextOrder;
+    });
+  };
+
+  const clearDragState = useCallback(() => {
+    setDraggingAgentId(null);
+    setDropTarget(null);
+  }, []);
+
+  useEffect(() => {
+    if (!draggingAgentId) return;
+    window.addEventListener("dragend", clearDragState);
+    window.addEventListener("drop", clearDragState);
+    return () => {
+      window.removeEventListener("dragend", clearDragState);
+      window.removeEventListener("drop", clearDragState);
+    };
+  }, [clearDragState, draggingAgentId]);
+
+  const dropPositionForEvent = (event: DragEvent): "before" | "after" => {
+    const target = event.currentTarget as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    return event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+  };
+
+  const handleBoundaryDragOver = (
+    event: React.DragEvent<HTMLDivElement>,
+    position: "first" | "last"
+  ) => {
+    if (!draggingAgentId || orderedTopLevelAgents.length === 0) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    const boundaryAgent =
+      position === "first"
+        ? orderedTopLevelAgents[0]
+        : orderedTopLevelAgents[orderedTopLevelAgents.length - 1];
+    setDropTarget({
+      agentId: boundaryAgent.id,
+      position: position === "first" ? "before" : "after",
+    });
+  };
+
+  const handleBoundaryDrop = (
+    event: React.DragEvent<HTMLDivElement>,
+    position: "first" | "last"
+  ) => {
+    event.preventDefault();
+    const draggedAgentId =
+      event.dataTransfer.getData("text/plain") || draggingAgentId;
+    if (draggedAgentId) {
+      moveAgentToBoundary(draggedAgentId, position);
+    }
+    clearDragState();
+  };
 
   return (
     <div data-testid="agent-sidebar" className="flex h-full min-h-0 flex-col">
@@ -147,7 +298,7 @@ export function AgentListContent({
 
       <div
         data-testid="agent-sidebar-scroll"
-        className="min-h-0 flex-1 overflow-y-auto"
+        className="flex min-h-0 flex-1 flex-col overflow-y-auto"
       >
         <TooltipProvider delayDuration={120}>
           {agents.length === 0 ? (
@@ -159,39 +310,134 @@ export function AgentListContent({
             </div>
           ) : (
             <React.Fragment>
-              {agents
-                .filter((a) => !a.parentAgentId || !a.persona)
-                .map((agent) => (
-                  <AgentCard
-                    key={agent.id}
-                    agent={agent}
-                    agents={agents}
-                    childAgents={agents.filter(
-                      (a) => a.parentAgentId === agent.id && !!a.persona
-                    )}
-                    selectedAgentId={selectedAgentId}
-                    expandedAgentId={expandedAgentId}
-                    agentVisualState={agentVisualState}
-                    borderForAgentState={borderForAgentState}
-                    toggleAgentDetails={toggleAgentDetails}
-                    isFullAccessEnabled={isFullAccessEnabled}
-                    detachTerminal={detachTerminal}
-                    attachToAgent={attachToAgent}
-                    startAgent={startAgent}
-                    setDeleteTarget={setDeleteTarget}
-                    setDeleteConfirmOpen={setDeleteConfirmOpen}
-                    setStopTarget={setStopTarget}
-                    setStopConfirmOpen={setStopConfirmOpen}
-                    sendTerminalInput={sendTerminalInput}
-                    enabledAgentTypes={enabledAgentTypes}
-                    enabledIdes={enabledIdes}
-                    connectedAgentId={connectedAgentId}
-                    onOpenFeedbackDetail={onOpenFeedbackDetail}
-                    feedbackDetailState={feedbackDetailState}
-                    onRequestClose={onRequestClose}
-                    closeOnSessionAction={closeOnSessionAction}
-                  />
-                ))}
+              <div
+                aria-hidden="true"
+                className="h-3 shrink-0"
+                onDragOver={(event) => handleBoundaryDragOver(event, "first")}
+                onDrop={(event) => handleBoundaryDrop(event, "first")}
+              />
+              {orderedTopLevelAgents.map((agent, index) => (
+                <AgentCard
+                  key={agent.id}
+                  agent={agent}
+                  agents={agents}
+                  childAgents={agents.filter(
+                    (a) => a.parentAgentId === agent.id && !!a.persona
+                  )}
+                  selectedAgentId={selectedAgentId}
+                  expandedAgentId={expandedAgentId}
+                  agentVisualState={agentVisualState}
+                  borderForAgentState={borderForAgentState}
+                  toggleAgentDetails={toggleAgentDetails}
+                  isFullAccessEnabled={isFullAccessEnabled}
+                  detachTerminal={detachTerminal}
+                  attachToAgent={attachToAgent}
+                  startAgent={startAgent}
+                  setDeleteTarget={setDeleteTarget}
+                  setDeleteConfirmOpen={setDeleteConfirmOpen}
+                  setStopTarget={setStopTarget}
+                  setStopConfirmOpen={setStopConfirmOpen}
+                  sendTerminalInput={sendTerminalInput}
+                  enabledAgentTypes={enabledAgentTypes}
+                  enabledIdes={enabledIdes}
+                  connectedAgentId={connectedAgentId}
+                  onOpenFeedbackDetail={onOpenFeedbackDetail}
+                  feedbackDetailState={feedbackDetailState}
+                  onRequestClose={onRequestClose}
+                  closeOnSessionAction={closeOnSessionAction}
+                  canMoveUp={index > 0}
+                  canMoveDown={index < orderedTopLevelAgents.length - 1}
+                  onMoveUp={() => moveAgentByOffset(agent.id, -1)}
+                  onMoveDown={() => moveAgentByOffset(agent.id, 1)}
+                  containerProps={{
+                    draggable: true,
+                    className: cn(
+                      "relative cursor-grab active:cursor-grabbing",
+                      draggingAgentId === agent.id && "opacity-55",
+                      dropTarget?.agentId === agent.id &&
+                        dropTarget.position === "before" &&
+                        draggingAgentId !== agent.id &&
+                        "before:absolute before:inset-x-0 before:top-0 before:z-10 before:h-0.5 before:bg-primary",
+                      dropTarget?.agentId === agent.id &&
+                        dropTarget.position === "after" &&
+                        draggingAgentId !== agent.id &&
+                        "after:absolute after:bottom-0 after:inset-x-0 after:z-10 after:h-0.5 after:bg-primary"
+                    ),
+                    nativeDragHandlers: {
+                      dragstart: (event) => {
+                        const target = event.target as HTMLElement;
+                        if (
+                          target.closest(
+                            "button,a,input,textarea,select,[data-agent-control='true']"
+                          )
+                        ) {
+                          event.preventDefault();
+                          return;
+                        }
+                        if (!event.dataTransfer) return;
+                        event.dataTransfer.effectAllowed = "move";
+                        event.dataTransfer.setData("text/plain", agent.id);
+                        setDraggingAgentId(agent.id);
+                      },
+                      dragenter: (event) => {
+                        event.preventDefault();
+                        if (!draggingAgentId || draggingAgentId === agent.id) {
+                          return;
+                        }
+                        setDropTarget({
+                          agentId: agent.id,
+                          position: dropPositionForEvent(event),
+                        });
+                      },
+                      dragover: (event) => {
+                        if (!draggingAgentId || draggingAgentId === agent.id) {
+                          return;
+                        }
+                        event.preventDefault();
+                        if (event.dataTransfer) {
+                          event.dataTransfer.dropEffect = "move";
+                        }
+                        setDropTarget({
+                          agentId: agent.id,
+                          position: dropPositionForEvent(event),
+                        });
+                      },
+                      dragleave: (event) => {
+                        if (
+                          (event.currentTarget as HTMLElement).contains(
+                            event.relatedTarget as Node | null
+                          )
+                        ) {
+                          return;
+                        }
+                        setDropTarget((current) =>
+                          current?.agentId === agent.id ? null : current
+                        );
+                      },
+                      drop: (event) => {
+                        event.preventDefault();
+                        const draggedAgentId =
+                          event.dataTransfer?.getData("text/plain") ||
+                          draggingAgentId;
+                        if (draggedAgentId) {
+                          moveAgent(
+                            draggedAgentId,
+                            agent.id,
+                            dropPositionForEvent(event)
+                          );
+                        }
+                        clearDragState();
+                      },
+                    },
+                  }}
+                />
+              ))}
+              <div
+                aria-hidden="true"
+                className="min-h-16 flex-1"
+                onDragOver={(event) => handleBoundaryDragOver(event, "last")}
+                onDrop={(event) => handleBoundaryDrop(event, "last")}
+              />
             </React.Fragment>
           )}
         </TooltipProvider>

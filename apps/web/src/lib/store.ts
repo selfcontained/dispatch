@@ -99,6 +99,34 @@ export const diffFileTreeOpenAtom = atomWithLocalStorage<boolean>(
   true
 );
 
+export const agentSidebarOrderAtom = atomWithLocalStorage<string[]>(
+  "dispatch:agentSidebarOrder",
+  []
+);
+
+export function reconcileAgentSidebarOrder(
+  storedOrder: readonly string[],
+  agentIds: readonly string[]
+): string[] {
+  const liveIds = new Set(agentIds);
+  const seen = new Set<string>();
+  const nextOrder: string[] = [];
+
+  for (const agentId of agentIds) {
+    if (storedOrder.includes(agentId) || seen.has(agentId)) continue;
+    seen.add(agentId);
+    nextOrder.push(agentId);
+  }
+
+  for (const agentId of storedOrder) {
+    if (!liveIds.has(agentId) || seen.has(agentId)) continue;
+    seen.add(agentId);
+    nextOrder.push(agentId);
+  }
+
+  return nextOrder;
+}
+
 export type MediaSidebarTab = "pins" | "media" | "brain";
 
 export type MediaSidebarState = {
