@@ -1,5 +1,5 @@
 ## What's Changed
-* Refine agent sidebar controls by @selfcontained in https://github.com/selfcontained/dispatch/pull/717
+* Move keyboard shortcuts from cmd-k to Help by @selfcontained in https://github.com/selfcontained/dispatch/pull/718
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.24.3...v0.24.4
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.24.4...v0.24.5
