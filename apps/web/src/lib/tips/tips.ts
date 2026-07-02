@@ -77,7 +77,7 @@ export const tips: Tip[] = [
   {
     id: "session-rename",
     title: "Rename Sessions",
-    body: "Click any agent's name in the sidebar to open session settings and rename it directly.",
+    body: "Expand an agent in the sidebar and click the edit button to open session settings and rename it directly.",
     docsSection: "agents",
     since: "0.23.13",
     surfaces: ["ambient"],

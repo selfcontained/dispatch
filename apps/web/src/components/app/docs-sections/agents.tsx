@@ -242,9 +242,9 @@ export function AgentsContent() {
           persona agents, and job agents are excluded from both paths.
         </P>
         <P>
-          To rename any agent yourself, click the agent's name in the sidebar
-          card to open the <strong>Session settings</strong> dialog and type a
-          new name.
+          To rename any agent yourself, expand its sidebar card and click the
+          edit button to open the <strong>Session settings</strong> dialog and
+          type a new name.
         </P>
       </Section>
 
