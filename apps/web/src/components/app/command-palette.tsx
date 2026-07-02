@@ -4,15 +4,12 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { Command } from "cmdk";
 import { Play, Search, type LucideIcon } from "lucide-react";
 import { glassOverlay } from "@/lib/glass";
-import { formatHotkeyForKbd } from "@/lib/hotkeys/format";
-import { type HotkeyId } from "@/lib/hotkeys/keymap";
 import { cn } from "@/lib/utils";
 
 export type CommandAction = {
   id: string;
   title: string;
   keywords?: string[];
-  hotkey?: HotkeyId;
   icon?: LucideIcon;
   disabled?: boolean;
   confirm?: { description: string };
@@ -269,16 +266,6 @@ function ConfirmPage({
   );
 }
 
-function HotkeyBadge({ id }: { id: HotkeyId }): JSX.Element {
-  const { modifiers, key } = formatHotkeyForKbd(id);
-  return (
-    <kbd className="ml-auto font-mono text-xs tracking-widest text-muted-foreground/50">
-      {modifiers}
-      {key}
-    </kbd>
-  );
-}
-
 const groupClassName = cn(
   "overflow-hidden p-1 text-foreground",
   "[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground",
@@ -314,8 +301,6 @@ function CommandPaletteItem({
       {Icon ? <Icon className={iconClassName} aria-hidden /> : null}
 
       <span className="flex-1 truncate">{action.title}</span>
-
-      {action.hotkey ? <HotkeyBadge id={action.hotkey} /> : null}
     </Command.Item>
   );
 }
