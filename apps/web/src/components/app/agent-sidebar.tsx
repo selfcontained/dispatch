@@ -92,6 +92,7 @@ export function AgentListContent({
     agentId: string;
     position: "before" | "after";
   } | null>(null);
+  const [reorderAnnouncement, setReorderAnnouncement] = useState("");
   const sortedAgentTypes = useMemo(
     () => sortAgentTypes(enabledAgentTypes),
     [enabledAgentTypes]
@@ -167,13 +168,13 @@ export function AgentListContent({
     });
   };
 
-  const moveAgentByOffset = (agentId: string, offset: -1 | 1) => {
+  const moveAgentByOffset = (agent: Agent, offset: -1 | 1) => {
     setAgentSidebarOrder((currentOrder) => {
       const reconciledOrder = reconcileAgentSidebarOrder(
         currentOrder,
         topLevelAgentIds
       );
-      const currentIndex = reconciledOrder.indexOf(agentId);
+      const currentIndex = reconciledOrder.indexOf(agent.id);
       const nextIndex = currentIndex + offset;
       if (
         currentIndex === -1 ||
@@ -187,6 +188,11 @@ export function AgentListContent({
         nextOrder[nextIndex],
         nextOrder[currentIndex],
       ];
+      setReorderAnnouncement(
+        `${agent.name} moved ${offset < 0 ? "up" : "down"} to position ${
+          nextIndex + 1
+        } of ${reconciledOrder.length}.`
+      );
       return nextOrder;
     });
   };
@@ -310,13 +316,20 @@ export function AgentListContent({
             </div>
           ) : (
             <React.Fragment>
+              <p id="agent-sidebar-reorder-instructions" className="sr-only">
+                Focus an agent card and press Alt or Option plus Arrow Up or
+                Arrow Down to reorder it.
+              </p>
+              <p className="sr-only" aria-live="polite">
+                {reorderAnnouncement}
+              </p>
               <div
                 aria-hidden="true"
                 className="h-3 shrink-0"
                 onDragOver={(event) => handleBoundaryDragOver(event, "first")}
                 onDrop={(event) => handleBoundaryDrop(event, "first")}
               />
-              {orderedTopLevelAgents.map((agent, index) => (
+              {orderedTopLevelAgents.map((agent) => (
                 <AgentCard
                   key={agent.id}
                   agent={agent}
@@ -345,14 +358,23 @@ export function AgentListContent({
                   feedbackDetailState={feedbackDetailState}
                   onRequestClose={onRequestClose}
                   closeOnSessionAction={closeOnSessionAction}
-                  canMoveUp={index > 0}
-                  canMoveDown={index < orderedTopLevelAgents.length - 1}
-                  onMoveUp={() => moveAgentByOffset(agent.id, -1)}
-                  onMoveDown={() => moveAgentByOffset(agent.id, 1)}
                   containerProps={{
                     draggable: true,
+                    tabIndex: 0,
+                    "aria-describedby": "agent-sidebar-reorder-instructions",
+                    onKeyDown: (event) => {
+                      if (event.target !== event.currentTarget) return;
+                      if (!event.altKey) return;
+                      if (event.key === "ArrowUp") {
+                        event.preventDefault();
+                        moveAgentByOffset(agent, -1);
+                      } else if (event.key === "ArrowDown") {
+                        event.preventDefault();
+                        moveAgentByOffset(agent, 1);
+                      }
+                    },
                     className: cn(
-                      "relative cursor-grab active:cursor-grabbing",
+                      "relative cursor-grab active:cursor-grabbing focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                       draggingAgentId === agent.id && "opacity-55",
                       dropTarget?.agentId === agent.id &&
                         dropTarget.position === "before" &&

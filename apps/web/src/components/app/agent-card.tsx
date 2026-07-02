@@ -5,13 +5,12 @@ import {
   Check,
   ChevronDown,
   AlarmClock,
-  ArrowDown,
   ArrowDownToLine,
-  ArrowUp,
   Copy,
   Folder,
   FolderTree,
   GitBranch,
+  Pencil,
   Play,
   Pause,
   Tag,
@@ -96,8 +95,11 @@ type AgentCardNativeDragHandlers = Partial<{
 }>;
 
 type AgentCardContainerProps = {
+  "aria-describedby"?: string;
   className?: string;
   draggable?: boolean;
+  onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
+  tabIndex?: number;
   nativeDragHandlers?: AgentCardNativeDragHandlers;
 };
 
@@ -129,10 +131,6 @@ export type AgentCardProps = {
   enabledAgentTypes: AgentType[];
   enabledIdes: IdeType[];
   containerProps?: AgentCardContainerProps;
-  canMoveUp?: boolean;
-  canMoveDown?: boolean;
-  onMoveUp?: () => void;
-  onMoveDown?: () => void;
 };
 
 function CompactMetaRow({
@@ -204,10 +202,6 @@ export function AgentCard({
   enabledAgentTypes,
   enabledIdes,
   containerProps,
-  canMoveUp = false,
-  canMoveDown = false,
-  onMoveUp,
-  onMoveDown,
 }: AgentCardProps): JSX.Element {
   const {
     className: containerClassName,
@@ -332,19 +326,12 @@ export function AgentCard({
                 </TooltipTrigger>
                 <TooltipContent>{agent.cwd}</TooltipContent>
               </Tooltip>
-              <button
-                type="button"
+              <span
                 data-testid={`agent-session-name-${agent.id}`}
-                aria-label={`Session settings for ${agent.name}`}
-                title="Session settings"
-                className="min-w-0 truncate rounded-md px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-muted transition-colors"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setSettingsOpen(true);
-                }}
+                className="min-w-0 truncate"
               >
                 {agent.name}
-              </button>
+              </span>
             </div>
             {canPromptRename ? (
               <Tooltip>
@@ -431,45 +418,6 @@ export function AgentCard({
                 </span>
               </TooltipContent>
             </Tooltip>
-          ) : null}
-
-          {onMoveUp || onMoveDown ? (
-            <div className="flex shrink-0 items-center gap-0.5">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    data-agent-control="true"
-                    aria-label={`Move ${agent.name} up`}
-                    data-testid={`agent-move-up-${agent.id}`}
-                    className="h-7 w-7 text-muted-foreground/70 hover:text-foreground disabled:opacity-30"
-                    disabled={!canMoveUp}
-                    onClick={() => onMoveUp?.()}
-                  >
-                    <ArrowUp className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Move up</TooltipContent>
-              </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    size="icon"
-                    variant="ghost"
-                    data-agent-control="true"
-                    aria-label={`Move ${agent.name} down`}
-                    data-testid={`agent-move-down-${agent.id}`}
-                    className="h-7 w-7 text-muted-foreground/70 hover:text-foreground disabled:opacity-30"
-                    disabled={!canMoveDown}
-                    onClick={() => onMoveDown?.()}
-                  >
-                    <ArrowDown className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Move down</TooltipContent>
-              </Tooltip>
-            </div>
           ) : null}
 
           <Tooltip>
@@ -830,6 +778,17 @@ export function AgentCard({
                           <Pause className="h-3.5 w-3.5" />
                         </Button>
                       ) : null}
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 w-8 rounded-full border border-blue-500/35 bg-blue-500/10 p-0 text-blue-400 hover:bg-blue-500/15 hover:text-blue-300"
+                        data-testid={`agent-session-settings-${agent.id}`}
+                        aria-label="Edit session settings"
+                        title="Edit session settings"
+                        onClick={() => setSettingsOpen(true)}
+                      >
+                        <Pencil className="h-3.5 w-3.5" />
+                      </Button>
                       <Button
                         size="sm"
                         variant="ghost-destructive"
