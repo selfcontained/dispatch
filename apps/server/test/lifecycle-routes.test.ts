@@ -445,6 +445,179 @@ describe("POST /api/v1/agents/:id/setup/complete", () => {
 });
 
 // ---------------------------------------------------------------------------
+// POST /api/v1/agents/:id/latest-event
+// ---------------------------------------------------------------------------
+describe("POST /api/v1/agents/:id/latest-event", () => {
+  it("returns 400 for invalid event type", async () => {
+    const agent = await createAgent({ name: "bad-event-type" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "invalid", message: "hello" }
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/type must be one of/);
+  });
+
+  it("returns 400 when message is missing", async () => {
+    const agent = await createAgent({ name: "no-msg" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "working" }
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/message must be a non-empty string/);
+  });
+
+  it("returns 400 when message is whitespace-only", async () => {
+    const agent = await createAgent({ name: "ws-msg" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "working", message: "   " }
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/message must be a non-empty string/);
+  });
+
+  it("returns 400 when metadata is not an object", async () => {
+    const agent = await createAgent({ name: "bad-meta" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "working", message: "hello", metadata: "not-an-object" }
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/metadata must be an object/);
+  });
+
+  it("returns 400 when metadata is an array", async () => {
+    const agent = await createAgent({ name: "arr-meta" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "working", message: "hello", metadata: ["not", "valid"] }
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/metadata must be an object/);
+  });
+
+  it("returns 400 when metadata is null", async () => {
+    const agent = await createAgent({ name: "null-meta" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "working", message: "hello", metadata: null }
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/metadata must be an object/);
+  });
+
+  it("accepts valid event with all fields", async () => {
+    const agent = await createAgent({ name: "valid-event" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "working", message: "doing stuff", metadata: { phase: "build" } }
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agent).toBeDefined();
+  });
+
+  it("accepts valid event without metadata", async () => {
+    const agent = await createAgent({ name: "no-meta-ok" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "done", message: "finished" }
+    );
+    expect(res.statusCode).toBe(200);
+  });
+
+  it("trims message whitespace", async () => {
+    const agent = await createAgent({ name: "trim-msg" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/latest-event`,
+      { type: "idle", message: "  padded message  " }
+    );
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.agent.latestEvent.message).toBe("padded message");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/agents/:id/setup/error
+// ---------------------------------------------------------------------------
+describe("POST /api/v1/agents/:id/setup/error", () => {
+  it("marks agent setup as failed and returns ok", async () => {
+    const agent = await createAgent({ name: "err-report" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/setup/error`,
+      { message: "git worktree add failed" }
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+  });
+
+  it("defaults message when not provided", async () => {
+    const agent = await createAgent({ name: "err-default" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/setup/error`,
+      {}
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().ok).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// POST /api/v1/agents/:id/start
+// ---------------------------------------------------------------------------
+describe("POST /api/v1/agents/:id/start", () => {
+  it("returns 404 for unknown agent", async () => {
+    const res = await authedInject(
+      "POST",
+      "/api/v1/agents/nonexistent/start",
+      {}
+    );
+    expect(res.statusCode).toBe(404);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/agents/:id/worktree-status
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/agents/:id/worktree-status", () => {
+  it("returns 404 for unknown agent", async () => {
+    const res = await authedInject(
+      "GET",
+      "/api/v1/agents/nonexistent/worktree-status"
+    );
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("returns worktree status for a valid agent", async () => {
+    const agent = await createAgent({ name: "wt-status" });
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agent.id}/worktree-status`
+    );
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body).toHaveProperty("hasWorktree");
+    expect(body).toHaveProperty("hasUnmergedCommits");
+    expect(body).toHaveProperty("worktreePath");
+    expect(body).toHaveProperty("branchName");
+    expect(body).toHaveProperty("changedFiles");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // POST /api/v1/agents/:id/stop
 // ---------------------------------------------------------------------------
 describe("POST /api/v1/agents/:id/stop", () => {
@@ -455,5 +628,32 @@ describe("POST /api/v1/agents/:id/stop", () => {
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toMatch(/force must be a boolean/i);
+  });
+
+  it("returns 404 for unknown agent", async () => {
+    const res = await authedInject("POST", "/api/v1/agents/nonexistent/stop", {
+      force: false,
+    });
+    expect(res.statusCode).toBe(404);
+  });
+
+  it("accepts stop with force=true", async () => {
+    const agent = await createAgent({ name: "force-stop" });
+    const res = await authedInject("POST", `/api/v1/agents/${agent.id}/stop`, {
+      force: true,
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agent).toBeDefined();
+  });
+
+  it("accepts stop without force field", async () => {
+    const agent = await createAgent({ name: "no-force" });
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/stop`,
+      {}
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agent).toBeDefined();
   });
 });

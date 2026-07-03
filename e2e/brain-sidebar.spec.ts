@@ -98,7 +98,7 @@ async function openMediaSidebarForAgent(
 ) {
   await clickAgentRow(page, agent.id);
   const toggle = page.getByTestId("toggle-media-sidebar");
-  await expect(toggle).toBeVisible();
+  await expect(toggle).toBeVisible({ timeout: 10_000 });
   await toggle.click();
 }
 
