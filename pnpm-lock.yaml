@@ -40,9 +40,6 @@ importers:
       "@fastify/rate-limit":
         specifier: ^10.3.0
         version: 10.3.0
-      "@fastify/static":
-        specifier: ^8.3.0
-        version: 8.3.0
       "@fastify/websocket":
         specifier: ^11.2.0
         version: 11.2.0
@@ -149,12 +146,6 @@ importers:
       cronstrue:
         specifier: ^3.14.0
         version: 3.14.0
-      date-fns:
-        specifier: ^4.1.0
-        version: 4.1.0
-      diff-match-patch:
-        specifier: ^1.0.5
-        version: 1.0.5
       framer-motion:
         specifier: ^12.35.2
         version: 12.38.0(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -209,9 +200,6 @@ importers:
       tailwind-merge:
         specifier: ^2.5.4
         version: 2.6.1
-      unidiff:
-        specifier: ^1.0.4
-        version: 1.0.4
     devDependencies:
       "@eslint/js":
         specifier: ^9.39.4
@@ -222,9 +210,6 @@ importers:
       "@testing-library/react":
         specifier: ^16.3.2
         version: 16.3.2(@testing-library/dom@10.4.1)(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
-      "@types/diff-match-patch":
-        specifier: ^1.0.36
-        version: 1.0.36
       "@types/react":
         specifier: ^18.3.12
         version: 18.3.28
@@ -1975,12 +1960,6 @@ packages:
       "@noble/hashes":
         optional: true
 
-  "@fastify/accept-negotiator@2.0.1":
-    resolution:
-      {
-        integrity: sha512-/c/TW2bO/v9JeEgoD/g1G5GxGeCF1Hafdf79WPmUlgYiBXummY0oX3VVq4yFkKKVBKDNlaDUYoab7g38RpPqCQ==,
-      }
-
   "@fastify/ajv-compiler@4.0.5":
     resolution:
       {
@@ -2045,18 +2024,6 @@ packages:
     resolution:
       {
         integrity: sha512-eIGkG9XKQs0nyynatApA3EVrojHOuq4l6fhB4eeCk4PIOeadvOJz9/4w3vGI44Go17uaXOWEcPkaD8kuKm7g6Q==,
-      }
-
-  "@fastify/send@4.1.0":
-    resolution:
-      {
-        integrity: sha512-TMYeQLCBSy2TOFmV95hQWkiTYgC/SEx7vMdV+wnZVX4tt8VBLKzmH8vV9OzJehV0+XBfg+WxPMt5wp+JBUKsVw==,
-      }
-
-  "@fastify/static@8.3.0":
-    resolution:
-      {
-        integrity: sha512-yKxviR5PH1OKNnisIzZKmgZSus0r2OZb8qCSbqmw34aolT4g3UlzYfeBRym+HJ1J471CR8e2ldNub4PubD1coA==,
       }
 
   "@fastify/websocket@11.2.0":
@@ -3580,12 +3547,6 @@ packages:
         integrity: sha512-c9h9dVVMigMPc4bwTvC5dxqtqJZwQPePsWjPlpSOnojbor6pGqdk541lfA7AqFQr5pB1BRdq0juY9db81BwyFw==,
       }
 
-  "@types/diff-match-patch@1.0.36":
-    resolution:
-      {
-        integrity: sha512-xFdR6tkm0MWvBfO8xXCSsinYxHcqkQUlcHeSpMC2ukzOb6lwQAfDmW+Qt0AvlGd8HpsS28qKsB+oPeJn9I39jg==,
-      }
-
   "@types/estree-jsx@1.0.5":
     resolution:
       {
@@ -4581,13 +4542,6 @@ packages:
         integrity: sha512-/Srv4dswyQNBfohGpz9o6Yb3Gz3SrUDqBH5rTuhGR7ahtlbYKnVxw2bCFMRljaA7EXHaXZ8wsHdodFvbkhKmqg==,
       }
 
-  content-disposition@0.5.4:
-    resolution:
-      {
-        integrity: sha512-FveZTNuGw04cxlAiWbzi6zTAL/lhehaWbTtgluJh4/E95DqMwTmha3KZN1aAWA8cFIhHzMZUvLevkw5Rqk+tSQ==,
-      }
-    engines: { node: ">= 0.6" }
-
   content-disposition@1.0.1:
     resolution:
       {
@@ -5136,13 +5090,6 @@ packages:
       {
         integrity: sha512-IayShXAgj/QMXgB0IWmKx+rOPuGMhqm5w6jvFxmVenXKIzRqTAAsbBPT3kWQeGANj3jGgvcvv4yK6SxqYmikgw==,
       }
-
-  diff@5.2.2:
-    resolution:
-      {
-        integrity: sha512-vtcDfH3TOjP8UekytvnHH1o1P4FcUdt4eQ1Y+Abap1tk/OB2MWQvcwS2ClCd1zuIhc3JKOx6p3kod8Vfys3E+A==,
-      }
-    engines: { node: ">=0.3.1" }
 
   dlv@1.1.3:
     resolution:
@@ -7208,14 +7155,6 @@ packages:
       }
     engines: { node: ">=18" }
 
-  mime@3.0.0:
-    resolution:
-      {
-        integrity: sha512-jSCU7/VB1loIWBZe14aEYHU/+1UMEHoaO7qxCOVJOw9GgH72VAWppxNcjU+x9a2k3GSIBXNKxXQFqRvvZ7vr3A==,
-      }
-    engines: { node: ">=10.0.0" }
-    hasBin: true
-
   mimic-function@5.0.1:
     resolution:
       {
@@ -9162,12 +9101,6 @@ packages:
       }
     engines: { node: ">=4" }
 
-  unidiff@1.0.4:
-    resolution:
-      {
-        integrity: sha512-ynU0vsAXw0ir8roa+xPCUHmnJ5goc5BTM2Kuc3IJd8UwgaeRs7VSD5+eeaQL+xp1JtB92hu/Zy/Lgy7RZcr1pQ==,
-      }
-
   unified@11.0.5:
     resolution:
       {
@@ -10833,8 +10766,6 @@ snapshots:
 
   "@exodus/bytes@1.15.0": {}
 
-  "@fastify/accept-negotiator@2.0.1": {}
-
   "@fastify/ajv-compiler@4.0.5":
     dependencies:
       ajv: 8.18.0
@@ -10880,23 +10811,6 @@ snapshots:
       "@lukeed/ms": 2.0.2
       fastify-plugin: 5.1.0
       toad-cache: 3.7.0
-
-  "@fastify/send@4.1.0":
-    dependencies:
-      "@lukeed/ms": 2.0.2
-      escape-html: 1.0.3
-      fast-decode-uri-component: 1.0.1
-      http-errors: 2.0.1
-      mime: 3.0.0
-
-  "@fastify/static@8.3.0":
-    dependencies:
-      "@fastify/accept-negotiator": 2.0.1
-      "@fastify/send": 4.1.0
-      content-disposition: 0.5.4
-      fastify-plugin: 5.1.0
-      fastq: 1.20.1
-      glob: 11.1.0
 
   "@fastify/websocket@11.2.0":
     dependencies:
@@ -11867,8 +11781,6 @@ snapshots:
 
   "@types/deep-eql@4.0.2": {}
 
-  "@types/diff-match-patch@1.0.36": {}
-
   "@types/estree-jsx@1.0.5":
     dependencies:
       "@types/estree": 1.0.8
@@ -12532,10 +12444,6 @@ snapshots:
 
   concat-map@0.0.1: {}
 
-  content-disposition@0.5.4:
-    dependencies:
-      safe-buffer: 5.2.1
-
   content-disposition@1.0.1: {}
 
   content-type@1.0.5: {}
@@ -12850,8 +12758,6 @@ snapshots:
   didyoumean@1.2.2: {}
 
   diff-match-patch@1.0.5: {}
-
-  diff@5.2.2: {}
 
   dlv@1.1.3: {}
 
@@ -14424,8 +14330,6 @@ snapshots:
     dependencies:
       mime-db: 1.54.0
 
-  mime@3.0.0: {}
-
   mimic-function@5.0.1: {}
 
   minimatch@10.2.4:
@@ -15697,10 +15601,6 @@ snapshots:
   unicode-match-property-value-ecmascript@2.2.1: {}
 
   unicode-property-aliases-ecmascript@2.2.0: {}
-
-  unidiff@1.0.4:
-    dependencies:
-      diff: 5.2.2
 
   unified@11.0.5:
     dependencies:

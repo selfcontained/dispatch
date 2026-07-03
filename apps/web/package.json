@@ -30,8 +30,6 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "cronstrue": "^3.14.0",
-    "date-fns": "^4.1.0",
-    "diff-match-patch": "^1.0.5",
     "framer-motion": "^12.35.2",
     "highlight.js": "^11.11.1",
     "jotai": "^2.19.0",
@@ -49,14 +47,12 @@
     "remark-gfm": "^4.0.1",
     "simple-icons": "^16.11.0",
     "sonner": "^2.0.7",
-    "tailwind-merge": "^2.5.4",
-    "unidiff": "^1.0.4"
+    "tailwind-merge": "^2.5.4"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
     "@tailwindcss/typography": "^0.5.19",
     "@testing-library/react": "^16.3.2",
-    "@types/diff-match-patch": "^1.0.36",
     "@types/react": "^18.3.12",
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.7.0",
