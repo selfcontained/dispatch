@@ -83,6 +83,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "sidebar-reorder",
+    title: "Reorder Agents",
+    body: "Drag and drop agent cards to reorder them, or focus a card and press Alt+↑ / Alt+↓. The order persists across sessions.",
+    docsSection: "agents",
+    since: "0.24.3",
+    surfaces: ["ambient"],
+  },
+  {
     id: "keyboard-shortcuts",
     title: "Keyboard Shortcuts",
     body: "Press ⌘K to open the command palette. Navigate agents, toggle sidebars, and control the terminal without touching the mouse.",

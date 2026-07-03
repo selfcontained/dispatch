@@ -179,6 +179,11 @@ export function ToolsContent() {
             running agent by ID or name; the target can reply the same way
           </li>
           <li>
+            <Code>dispatch_launch_agent</Code> — launch a new agent as a child
+            of the current session with a name, prompt, and optional agent type,
+            worktree settings, full access mode, or template
+          </li>
+          <li>
             <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,{" "}
             <Code>get_feedback_summary</Code> — analytics queries over recent
             Dispatch activity
@@ -237,6 +242,22 @@ export function ToolsContent() {
           structured observations that other agents can query. You can inspect
           an agent's Brain activity in the <strong>Brain</strong> tab of the
           sidebar.
+        </P>
+      </Section>
+
+      <Section>
+        <H3 id="dispatch-launch-agent">Agent orchestration</H3>
+        <P>
+          Agents can spawn other agents using <Code>dispatch_launch_agent</Code>
+          . The launched agent runs independently and appears as a top-level
+          entry in the sidebar — it is not nested under its parent like persona
+          reviewers. Archiving the parent does not cascade to launched agents.
+        </P>
+        <P>
+          Use <Code>list_agents</Code> to discover running agents and{" "}
+          <Code>dispatch_send_message</Code> to coordinate between them. The
+          launched agent receives the parent's ID in its startup context so it
+          can message back.
         </P>
       </Section>
 
