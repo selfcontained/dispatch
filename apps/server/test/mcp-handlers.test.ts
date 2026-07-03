@@ -1005,6 +1005,223 @@ describe("createMcpHandlers", () => {
         })
       );
     });
+
+    it("throws when parent agent is not found", async () => {
+      deps.agentManager.getAgent.mockResolvedValue(null);
+      await expect(
+        handlers.launchAgent("agt_missing", {
+          name: "child",
+          prompt: "hello",
+        })
+      ).rejects.toThrow("Parent agent not found.");
+    });
+
+    it("throws for unsupported agent type", async () => {
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "hello",
+          type: "invalid-type",
+        })
+      ).rejects.toThrow("Unsupported agent type");
+    });
+
+    it("throws when agent type is disabled in settings", async () => {
+      vi.mocked(getEnabledAgentTypes).mockResolvedValueOnce(["codex"] as any);
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "hello",
+          type: "claude",
+        })
+      ).rejects.toThrow("claude agents are disabled in settings");
+    });
+
+    it("defaults agent type from parent when not specified", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "parent",
+        cwd: "/repo",
+        type: "codex",
+        fullAccess: false,
+        worktreePath: null,
+      });
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "codex" })
+      );
+    });
+
+    it("uses parent worktreePath as cwd when available", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "parent",
+        cwd: "/repo",
+        type: "claude",
+        fullAccess: false,
+        worktreePath: "/worktrees/parent-branch",
+      });
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/worktrees/parent-branch" })
+      );
+    });
+
+    it("falls back to parent cwd when worktreePath is null", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/repo" })
+      );
+    });
+
+    it("uses explicit cwd when provided", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        cwd: "/other/dir",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/other/dir" })
+      );
+    });
+
+    it("inherits fullAccess from parent when input omits it", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "parent",
+        cwd: "/repo",
+        type: "claude",
+        fullAccess: true,
+        worktreePath: null,
+      });
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ fullAccess: true })
+      );
+    });
+
+    it("overrides fullAccess to false when input explicitly sets false", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "parent",
+        cwd: "/repo",
+        type: "claude",
+        fullAccess: true,
+        worktreePath: null,
+      });
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        fullAccess: false,
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ fullAccess: false })
+      );
+    });
+
+    it("does not grant fullAccess when parent lacks it", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        fullAccess: true,
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ fullAccess: false })
+      );
+    });
+
+    it("passes worktree options through", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        useWorktree: true,
+        createNewBranch: true,
+        baseBranch: "develop",
+        worktreeBranch: "feat/child-work",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          useWorktree: true,
+          createNewBranch: true,
+          baseBranch: "develop",
+          worktreeBranch: "feat/child-work",
+        })
+      );
+    });
+
+    it("passes templateId through", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ templateId: "tmpl_123" })
+      );
+    });
+
+    it("publishes UI event on success", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "agent.upsert",
+        agent: expect.objectContaining({ name: "child" }),
+      });
+    });
+
+    it("returns created agent id and name", async () => {
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+
+      expect(result).toEqual({
+        agentId: "agt_new1",
+        name: "child",
+      });
+    });
+
+    it("defaults useWorktree and createNewBranch to false", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          useWorktree: false,
+          createNewBranch: false,
+        })
+      );
+    });
   });
 
   describe("sendMessage", () => {

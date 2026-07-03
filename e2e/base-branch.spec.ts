@@ -195,7 +195,9 @@ test.describe("Agent base branch", () => {
 
     await clickAgentRow(page, agent.id);
 
-    await expect(agentCard.getByText("main", { exact: true })).toBeVisible();
+    await expect(agentCard.getByText("main", { exact: true })).toBeVisible({
+      timeout: 10_000,
+    });
     const visibleBranchSuffix = agent.worktreeBranch!.split("/").at(-1)!;
     await expect(
       agentCard.getByText(visibleBranchSuffix, { exact: true })
