@@ -85,7 +85,7 @@ export const tips: Tip[] = [
   {
     id: "keyboard-shortcuts",
     title: "Keyboard Shortcuts",
-    body: "Press ⌘K to open the command palette. Navigate agents, toggle sidebars, and control the terminal without touching the mouse.",
+    body: "Press Mod+K to open the command palette. Navigate agents, toggle sidebars, and control the terminal without touching the mouse.",
     docsSection: "shortcuts",
     since: "0.24.0",
     surfaces: ["ambient"],
@@ -93,7 +93,7 @@ export const tips: Tip[] = [
   {
     id: "terminal-focus-shortcut",
     title: "Terminal Focus Shortcut",
-    body: "Press ⌘⇧Space to jump back to the terminal input from anywhere in Dispatch.",
+    body: "Press Mod+Shift+Space to jump back to the terminal input from anywhere in Dispatch.",
     docsSection: "shortcuts",
     since: "0.24.0",
     surfaces: ["ambient"],
@@ -101,7 +101,7 @@ export const tips: Tip[] = [
   {
     id: "sidebar-shortcuts",
     title: "Sidebar Shortcuts",
-    body: "Press ⌘⇧< to toggle the agent sidebar, or ⌘⇧> to toggle the media sidebar.",
+    body: "Press Mod+Shift+< to toggle the agent sidebar, or Mod+Shift+> to toggle the media sidebar.",
     docsSection: "shortcuts",
     since: "0.24.0",
     surfaces: ["ambient"],
@@ -109,7 +109,7 @@ export const tips: Tip[] = [
   {
     id: "agent-navigation-shortcuts",
     title: "Agent Navigation Shortcuts",
-    body: "Press ⌘⇧↑ or ⌘⇧↓ to move between top-level agents without leaving the keyboard.",
+    body: "Press Mod+Shift+↑ or Mod+Shift+↓ to move between top-level agents without leaving the keyboard.",
     docsSection: "shortcuts",
     since: "0.24.0",
     surfaces: ["ambient"],
@@ -117,7 +117,7 @@ export const tips: Tip[] = [
   {
     id: "command-palette-shortcut",
     title: "Command Palette Shortcut",
-    body: "Press ⌘K to search commands, open settings pages, or launch palette-enabled templates.",
+    body: "Press Mod+K to search commands, open settings pages, or launch palette-enabled templates.",
     docsSection: "shortcuts",
     since: "0.24.0",
     surfaces: ["ambient"],
