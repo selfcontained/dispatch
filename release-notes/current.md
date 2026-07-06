@@ -4,4 +4,4 @@
 * Add opt-in cross-repo agent messaging (Agents settings toggle) by @niiyeboah in https://github.com/selfcontained/dispatch/pull/698
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.24.5...v0.25.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.24.5...v0.26.0
