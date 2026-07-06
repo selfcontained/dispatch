@@ -844,9 +844,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         const lowerTarget = input.target.toLowerCase();
         const matches = allAgents.filter(
           (a) =>
-            a.id !== agentId &&
-            a.status === "running" &&
-            a.name.toLowerCase().includes(lowerTarget)
+            a.status === "running" && a.name.toLowerCase().includes(lowerTarget)
         );
         if (matches.length === 1) {
           target = matches[0];
@@ -860,16 +858,12 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
       if (!target) {
         const running = allAgents
-          .filter((a) => a.id !== agentId && a.status === "running")
+          .filter((a) => a.status === "running")
           .map((a) => `  ${a.id} "${a.name}"`)
           .join("\n");
         throw new Error(
           `No agent found matching "${input.target}".${running ? ` Running agents:\n${running}` : " No other agents are running."}`
         );
-      }
-
-      if (target.id === agentId) {
-        throw new Error("Cannot send a message to yourself.");
       }
 
       if (target.status !== "running") {

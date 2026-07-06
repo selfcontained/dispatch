@@ -21,16 +21,17 @@ const ENDPOINT = "/api/v1/app/settings/cross-repo-messaging";
 export function CrossRepoMessagingSettings(): JSX.Element {
   const [enabled, setEnabled] = useAtom(crossRepoMessagingEnabledAtom);
   const [error, setError] = useState("");
-  // Monotonic id for the most recent request (mount GET or a toggle). A
-  // response only applies if it is still the latest, so a stale mount GET or
-  // an out-of-order toggle response can't clobber a newer user intent.
   const latestReq = useRef(0);
+  const confirmedValue = useRef(enabled);
 
   useEffect(() => {
     const seq = (latestReq.current += 1);
     void api<CrossRepoMessagingResponse>(ENDPOINT)
       .then((data) => {
-        if (seq === latestReq.current) setEnabled(data.enabled);
+        if (seq === latestReq.current) {
+          confirmedValue.current = data.enabled;
+          setEnabled(data.enabled);
+        }
       })
       .catch(() => {
         if (seq === latestReq.current) {
@@ -47,16 +48,19 @@ export function CrossRepoMessagingSettings(): JSX.Element {
       void api<CrossRepoMessagingResponse>(ENDPOINT, {
         method: "POST",
         body: JSON.stringify({ enabled: next }),
-      }).catch((err) => {
-        if (seq !== latestReq.current) return;
-        // Revert the optimistic change — the server gate is unchanged.
-        setEnabled(!next);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to save cross-repo messaging setting."
-        );
-      });
+      })
+        .then(() => {
+          if (seq === latestReq.current) confirmedValue.current = next;
+        })
+        .catch((err) => {
+          if (seq !== latestReq.current) return;
+          setEnabled(confirmedValue.current);
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Failed to save cross-repo messaging setting."
+          );
+        });
     },
     [setEnabled]
   );
