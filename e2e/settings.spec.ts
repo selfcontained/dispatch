@@ -17,6 +17,12 @@ test.describe("Settings pane", () => {
         webNotifyEvents: ["done", "waiting_user", "blocked"],
       },
     });
+    await request.post("/api/v1/app/settings/cross-repo-messaging", {
+      headers: {
+        Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+      },
+      data: { enabled: false },
+    });
   });
 
   test("opens and closes the settings pane", async ({ page }) => {
@@ -89,6 +95,41 @@ test.describe("Settings pane", () => {
     await expect(
       page.getByRole("option", { name: "Claude" })
     ).not.toBeVisible();
+  });
+
+  test("cross-repo messaging toggle defaults off and persists to the server", async ({
+    page,
+    request,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("settings-button").click();
+    await page
+      .getByTestId("sidebar-shell")
+      .getByText("Agents", { exact: true })
+      .click();
+
+    const toggle = page.getByTestId("cross-repo-messaging-toggle");
+    await toggle.scrollIntoViewIfNeeded();
+    await expect(toggle).not.toBeChecked();
+
+    await toggle.check();
+    await expect(toggle).toBeChecked();
+
+    // The local toggle is mirrored to the server, which enforces the boundary.
+    await expect
+      .poll(async () => {
+        const res = await request.get(
+          "/api/v1/app/settings/cross-repo-messaging",
+          {
+            headers: {
+              Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+            },
+          }
+        );
+        return (await res.json()).enabled;
+      })
+      .toBe(true);
   });
 
   test("single enabled agent type removes split buttons", async ({

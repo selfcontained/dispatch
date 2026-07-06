@@ -18,6 +18,7 @@ import {
   getEnabledAgentTypes,
   isCliAgentType,
 } from "../agent-type-settings.js";
+import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js";
 import type { JobService } from "../jobs/service.js";
 import type {
   NotifyInput,
@@ -120,6 +121,36 @@ export function mcpMethodNotAllowed(): {
     },
     id: null,
   };
+}
+
+/**
+ * The set of agents a sender may address via dispatch_send_message and
+ * list_agents: every other agent (self excluded), scoped to the sender's git
+ * repo root unless cross-repo messaging is enabled. This is the single
+ * definition of that visibility boundary — both message delivery and agent
+ * listing consult it, so they can never disagree about who is reachable.
+ */
+async function addressableAgents<T extends { id: string; cwd: string }>(
+  all: T[],
+  agentId: string,
+  senderRepoRoot: string | null,
+  crossRepo: boolean
+): Promise<T[]> {
+  const result: T[] = [];
+  for (const a of all) {
+    if (a.id === agentId) continue;
+    if (crossRepo) {
+      result.push(a);
+      continue;
+    }
+    try {
+      const aRoot = await resolveRepoRoot(a.cwd);
+      if (aRoot === senderRepoRoot) result.push(a);
+    } catch {
+      // agent cwd not in a git repo — skip
+    }
+  }
+  return result;
 }
 
 export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
@@ -868,23 +899,19 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       if (!sender) throw new Error("Sender agent not found.");
 
       const senderRepoRoot = input.senderRepoRoot;
-      if (!senderRepoRoot) {
+      const crossRepo = await isCrossRepoMessagingEnabled(pool);
+      if (!crossRepo && !senderRepoRoot) {
         throw new Error(
           "Cannot send messages: unable to determine your project's repository root."
         );
       }
 
-      const allAgentsRaw = await agentManager.listAgents();
-      const allAgents: typeof allAgentsRaw = [];
-      for (const a of allAgentsRaw) {
-        if (a.id === agentId) continue;
-        try {
-          const aRoot = await resolveRepoRoot(a.cwd);
-          if (aRoot === senderRepoRoot) allAgents.push(a);
-        } catch {
-          // agent cwd not in a git repo — skip
-        }
-      }
+      const allAgents = await addressableAgents(
+        await agentManager.listAgents(),
+        agentId,
+        senderRepoRoot,
+        crossRepo
+      );
 
       const isAgentId = input.target.startsWith("agt_");
 
@@ -895,9 +922,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         const lowerTarget = input.target.toLowerCase();
         const matches = allAgents.filter(
           (a) =>
-            a.id !== agentId &&
-            a.status === "running" &&
-            a.name.toLowerCase().includes(lowerTarget)
+            a.status === "running" && a.name.toLowerCase().includes(lowerTarget)
         );
         if (matches.length === 1) {
           target = matches[0];
@@ -911,16 +936,12 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
       if (!target) {
         const running = allAgents
-          .filter((a) => a.id !== agentId && a.status === "running")
+          .filter((a) => a.status === "running")
           .map((a) => `  ${a.id} "${a.name}"`)
           .join("\n");
         throw new Error(
           `No agent found matching "${input.target}".${running ? ` Running agents:\n${running}` : " No other agents are running."}`
         );
-      }
-
-      if (target.id === agentId) {
-        throw new Error("Cannot send a message to yourself.");
       }
 
       if (target.status !== "running") {
@@ -969,13 +990,19 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         latestEvent: { type: string; message: string } | null;
       }>
     > {
-      if (!senderRepoRoot) {
+      const crossRepo = await isCrossRepoMessagingEnabled(pool);
+      if (!crossRepo && !senderRepoRoot) {
         throw new Error(
           "Cannot list agents: unable to determine your project's repository root."
         );
       }
 
-      const agents = await agentManager.listAgents();
+      const agents = await addressableAgents(
+        await agentManager.listAgents(),
+        agentId,
+        senderRepoRoot,
+        crossRepo
+      );
       const result: Array<{
         id: string;
         name: string;
@@ -983,13 +1010,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         latestEvent: { type: string; message: string } | null;
       }> = [];
       for (const a of agents) {
-        if (a.id === agentId) continue;
-        try {
-          const aRoot = await resolveRepoRoot(a.cwd);
-          if (aRoot !== senderRepoRoot) continue;
-        } catch {
-          continue;
-        }
         result.push({
           id: a.id,
           name: a.name,
