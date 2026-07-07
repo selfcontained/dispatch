@@ -629,6 +629,107 @@ describe("POST /api/v1/app/settings/ides", () => {
   });
 });
 
+describe("GET /api/v1/app/settings/cross-repo-messaging", () => {
+  it("returns enabled status (defaults to false)", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ enabled: false });
+  });
+
+  it("reflects updated state after POST", async () => {
+    await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: true },
+    });
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ enabled: true });
+  });
+});
+
+describe("POST /api/v1/app/settings/cross-repo-messaging", () => {
+  it("enables cross-repo messaging", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: true },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ enabled: true });
+  });
+
+  it("disables cross-repo messaging", async () => {
+    await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: true },
+    });
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: false },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ enabled: false });
+  });
+
+  it("rejects non-boolean enabled", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: "yes" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/enabled must be a boolean/);
+  });
+
+  it("rejects missing enabled field", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+      payload: {},
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/enabled must be a boolean/);
+  });
+
+  it("rejects null body", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+      payload: null,
+    });
+    expect(res.statusCode).toBe(400);
+  });
+
+  it("rejects numeric enabled", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/app/settings/cross-repo-messaging",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: 1 },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/enabled must be a boolean/);
+  });
+});
+
 describe("POST /api/v1/energy-report", () => {
   it("accepts any body and returns 204", async () => {
     const res = await ctx.app.inject({

@@ -6,6 +6,8 @@ import {
   reconcileMediaSidebarStateStorage,
   MEDIA_SIDEBAR_STATE_STORAGE_PREFIX,
   defaultMediaSidebarState,
+  reconcileDiffViewStateStorage,
+  DIFF_VIEW_STATE_STORAGE_PREFIX,
 } from "./store";
 
 describe("reconcileAgentSidebarOrder", () => {
@@ -115,6 +117,108 @@ describe("reconcileMediaSidebarStateStorage", () => {
     ).not.toBeNull();
     expect(
       window.localStorage.getItem(`${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_2`)
+    ).toBeNull();
+  });
+});
+
+describe("reconcileDiffViewStateStorage", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  const defaultDiffState = JSON.stringify({
+    collapsedFiles: [],
+    collapsedDirs: [],
+    scrollTop: 0,
+  });
+
+  const storeDiffForAgent = (agentId: string) => {
+    window.localStorage.setItem(
+      `${DIFF_VIEW_STATE_STORAGE_PREFIX}${agentId}`,
+      defaultDiffState
+    );
+  };
+
+  it("removes keys for agents not in the live set", () => {
+    storeDiffForAgent("agt_1");
+    storeDiffForAgent("agt_2");
+    storeDiffForAgent("agt_3");
+
+    reconcileDiffViewStateStorage(["agt_1", "agt_3"]);
+
+    expect(
+      window.localStorage.getItem(`${DIFF_VIEW_STATE_STORAGE_PREFIX}agt_1`)
+    ).not.toBeNull();
+    expect(
+      window.localStorage.getItem(`${DIFF_VIEW_STATE_STORAGE_PREFIX}agt_2`)
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(`${DIFF_VIEW_STATE_STORAGE_PREFIX}agt_3`)
+    ).not.toBeNull();
+  });
+
+  it("does nothing when all stored agents are live", () => {
+    storeDiffForAgent("agt_1");
+    storeDiffForAgent("agt_2");
+
+    reconcileDiffViewStateStorage(["agt_1", "agt_2"]);
+
+    expect(window.localStorage.length).toBe(2);
+  });
+
+  it("removes all diff view keys when live set is empty", () => {
+    storeDiffForAgent("agt_1");
+    storeDiffForAgent("agt_2");
+
+    reconcileDiffViewStateStorage([]);
+
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("does nothing when localStorage is empty", () => {
+    reconcileDiffViewStateStorage(["agt_1"]);
+
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("does not affect non-diff-view keys", () => {
+    window.localStorage.setItem("dispatch:leftSidebarOpen", "true");
+    window.localStorage.setItem(
+      `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`,
+      "{}"
+    );
+    storeDiffForAgent("agt_dead");
+
+    reconcileDiffViewStateStorage([]);
+
+    expect(window.localStorage.getItem("dispatch:leftSidebarOpen")).toBe(
+      "true"
+    );
+    expect(
+      window.localStorage.getItem(
+        `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`
+      )
+    ).toBe("{}");
+    expect(
+      window.localStorage.getItem(`${DIFF_VIEW_STATE_STORAGE_PREFIX}agt_dead`)
+    ).toBeNull();
+  });
+
+  it("accepts a Set as agentIds", () => {
+    storeDiffForAgent("agt_1");
+    storeDiffForAgent("agt_2");
+
+    reconcileDiffViewStateStorage(new Set(["agt_1"]));
+
+    expect(
+      window.localStorage.getItem(`${DIFF_VIEW_STATE_STORAGE_PREFIX}agt_1`)
+    ).not.toBeNull();
+    expect(
+      window.localStorage.getItem(`${DIFF_VIEW_STATE_STORAGE_PREFIX}agt_2`)
     ).toBeNull();
   });
 });
