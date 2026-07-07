@@ -26,6 +26,7 @@ import { isPinType, validatePinValue } from "../pins.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
+import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 
 const AGENT_LATEST_EVENT_TYPES = [
@@ -35,6 +36,7 @@ const AGENT_LATEST_EVENT_TYPES = [
   "done",
   "idle",
 ] as const;
+
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
   prompt: string
@@ -48,13 +50,6 @@ function buildChildAgentInitialPrompt(
 }
 
 type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
-
-type PublishUiEvent = (event: unknown) => void;
-type SendAgentPrompt = (
-  agentId: string,
-  prompt: string,
-  opts?: { swallowFailure?: boolean }
-) => Promise<void>;
 
 type CreateMcpHandlersDeps = {
   pool: Pool;

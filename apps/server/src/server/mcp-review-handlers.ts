@@ -41,16 +41,10 @@ import type {
   ParentContextResult,
   RecheckContextResult,
 } from "../shared/mcp/server.js";
+import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
-
-type PublishUiEvent = (event: unknown) => void;
-type SendAgentPrompt = (
-  agentId: string,
-  prompt: string,
-  opts?: { swallowFailure?: boolean }
-) => Promise<void>;
 
 type CreateReviewHandlersDeps = {
   pool: Pool;
