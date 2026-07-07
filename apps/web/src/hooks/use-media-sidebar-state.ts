@@ -6,6 +6,7 @@ import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
   reconcileMediaSidebarStateStorage,
+  reconcileDiffViewStateStorage,
   type MediaSidebarTab,
 } from "@/lib/store";
 
@@ -94,6 +95,7 @@ export function useMediaSidebarState({
   useEffect(() => {
     if (agentIds.length === 0) return;
     reconcileMediaSidebarStateStorage(agentIds as string[]);
+    reconcileDiffViewStateStorage(agentIds as string[]);
   }, [agentIds]);
 
   useEffect(() => {
