@@ -477,6 +477,7 @@ async function registerRoutes() {
     mcpShareMedia: mcpHandlers.shareMedia,
     mcpListMedia: mcpHandlers.listMedia,
     mcpGetWhiteboard: mcpHandlers.getWhiteboard,
+    mcpUpdateWhiteboard: mcpHandlers.updateWhiteboard,
     mcpSubmitFeedback: mcpHandlers.submitFeedback,
     mcpListPersonas: mcpHandlers.listPersonas,
     mcpLaunchPersona: mcpHandlers.launchPersona,

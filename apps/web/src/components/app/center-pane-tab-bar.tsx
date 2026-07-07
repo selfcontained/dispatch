@@ -9,12 +9,14 @@ type CenterPaneTabBarProps = {
   activeTab: CenterTab;
   onTabChange: (tab: CenterTab) => void;
   diffStats: DiffStats | null | undefined;
+  whiteboardAgentDrew?: boolean;
 };
 
 export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   activeTab,
   onTabChange,
   diffStats,
+  whiteboardAgentDrew = false,
 }: CenterPaneTabBarProps): JSX.Element {
   const hasChanges =
     diffStats && (diffStats.added > 0 || diffStats.deleted > 0);
@@ -82,6 +84,13 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
       >
         <span className="relative pb-1.5 -mb-1.5">
           Whiteboard
+          {whiteboardAgentDrew && activeTab !== "whiteboard" ? (
+            // Violet mirrors the agent's signature ink on the board.
+            <span
+              data-testid="whiteboard-agent-drew-dot"
+              className="absolute -right-2 -top-0.5 h-1.5 w-1.5 rounded-full bg-violet-500"
+            />
+          ) : null}
           {activeTab === "whiteboard" ? (
             <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-foreground" />
           ) : null}

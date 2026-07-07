@@ -1,7 +1,8 @@
 # Whiteboard Integration Plan
 
-> **Status (2026-07-07): MVP (Phases 1+2) implemented and validated on this branch.**
-> Board draws/persists/reloads; agent sees it via `whiteboard_get` + PNG snapshot.
+> **Status (2026-07-07): MVP (Phases 1+2) + Phase 3 (agent drawing) implemented and validated.**
+> Board draws/persists/reloads; agent sees it via `whiteboard_get` + PNG snapshot and
+> draws back via `whiteboard_update` (server-side builder, live sync, "agent drew" tab dot).
 > Environment surprises + insinuated decisions: see `.unknowns/journal.md` (gitignored, local).
 
 A shared, agent-interactive whiteboard (Excalidraw-based) as a third center-pane tab
@@ -70,10 +71,42 @@ back-and-forth about architecture and design.
 
 ## Phase 3 — Agent can draw
 
+### Product pass (2026-07-07) — what "drawing well" means
+
+Directions artifact (4 options, steal/skip picks): https://claude.ai/code/artifact/a2ffacda-cf55-436c-a16c-a48b1e5b790e
+Recommended + building against (veto via artifact): **Signature Ink with the Annotator's manners**.
+
+User stories:
+
+1. _Annotate mine_: I sketch services and ask "which of these talk to Postgres?" —
+   the agent draws bound arrows + short labels pointing at MY boxes, near them, never over them.
+2. _Draw fresh_: I ask "draw the auth flow of this repo" — the agent lays out a
+   boxes-and-arrows diagram in empty board space; I rearrange it and the agent sees my
+   corrections on the next `whiteboard_get`.
+3. _Critique visually_: I ask for a review of my architecture sketch — the agent circles
+   the problem area (dashed ellipse) and leaves a short margin note with a connector arrow,
+   instead of a wall of terminal text.
+4. _Away from the tab_: the agent draws while I'm on Terminal — the whiteboard tab shows a
+   badge; when I click through, the agent's ink is visually distinct so I see what's new.
+5. _Iterate_: the agent refines its own diagram (move/relabel/delete by id) without
+   duplicating elements — the tool result echoes created ids so it can keep working.
+
+Product decisions (P-series, this session — flagged, cheap to veto):
+
+| #   | Decision                                                                                                                                                                                                                                                  |
+| --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| P1  | **Soft attribution**: agent strokes default to Excalidraw violet (`#6741d9`) + `customData.author: "agent"` stamped on elements. No hard UI layer; user restyles freely.                                                                                  |
+| P2  | **Etiquette in the tool description**: place near, never cover; annotate by pointing (arrow + short label); prefer updating own elements by id over redrawing.                                                                                            |
+| P3  | **Tool result echoes the board**: `whiteboard_update` returns created ids + new version (and errors per-op), so the agent iterates without a second `whiteboard_get`. Agent may supply its own readable ids on add (needed for same-call arrow bindings). |
+| P4  | **Stale snapshot handled two ways**: `whiteboard_get` marks `snapshotStale: true` when scene `updated_at` > PNG mtime; an open client re-exports the PNG after applying a remote agent scene (closing the loop when a browser is attached).               |
+
+### Build
+
 - MCP tool `whiteboard_update`: ops `add | update | delete` over a **simplified schema**:
   `{type: rect|ellipse|diamond|arrow|line|text|frame, id?, x, y, w, h, label?, from?, to?, color?}`
   (`from`/`to` are element ids → server creates proper arrow bindings).
 - Server-side builder expands ops into valid Excalidraw elements (id/seed/versionNonce/boundElements), merges into the scene, bumps versions, publishes `whiteboard.changed(source: agent)` → open clients update live.
+- "Agent drew" tab indicator (G5 minimum) — mirror the diff-stats badge in `center-pane-tab-bar.tsx`.
 - Round-trip vitest: builder output → `restoreElements` in an E2E to prove Excalidraw accepts it.
 
 ## Phase 4 — Conversational loop polish

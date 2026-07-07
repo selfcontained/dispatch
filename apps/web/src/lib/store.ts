@@ -92,6 +92,13 @@ export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
   atomWithLocalStorage<boolean>(`dispatch:dismissedReleaseToast:${tag}`, false)
 );
 
+// Set when an agent draws on a whiteboard (SSE `whiteboard.changed`,
+// source "agent"); cleared when the user views that agent's whiteboard
+// tab. Drives the "agent drew" dot on the Whiteboard tab. Ephemeral.
+export const whiteboardAgentDrewAtomFamily = atomFamily((_agentId: string) =>
+  atom(false)
+);
+
 export type DiffViewType = "unified" | "split";
 
 export const diffViewTypeAtom = atomWithLocalStorage<DiffViewType>(

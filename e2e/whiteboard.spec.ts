@@ -111,4 +111,118 @@ test.describe("Whiteboard tab", () => {
     await page.getByTestId("center-tab-whiteboard").click();
     await expect(page.getByTestId("whiteboard-canvas")).toBeVisible();
   });
+
+  test("agent whiteboard_update lands on the board and lights the tab dot", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-whiteboard-agent-${Date.now()}`,
+    });
+
+    // Mount the whiteboard once, then watch from the terminal tab.
+    await page.goto(`/agents/${agent.id}/whiteboard`, {
+      waitUntil: "domcontentloaded",
+    });
+    await waitForWhiteboard(page);
+    await page.getByTestId("center-tab-terminal").click();
+    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
+
+    // Draw through the real MCP tool, exactly as an agent would. The scoped
+    // MCP route accepts tokenless local calls; the server bearer token is
+    // NOT a valid agent-scoped MCP token and would 403.
+    const mcpRes = await request.post(`/api/mcp/${agent.id}`, {
+      headers: {
+        accept: "application/json, text/event-stream",
+      },
+      data: {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: {
+          name: "whiteboard_update",
+          arguments: {
+            ops: [
+              {
+                op: "add",
+                type: "rect",
+                id: "api",
+                x: 100,
+                y: 100,
+                w: 160,
+                h: 70,
+                label: "api",
+              },
+              {
+                op: "add",
+                type: "ellipse",
+                id: "db",
+                x: 400,
+                y: 100,
+                w: 140,
+                h: 80,
+                label: "db",
+              },
+              {
+                op: "add",
+                type: "arrow",
+                id: "flow",
+                from: "api",
+                to: "db",
+                label: "reads",
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(mcpRes.ok()).toBe(true);
+    const dataLine = (await mcpRes.text())
+      .split("\n")
+      .find((l) => l.startsWith("data: "));
+    expect(dataLine).toBeDefined();
+    const rpc = JSON.parse(dataLine!.slice(6)) as {
+      result: {
+        structuredContent: {
+          ok: boolean;
+          created: Array<{ id: string }>;
+          errors: string[];
+        };
+      };
+    };
+    expect(rpc.result.structuredContent.ok).toBe(true);
+    expect(rpc.result.structuredContent.created.map((c) => c.id)).toEqual([
+      "api",
+      "db",
+      "flow",
+    ]);
+
+    // The SSE event lights the "agent drew" dot while we're on Terminal…
+    await expect(page.getByTestId("whiteboard-agent-drew-dot")).toBeVisible({
+      timeout: 10_000,
+    });
+
+    // …and the scene now holds the bound diagram (shapes + labels + arrow).
+    const res = await request.get(`/api/v1/agents/${agent.id}/whiteboard`, {
+      headers: authHeader,
+    });
+    const body = (await res.json()) as {
+      scene: {
+        elements: Array<{
+          id: string;
+          type: string;
+          startBinding?: { elementId: string } | null;
+          endBinding?: { elementId: string } | null;
+        }>;
+      };
+    };
+    const arrow = body.scene.elements.find((e) => e.id === "flow");
+    expect(arrow?.startBinding?.elementId).toBe("api");
+    expect(arrow?.endBinding?.elementId).toBe("db");
+    expect(body.scene.elements.filter((e) => e.type === "text").length).toBe(3);
+
+    // Visiting the whiteboard clears the dot.
+    await page.getByTestId("center-tab-whiteboard").click();
+    await expect(page.getByTestId("whiteboard-agent-drew-dot")).toHaveCount(0);
+  });
 });

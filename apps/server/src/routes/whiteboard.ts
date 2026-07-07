@@ -14,7 +14,7 @@ export const WHITEBOARD_SNAPSHOT_FILENAME = "whiteboard.png";
 
 // Fastify's default JSON bodyLimit is 1 MB; real boards blow past it.
 const SCENE_BODY_LIMIT = 8 * 1024 * 1024;
-const MAX_ELEMENTS = 20_000;
+export const MAX_ELEMENTS = 20_000;
 
 export const EMPTY_SCENE = { elements: [] as unknown[] };
 

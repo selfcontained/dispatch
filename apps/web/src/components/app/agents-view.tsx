@@ -9,6 +9,9 @@ import {
 } from "react";
 import { Routes, Route, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { useAtom } from "jotai";
+
+import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
 
 import { ChangesTab } from "@/components/app/changes-tab";
 
@@ -235,6 +238,22 @@ export function AgentsView({
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
+
+  // "Agent drew" dot on the Whiteboard tab: lit by SSE (use-sse.ts),
+  // cleared as soon as the user is looking at that agent's whiteboard.
+  const [whiteboardAgentDrew, setWhiteboardAgentDrew] = useAtom(
+    whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
+  );
+  useEffect(() => {
+    if (whiteboardMatch && focusedAgentId && whiteboardAgentDrew) {
+      setWhiteboardAgentDrew(false);
+    }
+  }, [
+    whiteboardMatch,
+    focusedAgentId,
+    whiteboardAgentDrew,
+    setWhiteboardAgentDrew,
+  ]);
 
   const {
     mediaFiles,
@@ -553,6 +572,7 @@ export function AgentsView({
                         }
                         onTabChange={onTabChange}
                         diffStats={focusedDiffStats}
+                        whiteboardAgentDrew={whiteboardAgentDrew}
                       />
                     </>
                   ) : null}

@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { useQueryClient } from "@tanstack/react-query";
+import { useStore } from "jotai";
 import {
   type Agent,
   type AuthState,
@@ -11,6 +12,7 @@ import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
+import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
 import { showWebNotification } from "@/lib/web-notifications";
 import {
   CACHED_RELEASE_INFO_QUERY_KEY,
@@ -73,6 +75,7 @@ function patchAgentHasStream(
 
 export function useSSE(authState: AuthState): void {
   const queryClient = useQueryClient();
+  const jotaiStore = useStore();
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -161,6 +164,11 @@ export function useSSE(authState: AuthState): void {
               queryKey: ["whiteboard", payload.agentId],
               exact: true,
             });
+            // Light the tab's "agent drew" dot; viewing the tab clears it.
+            jotaiStore.set(
+              whiteboardAgentDrewAtomFamily(payload.agentId),
+              true
+            );
           }
           return;
         }
@@ -272,5 +280,5 @@ export function useSSE(authState: AuthState): void {
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };
-  }, [authState, queryClient]);
+  }, [authState, queryClient, jotaiStore]);
 }

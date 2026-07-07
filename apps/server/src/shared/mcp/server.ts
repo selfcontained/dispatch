@@ -15,6 +15,7 @@ import { registerJobTools, type JobTools } from "./job-tools.js";
 import { registerMessagingTools } from "./messaging-tools.js";
 import { registerWhiteboardTools } from "./whiteboard-tools.js";
 import type { SimplifiedElement } from "../whiteboard.js";
+import type { WhiteboardOp } from "../whiteboard-builder.js";
 import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
@@ -104,6 +105,7 @@ const AGENT_TOOLS = new Set([
   "get_agent_history",
   "get_feedback_summary",
   "whiteboard_get",
+  "whiteboard_update",
   "brain_get_object",
   "brain_store_object",
   "brain_list_objects",
@@ -308,6 +310,16 @@ export type McpRequestContext = {
     updatedAt: string | null;
     updatedBy: string | null;
     snapshotPath: string | null;
+    snapshotStale: boolean;
+  }>;
+  updateWhiteboard?: (
+    agentId: string,
+    ops: WhiteboardOp[]
+  ) => Promise<{
+    version: number;
+    created: Array<{ id: string; type: string }>;
+    errors: string[];
+    elements: SimplifiedElement[];
   }>;
   submitFeedback?: (
     agentId: string,
@@ -528,6 +540,7 @@ async function createDispatchMcpServer(
     registerWhiteboardTools(server, allowed, {
       agentId: context.agent.id,
       getWhiteboard: context.getWhiteboard,
+      updateWhiteboard: context.updateWhiteboard,
     });
   }
 
