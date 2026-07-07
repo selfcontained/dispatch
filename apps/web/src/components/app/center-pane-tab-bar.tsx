@@ -3,7 +3,7 @@ import { memo } from "react";
 import type { DiffStats } from "@/components/app/types";
 import { cn } from "@/lib/utils";
 
-type CenterTab = "terminal" | "changes";
+type CenterTab = "terminal" | "changes" | "whiteboard";
 
 type CenterPaneTabBarProps = {
   activeTab: CenterTab;
@@ -66,6 +66,26 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             <span className="text-status-blocked">−{diffStats.deleted}</span>
           </span>
         ) : null}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === "whiteboard"}
+        data-testid="center-tab-whiteboard"
+        className={cn(
+          "px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+          activeTab === "whiteboard"
+            ? "text-foreground"
+            : "text-muted-foreground hover:text-foreground/80"
+        )}
+        onClick={() => onTabChange("whiteboard")}
+      >
+        <span className="relative pb-1.5 -mb-1.5">
+          Whiteboard
+          {activeTab === "whiteboard" ? (
+            <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-foreground" />
+          ) : null}
+        </span>
       </button>
     </div>
   );

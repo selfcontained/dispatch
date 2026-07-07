@@ -13,6 +13,8 @@ import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
 import { registerMessagingTools } from "./messaging-tools.js";
+import { registerWhiteboardTools } from "./whiteboard-tools.js";
+import type { SimplifiedElement } from "../whiteboard.js";
 import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
@@ -101,6 +103,7 @@ const AGENT_TOOLS = new Set([
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
+  "whiteboard_get",
   "brain_get_object",
   "brain_store_object",
   "brain_list_objects",
@@ -185,6 +188,8 @@ const PERSONA_TOOLS = new Set([
   "dispatch_share",
   "dispatch_feedback",
   "get_parent_context",
+  // Read-only board access so review personas can see architecture sketches.
+  "whiteboard_get",
 ]);
 
 type AgentType = "agent" | "job" | "persona";
@@ -297,6 +302,13 @@ export type McpRequestContext = {
       createdAt: string;
     }>
   >;
+  getWhiteboard?: (agentId: string) => Promise<{
+    elements: SimplifiedElement[];
+    version: number;
+    updatedAt: string | null;
+    updatedBy: string | null;
+    snapshotPath: string | null;
+  }>;
   submitFeedback?: (
     agentId: string,
     feedback: FeedbackInput
@@ -508,6 +520,14 @@ async function createDispatchMcpServer(
       getFeedback: context.getFeedback,
       resolveFeedback: context.resolveFeedback,
       submitResolution: context.submitResolution,
+    });
+  }
+
+  // ── Whiteboard tools ──────────────────────────────────────────────
+  if (context.agent) {
+    registerWhiteboardTools(server, allowed, {
+      agentId: context.agent.id,
+      getWhiteboard: context.getWhiteboard,
     });
   }
 

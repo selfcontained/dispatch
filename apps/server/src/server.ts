@@ -105,6 +105,7 @@ import { registerFeedbackRoutes } from "./routes/feedback.js";
 import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
+import { registerWhiteboardRoutes } from "./routes/whiteboard.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -475,6 +476,7 @@ async function registerRoutes() {
     mcpRenameSession: mcpHandlers.renameSession,
     mcpShareMedia: mcpHandlers.shareMedia,
     mcpListMedia: mcpHandlers.listMedia,
+    mcpGetWhiteboard: mcpHandlers.getWhiteboard,
     mcpSubmitFeedback: mcpHandlers.submitFeedback,
     mcpListPersonas: mcpHandlers.listPersonas,
     mcpLaunchPersona: mcpHandlers.launchPersona,
@@ -574,6 +576,13 @@ async function registerRoutes() {
     mediaRoot: config.mediaRoot,
     agentManager,
     appLog: app.log,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  });
+
+  await registerWhiteboardRoutes(app, {
+    pool,
+    mediaRoot: config.mediaRoot,
+    agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 

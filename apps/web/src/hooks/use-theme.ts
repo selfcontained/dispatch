@@ -417,6 +417,10 @@ function applyTheme(themeId: ThemeId): void {
   }
 }
 
+export function getThemeMode(themeId: ThemeId): "light" | "dark" {
+  return THEMES.find((t) => t.id === themeId)?.mode ?? "dark";
+}
+
 export function useTheme(): {
   theme: ThemeId;
   setTheme: (id: ThemeId) => void;

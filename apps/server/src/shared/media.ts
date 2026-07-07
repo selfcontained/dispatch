@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 
 export function sanitizeUploadedFileName(name: string): string {
@@ -107,7 +108,12 @@ export function resolveMediaDir(
   mediaDir: string | null,
   mediaRoot: string
 ): string {
-  return mediaDir ?? path.join(mediaRoot, agentId);
+  const dir = mediaDir ?? path.join(mediaRoot, agentId);
+  // media_dir may be stored as "~/..." (e.g. dev-created agents); Node
+  // treats that as a relative path and writes a literal "~" dir under cwd.
+  return dir.startsWith("~/") || dir === "~"
+    ? path.join(os.homedir(), dir.slice(1))
+    : dir;
 }
 
 export function toMediaKey(file: { name: string; updatedAt: string }): string {

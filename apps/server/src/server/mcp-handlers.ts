@@ -1,6 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -26,6 +26,14 @@ import { isPinType, validatePinValue } from "../pins.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
+import {
+  simplifyElements,
+  type SimplifiedElement,
+} from "../shared/whiteboard.js";
+import {
+  loadWhiteboard,
+  WHITEBOARD_SNAPSHOT_FILENAME,
+} from "../routes/whiteboard.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 
@@ -642,6 +650,31 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         sizeBytes: row.size_bytes,
         createdAt: row.created_at.toISOString(),
       }));
+    },
+
+    async getWhiteboard(agentId: string): Promise<{
+      elements: SimplifiedElement[];
+      version: number;
+      updatedAt: string | null;
+      updatedBy: string | null;
+      snapshotPath: string | null;
+    }> {
+      const agent = await agentManager.getAgent(agentId);
+      if (!agent) throw new Error("Agent not found.");
+
+      const row = await loadWhiteboard(pool, agentId);
+      const snapshotFile = path.join(
+        resolveMediaDir(agentId, agent.mediaDir, mediaRoot),
+        WHITEBOARD_SNAPSHOT_FILENAME
+      );
+      const snapshotStat = await stat(snapshotFile).catch(() => null);
+      return {
+        elements: row ? simplifyElements(row.scene.elements) : [],
+        version: row ? Number(row.version) : 0,
+        updatedAt: row ? row.updated_at.toISOString() : null,
+        updatedBy: row ? row.updated_by : null,
+        snapshotPath: snapshotStat?.isFile() ? snapshotFile : null,
+      };
     },
   };
 }

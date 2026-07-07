@@ -32,6 +32,12 @@ type UiEvent =
     }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
+  | {
+      type: "whiteboard.changed";
+      agentId: string;
+      version: number;
+      source: "user" | "agent";
+    }
   | { type: "media.seen"; agentId: string; keys: string[] }
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
@@ -89,6 +95,9 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
+          // The SSE stream closes while the tab is hidden; an agent may
+          // have drawn on a whiteboard in the gap.
+          void queryClient.invalidateQueries({ queryKey: ["whiteboard"] });
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
@@ -141,6 +150,18 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["media", payload.agentId],
             exact: true,
           });
+          return;
+        }
+
+        if (payload.type === "whiteboard.changed") {
+          // Only remote (agent) edits need a refetch: the local editor is
+          // the source of user edits and already has them.
+          if (payload.source === "agent") {
+            void queryClient.invalidateQueries({
+              queryKey: ["whiteboard", payload.agentId],
+              exact: true,
+            });
+          }
           return;
         }
 

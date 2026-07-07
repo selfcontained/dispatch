@@ -1,2 +1,7 @@
 packages:
   - "apps/*"
+# pnpm 11 reads these from here, not .npmrc / package.json#pnpm.
+shamefullyHoist: true
+allowBuilds:
+  esbuild: true
+  sharp: true

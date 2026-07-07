@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  lazy,
+  Suspense,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { Routes, Route, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { ChangesTab } from "@/components/app/changes-tab";
+
+// Excalidraw is heavy (~MBs); split it out and only load on first tab visit.
+const WhiteboardTab = lazy(() => import("@/components/app/whiteboard-tab"));
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
 import { CenterPaneTabBar } from "@/components/app/center-pane-tab-bar";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
@@ -116,6 +127,7 @@ export function AgentsView({
 
   const {
     changesMatch,
+    whiteboardMatch,
     feedbackDetail,
     feedbackDetailRendered,
     handleFeedbackTransitionEnd,
@@ -129,6 +141,13 @@ export function AgentsView({
     agentsLoaded,
     validatedSelectedAgentId,
   });
+
+  // Keep the whiteboard mounted after first visit (Terminal pattern) so
+  // undo history, zoom, and in-flight strokes survive tab switches.
+  const [whiteboardOpened, setWhiteboardOpened] = useState(false);
+  useEffect(() => {
+    if (whiteboardMatch) setWhiteboardOpened(true);
+  }, [whiteboardMatch]);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
@@ -525,7 +544,13 @@ export function AgentsView({
                         {focusedAgent.name}
                       </span>
                       <CenterPaneTabBar
-                        activeTab={changesMatch ? "changes" : "terminal"}
+                        activeTab={
+                          changesMatch
+                            ? "changes"
+                            : whiteboardMatch
+                              ? "whiteboard"
+                              : "terminal"
+                        }
                         onTabChange={onTabChange}
                         diffStats={focusedDiffStats}
                       />
@@ -563,7 +588,12 @@ export function AgentsView({
               <div
                 className={cn("relative min-h-0 flex-1", !isMobile && "pb-14")}
               >
-                <div className={cn("h-full", changesMatch && "hidden")}>
+                <div
+                  className={cn(
+                    "h-full",
+                    (changesMatch || whiteboardMatch) && "hidden"
+                  )}
+                >
                   <TerminalPane
                     isAttached={isAttached}
                     connState={connState}
@@ -593,6 +623,23 @@ export function AgentsView({
                     }
                   />
                 </Routes>
+                {whiteboardOpened && focusedAgentId ? (
+                  <div className={cn("h-full", !whiteboardMatch && "hidden")}>
+                    <Suspense
+                      fallback={
+                        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
+                          Loading whiteboard…
+                        </div>
+                      }
+                    >
+                      <WhiteboardTab
+                        key={focusedAgentId}
+                        agentId={focusedAgentId}
+                        visible={!!whiteboardMatch}
+                      />
+                    </Suspense>
+                  </div>
+                ) : null}
                 {!isMobile ? (
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14 bg-background">
                     <AmbientTipBar />

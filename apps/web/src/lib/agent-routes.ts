@@ -6,6 +6,10 @@ export function agentChangesRoute(agentId: string): string {
   return `/agents/${agentId}/changes`;
 }
 
+export function agentWhiteboardRoute(agentId: string): string {
+  return `/agents/${agentId}/whiteboard`;
+}
+
 export function agentFeedbackRoute(agentId: string, itemId: number): string {
   return `/agents/${agentId}/feedback/${itemId}`;
 }

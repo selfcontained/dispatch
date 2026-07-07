@@ -41,6 +41,15 @@ export default defineConfig({
     screenshot: "only-on-failure",
     trace: "retain-on-failure",
     extraHTTPHeaders: {},
+    // Escape hatch for machines without Playwright's downloaded browsers
+    // (e.g. a Homebrew Chromium install).
+    ...(process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH
+      ? {
+          launchOptions: {
+            executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+          },
+        }
+      : {}),
   },
   webServer: {
     command: process.env.E2E_SKIP_WEB_BUILD

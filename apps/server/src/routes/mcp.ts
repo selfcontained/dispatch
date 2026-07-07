@@ -49,6 +49,7 @@ type McpRouteDeps = {
   mcpRenameSession: unknown;
   mcpShareMedia: unknown;
   mcpListMedia: unknown;
+  mcpGetWhiteboard: unknown;
   mcpSubmitFeedback: unknown;
   mcpListPersonas: unknown;
   mcpLaunchPersona: unknown;
@@ -289,6 +290,7 @@ export async function registerMcpRoutes(
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
+      getWhiteboard: deps.mcpGetWhiteboard,
       submitFeedback: deps.mcpSubmitFeedback,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
