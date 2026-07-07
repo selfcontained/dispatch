@@ -179,6 +179,59 @@ describe("POST /api/v1/agents (create)", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("disabled");
   });
+
+  it("does not apply fullAccess for terminal agents", async () => {
+    const agent = await createAgent({
+      type: "terminal",
+      fullAccess: true,
+    });
+    expect(agent.type).toBe("terminal");
+    expect(agent.fullAccess).toBe(false);
+  });
+
+  it("defaults type to codex when omitted", async () => {
+    const agent = await createAgent({});
+    expect(agent.type).toBe("codex");
+  });
+
+  it("applies fullAccess arg for codex type", async () => {
+    const agent = await createAgent({
+      type: "codex",
+      fullAccess: true,
+    });
+    expect(agent.fullAccess).toBe(true);
+  });
+
+  it("trims whitespace-only initialPrompt to undefined", async () => {
+    const agent = await createAgent({
+      initialPrompt: "   ",
+    });
+    expect(agent.initialPrompt).toBeFalsy();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/agents/:id/repo-icon
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/agents/:id/repo-icon", () => {
+  it("returns 404 for non-existent agent", async () => {
+    const res = await authedInject(
+      "GET",
+      "/api/v1/agents/agt_nonexistent/repo-icon"
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toContain("Agent not found");
+  });
+
+  it("returns 404 when agent has no repo icon", async () => {
+    const agent = await createAgent();
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agent.id}/repo-icon`
+    );
+    expect(res.statusCode).toBe(404);
+    expect(res.json().error).toContain("No repo icon");
+  });
 });
 
 // ---------------------------------------------------------------------------
