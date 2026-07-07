@@ -1263,14 +1263,33 @@ describe("createMcpHandlers", () => {
       ).rejects.toThrow("Sender agent not found.");
     });
 
-    it("throws when senderRepoRoot is null", async () => {
+    it("returns no match when senderRepoRoot is null and no parent/child", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_test1",
+          name: "sender",
+          cwd: "/repo-a",
+          status: "running",
+          parentAgentId: null,
+        },
+        {
+          id: "agt_other",
+          name: "other",
+          cwd: "/repo-b",
+          status: "running",
+          parentAgentId: null,
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
       await expect(
         handlers.sendMessage("agt_test1", {
           target: "agt_other",
           message: "hello",
           senderRepoRoot: null,
         })
-      ).rejects.toThrow("Cannot send messages");
+      ).rejects.toThrow('No agent found matching "agt_other"');
     });
 
     it("throws when target agent is not running", async () => {
@@ -1364,6 +1383,93 @@ describe("createMcpHandlers", () => {
       ).rejects.toThrow('No agent found matching "other"');
     });
 
+    it("delivers to child agent in a different repo", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/repo-a",
+          status: "running",
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo-b",
+          status: "running",
+          parentAgentId: "agt_parent",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+      const result = await handlers.sendMessage("agt_parent", {
+        target: "agt_child",
+        message: "hi child",
+        senderRepoRoot: "/repo-a",
+      });
+      expect(result.delivered).toBe(true);
+      expect(result.targetAgentId).toBe("agt_child");
+    });
+
+    it("delivers to parent agent in a different repo", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/repo-a",
+          status: "running",
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo-b",
+          status: "running",
+          parentAgentId: "agt_parent",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+      const result = await handlers.sendMessage("agt_child", {
+        target: "agt_parent",
+        message: "hi parent",
+        senderRepoRoot: "/repo-b",
+      });
+      expect(result.delivered).toBe(true);
+      expect(result.targetAgentId).toBe("agt_parent");
+    });
+
+    it("delivers to child agent even when senderRepoRoot is null", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/not-a-repo",
+          status: "running",
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo-b",
+          status: "running",
+          parentAgentId: "agt_parent",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+      const result = await handlers.sendMessage("agt_parent", {
+        target: "agt_child",
+        message: "hi",
+        senderRepoRoot: null,
+      });
+      expect(result.delivered).toBe(true);
+      expect(result.targetAgentId).toBe("agt_child");
+    });
+
     it("delivers cross-repo when the cross-repo messaging setting is enabled", async () => {
       // getSetting(cross_repo_messaging_enabled) -> "true"
       deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
@@ -1429,10 +1535,156 @@ describe("createMcpHandlers", () => {
       });
     });
 
-    it("throws when senderRepoRoot is null", async () => {
-      await expect(
-        handlers.listAgentsForAgent("agt_self", null)
-      ).rejects.toThrow("Cannot list agents");
+    it("returns empty list when senderRepoRoot is null and no parent/child", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "self",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+        },
+        {
+          id: "agt_other",
+          name: "other",
+          cwd: "/other-repo",
+          status: "running",
+          latestEvent: null,
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+      const result = await handlers.listAgentsForAgent("agt_self", null);
+      expect(result).toHaveLength(0);
+    });
+
+    it("includes direct child agent even in a different repo", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo-b",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_parent",
+        },
+        {
+          id: "agt_unrelated",
+          name: "unrelated",
+          cwd: "/repo-b",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent("agt_parent", "/repo-a");
+      expect(result.map((a) => a.id)).toEqual(["agt_child"]);
+    });
+
+    it("includes direct parent agent even in a different repo", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo-b",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_parent",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent("agt_child", "/repo-b");
+      expect(result.map((a) => a.id)).toEqual(["agt_parent"]);
+    });
+
+    it("does not include grandchild agents", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_grandparent",
+          name: "grandparent",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_grandparent",
+        },
+        {
+          id: "agt_grandchild",
+          name: "grandchild",
+          cwd: "/repo-b",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_parent",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent(
+        "agt_grandparent",
+        "/repo-a"
+      );
+      // Only direct child visible, not grandchild in different repo
+      expect(result.map((a) => a.id)).toEqual(["agt_parent"]);
+    });
+
+    it("includes child agent even when senderRepoRoot is null", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/not-a-repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo-b",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_parent",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent("agt_parent", null);
+      expect(result.map((a) => a.id)).toEqual(["agt_child"]);
     });
 
     it("lists agents across repos when the cross-repo messaging setting is enabled", async () => {

@@ -126,20 +126,33 @@ export function mcpMethodNotAllowed(): {
 /**
  * The set of agents a sender may address via dispatch_send_message and
  * list_agents: every other agent (self excluded), scoped to the sender's git
- * repo root unless cross-repo messaging is enabled. This is the single
- * definition of that visibility boundary — both message delivery and agent
- * listing consult it, so they can never disagree about who is reachable.
+ * repo root unless cross-repo messaging is enabled. Direct parent ↔ child
+ * relationships always bypass repo-root scoping so spawned agents can
+ * coordinate with their parent regardless of working directory. This is the
+ * single definition of that visibility boundary — both message delivery and
+ * agent listing consult it, so they can never disagree about who is reachable.
  */
-async function addressableAgents<T extends { id: string; cwd: string }>(
+async function addressableAgents<
+  T extends { id: string; cwd: string; parentAgentId?: string | null },
+>(
   all: T[],
   agentId: string,
   senderRepoRoot: string | null,
   crossRepo: boolean
 ): Promise<T[]> {
+  const sender = all.find((a) => a.id === agentId);
+  const senderParentId = sender?.parentAgentId ?? null;
+
   const result: T[] = [];
   for (const a of all) {
     if (a.id === agentId) continue;
     if (crossRepo) {
+      result.push(a);
+      continue;
+    }
+    // Direct parent ↔ child always visible. parentAgentId is trusted because
+    // MCP-originated creation sets it server-side; the HTTP path is localhost-only.
+    if (a.id === senderParentId || a.parentAgentId === agentId) {
       result.push(a);
       continue;
     }
@@ -900,11 +913,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
       const senderRepoRoot = input.senderRepoRoot;
       const crossRepo = await isCrossRepoMessagingEnabled(pool);
-      if (!crossRepo && !senderRepoRoot) {
-        throw new Error(
-          "Cannot send messages: unable to determine your project's repository root."
-        );
-      }
 
       const allAgents = await addressableAgents(
         await agentManager.listAgents(),
@@ -991,11 +999,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }>
     > {
       const crossRepo = await isCrossRepoMessagingEnabled(pool);
-      if (!crossRepo && !senderRepoRoot) {
-        throw new Error(
-          "Cannot list agents: unable to determine your project's repository root."
-        );
-      }
 
       const agents = await addressableAgents(
         await agentManager.listAgents(),
