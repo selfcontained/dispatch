@@ -258,6 +258,32 @@ export function AgentsContent() {
           their events, media, pins, and feedback.
         </P>
       </Section>
+
+      <Section>
+        <H3>Agent orchestration</H3>
+        <P>
+          Agents can launch other agents using the{" "}
+          <Code>dispatch_launch_agent</Code> tool. The child agent runs
+          independently and appears as a top-level entry in the sidebar — it
+          inherits the parent's working directory and full-access mode by
+          default. Each child is told which agent launched it and can coordinate
+          back using <Code>dispatch_send_message</Code>.
+        </P>
+        <P>
+          Archiving a parent does not archive its launched children — they
+          continue running on their own. This differs from persona reviewers,
+          which are always archived alongside their parent.
+        </P>
+      </Section>
+
+      <Section>
+        <H3>Reordering agents</H3>
+        <P>
+          Drag and drop agent cards in the sidebar to reorder them. You can also
+          focus a card and press <Code>Alt+↑</Code> or <Code>Alt+↓</Code> to
+          move it. The custom order is saved per session.
+        </P>
+      </Section>
     </>
   );
 }
