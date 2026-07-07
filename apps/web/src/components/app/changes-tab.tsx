@@ -218,13 +218,13 @@ export const ChangesTab = memo(function ChangesTab({
     };
   }, [setViewState]);
 
-  const hasRestoredScroll = useRef(false);
+  const restoredScrollForAgent = useRef<string | null>(null);
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el || !viewState.scrollTop || hasRestoredScroll.current) return;
+    if (!el || restoredScrollForAgent.current === agentId) return;
     el.scrollTop = viewState.scrollTop;
-    hasRestoredScroll.current = true;
-  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+    restoredScrollForAgent.current = agentId;
+  }, [agentId, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!active) return <div />;
 
