@@ -195,6 +195,7 @@ export const ChangesTab = memo(function ChangesTab({
   const handleScroll = useCallback(() => {
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = setTimeout(() => {
+      scrollTimerRef.current = null;
       const top = scrollRef.current?.scrollTop ?? 0;
       setViewState((prev) => {
         if (prev.scrollTop === top) return prev;
