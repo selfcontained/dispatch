@@ -91,6 +91,7 @@ import {
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
   diffFileTreeOpenAtom,
+  diffViewStateAtomFamily,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -116,7 +117,43 @@ export const ChangesTab = memo(function ChangesTab({
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
   const { data, isLoading } = useAgentDiff(agentId, active, ignoreWhitespace);
-  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const [viewState, setViewState] = useAtom(
+    diffViewStateAtomFamily(agentId ?? "")
+  );
+
+  const collapsedFiles = useMemo(
+    () => new Set(viewState.collapsedFiles),
+    [viewState.collapsedFiles]
+  );
+  const collapsedDirs = useMemo(
+    () => new Set(viewState.collapsedDirs),
+    [viewState.collapsedDirs]
+  );
+
+  const toggleCollapseFile = useCallback(
+    (path: string) => {
+      setViewState((prev) => {
+        const s = new Set(prev.collapsedFiles);
+        if (s.has(path)) s.delete(path);
+        else s.add(path);
+        return { ...prev, collapsedFiles: [...s] };
+      });
+    },
+    [setViewState]
+  );
+
+  const toggleCollapseDir = useCallback(
+    (path: string) => {
+      setViewState((prev) => {
+        const s = new Set(prev.collapsedDirs);
+        if (s.has(path)) s.delete(path);
+        else s.add(path);
+        return { ...prev, collapsedDirs: [...s] };
+      });
+    },
+    [setViewState]
+  );
+
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(
     null
@@ -135,19 +172,59 @@ export const ChangesTab = memo(function ChangesTab({
     [data?.files]
   );
 
-  const scrollToFile = useCallback((path: string) => {
-    setSelectedFile(path);
-    const el = fileRefs.current.get(path);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "start" });
-    }
-    setCollapsedFiles((prev) => {
-      if (!prev.has(path)) return prev;
-      const next = new Set(prev);
-      next.delete(path);
-      return next;
-    });
-  }, []);
+  const scrollToFile = useCallback(
+    (path: string) => {
+      setSelectedFile(path);
+      const el = fileRefs.current.get(path);
+      if (el) {
+        el.scrollIntoView({ behavior: "smooth", block: "start" });
+      }
+      setViewState((prev) => {
+        const s = new Set(prev.collapsedFiles);
+        if (!s.has(path)) return prev;
+        s.delete(path);
+        return { ...prev, collapsedFiles: [...s] };
+      });
+    },
+    [setViewState]
+  );
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const handleScroll = useCallback(() => {
+    if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
+    scrollTimerRef.current = setTimeout(() => {
+      scrollTimerRef.current = null;
+      const top = scrollRef.current?.scrollTop ?? 0;
+      setViewState((prev) => {
+        if (prev.scrollTop === top) return prev;
+        return { ...prev, scrollTop: top };
+      });
+    }, 300);
+  }, [setViewState]);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    return () => {
+      if (scrollTimerRef.current) {
+        clearTimeout(scrollTimerRef.current);
+        const top = el?.scrollTop ?? 0;
+        setViewState((prev) => {
+          if (prev.scrollTop === top) return prev;
+          return { ...prev, scrollTop: top };
+        });
+      }
+    };
+  }, [setViewState]);
+
+  const restoredScrollForAgent = useRef<string | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || restoredScrollForAgent.current === agentId) return;
+    el.scrollTop = viewState.scrollTop;
+    restoredScrollForAgent.current = agentId;
+  }, [agentId, data]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!active) return <div />;
 
@@ -177,22 +254,14 @@ export const ChangesTab = memo(function ChangesTab({
         onSelectFile={scrollToFile}
         open={fileTreeOpen}
         onToggleOpen={() => setFileTreeOpen((v) => !v)}
+        collapsedDirs={collapsedDirs}
+        onToggleDir={toggleCollapseDir}
       />
       <DiffPane
         agentId={agentId}
         files={files}
         collapsedFiles={collapsedFiles}
-        onToggleCollapse={(path) => {
-          setCollapsedFiles((prev) => {
-            const next = new Set(prev);
-            if (next.has(path)) {
-              next.delete(path);
-            } else {
-              next.add(path);
-            }
-            return next;
-          });
-        }}
+        onToggleCollapse={toggleCollapseFile}
         fileRefs={fileRefs}
         lineSelection={lineSelection}
         onLineSelection={handleLineSelection}
@@ -200,6 +269,8 @@ export const ChangesTab = memo(function ChangesTab({
         onCommentOpen={setCommentOpen}
         viewType={viewType}
         ignoreWhitespace={ignoreWhitespace}
+        scrollRef={scrollRef}
+        onScroll={handleScroll}
       />
     </div>
   );
@@ -234,6 +305,8 @@ type FileTreeProps = {
   onSelectFile: (path: string) => void;
   open: boolean;
   onToggleOpen: () => void;
+  collapsedDirs: Set<string>;
+  onToggleDir: (path: string) => void;
 };
 
 type TreeNode = {
@@ -294,21 +367,10 @@ function FileTree({
   onSelectFile,
   open,
   onToggleOpen,
+  collapsedDirs,
+  onToggleDir,
 }: FileTreeProps): JSX.Element {
-  const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
   const tree = useMemo(() => buildTree(files), [files]);
-
-  const toggleDir = useCallback((path: string) => {
-    setCollapsedDirs((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) {
-        next.delete(path);
-      } else {
-        next.add(path);
-      }
-      return next;
-    });
-  }, []);
 
   return (
     <div
@@ -346,7 +408,7 @@ function FileTree({
               selectedFile={selectedFile}
               onSelectFile={onSelectFile}
               collapsedDirs={collapsedDirs}
-              onToggleDir={toggleDir}
+              onToggleDir={onToggleDir}
             />
           ))}
         </div>
@@ -455,6 +517,8 @@ type DiffPaneProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
+  scrollRef: React.RefObject<HTMLDivElement>;
+  onScroll: () => void;
 };
 
 function DiffPane({
@@ -469,9 +533,15 @@ function DiffPane({
   onCommentOpen,
   viewType,
   ignoreWhitespace,
+  scrollRef,
+  onScroll,
 }: DiffPaneProps): JSX.Element {
   return (
-    <div className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background px-3 pb-3">
+    <div
+      ref={scrollRef}
+      onScroll={onScroll}
+      className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background px-3 pb-3"
+    >
       {files.map((file) => (
         <FileDiffSection
           key={file.path}

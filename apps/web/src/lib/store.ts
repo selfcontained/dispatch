@@ -186,3 +186,48 @@ export function reconcileMediaSidebarStateStorage(
 
   keysToDelete.forEach((key) => window.localStorage.removeItem(key));
 }
+
+// ---------------------------------------------------------------------------
+// Diff view state — per-agent collapsed files/dirs and scroll position
+// ---------------------------------------------------------------------------
+
+export type DiffViewState = {
+  collapsedFiles: string[];
+  collapsedDirs: string[];
+  scrollTop: number;
+};
+
+const defaultDiffViewState: DiffViewState = {
+  collapsedFiles: [],
+  collapsedDirs: [],
+  scrollTop: 0,
+};
+
+export const DIFF_VIEW_STATE_STORAGE_PREFIX = "dispatch:diffViewState:";
+
+export const diffViewStateAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<DiffViewState>(
+    `${DIFF_VIEW_STATE_STORAGE_PREFIX}${agentId}`,
+    defaultDiffViewState
+  )
+);
+
+export function reconcileDiffViewStateStorage(
+  agentIds: Iterable<string>
+): void {
+  if (typeof window === "undefined") return;
+
+  const liveAgentIds = new Set(agentIds);
+  const keysToDelete: string[] = [];
+
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key?.startsWith(DIFF_VIEW_STATE_STORAGE_PREFIX)) continue;
+
+    const agentId = key.slice(DIFF_VIEW_STATE_STORAGE_PREFIX.length).trim();
+    if (!agentId || liveAgentIds.has(agentId)) continue;
+    keysToDelete.push(key);
+  }
+
+  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+}
