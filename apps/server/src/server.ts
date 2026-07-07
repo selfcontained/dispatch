@@ -108,6 +108,7 @@ import { registerMediaRoutes } from "./routes/media.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
+import { registerProviderQuotaRoutes } from "./routes/provider-quotas.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
 import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
@@ -144,6 +145,10 @@ import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
 import { createActivityMonitor } from "./agents/activity-monitor.js";
 import { createAutoRenamePrompter } from "./agents/auto-rename-prompter.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
+import { createProviderQuotaAdapters } from "./provider-quotas/adapters.js";
+import { ProviderQuotaService } from "./provider-quotas/service.js";
+import { ProviderQuotaStore } from "./provider-quotas/store.js";
+import { isProviderQuotaTrackingEnabled } from "./provider-quotas/settings.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -207,6 +212,13 @@ const streamManager = new StreamManager(
   }
 );
 const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
+function providerQuotaRefreshIntervalMs(): number {
+  const requested = Number(process.env.DISPATCH_PROVIDER_QUOTA_REFRESH_MS);
+  if (!Number.isFinite(requested) || requested <= 0) return 15 * 60 * 1000;
+  return Math.min(Math.max(requested, 5 * 60 * 1000), 60 * 60 * 1000);
+}
+const PROVIDER_QUOTA_REFRESH_INTERVAL_MS = providerQuotaRefreshIntervalMs();
+const PROVIDER_QUOTA_INITIAL_REFRESH_DELAY_MS = 10_000;
 
 const ICON_COLOR_KEY = "icon_color";
 const staticTheme = createStaticThemeRuntime(embeddedStaticFiles);
@@ -308,6 +320,11 @@ const authRuntime = createAuthRuntime({
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
 const brainStore = new BrainStore(pool);
+const providerQuotaService = new ProviderQuotaService(
+  new ProviderQuotaStore(pool),
+  createProviderQuotaAdapters(),
+  () => isProviderQuotaTrackingEnabled(pool)
+);
 const mcpHandlers = createMcpHandlers({
   pool,
   mediaRoot: config.mediaRoot,
@@ -523,6 +540,11 @@ async function registerRoutes() {
     escapeLike,
   });
 
+  await registerProviderQuotaRoutes(app, {
+    pool,
+    service: providerQuotaService,
+  });
+
   await registerReleaseRoutes(app, {
     pool,
     appLog: app.log,
@@ -694,6 +716,13 @@ export async function initializeApp(options?: {
     agentLifecycleRuntime.startReconcileLoop();
     authRuntime.startSessionCleanupTimer();
     autoCheckRuntime.startScheduler();
+    providerQuotaService.startScheduler({
+      intervalMs: PROVIDER_QUOTA_REFRESH_INTERVAL_MS,
+      initialDelayMs: PROVIDER_QUOTA_INITIAL_REFRESH_DELAY_MS,
+      onError: (err) => {
+        app.log.warn({ err }, "Provider quota background refresh failed");
+      },
+    });
   }
   if (!routesRegistered) {
     await registerRoutes();
@@ -740,6 +769,7 @@ async function cleanupAppResources(): Promise<void> {
   agentLifecycleRuntime.stopReconcileLoop();
   authRuntime.stopSessionCleanupTimer();
   autoCheckRuntime.stopScheduler();
+  providerQuotaService.stopScheduler();
 
   notificationRuntime.clearPendingWebNotifications();
 

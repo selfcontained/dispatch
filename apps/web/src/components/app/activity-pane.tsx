@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CalendarIcon } from "lucide-react";
+import { CalendarIcon, RefreshCw } from "lucide-react";
 import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
@@ -16,7 +16,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatDuration, formatTokenCount } from "@/lib/format";
+import {
+  formatDuration,
+  formatRelativeTime,
+  formatShortDateTime,
+  formatTokenCount,
+} from "@/lib/format";
 import { StatCard } from "@/components/app/stat-card";
 import {
   ACTIVITY_RANGES,
@@ -30,8 +35,12 @@ import {
   useTokenByModel,
   useTokenByProject,
   useWorkingTimeByProject,
+  useProviderQuotas,
+  useRefreshProviderQuotas,
+  useUpdateProviderQuotaSettings,
   rangeLabel,
   type ActivityRange,
+  type ProviderQuotaSnapshot,
 } from "@/hooks/use-activity";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import {
@@ -45,12 +54,382 @@ import { ActiveHoursGrid, Heatmap } from "@/components/app/activity-heatmaps";
 import type { TokenStats } from "@/hooks/use-activity";
 
 type ActivityTab = "metrics" | "history";
+const PROVIDER_QUOTA_STALE_MS = 30 * 60 * 1000;
 
 function cacheHitRate(stats: TokenStats): number {
   const totalInput =
     stats.total_input + stats.total_cache_creation + stats.total_cache_read;
   if (totalInput === 0) return 0;
   return Math.round((stats.total_cache_read / totalInput) * 100);
+}
+
+function quotaPercentLabel(snapshot: ProviderQuotaSnapshot): string {
+  return snapshot.usedPercent === null
+    ? "n/a"
+    : `${Math.round(snapshot.usedPercent)}%`;
+}
+
+function quotaResetLabel(snapshot: ProviderQuotaSnapshot): string | null {
+  if (!snapshot.resetsAt) return "Reset time unavailable";
+  return `resets ${formatShortDateTime(snapshot.resetsAt)}`;
+}
+
+function isQuotaBucket(snapshot: ProviderQuotaSnapshot): boolean {
+  return (
+    snapshot.windowId.includes(":") || snapshot.windowId.startsWith("credits")
+  );
+}
+
+function providerLabel(provider: ProviderQuotaSnapshot["provider"]): string {
+  return provider === "codex" ? "Codex" : "Claude";
+}
+
+function titleFromId(id: string): string {
+  return id
+    .split(/[_:-]+/)
+    .filter(Boolean)
+    .map((part) => part.slice(0, 1).toUpperCase() + part.slice(1))
+    .join(" ");
+}
+
+function codexBucketName(snapshot: ProviderQuotaSnapshot): string {
+  const [, bucketId] = snapshot.windowId.split(":");
+  if (!bucketId) return "Additional quota";
+  return titleFromId(bucketId);
+}
+
+function quotaDisplayTitle(snapshot: ProviderQuotaSnapshot): string {
+  const id = snapshot.windowId.toLowerCase();
+  if (snapshot.provider === "codex") {
+    if (id === "primary_window") return "Session";
+    if (id === "secondary_window") return "Weekly";
+    if (id.startsWith("primary_window:")) return codexBucketName(snapshot);
+    if (id.startsWith("secondary_window:")) return codexBucketName(snapshot);
+    if (id.startsWith("credits:")) return snapshot.title || "Credits";
+    return snapshot.title || "Additional Codex quota";
+  }
+  return snapshot.title;
+}
+
+function quotaContextLabel(snapshot: ProviderQuotaSnapshot): string | null {
+  const id = snapshot.windowId.toLowerCase();
+  if (snapshot.provider === "codex") {
+    if (id === "primary_window") return "Current Codex quota";
+    if (id === "secondary_window") return "Weekly Codex quota";
+    if (id.startsWith("primary_window:")) {
+      return "Model-scoped session quota";
+    }
+    if (id.startsWith("secondary_window:")) {
+      return "Model-scoped weekly quota";
+    }
+    if (id.startsWith("credits:")) return "Codex credits";
+    if (isQuotaBucket(snapshot)) return "Additional Codex quota";
+  }
+  if (id === "five_hour" || id.includes("session")) return "Session quota";
+  if (id === "seven_day" || id.includes("weekly_all")) return "Weekly quota";
+  if (id.includes("weekly_scoped")) return "Model-scoped weekly quota";
+  if (id.includes("sonnet")) return "Sonnet model quota";
+  if (id.includes("opus")) return "Opus model quota";
+  if (id.includes("primary_window")) return "Main account window";
+  if (id.includes("secondary_window")) return "Longer account window";
+  if (id.startsWith("credits")) return "Credit balance";
+  if (id.includes("gpt") || id.includes("model")) return "Model-scoped quota";
+  return isQuotaBucket(snapshot) ? "Scoped quota" : null;
+}
+
+function visibleQuotaSnapshots(
+  provider: ProviderQuotaSnapshot["provider"],
+  snapshots: ProviderQuotaSnapshot[]
+): ProviderQuotaSnapshot[] {
+  const okSnapshots = snapshots.filter((snapshot) => snapshot.status === "ok");
+  if (provider !== "claude") return okSnapshots;
+  const hasFiveHour = okSnapshots.some(
+    (snapshot) => snapshot.windowId === "five_hour" && snapshot.status === "ok"
+  );
+  const hasSevenDay = okSnapshots.some(
+    (snapshot) => snapshot.windowId === "seven_day" && snapshot.status === "ok"
+  );
+  if (!hasFiveHour && !hasSevenDay) return okSnapshots;
+  return okSnapshots.filter((snapshot) => {
+    if (hasFiveHour && snapshot.windowId === "limits:session:session") {
+      return false;
+    }
+    if (hasSevenDay && snapshot.windowId === "limits:weekly_all:weekly") {
+      return false;
+    }
+    return true;
+  });
+}
+
+function newestQuotaSnapshot(
+  snapshots: ProviderQuotaSnapshot[]
+): ProviderQuotaSnapshot | null {
+  return snapshots.reduce<ProviderQuotaSnapshot | null>((newest, snapshot) => {
+    if (!newest) return snapshot;
+    return new Date(snapshot.fetchedAt).getTime() >
+      new Date(newest.fetchedAt).getTime()
+      ? snapshot
+      : newest;
+  }, null);
+}
+
+function ProviderQuotaProgressRow({
+  snapshot,
+}: {
+  snapshot: ProviderQuotaSnapshot;
+}): JSX.Element {
+  const percent =
+    snapshot.usedPercent === null
+      ? null
+      : Math.max(0, Math.min(snapshot.usedPercent, 100));
+  const resetLabel = quotaResetLabel(snapshot);
+  const contextLabel = quotaContextLabel(snapshot);
+
+  return (
+    <div className="min-w-0">
+      <div className="min-w-0">
+        <div className="flex items-center justify-between gap-2">
+          <div className="min-w-0">
+            <div className="truncate text-xs font-medium text-foreground">
+              {quotaDisplayTitle(snapshot)}
+            </div>
+            {contextLabel && (
+              <div className="truncate text-[10px] text-muted-foreground">
+                {contextLabel}
+              </div>
+            )}
+          </div>
+          <span className="shrink-0 text-xs font-semibold text-foreground">
+            {quotaPercentLabel(snapshot)}
+          </span>
+        </div>
+        <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-border">
+          <div
+            className={
+              snapshot.status === "ok"
+                ? "h-full rounded-full bg-primary"
+                : "h-full rounded-full bg-status-blocked"
+            }
+            style={{ width: `${percent ?? 100}%` }}
+          />
+        </div>
+        {(resetLabel || snapshot.windowMinutes !== null) && (
+          <div className="mt-1 flex min-h-3 flex-wrap items-center gap-x-2 gap-y-0.5 text-[10px] text-muted-foreground">
+            {snapshot.windowMinutes !== null && (
+              <span>{formatDuration(snapshot.windowMinutes * 60_000)}</span>
+            )}
+            {resetLabel && <span>{resetLabel}</span>}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export function ProviderQuotaSection(): JSX.Element {
+  const { data, isLoading, isError } = useProviderQuotas();
+  const refresh = useRefreshProviderQuotas();
+  const updateSettings = useUpdateProviderQuotaSettings();
+  const snapshots = data?.snapshots ?? [];
+  const providerGroups = Array.from(
+    snapshots
+      .reduce<
+        Map<
+          string,
+          {
+            provider: ProviderQuotaSnapshot["provider"];
+            snapshots: ProviderQuotaSnapshot[];
+          }
+        >
+      >((groups, snapshot) => {
+        const providerGroup =
+          groups.get(snapshot.provider) ??
+          (() => {
+            const group = {
+              provider: snapshot.provider,
+              snapshots: [],
+            };
+            groups.set(snapshot.provider, group);
+            return group;
+          })();
+        providerGroup.snapshots.push(snapshot);
+        return groups;
+      }, new Map())
+      .values()
+  );
+
+  return (
+    <div>
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <h2 className="text-sm font-medium text-foreground">Provider quotas</h2>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-xs"
+          onClick={() => refresh.mutate()}
+          disabled={refresh.isPending}
+          data-testid="provider-quota-refresh"
+        >
+          <RefreshCw
+            className={`h-3.5 w-3.5 ${refresh.isPending ? "animate-spin" : ""}`}
+          />
+          Refresh
+        </Button>
+      </div>
+      {isLoading ? (
+        <div className="h-24 animate-pulse rounded-md bg-muted/30" />
+      ) : data?.usageTrackingEnabled === false ? (
+        <div className="rounded-md border border-border bg-muted/20 px-4 py-5">
+          <div className="text-sm font-medium text-foreground">
+            Usage tracking is off
+          </div>
+          <p className="mt-1 max-w-xl text-sm text-muted-foreground">
+            Enable usage tracking to keep Codex and Claude quota stats up to
+            date in the background. Dispatch chooses the available local
+            credential path automatically.
+          </p>
+          <Button
+            type="button"
+            size="sm"
+            className="mt-3"
+            disabled={updateSettings.isPending}
+            onClick={() =>
+              updateSettings.mutate(
+                { usageTrackingEnabled: true },
+                {
+                  onSuccess: () => refresh.mutate(),
+                }
+              )
+            }
+          >
+            Enable usage tracking
+          </Button>
+        </div>
+      ) : isError ? (
+        <div className="rounded-md border border-border bg-muted/30 px-3 py-4 text-sm text-status-blocked">
+          Could not load provider quota snapshots.
+        </div>
+      ) : providerGroups.length > 0 ? (
+        <div className="grid gap-3 lg:grid-cols-2">
+          {providerGroups.map((providerGroup) => {
+            const visibleSnapshots = visibleQuotaSnapshots(
+              providerGroup.provider,
+              providerGroup.snapshots
+            );
+            const windowSnapshots = visibleSnapshots.filter(
+              (snapshot) => !isQuotaBucket(snapshot)
+            );
+            const bucketSnapshots = visibleSnapshots.filter(isQuotaBucket);
+            const newestGoodSnapshot = newestQuotaSnapshot(visibleSnapshots);
+            const newestSnapshot =
+              newestGoodSnapshot ??
+              newestQuotaSnapshot(providerGroup.snapshots);
+            const newestFetchedAtMs = newestGoodSnapshot
+              ? new Date(newestGoodSnapshot.fetchedAt).getTime()
+              : NaN;
+            const newestAnyFetchedAtMs = newestSnapshot
+              ? new Date(newestSnapshot.fetchedAt).getTime()
+              : NaN;
+            const isProviderStale =
+              Number.isFinite(newestFetchedAtMs) &&
+              Date.now() - newestFetchedAtMs > PROVIDER_QUOTA_STALE_MS;
+            const latestFailure = providerGroup.snapshots
+              .filter((snapshot) => snapshot.status !== "ok")
+              .sort(
+                (a, b) =>
+                  new Date(b.fetchedAt).getTime() -
+                  new Date(a.fetchedAt).getTime()
+              )[0];
+            const failureIsLatest =
+              latestFailure &&
+              Number.isFinite(newestAnyFetchedAtMs) &&
+              new Date(latestFailure.fetchedAt).getTime() >=
+                newestAnyFetchedAtMs;
+            const hasProviderStatus = Boolean(
+              isProviderStale ||
+              failureIsLatest ||
+              (latestFailure && !newestGoodSnapshot)
+            );
+            return (
+              <div
+                key={providerGroup.provider}
+                className="flex min-h-[19rem] flex-col rounded-md border border-border bg-muted/20 p-3"
+              >
+                <div className="flex-1">
+                  <div className="mb-3">
+                    <h3 className="text-sm font-semibold text-foreground">
+                      {providerLabel(providerGroup.provider)}
+                    </h3>
+                  </div>
+                  {windowSnapshots.length > 0 && (
+                    <div>
+                      <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                        Windows
+                      </div>
+                      <div className="space-y-2">
+                        {windowSnapshots.map((snapshot) => (
+                          <ProviderQuotaProgressRow
+                            key={snapshot.id}
+                            snapshot={snapshot}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {bucketSnapshots.length > 0 && (
+                    <div className={windowSnapshots.length > 0 ? "mt-3" : ""}>
+                      <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                        Buckets
+                      </div>
+                      <div className="space-y-2">
+                        {bucketSnapshots.map((snapshot) => (
+                          <ProviderQuotaProgressRow
+                            key={snapshot.id}
+                            snapshot={snapshot}
+                          />
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {hasProviderStatus && (
+                    <div className="mt-3 rounded-md border border-status-blocked/30 bg-status-blocked/10 px-2 py-1.5 text-[10px] text-status-blocked">
+                      {failureIsLatest && newestGoodSnapshot ? (
+                        <div>
+                          Refresh failed; showing last checked data from{" "}
+                          {formatRelativeTime(newestGoodSnapshot.fetchedAt)}.
+                        </div>
+                      ) : isProviderStale && newestGoodSnapshot ? (
+                        <div>
+                          Stats are stale. Last checked{" "}
+                          {formatRelativeTime(newestGoodSnapshot.fetchedAt)}.
+                        </div>
+                      ) : (
+                        <div>
+                          Stats unavailable. Try refreshing provider quotas.
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+                <div className="mt-3 border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
+                  Last checked{" "}
+                  {newestGoodSnapshot
+                    ? formatRelativeTime(newestGoodSnapshot.fetchedAt)
+                    : "never"}
+                  {isProviderStale ? " · stale" : ""}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      ) : (
+        <div className="rounded-md border border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
+          No provider quota snapshots yet. Refresh to fetch Codex and Claude.
+        </div>
+      )}
+    </div>
+  );
 }
 
 type ActivityPaneProps = {

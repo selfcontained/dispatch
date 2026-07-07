@@ -7,6 +7,7 @@ import {
   AutomationsRoute,
   DesignLabRoute,
   SettingsRoute,
+  UsageRoute,
 } from "@/layouts/dashboard-sections";
 import { LoginRoute } from "@/components/app/login-page";
 import {
@@ -76,6 +77,11 @@ export const router = createBrowserRouter([
               {
                 path: "activity/:tab/:agentId",
                 element: <ActivityRoute />,
+                handle: { navSection: "activity" },
+              },
+              {
+                path: "usage",
+                element: <UsageRoute />,
                 handle: { navSection: "activity" },
               },
               {

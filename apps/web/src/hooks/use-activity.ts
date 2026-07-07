@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
   buildActiveHours,
@@ -283,5 +283,80 @@ export function useWorkingTimeByProject(
       return payload.projects;
     },
     ...ACTIVITY_QUERY_OPTIONS,
+  });
+}
+
+// ── Provider quotas ───────────────────────────────────────────────
+
+export type ProviderQuotaSnapshot = {
+  id: number;
+  provider: "codex" | "claude";
+  accountLabel: string | null;
+  accountId: string | null;
+  source: string;
+  windowId: string;
+  title: string;
+  usedPercent: number | null;
+  windowMinutes: number | null;
+  resetsAt: string | null;
+  fetchedAt: string;
+  status: "ok" | "unavailable" | "error";
+  error: string | null;
+};
+
+type ProviderQuotaPayload = {
+  usageTrackingEnabled: boolean;
+  snapshots: ProviderQuotaSnapshot[];
+};
+
+export type ProviderQuotaSettings = {
+  usageTrackingEnabled: boolean;
+};
+
+export function useProviderQuotaSettings() {
+  return useQuery<ProviderQuotaSettings>({
+    queryKey: ["provider-quotas", "settings"],
+    queryFn: () =>
+      api<ProviderQuotaSettings>("/api/v1/provider-quotas/settings"),
+    staleTime: 60_000,
+  });
+}
+
+export function useUpdateProviderQuotaSettings() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (settings: ProviderQuotaSettings) =>
+      api<ProviderQuotaSettings>("/api/v1/provider-quotas/settings", {
+        method: "POST",
+        body: JSON.stringify(settings),
+      }),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["provider-quotas", "settings"], payload);
+      void queryClient.invalidateQueries({ queryKey: ["provider-quotas"] });
+    },
+  });
+}
+
+export function useProviderQuotas() {
+  return useQuery<ProviderQuotaPayload>({
+    queryKey: ["provider-quotas"],
+    queryFn: () => api<ProviderQuotaPayload>("/api/v1/provider-quotas"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useRefreshProviderQuotas() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () =>
+      api<ProviderQuotaPayload>("/api/v1/provider-quotas/refresh", {
+        method: "POST",
+      }),
+    onSuccess: (payload) => {
+      queryClient.setQueryData(["provider-quotas"], payload);
+    },
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: ["provider-quotas"] });
+    },
   });
 }

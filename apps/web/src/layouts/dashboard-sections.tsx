@@ -1,9 +1,10 @@
 import { useCallback } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { BarChart3, History, PanelRightOpen } from "lucide-react";
+import { BarChart3, Gauge, History, PanelRightOpen } from "lucide-react";
 
 import { AgentsView } from "@/components/app/agents-view";
 import { ActivityPane } from "@/components/app/activity-pane";
+import { UsagePane } from "@/components/app/usage-pane";
 import {
   AutomationsSidebarContent,
   AutomationsDetailContent,
@@ -245,7 +246,7 @@ export function ActivityRoute(): JSX.Element {
               Activity
             </div>
           </div>
-          <nav className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+          <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-2">
             <button
               type="button"
               onClick={() => {
@@ -278,12 +279,78 @@ export function ActivityRoute(): JSX.Element {
               <History className="h-3.5 w-3.5 shrink-0" />
               History
             </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (isMobile) setMobileLeftOpen(false);
+                navigate("/usage", { replace: true });
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg border border-transparent px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
+            >
+              <Gauge className="h-3.5 w-3.5 shrink-0" />
+              Usage
+            </button>
           </nav>
         </div>
       }
     >
       <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
         <ActivityPane open={true} initialTab={activityTab} />
+      </div>
+    </SectionShell>
+  );
+}
+
+export function UsageRoute(): JSX.Element {
+  const navigate = useNavigate();
+  const { isMobile, setMobileLeftOpen } = useDashboardContext();
+
+  return (
+    <SectionShell
+      activeSection="activity"
+      sidebar={
+        <div className="flex h-full min-h-0 flex-col">
+          <div className="mt-2 flex h-14 items-center border-b border-border px-3">
+            <div className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
+              Activity
+            </div>
+          </div>
+          <nav className="flex min-h-0 flex-1 flex-col overflow-y-auto px-2 py-2">
+            <button
+              type="button"
+              onClick={() => {
+                if (isMobile) setMobileLeftOpen(false);
+                navigate("/activity/metrics", { replace: true });
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg border border-transparent px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
+            >
+              <BarChart3 className="h-3.5 w-3.5 shrink-0" />
+              Metrics
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                if (isMobile) setMobileLeftOpen(false);
+                navigate("/activity/history", { replace: true });
+              }}
+              className="flex w-full items-center gap-2.5 rounded-lg border border-transparent px-3 py-2.5 text-left text-sm text-muted-foreground transition-colors hover:bg-white/[0.04] hover:text-foreground"
+            >
+              <History className="h-3.5 w-3.5 shrink-0" />
+              History
+            </button>
+            <button
+              type="button"
+              className="flex w-full items-center gap-2.5 rounded-lg border border-primary/20 bg-primary/10 px-3 py-2.5 text-left text-sm text-foreground transition-colors"
+            >
+              <Gauge className="h-3.5 w-3.5 shrink-0" />
+              Usage
+            </button>
+          </nav>
+        </div>
+      }
+    >
+      <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+        <UsagePane />
       </div>
     </SectionShell>
   );

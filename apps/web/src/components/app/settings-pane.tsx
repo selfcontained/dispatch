@@ -12,6 +12,7 @@ import { UpdatesSection } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { ServiceStatus } from "@/components/app/service-status";
 import { type ServiceState } from "@/components/app/types";
+import { UsageTrackingSettings } from "@/components/app/usage-tracking-settings";
 import { WorktreeLocationSettings } from "@/components/app/worktree-location-settings";
 import { type IconColorId } from "@/hooks/use-icon-color";
 import { useReleaseStream } from "@/hooks/use-release-stream";
@@ -185,6 +186,9 @@ export function SettingsContent({
           <div className="flex flex-col">
             <div className="p-4 md:p-6">
               <InstanceNameSettings />
+            </div>
+            <div className="border-t border-border p-4 md:p-6">
+              <UsageTrackingSettings />
             </div>
             <div className="border-t border-border">
               <AppearanceSettings
