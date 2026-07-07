@@ -261,6 +261,9 @@ function WhiteboardCanvas({
       }
       if (snapshotTimerRef.current !== undefined) {
         window.clearTimeout(snapshotTimerRef.current);
+        // Flush like the save timer: exportToBlob renders offscreen from
+        // scene data, so it still works during teardown.
+        void persistSnapshot();
       }
     };
     // persistScene is stable per agent/api instance; run cleanup once.
