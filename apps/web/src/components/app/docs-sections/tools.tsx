@@ -171,8 +171,12 @@ export function ToolsContent() {
             the reviewer exits cleanly
           </li>
           <li>
-            <Code>list_agents</Code> — list other agents in the same project
-            with their IDs, statuses, and latest activity
+            <Code>dispatch_launch_agent</Code> — launch a new child agent to
+            work on a subtask (see the Agents section for details)
+          </li>
+          <li>
+            <Code>list_agents</Code> — list other agents in the same repo with
+            their IDs, statuses, and latest activity
           </li>
           <li>
             <Code>dispatch_send_message</Code> — send a message to another
@@ -211,6 +215,13 @@ export function ToolsContent() {
             templates
           </li>
         </ul>
+        <P>
+          By default, <Code>list_agents</Code> and{" "}
+          <Code>dispatch_send_message</Code> only see agents in the same git
+          repository. To let agents coordinate across repos, enable{" "}
+          <strong>Allow messaging agents in other repositories</strong> in{" "}
+          <strong>Settings → Agents</strong>.
+        </P>
       </Section>
 
       <Section>

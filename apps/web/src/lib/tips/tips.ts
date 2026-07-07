@@ -14,7 +14,7 @@ export const tips: Tip[] = [
     id: "agent-orchestration",
     title: "Agent Orchestration",
     body: "Agents can now launch other agents using the dispatch_launch_agent tool. Delegate subtasks, run parallel workstreams, or hand off work — launched agents coordinate via messaging.",
-    docsSection: "tools#dispatch-launch-agent",
+    docsSection: "agents",
     since: "0.24.0",
     surfaces: ["ambient"],
   },
@@ -120,6 +120,14 @@ export const tips: Tip[] = [
     body: "Press Mod+K to search commands, open settings pages, or launch palette-enabled templates.",
     docsSection: "shortcuts",
     since: "0.24.0",
+    surfaces: ["ambient"],
+  },
+  {
+    id: "sidebar-reorder",
+    title: "Reorder Agents",
+    body: "Drag and drop agent cards in the sidebar to reorder them. You can also focus a card and press Alt+↑ or Alt+↓.",
+    docsSection: "agents",
+    since: "0.24.2",
     surfaces: ["ambient"],
   },
   {
