@@ -144,6 +144,7 @@ Before marking any task as done, run the following checks and fix any failures:
 - Treat `127.0.0.1:6767` as production by default; do not stop or kill the existing production server for ad-hoc testing.
 - When backend changes need local validation, use `repo_dev_up` and point validation tooling to the printed URL.
 - Only operate on production (`:6767`) when explicitly requested by the user.
+- Scoped MCP routes (`/api/mcp/:agentId`, `/api/mcp/jobs/:runId/:agentId`) 403 on the server bearer token — they accept only agent-scoped HMAC tokens or no token. Tests and local tooling must call them with no Authorization header.
 
 ## Development Database
 
