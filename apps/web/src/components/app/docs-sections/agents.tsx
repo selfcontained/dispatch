@@ -109,6 +109,16 @@ export function AgentsContent() {
       </Section>
 
       <Section>
+        <H3>Reordering agents</H3>
+        <P>
+          Drag and drop agent cards in the sidebar to reorder them. The order
+          persists across sessions. You can also reorder with the keyboard:
+          focus an agent card, then press <Code>Alt+↑</Code> /{" "}
+          <Code>Alt+↓</Code> to move it.
+        </P>
+      </Section>
+
+      <Section>
         <H3>Starting and stopping</H3>
         <P>
           Press the play button to resume a stopped agent. Press the stop button
