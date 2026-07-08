@@ -279,9 +279,12 @@ export const ChangesTab = memo(function ChangesTab({
 
   useEffect(() => {
     if (!navFileTarget || files.length === 0) return;
+    const found = files.some((f) => f.path === navFileTarget);
     setSearchParams({}, { replace: true });
-    requestAnimationFrame(() => scrollToFile(navFileTarget));
-  }, [navFileTarget, files.length, scrollToFile, setSearchParams]);
+    if (found) {
+      requestAnimationFrame(() => scrollToFile(navFileTarget));
+    }
+  }, [navFileTarget, files, scrollToFile, setSearchParams]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
