@@ -1,7 +1,10 @@
 import { useMemo } from "react";
 import { MessageSquare, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 
-import { useAgentMessages, type AgentMessage } from "@/hooks/use-agent-messages";
+import {
+  useAgentMessages,
+  type AgentMessage,
+} from "@/hooks/use-agent-messages";
 import { cn } from "@/lib/utils";
 
 type Thread = {

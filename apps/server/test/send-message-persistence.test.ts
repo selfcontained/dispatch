@@ -1,4 +1,12 @@
-import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 import type { Pool } from "pg";
 
 vi.mock("../src/shared/git/git-context.js", () => ({
@@ -19,8 +27,18 @@ let agentManager: {
   listAgents: ReturnType<typeof vi.fn>;
 };
 
-const SENDER = { id: "agt_sender", name: "sender-agent", cwd: "/repo", status: "running" };
-const RECEIVER = { id: "agt_receiver", name: "receiver-agent", cwd: "/repo", status: "running" };
+const SENDER = {
+  id: "agt_sender",
+  name: "sender-agent",
+  cwd: "/repo",
+  status: "running",
+};
+const RECEIVER = {
+  id: "agt_receiver",
+  name: "receiver-agent",
+  cwd: "/repo",
+  status: "running",
+};
 
 beforeAll(async () => {
   pool = await setupTestDb();

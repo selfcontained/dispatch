@@ -23,9 +23,7 @@ async function authedInject(
   });
 }
 
-async function createAgent(
-  name: string
-): Promise<{ id: string }> {
+async function createAgent(name: string): Promise<{ id: string }> {
   const res = await authedInject("POST", "/api/v1/agents", {
     payload: { cwd: "/tmp", useWorktree: false, name },
   });
@@ -73,10 +71,7 @@ describe("GET /api/v1/agents/:id/messages (list)", () => {
   });
 
   it("lists messages for an agent", async () => {
-    const res = await authedInject(
-      "GET",
-      `/api/v1/agents/${agentB}/messages`
-    );
+    const res = await authedInject("GET", `/api/v1/agents/${agentB}/messages`);
     expect(res.statusCode).toBe(200);
     const body = res.json() as { messages: Array<{ content: string }> };
     expect(body.messages.map((m) => m.content)).toContain("hi");

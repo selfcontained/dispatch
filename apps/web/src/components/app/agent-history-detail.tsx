@@ -321,8 +321,15 @@ export function AgentHistoryDetail({
     );
   }
 
-  const { agent, events, tokenUsage, media, feedback, messages, stateDurations } =
-    data;
+  const {
+    agent,
+    events,
+    tokenUsage,
+    media,
+    feedback,
+    messages,
+    stateDurations,
+  } = data;
   const durationMs =
     new Date(agent.updatedAt).getTime() - new Date(agent.createdAt).getTime();
   const totalTokens =

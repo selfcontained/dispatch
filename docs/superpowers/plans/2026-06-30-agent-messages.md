@@ -23,11 +23,13 @@
 ### Task 1: `agent_messages` table + `MessageStore` query module
 
 **Files:**
+
 - Create: `apps/server/src/db/migrations/0029_agent-messages.sql`
 - Create: `apps/server/src/messages/store.ts`
 - Test: `apps/server/test/message-store.test.ts`
 
 **Interfaces:**
+
 - Produces:
   - `type StoredMessage = { id: string; senderAgentId: string; recipientAgentId: string; senderName: string; recipientName: string; content: string; delivered: boolean; readAt: string | null; senderRepoRoot: string | null; recipientRepoRoot: string | null; createdAt: string }`
   - `class MessageStore { constructor(pool: Pool); insertMessage(input: InsertMessageInput): Promise<StoredMessage>; listForAgent(agentId: string): Promise<StoredMessage[]>; countUnreadForAgent(agentId: string): Promise<number>; markReadForAgent(agentId: string): Promise<number> }`
@@ -276,10 +278,12 @@ git commit -m "feat(messages): add agent_messages table and MessageStore"
 ### Task 2: Persist + broadcast in the `sendMessage` handler
 
 **Files:**
+
 - Modify: `apps/server/src/server/mcp-handlers.ts` (the `sendMessage` method, ~lines 847–947)
 - Test: `apps/server/test/mcp-handlers.test.ts` (extend the existing `dispatch_send_message` / `sendMessage` coverage)
 
 **Interfaces:**
+
 - Consumes: `MessageStore` from Task 1; existing `pool`, `publishUiEvent`, `appLog`, `sendAgentPrompt`, `resolveRepoRoot` already in the handler factory scope.
 - Produces: a persisted row per send + a `{ type: "message.created"; senderAgentId; recipientAgentId }` UI event.
 
@@ -296,70 +300,70 @@ import { MessageStore } from "../messages/store.js";
 Replace the current try/catch + return at the end of `sendMessage` (the block from `const envelope = ...` return, currently ~lines 920–946) with:
 
 ```ts
-      const envelope = JSON.stringify({
-        from: sender.name,
-        senderId: agentId,
-        message: input.message,
-        replyTarget: agentId,
-      });
-      const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nReply with dispatch_send_message using the replyTarget above.`;
+const envelope = JSON.stringify({
+  from: sender.name,
+  senderId: agentId,
+  message: input.message,
+  replyTarget: agentId,
+});
+const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nReply with dispatch_send_message using the replyTarget above.`;
 
-      // Deliver first: a persistence failure must never block delivery.
-      let delivered = false;
-      let deliveryError: unknown = null;
-      try {
-        await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
-        delivered = true;
-      } catch (err) {
-        deliveryError = err;
-        appLog.error(
-          { err, senderId: agentId, targetId: target.id },
-          "dispatch_send_message: tmux delivery failed"
-        );
-      }
+// Deliver first: a persistence failure must never block delivery.
+let delivered = false;
+let deliveryError: unknown = null;
+try {
+  await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+  delivered = true;
+} catch (err) {
+  deliveryError = err;
+  appLog.error(
+    { err, senderId: agentId, targetId: target.id },
+    "dispatch_send_message: tmux delivery failed"
+  );
+}
 
-      // Record the message (including failed deliveries) so it is viewable.
-      const messageStore = new MessageStore(pool);
-      await messageStore
-        .insertMessage({
-          senderAgentId: agentId,
-          recipientAgentId: target.id,
-          senderName: sender.name,
-          recipientName: target.name,
-          content: input.message,
-          delivered,
-          senderRepoRoot,
-          // Same repo today (send rule); stored for future cross-repo support.
-          recipientRepoRoot: senderRepoRoot,
-        })
-        .catch((err) =>
-          appLog.error(
-            { err, senderId: agentId, targetId: target.id },
-            "dispatch_send_message: failed to persist message"
-          )
-        );
+// Record the message (including failed deliveries) so it is viewable.
+const messageStore = new MessageStore(pool);
+await messageStore
+  .insertMessage({
+    senderAgentId: agentId,
+    recipientAgentId: target.id,
+    senderName: sender.name,
+    recipientName: target.name,
+    content: input.message,
+    delivered,
+    senderRepoRoot,
+    // Same repo today (send rule); stored for future cross-repo support.
+    recipientRepoRoot: senderRepoRoot,
+  })
+  .catch((err) =>
+    appLog.error(
+      { err, senderId: agentId, targetId: target.id },
+      "dispatch_send_message: failed to persist message"
+    )
+  );
 
-      publishUiEvent({
-        type: "message.created",
-        senderAgentId: agentId,
-        recipientAgentId: target.id,
-      });
+publishUiEvent({
+  type: "message.created",
+  senderAgentId: agentId,
+  recipientAgentId: target.id,
+});
 
-      if (!delivered) {
-        throw deliveryError instanceof Error
-          ? deliveryError
-          : new Error(`Failed to deliver message to "${target.name}".`);
-      }
+if (!delivered) {
+  throw deliveryError instanceof Error
+    ? deliveryError
+    : new Error(`Failed to deliver message to "${target.name}".`);
+}
 
-      appLog.info(
-        { senderId: agentId, targetId: target.id },
-        "dispatch_send_message: delivered"
-      );
-      return {
-        delivered: true,
-        targetAgentId: target.id,
-        targetAgentName: target.name,
-      };
+appLog.info(
+  { senderId: agentId, targetId: target.id },
+  "dispatch_send_message: delivered"
+);
+return {
+  delivered: true,
+  targetAgentId: target.id,
+  targetAgentName: target.name,
+};
 ```
 
 - [ ] **Step 3: Add a failing test for persistence**
@@ -410,11 +414,13 @@ git commit -m "feat(messages): persist and broadcast messages on send"
 ### Task 3: REST endpoints for reading + marking messages read
 
 **Files:**
+
 - Create: `apps/server/src/routes/messages.ts`
 - Modify: `apps/server/src/server.ts` (register the new routes near `registerMediaRoutes`, ~line 572)
 - Test: `apps/server/test/messages-routes.test.ts`
 
 **Interfaces:**
+
 - Consumes: `MessageStore` (Task 1); Fastify `app`, `pool`, `agentManager`, `publishUiEvent` (as passed to `registerMediaRoutes`).
 - Produces:
   - `GET /api/v1/agents/:id/messages` → `{ messages: StoredMessage[] }`
@@ -449,9 +455,14 @@ beforeAll(async () => {
   );
   const store = new MessageStore(pool);
   await store.insertMessage({
-    senderAgentId: A, recipientAgentId: B, senderName: "Alice",
-    recipientName: "Bob", content: "hi", delivered: true,
-    senderRepoRoot: "/repo", recipientRepoRoot: "/repo",
+    senderAgentId: A,
+    recipientAgentId: B,
+    senderName: "Alice",
+    recipientName: "Bob",
+    content: "hi",
+    delivered: true,
+    senderRepoRoot: "/repo",
+    recipientRepoRoot: "/repo",
   });
 
   app = Fastify();
@@ -470,20 +481,29 @@ afterAll(async () => {
 
 describe("messages routes", () => {
   it("lists messages for an agent", async () => {
-    const res = await app.inject({ method: "GET", url: `/api/v1/agents/${B}/messages` });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/agents/${B}/messages`,
+    });
     expect(res.statusCode).toBe(200);
     const body = res.json() as { messages: Array<{ content: string }> };
     expect(body.messages.map((m) => m.content)).toContain("hi");
   });
 
   it("marks messages read", async () => {
-    const res = await app.inject({ method: "POST", url: `/api/v1/agents/${B}/messages/read` });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${B}/messages/read`,
+    });
     expect(res.statusCode).toBe(200);
     expect((res.json() as { updated: number }).updated).toBe(1);
   });
 
   it("404s for unknown agent", async () => {
-    const res = await app.inject({ method: "GET", url: `/api/v1/agents/agt_missing/messages` });
+    const res = await app.inject({
+      method: "GET",
+      url: `/api/v1/agents/agt_missing/messages`,
+    });
     expect(res.statusCode).toBe(404);
   });
 });
@@ -559,11 +579,11 @@ import { registerMessagesRoutes } from "./routes/messages.js";
 And register it right after the `registerMediaRoutes(...)` call (after ~line 578):
 
 ```ts
-  await registerMessagesRoutes(app, {
-    pool,
-    agentManager,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
-  });
+await registerMessagesRoutes(app, {
+  pool,
+  agentManager,
+  publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+});
 ```
 
 - [ ] **Step 5: Run the test to verify it passes**
@@ -583,10 +603,12 @@ git commit -m "feat(messages): add read + mark-read REST endpoints"
 ### Task 4: Frontend data layer — `useAgentMessages` hook + SSE wiring
 
 **Files:**
+
 - Create: `apps/web/src/hooks/use-agent-messages.ts`
 - Modify: `apps/web/src/hooks/use-sse.ts` (add `message.created` and `message.read` to the `UiEvent` union + handlers)
 
 **Interfaces:**
+
 - Produces:
   - `type AgentMessage = { id: string; senderAgentId: string; recipientAgentId: string; senderName: string; recipientName: string; content: string; delivered: boolean; readAt: string | null; createdAt: string }`
   - `useAgentMessages(agentId: string | null): { messages: AgentMessage[]; unreadCount: number; markRead: () => void }`
@@ -605,25 +627,25 @@ In `apps/web/src/hooks/use-sse.ts`, add two members to the `UiEvent` union (afte
 In `use-sse.ts`, inside `handleSSEMessage`, add after the `brain.changed` block (~line 192):
 
 ```ts
-        if (payload.type === "message.created") {
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.senderAgentId],
-            exact: true,
-          });
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.recipientAgentId],
-            exact: true,
-          });
-          return;
-        }
+if (payload.type === "message.created") {
+  void queryClient.invalidateQueries({
+    queryKey: ["messages", payload.senderAgentId],
+    exact: true,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: ["messages", payload.recipientAgentId],
+    exact: true,
+  });
+  return;
+}
 
-        if (payload.type === "message.read") {
-          void queryClient.invalidateQueries({
-            queryKey: ["messages", payload.agentId],
-            exact: true,
-          });
-          return;
-        }
+if (payload.type === "message.read") {
+  void queryClient.invalidateQueries({
+    queryKey: ["messages", payload.agentId],
+    exact: true,
+  });
+  return;
+}
 ```
 
 - [ ] **Step 3: Write the hook**
@@ -713,9 +735,11 @@ git commit -m "feat(messages): add useAgentMessages hook and SSE wiring"
 ### Task 5: `MessagesPanel` component (per-agent conversation threads)
 
 **Files:**
+
 - Create: `apps/web/src/components/app/messages-panel.tsx`
 
 **Interfaces:**
+
 - Consumes: `AgentMessage`, `useAgentMessages` (Task 4).
 - Produces: `MessagesPanel({ agentId }: { agentId: string | null }): JSX.Element`
 
@@ -727,7 +751,10 @@ Create `apps/web/src/components/app/messages-panel.tsx` (grouping + empty/loadin
 import { useMemo } from "react";
 import { MessageSquare, ArrowUpRight, ArrowDownLeft } from "lucide-react";
 
-import { useAgentMessages, type AgentMessage } from "@/hooks/use-agent-messages";
+import {
+  useAgentMessages,
+  type AgentMessage,
+} from "@/hooks/use-agent-messages";
 import { cn } from "@/lib/utils";
 
 type Thread = {
@@ -863,11 +890,13 @@ git commit -m "feat(messages): add MessagesPanel with conversation threads"
 ### Task 6: Wire the Messages tab into the sidebar
 
 **Files:**
+
 - Modify: `apps/web/src/lib/store.ts` (extend `MediaSidebarTab`, ~line 102)
 - Modify: `apps/web/src/components/app/media-sidebar.tsx` (add tab button + mounted panel; extend props)
 - Modify: `apps/web/src/components/app/agents-view.tsx` (compute unread count, pass props, mark-read on tab open)
 
 **Interfaces:**
+
 - Consumes: `MessagesPanel` (Task 5), `useAgentMessages` (Task 4).
 - Produces: a fourth sidebar tab `"messages"` with an unread badge.
 
@@ -892,38 +921,38 @@ import { MessagesPanel } from "@/components/app/messages-panel";
 Add a new tab button after the Brain button (after ~line 472), following the exact pattern of the Media button (destructive badge):
 
 ```tsx
-          <button
-            onClick={() => setActiveTab("messages")}
-            className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-              activeTab === "messages"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground/80"
-            )}
-          >
-            Messages
-            {activeTab === "messages" ? (
-              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
-            ) : null}
-            {unreadMessageCount > 0 && (
-              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] text-destructive-foreground">
-                {unreadMessageCount}
-              </span>
-            )}
-          </button>
+<button
+  onClick={() => setActiveTab("messages")}
+  className={cn(
+    "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+    activeTab === "messages"
+      ? "text-foreground"
+      : "text-muted-foreground hover:text-foreground/80"
+  )}
+>
+  Messages
+  {activeTab === "messages" ? (
+    <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
+  ) : null}
+  {unreadMessageCount > 0 && (
+    <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] text-destructive-foreground">
+      {unreadMessageCount}
+    </span>
+  )}
+</button>
 ```
 
 Add the mounted panel after the Brain panel `</div>` (after ~line 552):
 
 ```tsx
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
-          activeTab !== "messages" && "hidden"
-        )}
-      >
-        <MessagesPanel agentId={selectedAgentId} />
-      </div>
+<div
+  className={cn(
+    "flex min-h-0 flex-1 flex-col",
+    activeTab !== "messages" && "hidden"
+  )}
+>
+  <MessagesPanel agentId={selectedAgentId} />
+</div>
 ```
 
 - [ ] **Step 3: Wire data + mark-read in `agents-view.tsx`**
@@ -939,16 +968,16 @@ import { useAgentMessages } from "@/hooks/use-agent-messages";
 - Call it alongside `useMedia(...)` (~line 230) using the same focused agent id:
 
 ```tsx
-  const { unreadCount: unreadMessageCount, markRead: markMessagesRead } =
-    useAgentMessages(focusedAgentId);
+const { unreadCount: unreadMessageCount, markRead: markMessagesRead } =
+  useAgentMessages(focusedAgentId);
 ```
 
 - Mark messages read when the Messages tab becomes active. Add an effect near the sidebar state (after `useMediaSidebarState(...)`, ~line 161):
 
 ```tsx
-  useEffect(() => {
-    if (mediaActiveTab === "messages") markMessagesRead();
-  }, [mediaActiveTab, markMessagesRead]);
+useEffect(() => {
+  if (mediaActiveTab === "messages") markMessagesRead();
+}, [mediaActiveTab, markMessagesRead]);
 ```
 
 Use whatever the local variable for the active tab is called from `useMediaSidebarState` (inspect the destructure — it is the `activeTab` value passed to `MediaSidebarContent`). If `useEffect` is not yet imported in this file, add it to the React import.
@@ -956,7 +985,7 @@ Use whatever the local variable for the active tab is called from `useMediaSideb
 - Pass `unreadMessageCount` to **both** `MediaSidebarContent` usages (the two render sites at ~line 704 and the header/props at ~666 already pass `unseenMediaCount`). Add:
 
 ```tsx
-            unreadMessageCount={unreadMessageCount}
+unreadMessageCount = { unreadMessageCount };
 ```
 
 - [ ] **Step 4: Verify build + type-check**
@@ -976,6 +1005,7 @@ git commit -m "feat(messages): add Messages tab to the agent sidebar"
 ### Task 7: History detail — backend query + Messages tab
 
 **Files:**
+
 - Modify: `apps/server/src/routes/activity.ts` (add a `messages` query to `GET /api/v1/history/agents/:id`, ~lines 582–678)
 - Modify: `apps/web/src/hooks/use-agent-history.ts` (add `messages` to `HistoryAgentDetail`)
 - Modify: `apps/web/src/components/app/agent-history-detail.tsx` (add `"messages"` to `DetailTab`, tab button, panel)
@@ -983,6 +1013,7 @@ git commit -m "feat(messages): add Messages tab to the agent sidebar"
 - Test: `apps/server/test/activity-routes.test.ts` (extend the history-detail coverage)
 
 **Interfaces:**
+
 - Consumes: `agent_messages` table (Task 1); `AgentMessage` type (Task 4).
 - Produces: `HistoryAgentDetail.messages: AgentMessage[]`; a `MessageTimeline` component.
 
@@ -1097,11 +1128,17 @@ export function MessageTimeline({
   return (
     <div className="flex flex-col divide-y divide-border rounded-md border border-border">
       {messages.map((m) => (
-        <div key={m.id} className="px-3 py-2 text-xs" data-testid="history-message">
+        <div
+          key={m.id}
+          className="px-3 py-2 text-xs"
+          data-testid="history-message"
+        >
           <div className="mb-0.5 flex items-center gap-1.5 text-[10px] text-muted-foreground">
             <span className="font-medium text-foreground">{m.senderName}</span>
             <span>→</span>
-            <span className="font-medium text-foreground">{m.recipientName}</span>
+            <span className="font-medium text-foreground">
+              {m.recipientName}
+            </span>
             <span>·</span>
             <span>{new Date(m.createdAt).toLocaleTimeString()}</span>
             {!m.delivered && (
@@ -1140,6 +1177,7 @@ type DetailTab = "events" | "media" | "pins" | "feedback" | "messages";
 ```tsx
   messages,
 ```
+
 ```tsx
   messages: AgentMessage[];
 ```
@@ -1153,14 +1191,18 @@ type DetailTab = "events" | "media" | "pins" | "feedback" | "messages";
 - Add the panel in the content area (after the `feedback` block, ~line 246):
 
 ```tsx
-          {tab === "messages" && messages.length > 0 && (
-            <MessageTimeline messages={messages} />
-          )}
-          {tab === "messages" && messages.length === 0 && (
-            <p className="py-6 text-center text-xs text-muted-foreground">
-              No messages recorded.
-            </p>
-          )}
+{
+  tab === "messages" && messages.length > 0 && (
+    <MessageTimeline messages={messages} />
+  );
+}
+{
+  tab === "messages" && messages.length === 0 && (
+    <p className="py-6 text-center text-xs text-muted-foreground">
+      No messages recorded.
+    </p>
+  );
+}
 ```
 
 - Find where `DetailTabs` is rendered by `AgentHistoryDetail` (below line 269, using `data.feedback` etc.) and pass the new prop:
@@ -1186,9 +1228,11 @@ git commit -m "feat(messages): surface messages in History detail view"
 ### Task 8: End-to-end test + final verification
 
 **Files:**
+
 - Create: `e2e/agent-messages.spec.ts` (match the existing e2e spec conventions in `e2e/`)
 
 **Interfaces:**
+
 - Consumes: the full stack from Tasks 1–7.
 
 - [ ] **Step 1: Inspect existing e2e patterns**
@@ -1198,6 +1242,7 @@ Read one existing spec under `e2e/` (e.g. how it launches agents, selects one, a
 - [ ] **Step 2: Write the E2E spec**
 
 Create `e2e/agent-messages.spec.ts`. The flow:
+
 1. Start from the isolated e2e stack (the suite provisions its own DB + server).
 2. Create/launch two agents in the same repo (reuse the suite's agent-creation helper).
 3. Trigger a message from agent A to agent B (via the MCP tool path the suite uses for agent actions, or by seeding through the API the suite exposes).

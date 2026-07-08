@@ -20,7 +20,7 @@ section.
 1. **Persist + view only.** Build persistence, broadcast, and the two read surfaces. Keep
    the existing same-repo-only send rule. Design the schema so cross-repo becomes a later
    config flip rather than a migration — but do **not** unblock cross-repo sending now.
-2. **Sidebar tab is per selected agent** and shows *that agent's* conversations (messages it
+2. **Sidebar tab is per selected agent** and shows _that agent's_ conversations (messages it
    sent or received), grouped by the other participant.
 3. **History placement is a new tab in the per-agent detail view**, alongside
    Events / Media / Pins / Feedback.
@@ -29,7 +29,7 @@ section.
 
 ### Explicitly out of scope (YAGNI)
 
-- Unblocking cross-repo *send* (schema is prepared for it; the send rule is unchanged).
+- Unblocking cross-repo _send_ (schema is prepared for it; the send rule is unchanged).
 - Composing / replying to messages from the UI.
 - Message search / filtering within the sidebar tab.
 
@@ -77,19 +77,19 @@ layers, all additive — the existing ephemeral tmux delivery is unchanged:
 
 New migration file under `apps/server/src/db/migrations/` following the existing numbering.
 
-| column | type | notes |
-|---|---|---|
-| `id` | uuid / text PK | consistent with existing tables |
-| `sender_agent_id` | text FK → `agents.id` | |
-| `recipient_agent_id` | text FK → `agents.id` | |
-| `sender_name` | text | denormalized snapshot — names change, agents get archived |
-| `recipient_name` | text | denormalized snapshot |
-| `content` | text | message body |
-| `delivered` | boolean | whether tmux injection succeeded |
-| `read_at` | timestamptz null | powers unread badges; null = unread |
-| `sender_repo_root` | text | stored now even though equal to recipient's today — the "cross-repo later is a config flip, not a migration" hook |
-| `recipient_repo_root` | text | as above |
-| `created_at` | timestamptz | default now |
+| column                | type                  | notes                                                                                                             |
+| --------------------- | --------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `id`                  | uuid / text PK        | consistent with existing tables                                                                                   |
+| `sender_agent_id`     | text FK → `agents.id` |                                                                                                                   |
+| `recipient_agent_id`  | text FK → `agents.id` |                                                                                                                   |
+| `sender_name`         | text                  | denormalized snapshot — names change, agents get archived                                                         |
+| `recipient_name`      | text                  | denormalized snapshot                                                                                             |
+| `content`             | text                  | message body                                                                                                      |
+| `delivered`           | boolean               | whether tmux injection succeeded                                                                                  |
+| `read_at`             | timestamptz null      | powers unread badges; null = unread                                                                               |
+| `sender_repo_root`    | text                  | stored now even though equal to recipient's today — the "cross-repo later is a config flip, not a migration" hook |
+| `recipient_repo_root` | text                  | as above                                                                                                          |
+| `created_at`          | timestamptz           | default now                                                                                                       |
 
 Indexes: `sender_agent_id`, `recipient_agent_id`, `created_at`.
 
@@ -161,7 +161,7 @@ agent A calls dispatch_send_message
 ```
 
 The **sidebar** Messages tab updates live via SSE. The **History** detail view is a
-retrospective surface and is *not* live-invalidated on `message.created` — consistent with
+retrospective surface and is _not_ live-invalidated on `message.created` — consistent with
 its sibling tabs (Events/Media/Pins/Feedback), it refetches on remount/refocus and per its
 `staleTime`. This is intentional; History does not need to reflect in-flight messages.
 
