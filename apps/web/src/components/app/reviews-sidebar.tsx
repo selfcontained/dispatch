@@ -234,18 +234,20 @@ function FeedbackItemRow({
         isResolved && "opacity-60"
       )}
     >
-      <div
-        role="button"
-        tabIndex={0}
-        className="flex w-full items-center gap-2 px-4 py-2.5 text-left hover:bg-muted/20 cursor-pointer"
-        onClick={() => setExpanded((v) => !v)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            setExpanded((v) => !v);
-          }
-        }}
-      >
+      <div className="flex w-full items-center gap-2 px-4 py-2.5 text-left">
+        <button
+          type="button"
+          aria-label={expanded ? "Collapse" : "Expand"}
+          className="shrink-0 rounded p-0.5 hover:bg-muted/40"
+          onClick={() => setExpanded((v) => !v)}
+        >
+          <ChevronRight
+            className={cn(
+              "h-3 w-3 text-muted-foreground transition-transform",
+              expanded && "rotate-90"
+            )}
+          />
+        </button>
         <MessageCircle
           className={cn(
             "h-3.5 w-3.5 shrink-0",
@@ -284,12 +286,6 @@ function FeedbackItemRow({
             </p>
           )}
         </div>
-        <ChevronRight
-          className={cn(
-            "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
-            expanded && "rotate-90"
-          )}
-        />
       </div>
       {expanded && (
         <div className="px-4 pb-3">

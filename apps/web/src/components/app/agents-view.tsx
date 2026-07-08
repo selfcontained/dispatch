@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, useParams } from "react-router-dom";
+import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { ChangesTab } from "@/components/app/changes-tab";
@@ -90,6 +90,7 @@ export function AgentsView({
   onNavigateSection,
 }: AgentsViewProps): JSX.Element {
   const { agentId: routeAgentId } = useParams();
+  const navTo = useNavigate();
 
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
     string | null
@@ -268,10 +269,16 @@ export function AgentsView({
   }, []);
 
   const handleNavigateToFile = useCallback(
-    (_filePath: string, _lineStart: number | null) => {
-      onTabChange("changes");
+    (filePath: string, lineStart: number | null) => {
+      if (!focusedAgentId) return;
+      const params = new URLSearchParams();
+      params.set("file", filePath);
+      if (lineStart != null) params.set("line", String(lineStart));
+      navTo(`/agents/${focusedAgentId}/changes?${params.toString()}`, {
+        replace: true,
+      });
     },
-    [onTabChange]
+    [focusedAgentId, navTo]
   );
 
   useEffect(() => {

@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
@@ -234,6 +234,15 @@ export const ChangesTab = memo(function ChangesTab({
     },
     [setViewState]
   );
+
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navFileTarget = searchParams.get("file");
+
+  useEffect(() => {
+    if (!navFileTarget || files.length === 0) return;
+    setSearchParams({}, { replace: true });
+    requestAnimationFrame(() => scrollToFile(navFileTarget));
+  }, [navFileTarget, files.length, scrollToFile, setSearchParams]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
