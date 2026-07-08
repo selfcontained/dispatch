@@ -203,6 +203,49 @@ const defaultDiffViewState: DiffViewState = {
   scrollTop: 0,
 };
 
+export type PersistedDraftComment = {
+  id: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  comment: string;
+};
+
+type ReviewDraftState = {
+  reviewMode: boolean;
+  drafts: PersistedDraftComment[];
+  nextId: number;
+};
+
+const defaultReviewDraftState: ReviewDraftState = {
+  reviewMode: false,
+  drafts: [],
+  nextId: 0,
+};
+
+export const REVIEW_DRAFTS_STORAGE_PREFIX = "dispatch:review-drafts:";
+
+export const reviewDraftAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<ReviewDraftState>(
+    `${REVIEW_DRAFTS_STORAGE_PREFIX}${agentId}`,
+    defaultReviewDraftState
+  )
+);
+
+export function reconcileReviewDraftStorage(agentIds: Iterable<string>): void {
+  if (typeof window === "undefined") return;
+  const liveAgentIds = new Set(agentIds);
+  const keysToDelete: string[] = [];
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key?.startsWith(REVIEW_DRAFTS_STORAGE_PREFIX)) continue;
+    const agentId = key.slice(REVIEW_DRAFTS_STORAGE_PREFIX.length).trim();
+    if (!agentId || liveAgentIds.has(agentId)) continue;
+    keysToDelete.push(key);
+  }
+  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+}
+
 export const DIFF_VIEW_STATE_STORAGE_PREFIX = "dispatch:diffViewState:";
 
 export const diffViewStateAtomFamily = atomFamily((agentId: string) =>

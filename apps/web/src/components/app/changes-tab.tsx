@@ -15,6 +15,8 @@ import {
   MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
+  Pencil,
+  Trash2,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -94,6 +96,7 @@ import {
   diffIgnoreWhitespaceAtom,
   diffFileTreeOpenAtom,
   diffViewStateAtomFamily,
+  reviewDraftAtomFamily,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { type DraftComment, ReviewModeBar } from "@/components/app/review-mode";
@@ -129,39 +132,71 @@ export const ChangesTab = memo(function ChangesTab({
     diffViewStateAtomFamily(agentId ?? "")
   );
 
-  const [reviewMode, setReviewMode] = useState(false);
-  const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
-  const nextDraftId = useRef(0);
+  const [reviewState, setReviewState] = useAtom(
+    reviewDraftAtomFamily(agentId ?? "")
+  );
+  const reviewMode = reviewState.reviewMode;
+  const draftComments = reviewState.drafts;
 
-  useEffect(() => {
-    setReviewMode(false);
-    setDraftComments([]);
-    nextDraftId.current = 0;
-  }, [agentId]);
+  const setReviewMode = useCallback(
+    (mode: boolean) => {
+      setReviewState((prev) => ({ ...prev, reviewMode: mode }));
+    },
+    [setReviewState]
+  );
 
   const addDraft = useCallback(
     (filePath: string, startLine: number, endLine: number, comment: string) => {
-      setDraftComments((prev) => [
+      setReviewState((prev) => ({
         ...prev,
-        {
-          id: `draft-${nextDraftId.current++}`,
-          filePath,
-          startLine,
-          endLine,
-          comment,
-        },
-      ]);
+        drafts: [
+          ...prev.drafts,
+          {
+            id: `draft-${prev.nextId}`,
+            filePath,
+            startLine,
+            endLine,
+            comment,
+          },
+        ],
+        nextId: prev.nextId + 1,
+      }));
     },
-    []
+    [setReviewState]
   );
 
-  const removeDraft = useCallback((id: string) => {
-    setDraftComments((prev) => prev.filter((d) => d.id !== id));
-  }, []);
+  const removeDraft = useCallback(
+    (id: string) => {
+      setReviewState((prev) => {
+        const next = prev.drafts.filter((d) => d.id !== id);
+        return {
+          ...prev,
+          drafts: next,
+          reviewMode: next.length === 0 ? false : prev.reviewMode,
+        };
+      });
+    },
+    [setReviewState]
+  );
+
+  const updateDraft = useCallback(
+    (id: string, comment: string) => {
+      setReviewState((prev) => ({
+        ...prev,
+        drafts: prev.drafts.map((d) => (d.id === id ? { ...d, comment } : d)),
+      }));
+    },
+    [setReviewState]
+  );
 
   const clearDrafts = useCallback(() => {
-    setDraftComments([]);
-  }, []);
+    setReviewState((prev) => ({
+      ...prev,
+      drafts: [],
+      reviewMode: false,
+      nextId: 0,
+    }));
+  }, [setReviewState]);
 
   const collapsedFiles = useMemo(
     () => new Set(viewState.collapsedFiles),
@@ -304,7 +339,6 @@ export const ChangesTab = memo(function ChangesTab({
           agentId={agentId}
           drafts={draftComments}
           onClearDrafts={clearDrafts}
-          onRemoveDraft={removeDraft}
           onExitReview={() => setReviewMode(false)}
           onReviewSubmitted={() => setReviewMode(false)}
         />
@@ -336,6 +370,8 @@ export const ChangesTab = memo(function ChangesTab({
           reviewMode={reviewMode}
           draftComments={draftComments}
           onAddDraft={addDraft}
+          onRemoveDraft={removeDraft}
+          onUpdateDraft={updateDraft}
           onStartReview={() => setReviewMode(true)}
           feedbackItems={feedbackItems}
         />
@@ -595,6 +631,8 @@ type DiffPaneProps = {
     endLine: number,
     comment: string
   ) => void;
+  onRemoveDraft?: (id: string) => void;
+  onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
 };
@@ -616,6 +654,8 @@ function DiffPane({
   reviewMode,
   draftComments,
   onAddDraft,
+  onRemoveDraft,
+  onUpdateDraft,
   onStartReview,
   feedbackItems,
 }: DiffPaneProps): JSX.Element {
@@ -648,6 +688,8 @@ function DiffPane({
           reviewMode={reviewMode}
           draftComments={draftComments?.filter((d) => d.filePath === file.path)}
           onAddDraft={onAddDraft}
+          onRemoveDraft={onRemoveDraft}
+          onUpdateDraft={onUpdateDraft}
           onStartReview={onStartReview}
           feedbackItems={feedbackItems?.filter(
             (fi) => fi.filePath === file.path
@@ -678,6 +720,8 @@ type FileDiffSectionProps = {
     endLine: number,
     comment: string
   ) => void;
+  onRemoveDraft?: (id: string) => void;
+  onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
 };
@@ -697,6 +741,8 @@ function FileDiffSection({
   reviewMode,
   draftComments,
   onAddDraft,
+  onRemoveDraft,
+  onUpdateDraft,
   onStartReview,
   feedbackItems,
 }: FileDiffSectionProps): JSX.Element {
@@ -753,6 +799,8 @@ function FileDiffSection({
               reviewMode={reviewMode}
               draftComments={draftComments}
               onAddDraft={onAddDraft}
+              onRemoveDraft={onRemoveDraft}
+              onUpdateDraft={onUpdateDraft}
               onStartReview={onStartReview}
               feedbackItems={feedbackItems}
             />
@@ -780,6 +828,8 @@ type FileDiffContentProps = {
     endLine: number,
     comment: string
   ) => void;
+  onRemoveDraft?: (id: string) => void;
+  onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
 };
@@ -796,6 +846,8 @@ function FileDiffContent({
   reviewMode,
   draftComments,
   onAddDraft,
+  onRemoveDraft,
+  onUpdateDraft,
   onStartReview,
   feedbackItems,
 }: FileDiffContentProps): JSX.Element {
@@ -865,6 +917,8 @@ function FileDiffContent({
       reviewMode={reviewMode}
       draftComments={draftComments}
       onAddDraft={onAddDraft}
+      onRemoveDraft={onRemoveDraft}
+      onUpdateDraft={onUpdateDraft}
       onStartReview={onStartReview}
       feedbackItems={feedbackItems}
     />
@@ -996,6 +1050,8 @@ type UnifiedDiffViewProps = {
     endLine: number,
     comment: string
   ) => void;
+  onRemoveDraft?: (id: string) => void;
+  onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
 };
@@ -1012,6 +1068,8 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   reviewMode,
   draftComments,
   onAddDraft,
+  onRemoveDraft,
+  onUpdateDraft,
   onStartReview,
   feedbackItems,
 }: UnifiedDiffViewProps): JSX.Element {
@@ -1128,13 +1186,11 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
         );
         if (!key || w[key]) continue;
         w[key] = (
-          <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 text-xs">
-            <div className="flex items-center gap-1.5 text-primary/80">
-              <MessageSquarePlus className="h-3 w-3" />
-              <span className="font-medium">Draft</span>
-            </div>
-            <p className="mt-1 text-foreground/70">{draft.comment}</p>
-          </div>
+          <InlineDraftAnnotation
+            draft={draft}
+            onRemove={onRemoveDraft}
+            onUpdate={onUpdateDraft}
+          />
         );
       }
     }
@@ -1182,6 +1238,8 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     onStartReview,
     draftComments,
     onAddDraft,
+    onRemoveDraft,
+    onUpdateDraft,
     feedbackItems,
   ]);
 
@@ -1555,6 +1613,108 @@ function InlineFeedbackAnnotation({
       {expanded && (
         <p className="mt-1 whitespace-pre-wrap text-foreground/80">{comment}</p>
       )}
+    </div>
+  );
+}
+
+function InlineDraftAnnotation({
+  draft,
+  onRemove,
+  onUpdate,
+}: {
+  draft: DraftComment;
+  onRemove?: (id: string) => void;
+  onUpdate?: (id: string, comment: string) => void;
+}): JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [editValue, setEditValue] = useState(draft.comment);
+
+  const handleSave = useCallback(() => {
+    if (editValue.trim() && onUpdate) {
+      onUpdate(draft.id, editValue.trim());
+    }
+    setEditing(false);
+  }, [draft.id, editValue, onUpdate]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSave();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setEditValue(draft.comment);
+        setEditing(false);
+      }
+    },
+    [handleSave, draft.comment]
+  );
+
+  if (editing) {
+    return (
+      <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 text-xs">
+        <div className="mb-1.5 flex items-center gap-1.5 text-primary/80">
+          <MessageSquarePlus className="h-3 w-3" />
+          <span className="font-medium">Edit draft</span>
+        </div>
+        <textarea
+          className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          rows={3}
+          value={editValue}
+          onChange={(e) => setEditValue(e.target.value)}
+          onKeyDown={handleKeyDown}
+          autoFocus
+        />
+        <div className="mt-1.5 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40"
+            onClick={() => {
+              setEditValue(draft.comment);
+              setEditing(false);
+            }}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+            onClick={handleSave}
+            disabled={!editValue.trim()}
+          >
+            Save
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 text-xs group">
+      <div className="flex items-center gap-1.5">
+        <MessageSquarePlus className="h-3 w-3 text-primary/80" />
+        <span className="font-medium text-primary/80">Draft</span>
+        <div className="flex-1" />
+        <button
+          type="button"
+          className="rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={() => {
+            setEditValue(draft.comment);
+            setEditing(true);
+          }}
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+        <button
+          type="button"
+          className="rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-status-blocked opacity-0 group-hover:opacity-100 transition-opacity"
+          onClick={() => onRemove?.(draft.id)}
+        >
+          <Trash2 className="h-3 w-3" />
+        </button>
+      </div>
+      <p className="mt-1 text-foreground/70">{draft.comment}</p>
     </div>
   );
 }

@@ -163,6 +163,14 @@ function ReviewDetail({
     );
   }
 
+  const date = new Date(review.createdAt);
+  const timeStr = date.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="flex items-center gap-2 border-b border-border/30 px-3 py-2">
@@ -193,6 +201,14 @@ function ReviewDetail({
         </div>
       )}
 
+      {review.status === "open" && (
+        <div className="border-b border-border/30 px-4 py-2">
+          <p className="text-[10px] text-muted-foreground">
+            Sent to agent — waiting for response · {timeStr}
+          </p>
+        </div>
+      )}
+
       <div className="min-h-0 flex-1 overflow-y-auto">
         {review.items.map((item) => (
           <FeedbackItemRow
@@ -216,6 +232,8 @@ function FeedbackItemRow({
   const [expanded, setExpanded] = useState(item.status !== "resolved");
   const firstMessage = item.messages[0]?.content?.body ?? "";
   const isResolved = item.status === "resolved";
+
+  const statusLabel = isResolved ? "resolved" : "Pending";
 
   const handleFileClick = useCallback(
     (e: React.MouseEvent) => {
@@ -264,7 +282,7 @@ function FeedbackItemRow({
                   : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
               )}
             >
-              {item.status}
+              {statusLabel}
             </span>
             {item.filePath && (
               <button
@@ -289,6 +307,11 @@ function FeedbackItemRow({
       </div>
       {expanded && (
         <div className="px-4 pb-3">
+          {item.diffSnapshot && (
+            <pre className="mb-2 max-h-32 overflow-auto rounded border border-border/30 bg-muted/20 px-3 py-2 font-mono text-[10px] leading-relaxed text-foreground/70">
+              {item.diffSnapshot}
+            </pre>
+          )}
           {item.messages.map((msg) => (
             <div key={msg.id} className="mt-2 first:mt-0">
               <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
