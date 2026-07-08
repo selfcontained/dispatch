@@ -131,14 +131,6 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
-    id: "sidebar-reorder",
-    title: "Reorder Agents",
-    body: "Drag and drop agent cards in the sidebar to reorder them. You can also focus a card and press Alt+↑ or Alt+↓.",
-    docsSection: "agents",
-    since: "0.24.2",
-    surfaces: ["ambient"],
-  },
-  {
     id: "worktrees",
     title: "Worktrees",
     body: "Each agent gets its own git worktree by default — isolated branches, no conflicts. Run multiple agents in parallel on the same repo.",
