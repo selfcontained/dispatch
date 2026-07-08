@@ -85,7 +85,6 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
         <span className="relative pb-1.5 -mb-1.5">
           Whiteboard
           {whiteboardAgentDrew && activeTab !== "whiteboard" ? (
-            // Violet mirrors the agent's signature ink on the board.
             <span
               data-testid="whiteboard-agent-drew-dot"
               className="absolute -right-2 -top-0.5 h-1.5 w-1.5 rounded-full bg-violet-500"

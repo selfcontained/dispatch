@@ -59,8 +59,8 @@ const opSchema = z.object({
     .optional()
     .describe(
       "Stroke color: hex (#rrggbb) or black|gray|violet|blue|cyan|teal|" +
-        "green|yellow|orange|red. Defaults to violet — your signature ink; " +
-        "keep it unless the user asks otherwise."
+        "green|yellow|orange|red. Defaults to the theme-adaptive default " +
+        "ink (black on light boards, white on dark)."
     ),
   fill: z
     .string()
@@ -174,8 +174,8 @@ export function registerWhiteboardTools(
           "Call whiteboard_get first to learn current elements, their ids, and where free space is. " +
           "Arrows with from/to bind to elements and follow them when moved; give added elements " +
           "readable ids so arrows in the same call can reference them. Prefer updating or deleting " +
-          "your own elements by id over redrawing. Your strokes default to violet so the user can " +
-          "tell your ink from theirs. Arrows don't have to be straight: `elbow: true` gives clean " +
+          "your own elements by id over redrawing. Your strokes default to the standard ink; use " +
+          "color freely where it adds meaning. Arrows don't have to be straight: `elbow: true` gives clean " +
           "right-angle routing between boxes, and `via` bend points curve an arrow around elements " +
           "in its way — prefer these over long straight arrows that cross other shapes. A straight " +
           "arrow only knows its endpoints, so you CANNOT see from the element list that it slices " +

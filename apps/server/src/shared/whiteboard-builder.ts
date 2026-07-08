@@ -55,8 +55,9 @@ export type ApplyOpsResult = {
 
 export const MAX_OPS = 100;
 
-// Signature agent ink (P1): Excalidraw palette violet; user restyles freely.
-const AGENT_STROKE = "#6741d9";
+// Default agent ink: Excalidraw's default stroke — black on light boards,
+// inverted to near-white in dark mode, so it reads cleanly on any theme.
+const AGENT_STROKE = "#1e1e1e";
 
 const NAMED_COLORS: Record<string, string> = {
   black: "#1e1e1e",

@@ -62,7 +62,7 @@ describe("applyWhiteboardOps: add", () => {
     }
     expect(rect.type).toBe("rectangle");
     expect(rect.customData).toEqual({ author: "agent" });
-    expect(rect.strokeColor).toBe("#6741d9"); // signature ink default
+    expect(rect.strokeColor).toBe("#1e1e1e"); // default ink
     expect(rect.index).toBeNull(); // editor assigns fractional indices
     expect(rect.isDeleted).toBe(false);
   });
