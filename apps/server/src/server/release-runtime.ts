@@ -21,7 +21,7 @@ import {
   currentReleaseBinaryGlob,
   defaultServiceRestartCommand,
   getGitHubRepo as getGitHubRepoImpl,
-  checkIsAdmin as checkIsAdminImpl,
+  createCheckIsAdmin,
   fetchReleaseMetadata as fetchReleaseMetadataImpl,
 } from "./release-helpers.js";
 
@@ -144,7 +144,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   const releaseStreamClients = new Set<ReleaseStreamClient>();
   const getGitHubRepo = () =>
     getGitHubRepoImpl(deps.runCommand, deps.serverDir);
-  const checkIsAdmin = () => checkIsAdminImpl(deps.runCommand, deps.serverDir);
+  const checkIsAdmin = createCheckIsAdmin(deps.runCommand, deps.serverDir);
   const fetchReleaseMetadata = (tag: string) =>
     fetchReleaseMetadataImpl(deps.runCommand, deps.serverDir, tag);
 

@@ -88,37 +88,38 @@ export async function getGitHubRepo(
   return "selfcontained/dispatch";
 }
 
-let cachedIsAdmin: boolean | null = null;
-
-export async function checkIsAdmin(
+export function createCheckIsAdmin(
   runCommand: RunCommand,
   serverDir: string
-): Promise<boolean> {
-  const canCacheResult = process.env.VITEST !== "true";
-  if (canCacheResult && cachedIsAdmin !== null) return cachedIsAdmin;
-  try {
-    await runCommand("gh", ["--version"]);
-    const repo = await getGitHubRepo(runCommand, serverDir);
-    const result = await runCommand("gh", [
-      "repo",
-      "view",
-      repo,
-      "--json",
-      "viewerPermission",
-      "--jq",
-      ".viewerPermission",
-    ]);
-    const isAdmin = result.stdout.trim() === "ADMIN";
-    if (canCacheResult) {
-      cachedIsAdmin = isAdmin;
+): () => Promise<boolean> {
+  let cached: boolean | null = null;
+  return async () => {
+    const canCacheResult = process.env.VITEST !== "true";
+    if (canCacheResult && cached !== null) return cached;
+    try {
+      await runCommand("gh", ["--version"]);
+      const repo = await getGitHubRepo(runCommand, serverDir);
+      const result = await runCommand("gh", [
+        "repo",
+        "view",
+        repo,
+        "--json",
+        "viewerPermission",
+        "--jq",
+        ".viewerPermission",
+      ]);
+      const isAdmin = result.stdout.trim() === "ADMIN";
+      if (canCacheResult) {
+        cached = isAdmin;
+      }
+      return isAdmin;
+    } catch {
+      if (canCacheResult) {
+        cached = false;
+      }
+      return false;
     }
-    return isAdmin;
-  } catch {
-    if (canCacheResult) {
-      cachedIsAdmin = false;
-    }
-    return false;
-  }
+  };
 }
 
 export async function fetchReleaseMetadata(
