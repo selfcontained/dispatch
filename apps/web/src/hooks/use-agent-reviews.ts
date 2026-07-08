@@ -140,11 +140,15 @@ export function useSubmitReview(agentId: string | null) {
       );
       return resp.review;
     },
-    onSuccess: () => {
+    onSuccess: (newReview) => {
       if (agentId) {
-        void queryClient.invalidateQueries({
+        void queryClient.refetchQueries({
           queryKey: reviewsQueryKey(agentId),
         });
+        queryClient.setQueryData(
+          reviewDetailQueryKey(agentId, newReview.id),
+          newReview
+        );
       }
     },
   });

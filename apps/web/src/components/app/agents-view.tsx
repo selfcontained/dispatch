@@ -281,6 +281,13 @@ export function AgentsView({
     [focusedAgentId, navTo]
   );
 
+  const handleReviewSubmitted = useCallback(() => {
+    if (!focusedAgentId) return;
+    navTo(`/agents/${focusedAgentId}`, { replace: true });
+    setMediaOpen(true);
+    setMediaActiveTab("reviews");
+  }, [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]);
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!expandedAgentId) {
@@ -603,6 +610,7 @@ export function AgentsView({
                         agentId={focusedAgentId}
                         active={true}
                         isMobile={isMobile}
+                        onReviewSubmitted={handleReviewSubmitted}
                       />
                     }
                   />

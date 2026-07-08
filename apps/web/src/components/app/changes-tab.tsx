@@ -13,11 +13,11 @@ import {
   MessageCircle,
   MessageSquare,
   MessageSquarePlus,
+  MoreHorizontal,
   PanelLeftClose,
   PanelLeftOpen,
   Pencil,
   Trash2,
-  X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -99,6 +99,12 @@ import {
   reviewDraftAtomFamily,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { type DraftComment, ReviewModeBar } from "@/components/app/review-mode";
 import {
   type ReviewFeedbackItem,
@@ -116,12 +122,14 @@ type ChangesTabProps = {
   agentId: string | null;
   active: boolean;
   isMobile?: boolean;
+  onReviewSubmitted?: () => void;
 };
 
 export const ChangesTab = memo(function ChangesTab({
   agentId,
   active,
   isMobile,
+  onReviewSubmitted,
 }: ChangesTabProps): JSX.Element {
   const storedViewType = useAtomValue(diffViewTypeAtom);
   const viewType = isMobile ? "unified" : storedViewType;
@@ -340,7 +348,10 @@ export const ChangesTab = memo(function ChangesTab({
           drafts={draftComments}
           onClearDrafts={clearDrafts}
           onExitReview={() => setReviewMode(false)}
-          onReviewSubmitted={() => setReviewMode(false)}
+          onReviewSubmitted={() => {
+            setReviewMode(false);
+            onReviewSubmitted?.();
+          }}
         />
       )}
       <div className="flex min-h-0 flex-1">
@@ -1463,8 +1474,8 @@ function InlineCommentForm({
     onSubmitted,
   ]);
 
-  const handlePrimaryAction = reviewMode ? handleAddDraft : handleChat;
-  const primaryLabel = reviewMode ? "Add Comment" : "Chat";
+  const handlePrimaryAction = reviewMode ? handleAddDraft : handleStartReview;
+  const primaryLabel = reviewMode ? "Add comment" : "Start a review";
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
@@ -1481,59 +1492,55 @@ function InlineCommentForm({
   );
 
   return (
-    <div className="border-t border-border/50 bg-muted/20 px-4 py-3">
-      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+    <div className="mx-3 my-3 overflow-hidden rounded-md border border-border bg-background shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
         <MessageSquare className="h-3 w-3" />
-        <span className="truncate font-mono">{filePath}</span>
-        <span>·</span>
-        <span className="shrink-0">{lineLabel}</span>
+        <span className="font-medium text-foreground">Add a comment</span>
+        <span className="truncate font-mono">{lineLabel}</span>
       </div>
-      <textarea
-        ref={textareaRef}
-        className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        placeholder={
-          reviewMode ? "Add review comment…" : "Leave a comment for the agent…"
-        }
-        rows={3}
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        onKeyDown={handleKeyDown}
-        autoFocus
-        disabled={submitting}
-      />
-      <div className="mt-2 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40"
-          onClick={onCancel}
+      <div className="p-3">
+        <textarea
+          ref={textareaRef}
+          className="w-full resize-none rounded border border-border bg-muted/20 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="Leave a comment…"
+          rows={3}
+          value={comment}
+          onChange={(e) => setComment(e.target.value)}
+          onKeyDown={handleKeyDown}
+          autoFocus
           disabled={submitting}
-        >
-          <X className="h-3 w-3" />
-          Cancel
-        </button>
-        <div ref={dropdownRef} className="relative">
-          <div className="flex">
-            <button
-              type="button"
-              className="flex items-center gap-1 rounded-l bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              onClick={handlePrimaryAction}
-              disabled={!comment.trim() || submitting}
-            >
-              {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
-              {primaryLabel}
-            </button>
-            <button
-              type="button"
-              className="flex items-center rounded-r border-l border-primary-foreground/20 bg-primary px-1 py-1 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-              onClick={() => setDropdownOpen((v) => !v)}
-              disabled={!comment.trim() || submitting}
-            >
-              <ChevronDown className="h-3 w-3" />
-            </button>
-          </div>
-          {dropdownOpen && (
-            <div className="absolute bottom-full right-0 mb-1 min-w-[140px] rounded border border-border bg-popover py-1 text-xs shadow-md">
-              {reviewMode ? (
+        />
+        <div className="mt-2 flex items-center justify-end gap-2">
+          <button
+            type="button"
+            className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40"
+            onClick={onCancel}
+            disabled={submitting}
+          >
+            Cancel
+          </button>
+          <div ref={dropdownRef} className="relative">
+            <div className="flex">
+              <button
+                type="button"
+                className="flex items-center gap-1 rounded-l bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                onClick={handlePrimaryAction}
+                disabled={!comment.trim() || submitting}
+              >
+                {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
+                {primaryLabel}
+              </button>
+              <button
+                type="button"
+                className="flex items-center rounded-r border-l border-primary-foreground/20 bg-primary px-1.5 py-1.5 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+                onClick={() => setDropdownOpen((v) => !v)}
+                disabled={!comment.trim() || submitting}
+              >
+                <ChevronDown className="h-3 w-3" />
+              </button>
+            </div>
+            {dropdownOpen && (
+              <div className="absolute bottom-full right-0 mb-1 min-w-[140px] rounded border border-border bg-popover py-1 text-xs shadow-md">
                 <button
                   type="button"
                   className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/40"
@@ -1545,21 +1552,9 @@ function InlineCommentForm({
                   <MessageSquare className="h-3 w-3" />
                   Chat
                 </button>
-              ) : (
-                <button
-                  type="button"
-                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/40"
-                  onClick={() => {
-                    setDropdownOpen(false);
-                    handleStartReview();
-                  }}
-                >
-                  <MessageSquarePlus className="h-3 w-3" />
-                  Start review
-                </button>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>
@@ -1577,41 +1572,66 @@ function InlineFeedbackAnnotation({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(!isResolved);
 
+  const statusLabel = isResolved ? "Resolved" : "Pending";
+  const lineLabel =
+    feedbackItem.lineStart != null
+      ? feedbackItem.lineEnd && feedbackItem.lineEnd !== feedbackItem.lineStart
+        ? `Lines ${feedbackItem.lineStart}–${feedbackItem.lineEnd}`
+        : `Line ${feedbackItem.lineStart}`
+      : null;
+
   return (
     <div
       className={cn(
-        "border-t px-4 py-2 text-xs cursor-pointer transition-colors",
-        isResolved
-          ? "border-border/30 bg-muted/10 opacity-60"
-          : "border-amber-500/30 bg-amber-500/5"
+        "mx-3 my-3 overflow-hidden rounded-md border bg-background shadow-sm cursor-pointer transition-colors",
+        isResolved ? "border-border/50 opacity-60" : "border-amber-500/40"
       )}
       onClick={() => setExpanded((v) => !v)}
     >
-      <div className="flex items-center gap-1.5">
+      <div
+        className={cn(
+          "flex items-center gap-2 border-b border-border/50 px-3 py-2 text-[11px]",
+          isResolved ? "bg-muted/20" : "bg-amber-500/10"
+        )}
+      >
         <MessageCircle
           className={cn(
             "h-3 w-3 shrink-0",
             isResolved ? "text-muted-foreground" : "text-amber-500"
           )}
         />
+        <span className="font-medium text-foreground">Feedback</span>
         <span
           className={cn(
             "rounded-full px-1.5 py-0 text-[10px] font-medium",
             isResolved
-              ? "bg-muted text-muted-foreground"
+              ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
               : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
           )}
         >
-          {feedbackItem.status}
+          {statusLabel}
         </span>
+        {lineLabel && (
+          <span className="text-muted-foreground">{lineLabel}</span>
+        )}
         {!expanded && (
           <span className="flex-1 truncate text-muted-foreground">
             {comment}
           </span>
         )}
+        <ChevronRight
+          className={cn(
+            "ml-auto h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+            expanded && "rotate-90"
+          )}
+        />
       </div>
       {expanded && (
-        <p className="mt-1 whitespace-pre-wrap text-foreground/80">{comment}</p>
+        <div className="px-3 py-2">
+          <p className="whitespace-pre-wrap text-xs text-foreground/80">
+            {comment}
+          </p>
+        </div>
       )}
     </div>
   );
@@ -1651,70 +1671,94 @@ function InlineDraftAnnotation({
     [handleSave, draft.comment]
   );
 
+  const lineLabel =
+    draft.startLine === draft.endLine
+      ? `Line ${draft.startLine}`
+      : `Lines ${draft.startLine}–${draft.endLine}`;
+
   if (editing) {
     return (
-      <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 text-xs">
-        <div className="mb-1.5 flex items-center gap-1.5 text-primary/80">
-          <MessageSquarePlus className="h-3 w-3" />
-          <span className="font-medium">Edit draft</span>
+      <div className="mx-3 my-3 overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm">
+        <div className="flex items-center gap-2 border-b border-border/50 bg-primary/10 px-3 py-2 text-[11px]">
+          <MessageSquarePlus className="h-3 w-3 text-primary" />
+          <span className="font-medium text-foreground">Edit draft</span>
         </div>
-        <textarea
-          className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-          rows={3}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onKeyDown={handleKeyDown}
-          autoFocus
-        />
-        <div className="mt-1.5 flex items-center justify-end gap-2">
-          <button
-            type="button"
-            className="rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40"
-            onClick={() => {
-              setEditValue(draft.comment);
-              setEditing(false);
-            }}
-          >
-            Cancel
-          </button>
-          <button
-            type="button"
-            className="rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-            onClick={handleSave}
-            disabled={!editValue.trim()}
-          >
-            Save
-          </button>
+        <div className="p-3">
+          <textarea
+            className="w-full resize-none rounded border border-border bg-muted/20 px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            rows={3}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onKeyDown={handleKeyDown}
+            autoFocus
+          />
+          <div className="mt-2 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className="rounded px-3 py-1.5 text-xs text-muted-foreground hover:bg-muted/40"
+              onClick={() => {
+                setEditValue(draft.comment);
+                setEditing(false);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="rounded bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              onClick={handleSave}
+              disabled={!editValue.trim()}
+            >
+              Save
+            </button>
+          </div>
         </div>
       </div>
     );
   }
 
   return (
-    <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 text-xs group">
-      <div className="flex items-center gap-1.5">
-        <MessageSquarePlus className="h-3 w-3 text-primary/80" />
-        <span className="font-medium text-primary/80">Draft</span>
+    <div className="mx-3 my-3 overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm">
+      <div className="flex items-center gap-2 border-b border-border/50 bg-primary/10 px-3 py-2 text-[11px]">
+        <MessageSquarePlus className="h-3 w-3 text-primary" />
+        <span className="font-medium text-foreground">Draft</span>
+        <span className="rounded-full bg-amber-500/15 px-1.5 py-0 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+          Pending
+        </span>
+        <span className="text-muted-foreground">{lineLabel}</span>
         <div className="flex-1" />
-        <button
-          type="button"
-          className="rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={() => {
-            setEditValue(draft.comment);
-            setEditing(true);
-          }}
-        >
-          <Pencil className="h-3 w-3" />
-        </button>
-        <button
-          type="button"
-          className="rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-status-blocked opacity-0 group-hover:opacity-100 transition-opacity"
-          onClick={() => onRemove?.(draft.id)}
-        >
-          <Trash2 className="h-3 w-3" />
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            >
+              <MoreHorizontal className="h-3.5 w-3.5" />
+            </button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="min-w-[120px]">
+            <DropdownMenuItem
+              className="text-foreground"
+              onClick={() => {
+                setEditValue(draft.comment);
+                setEditing(true);
+              }}
+            >
+              <Pencil className="mr-2 h-3 w-3" />
+              Edit
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onRemove?.(draft.id)}>
+              <Trash2 className="mr-2 h-3 w-3" />
+              Delete
+            </DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
-      <p className="mt-1 text-foreground/70">{draft.comment}</p>
+      <div className="px-3 py-2">
+        <p className="whitespace-pre-wrap text-xs text-foreground/80">
+          {draft.comment}
+        </p>
+      </div>
     </div>
   );
 }
