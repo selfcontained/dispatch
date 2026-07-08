@@ -1,22 +1,12 @@
-import {
-  lazy,
-  Suspense,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
-import { useAtom } from "jotai";
+import { useAtomValue } from "jotai";
 
 import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
 
 import { ChangesTab } from "@/components/app/changes-tab";
-
-// Excalidraw is heavy (~MBs); split it out and only load on first tab visit.
-const WhiteboardTab = lazy(() => import("@/components/app/whiteboard-tab"));
+import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
 import { CenterPaneTabBar } from "@/components/app/center-pane-tab-bar";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
@@ -145,13 +135,6 @@ export function AgentsView({
     validatedSelectedAgentId,
   });
 
-  // Keep the whiteboard mounted after first visit (Terminal pattern) so
-  // undo history, zoom, and in-flight strokes survive tab switches.
-  const [whiteboardOpened, setWhiteboardOpened] = useState(false);
-  useEffect(() => {
-    if (whiteboardMatch) setWhiteboardOpened(true);
-  }, [whiteboardMatch]);
-
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
@@ -240,20 +223,10 @@ export function AgentsView({
     : null;
 
   // "Agent drew" dot on the Whiteboard tab: lit by SSE (use-sse.ts),
-  // cleared as soon as the user is looking at that agent's whiteboard.
-  const [whiteboardAgentDrew, setWhiteboardAgentDrew] = useAtom(
+  // cleared by WhiteboardPane while the user is looking at that board.
+  const whiteboardAgentDrew = useAtomValue(
     whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
   );
-  useEffect(() => {
-    if (whiteboardMatch && focusedAgentId && whiteboardAgentDrew) {
-      setWhiteboardAgentDrew(false);
-    }
-  }, [
-    whiteboardMatch,
-    focusedAgentId,
-    whiteboardAgentDrew,
-    setWhiteboardAgentDrew,
-  ]);
 
   const {
     mediaFiles,
@@ -643,23 +616,10 @@ export function AgentsView({
                     }
                   />
                 </Routes>
-                {whiteboardOpened && focusedAgentId ? (
-                  <div className={cn("h-full", !whiteboardMatch && "hidden")}>
-                    <Suspense
-                      fallback={
-                        <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                          Loading whiteboard…
-                        </div>
-                      }
-                    >
-                      <WhiteboardTab
-                        key={focusedAgentId}
-                        agentId={focusedAgentId}
-                        visible={!!whiteboardMatch}
-                      />
-                    </Suspense>
-                  </div>
-                ) : null}
+                <WhiteboardPane
+                  agentId={focusedAgentId}
+                  active={!!whiteboardMatch}
+                />
                 {!isMobile ? (
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14 bg-background">
                     <AmbientTipBar />

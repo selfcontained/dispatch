@@ -21,6 +21,25 @@ export type SimplifiedElement = {
   backgroundColor?: string;
 };
 
+// Result shapes shared by the MCP handlers (server/mcp-whiteboard-handlers.ts)
+// and the tool/context layers (shared/mcp) — one definition, three consumers.
+export type WhiteboardGetResult = {
+  elements: SimplifiedElement[];
+  version: number;
+  updatedAt: string | null;
+  updatedBy: string | null;
+  snapshotPath: string | null;
+  snapshotStale: boolean;
+};
+
+export type WhiteboardUpdateResult = {
+  version: number;
+  created: Array<{ id: string; type: string }>;
+  errors: string[];
+  warnings: string[];
+  elements: SimplifiedElement[];
+};
+
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.round(value)

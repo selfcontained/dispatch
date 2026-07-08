@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { simplifyElements } from "../src/shared/whiteboard.js";
-import { isValidScene } from "../src/routes/whiteboard.js";
+import { isValidScene } from "../src/shared/whiteboard-store.js";
 
 describe("simplifyElements", () => {
   it("keeps geometry, text, and bindings while stripping style noise", () => {

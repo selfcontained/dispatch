@@ -14,7 +14,10 @@ import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
 import { registerMessagingTools } from "./messaging-tools.js";
 import { registerWhiteboardTools } from "./whiteboard-tools.js";
-import type { SimplifiedElement } from "../whiteboard.js";
+import type {
+  WhiteboardGetResult,
+  WhiteboardUpdateResult,
+} from "../whiteboard.js";
 import type { WhiteboardOp } from "../whiteboard-builder.js";
 import {
   registerPersonaInteractionTools,
@@ -304,23 +307,11 @@ export type McpRequestContext = {
       createdAt: string;
     }>
   >;
-  getWhiteboard?: (agentId: string) => Promise<{
-    elements: SimplifiedElement[];
-    version: number;
-    updatedAt: string | null;
-    updatedBy: string | null;
-    snapshotPath: string | null;
-    snapshotStale: boolean;
-  }>;
+  getWhiteboard?: (agentId: string) => Promise<WhiteboardGetResult>;
   updateWhiteboard?: (
     agentId: string,
     ops: WhiteboardOp[]
-  ) => Promise<{
-    version: number;
-    created: Array<{ id: string; type: string }>;
-    errors: string[];
-    elements: SimplifiedElement[];
-  }>;
+  ) => Promise<WhiteboardUpdateResult>;
   submitFeedback?: (
     agentId: string,
     feedback: FeedbackInput

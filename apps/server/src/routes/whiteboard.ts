@@ -6,17 +6,17 @@ import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
 import { resolveMediaDir } from "../shared/media.js";
-
-// Written into the agent's media dir WITHOUT a `media` DB row: the media
-// list is DB-backed, so the snapshot stays out of the unseen-badge flow
-// while remaining readable by the agent and servable via the media route.
-export const WHITEBOARD_SNAPSHOT_FILENAME = "whiteboard.png";
+import {
+  EMPTY_SCENE,
+  isValidScene,
+  loadWhiteboard,
+  MAX_ELEMENTS,
+  saveWhiteboard,
+  WHITEBOARD_SNAPSHOT_FILENAME,
+} from "../shared/whiteboard-store.js";
 
 // Fastify's default JSON bodyLimit is 1 MB; real boards blow past it.
 const SCENE_BODY_LIMIT = 8 * 1024 * 1024;
-export const MAX_ELEMENTS = 20_000;
-
-export const EMPTY_SCENE = { elements: [] as unknown[] };
 
 type WhiteboardRouteDeps = {
   pool: Pool;
@@ -24,58 +24,6 @@ type WhiteboardRouteDeps = {
   agentManager: AgentManager;
   publishUiEvent: (event: unknown) => void;
 };
-
-export type WhiteboardRow = {
-  scene: { elements: unknown[] };
-  version: string;
-  updated_by: string;
-  updated_at: Date;
-};
-
-export async function loadWhiteboard(
-  pool: Pool,
-  agentId: string
-): Promise<WhiteboardRow | null> {
-  const result = await pool.query<WhiteboardRow>(
-    "SELECT scene, version, updated_by, updated_at FROM whiteboards WHERE agent_id = $1",
-    [agentId]
-  );
-  return result.rows[0] ?? null;
-}
-
-export function isValidScene(scene: unknown): scene is { elements: unknown[] } {
-  return (
-    typeof scene === "object" &&
-    scene !== null &&
-    Array.isArray((scene as { elements?: unknown }).elements) &&
-    (scene as { elements: unknown[] }).elements.length <= MAX_ELEMENTS
-  );
-}
-
-export async function saveWhiteboard(
-  pool: Pool,
-  agentId: string,
-  scene: { elements: unknown[] },
-  baseVersion: number,
-  updatedBy: "user" | "agent"
-): Promise<{ version: number } | null> {
-  const result = await pool.query<{ version: string }>(
-    `INSERT INTO whiteboards (agent_id, scene, version, updated_by)
-     VALUES ($1, $2::jsonb, 1, $3)
-     ON CONFLICT (agent_id) DO UPDATE
-       SET scene = EXCLUDED.scene,
-           version = whiteboards.version + 1,
-           updated_by = EXCLUDED.updated_by,
-           updated_at = NOW()
-       WHERE whiteboards.version = $4
-     RETURNING version`,
-    [agentId, JSON.stringify(scene), updatedBy, baseVersion]
-  );
-  if (result.rows.length === 0) {
-    return null;
-  }
-  return { version: Number(result.rows[0].version) };
-}
 
 export async function registerWhiteboardRoutes(
   app: FastifyInstance,

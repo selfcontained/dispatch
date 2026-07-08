@@ -158,10 +158,11 @@ test.describe("Whiteboard tab", () => {
                 type: "ellipse",
                 id: "db",
                 x: 400,
-                y: 100,
+                y: 300,
                 w: 140,
                 h: 80,
                 label: "db",
+                fill: "violet",
               },
               {
                 op: "add",
@@ -170,6 +171,18 @@ test.describe("Whiteboard tab", () => {
                 from: "api",
                 to: "db",
                 label: "reads",
+                elbow: true,
+              },
+              {
+                op: "add",
+                type: "arrow",
+                id: "retry",
+                from: "db",
+                to: "api",
+                style: "dashed",
+                startHead: "dot",
+                endHead: "triangle",
+                via: [[150, 400]],
               },
             ],
           },
@@ -195,6 +208,7 @@ test.describe("Whiteboard tab", () => {
       "api",
       "db",
       "flow",
+      "retry",
     ]);
 
     // The SSE event lights the "agent drew" dot while we're on Terminal…
@@ -211,6 +225,11 @@ test.describe("Whiteboard tab", () => {
         elements: Array<{
           id: string;
           type: string;
+          points?: number[][];
+          strokeStyle?: string;
+          backgroundColor?: string;
+          startArrowhead?: string | null;
+          endArrowhead?: string | null;
           startBinding?: { elementId: string } | null;
           endBinding?: { elementId: string } | null;
         }>;
@@ -219,6 +238,15 @@ test.describe("Whiteboard tab", () => {
     const arrow = body.scene.elements.find((e) => e.id === "flow");
     expect(arrow?.startBinding?.elementId).toBe("api");
     expect(arrow?.endBinding?.elementId).toBe("db");
+    // elbow: true routes with right-angle bends, not a single segment.
+    expect(arrow?.points?.length).toBeGreaterThan(2);
+    const retry = body.scene.elements.find((e) => e.id === "retry");
+    expect(retry?.strokeStyle).toBe("dashed");
+    expect(retry?.startArrowhead).toBe("dot");
+    expect(retry?.endArrowhead).toBe("triangle");
+    expect(retry?.points?.length).toBe(3); // via bend baked in
+    const db = body.scene.elements.find((e) => e.id === "db");
+    expect(db?.backgroundColor).toBe("#e5dbff");
     expect(body.scene.elements.filter((e) => e.type === "text").length).toBe(3);
 
     // Visiting the whiteboard clears the dot.
