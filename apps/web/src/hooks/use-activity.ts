@@ -309,6 +309,41 @@ type ProviderQuotaPayload = {
   snapshots: ProviderQuotaSnapshot[];
 };
 
+export type ProviderQuotaHistoryPoint = {
+  day: string;
+  avgUsedPercent: number | null;
+  maxUsedPercent: number | null;
+  observations: number;
+};
+
+export type ProviderQuotaHistorySeries = {
+  provider: "codex" | "claude";
+  windowId: string;
+  title: string;
+  kind: string;
+  scope: string;
+  windowSeconds: number | null;
+  points: ProviderQuotaHistoryPoint[];
+};
+
+export type ProviderQuotaCompletedWindow = {
+  provider: "codex" | "claude";
+  windowId: string;
+  title: string;
+  kind: string;
+  scope: string;
+  resetsAt: string;
+  usedPercent: number | null;
+  unusedPercent: number | null;
+};
+
+export type ProviderQuotaHistoryPayload = {
+  usageTrackingEnabled: boolean;
+  series: ProviderQuotaHistorySeries[];
+  completedWindows: ProviderQuotaCompletedWindow[];
+  granularity: ActivityGranularity;
+};
+
 export type ProviderQuotaSettings = {
   usageTrackingEnabled: boolean;
 };
@@ -341,6 +376,20 @@ export function useProviderQuotas() {
   return useQuery<ProviderQuotaPayload>({
     queryKey: ["provider-quotas"],
     queryFn: () => api<ProviderQuotaPayload>("/api/v1/provider-quotas"),
+    staleTime: 5 * 60_000,
+  });
+}
+
+export function useProviderQuotaHistory(
+  range: ActivityRange,
+  dailyDate?: string
+) {
+  return useQuery<ProviderQuotaHistoryPayload>({
+    queryKey: ["provider-quotas", "history", range, dailyDate],
+    queryFn: () =>
+      api<ProviderQuotaHistoryPayload>(
+        `/api/v1/provider-quotas/history?${activityParams(range, dailyDate)}`
+      ),
     staleTime: 5 * 60_000,
   });
 }

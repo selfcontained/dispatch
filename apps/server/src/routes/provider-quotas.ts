@@ -7,6 +7,7 @@ import {
   isProviderQuotaTrackingEnabled,
   setProviderQuotaTrackingEnabled,
 } from "../provider-quotas/settings.js";
+import { dateTruncTz, parseActivityQuery } from "../server/activity-query.js";
 
 type ProviderQuotaRouteDeps = {
   pool: Pool;
@@ -86,6 +87,31 @@ export async function registerProviderQuotaRoutes(
       usageTrackingEnabled,
       snapshots,
       providers: groupSnapshots(snapshots),
+    };
+  });
+
+  app.get("/api/v1/provider-quotas/history", async (request) => {
+    const usageTrackingEnabled = await isProviderQuotaTrackingEnabled(
+      deps.pool
+    );
+    if (!usageTrackingEnabled) {
+      return {
+        usageTrackingEnabled,
+        series: [],
+        completedWindows: [],
+        granularity: "day",
+      };
+    }
+    const aq = parseActivityQuery(request.query as Record<string, unknown>);
+    const [series, completedWindows] = await Promise.all([
+      deps.service.listHistory(aq, dateTruncTz),
+      deps.service.listCompletedWindows(aq),
+    ]);
+    return {
+      usageTrackingEnabled,
+      series,
+      completedWindows,
+      granularity: aq.granularity,
     };
   });
 

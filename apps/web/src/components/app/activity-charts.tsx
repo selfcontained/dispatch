@@ -27,6 +27,8 @@ import type {
   ActivityGranularity,
   AgentsCreatedEntry,
   DailyStatusEntry,
+  ProviderQuotaCompletedWindow,
+  ProviderQuotaHistorySeries,
   TokenDailyEntry,
   TokenByModel,
   TokenByProject,
@@ -361,6 +363,466 @@ export function DailyTokenChart({
         )}
       </ComposedChart>
     </ChartContainer>
+  );
+}
+
+// ── Provider quota rollup charts ──────────────────────────────────
+
+type ProviderWindowClass = "shortSession" | "longDuration";
+
+type ProviderQuotaRollupRow = {
+  provider: string;
+  shortSession: number | null;
+  longDuration: number | null;
+};
+
+type ProviderQuotaRollupAccumulator = {
+  provider: "codex" | "claude";
+  shortSession: { total: number; count: number };
+  longDuration: { total: number; count: number };
+};
+
+const providerWindowConfig: ChartConfig = {
+  shortSession: {
+    label: "Short session",
+    color: "hsl(var(--chart-1))",
+  },
+  longDuration: {
+    label: "Long duration",
+    color: "hsl(var(--chart-2))",
+  },
+};
+
+const leftOnTableConfig: ChartConfig = {
+  codexShortSession: {
+    label: "Codex short",
+    color: "hsl(var(--chart-1))",
+  },
+  codexLongDuration: {
+    label: "Codex long",
+    color: "hsl(var(--chart-2))",
+  },
+  claudeShortSession: {
+    label: "Claude short",
+    color: "hsl(var(--chart-3))",
+  },
+  claudeLongDuration: {
+    label: "Claude long",
+    color: "hsl(var(--chart-4))",
+  },
+};
+
+type LeftOnTableBarKey =
+  | "codexShortSession"
+  | "codexLongDuration"
+  | "claudeShortSession"
+  | "claudeLongDuration";
+
+type LeftOnTableRow = Record<string, string | number> & {
+  day: string;
+  label: string;
+  codexShortSessionTotal?: number;
+  codexShortSessionCount?: number;
+  codexLongDurationTotal?: number;
+  codexLongDurationCount?: number;
+  claudeShortSessionTotal?: number;
+  claudeShortSessionCount?: number;
+  claudeLongDurationTotal?: number;
+  claudeLongDurationCount?: number;
+};
+
+function providerName(provider: "codex" | "claude"): string {
+  return provider === "codex" ? "Codex" : "Claude";
+}
+
+function quotaWindowClass(input: {
+  kind: string;
+  scope?: string;
+  windowSeconds?: number | null;
+}): ProviderWindowClass | null {
+  if (input.scope && input.scope !== "account") return null;
+  if (input.kind === "credits") return null;
+  if (input.kind === "session") return "shortSession";
+  if (input.kind === "weekly") return "longDuration";
+  const windowSeconds = input.windowSeconds ?? null;
+  if (windowSeconds !== null) {
+    return windowSeconds <= 6 * 60 * 60 ? "shortSession" : "longDuration";
+  }
+  return null;
+}
+
+function createQuotaRollups(): Map<
+  "codex" | "claude",
+  ProviderQuotaRollupAccumulator
+> {
+  return new Map([
+    [
+      "codex",
+      {
+        provider: "codex",
+        shortSession: { total: 0, count: 0 },
+        longDuration: { total: 0, count: 0 },
+      },
+    ],
+    [
+      "claude",
+      {
+        provider: "claude",
+        shortSession: { total: 0, count: 0 },
+        longDuration: { total: 0, count: 0 },
+      },
+    ],
+  ]);
+}
+
+function rollupsToRows(
+  rollups: Map<"codex" | "claude", ProviderQuotaRollupAccumulator>
+): ProviderQuotaRollupRow[] {
+  return Array.from(rollups.values())
+    .map((rollup) => ({
+      provider: providerName(rollup.provider),
+      shortSession:
+        rollup.shortSession.count > 0
+          ? Math.round(
+              (rollup.shortSession.total / rollup.shortSession.count) * 10
+            ) / 10
+          : null,
+      longDuration:
+        rollup.longDuration.count > 0
+          ? Math.round(
+              (rollup.longDuration.total / rollup.longDuration.count) * 10
+            ) / 10
+          : null,
+    }))
+    .filter((row) => row.shortSession !== null || row.longDuration !== null);
+}
+
+function leftOnTableBarKey(
+  provider: "codex" | "claude",
+  windowClass: ProviderWindowClass
+): LeftOnTableBarKey {
+  return `${provider}${windowClass === "shortSession" ? "ShortSession" : "LongDuration"}`;
+}
+
+function completedWindowBucket(
+  resetsAt: string,
+  granularity: ActivityGranularity
+): string {
+  if (granularity === "hour") {
+    return `${resetsAt.slice(0, 13).replace("T", " ")}:00`;
+  }
+  if (granularity === "month") {
+    return `${resetsAt.slice(0, 7)}-01`;
+  }
+  return resetsAt.slice(0, 10);
+}
+
+function finalizeLeftOnTableRows(rows: LeftOnTableRow[]): LeftOnTableRow[] {
+  const keys: LeftOnTableBarKey[] = [
+    "codexShortSession",
+    "codexLongDuration",
+    "claudeShortSession",
+    "claudeLongDuration",
+  ];
+  return rows.map((row) => {
+    for (const key of keys) {
+      const total = row[`${key}Total`];
+      const count = row[`${key}Count`];
+      if (typeof total === "number" && typeof count === "number") {
+        row[key] = Math.round((total / count) * 10) / 10;
+      }
+      delete row[`${key}Total`];
+      delete row[`${key}Count`];
+    }
+    return row;
+  });
+}
+
+function ProviderQuotaRollupChart({
+  rows,
+  emptyLabel,
+}: {
+  rows: ProviderQuotaRollupRow[];
+  emptyLabel: string;
+}) {
+  if (rows.length === 0) {
+    return (
+      <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+        {emptyLabel}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <ChartContainer
+        config={providerWindowConfig}
+        className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full"
+      >
+        <BarChart data={rows} barCategoryGap="28%">
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="provider"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+          />
+          <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                indicator="dot"
+                formatter={(value, name, item) => (
+                  <>
+                    <div
+                      className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <div className="flex flex-1 items-center justify-between gap-8">
+                      <span className="text-muted-foreground">
+                        {providerWindowConfig[name as string]?.label ?? name}
+                      </span>
+                      <span className="font-mono font-medium text-foreground tabular-nums">
+                        {Math.round(Number(value))}%
+                      </span>
+                    </div>
+                  </>
+                )}
+                labelFormatter={(label) => label as string}
+              />
+            }
+          />
+          <ChartLegend
+            content={
+              <ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />
+            }
+          />
+          <Bar
+            dataKey="shortSession"
+            fill="var(--color-shortSession)"
+            radius={[2, 2, 0, 0]}
+          />
+          <Bar
+            dataKey="longDuration"
+            fill="var(--color-longDuration)"
+            radius={[2, 2, 0, 0]}
+          />
+        </BarChart>
+      </ChartContainer>
+      <div className="grid gap-2 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div
+            key={row.provider}
+            className="rounded-md border border-border bg-muted/20 p-3"
+          >
+            <div className="text-xs font-medium text-foreground">
+              {row.provider}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <div className="text-muted-foreground">Short session avg</div>
+                <div className="mt-0.5 font-semibold text-foreground">
+                  {row.shortSession === null
+                    ? "n/a"
+                    : `${Math.round(row.shortSession)}%`}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">Long duration avg</div>
+                <div className="mt-0.5 font-semibold text-foreground">
+                  {row.longDuration === null
+                    ? "n/a"
+                    : `${Math.round(row.longDuration)}%`}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+export function ProviderQuotaUtilizationChart({
+  series,
+}: {
+  series: ProviderQuotaHistorySeries[];
+  granularity: ActivityGranularity;
+}) {
+  const rows = useMemo(() => {
+    const rollups = createQuotaRollups();
+    for (const entry of series) {
+      const windowClass = quotaWindowClass(entry);
+      if (!windowClass) continue;
+      const rollup = rollups.get(entry.provider);
+      if (!rollup) continue;
+      for (const point of entry.points) {
+        const value = point.avgUsedPercent;
+        if (value === null) continue;
+        rollup[windowClass].total += value;
+        rollup[windowClass].count += 1;
+      }
+    }
+    return rollupsToRows(rollups);
+  }, [series]);
+
+  return (
+    <ProviderQuotaRollupChart rows={rows} emptyLabel="No quota history yet" />
+  );
+}
+
+export function ProviderQuotaLeftOnTableChart({
+  completedWindows,
+  granularity,
+}: {
+  completedWindows: ProviderQuotaCompletedWindow[];
+  granularity: ActivityGranularity;
+}) {
+  const { rows, chartData, barKeys } = useMemo(() => {
+    const rollups = createQuotaRollups();
+    const buckets = new Map<string, LeftOnTableRow>();
+    const visibleKeys = new Set<LeftOnTableBarKey>();
+    for (const window of completedWindows) {
+      if (window.unusedPercent === null) continue;
+      const windowClass = quotaWindowClass(window);
+      if (!windowClass) continue;
+      const rollup = rollups.get(window.provider);
+      if (!rollup) continue;
+      rollup[windowClass].total += window.unusedPercent;
+      rollup[windowClass].count += 1;
+
+      const key = leftOnTableBarKey(window.provider, windowClass);
+      visibleKeys.add(key);
+      const day = completedWindowBucket(window.resetsAt, granularity);
+      const row =
+        buckets.get(day) ??
+        (() => {
+          const next: LeftOnTableRow = {
+            day,
+            label: formatBucketLabel(day, granularity),
+          };
+          buckets.set(day, next);
+          return next;
+        })();
+      const totalKey = `${key}Total` as const;
+      const countKey = `${key}Count` as const;
+      row[totalKey] = (row[totalKey] ?? 0) + window.unusedPercent;
+      row[countKey] = (row[countKey] ?? 0) + 1;
+    }
+    const sortedRows = Array.from(buckets.values()).sort((a, b) =>
+      a.day.localeCompare(b.day)
+    );
+    const keys: LeftOnTableBarKey[] = [
+      "codexShortSession",
+      "codexLongDuration",
+      "claudeShortSession",
+      "claudeLongDuration",
+    ];
+    return {
+      rows: rollupsToRows(rollups),
+      chartData: finalizeLeftOnTableRows(sortedRows),
+      barKeys: keys.filter((key) => visibleKeys.has(key)),
+    };
+  }, [completedWindows, granularity]);
+
+  if (rows.length === 0 || chartData.length === 0 || barKeys.length === 0) {
+    return (
+      <div className="flex h-40 items-center justify-center text-sm text-muted-foreground">
+        No completed windows yet
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-2">
+        {rows.map((row) => (
+          <div
+            key={row.provider}
+            className="rounded-md border border-border bg-muted/20 p-3"
+          >
+            <div className="text-xs font-medium text-foreground">
+              {row.provider}
+            </div>
+            <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <div className="text-muted-foreground">
+                  Short session unused avg
+                </div>
+                <div className="mt-0.5 font-semibold text-foreground">
+                  {row.shortSession === null
+                    ? "n/a"
+                    : `${Math.round(row.shortSession)}%`}
+                </div>
+              </div>
+              <div>
+                <div className="text-muted-foreground">
+                  Long duration unused avg
+                </div>
+                <div className="mt-0.5 font-semibold text-foreground">
+                  {row.longDuration === null
+                    ? "n/a"
+                    : `${Math.round(row.longDuration)}%`}
+                </div>
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
+      <ChartContainer
+        config={leftOnTableConfig}
+        className="aspect-[1.5/1] sm:aspect-[2.5/1] w-full"
+      >
+        <BarChart data={chartData} barCategoryGap="20%">
+          <CartesianGrid vertical={false} />
+          <XAxis
+            dataKey="label"
+            tickLine={false}
+            axisLine={false}
+            tickMargin={8}
+            interval="preserveStartEnd"
+          />
+          <YAxis domain={[0, 100]} tickFormatter={(value) => `${value}%`} />
+          <ChartTooltip
+            content={
+              <ChartTooltipContent
+                indicator="dot"
+                formatter={(value, name, item) => (
+                  <>
+                    <div
+                      className="h-2.5 w-2.5 shrink-0 rounded-[2px]"
+                      style={{ backgroundColor: item.color }}
+                    />
+                    <div className="flex flex-1 items-center justify-between gap-8">
+                      <span className="text-muted-foreground">
+                        {leftOnTableConfig[name as string]?.label ?? name}
+                      </span>
+                      <span className="font-mono font-medium text-foreground tabular-nums">
+                        {Math.round(Number(value))}%
+                      </span>
+                    </div>
+                  </>
+                )}
+                labelFormatter={(label) => label as string}
+              />
+            }
+          />
+          <ChartLegend
+            content={
+              <ChartLegendContent className="flex-wrap gap-2 sm:gap-4" />
+            }
+          />
+          {barKeys.map((key) => (
+            <Bar
+              key={key}
+              dataKey={key}
+              fill={leftOnTableConfig[key]?.color}
+              radius={[2, 2, 0, 0]}
+            />
+          ))}
+        </BarChart>
+      </ChartContainer>
+    </div>
   );
 }
 

@@ -36,6 +36,7 @@ import {
   useTokenByProject,
   useWorkingTimeByProject,
   useProviderQuotas,
+  useProviderQuotaHistory,
   useRefreshProviderQuotas,
   useUpdateProviderQuotaSettings,
   rangeLabel,
@@ -47,6 +48,8 @@ import {
   DailyStackedBarChart,
   DailyTokenChart,
   ModelBreakdown,
+  ProviderQuotaLeftOnTableChart,
+  ProviderQuotaUtilizationChart,
   ProjectBreakdown,
 } from "@/components/app/activity-charts";
 import { formatDate } from "@/components/app/activity-chart-utils";
@@ -226,8 +229,18 @@ function ProviderQuotaProgressRow({
   );
 }
 
-export function ProviderQuotaSection(): JSX.Element {
+export function ProviderQuotaSection({
+  range = "30d",
+  dailyDate,
+}: {
+  range?: ActivityRange;
+  dailyDate?: string;
+}): JSX.Element {
   const { data, isLoading, isError } = useProviderQuotas();
+  const { data: history, isLoading: historyLoading } = useProviderQuotaHistory(
+    range,
+    dailyDate
+  );
   const refresh = useRefreshProviderQuotas();
   const updateSettings = useUpdateProviderQuotaSettings();
   const snapshots = data?.snapshots ?? [];
@@ -311,117 +324,155 @@ export function ProviderQuotaSection(): JSX.Element {
           Could not load provider quota snapshots.
         </div>
       ) : providerGroups.length > 0 ? (
-        <div className="grid gap-3 lg:grid-cols-2">
-          {providerGroups.map((providerGroup) => {
-            const visibleSnapshots = visibleQuotaSnapshots(
-              providerGroup.provider,
-              providerGroup.snapshots
-            );
-            const windowSnapshots = visibleSnapshots.filter(
-              (snapshot) => !isQuotaBucket(snapshot)
-            );
-            const bucketSnapshots = visibleSnapshots.filter(isQuotaBucket);
-            const newestGoodSnapshot = newestQuotaSnapshot(visibleSnapshots);
-            const newestSnapshot =
-              newestGoodSnapshot ??
-              newestQuotaSnapshot(providerGroup.snapshots);
-            const newestFetchedAtMs = newestGoodSnapshot
-              ? new Date(newestGoodSnapshot.fetchedAt).getTime()
-              : NaN;
-            const newestAnyFetchedAtMs = newestSnapshot
-              ? new Date(newestSnapshot.fetchedAt).getTime()
-              : NaN;
-            const isProviderStale =
-              Number.isFinite(newestFetchedAtMs) &&
-              Date.now() - newestFetchedAtMs > PROVIDER_QUOTA_STALE_MS;
-            const latestFailure = providerGroup.snapshots
-              .filter((snapshot) => snapshot.status !== "ok")
-              .sort(
-                (a, b) =>
-                  new Date(b.fetchedAt).getTime() -
-                  new Date(a.fetchedAt).getTime()
-              )[0];
-            const failureIsLatest =
-              latestFailure &&
-              Number.isFinite(newestAnyFetchedAtMs) &&
-              new Date(latestFailure.fetchedAt).getTime() >=
-                newestAnyFetchedAtMs;
-            const hasProviderStatus = Boolean(
-              isProviderStale ||
-              failureIsLatest ||
-              (latestFailure && !newestGoodSnapshot)
-            );
-            return (
-              <div
-                key={providerGroup.provider}
-                className="flex min-h-[19rem] flex-col rounded-md border border-border bg-muted/20 p-3"
-              >
-                <div className="flex-1">
-                  <div className="mb-3">
-                    <h3 className="text-sm font-semibold text-foreground">
-                      {providerLabel(providerGroup.provider)}
-                    </h3>
+        <div className="space-y-6">
+          <div className="grid gap-3 lg:grid-cols-2">
+            {providerGroups.map((providerGroup) => {
+              const visibleSnapshots = visibleQuotaSnapshots(
+                providerGroup.provider,
+                providerGroup.snapshots
+              );
+              const windowSnapshots = visibleSnapshots.filter(
+                (snapshot) => !isQuotaBucket(snapshot)
+              );
+              const bucketSnapshots = visibleSnapshots.filter(isQuotaBucket);
+              const newestGoodSnapshot = newestQuotaSnapshot(visibleSnapshots);
+              const newestSnapshot =
+                newestGoodSnapshot ??
+                newestQuotaSnapshot(providerGroup.snapshots);
+              const newestFetchedAtMs = newestGoodSnapshot
+                ? new Date(newestGoodSnapshot.fetchedAt).getTime()
+                : NaN;
+              const newestAnyFetchedAtMs = newestSnapshot
+                ? new Date(newestSnapshot.fetchedAt).getTime()
+                : NaN;
+              const isProviderStale =
+                Number.isFinite(newestFetchedAtMs) &&
+                Date.now() - newestFetchedAtMs > PROVIDER_QUOTA_STALE_MS;
+              const latestFailure = providerGroup.snapshots
+                .filter((snapshot) => snapshot.status !== "ok")
+                .sort(
+                  (a, b) =>
+                    new Date(b.fetchedAt).getTime() -
+                    new Date(a.fetchedAt).getTime()
+                )[0];
+              const failureIsLatest =
+                latestFailure &&
+                Number.isFinite(newestAnyFetchedAtMs) &&
+                new Date(latestFailure.fetchedAt).getTime() >=
+                  newestAnyFetchedAtMs;
+              const hasProviderStatus = Boolean(
+                isProviderStale ||
+                failureIsLatest ||
+                (latestFailure && !newestGoodSnapshot)
+              );
+              return (
+                <div
+                  key={providerGroup.provider}
+                  className="flex min-h-[19rem] flex-col rounded-md border border-border bg-muted/20 p-3"
+                >
+                  <div className="flex-1">
+                    <div className="mb-3">
+                      <h3 className="text-sm font-semibold text-foreground">
+                        {providerLabel(providerGroup.provider)}
+                      </h3>
+                    </div>
+                    {windowSnapshots.length > 0 && (
+                      <div>
+                        <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                          Windows
+                        </div>
+                        <div className="space-y-2">
+                          {windowSnapshots.map((snapshot) => (
+                            <ProviderQuotaProgressRow
+                              key={snapshot.id}
+                              snapshot={snapshot}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {bucketSnapshots.length > 0 && (
+                      <div className={windowSnapshots.length > 0 ? "mt-3" : ""}>
+                        <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
+                          Buckets
+                        </div>
+                        <div className="space-y-2">
+                          {bucketSnapshots.map((snapshot) => (
+                            <ProviderQuotaProgressRow
+                              key={snapshot.id}
+                              snapshot={snapshot}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {hasProviderStatus && (
+                      <div className="mt-3 rounded-md border border-status-blocked/30 bg-status-blocked/10 px-2 py-1.5 text-[10px] text-status-blocked">
+                        {failureIsLatest && newestGoodSnapshot ? (
+                          <div>
+                            Refresh failed; showing last checked data from{" "}
+                            {formatRelativeTime(newestGoodSnapshot.fetchedAt)}.
+                          </div>
+                        ) : isProviderStale && newestGoodSnapshot ? (
+                          <div>
+                            Stats are stale. Last checked{" "}
+                            {formatRelativeTime(newestGoodSnapshot.fetchedAt)}.
+                          </div>
+                        ) : (
+                          <div>
+                            Stats unavailable. Try refreshing provider quotas.
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </div>
-                  {windowSnapshots.length > 0 && (
-                    <div>
-                      <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
-                        Windows
-                      </div>
-                      <div className="space-y-2">
-                        {windowSnapshots.map((snapshot) => (
-                          <ProviderQuotaProgressRow
-                            key={snapshot.id}
-                            snapshot={snapshot}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {bucketSnapshots.length > 0 && (
-                    <div className={windowSnapshots.length > 0 ? "mt-3" : ""}>
-                      <div className="mb-1.5 text-[10px] font-semibold uppercase text-muted-foreground">
-                        Buckets
-                      </div>
-                      <div className="space-y-2">
-                        {bucketSnapshots.map((snapshot) => (
-                          <ProviderQuotaProgressRow
-                            key={snapshot.id}
-                            snapshot={snapshot}
-                          />
-                        ))}
-                      </div>
-                    </div>
-                  )}
-                  {hasProviderStatus && (
-                    <div className="mt-3 rounded-md border border-status-blocked/30 bg-status-blocked/10 px-2 py-1.5 text-[10px] text-status-blocked">
-                      {failureIsLatest && newestGoodSnapshot ? (
-                        <div>
-                          Refresh failed; showing last checked data from{" "}
-                          {formatRelativeTime(newestGoodSnapshot.fetchedAt)}.
-                        </div>
-                      ) : isProviderStale && newestGoodSnapshot ? (
-                        <div>
-                          Stats are stale. Last checked{" "}
-                          {formatRelativeTime(newestGoodSnapshot.fetchedAt)}.
-                        </div>
-                      ) : (
-                        <div>
-                          Stats unavailable. Try refreshing provider quotas.
-                        </div>
-                      )}
-                    </div>
-                  )}
+                  <div className="mt-3 border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
+                    Last checked{" "}
+                    {newestGoodSnapshot
+                      ? formatRelativeTime(newestGoodSnapshot.fetchedAt)
+                      : "never"}
+                    {isProviderStale ? " · stale" : ""}
+                  </div>
                 </div>
-                <div className="mt-3 border-t border-border/60 pt-2 text-[10px] text-muted-foreground">
-                  Last checked{" "}
-                  {newestGoodSnapshot
-                    ? formatRelativeTime(newestGoodSnapshot.fetchedAt)
-                    : "never"}
-                  {isProviderStale ? " · stale" : ""}
+              );
+            })}
+          </div>
+          <div className="space-y-5">
+            <div>
+              <h3 className="mb-2 text-sm font-medium text-foreground">
+                Average utilization
+              </h3>
+              <p className="mb-3 text-xs text-muted-foreground">
+                Average observed account quota use across the selected range.
+              </p>
+              {historyLoading ? (
+                <div className="h-56 animate-pulse rounded-md bg-muted/30" />
+              ) : history && history.series.length > 0 ? (
+                <ProviderQuotaUtilizationChart
+                  series={history.series}
+                  granularity={history.granularity}
+                />
+              ) : (
+                <div className="rounded-md border border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">
+                  No quota history yet. New refreshes append observations here.
                 </div>
+              )}
+            </div>
+            {history && history.completedWindows.length > 0 && (
+              <div>
+                <h3 className="mb-2 text-sm font-medium text-foreground">
+                  Left on the table
+                </h3>
+                <p className="mb-3 text-xs text-muted-foreground">
+                  Unused account quota at completed resets.
+                </p>
+                <ProviderQuotaLeftOnTableChart
+                  completedWindows={history.completedWindows}
+                  granularity={history.granularity}
+                />
               </div>
-            );
-          })}
+            )}
+          </div>
         </div>
       ) : (
         <div className="rounded-md border border-border bg-muted/30 px-3 py-4 text-sm text-muted-foreground">

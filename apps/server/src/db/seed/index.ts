@@ -11,6 +11,7 @@ import { seedFeedback } from "./feedback.js";
 import { seedMedia } from "./media.js";
 import { seedJobs } from "./jobs.js";
 import { seedPersonaReviews } from "./persona-reviews.js";
+import { seedProviderQuotaHistory } from "./provider-quota-history.js";
 
 type SeedOptions = {
   databaseUrl: string;
@@ -64,6 +65,12 @@ async function clearSeeded(client: PoolClient): Promise<void> {
   await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
     "activity-demo",
   ]);
+  await client.query(
+    `DELETE FROM provider_quota_observations WHERE source = 'seed-demo'`
+  );
+  await client.query(
+    `DELETE FROM provider_quota_snapshots WHERE source = 'seed-demo'`
+  );
   // Deleting agents cascades to media, feedback, token usage, events, persona_reviews.
   await client.query(`DELETE FROM agents WHERE id LIKE 'seed-%'`);
 }
@@ -86,6 +93,7 @@ export async function seedDevData(
     await seedFeedback(client);
     await seedMedia(client);
     await seedJobs(client);
+    await seedProviderQuotaHistory(client);
     await client.query("COMMIT");
   } catch (err) {
     await client.query("ROLLBACK");

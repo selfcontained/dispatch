@@ -3,6 +3,7 @@ import type {
   ProviderQuotaRefreshOptions,
 } from "./types.js";
 import { ProviderQuotaStore } from "./store.js";
+import type { ActivityQuery } from "../server/activity-query.js";
 
 type SchedulerOptions = {
   intervalMs: number;
@@ -25,6 +26,21 @@ export class ProviderQuotaService {
     return this.store.listLatest();
   }
 
+  listHistory(
+    aq: ActivityQuery,
+    dateTruncTz: (
+      granularity: ActivityQuery["granularity"],
+      column: string,
+      tz: string
+    ) => string
+  ) {
+    return this.store.listHistory(aq, dateTruncTz);
+  }
+
+  listCompletedWindows(aq: ActivityQuery) {
+    return this.store.listCompletedWindows(aq);
+  }
+
   async refreshAll(options: ProviderQuotaRefreshOptions = {}) {
     if (!(await this.isEnabled())) {
       return [];
@@ -43,7 +59,10 @@ export class ProviderQuotaService {
       this.adapters.map(async (adapter) => {
         const result = await adapter.refresh(options);
         if (result.persist !== false && result.snapshots.length > 0) {
-          await this.store.upsertSnapshots(result.snapshots);
+          await this.store.upsertSnapshots(
+            result.snapshots,
+            options.interaction ?? "background"
+          );
         }
         return result;
       })
