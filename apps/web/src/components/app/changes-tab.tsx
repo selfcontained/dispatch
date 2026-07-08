@@ -10,7 +10,9 @@ import {
   FilePlus,
   FileText,
   Loader2,
+  MessageCircle,
   MessageSquare,
+  MessageSquarePlus,
   PanelLeftClose,
   PanelLeftOpen,
   X,
@@ -94,6 +96,15 @@ import {
   diffViewStateAtomFamily,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import {
+  type DraftComment,
+  ReviewModeBar,
+  DraftCommentWidget,
+} from "@/components/app/review-mode";
+import {
+  type ReviewFeedbackItem,
+  useAllReviewFeedbackItems,
+} from "@/hooks/use-agent-reviews";
 
 type LineSelection = {
   filePath: string;
@@ -117,9 +128,44 @@ export const ChangesTab = memo(function ChangesTab({
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
   const { data, isLoading } = useAgentDiff(agentId, active, ignoreWhitespace);
+  const feedbackItems = useAllReviewFeedbackItems(agentId, active);
   const [viewState, setViewState] = useAtom(
     diffViewStateAtomFamily(agentId ?? "")
   );
+
+  const [reviewMode, setReviewMode] = useState(false);
+  const [draftComments, setDraftComments] = useState<DraftComment[]>([]);
+  const nextDraftId = useRef(0);
+
+  useEffect(() => {
+    setReviewMode(false);
+    setDraftComments([]);
+    nextDraftId.current = 0;
+  }, [agentId]);
+
+  const addDraft = useCallback(
+    (filePath: string, startLine: number, endLine: number, comment: string) => {
+      setDraftComments((prev) => [
+        ...prev,
+        {
+          id: `draft-${nextDraftId.current++}`,
+          filePath,
+          startLine,
+          endLine,
+          comment,
+        },
+      ]);
+    },
+    []
+  );
+
+  const removeDraft = useCallback((id: string) => {
+    setDraftComments((prev) => prev.filter((d) => d.id !== id));
+  }, []);
+
+  const clearDrafts = useCallback(() => {
+    setDraftComments([]);
+  }, []);
 
   const collapsedFiles = useMemo(
     () => new Set(viewState.collapsedFiles),
@@ -247,31 +293,59 @@ export const ChangesTab = memo(function ChangesTab({
   }
 
   return (
-    <div className="flex h-full min-h-0">
-      <FileTree
-        files={files}
-        selectedFile={selectedFile}
-        onSelectFile={scrollToFile}
-        open={fileTreeOpen}
-        onToggleOpen={() => setFileTreeOpen((v) => !v)}
-        collapsedDirs={collapsedDirs}
-        onToggleDir={toggleCollapseDir}
-      />
-      <DiffPane
-        agentId={agentId}
-        files={files}
-        collapsedFiles={collapsedFiles}
-        onToggleCollapse={toggleCollapseFile}
-        fileRefs={fileRefs}
-        lineSelection={lineSelection}
-        onLineSelection={handleLineSelection}
-        commentOpen={commentOpen}
-        onCommentOpen={setCommentOpen}
-        viewType={viewType}
-        ignoreWhitespace={ignoreWhitespace}
-        scrollRef={scrollRef}
-        onScroll={handleScroll}
-      />
+    <div className="flex h-full min-h-0 flex-col">
+      {reviewMode && agentId && (
+        <ReviewModeBar
+          agentId={agentId}
+          drafts={draftComments}
+          onClearDrafts={clearDrafts}
+          onRemoveDraft={removeDraft}
+          onExitReview={() => setReviewMode(false)}
+          onReviewSubmitted={() => setReviewMode(false)}
+        />
+      )}
+      {!reviewMode && agentId && files.length > 0 && (
+        <div className="flex items-center justify-end border-b border-border/30 px-3 py-1.5">
+          <button
+            type="button"
+            className="flex items-center gap-1.5 rounded border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+            onClick={() => setReviewMode(true)}
+          >
+            <MessageSquare className="h-3 w-3" />
+            Start review
+          </button>
+        </div>
+      )}
+      <div className="flex min-h-0 flex-1">
+        <FileTree
+          files={files}
+          selectedFile={selectedFile}
+          onSelectFile={scrollToFile}
+          open={fileTreeOpen}
+          onToggleOpen={() => setFileTreeOpen((v) => !v)}
+          collapsedDirs={collapsedDirs}
+          onToggleDir={toggleCollapseDir}
+        />
+        <DiffPane
+          agentId={agentId}
+          files={files}
+          collapsedFiles={collapsedFiles}
+          onToggleCollapse={toggleCollapseFile}
+          fileRefs={fileRefs}
+          lineSelection={lineSelection}
+          onLineSelection={handleLineSelection}
+          commentOpen={commentOpen}
+          onCommentOpen={setCommentOpen}
+          viewType={viewType}
+          ignoreWhitespace={ignoreWhitespace}
+          scrollRef={scrollRef}
+          onScroll={handleScroll}
+          reviewMode={reviewMode}
+          draftComments={draftComments}
+          onAddDraft={addDraft}
+          feedbackItems={feedbackItems}
+        />
+      </div>
     </div>
   );
 });
@@ -519,6 +593,15 @@ type DiffPaneProps = {
   ignoreWhitespace: boolean;
   scrollRef: React.RefObject<HTMLDivElement>;
   onScroll: () => void;
+  reviewMode?: boolean;
+  draftComments?: DraftComment[];
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  feedbackItems?: ReviewFeedbackItem[];
 };
 
 function DiffPane({
@@ -535,6 +618,10 @@ function DiffPane({
   ignoreWhitespace,
   scrollRef,
   onScroll,
+  reviewMode,
+  draftComments,
+  onAddDraft,
+  feedbackItems,
 }: DiffPaneProps): JSX.Element {
   return (
     <div
@@ -562,6 +649,12 @@ function DiffPane({
           onCommentOpen={onCommentOpen}
           viewType={viewType}
           ignoreWhitespace={ignoreWhitespace}
+          reviewMode={reviewMode}
+          draftComments={draftComments?.filter((d) => d.filePath === file.path)}
+          onAddDraft={onAddDraft}
+          feedbackItems={feedbackItems?.filter(
+            (fi) => fi.filePath === file.path
+          )}
         />
       ))}
     </div>
@@ -580,6 +673,15 @@ type FileDiffSectionProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
+  reviewMode?: boolean;
+  draftComments?: DraftComment[];
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  feedbackItems?: ReviewFeedbackItem[];
 };
 
 function FileDiffSection({
@@ -594,6 +696,10 @@ function FileDiffSection({
   onCommentOpen,
   viewType,
   ignoreWhitespace,
+  reviewMode,
+  draftComments,
+  onAddDraft,
+  feedbackItems,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div ref={setRef} className="rounded-md border border-border/50">
@@ -645,6 +751,10 @@ function FileDiffSection({
               onCommentOpen={onCommentOpen}
               viewType={viewType}
               ignoreWhitespace={ignoreWhitespace}
+              reviewMode={reviewMode}
+              draftComments={draftComments}
+              onAddDraft={onAddDraft}
+              feedbackItems={feedbackItems}
             />
           </motion.div>
         )}
@@ -662,6 +772,15 @@ type FileDiffContentProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
+  reviewMode?: boolean;
+  draftComments?: DraftComment[];
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  feedbackItems?: ReviewFeedbackItem[];
 };
 
 function FileDiffContent({
@@ -673,6 +792,10 @@ function FileDiffContent({
   onCommentOpen,
   viewType,
   ignoreWhitespace,
+  reviewMode,
+  draftComments,
+  onAddDraft,
+  feedbackItems,
 }: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
@@ -737,6 +860,10 @@ function FileDiffContent({
       commentOpen={commentOpen}
       onCommentOpen={onCommentOpen}
       viewType={viewType}
+      reviewMode={reviewMode}
+      draftComments={draftComments}
+      onAddDraft={onAddDraft}
+      feedbackItems={feedbackItems}
     />
   );
 }
@@ -858,6 +985,15 @@ type UnifiedDiffViewProps = {
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
+  reviewMode?: boolean;
+  draftComments?: DraftComment[];
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  feedbackItems?: ReviewFeedbackItem[];
 };
 
 const UnifiedDiffView = memo(function UnifiedDiffView({
@@ -869,6 +1005,10 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   commentOpen,
   onCommentOpen,
   viewType,
+  reviewMode,
+  draftComments,
+  onAddDraft,
+  feedbackItems,
 }: UnifiedDiffViewProps): JSX.Element {
   const parsed = useMemo(() => {
     try {
@@ -948,31 +1088,104 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   }, [file, lineSelection]);
 
   const widgets = useMemo(() => {
-    if (!file || !lineSelection || !agentId || !commentOpen) return {};
-    const lastKey = findLastChangeKeyInRange(
-      file.hunks,
-      lineSelection.startLine,
-      lineSelection.endLine
-    );
-    if (!lastKey) return {};
-    return {
-      [lastKey]: (
-        <InlineCommentForm
-          agentId={agentId}
-          filePath={filePath}
-          startLine={lineSelection.startLine}
-          endLine={lineSelection.endLine}
-          onCancel={() => {
-            onCommentOpen(false);
-            onLineSelection(null);
-          }}
-          onSubmitted={() => {
-            onCommentOpen(false);
-            onLineSelection(null);
-          }}
-        />
-      ),
-    };
+    if (!file) return {};
+    const w: Record<string, React.ReactElement> = {};
+
+    // Inline feedback item annotations
+    if (feedbackItems) {
+      for (const fi of feedbackItems) {
+        if (fi.lineStart == null) continue;
+        const key = findLastChangeKeyInRange(
+          file.hunks,
+          fi.lineStart,
+          fi.lineEnd ?? fi.lineStart
+        );
+        if (!key) continue;
+        const firstMsg = fi.messages[0]?.content?.body ?? "";
+        const isResolved = fi.status === "resolved";
+        w[key] = (
+          <InlineFeedbackAnnotation
+            feedbackItem={fi}
+            comment={firstMsg}
+            isResolved={isResolved}
+          />
+        );
+      }
+    }
+
+    // Draft comment annotations (review mode)
+    if (draftComments) {
+      for (const draft of draftComments) {
+        const key = findLastChangeKeyInRange(
+          file.hunks,
+          draft.startLine,
+          draft.endLine
+        );
+        if (!key || w[key]) continue;
+        w[key] = (
+          <div className="border-t border-primary/30 bg-primary/5 px-4 py-2 text-xs">
+            <div className="flex items-center gap-1.5 text-primary/80">
+              <MessageSquarePlus className="h-3 w-3" />
+              <span className="font-medium">Draft</span>
+            </div>
+            <p className="mt-1 text-foreground/70">{draft.comment}</p>
+          </div>
+        );
+      }
+    }
+
+    // Active comment form (quick-comment or review mode)
+    if (lineSelection && agentId && commentOpen) {
+      const lastKey = findLastChangeKeyInRange(
+        file.hunks,
+        lineSelection.startLine,
+        lineSelection.endLine
+      );
+      if (lastKey) {
+        if (reviewMode && onAddDraft) {
+          w[lastKey] = (
+            <DraftCommentWidget
+              filePath={filePath}
+              startLine={lineSelection.startLine}
+              endLine={lineSelection.endLine}
+              onSave={(comment) => {
+                onAddDraft(
+                  filePath,
+                  lineSelection.startLine,
+                  lineSelection.endLine,
+                  comment
+                );
+                onCommentOpen(false);
+                onLineSelection(null);
+              }}
+              onCancel={() => {
+                onCommentOpen(false);
+                onLineSelection(null);
+              }}
+            />
+          );
+        } else {
+          w[lastKey] = (
+            <InlineCommentForm
+              agentId={agentId}
+              filePath={filePath}
+              startLine={lineSelection.startLine}
+              endLine={lineSelection.endLine}
+              onCancel={() => {
+                onCommentOpen(false);
+                onLineSelection(null);
+              }}
+              onSubmitted={() => {
+                onCommentOpen(false);
+                onLineSelection(null);
+              }}
+            />
+          );
+        }
+      }
+    }
+
+    return w;
   }, [
     file,
     lineSelection,
@@ -981,6 +1194,10 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     onLineSelection,
     commentOpen,
     onCommentOpen,
+    reviewMode,
+    draftComments,
+    onAddDraft,
+    feedbackItems,
   ]);
 
   const diffRef = useRef<HTMLDivElement>(null);
@@ -1192,6 +1409,57 @@ function InlineCommentForm({
           Chat Now
         </button>
       </div>
+    </div>
+  );
+}
+
+function InlineFeedbackAnnotation({
+  comment,
+  isResolved,
+  feedbackItem,
+}: {
+  feedbackItem: ReviewFeedbackItem;
+  comment: string;
+  isResolved: boolean;
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(!isResolved);
+
+  return (
+    <div
+      className={cn(
+        "border-t px-4 py-2 text-xs cursor-pointer transition-colors",
+        isResolved
+          ? "border-border/30 bg-muted/10 opacity-60"
+          : "border-amber-500/30 bg-amber-500/5"
+      )}
+      onClick={() => setExpanded((v) => !v)}
+    >
+      <div className="flex items-center gap-1.5">
+        <MessageCircle
+          className={cn(
+            "h-3 w-3 shrink-0",
+            isResolved ? "text-muted-foreground" : "text-amber-500"
+          )}
+        />
+        <span
+          className={cn(
+            "rounded-full px-1.5 py-0 text-[10px] font-medium",
+            isResolved
+              ? "bg-muted text-muted-foreground"
+              : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
+          )}
+        >
+          {feedbackItem.status}
+        </span>
+        {!expanded && (
+          <span className="flex-1 truncate text-muted-foreground">
+            {comment}
+          </span>
+        )}
+      </div>
+      {expanded && (
+        <p className="mt-1 whitespace-pre-wrap text-foreground/80">{comment}</p>
+      )}
     </div>
   );
 }

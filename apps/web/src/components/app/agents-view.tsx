@@ -267,6 +267,13 @@ export function AgentsView({
     await uploadAgentMedia(agentId, file);
   }, []);
 
+  const handleNavigateToFile = useCallback(
+    (_filePath: string, _lineStart: number | null) => {
+      onTabChange("changes");
+    },
+    [onTabChange]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!expandedAgentId) {
@@ -675,6 +682,7 @@ export function AgentsView({
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
             onUploadFile={uploadFile}
+            onNavigateToFile={handleNavigateToFile}
           />
         </div>
       </div>
@@ -722,6 +730,7 @@ export function AgentsView({
             openLightbox={openLightbox}
             onRequestClose={() => setMobileMediaOpen(false)}
             onUploadFile={uploadFile}
+            onNavigateToFile={handleNavigateToFile}
           />
         </GlassSidebar>
       ) : null}
