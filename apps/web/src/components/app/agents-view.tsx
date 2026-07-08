@@ -333,9 +333,13 @@ export function AgentsView({
   const { unreadCount: unreadMessageCount, markRead: markMessagesRead } =
     useAgentMessages(focusedAgentId);
 
+  // Only mark read when the sidebar is actually open on the Messages tab.
+  // MediaSidebarContent stays mounted while closed and the active tab is
+  // persisted per-agent, so gating on the tab alone would silently clear
+  // unread state for agents whose last-used tab was Messages.
   useEffect(() => {
-    if (mediaActiveTab === "messages") markMessagesRead();
-  }, [mediaActiveTab, markMessagesRead]);
+    if (mediaPanelOpen && mediaActiveTab === "messages") markMessagesRead();
+  }, [mediaPanelOpen, mediaActiveTab, markMessagesRead]);
 
   const focusedAgentHasStream = focusedAgent?.hasStream ?? false;
   const focusedAgentStreamUrl = focusedAgentId
@@ -715,9 +719,9 @@ export function AgentsView({
                       data-testid="toggle-media-sidebar"
                     >
                       <PanelLeftOpen className="h-4 w-4" />
-                      {unseenMediaCount > 0 ? (
+                      {unseenMediaCount + unreadMessageCount > 0 ? (
                         <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                          {unseenMediaCount}
+                          {unseenMediaCount + unreadMessageCount}
                         </span>
                       ) : null}
                     </Button>

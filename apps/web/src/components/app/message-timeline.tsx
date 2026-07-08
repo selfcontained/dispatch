@@ -23,7 +23,12 @@ export function MessageTimeline({
             <span>·</span>
             <span>{new Date(m.createdAt).toLocaleTimeString()}</span>
             {!m.delivered && (
-              <span className={cn("text-destructive")}>· not delivered</span>
+              <span
+                className={cn("text-destructive")}
+                title="The recipient agent wasn't running, so it never received this message."
+              >
+                · not delivered
+              </span>
             )}
           </div>
           <div className="whitespace-pre-wrap break-words text-foreground">

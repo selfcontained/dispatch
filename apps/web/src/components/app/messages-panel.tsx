@@ -84,7 +84,7 @@ export function MessagesPanel({
   }
 
   return (
-    <div className="flex flex-col overflow-y-auto">
+    <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {threads.map((thread) => (
         <div key={thread.otherId} className="border-b border-border">
           <div className="px-3 py-2 text-xs font-semibold uppercase tracking-wide text-muted-foreground">
@@ -112,7 +112,12 @@ export function MessagesPanel({
                     <span>·</span>
                     <span>{relativeTime(m.createdAt)}</span>
                     {!m.delivered && (
-                      <span className="text-destructive">· not delivered</span>
+                      <span
+                        className="text-destructive"
+                        title="The recipient agent wasn't running, so it never received this message."
+                      >
+                        · not delivered
+                      </span>
                     )}
                   </div>
                   <div className="whitespace-pre-wrap break-words text-foreground">
