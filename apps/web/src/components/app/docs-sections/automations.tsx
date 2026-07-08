@@ -201,12 +201,6 @@ export function AutomationsContent() {
             run can be active at a time. Turn off to allow overlapping runs of
             the same job.
           </li>
-          <li>
-            <strong>Webhook trigger</strong> — enable to generate a secret URL
-            that triggers a run via HTTP POST. The URL is shown after saving and
-            can be copied from the settings panel. No auth header is required —
-            the secret in the URL is the credential.
-          </li>
         </ul>
         <P>
           Open <strong>Advanced settings</strong> for the rest:
@@ -238,6 +232,12 @@ export function AutomationsContent() {
             this to leave the agent (and its worktree) around for inspection.
           </li>
         </ul>
+        <P>
+          After creating a job, open its <strong>Settings</strong> tab to
+          configure additional options like <strong>Webhook trigger</strong> —
+          enable it to generate a secret URL that fires a run via HTTP POST. No
+          auth header is needed; the secret in the URL is the credential.
+        </P>
       </Section>
 
       <Section>
@@ -315,10 +315,11 @@ export function AutomationsContent() {
           <li>
             <strong>Discovery &amp; messaging</strong> —{" "}
             <Code>list_agents</Code>, <Code>dispatch_send_message</Code>,{" "}
-            <Code>list_personas</Code>, <Code>list_recent_persona_reviews</Code>
-            , <Code>list_recent_feedback</Code>,{" "}
-            <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,
-            and <Code>get_feedback_summary</Code> let a job sweep over recent
+            <Code>dispatch_launch_agent</Code>, <Code>list_personas</Code>,{" "}
+            <Code>list_recent_persona_reviews</Code>,{" "}
+            <Code>list_recent_feedback</Code>, <Code>get_activity_summary</Code>
+            , <Code>get_agent_history</Code>, and{" "}
+            <Code>get_feedback_summary</Code> let a job sweep over recent
             activity, coordinate with other agents, or post a summary.
           </li>
           <li>
