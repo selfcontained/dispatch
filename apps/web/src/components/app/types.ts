@@ -122,3 +122,57 @@ export type DiffStats = {
   files: number;
   computedAt: number;
 };
+
+// --- Review system types (Phase 3a) ---
+
+export type ReviewThreadMessage = {
+  id: string;
+  feedbackItemId: string;
+  authorType: "human" | "agent";
+  authorAgentId: string | null;
+  type: string;
+  content: { body: string } & Record<string, unknown>;
+  createdAt: string;
+};
+
+export type ReviewFeedbackItem = {
+  id: string;
+  reviewId: string;
+  filePath: string | null;
+  lineStart: number | null;
+  lineEnd: number | null;
+  diffSnapshot: string | null;
+  baseRef: string | null;
+  status: "open" | "in_progress" | "resolved";
+  resolution: string | null;
+  resolutionNote: string | null;
+  resolvedBy: string | null;
+  resolvedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  messages: ReviewThreadMessage[];
+};
+
+export type Review = {
+  id: string;
+  agentId: string;
+  assignedAgentId: string | null;
+  reviewerType: "human" | "agent";
+  reviewerAgentId: string | null;
+  summary: string | null;
+  status: "open" | "in_progress" | "resolved";
+  baseRef: string | null;
+  createdAt: string;
+  updatedAt: string;
+  items: ReviewFeedbackItem[];
+  itemCount?: number;
+  resolvedCount?: number;
+};
+
+export type DraftReviewComment = {
+  id: string;
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  comment: string;
+};

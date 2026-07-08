@@ -37,6 +37,14 @@ type UiEvent =
   | { type: "stream.stopped"; agentId: string }
   | { type: "feedback.created"; agentId: string }
   | { type: "feedback.updated"; agentId: string }
+  | { type: "review.created"; agentId: string; reviewId: string }
+  | { type: "review.updated"; agentId: string; reviewId: string }
+  | {
+      type: "review_feedback.updated";
+      agentId: string;
+      reviewId: string;
+      itemId: string;
+    }
   | { type: "job.changed" }
   | { type: "template.changed" }
   | { type: "brain.changed"; repoRoot: string }
@@ -173,6 +181,17 @@ export function useSSE(authState: AuthState): void {
           payload.type === "feedback.updated"
         ) {
           void queryClient.invalidateQueries({ queryKey: ["feedback"] });
+          return;
+        }
+
+        if (
+          payload.type === "review.created" ||
+          payload.type === "review.updated" ||
+          payload.type === "review_feedback.updated"
+        ) {
+          void queryClient.invalidateQueries({
+            queryKey: ["agent-reviews", payload.agentId],
+          });
           return;
         }
 

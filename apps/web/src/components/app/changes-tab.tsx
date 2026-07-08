@@ -13,6 +13,14 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
+  Bot,
+  CheckCircle2,
+  Circle,
+  Clock,
+  Pencil,
+  Send,
+  Trash2,
+  User,
   X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
@@ -85,6 +93,11 @@ import {
   type DiffFile,
   type DiffFileStatus,
 } from "@/hooks/use-agent-diff";
+import {
+  useSubmitReview,
+  useAgentFeedbackItems,
+  type FeedbackItemAnnotation,
+} from "@/hooks/use-agent-reviews";
 import { agentRoute } from "@/lib/agent-routes";
 import {
   type DiffViewType,
@@ -94,6 +107,7 @@ import {
   diffViewStateAtomFamily,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import type { DraftReviewComment } from "@/components/app/types";
 
 type LineSelection = {
   filePath: string;
@@ -161,6 +175,64 @@ export const ChangesTab = memo(function ChangesTab({
   const [commentOpen, setCommentOpen] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useAtom(diffFileTreeOpenAtom);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  // Review mode state
+  const [reviewMode, setReviewMode] = useState(false);
+  const [draftComments, setDraftComments] = useState<DraftReviewComment[]>([]);
+  const [reviewSummary, setReviewSummary] = useState("");
+  const [showSubmitPanel, setShowSubmitPanel] = useState(false);
+  const submitReview = useSubmitReview(agentId);
+
+  // Fetch persisted feedback items for inline annotations
+  const { data: feedbackItems } = useAgentFeedbackItems(agentId, active);
+
+  const addDraftComment = useCallback(
+    (filePath: string, startLine: number, endLine: number, comment: string) => {
+      setDraftComments((prev) => [
+        ...prev,
+        {
+          id: `draft-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          filePath,
+          startLine,
+          endLine,
+          comment,
+        },
+      ]);
+    },
+    []
+  );
+
+  const removeDraftComment = useCallback((id: string) => {
+    setDraftComments((prev) => prev.filter((d) => d.id !== id));
+  }, []);
+
+  const updateDraftComment = useCallback((id: string, comment: string) => {
+    setDraftComments((prev) =>
+      prev.map((d) => (d.id === id ? { ...d, comment } : d))
+    );
+  }, []);
+
+  const handleSubmitReview = useCallback(async () => {
+    if (draftComments.length === 0) return;
+    try {
+      await submitReview.mutateAsync({
+        summary: reviewSummary.trim() || undefined,
+        items: draftComments.map((d) => ({
+          filePath: d.filePath,
+          startLine: d.startLine,
+          endLine: d.endLine,
+          comment: d.comment,
+        })),
+      });
+      // Clear review state on success
+      setReviewMode(false);
+      setDraftComments([]);
+      setReviewSummary("");
+      setShowSubmitPanel(false);
+    } catch {
+      // Error is handled by the mutation
+    }
+  }, [draftComments, reviewSummary, submitReview]);
 
   const handleLineSelection = useCallback((sel: LineSelection | null) => {
     setLineSelection(sel);
@@ -247,31 +319,82 @@ export const ChangesTab = memo(function ChangesTab({
   }
 
   return (
-    <div className="flex h-full min-h-0">
-      <FileTree
-        files={files}
-        selectedFile={selectedFile}
-        onSelectFile={scrollToFile}
-        open={fileTreeOpen}
-        onToggleOpen={() => setFileTreeOpen((v) => !v)}
-        collapsedDirs={collapsedDirs}
-        onToggleDir={toggleCollapseDir}
-      />
-      <DiffPane
-        agentId={agentId}
-        files={files}
-        collapsedFiles={collapsedFiles}
-        onToggleCollapse={toggleCollapseFile}
-        fileRefs={fileRefs}
-        lineSelection={lineSelection}
-        onLineSelection={handleLineSelection}
-        commentOpen={commentOpen}
-        onCommentOpen={setCommentOpen}
-        viewType={viewType}
-        ignoreWhitespace={ignoreWhitespace}
-        scrollRef={scrollRef}
-        onScroll={handleScroll}
-      />
+    <div className="flex h-full min-h-0 flex-col">
+      {/* Review mode toolbar */}
+      {agentId ? (
+        <ReviewToolbar
+          reviewMode={reviewMode}
+          draftCount={draftComments.length}
+          submitting={submitReview.isPending}
+          onStartReview={() => {
+            setReviewMode(true);
+            setShowSubmitPanel(false);
+          }}
+          onCancelReview={() => {
+            setReviewMode(false);
+            setDraftComments([]);
+            setReviewSummary("");
+            setShowSubmitPanel(false);
+          }}
+          onToggleSubmitPanel={() => setShowSubmitPanel((v) => !v)}
+        />
+      ) : null}
+
+      {/* Submit review panel */}
+      <AnimatePresence>
+        {showSubmitPanel && reviewMode && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="overflow-hidden border-b border-border/50"
+          >
+            <SubmitReviewPanel
+              summary={reviewSummary}
+              onSummaryChange={setReviewSummary}
+              draftComments={draftComments}
+              onRemoveDraft={removeDraftComment}
+              onSubmit={handleSubmitReview}
+              submitting={submitReview.isPending}
+              error={submitReview.error?.message ?? null}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="flex min-h-0 flex-1">
+        <FileTree
+          files={files}
+          selectedFile={selectedFile}
+          onSelectFile={scrollToFile}
+          open={fileTreeOpen}
+          onToggleOpen={() => setFileTreeOpen((v) => !v)}
+          collapsedDirs={collapsedDirs}
+          onToggleDir={toggleCollapseDir}
+        />
+        <DiffPane
+          agentId={agentId}
+          files={files}
+          collapsedFiles={collapsedFiles}
+          onToggleCollapse={toggleCollapseFile}
+          fileRefs={fileRefs}
+          lineSelection={lineSelection}
+          onLineSelection={handleLineSelection}
+          commentOpen={commentOpen}
+          onCommentOpen={setCommentOpen}
+          viewType={viewType}
+          ignoreWhitespace={ignoreWhitespace}
+          scrollRef={scrollRef}
+          onScroll={handleScroll}
+          reviewMode={reviewMode}
+          draftComments={draftComments}
+          onAddDraftComment={addDraftComment}
+          onRemoveDraftComment={removeDraftComment}
+          onUpdateDraftComment={updateDraftComment}
+          feedbackItems={feedbackItems}
+        />
+      </div>
     </div>
   );
 });
@@ -519,6 +642,17 @@ type DiffPaneProps = {
   ignoreWhitespace: boolean;
   scrollRef: React.RefObject<HTMLDivElement>;
   onScroll: () => void;
+  reviewMode: boolean;
+  draftComments: DraftReviewComment[];
+  onAddDraftComment: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  onRemoveDraftComment: (id: string) => void;
+  onUpdateDraftComment: (id: string, comment: string) => void;
+  feedbackItems?: FeedbackItemAnnotation[];
 };
 
 function DiffPane({
@@ -535,6 +669,12 @@ function DiffPane({
   ignoreWhitespace,
   scrollRef,
   onScroll,
+  reviewMode,
+  draftComments,
+  onAddDraftComment,
+  onRemoveDraftComment,
+  onUpdateDraftComment,
+  feedbackItems,
 }: DiffPaneProps): JSX.Element {
   return (
     <div
@@ -562,6 +702,14 @@ function DiffPane({
           onCommentOpen={onCommentOpen}
           viewType={viewType}
           ignoreWhitespace={ignoreWhitespace}
+          reviewMode={reviewMode}
+          draftComments={draftComments.filter((d) => d.filePath === file.path)}
+          onAddDraftComment={onAddDraftComment}
+          onRemoveDraftComment={onRemoveDraftComment}
+          onUpdateDraftComment={onUpdateDraftComment}
+          feedbackItems={feedbackItems?.filter(
+            (fi) => fi.filePath === file.path
+          )}
         />
       ))}
     </div>
@@ -580,6 +728,17 @@ type FileDiffSectionProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
+  reviewMode: boolean;
+  draftComments: DraftReviewComment[];
+  onAddDraftComment: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  onRemoveDraftComment: (id: string) => void;
+  onUpdateDraftComment: (id: string, comment: string) => void;
+  feedbackItems?: FeedbackItemAnnotation[];
 };
 
 function FileDiffSection({
@@ -594,6 +753,12 @@ function FileDiffSection({
   onCommentOpen,
   viewType,
   ignoreWhitespace,
+  reviewMode,
+  draftComments,
+  onAddDraftComment,
+  onRemoveDraftComment,
+  onUpdateDraftComment,
+  feedbackItems,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div ref={setRef} className="rounded-md border border-border/50">
@@ -645,6 +810,12 @@ function FileDiffSection({
               onCommentOpen={onCommentOpen}
               viewType={viewType}
               ignoreWhitespace={ignoreWhitespace}
+              reviewMode={reviewMode}
+              draftComments={draftComments}
+              onAddDraftComment={onAddDraftComment}
+              onRemoveDraftComment={onRemoveDraftComment}
+              onUpdateDraftComment={onUpdateDraftComment}
+              feedbackItems={feedbackItems}
             />
           </motion.div>
         )}
@@ -662,6 +833,17 @@ type FileDiffContentProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
+  reviewMode: boolean;
+  draftComments: DraftReviewComment[];
+  onAddDraftComment: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  onRemoveDraftComment: (id: string) => void;
+  onUpdateDraftComment: (id: string, comment: string) => void;
+  feedbackItems?: FeedbackItemAnnotation[];
 };
 
 function FileDiffContent({
@@ -673,6 +855,12 @@ function FileDiffContent({
   onCommentOpen,
   viewType,
   ignoreWhitespace,
+  reviewMode,
+  draftComments,
+  onAddDraftComment,
+  onRemoveDraftComment,
+  onUpdateDraftComment,
+  feedbackItems,
 }: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
@@ -737,6 +925,12 @@ function FileDiffContent({
       commentOpen={commentOpen}
       onCommentOpen={onCommentOpen}
       viewType={viewType}
+      reviewMode={reviewMode}
+      draftComments={draftComments}
+      onAddDraftComment={onAddDraftComment}
+      onRemoveDraftComment={onRemoveDraftComment}
+      onUpdateDraftComment={onUpdateDraftComment}
+      feedbackItems={feedbackItems}
     />
   );
 }
@@ -858,6 +1052,17 @@ type UnifiedDiffViewProps = {
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
+  reviewMode: boolean;
+  draftComments: DraftReviewComment[];
+  onAddDraftComment: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  onRemoveDraftComment: (id: string) => void;
+  onUpdateDraftComment: (id: string, comment: string) => void;
+  feedbackItems?: FeedbackItemAnnotation[];
 };
 
 const UnifiedDiffView = memo(function UnifiedDiffView({
@@ -869,6 +1074,12 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   commentOpen,
   onCommentOpen,
   viewType,
+  reviewMode,
+  draftComments,
+  onAddDraftComment,
+  onRemoveDraftComment,
+  onUpdateDraftComment,
+  feedbackItems,
 }: UnifiedDiffViewProps): JSX.Element {
   const parsed = useMemo(() => {
     try {
@@ -948,31 +1159,95 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   }, [file, lineSelection]);
 
   const widgets = useMemo(() => {
-    if (!file || !lineSelection || !agentId || !commentOpen) return {};
-    const lastKey = findLastChangeKeyInRange(
-      file.hunks,
-      lineSelection.startLine,
-      lineSelection.endLine
-    );
-    if (!lastKey) return {};
-    return {
-      [lastKey]: (
-        <InlineCommentForm
-          agentId={agentId}
-          filePath={filePath}
-          startLine={lineSelection.startLine}
-          endLine={lineSelection.endLine}
-          onCancel={() => {
-            onCommentOpen(false);
-            onLineSelection(null);
-          }}
-          onSubmitted={() => {
-            onCommentOpen(false);
-            onLineSelection(null);
-          }}
-        />
-      ),
-    };
+    if (!file) return {};
+    const result: Record<string, React.ReactNode> = {};
+
+    // Add draft comment widgets (review mode)
+    for (const draft of draftComments) {
+      const lastKey = findLastChangeKeyInRange(
+        file.hunks,
+        draft.startLine,
+        draft.endLine
+      );
+      if (lastKey) {
+        result[lastKey] = (
+          <DraftCommentWidget
+            key={draft.id}
+            draft={draft}
+            onRemove={() => onRemoveDraftComment(draft.id)}
+            onUpdate={(comment) => onUpdateDraftComment(draft.id, comment)}
+          />
+        );
+      }
+    }
+
+    // Add persisted feedback item annotations
+    if (feedbackItems) {
+      for (const fi of feedbackItems) {
+        if (fi.lineStart == null) continue;
+        const lastKey = findLastChangeKeyInRange(
+          file.hunks,
+          fi.lineStart,
+          fi.lineEnd ?? fi.lineStart
+        );
+        if (lastKey && !result[lastKey]) {
+          result[lastKey] = <FeedbackAnnotationWidget key={fi.id} item={fi} />;
+        }
+      }
+    }
+
+    // Add quick comment / review draft form widget
+    if (lineSelection && agentId && commentOpen) {
+      const lastKey = findLastChangeKeyInRange(
+        file.hunks,
+        lineSelection.startLine,
+        lineSelection.endLine
+      );
+      if (lastKey && !result[lastKey]) {
+        if (reviewMode) {
+          result[lastKey] = (
+            <ReviewDraftCommentForm
+              filePath={filePath}
+              startLine={lineSelection.startLine}
+              endLine={lineSelection.endLine}
+              onCancel={() => {
+                onCommentOpen(false);
+                onLineSelection(null);
+              }}
+              onAdd={(comment) => {
+                onAddDraftComment(
+                  filePath,
+                  lineSelection.startLine,
+                  lineSelection.endLine,
+                  comment
+                );
+                onCommentOpen(false);
+                onLineSelection(null);
+              }}
+            />
+          );
+        } else {
+          result[lastKey] = (
+            <InlineCommentForm
+              agentId={agentId}
+              filePath={filePath}
+              startLine={lineSelection.startLine}
+              endLine={lineSelection.endLine}
+              onCancel={() => {
+                onCommentOpen(false);
+                onLineSelection(null);
+              }}
+              onSubmitted={() => {
+                onCommentOpen(false);
+                onLineSelection(null);
+              }}
+            />
+          );
+        }
+      }
+    }
+
+    return result;
   }, [
     file,
     lineSelection,
@@ -981,6 +1256,12 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     onLineSelection,
     commentOpen,
     onCommentOpen,
+    reviewMode,
+    draftComments,
+    onAddDraftComment,
+    onRemoveDraftComment,
+    onUpdateDraftComment,
+    feedbackItems,
   ]);
 
   const diffRef = useRef<HTMLDivElement>(null);
@@ -1192,6 +1473,494 @@ function InlineCommentForm({
           Chat Now
         </button>
       </div>
+    </div>
+  );
+}
+
+// --- Review Mode Components ---
+
+function ReviewToolbar({
+  reviewMode,
+  draftCount,
+  submitting,
+  onStartReview,
+  onCancelReview,
+  onToggleSubmitPanel,
+}: {
+  reviewMode: boolean;
+  draftCount: number;
+  submitting: boolean;
+  onStartReview: () => void;
+  onCancelReview: () => void;
+  onToggleSubmitPanel: () => void;
+}): JSX.Element {
+  if (!reviewMode) {
+    return (
+      <div className="flex shrink-0 items-center justify-end border-b border-border/50 bg-muted/20 px-3 py-1.5">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1 text-xs font-medium text-foreground hover:bg-muted/40 transition-colors"
+          onClick={onStartReview}
+        >
+          <Pencil className="h-3 w-3" />
+          Start Review
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="flex shrink-0 items-center gap-2 border-b border-primary/30 bg-primary/5 px-3 py-1.5">
+      <div className="flex items-center gap-1.5 text-xs font-medium text-primary">
+        <Pencil className="h-3 w-3" />
+        Review Mode
+      </div>
+      {draftCount > 0 ? (
+        <span className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+          {draftCount} comment{draftCount !== 1 ? "s" : ""}
+        </span>
+      ) : (
+        <span className="text-[11px] text-muted-foreground">
+          Click line numbers to add comments
+        </span>
+      )}
+      <div className="ml-auto flex items-center gap-2">
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40 transition-colors"
+          onClick={onCancelReview}
+          disabled={submitting}
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          className={cn(
+            "flex items-center gap-1.5 rounded-md px-3 py-1 text-xs font-medium transition-colors",
+            draftCount > 0
+              ? "bg-primary text-primary-foreground hover:bg-primary/90"
+              : "bg-muted text-muted-foreground cursor-not-allowed"
+          )}
+          onClick={onToggleSubmitPanel}
+          disabled={draftCount === 0 || submitting}
+        >
+          {submitting ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Send className="h-3 w-3" />
+          )}
+          Submit Review
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SubmitReviewPanel({
+  summary,
+  onSummaryChange,
+  draftComments,
+  onRemoveDraft,
+  onSubmit,
+  submitting,
+  error,
+}: {
+  summary: string;
+  onSummaryChange: (v: string) => void;
+  draftComments: DraftReviewComment[];
+  onRemoveDraft: (id: string) => void;
+  onSubmit: () => void;
+  submitting: boolean;
+  error: string | null;
+}): JSX.Element {
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        onSubmit();
+      }
+    },
+    [onSubmit]
+  );
+
+  return (
+    <div className="bg-muted/10 p-4">
+      <div className="mb-3">
+        <label className="mb-1.5 block text-xs font-medium text-foreground">
+          Review Summary (optional)
+        </label>
+        <textarea
+          className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+          placeholder="Overall feedback or context for this review…"
+          rows={2}
+          value={summary}
+          onChange={(e) => onSummaryChange(e.target.value)}
+          onKeyDown={handleKeyDown}
+          disabled={submitting}
+        />
+      </div>
+
+      <div className="mb-3">
+        <div className="mb-1.5 text-xs font-medium text-foreground">
+          Feedback Items ({draftComments.length})
+        </div>
+        <div className="max-h-40 space-y-1.5 overflow-y-auto">
+          {draftComments.map((draft, i) => {
+            const lineRef =
+              draft.startLine === draft.endLine
+                ? `:${draft.startLine}`
+                : `:${draft.startLine}-${draft.endLine}`;
+            return (
+              <div
+                key={draft.id}
+                className="flex items-start gap-2 rounded bg-background/60 px-2.5 py-1.5 text-xs"
+              >
+                <span className="shrink-0 text-muted-foreground">{i + 1}.</span>
+                <div className="min-w-0 flex-1">
+                  <span className="font-mono text-[11px] text-muted-foreground">
+                    {draft.filePath}
+                    {lineRef}
+                  </span>
+                  <p className="mt-0.5 truncate text-foreground">
+                    {draft.comment}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="shrink-0 rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+                  onClick={() => onRemoveDraft(draft.id)}
+                  title="Remove"
+                  disabled={submitting}
+                >
+                  <Trash2 className="h-3 w-3" />
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {error ? (
+        <div className="mb-3 rounded border border-destructive/30 bg-destructive/5 px-3 py-2 text-xs text-destructive">
+          {error}
+        </div>
+      ) : null}
+
+      <div className="flex justify-end">
+        <button
+          type="button"
+          className="flex items-center gap-1.5 rounded-md bg-primary px-4 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          onClick={onSubmit}
+          disabled={draftComments.length === 0 || submitting}
+        >
+          {submitting ? (
+            <Loader2 className="h-3 w-3 animate-spin" />
+          ) : (
+            <Send className="h-3 w-3" />
+          )}
+          Submit Review ({draftComments.length} item
+          {draftComments.length !== 1 ? "s" : ""})
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewDraftCommentForm({
+  filePath,
+  startLine,
+  endLine,
+  onCancel,
+  onAdd,
+}: {
+  filePath: string;
+  startLine: number;
+  endLine: number;
+  onCancel: () => void;
+  onAdd: (comment: string) => void;
+}): JSX.Element {
+  const [comment, setComment] = useState("");
+
+  const lineLabel =
+    startLine === endLine
+      ? `Line ${startLine}`
+      : `Lines ${startLine}–${endLine}`;
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        if (comment.trim()) onAdd(comment.trim());
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        onCancel();
+      }
+    },
+    [comment, onAdd, onCancel]
+  );
+
+  return (
+    <div className="border-t border-primary/30 bg-primary/5 px-4 py-3">
+      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
+        <Pencil className="h-3 w-3 text-primary" />
+        <span className="font-mono">{filePath}</span>
+        <span>·</span>
+        <span>{lineLabel}</span>
+        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+          Draft
+        </span>
+      </div>
+      <textarea
+        className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+        placeholder="Add a review comment…"
+        rows={3}
+        value={comment}
+        onChange={(e) => setComment(e.target.value)}
+        onKeyDown={handleKeyDown}
+        autoFocus
+      />
+      <div className="mt-2 flex items-center justify-end gap-2">
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40"
+          onClick={onCancel}
+        >
+          <X className="h-3 w-3" />
+          Cancel
+        </button>
+        <button
+          type="button"
+          className="flex items-center gap-1 rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+          onClick={() => {
+            if (comment.trim()) onAdd(comment.trim());
+          }}
+          disabled={!comment.trim()}
+        >
+          <Pencil className="h-3 w-3" />
+          Add to Review
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DraftCommentWidget({
+  draft,
+  onRemove,
+  onUpdate,
+}: {
+  draft: DraftReviewComment;
+  onRemove: () => void;
+  onUpdate: (comment: string) => void;
+}): JSX.Element {
+  const [editing, setEditing] = useState(false);
+  const [editText, setEditText] = useState(draft.comment);
+
+  const lineLabel =
+    draft.startLine === draft.endLine
+      ? `Line ${draft.startLine}`
+      : `Lines ${draft.startLine}–${draft.endLine}`;
+
+  const handleSaveEdit = useCallback(() => {
+    if (editText.trim()) {
+      onUpdate(editText.trim());
+      setEditing(false);
+    }
+  }, [editText, onUpdate]);
+
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+        e.preventDefault();
+        handleSaveEdit();
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setEditing(false);
+        setEditText(draft.comment);
+      }
+    },
+    [handleSaveEdit, draft.comment]
+  );
+
+  return (
+    <div className="border-t border-primary/30 bg-primary/5 px-4 py-2.5">
+      <div className="mb-1.5 flex items-center gap-2 text-[11px]">
+        <Pencil className="h-3 w-3 text-primary" />
+        <span className="font-mono text-muted-foreground">{lineLabel}</span>
+        <span className="rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+          Draft
+        </span>
+        <div className="ml-auto flex items-center gap-1">
+          {!editing && (
+            <button
+              type="button"
+              className="rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              onClick={() => {
+                setEditing(true);
+                setEditText(draft.comment);
+              }}
+              title="Edit"
+            >
+              <Pencil className="h-3 w-3" />
+            </button>
+          )}
+          <button
+            type="button"
+            className="rounded p-0.5 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+            onClick={onRemove}
+            title="Remove"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
+      </div>
+      {editing ? (
+        <>
+          <textarea
+            className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
+            rows={3}
+            value={editText}
+            onChange={(e) => setEditText(e.target.value)}
+            onKeyDown={handleKeyDown}
+            autoFocus
+          />
+          <div className="mt-1.5 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40"
+              onClick={() => {
+                setEditing(false);
+                setEditText(draft.comment);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded bg-primary px-2 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              onClick={handleSaveEdit}
+              disabled={!editText.trim()}
+            >
+              Save
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="whitespace-pre-wrap text-xs text-foreground">
+          {draft.comment}
+        </p>
+      )}
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Inline annotation for persisted review feedback items
+// ---------------------------------------------------------------------------
+
+function FeedbackAnnotationWidget({
+  item,
+}: {
+  item: FeedbackItemAnnotation;
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(item.status !== "resolved");
+  const isResolved = item.status === "resolved";
+
+  const lineLabel =
+    item.lineStart != null
+      ? item.lineEnd != null && item.lineEnd !== item.lineStart
+        ? `Lines ${item.lineStart}-${item.lineEnd}`
+        : `Line ${item.lineStart}`
+      : "General";
+
+  const StatusIcon =
+    item.status === "resolved"
+      ? CheckCircle2
+      : item.status === "in_progress"
+        ? Clock
+        : Circle;
+
+  const statusColor =
+    item.status === "resolved"
+      ? "text-status-working"
+      : item.status === "in_progress"
+        ? "text-primary"
+        : "text-status-waiting";
+
+  const statusLabel =
+    item.status === "resolved"
+      ? "Resolved"
+      : item.status === "in_progress"
+        ? "In progress"
+        : "Open";
+
+  return (
+    <div
+      className={cn(
+        "border-t border-border/50",
+        isResolved ? "bg-muted/10 opacity-60" : "bg-muted/20"
+      )}
+    >
+      <button
+        type="button"
+        className="flex w-full items-center gap-2 px-4 py-2 text-left text-[11px] hover:bg-muted/30"
+        onClick={() => setExpanded((v) => !v)}
+      >
+        {expanded ? (
+          <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+        ) : (
+          <ChevronRight className="h-3 w-3 shrink-0 text-muted-foreground" />
+        )}
+        <StatusIcon className={cn("h-3 w-3 shrink-0", statusColor)} />
+        <span className={cn("text-[10px] font-medium uppercase", statusColor)}>
+          {statusLabel}
+        </span>
+        <span className="font-mono text-muted-foreground">{lineLabel}</span>
+        <span className="ml-auto inline-flex items-center gap-0.5 text-[10px] text-muted-foreground">
+          {item.reviewerType === "human" ? (
+            <User className="h-2.5 w-2.5" />
+          ) : (
+            <Bot className="h-2.5 w-2.5" />
+          )}
+          {item.reviewerType === "human" ? "Human" : "Agent"}
+        </span>
+      </button>
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="annotation-body"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="px-4 pb-2.5">
+              {item.firstMessage ? (
+                <p className="whitespace-pre-wrap text-xs text-foreground/80">
+                  {item.firstMessage.content.body}
+                </p>
+              ) : null}
+              {isResolved && item.resolution ? (
+                <div className="mt-1.5 flex items-center gap-1 text-[10px] text-status-working">
+                  <CheckCircle2 className="h-3 w-3" />
+                  <span className="capitalize">
+                    {item.resolution.replace("_", " ")}
+                  </span>
+                  {item.resolutionNote ? (
+                    <span className="text-muted-foreground">
+                      {" "}
+                      -- {item.resolutionNote}
+                    </span>
+                  ) : null}
+                </div>
+              ) : null}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

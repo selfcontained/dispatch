@@ -21,6 +21,7 @@ import { MediaActions } from "@/components/app/media-lightbox";
 import { isTextFile, stripTimestamp } from "@/components/app/media-file-utils";
 import { BrainTabContent } from "@/components/app/brain-tab-content";
 import { PinsPanel } from "@/components/app/pins-panel";
+import { ReviewsTabContent } from "@/components/app/reviews-tab-content";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
@@ -470,6 +471,20 @@ export function MediaSidebarContent({
               <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
             ) : null}
           </button>
+          <button
+            onClick={() => setActiveTab("reviews")}
+            className={cn(
+              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              activeTab === "reviews"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground/80"
+            )}
+          >
+            Reviews
+            {activeTab === "reviews" ? (
+              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
+            ) : null}
+          </button>
         </div>
         <div className="flex items-center gap-1 px-2">
           {onTogglePin ? (
@@ -549,6 +564,14 @@ export function MediaSidebarContent({
           agentId={selectedAgentId}
           repoRoot={selectedAgentRepoRoot}
         />
+      </div>
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          activeTab !== "reviews" && "hidden"
+        )}
+      >
+        <ReviewsTabContent agentId={selectedAgentId} />
       </div>
     </aside>
   );

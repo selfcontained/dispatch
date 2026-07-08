@@ -31,6 +31,14 @@ export type UiEvent =
       agentId: string;
       feedback: FeedbackRecord;
     }
+  | { type: "review.created"; agentId: string; reviewId: string }
+  | { type: "review.updated"; agentId: string; reviewId: string }
+  | {
+      type: "review_feedback.updated";
+      agentId: string;
+      reviewId: string;
+      itemId: string;
+    }
   | { type: "job.changed" }
   | { type: "template.changed" }
   | { type: "brain.changed"; repoRoot: string }

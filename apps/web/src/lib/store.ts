@@ -137,7 +137,7 @@ export function reconcileAgentSidebarOrder(
   return nextOrder;
 }
 
-export type MediaSidebarTab = "pins" | "media" | "brain";
+export type MediaSidebarTab = "pins" | "media" | "brain" | "reviews";
 
 export type MediaSidebarState = {
   isOpen: boolean;
