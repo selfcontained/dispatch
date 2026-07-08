@@ -8,6 +8,8 @@ import {
   INLINE_DIFF_THRESHOLD_BYTES,
   loadPersonaBySlug,
   loadPersonas,
+  loadPersonasFromRoots,
+  mergePersonasWithWorktreePrecedence,
   parseFrontmatter,
 } from "../src/personas/loader.js";
 import type { PersonaDefinition } from "../src/personas/loader.js";
@@ -441,6 +443,98 @@ feedbackFormat: checklist
       expect(JSON.stringify(p)).not.toContain("# Security Reviewer");
       expect(JSON.stringify(p)).not.toContain("# Design Reviewer");
     }
+  });
+});
+
+describe("mergePersonasWithWorktreePrecedence", () => {
+  const persona = (slug: string, name = slug): PersonaDefinition => ({
+    slug,
+    name,
+    description: "",
+    feedbackFormat: "findings",
+    body: "",
+  });
+
+  it("includes repo personas that are absent from the worktree", () => {
+    const merged = mergePersonasWithWorktreePrecedence({
+      worktreePersonas: [persona("worktree-only")],
+      repoPersonas: [persona("repo-only")],
+    });
+
+    expect(merged.map((p) => p.slug)).toEqual(["worktree-only", "repo-only"]);
+  });
+
+  it("uses the worktree persona when both roots define the same slug", () => {
+    const merged = mergePersonasWithWorktreePrecedence({
+      worktreePersonas: [persona("review", "Worktree Review")],
+      repoPersonas: [persona("review", "Repo Review"), persona("release")],
+    });
+
+    expect(merged).toEqual([
+      persona("review", "Worktree Review"),
+      persona("release"),
+    ]);
+  });
+});
+
+describe("loadPersonasFromRoots", () => {
+  const tmpBase = `/tmp/dispatch-persona-roots-test-${process.pid}`;
+  const worktreeRoot = path.join(tmpBase, "worktree");
+  const repoRoot = path.join(tmpBase, "repo");
+
+  beforeAll(() => {
+    mkdirSync(path.join(worktreeRoot, ".dispatch", "personas"), {
+      recursive: true,
+    });
+    mkdirSync(path.join(repoRoot, ".dispatch", "personas"), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(worktreeRoot, ".dispatch", "personas", "security.md"),
+      `---
+name: Worktree Security
+---
+
+# Worktree security`
+    );
+    writeFileSync(
+      path.join(repoRoot, ".dispatch", "personas", "security.md"),
+      `---
+name: Repo Security
+---
+
+# Repo security`
+    );
+    writeFileSync(
+      path.join(repoRoot, ".dispatch", "personas", "release.md"),
+      `---
+name: Release
+---
+
+# Release`
+    );
+  });
+
+  afterAll(() => {
+    rmSync(tmpBase, { recursive: true, force: true });
+  });
+
+  it("loads both roots and lets the worktree override duplicate slugs", async () => {
+    const personas = await loadPersonasFromRoots({ worktreeRoot, repoRoot });
+
+    expect(personas.map((p) => [p.slug, p.name])).toEqual([
+      ["security", "Worktree Security"],
+      ["release", "Release"],
+    ]);
+  });
+
+  it("does not read the repo twice when both roots are the same", async () => {
+    const personas = await loadPersonasFromRoots({
+      worktreeRoot: repoRoot,
+      repoRoot,
+    });
+
+    expect(personas.map((p) => p.slug)).toEqual(["release", "security"]);
   });
 });
 

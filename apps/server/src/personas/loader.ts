@@ -89,6 +89,33 @@ export async function loadPersonas(
   return personas;
 }
 
+export function mergePersonasWithWorktreePrecedence<
+  T extends { slug: string },
+>(input: { worktreePersonas: T[]; repoPersonas: T[] }): T[] {
+  const worktreeSlugs = new Set(input.worktreePersonas.map((p) => p.slug));
+  return [
+    ...input.worktreePersonas,
+    ...input.repoPersonas.filter((p) => !worktreeSlugs.has(p.slug)),
+  ];
+}
+
+export async function loadPersonasFromRoots(input: {
+  worktreeRoot?: string | null;
+  repoRoot?: string | null;
+}): Promise<PersonaDefinition[]> {
+  const worktreeRoot = input.worktreeRoot ?? null;
+  const repoRoot = input.repoRoot ?? null;
+
+  const worktreePersonas = worktreeRoot ? await loadPersonas(worktreeRoot) : [];
+  const repoPersonas =
+    repoRoot && repoRoot !== worktreeRoot ? await loadPersonas(repoRoot) : [];
+
+  return mergePersonasWithWorktreePrecedence({
+    worktreePersonas,
+    repoPersonas,
+  });
+}
+
 export async function loadPersonaBySlug(
   repoRoot: string,
   slug: string

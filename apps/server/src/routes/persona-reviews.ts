@@ -5,7 +5,7 @@ import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
-import { loadPersonas } from "../personas/loader.js";
+import { loadPersonasFromRoots } from "../personas/loader.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
@@ -39,6 +39,24 @@ type PersonaReviewRouteDeps = {
 
 const PERSONA_SLUG_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
+async function resolveOptionalWorktreeRoot(
+  cwd: string
+): Promise<string | null> {
+  try {
+    return await resolveWorktreeRoot(cwd);
+  } catch {
+    return null;
+  }
+}
+
+async function resolveOptionalRepoRoot(cwd: string): Promise<string | null> {
+  try {
+    return await resolveRepoRoot(cwd);
+  } catch {
+    return null;
+  }
+}
+
 export async function registerPersonaReviewRoutes(
   app: FastifyInstance,
   deps: PersonaReviewRouteDeps
@@ -51,10 +69,9 @@ export async function registerPersonaReviewRoutes(
         .send({ error: "cwd query parameter is required." });
     }
     try {
-      let personas = await loadPersonas(await resolveWorktreeRoot(query.cwd));
-      if (personas.length === 0) {
-        personas = await loadPersonas(await resolveRepoRoot(query.cwd));
-      }
+      const worktreeRoot = await resolveOptionalWorktreeRoot(query.cwd);
+      const repoRoot = await resolveOptionalRepoRoot(query.cwd);
+      const personas = await loadPersonasFromRoots({ worktreeRoot, repoRoot });
       return { personas };
     } catch {
       return { personas: [] };

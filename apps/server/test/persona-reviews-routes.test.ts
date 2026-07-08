@@ -13,7 +13,7 @@ import { registerPersonaReviewRoutes } from "../src/routes/persona-reviews.js";
 import { CLI_AGENT_TYPES } from "../src/agent-type-settings.js";
 
 vi.mock("../src/personas/loader.js", () => ({
-  loadPersonas: vi.fn(async () => []),
+  loadPersonasFromRoots: vi.fn(async () => []),
 }));
 
 vi.mock("../src/shared/git/git-context.js", () => ({
@@ -119,8 +119,8 @@ describe("GET /api/v1/personas", () => {
   });
 
   it("returns personas array for a valid cwd", async () => {
-    const { loadPersonas } = await import("../src/personas/loader.js");
-    vi.mocked(loadPersonas).mockResolvedValueOnce([
+    const { loadPersonasFromRoots } = await import("../src/personas/loader.js");
+    vi.mocked(loadPersonasFromRoots).mockResolvedValueOnce([
       { slug: "security-review", name: "Security Review" },
     ] as never);
     const res = await app.inject({
@@ -132,13 +132,11 @@ describe("GET /api/v1/personas", () => {
     expect(res.json().personas[0].slug).toBe("security-review");
   });
 
-  it("falls back to repo root when worktree returns empty", async () => {
-    const { loadPersonas } = await import("../src/personas/loader.js");
-    vi.mocked(loadPersonas)
-      .mockResolvedValueOnce([])
-      .mockResolvedValueOnce([
-        { slug: "from-repo", name: "From Repo" },
-      ] as never);
+  it("loads personas from the resolved worktree and repo roots", async () => {
+    const { loadPersonasFromRoots } = await import("../src/personas/loader.js");
+    vi.mocked(loadPersonasFromRoots).mockResolvedValueOnce([
+      { slug: "from-repo", name: "From Repo" },
+    ] as never);
     const res = await app.inject({
       method: "GET",
       url: "/api/v1/personas?cwd=/tmp",
@@ -146,12 +144,17 @@ describe("GET /api/v1/personas", () => {
     expect(res.statusCode).toBe(200);
     expect(res.json().personas).toHaveLength(1);
     expect(res.json().personas[0].slug).toBe("from-repo");
-    expect(loadPersonas).toHaveBeenCalledTimes(2);
+    expect(loadPersonasFromRoots).toHaveBeenCalledWith({
+      worktreeRoot: "/tmp",
+      repoRoot: "/tmp",
+    });
   });
 
   it("returns empty array on error", async () => {
-    const { loadPersonas } = await import("../src/personas/loader.js");
-    vi.mocked(loadPersonas).mockRejectedValueOnce(new Error("not a git repo"));
+    const { loadPersonasFromRoots } = await import("../src/personas/loader.js");
+    vi.mocked(loadPersonasFromRoots).mockRejectedValueOnce(
+      new Error("not a git repo")
+    );
     const res = await app.inject({
       method: "GET",
       url: "/api/v1/personas?cwd=/nonexistent",
