@@ -1629,13 +1629,24 @@ function InlineFeedbackAnnotation({
           )}
         />
       </div>
-      {expanded && (
-        <div className="px-3 py-2">
-          <p className="whitespace-pre-wrap text-xs text-foreground/80">
-            {comment}
-          </p>
-        </div>
-      )}
+      <AnimatePresence initial={false}>
+        {expanded && (
+          <motion.div
+            key="feedback-content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15, ease: "easeInOut" }}
+            className="overflow-hidden"
+          >
+            <div className="px-3 py-2">
+              <p className="whitespace-pre-wrap text-xs text-foreground/80">
+                {comment}
+              </p>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

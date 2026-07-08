@@ -16,6 +16,12 @@ import {
   type ReviewFeedbackItem,
 } from "@/hooks/use-agent-reviews";
 import { agentDiffQueryKey, type DiffResponse } from "@/hooks/use-agent-diff";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
 type ReviewsSidebarContentProps = {
@@ -226,16 +232,18 @@ function ReviewDetail({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {review.items.map((item) => (
-          <FeedbackItemRow
-            key={item.id}
-            item={item}
-            onNavigateToFile={onNavigateToFile}
-            diffFilePaths={diffFilePaths}
-          />
-        ))}
-      </div>
+      <TooltipProvider delayDuration={200}>
+        <div className="min-h-0 flex-1 overflow-y-auto p-2">
+          {review.items.map((item) => (
+            <FeedbackItemRow
+              key={item.id}
+              item={item}
+              onNavigateToFile={onNavigateToFile}
+              diffFilePaths={diffFilePaths}
+            />
+          ))}
+        </div>
+      </TooltipProvider>
     </div>
   );
 }
@@ -262,7 +270,7 @@ function FeedbackItemRow({
   onNavigateToFile?: (filePath: string, lineStart: number | null) => void;
   diffFilePaths?: Set<string>;
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(item.status !== "resolved");
+  const [expanded, setExpanded] = useState(true);
   const firstMessage = item.messages[0]?.content?.body ?? "";
   const isResolved = item.status === "resolved";
 
@@ -324,24 +332,33 @@ function FeedbackItemRow({
               {statusLabel}
             </span>
             {item.filePath && (
-              <button
-                type="button"
-                className={cn(
-                  "min-w-0 font-mono text-[10px]",
-                  fileInDiff
-                    ? "text-primary hover:underline"
-                    : "text-muted-foreground cursor-default"
-                )}
-                onClick={handleFileClick}
-                title={
-                  fileInDiff
-                    ? (fullPathLabel ?? undefined)
-                    : `${fullPathLabel} (not in current diff)`
-                }
-                style={{ direction: "rtl", textAlign: "left" }}
-              >
-                <bdi className="block truncate">{fullPathLabel}</bdi>
-              </button>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      "block min-w-0 truncate font-mono text-[10px]",
+                      fileInDiff
+                        ? "text-primary hover:underline"
+                        : "text-muted-foreground cursor-default"
+                    )}
+                    onClick={handleFileClick}
+                    dir="rtl"
+                  >
+                    {fullPathLabel}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="max-w-xs">
+                  <p className="font-mono text-xs break-all">
+                    {fullPathLabel}
+                    {!fileInDiff && (
+                      <span className="ml-1 text-muted-foreground">
+                        (not in current diff)
+                      </span>
+                    )}
+                  </p>
+                </TooltipContent>
+              </Tooltip>
             )}
           </div>
           {!expanded && (
