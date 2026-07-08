@@ -7,6 +7,7 @@
 * Extract utility functions and GitHub helpers from release-runtime.ts by @selfcontained in https://github.com/selfcontained/dispatch/pull/732
 * Document dispatch_launch_agent tool and sidebar reordering by @selfcontained in https://github.com/selfcontained/dispatch/pull/720
 * List personas from worktree and repo roots by @selfcontained in https://github.com/selfcontained/dispatch/pull/733
+* Fix duplicate sidebar reorder tip by @selfcontained in https://github.com/selfcontained/dispatch/pull/734
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.26.1...v0.26.2
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.26.1...v0.26.3
