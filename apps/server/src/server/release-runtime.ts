@@ -14,17 +14,16 @@ import {
   packageVersion,
   releaseNotesMarkdown,
 } from "../generated/runtime-assets.js";
-
-type RunCommand = (
-  command: string,
-  args: string[],
-  options?: {
-    cwd?: string;
-    env?: Record<string, string>;
-    allowedExitCodes?: number[];
-    timeoutMs?: number;
-  }
-) => Promise<{ stdout: string; stderr: string; exitCode: number }>;
+import {
+  type RunCommand,
+  parseGhJson,
+  compareSemver,
+  currentReleaseBinaryGlob,
+  defaultServiceRestartCommand,
+  getGitHubRepo as getGitHubRepoImpl,
+  createCheckIsAdmin,
+  fetchReleaseMetadata as fetchReleaseMetadataImpl,
+} from "./release-helpers.js";
 
 export const RELEASE_VERSION_TYPES = ["patch", "minor", "major"] as const;
 export type ReleaseVersionType = (typeof RELEASE_VERSION_TYPES)[number];
@@ -82,13 +81,6 @@ export type ReleaseStreamEvent =
 export type ReleaseStreamClient = {
   clientId: string;
   stream: NodeJS.WritableStream;
-};
-
-type GitHubReleaseMetadata = {
-  tag: string;
-  publishedAt: string;
-  url: string;
-  body?: string | null;
 };
 
 type CreateReleaseRuntimeDeps = {
@@ -150,7 +142,11 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   let activeReleaseJob: ReleaseJob | null = null;
   let activeAssistedUpdateLaunch = false;
   const releaseStreamClients = new Set<ReleaseStreamClient>();
-  let cachedIsAdmin: boolean | null = null;
+  const getGitHubRepo = () =>
+    getGitHubRepoImpl(deps.runCommand, deps.serverDir);
+  const checkIsAdmin = createCheckIsAdmin(deps.runCommand, deps.serverDir);
+  const fetchReleaseMetadata = (tag: string) =>
+    fetchReleaseMetadataImpl(deps.runCommand, deps.serverDir, tag);
 
   async function getAppVersionInfo(): Promise<{
     releaseTag: string | null;
@@ -222,12 +218,6 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   function dispatchBaseUrl(): string {
     const protocol = deps.config.tls ? "https" : "http";
     return `${protocol}://127.0.0.1:${deps.config.port}`;
-  }
-
-  function defaultServiceRestartCommand(): string {
-    return process.platform === "linux"
-      ? "systemctl --user restart dispatch"
-      : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
   }
 
   async function hasActiveAssistedUpdateAgent(): Promise<boolean> {
@@ -398,110 +388,6 @@ Suggested workflow:
     });
   }
 
-  async function getGitHubRepo(): Promise<string> {
-    try {
-      const result = await deps.runCommand("git", [
-        "-C",
-        deps.serverDir,
-        "remote",
-        "get-url",
-        "origin",
-      ]);
-      const url = result.stdout;
-      const match = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/);
-      if (match?.[1]) {
-        return match[1];
-      }
-    } catch {}
-    return "selfcontained/dispatch";
-  }
-
-  async function checkIsAdmin(): Promise<boolean> {
-    const canCacheResult = process.env.VITEST !== "true";
-    if (canCacheResult && cachedIsAdmin !== null) return cachedIsAdmin;
-    try {
-      await deps.runCommand("gh", ["--version"]);
-      const repo = await getGitHubRepo();
-      const result = await deps.runCommand("gh", [
-        "repo",
-        "view",
-        repo,
-        "--json",
-        "viewerPermission",
-        "--jq",
-        ".viewerPermission",
-      ]);
-      const isAdmin = result.stdout.trim() === "ADMIN";
-      if (canCacheResult) {
-        cachedIsAdmin = isAdmin;
-      }
-      return isAdmin;
-    } catch {
-      if (canCacheResult) {
-        cachedIsAdmin = false;
-      }
-      return false;
-    }
-  }
-
-  function parseGhJson<T>(stdout: string): T {
-    const trimmed = stdout.trim();
-    if (!trimmed) throw new Error("GitHub CLI returned empty output");
-    try {
-      return JSON.parse(trimmed) as T;
-    } catch {
-      throw new Error("Failed to parse GitHub CLI output");
-    }
-  }
-
-  function compareSemver(a: string, b: string): number {
-    const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
-    const pa = parse(a);
-    const pb = parse(b);
-    for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-      const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-      if (diff !== 0) return diff;
-    }
-    return 0;
-  }
-
-  async function fetchReleaseMetadata(
-    tag: string
-  ): Promise<GitHubReleaseMetadata | null> {
-    try {
-      const repo = await getGitHubRepo();
-      const result = await deps.runCommand("gh", [
-        "release",
-        "view",
-        tag,
-        "--repo",
-        repo,
-        "--json",
-        "tagName,publishedAt,url,body",
-      ]);
-      const data = JSON.parse(result.stdout) as {
-        tagName: string;
-        publishedAt: string;
-        url: string;
-        body?: string | null;
-      };
-      return {
-        tag: data.tagName,
-        publishedAt: data.publishedAt,
-        url: data.url,
-        body: typeof data.body === "string" ? data.body.trim() : null,
-      };
-    } catch {
-      return null;
-    }
-  }
-
-  async function fetchLatestReleaseMetadata(
-    tag: string
-  ): Promise<GitHubReleaseMetadata | null> {
-    return fetchReleaseMetadata(tag);
-  }
-
   async function deployFromArtifact(
     job: ReleaseJob,
     tag: string
@@ -591,34 +477,6 @@ Suggested workflow:
       "==> deployed from pre-built artifact (no build needed)"
     );
     await deps.pruneCacheExcept([tag]);
-  }
-
-  function currentReleaseBinaryGlob(): string {
-    const platform =
-      process.platform === "darwin"
-        ? "darwin"
-        : process.platform === "linux"
-          ? "linux"
-          : null;
-    if (!platform) {
-      throw new Error(
-        `Unsupported platform for Bun release binary: ${process.platform}`
-      );
-    }
-
-    const arch =
-      process.arch === "arm64"
-        ? "arm64"
-        : process.arch === "x64"
-          ? "x64"
-          : null;
-    if (!arch) {
-      throw new Error(
-        `Unsupported architecture for Bun release binary: ${process.arch}`
-      );
-    }
-
-    return `dist/bun/dispatch-*-bun-${platform}-${arch}`;
   }
 
   async function assertCurrentReleaseBinary(job: ReleaseJob): Promise<void> {
@@ -881,6 +739,6 @@ Suggested workflow:
     parseGhJson,
     compareSemver,
     fetchReleaseMetadata,
-    fetchLatestReleaseMetadata,
+    fetchLatestReleaseMetadata: fetchReleaseMetadata,
   };
 }
