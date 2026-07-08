@@ -96,11 +96,7 @@ import {
   diffViewStateAtomFamily,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import {
-  type DraftComment,
-  ReviewModeBar,
-  DraftCommentWidget,
-} from "@/components/app/review-mode";
+import { type DraftComment, ReviewModeBar } from "@/components/app/review-mode";
 import {
   type ReviewFeedbackItem,
   useAllReviewFeedbackItems,
@@ -313,18 +309,6 @@ export const ChangesTab = memo(function ChangesTab({
           onReviewSubmitted={() => setReviewMode(false)}
         />
       )}
-      {!reviewMode && agentId && files.length > 0 && (
-        <div className="flex items-center justify-end border-b border-border/30 px-3 py-1.5">
-          <button
-            type="button"
-            className="flex items-center gap-1.5 rounded border border-border px-2.5 py-1 text-xs text-muted-foreground hover:bg-muted/40 hover:text-foreground"
-            onClick={() => setReviewMode(true)}
-          >
-            <MessageSquare className="h-3 w-3" />
-            Start review
-          </button>
-        </div>
-      )}
       <div className="flex min-h-0 flex-1">
         <FileTree
           files={files}
@@ -352,6 +336,7 @@ export const ChangesTab = memo(function ChangesTab({
           reviewMode={reviewMode}
           draftComments={draftComments}
           onAddDraft={addDraft}
+          onStartReview={() => setReviewMode(true)}
           feedbackItems={feedbackItems}
         />
       </div>
@@ -610,6 +595,7 @@ type DiffPaneProps = {
     endLine: number,
     comment: string
   ) => void;
+  onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
 };
 
@@ -630,6 +616,7 @@ function DiffPane({
   reviewMode,
   draftComments,
   onAddDraft,
+  onStartReview,
   feedbackItems,
 }: DiffPaneProps): JSX.Element {
   return (
@@ -661,6 +648,7 @@ function DiffPane({
           reviewMode={reviewMode}
           draftComments={draftComments?.filter((d) => d.filePath === file.path)}
           onAddDraft={onAddDraft}
+          onStartReview={onStartReview}
           feedbackItems={feedbackItems?.filter(
             (fi) => fi.filePath === file.path
           )}
@@ -690,6 +678,7 @@ type FileDiffSectionProps = {
     endLine: number,
     comment: string
   ) => void;
+  onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
 };
 
@@ -708,6 +697,7 @@ function FileDiffSection({
   reviewMode,
   draftComments,
   onAddDraft,
+  onStartReview,
   feedbackItems,
 }: FileDiffSectionProps): JSX.Element {
   return (
@@ -763,6 +753,7 @@ function FileDiffSection({
               reviewMode={reviewMode}
               draftComments={draftComments}
               onAddDraft={onAddDraft}
+              onStartReview={onStartReview}
               feedbackItems={feedbackItems}
             />
           </motion.div>
@@ -789,6 +780,7 @@ type FileDiffContentProps = {
     endLine: number,
     comment: string
   ) => void;
+  onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
 };
 
@@ -804,6 +796,7 @@ function FileDiffContent({
   reviewMode,
   draftComments,
   onAddDraft,
+  onStartReview,
   feedbackItems,
 }: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
@@ -872,6 +865,7 @@ function FileDiffContent({
       reviewMode={reviewMode}
       draftComments={draftComments}
       onAddDraft={onAddDraft}
+      onStartReview={onStartReview}
       feedbackItems={feedbackItems}
     />
   );
@@ -1002,6 +996,7 @@ type UnifiedDiffViewProps = {
     endLine: number,
     comment: string
   ) => void;
+  onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
 };
 
@@ -1017,6 +1012,7 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   reviewMode,
   draftComments,
   onAddDraft,
+  onStartReview,
   feedbackItems,
 }: UnifiedDiffViewProps): JSX.Element {
   const parsed = useMemo(() => {
@@ -1143,7 +1139,7 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
       }
     }
 
-    // Active comment form (quick-comment or review mode)
+    // Active comment form (unified split-button: Chat / Start review / Add comment)
     if (lineSelection && agentId && commentOpen) {
       const lastKey = findLastChangeKeyInRange(
         file.hunks,
@@ -1151,46 +1147,25 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
         lineSelection.endLine
       );
       if (lastKey) {
-        if (reviewMode && onAddDraft) {
-          w[lastKey] = (
-            <DraftCommentWidget
-              filePath={filePath}
-              startLine={lineSelection.startLine}
-              endLine={lineSelection.endLine}
-              onSave={(comment) => {
-                onAddDraft(
-                  filePath,
-                  lineSelection.startLine,
-                  lineSelection.endLine,
-                  comment
-                );
-                onCommentOpen(false);
-                onLineSelection(null);
-              }}
-              onCancel={() => {
-                onCommentOpen(false);
-                onLineSelection(null);
-              }}
-            />
-          );
-        } else {
-          w[lastKey] = (
-            <InlineCommentForm
-              agentId={agentId}
-              filePath={filePath}
-              startLine={lineSelection.startLine}
-              endLine={lineSelection.endLine}
-              onCancel={() => {
-                onCommentOpen(false);
-                onLineSelection(null);
-              }}
-              onSubmitted={() => {
-                onCommentOpen(false);
-                onLineSelection(null);
-              }}
-            />
-          );
-        }
+        w[lastKey] = (
+          <InlineCommentForm
+            agentId={agentId}
+            filePath={filePath}
+            startLine={lineSelection.startLine}
+            endLine={lineSelection.endLine}
+            reviewMode={reviewMode}
+            onStartReview={onStartReview}
+            onAddDraft={onAddDraft}
+            onCancel={() => {
+              onCommentOpen(false);
+              onLineSelection(null);
+            }}
+            onSubmitted={() => {
+              onCommentOpen(false);
+              onLineSelection(null);
+            }}
+          />
+        );
       }
     }
 
@@ -1204,17 +1179,31 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     commentOpen,
     onCommentOpen,
     reviewMode,
+    onStartReview,
     draftComments,
     onAddDraft,
     feedbackItems,
   ]);
 
   const diffRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [buttonPos, setButtonPos] = useState<{
     top: number;
     left: number;
     width: number;
   } | null>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      if (entry) {
+        el.style.setProperty("--diff-scroll-w", `${entry.contentRect.width}px`);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!lineSelection || commentOpen || !diffRef.current) {
@@ -1276,7 +1265,10 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
         "[&_.diff.diff-split_.diff-code]:px-2 [&_.diff.diff-split_.diff-code]:py-0 [&_.diff.diff-split_.diff-code]:whitespace-pre-wrap [&_.diff.diff-split_.diff-code]:break-words"
       )}
     >
-      <div className="overflow-x-auto overflow-y-clip">
+      <div
+        ref={scrollRef}
+        className="overflow-x-auto overflow-y-clip [&_.diff-widget-content>*]:max-w-[var(--diff-scroll-w,100%)]"
+      >
         <Diff
           viewType={viewType}
           diffType={diffType}
@@ -1316,6 +1308,9 @@ function InlineCommentForm({
   endLine,
   onCancel,
   onSubmitted,
+  reviewMode,
+  onStartReview,
+  onAddDraft,
 }: {
   agentId: string;
   filePath: string;
@@ -1323,9 +1318,19 @@ function InlineCommentForm({
   endLine: number;
   onCancel: () => void;
   onSubmitted: () => void;
+  reviewMode?: boolean;
+  onStartReview?: () => void;
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
 }): JSX.Element {
   const [comment, setComment] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [dropdownOpen, setDropdownOpen] = useState(false);
+  const dropdownRef = useRef<HTMLDivElement>(null);
   const navigate = useNavigate();
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -1334,7 +1339,21 @@ function InlineCommentForm({
       ? `Line ${startLine}`
       : `Lines ${startLine}–${endLine}`;
 
-  const handleSubmit = useCallback(async () => {
+  useEffect(() => {
+    if (!dropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (
+        dropdownRef.current &&
+        !dropdownRef.current.contains(e.target as Node)
+      ) {
+        setDropdownOpen(false);
+      }
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [dropdownOpen]);
+
+  const handleChat = useCallback(async () => {
     if (!comment.trim() || submitting) return;
     setSubmitting(true);
     try {
@@ -1365,32 +1384,58 @@ function InlineCommentForm({
     submitting,
   ]);
 
+  const handleAddDraft = useCallback(() => {
+    if (!comment.trim() || !onAddDraft) return;
+    onAddDraft(filePath, startLine, endLine, comment.trim());
+    onSubmitted();
+  }, [comment, filePath, startLine, endLine, onAddDraft, onSubmitted]);
+
+  const handleStartReview = useCallback(() => {
+    if (!comment.trim() || !onStartReview || !onAddDraft) return;
+    onStartReview();
+    onAddDraft(filePath, startLine, endLine, comment.trim());
+    onSubmitted();
+  }, [
+    comment,
+    filePath,
+    startLine,
+    endLine,
+    onStartReview,
+    onAddDraft,
+    onSubmitted,
+  ]);
+
+  const handlePrimaryAction = reviewMode ? handleAddDraft : handleChat;
+  const primaryLabel = reviewMode ? "Add Comment" : "Chat";
+
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
       if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
         e.preventDefault();
-        handleSubmit();
+        handlePrimaryAction();
       }
       if (e.key === "Escape") {
         e.preventDefault();
         onCancel();
       }
     },
-    [handleSubmit, onCancel]
+    [handlePrimaryAction, onCancel]
   );
 
   return (
     <div className="border-t border-border/50 bg-muted/20 px-4 py-3">
       <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
         <MessageSquare className="h-3 w-3" />
-        <span className="font-mono">{filePath}</span>
+        <span className="truncate font-mono">{filePath}</span>
         <span>·</span>
-        <span>{lineLabel}</span>
+        <span className="shrink-0">{lineLabel}</span>
       </div>
       <textarea
         ref={textareaRef}
         className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        placeholder="Leave a comment for the agent…"
+        placeholder={
+          reviewMode ? "Add review comment…" : "Leave a comment for the agent…"
+        }
         rows={3}
         value={comment}
         onChange={(e) => setComment(e.target.value)}
@@ -1408,15 +1453,56 @@ function InlineCommentForm({
           <X className="h-3 w-3" />
           Cancel
         </button>
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          onClick={handleSubmit}
-          disabled={!comment.trim() || submitting}
-        >
-          {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
-          Chat Now
-        </button>
+        <div ref={dropdownRef} className="relative">
+          <div className="flex">
+            <button
+              type="button"
+              className="flex items-center gap-1 rounded-l bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              onClick={handlePrimaryAction}
+              disabled={!comment.trim() || submitting}
+            >
+              {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
+              {primaryLabel}
+            </button>
+            <button
+              type="button"
+              className="flex items-center rounded-r border-l border-primary-foreground/20 bg-primary px-1 py-1 text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
+              onClick={() => setDropdownOpen((v) => !v)}
+              disabled={!comment.trim() || submitting}
+            >
+              <ChevronDown className="h-3 w-3" />
+            </button>
+          </div>
+          {dropdownOpen && (
+            <div className="absolute bottom-full right-0 mb-1 min-w-[140px] rounded border border-border bg-popover py-1 text-xs shadow-md">
+              {reviewMode ? (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/40"
+                  onClick={() => {
+                    setDropdownOpen(false);
+                    handleChat();
+                  }}
+                >
+                  <MessageSquare className="h-3 w-3" />
+                  Chat
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left hover:bg-muted/40"
+                  onClick={() => {
+                    setDropdownOpen(false);
+                    handleStartReview();
+                  }}
+                >
+                  <MessageSquarePlus className="h-3 w-3" />
+                  Start review
+                </button>
+              )}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

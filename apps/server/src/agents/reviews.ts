@@ -177,7 +177,10 @@ export async function listReviews(
   agentId: string
 ): Promise<ReviewListItem[]> {
   const result = await pool.query<ReviewListItem>(
-    `SELECT r.${REVIEW_SELECT},
+    `SELECT r.id, r.agent_id AS "agentId", r.assigned_agent_id AS "assignedAgentId",
+            r.reviewer_type AS "reviewerType", r.reviewer_agent_id AS "reviewerAgentId",
+            r.summary, r.status, r.base_ref AS "baseRef",
+            r.created_at AS "createdAt", r.updated_at AS "updatedAt",
             COUNT(fi.id)::int AS "itemCount",
             COUNT(fi.id) FILTER (WHERE fi.status = 'resolved')::int AS "resolvedCount"
      FROM reviews r
@@ -233,7 +236,12 @@ export async function listFeedbackItemsForAgent(
   const itemsResult = await pool.query<
     ReviewFeedbackItemRecord & { reviewId: number }
   >(
-    `SELECT fi.${FEEDBACK_ITEM_SELECT}
+    `SELECT fi.id, fi.review_id AS "reviewId", fi.file_path AS "filePath",
+            fi.line_start AS "lineStart", fi.line_end AS "lineEnd",
+            fi.diff_snapshot AS "diffSnapshot", fi.base_ref AS "baseRef",
+            fi.status, fi.resolution, fi.resolution_note AS "resolutionNote",
+            fi.resolved_by AS "resolvedBy", fi.resolved_at AS "resolvedAt",
+            fi.created_at AS "createdAt", fi.updated_at AS "updatedAt"
      FROM review_feedback_items fi
      JOIN reviews r ON r.id = fi.review_id
      WHERE r.agent_id = $1
