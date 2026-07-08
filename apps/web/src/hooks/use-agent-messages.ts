@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from "react";
+import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
@@ -22,13 +22,20 @@ export function useAgentMessages(agentId: string | null): {
 } {
   const queryClient = useQueryClient();
 
-  const { data: messages = [], isLoading } = useQuery<AgentMessage[]>({
+  const { data, isLoading } = useQuery<{
+    messages: AgentMessage[];
+    unreadCount: number;
+  }>({
     queryKey: ["messages", agentId],
     queryFn: async () => {
-      const payload = await api<{ messages: AgentMessage[] }>(
-        `/api/v1/agents/${agentId}/messages`
-      );
-      return payload.messages ?? [];
+      const payload = await api<{
+        messages: AgentMessage[];
+        unreadCount: number;
+      }>(`/api/v1/agents/${agentId}/messages`);
+      return {
+        messages: payload.messages ?? [],
+        unreadCount: payload.unreadCount ?? 0,
+      };
     },
     enabled: !!agentId,
     staleTime: 0,
@@ -37,13 +44,10 @@ export function useAgentMessages(agentId: string | null): {
     refetchOnReconnect: true,
   });
 
-  const unreadCount = useMemo(
-    () =>
-      messages.filter(
-        (m) => m.recipientAgentId === agentId && m.readAt === null
-      ).length,
-    [messages, agentId]
-  );
+  const messages = data?.messages ?? [];
+  // Server-derived (uses the partial unread index) so the badge stays accurate
+  // even though the message list is capped.
+  const unreadCount = data?.unreadCount ?? 0;
 
   const markMutation = useMutation({
     mutationFn: async () => {

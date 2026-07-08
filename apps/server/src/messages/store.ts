@@ -76,10 +76,17 @@ export class MessageStore {
   }
 
   async listForAgent(agentId: string): Promise<StoredMessage[]> {
+    // Bound the result set (mirrors the LIMIT 500 cap on the history-detail
+    // query in activity.ts). Take the most recent 500, then return them in
+    // ascending order for chronological rendering.
     const result = await this.pool.query<Row>(
-      `SELECT * FROM agent_messages
-        WHERE sender_agent_id = $1 OR recipient_agent_id = $1
-        ORDER BY created_at ASC`,
+      `SELECT * FROM (
+         SELECT * FROM agent_messages
+          WHERE sender_agent_id = $1 OR recipient_agent_id = $1
+          ORDER BY created_at DESC
+          LIMIT 500
+       ) recent
+       ORDER BY created_at ASC`,
       [agentId]
     );
     return result.rows.map(toStoredMessage);

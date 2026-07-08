@@ -70,11 +70,16 @@ describe("GET /api/v1/agents/:id/messages (list)", () => {
     expect(res.statusCode).toBe(404);
   });
 
-  it("lists messages for an agent", async () => {
+  it("lists messages for an agent with a server-computed unread count", async () => {
     const res = await authedInject("GET", `/api/v1/agents/${agentB}/messages`);
     expect(res.statusCode).toBe(200);
-    const body = res.json() as { messages: Array<{ content: string }> };
+    const body = res.json() as {
+      messages: Array<{ content: string }>;
+      unreadCount: number;
+    };
     expect(body.messages.map((m) => m.content)).toContain("hi");
+    // Bob is the recipient of the unread "hi" message.
+    expect(body.unreadCount).toBe(1);
   });
 });
 

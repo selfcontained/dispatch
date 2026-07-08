@@ -554,8 +554,11 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       }
 
       // Record the message (including failed deliveries) so it is viewable.
+      // Persistence must never block delivery, so a failed insert is swallowed
+      // and logged. Only announce message.created when the row actually landed,
+      // otherwise the UI would refetch and find nothing.
       const messageStore = new MessageStore(pool);
-      await messageStore
+      const persisted = await messageStore
         .insertMessage({
           senderAgentId: agentId,
           recipientAgentId: target.id,
@@ -567,18 +570,22 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
           // Same repo today (send rule); stored for future cross-repo support.
           recipientRepoRoot: senderRepoRoot,
         })
-        .catch((err) =>
+        .then(() => true)
+        .catch((err) => {
           appLog.error(
             { err, senderId: agentId, targetId: target.id },
             "dispatch_send_message: failed to persist message"
-          )
-        );
+          );
+          return false;
+        });
 
-      publishUiEvent({
-        type: "message.created",
-        senderAgentId: agentId,
-        recipientAgentId: target.id,
-      });
+      if (persisted) {
+        publishUiEvent({
+          type: "message.created",
+          senderAgentId: agentId,
+          recipientAgentId: target.id,
+        });
+      }
 
       if (!delivered) {
         throw deliveryError instanceof Error

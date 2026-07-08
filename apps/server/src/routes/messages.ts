@@ -1,12 +1,10 @@
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
-import type { AgentManager } from "../agents/manager.js";
 import { MessageStore } from "../messages/store.js";
 
 type MessagesRouteDeps = {
   pool: Pool;
-  agentManager: AgentManager;
   publishUiEvent: (event: unknown) => void;
 };
 
@@ -24,8 +22,13 @@ export async function registerMessagesRoutes(
     if (exists.rows.length === 0) {
       return reply.code(404).send({ error: "Agent not found." });
     }
-    const messages = await store.listForAgent(id);
-    return { messages };
+    // unreadCount is computed server-side (uses the partial unread index) so
+    // the badge stays accurate even though listForAgent is capped.
+    const [messages, unreadCount] = await Promise.all([
+      store.listForAgent(id),
+      store.countUnreadForAgent(id),
+    ]);
+    return { messages, unreadCount };
   });
 
   app.post("/api/v1/agents/:id/messages/read", async (request, reply) => {

@@ -584,7 +584,6 @@ async function registerRoutes() {
 
   await registerMessagesRoutes(app, {
     pool,
-    agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 
