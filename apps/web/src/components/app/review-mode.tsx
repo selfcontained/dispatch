@@ -29,7 +29,7 @@ type ReviewModeBarProps = {
   drafts: DraftComment[];
   onClearDrafts: () => void;
   onExitReview: () => void;
-  onReviewSubmitted: () => void;
+  onReviewSubmitted: (reviewId: number) => void;
 };
 
 export const ReviewModeBar = memo(function ReviewModeBar({
@@ -116,7 +116,7 @@ function SubmitReviewDialog({
   agentId: string;
   drafts: DraftComment[];
   onClearDrafts: () => void;
-  onReviewSubmitted: () => void;
+  onReviewSubmitted: (reviewId: number) => void;
 }): JSX.Element {
   const [summary, setSummary] = useState("");
   const submitMutation = useSubmitReview(agentId);
@@ -125,7 +125,7 @@ function SubmitReviewDialog({
   const handleSubmit = useCallback(async () => {
     if (drafts.length === 0) return;
     try {
-      await submitMutation.mutateAsync({
+      const review = await submitMutation.mutateAsync({
         summary: summary.trim() || undefined,
         items: drafts.map((d) => ({
           filePath: d.filePath,
@@ -137,7 +137,7 @@ function SubmitReviewDialog({
       onClearDrafts();
       setSummary("");
       onOpenChange(false);
-      onReviewSubmitted();
+      onReviewSubmitted(review.id);
     } catch {
       // error handling via mutation state
     }
@@ -166,8 +166,9 @@ function SubmitReviewDialog({
         <DialogHeader>
           <DialogTitle className="text-sm">Submit Review</DialogTitle>
           <DialogDescription>
-            {drafts.length} comment{drafts.length !== 1 ? "s" : ""} will be sent
-            to the agent.
+            {drafts.length} comment{drafts.length !== 1 ? "s" : ""} will be
+            submitted as feedback items. The agent will be notified and can
+            address each item individually.
           </DialogDescription>
         </DialogHeader>
         <textarea

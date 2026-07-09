@@ -61,6 +61,8 @@ type MediaSidebarSharedProps = {
   unseenMediaCount: number;
   onUploadFile?: (agentId: string, file: File) => Promise<void>;
   onNavigateToFile?: (filePath: string, lineStart: number | null) => void;
+  autoExpandReviewId?: number | null;
+  onAutoExpandConsumed?: () => void;
 };
 
 type MediaSidebarProps = MediaSidebarSharedProps & {
@@ -410,6 +412,8 @@ export function MediaSidebarContent({
   unseenMediaCount,
   onUploadFile,
   onNavigateToFile,
+  autoExpandReviewId,
+  onAutoExpandConsumed,
 }: MediaSidebarContentProps & { unseenMediaCount: number }): JSX.Element {
   const { reviews } = useAgentReviews(selectedAgentId, !!selectedAgentId);
   const reviewUnresolvedCount = reviews.reduce(
@@ -587,6 +591,8 @@ export function MediaSidebarContent({
         <ReviewsSidebarContent
           agentId={selectedAgentId}
           onNavigateToFile={onNavigateToFile}
+          autoExpandReviewId={autoExpandReviewId}
+          onAutoExpandConsumed={onAutoExpandConsumed}
         />
       </div>
     </aside>

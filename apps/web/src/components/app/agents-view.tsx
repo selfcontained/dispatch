@@ -281,12 +281,25 @@ export function AgentsView({
     [focusedAgentId, navTo]
   );
 
-  const handleReviewSubmitted = useCallback(() => {
-    if (!focusedAgentId) return;
-    navTo(`/agents/${focusedAgentId}`, { replace: true });
-    setMediaOpen(true);
-    setMediaActiveTab("reviews");
-  }, [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]);
+  const [autoExpandReviewId, setAutoExpandReviewId] = useState<number | null>(
+    null
+  );
+
+  const handleReviewSubmitted = useCallback(
+    (reviewId: number) => {
+      if (!focusedAgentId) return;
+      navTo(`/agents/${focusedAgentId}`, { replace: true });
+      setMediaOpen(true);
+      setMediaActiveTab("reviews");
+      setAutoExpandReviewId(reviewId);
+    },
+    [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]
+  );
+
+  const clearAutoExpandReviewId = useCallback(
+    () => setAutoExpandReviewId(null),
+    []
+  );
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -698,6 +711,8 @@ export function AgentsView({
             openLightbox={openLightbox}
             onUploadFile={uploadFile}
             onNavigateToFile={handleNavigateToFile}
+            autoExpandReviewId={autoExpandReviewId}
+            onAutoExpandConsumed={clearAutoExpandReviewId}
           />
         </div>
       </div>
@@ -746,6 +761,8 @@ export function AgentsView({
             onRequestClose={() => setMobileMediaOpen(false)}
             onUploadFile={uploadFile}
             onNavigateToFile={handleNavigateToFile}
+            autoExpandReviewId={autoExpandReviewId}
+            onAutoExpandConsumed={clearAutoExpandReviewId}
           />
         </GlassSidebar>
       ) : null}

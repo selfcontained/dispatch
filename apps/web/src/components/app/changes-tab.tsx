@@ -122,7 +122,7 @@ type ChangesTabProps = {
   agentId: string | null;
   active: boolean;
   isMobile?: boolean;
-  onReviewSubmitted?: () => void;
+  onReviewSubmitted?: (reviewId: number) => void;
 };
 
 export const ChangesTab = memo(function ChangesTab({
@@ -351,9 +351,9 @@ export const ChangesTab = memo(function ChangesTab({
           drafts={draftComments}
           onClearDrafts={clearDrafts}
           onExitReview={() => setReviewMode(false)}
-          onReviewSubmitted={() => {
+          onReviewSubmitted={(reviewId) => {
             setReviewMode(false);
-            onReviewSubmitted?.();
+            onReviewSubmitted?.(reviewId);
           }}
         />
       )}
@@ -764,7 +764,7 @@ function FileDiffSection({
     <div ref={setRef} className="rounded-md border border-border/50">
       <button
         type="button"
-        className="sticky top-0 z-10 flex w-full items-center gap-2 rounded-t-md border-b border-border/50 bg-muted/40 px-3 py-2 text-left text-xs hover:bg-muted/60"
+        className="sticky top-0 z-10 flex w-full items-center gap-2 rounded-t-md border-b border-border/50 bg-background/95 backdrop-blur-sm px-3 py-2 text-left text-xs hover:bg-muted/60"
         onClick={onToggleCollapse}
       >
         {collapsed ? (
@@ -1495,7 +1495,13 @@ function InlineCommentForm({
   );
 
   return (
-    <div className="mx-3 my-3 overflow-hidden rounded-md border border-border bg-background shadow-sm">
+    <div
+      className="mx-3 my-3 max-w-full overflow-hidden rounded-md border border-border bg-background shadow-sm sticky left-0"
+      style={{
+        width: "var(--diff-scroll-w, 100%)",
+        maxWidth: "calc(var(--diff-scroll-w, 100%) - 1.5rem)",
+      }}
+    >
       <div className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
         <MessageSquare className="h-3 w-3" />
         <span className="font-medium text-foreground">Add a comment</span>
@@ -1586,9 +1592,13 @@ function InlineFeedbackAnnotation({
   return (
     <div
       className={cn(
-        "mx-3 my-3 overflow-hidden rounded-md border bg-background shadow-sm cursor-pointer transition-colors",
-        isResolved ? "border-border/50 opacity-60" : "border-amber-500/40"
+        "mx-3 my-3 max-w-full overflow-hidden rounded-md border bg-background shadow-sm cursor-pointer transition-colors sticky left-0",
+        isResolved ? "border-border/50 bg-muted/5" : "border-amber-500/40"
       )}
+      style={{
+        width: "var(--diff-scroll-w, 100%)",
+        maxWidth: "calc(var(--diff-scroll-w, 100%) - 1.5rem)",
+      }}
       onClick={() => setExpanded((v) => !v)}
     >
       <div
@@ -1617,11 +1627,6 @@ function InlineFeedbackAnnotation({
         {lineLabel && (
           <span className="text-muted-foreground">{lineLabel}</span>
         )}
-        {!expanded && (
-          <span className="flex-1 truncate text-muted-foreground">
-            {comment}
-          </span>
-        )}
         <ChevronRight
           className={cn(
             "ml-auto h-3 w-3 shrink-0 text-muted-foreground transition-transform",
@@ -1629,23 +1634,69 @@ function InlineFeedbackAnnotation({
           )}
         />
       </div>
+      <div className="px-3 py-2">
+        <p
+          className={cn(
+            "whitespace-pre-wrap text-xs text-foreground/80",
+            !expanded && "line-clamp-1"
+          )}
+        >
+          {comment}
+        </p>
+      </div>
       <AnimatePresence initial={false}>
-        {expanded && (
-          <motion.div
-            key="feedback-content"
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15, ease: "easeInOut" }}
-            className="overflow-hidden"
-          >
-            <div className="px-3 py-2">
-              <p className="whitespace-pre-wrap text-xs text-foreground/80">
-                {comment}
-              </p>
-            </div>
-          </motion.div>
-        )}
+        {expanded &&
+          (feedbackItem.messages.length > 1 ||
+            feedbackItem.diffSnapshot ||
+            feedbackItem.resolution) && (
+            <motion.div
+              key="feedback-content"
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              transition={{ duration: 0.15, ease: "easeInOut" }}
+              className="overflow-hidden"
+            >
+              <div className="border-t border-border/30 px-3 pb-2">
+                {feedbackItem.diffSnapshot && (
+                  <pre className="mt-2 max-h-32 overflow-auto rounded border border-border/30 bg-muted/20 px-3 py-2 font-mono text-[10px] leading-relaxed text-foreground/70">
+                    {feedbackItem.diffSnapshot}
+                  </pre>
+                )}
+                {feedbackItem.messages.slice(1).map((msg) => (
+                  <div key={msg.id} className="mt-2">
+                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
+                      <span className="font-medium">
+                        {msg.authorType === "human" ? "Human" : "Agent"}
+                      </span>
+                      <span>·</span>
+                      <span>
+                        {new Date(msg.createdAt).toLocaleTimeString(undefined, {
+                          hour: "2-digit",
+                          minute: "2-digit",
+                        })}
+                      </span>
+                    </div>
+                    <p className="mt-1 whitespace-pre-wrap text-xs text-foreground/80">
+                      {msg.content?.body}
+                    </p>
+                  </div>
+                ))}
+                {feedbackItem.resolution && (
+                  <div className="mt-2 rounded border border-border/30 bg-muted/20 px-3 py-2">
+                    <div className="text-[10px] font-medium text-muted-foreground">
+                      Resolution: {feedbackItem.resolution}
+                    </div>
+                    {feedbackItem.resolutionNote && (
+                      <p className="mt-0.5 text-xs text-foreground/70">
+                        {feedbackItem.resolutionNote}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
+            </motion.div>
+          )}
       </AnimatePresence>
     </div>
   );
@@ -1692,7 +1743,13 @@ function InlineDraftAnnotation({
 
   if (editing) {
     return (
-      <div className="mx-3 my-3 overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm">
+      <div
+        className="mx-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm sticky left-0"
+        style={{
+          width: "var(--diff-scroll-w, 100%)",
+          maxWidth: "calc(var(--diff-scroll-w, 100%) - 1.5rem)",
+        }}
+      >
         <div className="flex items-center gap-2 border-b border-border/50 bg-primary/10 px-3 py-2 text-[11px]">
           <MessageSquarePlus className="h-3 w-3 text-primary" />
           <span className="font-medium text-foreground">Edit draft</span>
@@ -1732,7 +1789,13 @@ function InlineDraftAnnotation({
   }
 
   return (
-    <div className="mx-3 my-3 overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm">
+    <div
+      className="mx-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm sticky left-0"
+      style={{
+        width: "var(--diff-scroll-w, 100%)",
+        maxWidth: "calc(var(--diff-scroll-w, 100%) - 1.5rem)",
+      }}
+    >
       <div className="flex items-center gap-2 border-b border-border/50 bg-primary/10 px-3 py-2 text-[11px]">
         <MessageSquarePlus className="h-3 w-3 text-primary" />
         <span className="font-medium text-foreground">Draft</span>
@@ -1745,7 +1808,7 @@ function InlineDraftAnnotation({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="rounded p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
+              className="flex items-center justify-center rounded min-h-8 min-w-8 p-0.5 text-muted-foreground hover:bg-muted/40 hover:text-foreground"
             >
               <MoreHorizontal className="h-3.5 w-3.5" />
             </button>
