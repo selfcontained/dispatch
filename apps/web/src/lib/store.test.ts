@@ -8,6 +8,8 @@ import {
   defaultMediaSidebarState,
   reconcileDiffViewStateStorage,
   DIFF_VIEW_STATE_STORAGE_PREFIX,
+  reconcileSplitPaneStateStorage,
+  SPLIT_PANE_STATE_STORAGE_PREFIX,
 } from "./store";
 
 describe("reconcileAgentSidebarOrder", () => {
@@ -219,6 +221,117 @@ describe("reconcileDiffViewStateStorage", () => {
     ).not.toBeNull();
     expect(
       window.localStorage.getItem(`${DIFF_VIEW_STATE_STORAGE_PREFIX}agt_2`)
+    ).toBeNull();
+  });
+});
+
+describe("reconcileSplitPaneStateStorage", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  const defaultSplitState = JSON.stringify({
+    mode: "single",
+    left: "terminal",
+    right: "changes",
+    sizes: [50, 50],
+  });
+
+  const storeForAgent = (agentId: string) => {
+    window.localStorage.setItem(
+      `${SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
+      defaultSplitState
+    );
+  };
+
+  it("removes keys for agents not in the live set", () => {
+    storeForAgent("agt_1");
+    storeForAgent("agt_2");
+    storeForAgent("agt_3");
+
+    reconcileSplitPaneStateStorage(["agt_1", "agt_3"]);
+
+    expect(
+      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`)
+    ).not.toBeNull();
+    expect(
+      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_2`)
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_3`)
+    ).not.toBeNull();
+  });
+
+  it("does nothing when all stored agents are live", () => {
+    storeForAgent("agt_1");
+    storeForAgent("agt_2");
+
+    reconcileSplitPaneStateStorage(["agt_1", "agt_2"]);
+
+    expect(window.localStorage.length).toBe(2);
+  });
+
+  it("removes all split pane keys when live set is empty", () => {
+    storeForAgent("agt_1");
+    storeForAgent("agt_2");
+
+    reconcileSplitPaneStateStorage([]);
+
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("handles empty live set gracefully", () => {
+    storeForAgent("agt_1");
+    reconcileSplitPaneStateStorage([]);
+    expect(
+      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`)
+    ).toBeNull();
+  });
+
+  it("does nothing when localStorage is empty", () => {
+    reconcileSplitPaneStateStorage(["agt_1"]);
+
+    expect(window.localStorage.length).toBe(0);
+  });
+
+  it("does not affect non-split-pane keys", () => {
+    window.localStorage.setItem("dispatch:leftSidebarOpen", "true");
+    window.localStorage.setItem(
+      `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`,
+      "{}"
+    );
+    storeForAgent("agt_dead");
+
+    reconcileSplitPaneStateStorage([]);
+
+    expect(window.localStorage.getItem("dispatch:leftSidebarOpen")).toBe(
+      "true"
+    );
+    expect(
+      window.localStorage.getItem(
+        `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`
+      )
+    ).toBe("{}");
+    expect(
+      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_dead`)
+    ).toBeNull();
+  });
+
+  it("accepts a Set as agentIds", () => {
+    storeForAgent("agt_1");
+    storeForAgent("agt_2");
+
+    reconcileSplitPaneStateStorage(new Set(["agt_1"]));
+
+    expect(
+      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`)
+    ).not.toBeNull();
+    expect(
+      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_2`)
     ).toBeNull();
   });
 });

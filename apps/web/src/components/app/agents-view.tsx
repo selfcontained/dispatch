@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
-import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { PanelLeftOpen, PanelRightOpen, Split } from "lucide-react";
 
 import { ChangesTab } from "@/components/app/changes-tab";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
-import { CenterPaneTabBar } from "@/components/app/center-pane-tab-bar";
+import {
+  CenterPaneTabBar,
+  TAB_DRAG_MIME,
+} from "@/components/app/center-pane-tab-bar";
+import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
+import { useSplitPane } from "@/hooks/use-split-pane";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
 import {
@@ -41,9 +46,15 @@ import {
 } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType, isCliAgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
+import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
 import { useAgents } from "@/hooks/use-agents";
@@ -132,6 +143,7 @@ export function AgentsView({
   });
 
   const [createOpen, setCreateOpen] = useState(false);
+  const [isDraggingTab, setIsDraggingTab] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
   const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(
@@ -217,6 +229,64 @@ export function AgentsView({
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
+
+  const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
+    useSplitPane(focusedAgentId, isMobile);
+
+  const splitLeftRef = useRef<HTMLDivElement>(null);
+  const splitButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isSplit) return;
+    const panel = splitLeftRef.current;
+    const btn = splitButtonRef.current;
+    if (!panel || !btn) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width != null) btn.style.left = `${width}px`;
+    });
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [isSplit]);
+
+  useEffect(() => {
+    const reset = () => setIsDraggingTab(false);
+    document.addEventListener("dragend", reset);
+    return () => document.removeEventListener("dragend", reset);
+  }, []);
+
+  const handleContentDragOver = useCallback((e: React.DragEvent) => {
+    if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
+    setIsDraggingTab(true);
+  }, []);
+
+  const handleContentDragLeave = useCallback((e: React.DragEvent) => {
+    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
+    setIsDraggingTab(false);
+  }, []);
+
+  const handleContentDrop = useCallback(() => {
+    setIsDraggingTab(false);
+  }, []);
+
+  const handleDropOnZone = useCallback(
+    (tab: string, side: "left" | "right") => {
+      const activeTab: CenterTab = changesMatch ? "changes" : "terminal";
+      handleTabDrop(tab as CenterTab, side, activeTab);
+      setIsDraggingTab(false);
+    },
+    [changesMatch, handleTabDrop]
+  );
+
+  const handleSplitLayoutChange = useCallback(
+    (layout: Record<string, number>) => {
+      const left = layout["split-left"];
+      const right = layout["split-right"];
+      if (typeof left !== "number" || typeof right !== "number") return;
+      updateSizes([left, right]);
+    },
+    [updateSizes]
+  );
 
   const {
     mediaFiles,
@@ -430,6 +500,34 @@ export function AgentsView({
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const hasActiveAgent = Boolean(validatedSelectedAgentId);
 
+  const terminalElement = (
+    <TerminalPane
+      isAttached={isAttached}
+      connState={connState}
+      statusMessage={statusMessage}
+      terminalMode={terminalMode}
+      terminalPlaceholderMessage={terminalPlaceholderMessage}
+      terminalHostRef={terminalHostRef}
+      resyncing={resyncing}
+      draggingFiles={draggingFiles}
+      uploadingFiles={uploadingFiles}
+      archivePhase={
+        selectedAgent?.status === "archiving"
+          ? selectedAgent.archivePhase
+          : null
+      }
+    />
+  );
+
+  const changesElement = (
+    <ChangesTab
+      agentId={focusedAgentId}
+      active={true}
+      isMobile={isMobile}
+      onReviewSubmitted={handleReviewSubmitted}
+    />
+  );
+
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
@@ -518,7 +616,7 @@ export function AgentsView({
             onTransitionEnd={handleFeedbackTransitionEnd}
           >
             <div className="relative flex h-full min-h-0 min-w-0 flex-col">
-              <div className="relative z-10 flex h-14 shrink-0 items-center bg-background px-3">
+              <div className="relative z-10 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-background px-3">
                 <div className="flex items-center gap-1">
                   {!leftPanelOpen ? (
                     <Button
@@ -541,7 +639,7 @@ export function AgentsView({
                     />
                   </TipSpot>
                 </div>
-                <div className="flex flex-1 items-center justify-center">
+                <div className="flex items-center justify-center">
                   {focusedAgent?.name ? (
                     <>
                       <span
@@ -552,14 +650,22 @@ export function AgentsView({
                       </span>
                       <CenterPaneTabBar
                         activeTab={changesMatch ? "changes" : "terminal"}
-                        onTabChange={onTabChange}
+                        onTabChange={(tab) => {
+                          if (isSplit) {
+                            exitSplit();
+                          }
+                          onTabChange(tab);
+                        }}
                         diffStats={focusedDiffStats}
+                        isSplit={isSplit}
+                        splitState={splitState}
+                        isMobile={isMobile}
                       />
                     </>
                   ) : null}
                 </div>
-                <div className="flex items-center gap-1">
-                  {changesMatch && !isMobile ? (
+                <div className="flex items-center justify-end gap-1">
+                  {changesMatch && !isMobile && !isSplit ? (
                     <ChangesSettingsPopover />
                   ) : null}
                   {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
@@ -588,38 +694,94 @@ export function AgentsView({
               </div>
               <div
                 className={cn("relative min-h-0 flex-1", !isMobile && "pb-14")}
+                onDragOver={handleContentDragOver}
+                onDragLeave={handleContentDragLeave}
+                onDrop={handleContentDrop}
               >
-                <div className={cn("h-full", changesMatch && "hidden")}>
-                  <TerminalPane
-                    isAttached={isAttached}
-                    connState={connState}
-                    statusMessage={statusMessage}
-                    terminalMode={terminalMode}
-                    terminalPlaceholderMessage={terminalPlaceholderMessage}
-                    terminalHostRef={terminalHostRef}
-                    resyncing={resyncing}
-                    draggingFiles={draggingFiles}
-                    uploadingFiles={uploadingFiles}
-                    archivePhase={
-                      selectedAgent?.status === "archiving"
-                        ? selectedAgent.archivePhase
-                        : null
-                    }
-                  />
-                </div>
-                <Routes>
-                  <Route
-                    path="changes"
-                    element={
-                      <ChangesTab
-                        agentId={focusedAgentId}
-                        active={true}
-                        isMobile={isMobile}
-                        onReviewSubmitted={handleReviewSubmitted}
-                      />
-                    }
-                  />
-                </Routes>
+                {isSplit ? (
+                  <div className="relative h-full">
+                    <ResizablePanelGroup
+                      orientation="horizontal"
+                      onLayoutChanged={handleSplitLayoutChange}
+                      className="h-full"
+                    >
+                      <ResizablePanel
+                        id="split-left"
+                        defaultSize={splitState.sizes[0]}
+                        minSize={20}
+                      >
+                        <div
+                          ref={splitLeftRef}
+                          className="flex h-full flex-col"
+                        >
+                          <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              {splitState.left === "terminal"
+                                ? "Terminal"
+                                : "Changes"}
+                            </span>
+                            {splitState.left === "changes" && !isMobile ? (
+                              <ChangesSettingsPopover />
+                            ) : null}
+                          </div>
+                          <div className="min-h-0 flex-1">
+                            {splitState.left === "terminal"
+                              ? terminalElement
+                              : changesElement}
+                          </div>
+                        </div>
+                      </ResizablePanel>
+                      <ResizableHandle />
+                      <ResizablePanel
+                        id="split-right"
+                        defaultSize={splitState.sizes[1]}
+                        minSize={20}
+                      >
+                        <div className="flex h-full flex-col">
+                          <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
+                            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                              {splitState.right === "terminal"
+                                ? "Terminal"
+                                : "Changes"}
+                            </span>
+                            {splitState.right === "changes" && !isMobile ? (
+                              <ChangesSettingsPopover />
+                            ) : null}
+                          </div>
+                          <div className="min-h-0 flex-1">
+                            {splitState.right === "terminal"
+                              ? terminalElement
+                              : changesElement}
+                          </div>
+                        </div>
+                      </ResizablePanel>
+                    </ResizablePanelGroup>
+                    <button
+                      ref={splitButtonRef}
+                      type="button"
+                      onClick={exitSplit}
+                      title="Unsplit panes"
+                      data-testid="unsplit-button"
+                      className="absolute top-0 z-50 flex h-8 -translate-x-1/2 cursor-pointer items-center justify-center rounded-md border bg-background px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      style={{ left: `${splitState.sizes[0]}%` }}
+                    >
+                      <Split className="h-4 w-4 shrink-0" />
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    <div className={cn("h-full", changesMatch && "hidden")}>
+                      {terminalElement}
+                    </div>
+                    <Routes>
+                      <Route path="changes" element={changesElement} />
+                    </Routes>
+                  </>
+                )}
+                <SplitDropZones
+                  visible={isDraggingTab && !isMobile}
+                  onDrop={handleDropOnZone}
+                />
                 {!isMobile ? (
                   <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14 bg-background">
                     <AmbientTipBar />

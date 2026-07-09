@@ -274,3 +274,56 @@ export function reconcileDiffViewStateStorage(
 
   keysToDelete.forEach((key) => window.localStorage.removeItem(key));
 }
+
+// ---------------------------------------------------------------------------
+// Split pane state — per-agent split/single mode and pane sizes
+// ---------------------------------------------------------------------------
+
+export type CenterTab = "terminal" | "changes";
+
+export type SplitPaneState = {
+  mode: "single" | "split";
+  left: CenterTab;
+  right: CenterTab;
+  sizes: [number, number];
+};
+
+export const defaultSplitPaneState: SplitPaneState = {
+  mode: "single",
+  left: "terminal",
+  right: "changes",
+  sizes: [50, 50],
+};
+
+export const inactiveSplitPaneStateAtom = atom<SplitPaneState>(
+  defaultSplitPaneState
+);
+
+export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
+
+export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<SplitPaneState>(
+    `${SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
+    defaultSplitPaneState
+  )
+);
+
+export function reconcileSplitPaneStateStorage(
+  agentIds: Iterable<string>
+): void {
+  if (typeof window === "undefined") return;
+
+  const liveAgentIds = new Set(agentIds);
+  const keysToDelete: string[] = [];
+
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key?.startsWith(SPLIT_PANE_STATE_STORAGE_PREFIX)) continue;
+
+    const agentId = key.slice(SPLIT_PANE_STATE_STORAGE_PREFIX.length).trim();
+    if (!agentId || liveAgentIds.has(agentId)) continue;
+    keysToDelete.push(key);
+  }
+
+  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+}
