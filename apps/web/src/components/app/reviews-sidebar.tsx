@@ -1,10 +1,12 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
+  Bot,
   CheckCircle2,
   ChevronRight,
   Clock,
   MessageCircle,
   User,
+  XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useQueryClient } from "@tanstack/react-query";
@@ -23,6 +25,37 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
+
+const REVIEW_STATUS_STYLES: Record<
+  string,
+  { border: string; badge: string; label: string }
+> = {
+  open: {
+    border: "border-l-amber-400/60",
+    badge: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    label: "Open",
+  },
+  partially_resolved: {
+    border: "border-l-amber-400/60",
+    badge: "bg-amber-500/15 text-amber-600 dark:text-amber-400",
+    label: "Open",
+  },
+  resolved: {
+    border: "border-l-emerald-400/60",
+    badge: "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400",
+    label: "Resolved",
+  },
+};
+
+const DEFAULT_REVIEW_STYLE = REVIEW_STATUS_STYLES.open!;
+
+type FeedbackState = "open" | "fixed" | "dismissed";
+
+function feedbackState(item: ReviewFeedbackItem): FeedbackState {
+  if (item.status !== "resolved") return "open";
+  if (item.resolution === "fixed") return "fixed";
+  return "dismissed";
+}
 
 type ReviewsSidebarContentProps = {
   agentId: string | null;
@@ -129,6 +162,9 @@ function ReviewRow({
 }): JSX.Element {
   const { review: detail } = useAgentReviewDetail(agentId, review.id, expanded);
 
+  const statusStyle =
+    REVIEW_STATUS_STYLES[review.status] ?? DEFAULT_REVIEW_STYLE;
+
   const date = new Date(review.createdAt);
   const timeStr = date.toLocaleDateString(undefined, {
     month: "short",
@@ -138,56 +174,58 @@ function ReviewRow({
   });
 
   return (
-    <div className="mb-3 overflow-hidden rounded-md border border-border/40 border-l-2 border-l-primary/40 bg-muted/5">
+    <div
+      className={cn(
+        "relative mb-3 rounded-md border border-border/40 border-l-2 bg-muted/5",
+        statusStyle.border
+      )}
+    >
+      <span
+        className={cn(
+          "absolute -top-1.5 right-2 z-10 rounded-full px-1.5 py-0 text-[10px] font-medium",
+          statusStyle.badge
+        )}
+      >
+        {statusStyle.label}
+      </span>
       <button
         type="button"
-        className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-muted/30"
+        className="flex w-full items-start gap-2 overflow-hidden px-3 py-2.5 text-left transition-colors hover:bg-muted/30"
         onClick={onToggle}
       >
         <ChevronRight
           className={cn(
-            "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+            "mt-0.5 h-3 w-3 shrink-0 text-muted-foreground transition-transform",
             expanded && "rotate-90"
           )}
         />
-        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-muted">
-          <User className="h-3 w-3 text-muted-foreground" />
-        </div>
+        {review.reviewerType === "human" ? (
+          <User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        ) : (
+          <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        )}
         <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-2">
-            <span className="text-xs font-medium text-foreground">
-              {review.reviewerType === "human" ? "Human" : "Agent"} review
-            </span>
-            <span
-              className={cn(
-                "rounded-full px-1.5 py-0 text-[10px] font-medium",
-                review.status === "resolved"
-                  ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                  : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-              )}
-            >
-              {review.status}
-            </span>
-          </div>
           {review.summary && (
             <p
               className={cn(
-                "mt-0.5 text-xs text-muted-foreground",
+                "text-xs text-foreground/90",
                 !expanded && "truncate"
               )}
             >
               {review.summary}
             </p>
           )}
-          <div className="mt-0.5 flex items-center gap-3 text-[10px] text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <Clock className="h-2.5 w-2.5" />
-              {timeStr}
-            </span>
+          <div className="mt-1 flex items-center justify-between text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1">
               <MessageCircle className="h-2.5 w-2.5" />
               {review.resolvedCount}/{review.itemCount} resolved
             </span>
+            {expanded && (
+              <span className="flex items-center gap-1">
+                <Clock className="h-2.5 w-2.5" />
+                {timeStr}
+              </span>
+            )}
           </div>
         </div>
       </button>
@@ -251,11 +289,10 @@ function FeedbackItemRow({
   onNavigateToFile?: (filePath: string, lineStart: number | null) => void;
   diffFilePaths?: Set<string>;
 }): JSX.Element {
-  const [expanded, setExpanded] = useState(item.status !== "resolved");
+  const state = feedbackState(item);
+  const [expanded, setExpanded] = useState(state === "open");
   const firstMessage = item.messages[0]?.content?.body ?? "";
   const remainingMessages = item.messages.slice(1);
-  const isResolved = item.status === "resolved";
-  const statusLabel = isResolved ? "Resolved" : "Pending";
 
   const fileInDiff =
     !diffFilePaths || !item.filePath || diffFilePaths.has(item.filePath);
@@ -274,17 +311,26 @@ function FeedbackItemRow({
     ? formatFilePath(item.filePath, item.lineStart, item.lineEnd)
     : null;
 
+  const stateIcon =
+    state === "fixed" ? (
+      <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
+    ) : state === "dismissed" ? (
+      <XCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+    ) : (
+      <MessageCircle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+    );
+
   return (
     <div
       className={cn(
         "mb-2 ml-2 overflow-hidden rounded-md border transition-colors",
-        isResolved ? "border-border/30" : "border-border/50"
+        state === "open" ? "border-border/50" : "border-border/30"
       )}
     >
       <div
         className={cn(
           "cursor-pointer px-3 py-2 text-left",
-          isResolved ? "bg-muted/10" : "bg-muted/20"
+          state === "open" ? "bg-muted/20" : "bg-muted/10"
         )}
         onClick={() => setExpanded((v) => !v)}
       >
@@ -295,21 +341,7 @@ function FeedbackItemRow({
               expanded && "rotate-90"
             )}
           />
-          {isResolved ? (
-            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-          ) : (
-            <MessageCircle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
-          )}
-          <span
-            className={cn(
-              "shrink-0 rounded-full px-1.5 py-0 text-[10px] font-medium",
-              isResolved
-                ? "bg-emerald-500/15 text-emerald-600 dark:text-emerald-400"
-                : "bg-amber-500/15 text-amber-600 dark:text-amber-400"
-            )}
-          >
-            {statusLabel}
-          </span>
+          {stateIcon}
           {item.filePath && (
             <Tooltip>
               <TooltipTrigger asChild>
@@ -340,14 +372,18 @@ function FeedbackItemRow({
             </Tooltip>
           )}
         </div>
-        <p
-          className={cn(
-            "mt-1 pl-5 text-xs text-foreground/80",
-            !expanded && "line-clamp-1"
-          )}
-        >
-          {firstMessage}
-        </p>
+        <div className="mt-1.5 mr-6 pl-5">
+          <div className="rounded-lg rounded-tl-sm bg-blue-500/10 px-2.5 py-1.5">
+            <p
+              className={cn(
+                "whitespace-pre-wrap text-xs text-foreground/90",
+                !expanded && "line-clamp-1"
+              )}
+            >
+              {firstMessage}
+            </p>
+          </div>
+        </div>
       </div>
       <AnimatePresence initial={false}>
         {expanded &&
@@ -368,35 +404,53 @@ function FeedbackItemRow({
                     {item.diffSnapshot}
                   </pre>
                 )}
-                {remainingMessages.map((msg) => (
-                  <div key={msg.id} className="mt-2">
-                    <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                      <span className="font-medium">
-                        {msg.authorType === "human" ? "Human" : "Agent"}
-                      </span>
-                      <span>·</span>
-                      <span>
-                        {new Date(msg.createdAt).toLocaleTimeString(undefined, {
-                          hour: "2-digit",
-                          minute: "2-digit",
-                        })}
-                      </span>
+                {remainingMessages.map((msg) => {
+                  const isAgent = msg.authorType !== "human";
+                  return (
+                    <div
+                      key={msg.id}
+                      className={cn("mt-2.5", isAgent ? "pl-6" : "pr-6")}
+                    >
+                      <div
+                        className={cn(
+                          "flex items-center gap-1.5 text-[10px] text-muted-foreground",
+                          isAgent && "justify-end"
+                        )}
+                      >
+                        <span className="font-medium">
+                          {isAgent ? "Agent" : "You"}
+                        </span>
+                        <span>·</span>
+                        <span>
+                          {new Date(msg.createdAt).toLocaleTimeString(
+                            undefined,
+                            { hour: "2-digit", minute: "2-digit" }
+                          )}
+                        </span>
+                      </div>
+                      <div
+                        className={cn(
+                          "mt-0.5 rounded-lg px-2.5 py-1.5",
+                          isAgent
+                            ? "rounded-tr-sm bg-violet-500/10"
+                            : "rounded-tl-sm bg-blue-500/10"
+                        )}
+                      >
+                        <p className="whitespace-pre-wrap text-xs text-foreground/80">
+                          {msg.content?.body}
+                        </p>
+                      </div>
                     </div>
-                    <p className="mt-1 whitespace-pre-wrap text-xs text-foreground/80">
-                      {msg.content?.body}
+                  );
+                })}
+                {item.resolutionNote && (
+                  <div className="mt-2.5 rounded bg-muted/30 px-2.5 py-1.5">
+                    <span className="text-[10px] font-medium text-muted-foreground">
+                      Resolution
+                    </span>
+                    <p className="mt-0.5 text-xs text-foreground/70">
+                      {item.resolutionNote}
                     </p>
-                  </div>
-                ))}
-                {item.resolution && (
-                  <div className="mt-2 rounded border border-border/30 bg-muted/20 px-3 py-2">
-                    <div className="text-[10px] font-medium text-muted-foreground">
-                      Resolution: {item.resolution}
-                    </div>
-                    {item.resolutionNote && (
-                      <p className="mt-0.5 text-xs text-foreground/70">
-                        {item.resolutionNote}
-                      </p>
-                    )}
                   </div>
                 )}
               </div>

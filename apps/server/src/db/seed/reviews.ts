@@ -85,6 +85,26 @@ const REVIEWS: ReviewSeed[] = [
             body: "Hard-coded hex colors won't work in dark mode. Use CSS custom properties so the palette flips with the theme.",
             minutesAgo: 87,
           },
+          {
+            authorType: "agent",
+            body: "I can swap the hex values for CSS custom properties. Should I define them in the global stylesheet or scope them to the heatmap component?",
+            minutesAgo: 60,
+          },
+          {
+            authorType: "human",
+            body: "Global stylesheet — they should be part of the theme so other components can reuse the same palette tokens.",
+            minutesAgo: 55,
+          },
+          {
+            authorType: "agent",
+            body: "Makes sense. I'll add `--heatmap-empty` and `--heatmap-full` to the theme's CSS variables and reference them here. Working on it now.",
+            minutesAgo: 50,
+          },
+          {
+            authorType: "human",
+            body: "Perfect — also add a mid-range variable `--heatmap-mid` so the 3-stop gradient looks right in both themes.",
+            minutesAgo: 30,
+          },
         ],
       },
       {
