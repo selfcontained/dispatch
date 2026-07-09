@@ -93,6 +93,8 @@ const AGENT_TOOLS = new Set([
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
+  "dispatch_resolve_review_feedback",
+  "dispatch_add_review_message",
   "dispatch_submit_resolution",
   "dispatch_cancel_recheck",
   "list_agents",
@@ -339,6 +341,23 @@ export type McpRequestContext = {
     status: "fixed" | "ignored",
     options?: { reason?: string | null }
   ) => Promise<FeedbackItem>;
+  resolveReviewFeedback?: (
+    agentId: string,
+    itemId: number,
+    resolution: "fixed" | "ignored" | "wont_fix",
+    opts?: { note?: string | null }
+  ) => Promise<{
+    item: { id: number; reviewId: number; status: string; resolution: string };
+    reviewStatus: string;
+  }>;
+  addReviewThreadMessage?: (
+    agentId: string,
+    itemId: number,
+    body: string
+  ) => Promise<{
+    message: { id: number; feedbackItemId: number; content: { body: string } };
+    reviewId: number;
+  }>;
   submitResolution?: (
     agentId: string,
     input: { personaAgentId: string; summary: string }
@@ -507,6 +526,8 @@ async function createDispatchMcpServer(
       launchPersona: context.launchPersona,
       getFeedback: context.getFeedback,
       resolveFeedback: context.resolveFeedback,
+      resolveReviewFeedback: context.resolveReviewFeedback,
+      addReviewThreadMessage: context.addReviewThreadMessage,
       submitResolution: context.submitResolution,
     });
   }
