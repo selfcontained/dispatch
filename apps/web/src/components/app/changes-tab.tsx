@@ -269,15 +269,29 @@ export const ChangesTab = memo(function ChangesTab({
 
   const [searchParams, setSearchParams] = useSearchParams();
   const navFileTarget = searchParams.get("file");
+  const navLineTarget = searchParams.get("line");
 
   useEffect(() => {
     if (!navFileTarget || files.length === 0) return;
     const found = files.some((f) => f.path === navFileTarget);
     setSearchParams({}, { replace: true });
     if (found) {
-      requestAnimationFrame(() => scrollToFile(navFileTarget));
+      requestAnimationFrame(() => {
+        scrollToFile(navFileTarget);
+        if (navLineTarget) {
+          const lineNum = Number(navLineTarget);
+          if (Number.isInteger(lineNum) && lineNum > 0) {
+            requestAnimationFrame(() => {
+              const lineEl = scrollRef.current?.querySelector(
+                `[data-line-number="${lineNum}"]`
+              );
+              lineEl?.scrollIntoView({ block: "center", behavior: "smooth" });
+            });
+          }
+        }
+      });
     }
-  }, [navFileTarget, files, scrollToFile, setSearchParams]);
+  }, [navFileTarget, navLineTarget, files, scrollToFile, setSearchParams]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1161,8 +1175,10 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     if (!file) return {};
     const w: Record<string, React.ReactElement> = {};
 
-    // Inline feedback item annotations
+    // Inline feedback item annotations — group by change key so multiple
+    // items on the same line all render
     if (feedbackItems) {
+      const grouped = new Map<string, typeof feedbackItems>();
       for (const fi of feedbackItems) {
         if (fi.lineStart == null) continue;
         const key = findLastChangeKeyInRange(
@@ -1171,14 +1187,26 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
           fi.lineEnd ?? fi.lineStart
         );
         if (!key) continue;
-        const firstMsg = fi.messages[0]?.content?.body ?? "";
-        const isResolved = fi.status === "resolved";
+        const list = grouped.get(key) ?? [];
+        list.push(fi);
+        grouped.set(key, list);
+      }
+      for (const [key, items] of grouped) {
         w[key] = (
-          <InlineFeedbackAnnotation
-            feedbackItem={fi}
-            comment={firstMsg}
-            isResolved={isResolved}
-          />
+          <>
+            {items.map((fi) => {
+              const firstMsg = fi.messages[0]?.content?.body ?? "";
+              const isResolved = fi.status === "resolved";
+              return (
+                <InlineFeedbackAnnotation
+                  key={fi.id}
+                  feedbackItem={fi}
+                  comment={firstMsg}
+                  isResolved={isResolved}
+                />
+              );
+            })}
+          </>
         );
       }
     }
@@ -1191,7 +1219,7 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
           draft.startLine,
           draft.endLine
         );
-        if (!key || w[key]) continue;
+        if (!key) continue;
         w[key] = (
           <InlineDraftAnnotation
             draft={draft}

@@ -2,13 +2,14 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
+import type { UiEvent } from "../server/ui-events.js";
 import * as reviewQueries from "../agents/reviews.js";
 import { getAgentFileDiff } from "../shared/git/agent-diff.js";
 
 type ReviewRouteDeps = {
   pool: Pool;
   agentManager: AgentManager;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: (event: UiEvent) => void;
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
 };
@@ -171,7 +172,7 @@ export async function registerReviewRoutes(
       deps.publishUiEvent({
         type: "review.created",
         agentId,
-        review,
+        reviewId: review.id,
       });
 
       // Send tmux notification to the agent
@@ -221,9 +222,9 @@ export async function registerReviewRoutes(
     async (request, reply) => {
       const params = request.params as { id?: string; itemId?: string };
       const agentId = params.id ?? "";
-      const itemId = parseInt(params.itemId ?? "", 10);
+      const itemId = Number(params.itemId ?? "");
 
-      if (isNaN(itemId)) {
+      if (!Number.isInteger(itemId) || itemId <= 0) {
         return reply.code(400).send({ error: "Invalid item id." });
       }
 
@@ -291,15 +292,14 @@ export async function registerReviewRoutes(
     async (request, reply) => {
       const params = request.params as { id?: string; itemId?: string };
       const agentId = params.id ?? "";
-      const itemId = parseInt(params.itemId ?? "", 10);
+      const itemId = Number(params.itemId ?? "");
 
-      if (isNaN(itemId)) {
+      if (!Number.isInteger(itemId) || itemId <= 0) {
         return reply.code(400).send({ error: "Invalid item id." });
       }
 
       const body = request.body as {
         body?: unknown;
-        authorType?: unknown;
       } | null;
 
       if (typeof body?.body !== "string" || !body.body.trim()) {
@@ -311,8 +311,7 @@ export async function registerReviewRoutes(
           .send({ error: "body exceeds 10,000 character limit." });
       }
 
-      const authorType =
-        body.authorType === "agent" ? ("agent" as const) : ("human" as const);
+      const authorType = "human" as const;
 
       try {
         const agent = await deps.agentManager.getAgent(agentId);
@@ -377,9 +376,9 @@ export async function registerReviewRoutes(
   app.get("/api/v1/agents/:id/reviews/:reviewId", async (request, reply) => {
     const params = request.params as { id?: string; reviewId?: string };
     const agentId = params.id ?? "";
-    const reviewId = parseInt(params.reviewId ?? "", 10);
+    const reviewId = Number(params.reviewId ?? "");
 
-    if (isNaN(reviewId)) {
+    if (!Number.isInteger(reviewId) || reviewId <= 0) {
       return reply.code(400).send({ error: "Invalid review id." });
     }
 

@@ -210,14 +210,30 @@ export async function getReview(
     [reviewId]
   );
 
-  const items: ReviewWithItems["items"] = [];
-  for (const item of itemsResult.rows) {
-    const messagesResult = await pool.query<ReviewThreadMessageRecord>(
-      `SELECT ${THREAD_MESSAGE_SELECT} FROM review_thread_messages WHERE feedback_item_id = $1 ORDER BY created_at ASC`,
-      [item.id]
+  const itemIds = itemsResult.rows.map((i) => i.id);
+  const messagesByItem = new Map<number, ReviewThreadMessageRecord[]>();
+
+  if (itemIds.length > 0) {
+    const messagesResult = await pool.query<
+      ReviewThreadMessageRecord & { feedbackItemId: number }
+    >(
+      `SELECT ${THREAD_MESSAGE_SELECT}, feedback_item_id AS "feedbackItemId"
+       FROM review_thread_messages
+       WHERE feedback_item_id = ANY($1)
+       ORDER BY created_at ASC`,
+      [itemIds]
     );
-    items.push({ ...item, messages: messagesResult.rows });
+    for (const msg of messagesResult.rows) {
+      const list = messagesByItem.get(msg.feedbackItemId) ?? [];
+      list.push(msg);
+      messagesByItem.set(msg.feedbackItemId, list);
+    }
   }
+
+  const items = itemsResult.rows.map((item) => ({
+    ...item,
+    messages: messagesByItem.get(item.id) ?? [],
+  }));
 
   return { ...review, items };
 }
@@ -343,20 +359,28 @@ export async function listFeedbackItemsForAgent(
     [agentId]
   );
 
-  const items: Array<
-    ReviewFeedbackItemRecord & {
-      reviewId: number;
-      messages: ReviewThreadMessageRecord[];
-    }
-  > = [];
+  const itemIds = itemsResult.rows.map((i) => i.id);
+  const messagesByItem = new Map<number, ReviewThreadMessageRecord[]>();
 
-  for (const item of itemsResult.rows) {
-    const messagesResult = await pool.query<ReviewThreadMessageRecord>(
-      `SELECT ${THREAD_MESSAGE_SELECT} FROM review_thread_messages WHERE feedback_item_id = $1 ORDER BY created_at ASC`,
-      [item.id]
+  if (itemIds.length > 0) {
+    const messagesResult = await pool.query<
+      ReviewThreadMessageRecord & { feedbackItemId: number }
+    >(
+      `SELECT ${THREAD_MESSAGE_SELECT}, feedback_item_id AS "feedbackItemId"
+       FROM review_thread_messages
+       WHERE feedback_item_id = ANY($1)
+       ORDER BY created_at ASC`,
+      [itemIds]
     );
-    items.push({ ...item, messages: messagesResult.rows });
+    for (const msg of messagesResult.rows) {
+      const list = messagesByItem.get(msg.feedbackItemId) ?? [];
+      list.push(msg);
+      messagesByItem.set(msg.feedbackItemId, list);
+    }
   }
 
-  return items;
+  return itemsResult.rows.map((item) => ({
+    ...item,
+    messages: messagesByItem.get(item.id) ?? [],
+  }));
 }

@@ -1,6 +1,6 @@
 import type { AgentRecord, FeedbackRecord } from "../agents/manager.js";
 import type { ReleaseInfoSnapshot } from "../release-info.js";
-import type { ReviewWithItems } from "../agents/reviews.js";
+
 import type { DiffStats } from "../shared/git/diff-stats.js";
 import type { TerminalUiState } from "../terminal/copy-mode-observer.js";
 
@@ -35,7 +35,7 @@ export type UiEvent =
   | {
       type: "review.created";
       agentId: string;
-      review: ReviewWithItems;
+      reviewId: number;
     }
   | {
       type: "review.updated";

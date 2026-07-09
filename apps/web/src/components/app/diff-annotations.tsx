@@ -218,12 +218,21 @@ export function InlineFeedbackAnnotation({
 
   return (
     <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={expanded}
       className={cn(
         "mx-3 my-3 max-w-full overflow-hidden rounded-md border bg-background shadow-sm cursor-pointer transition-colors sticky left-0",
         isResolved ? "border-border/50 bg-muted/5" : "border-amber-500/40"
       )}
       style={stickyAnnotationStyle}
       onClick={() => setExpanded((v) => !v)}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          setExpanded((v) => !v);
+        }
+      }}
     >
       <div
         className={cn(

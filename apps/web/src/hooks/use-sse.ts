@@ -192,6 +192,9 @@ export function useSSE(authState: AuthState): void {
               q.queryKey[0] === "agent-review-detail" &&
               q.queryKey[1] === payload.agentId,
           });
+          void queryClient.invalidateQueries({
+            queryKey: ["agent-feedback-items", payload.agentId],
+          });
           return;
         }
 
