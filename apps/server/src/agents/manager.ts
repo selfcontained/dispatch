@@ -445,11 +445,15 @@ export class AgentManager {
     const tmuxSession = toSessionName(this.config.sessionPrefix, id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
+    // Cap + de-dup pins so the create endpoint can't bypass the upsertPin
+    // quota or bloat the startup prompt (pins flow into buildStartupPrompt).
     const initialPins = normalizeInitialPins(input.initialPins ?? []);
 
     const useWorktree = input.useWorktree !== false;
     const createNewBranch = input.createNewBranch ?? true;
 
+    // Sanitize ref names: rejects chars that would allow injection in the
+    // bash setup script and gives us a canonical form for archive cleanup.
     let normalizedBaseBranch: string | undefined;
     let normalizedWorktreeBranch: string | undefined;
     try {
