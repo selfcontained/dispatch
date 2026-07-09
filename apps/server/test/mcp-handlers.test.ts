@@ -981,6 +981,183 @@ describe("createMcpHandlers", () => {
         })
       );
     });
+
+    it("includes full-access arg for codex agents with fullAccess", async () => {
+      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+        "claude",
+        "codex",
+        "opencode",
+      ]);
+      vi.mocked(loadPersonaBySlug).mockResolvedValue({
+        slug: "security",
+        name: "Security",
+        prompt: "Review for security",
+      } as any);
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test",
+        cwd: "/repo",
+        type: "codex",
+        fullAccess: true,
+        worktreePath: null,
+        worktreeBranch: null,
+        baseBranch: null,
+        reviewAgentType: null,
+        status: "running",
+      });
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentArgs: expect.arrayContaining([
+            "--dangerously-bypass-approvals-and-sandbox",
+          ]),
+        })
+      );
+    });
+
+    it("does not include full-access arg for opencode agents", async () => {
+      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+        "claude",
+        "codex",
+        "opencode",
+      ]);
+      vi.mocked(loadPersonaBySlug).mockResolvedValue({
+        slug: "security",
+        name: "Security",
+        prompt: "Review for security",
+      } as any);
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test",
+        cwd: "/repo",
+        type: "opencode",
+        fullAccess: true,
+        worktreePath: null,
+        worktreeBranch: null,
+        baseBranch: null,
+        reviewAgentType: null,
+        status: "running",
+      });
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review",
+      });
+      const args = deps.agentManager.createAgent.mock.calls[0][0]
+        .agentArgs as string[];
+      expect(args).not.toContain("--dangerously-skip-permissions");
+      expect(args).not.toContain("--dangerously-bypass-approvals-and-sandbox");
+    });
+
+    it("skips diff when includeDiff is false", async () => {
+      const { buildPersonaReviewDiff } =
+        await import("../src/personas/review-diff.js");
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review",
+        includeDiff: false,
+      });
+      expect(buildPersonaReviewDiff).not.toHaveBeenCalled();
+      expect(assemblePersonaPrompt).toHaveBeenCalledWith(
+        expect.anything(),
+        "review",
+        null,
+        expect.objectContaining({ includeDiff: false })
+      );
+    });
+
+    it("falls back to codex when parent type is not claude or opencode", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test",
+        cwd: "/repo",
+        type: "gemini",
+        fullAccess: false,
+        worktreePath: null,
+        worktreeBranch: null,
+        baseBranch: null,
+        reviewAgentType: null,
+        status: "running",
+      });
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "codex" })
+      );
+    });
+
+    it("uses explicit agentType from opts over fallbacks", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test",
+        cwd: "/repo",
+        type: "claude",
+        fullAccess: false,
+        worktreePath: null,
+        worktreeBranch: null,
+        baseBranch: null,
+        reviewAgentType: "claude",
+        status: "running",
+      });
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review",
+        agentType: "codex",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "codex" })
+      );
+    });
+
+    it("uses parent reviewAgentType when no explicit agentType given", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test",
+        cwd: "/repo",
+        type: "claude",
+        fullAccess: false,
+        worktreePath: null,
+        worktreeBranch: null,
+        baseBranch: null,
+        reviewAgentType: "codex",
+        status: "running",
+      });
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "codex" })
+      );
+    });
+
+    it("uses worktreePath as cwd when available", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test",
+        cwd: "/repo",
+        type: "claude",
+        fullAccess: false,
+        worktreePath: "/repo/.dispatch/worktrees/abc",
+        worktreeBranch: "feature",
+        baseBranch: null,
+        reviewAgentType: null,
+        status: "running",
+      });
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          cwd: "/repo/.dispatch/worktrees/abc",
+        })
+      );
+    });
   });
 
   describe("launchAgent", () => {
