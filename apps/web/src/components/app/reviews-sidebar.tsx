@@ -4,6 +4,7 @@ import {
   Bot,
   CheckCircle2,
   ChevronRight,
+  Circle,
   Clock,
   MessageCircle,
   User,
@@ -317,7 +318,7 @@ function FeedbackItemRow({
     ) : state === "dismissed" ? (
       <XCircle className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
     ) : (
-      <MessageCircle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
+      <Circle className="h-3.5 w-3.5 shrink-0 text-amber-500" />
     );
 
   return (
@@ -385,7 +386,7 @@ function FeedbackItemRow({
           <div className="rounded-lg rounded-tl-sm bg-blue-500/10 px-2.5 py-1.5">
             <p
               className={cn(
-                "whitespace-pre-wrap text-xs text-foreground/90",
+                "whitespace-pre-wrap break-words text-xs text-foreground/90",
                 !expanded && "line-clamp-1"
               )}
             >
@@ -445,21 +446,24 @@ function FeedbackItemRow({
                             : "rounded-tl-sm bg-blue-500/10"
                         )}
                       >
-                        <p className="whitespace-pre-wrap text-xs text-foreground/80">
+                        <p className="whitespace-pre-wrap break-words text-xs text-foreground/80">
                           {msg.content?.body}
                         </p>
                       </div>
                     </div>
                   );
                 })}
-                {item.resolutionNote && (
-                  <div className="mt-2.5 rounded bg-muted/30 px-2.5 py-1.5">
-                    <span className="text-[10px] font-medium text-muted-foreground">
-                      Resolution
+                {item.resolution && (
+                  <div className="mt-2.5 rounded border-l-2 border-l-emerald-500/60 bg-emerald-500/[0.06] px-2.5 py-1.5">
+                    <span className="flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="h-3 w-3" />
+                      Resolution: {item.resolution}
                     </span>
-                    <p className="mt-0.5 text-xs text-foreground/70">
-                      {item.resolutionNote}
-                    </p>
+                    {item.resolutionNote && (
+                      <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-foreground/80">
+                        {item.resolutionNote}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

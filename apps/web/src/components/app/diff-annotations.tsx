@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
+  CheckCircle2,
   ChevronDown,
   ChevronRight,
   Loader2,
@@ -26,7 +27,6 @@ import {
 } from "@/components/ui/dropdown-menu";
 
 const stickyAnnotationStyle = {
-  width: "var(--diff-scroll-w, 100%)",
   maxWidth: "calc(var(--diff-scroll-w, 100%) - 1.5rem)",
 };
 
@@ -130,7 +130,7 @@ export function InlineCommentForm({
 
   return (
     <div
-      className="mx-3 my-3 max-w-full overflow-hidden rounded-md border border-border bg-background shadow-sm sticky left-0"
+      className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-border bg-background shadow-sm sticky left-0"
       style={stickyAnnotationStyle}
     >
       <div className="flex items-center gap-2 border-b border-border/50 bg-muted/30 px-3 py-2 text-[11px] text-muted-foreground">
@@ -218,27 +218,27 @@ export function InlineFeedbackAnnotation({
 
   return (
     <div
-      role="button"
-      tabIndex={0}
-      aria-expanded={expanded}
       className={cn(
-        "mx-3 my-3 max-w-full overflow-hidden rounded-md border bg-background shadow-sm cursor-pointer transition-colors sticky left-0",
+        "ml-3 my-3 max-w-full overflow-hidden rounded-md border bg-background shadow-sm transition-colors sticky left-0",
         isResolved ? "border-border/50 bg-muted/5" : "border-amber-500/40"
       )}
       style={stickyAnnotationStyle}
-      onClick={() => setExpanded((v) => !v)}
-      onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") {
-          e.preventDefault();
-          setExpanded((v) => !v);
-        }
-      }}
     >
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
         className={cn(
-          "flex items-center gap-2 border-b border-border/50 px-3 py-2 text-[11px]",
+          "flex items-center gap-2 border-b border-border/50 px-3 py-2 text-[11px] cursor-pointer",
           isResolved ? "bg-muted/20" : "bg-amber-500/10"
         )}
+        onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
       >
         <MessageCircle
           className={cn(
@@ -270,7 +270,7 @@ export function InlineFeedbackAnnotation({
       <div className="px-3 py-2">
         <p
           className={cn(
-            "whitespace-pre-wrap text-xs text-foreground/80",
+            "whitespace-pre-wrap break-words text-xs text-foreground/80",
             !expanded && "line-clamp-1"
           )}
         >
@@ -310,18 +310,19 @@ export function InlineFeedbackAnnotation({
                         })}
                       </span>
                     </div>
-                    <p className="mt-1 whitespace-pre-wrap text-xs text-foreground/80">
+                    <p className="mt-1 whitespace-pre-wrap break-words text-xs text-foreground/80">
                       {msg.content?.body}
                     </p>
                   </div>
                 ))}
                 {feedbackItem.resolution && (
-                  <div className="mt-2 rounded border border-border/30 bg-muted/20 px-3 py-2">
-                    <div className="text-[10px] font-medium text-muted-foreground">
+                  <div className="mt-2 rounded border-l-2 border-l-emerald-500/60 bg-emerald-500/[0.06] px-3 py-2">
+                    <div className="flex items-center gap-1 text-[10px] font-medium text-emerald-600 dark:text-emerald-400">
+                      <CheckCircle2 className="h-3 w-3" />
                       Resolution: {feedbackItem.resolution}
                     </div>
                     {feedbackItem.resolutionNote && (
-                      <p className="mt-0.5 text-xs text-foreground/70">
+                      <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-foreground/80">
                         {feedbackItem.resolutionNote}
                       </p>
                     )}
@@ -377,7 +378,7 @@ export function InlineDraftAnnotation({
   if (editing) {
     return (
       <div
-        className="mx-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm sticky left-0"
+        className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm sticky left-0"
         style={stickyAnnotationStyle}
       >
         <div className="flex items-center gap-2 border-b border-border/50 bg-primary/10 px-3 py-2 text-[11px]">
@@ -420,7 +421,7 @@ export function InlineDraftAnnotation({
 
   return (
     <div
-      className="mx-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm sticky left-0"
+      className="ml-3 my-3 max-w-full overflow-hidden rounded-md border border-primary/40 bg-background shadow-sm sticky left-0"
       style={stickyAnnotationStyle}
     >
       <div className="flex items-center gap-2 border-b border-border/50 bg-primary/10 px-3 py-2 text-[11px]">
@@ -459,7 +460,7 @@ export function InlineDraftAnnotation({
         </DropdownMenu>
       </div>
       <div className="px-3 py-2">
-        <p className="whitespace-pre-wrap text-xs text-foreground/80">
+        <p className="whitespace-pre-wrap break-words text-xs text-foreground/80">
           {draft.comment}
         </p>
       </div>
