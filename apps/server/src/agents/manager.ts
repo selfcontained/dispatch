@@ -170,6 +170,26 @@ type StopAgentInput = {
   force?: boolean;
 };
 
+type PreparedCreateInputs = {
+  id: string;
+  type: AgentType;
+  role: AgentRole;
+  name: string;
+  originalCwd: string;
+  tmuxSession: string;
+  mediaDir: string;
+  agentArgs: string[];
+  fullAccess: boolean;
+  initialPins: AgentPin[];
+  useWorktree: boolean;
+  createNewBranch: boolean;
+  normalizedBaseBranch: string | undefined;
+  worktreeBranchName: string | undefined;
+  worktreePathOverride: string | undefined;
+  cliSessionId: string | null;
+  initialSetupPhase: SetupPhase;
+};
+
 /**
  * Subset of `DiffStatsRefresher` the manager calls into. Defined as a
  * narrow interface so the manager doesn't import the refresher class
@@ -321,6 +341,91 @@ export class AgentManager {
   }
 
   async createAgent(input: CreateAgentInput): Promise<AgentRecord> {
+    const p = await this.prepareCreateInputs(input);
+    await this.insertAgentRecord(p, input);
+
+    const createdAgent = await this.getAgent(p.id);
+    if (createdAgent) {
+      for (const listener of this.agentCreatedListeners) {
+        try {
+          listener(createdAgent);
+        } catch {
+          /* listener errors must not break creation */
+        }
+      }
+    }
+
+    let initialMedia: Array<{
+      fileName: string;
+      displayName: string;
+      source: string;
+      description: string | null;
+    }> = [];
+    if (input.initialFiles && input.initialFiles.length > 0) {
+      try {
+        initialMedia = await seedInitialMedia(
+          this.pool,
+          p.id,
+          p.mediaDir,
+          input.initialFiles
+        );
+      } catch (error) {
+        await this.pool
+          .query("DELETE FROM agents WHERE id = $1", [p.id])
+          .catch(() => {});
+        await rm(p.mediaDir, { recursive: true, force: true }).catch(() => {});
+        throw error;
+      }
+    }
+    const startupPrompt = buildStartupPrompt(
+      input.initialPrompt,
+      p.initialPins,
+      initialMedia
+    );
+
+    if (this.config.agentRuntime === "inert") {
+      await this.launchInertAgent({
+        id: p.id,
+        type: p.type,
+        name: p.name,
+        originalCwd: p.originalCwd,
+        useWorktree: p.useWorktree,
+        createNewBranch: p.createNewBranch,
+        worktreeBranchName: p.worktreeBranchName,
+        normalizedBaseBranch: p.normalizedBaseBranch,
+        worktreePathOverride: p.worktreePathOverride,
+      });
+    } else {
+      await this.launchWithSetupScript({
+        id: p.id,
+        type: p.type,
+        role: p.role,
+        name: p.name,
+        originalCwd: p.originalCwd,
+        tmuxSession: p.tmuxSession,
+        mediaDir: p.mediaDir,
+        agentArgs: p.agentArgs,
+        fullAccess: p.fullAccess,
+        useWorktree: p.useWorktree,
+        createNewBranch: p.createNewBranch,
+        worktreeBranchName: p.worktreeBranchName,
+        normalizedBaseBranch: p.normalizedBaseBranch,
+        worktreePathOverride: p.worktreePathOverride,
+        cliSessionId: p.cliSessionId,
+        startupPrompt,
+        persona: input.persona,
+        jobRunId: input.jobRunId,
+        templateId: input.templateId,
+        autoReview: input.autoReview ?? false,
+      });
+    }
+
+    return (await this.getAgent(p.id)) as AgentRecord;
+  }
+
+  private async prepareCreateInputs(
+    input: CreateAgentInput
+  ): Promise<PreparedCreateInputs> {
     const originalCwd = await this.validateWorkingDirectory(input.cwd);
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "codex";
@@ -340,20 +445,15 @@ export class AgentManager {
     const tmuxSession = toSessionName(this.config.sessionPrefix, id, name);
     const mediaDir = path.join(this.config.mediaRoot, id);
     await mkdir(mediaDir, { recursive: true });
-    // Apply the same cap + de-dup that `upsertPin` enforces; otherwise
-    // the create-agent endpoint is a quota bypass and a prompt-bloat
-    // vector (pins flow into `buildStartupPrompt`).
+    // Cap + de-dup pins so the create endpoint can't bypass the upsertPin
+    // quota or bloat the startup prompt (pins flow into buildStartupPrompt).
     const initialPins = normalizeInitialPins(input.initialPins ?? []);
 
     const useWorktree = input.useWorktree !== false;
     const createNewBranch = input.createNewBranch ?? true;
 
-    // Normalize ref names up front. assertSafeRefName trims, rejects empty
-    // values, and forbids any character that isn't alphanumeric / `_./-`/`/` —
-    // which (a) keeps malicious input out of the bash setup script (CRU-139
-    // injection vector) and (b) gives us a single canonical form to persist
-    // and compare against during archive cleanup. Skip when the field wasn't
-    // provided so the existing fallback paths still apply.
+    // Sanitize ref names: rejects chars that would allow injection in the
+    // bash setup script and gives us a canonical form for archive cleanup.
     let normalizedBaseBranch: string | undefined;
     let normalizedWorktreeBranch: string | undefined;
     try {
@@ -382,7 +482,6 @@ export class AgentManager {
       normalizedBaseBranch = normalizedBaseBranch ?? "main";
     }
 
-    // Compute worktree params for the setup script
     let worktreeBranchName: string | undefined;
     let worktreePathOverride: string | undefined;
     if (useWorktree) {
@@ -394,14 +493,10 @@ export class AgentManager {
         worktreeBranchName =
           normalizedWorktreeBranch || `${id}/${slugName || "work"}`;
       } else {
-        // When checking out an existing branch without creating a new one,
-        // the worktree branch is the starting branch itself.
         worktreeBranchName = normalizedBaseBranch || "main";
       }
       const worktreeLocation = input.worktreeLocation ?? "sibling";
       if (worktreeLocation === "nested") {
-        // For nested layout, derive the same hashed slug so two agents on
-        // slug-equivalent existing branches don't pick the same path.
         worktreePathOverride = path.join(
           originalCwd,
           ".dispatch",
@@ -411,121 +506,62 @@ export class AgentManager {
       }
     }
 
-    // Auto-assign a CLI session ID for Claude agents so we can track which
-    // session file belongs to this agent and resume it on restart.
     const cliSessionId =
       input.cliSessionId ?? (type === "claude" ? randomUUID() : null);
-
-    // Insert the agent record immediately so the API can return fast.
-    // The setup script running in tmux will handle worktree/deps/etc.
     const initialSetupPhase: SetupPhase = useWorktree ? "worktree" : "session";
+
+    return {
+      id,
+      type,
+      role,
+      name,
+      originalCwd,
+      tmuxSession,
+      mediaDir,
+      agentArgs,
+      fullAccess,
+      initialPins,
+      useWorktree,
+      createNewBranch,
+      normalizedBaseBranch,
+      worktreeBranchName,
+      worktreePathOverride,
+      cliSessionId,
+      initialSetupPhase,
+    };
+  }
+
+  private async insertAgentRecord(
+    p: PreparedCreateInputs,
+    input: CreateAgentInput
+  ): Promise<void> {
     await this.pool.query(
       `
       INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
       VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, NOW())
       `,
       [
-        id,
-        name,
-        type,
-        role,
-        originalCwd,
-        tmuxSession,
-        mediaDir,
-        JSON.stringify(agentArgs),
-        fullAccess,
-        initialSetupPhase,
+        p.id,
+        p.name,
+        p.type,
+        p.role,
+        p.originalCwd,
+        p.tmuxSession,
+        p.mediaDir,
+        JSON.stringify(p.agentArgs),
+        p.fullAccess,
+        p.initialSetupPhase,
         input.persona ?? null,
         input.parentAgentId ?? null,
         input.personaContext ?? null,
         input.reviewAgentType ?? null,
-        cliSessionId,
+        p.cliSessionId,
         input.autoReview ?? false,
-        normalizedBaseBranch ?? null,
+        p.normalizedBaseBranch ?? null,
         input.templateId ?? null,
-        JSON.stringify(initialPins),
+        JSON.stringify(p.initialPins),
       ]
     );
-
-    // Notify listeners immediately so the UI can show the agent in
-    // "creating" status before potentially slow worktree setup.
-    const createdAgent = await this.getAgent(id);
-    if (createdAgent) {
-      for (const listener of this.agentCreatedListeners) {
-        try {
-          listener(createdAgent);
-        } catch {
-          /* listener errors must not break creation */
-        }
-      }
-    }
-
-    let initialMedia: Array<{
-      fileName: string;
-      displayName: string;
-      source: string;
-      description: string | null;
-    }> = [];
-    if (input.initialFiles && input.initialFiles.length > 0) {
-      try {
-        initialMedia = await seedInitialMedia(
-          this.pool,
-          id,
-          mediaDir,
-          input.initialFiles
-        );
-      } catch (error) {
-        await this.pool
-          .query("DELETE FROM agents WHERE id = $1", [id])
-          .catch(() => {});
-        await rm(mediaDir, { recursive: true, force: true }).catch(() => {});
-        throw error;
-      }
-    }
-    const startupPrompt = buildStartupPrompt(
-      input.initialPrompt,
-      initialPins,
-      initialMedia
-    );
-
-    if (this.config.agentRuntime === "inert") {
-      await this.launchInertAgent({
-        id,
-        type,
-        name,
-        originalCwd,
-        useWorktree,
-        createNewBranch,
-        worktreeBranchName,
-        normalizedBaseBranch,
-        worktreePathOverride,
-      });
-    } else {
-      await this.launchWithSetupScript({
-        id,
-        type,
-        role,
-        name,
-        originalCwd,
-        tmuxSession,
-        mediaDir,
-        agentArgs,
-        fullAccess,
-        useWorktree,
-        createNewBranch,
-        worktreeBranchName,
-        normalizedBaseBranch,
-        worktreePathOverride,
-        cliSessionId,
-        startupPrompt,
-        persona: input.persona,
-        jobRunId: input.jobRunId,
-        templateId: input.templateId,
-        autoReview: input.autoReview ?? false,
-      });
-    }
-
-    return (await this.getAgent(id)) as AgentRecord;
   }
 
   private async launchInertAgent(opts: {
