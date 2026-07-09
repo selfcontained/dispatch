@@ -57,6 +57,7 @@ type McpRouteDeps = {
   mcpResolveFeedback: unknown;
   mcpResolveReviewFeedback: unknown;
   mcpAddReviewThreadMessage: unknown;
+  mcpListReviewFeedback: unknown;
   mcpSubmitResolution: unknown;
   mcpCancelRecheck: unknown;
   mcpUpsertPin: unknown;
@@ -216,6 +217,7 @@ export async function registerMcpRoutes(
       resolveFeedback: deps.mcpResolveFeedback,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
+      listReviewFeedback: deps.mcpListReviewFeedback,
       submitResolution: deps.mcpSubmitResolution,
       cancelRecheck: deps.mcpCancelRecheck,
       sendMessage: deps.mcpSendMessage,
@@ -301,6 +303,7 @@ export async function registerMcpRoutes(
       resolveFeedback: deps.mcpResolveFeedback,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
+      listReviewFeedback: deps.mcpListReviewFeedback,
       submitResolution: deps.mcpSubmitResolution,
       cancelRecheck: deps.mcpCancelRecheck,
       sendMessage: deps.mcpSendMessage,
