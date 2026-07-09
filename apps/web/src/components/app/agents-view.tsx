@@ -452,6 +452,29 @@ export function AgentsView({
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const hasActiveAgent = Boolean(validatedSelectedAgentId);
 
+  const terminalElement = (
+    <TerminalPane
+      isAttached={isAttached}
+      connState={connState}
+      statusMessage={statusMessage}
+      terminalMode={terminalMode}
+      terminalPlaceholderMessage={terminalPlaceholderMessage}
+      terminalHostRef={terminalHostRef}
+      resyncing={resyncing}
+      draggingFiles={draggingFiles}
+      uploadingFiles={uploadingFiles}
+      archivePhase={
+        selectedAgent?.status === "archiving"
+          ? selectedAgent.archivePhase
+          : null
+      }
+    />
+  );
+
+  const changesElement = (
+    <ChangesTab agentId={focusedAgentId} active={true} isMobile={isMobile} />
+  );
+
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
@@ -625,7 +648,7 @@ export function AgentsView({
                 {isSplit ? (
                   <ResizablePanelGroup
                     orientation="horizontal"
-                    onLayoutChange={handleSplitLayoutChange}
+                    onLayoutChanged={handleSplitLayoutChange}
                     className="h-full"
                   >
                     <ResizablePanel
@@ -645,32 +668,9 @@ export function AgentsView({
                           ) : null}
                         </div>
                         <div className="min-h-0 flex-1">
-                          {splitState.left === "terminal" ? (
-                            <TerminalPane
-                              isAttached={isAttached}
-                              connState={connState}
-                              statusMessage={statusMessage}
-                              terminalMode={terminalMode}
-                              terminalPlaceholderMessage={
-                                terminalPlaceholderMessage
-                              }
-                              terminalHostRef={terminalHostRef}
-                              resyncing={resyncing}
-                              draggingFiles={draggingFiles}
-                              uploadingFiles={uploadingFiles}
-                              archivePhase={
-                                selectedAgent?.status === "archiving"
-                                  ? selectedAgent.archivePhase
-                                  : null
-                              }
-                            />
-                          ) : (
-                            <ChangesTab
-                              agentId={focusedAgentId}
-                              active={true}
-                              isMobile={isMobile}
-                            />
-                          )}
+                          {splitState.left === "terminal"
+                            ? terminalElement
+                            : changesElement}
                         </div>
                       </div>
                     </ResizablePanel>
@@ -702,32 +702,9 @@ export function AgentsView({
                           ) : null}
                         </div>
                         <div className="min-h-0 flex-1">
-                          {splitState.right === "terminal" ? (
-                            <TerminalPane
-                              isAttached={isAttached}
-                              connState={connState}
-                              statusMessage={statusMessage}
-                              terminalMode={terminalMode}
-                              terminalPlaceholderMessage={
-                                terminalPlaceholderMessage
-                              }
-                              terminalHostRef={terminalHostRef}
-                              resyncing={resyncing}
-                              draggingFiles={draggingFiles}
-                              uploadingFiles={uploadingFiles}
-                              archivePhase={
-                                selectedAgent?.status === "archiving"
-                                  ? selectedAgent.archivePhase
-                                  : null
-                              }
-                            />
-                          ) : (
-                            <ChangesTab
-                              agentId={focusedAgentId}
-                              active={true}
-                              isMobile={isMobile}
-                            />
-                          )}
+                          {splitState.right === "terminal"
+                            ? terminalElement
+                            : changesElement}
                         </div>
                       </div>
                     </ResizablePanel>
@@ -735,34 +712,10 @@ export function AgentsView({
                 ) : (
                   <>
                     <div className={cn("h-full", changesMatch && "hidden")}>
-                      <TerminalPane
-                        isAttached={isAttached}
-                        connState={connState}
-                        statusMessage={statusMessage}
-                        terminalMode={terminalMode}
-                        terminalPlaceholderMessage={terminalPlaceholderMessage}
-                        terminalHostRef={terminalHostRef}
-                        resyncing={resyncing}
-                        draggingFiles={draggingFiles}
-                        uploadingFiles={uploadingFiles}
-                        archivePhase={
-                          selectedAgent?.status === "archiving"
-                            ? selectedAgent.archivePhase
-                            : null
-                        }
-                      />
+                      {terminalElement}
                     </div>
                     <Routes>
-                      <Route
-                        path="changes"
-                        element={
-                          <ChangesTab
-                            agentId={focusedAgentId}
-                            active={true}
-                            isMobile={isMobile}
-                          />
-                        }
-                      />
+                      <Route path="changes" element={changesElement} />
                     </Routes>
                   </>
                 )}
