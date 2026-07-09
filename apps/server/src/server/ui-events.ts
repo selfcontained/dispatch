@@ -1,5 +1,6 @@
 import type { AgentRecord, FeedbackRecord } from "../agents/manager.js";
 import type { ReleaseInfoSnapshot } from "../release-info.js";
+
 import type { DiffStats } from "../shared/git/diff-stats.js";
 import type { TerminalUiState } from "../terminal/copy-mode-observer.js";
 
@@ -30,6 +31,22 @@ export type UiEvent =
       type: "feedback.updated";
       agentId: string;
       feedback: FeedbackRecord;
+    }
+  | {
+      type: "review.created";
+      agentId: string;
+      reviewId: number;
+    }
+  | {
+      type: "review.updated";
+      agentId: string;
+      reviewId: number;
+      status: string;
+    }
+  | {
+      type: "review_feedback.updated";
+      agentId: string;
+      feedbackItemId: number;
     }
   | { type: "job.changed" }
   | { type: "template.changed" }

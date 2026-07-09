@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Routes, Route, useParams } from "react-router-dom";
+import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen, Split } from "lucide-react";
 
 import { ChangesTab } from "@/components/app/changes-tab";
@@ -101,6 +101,7 @@ export function AgentsView({
   onNavigateSection,
 }: AgentsViewProps): JSX.Element {
   const { agentId: routeAgentId } = useParams();
+  const navTo = useNavigate();
 
   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
     string | null
@@ -337,6 +338,31 @@ export function AgentsView({
     await uploadAgentMedia(agentId, file);
   }, []);
 
+  const handleNavigateToFile = useCallback(
+    (filePath: string, lineStart: number | null) => {
+      if (!focusedAgentId) return;
+      const params = new URLSearchParams();
+      params.set("file", filePath);
+      if (lineStart != null) params.set("line", String(lineStart));
+      navTo(`/agents/${focusedAgentId}/changes?${params.toString()}`, {
+        replace: true,
+      });
+    },
+    [focusedAgentId, navTo]
+  );
+
+  const handleReviewSubmitted = useCallback(
+    (reviewId: number) => {
+      if (!focusedAgentId) return;
+      navTo(`/agents/${focusedAgentId}?expandReview=${reviewId}`, {
+        replace: true,
+      });
+      setMediaOpen(true);
+      setMediaActiveTab("reviews");
+    },
+    [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!expandedAgentId) {
@@ -494,7 +520,12 @@ export function AgentsView({
   );
 
   const changesElement = (
-    <ChangesTab agentId={focusedAgentId} active={true} isMobile={isMobile} />
+    <ChangesTab
+      agentId={focusedAgentId}
+      active={true}
+      isMobile={isMobile}
+      onReviewSubmitted={handleReviewSubmitted}
+    />
   );
 
   return (
@@ -833,6 +864,7 @@ export function AgentsView({
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}
             onUploadFile={uploadFile}
+            onNavigateToFile={handleNavigateToFile}
           />
         </div>
       </div>
@@ -880,6 +912,7 @@ export function AgentsView({
             openLightbox={openLightbox}
             onRequestClose={() => setMobileMediaOpen(false)}
             onUploadFile={uploadFile}
+            onNavigateToFile={handleNavigateToFile}
           />
         </GlassSidebar>
       ) : null}

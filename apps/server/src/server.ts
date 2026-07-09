@@ -108,6 +108,7 @@ import { registerMediaRoutes } from "./routes/media.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
+import { registerReviewRoutes } from "./routes/reviews.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
 import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
@@ -481,6 +482,9 @@ async function registerRoutes() {
     mcpLaunchAgent: mcpHandlers.launchAgent,
     mcpGetFeedback: mcpHandlers.getFeedback,
     mcpResolveFeedback: mcpHandlers.resolveFeedback,
+    mcpResolveReviewFeedback: mcpHandlers.resolveReviewFeedback,
+    mcpAddReviewThreadMessage: mcpHandlers.addReviewThreadMessage,
+    mcpListReviewFeedback: mcpHandlers.listReviewFeedback,
     mcpSubmitResolution: mcpHandlers.submitResolution,
     mcpCancelRecheck: mcpHandlers.cancelRecheck,
     mcpSendMessage: mcpHandlers.sendMessage,
@@ -625,6 +629,17 @@ async function registerRoutes() {
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     withStreamFlag,
+    handleAgentError,
+  });
+
+  // --- Reviews ---
+
+  await registerReviewRoutes(app, {
+    pool,
+    agentManager,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    sendAgentPrompt: (agentId, prompt) =>
+      injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
     handleAgentError,
   });
 

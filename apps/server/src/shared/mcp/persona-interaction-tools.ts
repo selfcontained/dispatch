@@ -22,6 +22,9 @@ export type PersonaInteractionCallbacks = {
   launchPersona?: McpRequestContext["launchPersona"];
   getFeedback?: McpRequestContext["getFeedback"];
   resolveFeedback?: McpRequestContext["resolveFeedback"];
+  resolveReviewFeedback?: McpRequestContext["resolveReviewFeedback"];
+  addReviewThreadMessage?: McpRequestContext["addReviewThreadMessage"];
+  listReviewFeedback?: McpRequestContext["listReviewFeedback"];
   submitResolution?: McpRequestContext["submitResolution"];
 };
 
@@ -236,6 +239,142 @@ export function registerPersonaInteractionTools(
               {
                 type: "text",
                 text: `Feedback #${result.id} marked as ${result.status}.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_review_list_feedback ────────────────────────────────
+  if (
+    allowed.has("dispatch_review_list_feedback") &&
+    callbacks.listReviewFeedback
+  ) {
+    const listReviewFeedback = callbacks.listReviewFeedback;
+
+    server.registerTool(
+      "dispatch_review_list_feedback",
+      {
+        description:
+          "List human review feedback items for this agent. Returns all feedback items across all reviews, including their IDs, file paths, status, resolution, and thread messages. Use this to discover item IDs before calling dispatch_review_resolve or dispatch_review_add_message.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const items = await listReviewFeedback(agentId);
+          const summary =
+            items.length === 0
+              ? "No review feedback items found."
+              : `Found ${items.length} review feedback item(s).`;
+          return {
+            content: [{ type: "text", text: summary }],
+            structuredContent: { items },
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_review_resolve ──────────────────────────────────────
+  if (
+    allowed.has("dispatch_review_resolve") &&
+    callbacks.resolveReviewFeedback
+  ) {
+    const resolveReviewFeedback = callbacks.resolveReviewFeedback;
+
+    server.registerTool(
+      "dispatch_review_resolve",
+      {
+        description:
+          "Resolve a human review feedback item. Marks the item as fixed, dismissed, or wont_fix. The parent review status is automatically recomputed (open → partially_resolved → resolved).",
+        inputSchema: {
+          itemId: z
+            .number()
+            .int()
+            .positive()
+            .describe("The ID of the review feedback item to resolve."),
+          resolution: z
+            .enum(["fixed", "ignored", "wont_fix"])
+            .describe(
+              "Resolution type: 'fixed' if addressed, 'ignored' if not applicable, 'wont_fix' if acknowledged but intentionally left."
+            ),
+          note: z
+            .string()
+            .max(10_000)
+            .optional()
+            .describe(
+              "Optional note explaining the resolution. Encouraged for 'dismissed' and 'wont_fix'."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await resolveReviewFeedback(
+            agentId,
+            args.itemId,
+            args.resolution,
+            { note: args.note ?? null }
+          );
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Review feedback #${result.item.id} marked as ${args.resolution}. Review status: ${result.reviewStatus}.`,
+              },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_review_add_message ──────────────────────────────────
+  if (
+    allowed.has("dispatch_review_add_message") &&
+    callbacks.addReviewThreadMessage
+  ) {
+    const addReviewThreadMessage = callbacks.addReviewThreadMessage;
+
+    server.registerTool(
+      "dispatch_review_add_message",
+      {
+        description:
+          "Add a message to a review feedback item's thread. Use this to reply to a human review comment — for example, to ask a clarifying question or explain your approach before resolving.",
+        inputSchema: {
+          itemId: z
+            .number()
+            .int()
+            .positive()
+            .describe(
+              "The ID of the review feedback item to add a message to."
+            ),
+          body: z
+            .string()
+            .min(1)
+            .max(50_000)
+            .describe("The message body (plain text or markdown)."),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await addReviewThreadMessage(
+            agentId,
+            args.itemId,
+            args.body
+          );
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Message added to review feedback #${args.itemId} (message #${result.message.id}).`,
               },
             ],
           };

@@ -11,6 +11,7 @@ import { seedFeedback } from "./feedback.js";
 import { seedMedia } from "./media.js";
 import { seedJobs } from "./jobs.js";
 import { seedPersonaReviews } from "./persona-reviews.js";
+import { seedReviews } from "./reviews.js";
 
 type SeedOptions = {
   databaseUrl: string;
@@ -57,6 +58,7 @@ async function clearSeeded(client: PoolClient): Promise<void> {
   await client.query(
     `DELETE FROM persona_reviews WHERE agent_id LIKE 'seed-%'`
   );
+  await client.query(`DELETE FROM reviews WHERE agent_id LIKE 'seed-%'`);
   await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
     SEED_TAG,
   ]);
@@ -83,6 +85,7 @@ export async function seedDevData(
     await seedActivityEvents(client);
     await seedTokenUsage(client);
     await seedPersonaReviews(client);
+    await seedReviews(client);
     await seedFeedback(client);
     await seedMedia(client);
     await seedJobs(client);

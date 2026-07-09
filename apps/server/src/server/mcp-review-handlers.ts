@@ -37,6 +37,11 @@ import {
 import { getPrStatus } from "../shared/github/pr.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
+import {
+  resolveReviewFeedbackItem,
+  addThreadMessage,
+  listFeedbackItemsForAgent,
+} from "../agents/reviews.js";
 import type {
   ParentContextResult,
   RecheckContextResult,
@@ -305,6 +310,98 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         gitDiffCommand: compareRange ? `git diff ${compareRange}` : null,
         submittedAt: resolution?.submittedAt ?? null,
         resolutions,
+      };
+    },
+
+    async listReviewFeedback(agentId: string) {
+      return listFeedbackItemsForAgent(pool, agentId);
+    },
+
+    async resolveReviewFeedback(
+      agentId: string,
+      itemId: number,
+      resolution: "fixed" | "ignored" | "wont_fix",
+      opts: { note?: string | null } = {}
+    ): Promise<{
+      item: {
+        id: number;
+        reviewId: number;
+        status: string;
+        resolution: string;
+      };
+      reviewStatus: string;
+    }> {
+      const result = await resolveReviewFeedbackItem(
+        pool,
+        itemId,
+        agentId,
+        resolution,
+        { note: opts.note ?? null, resolvedBy: agentId }
+      );
+      if (!result) {
+        throw new Error(
+          `Review feedback item #${itemId} not found or not owned by this agent.`
+        );
+      }
+      publishUiEvent({
+        type: "review_feedback.updated",
+        agentId,
+        feedbackItemId: itemId,
+      });
+      publishUiEvent({
+        type: "review.updated",
+        agentId,
+        reviewId: result.reviewId,
+        status: result.reviewStatus,
+      });
+      return {
+        item: {
+          id: result.item.id,
+          reviewId: result.reviewId,
+          status: result.item.status,
+          resolution: result.item.resolution!,
+        },
+        reviewStatus: result.reviewStatus,
+      };
+    },
+
+    async addReviewThreadMessage(
+      agentId: string,
+      itemId: number,
+      body: string
+    ): Promise<{
+      message: {
+        id: number;
+        feedbackItemId: number;
+        content: { body: string };
+      };
+      reviewId: number;
+    }> {
+      const result = await addThreadMessage(
+        pool,
+        itemId,
+        agentId,
+        "agent",
+        body,
+        agentId
+      );
+      if (!result) {
+        throw new Error(
+          `Review feedback item #${itemId} not found or not owned by this agent.`
+        );
+      }
+      publishUiEvent({
+        type: "review_feedback.updated",
+        agentId,
+        feedbackItemId: itemId,
+      });
+      return {
+        message: {
+          id: result.message.id,
+          feedbackItemId: result.message.feedbackItemId,
+          content: result.message.content,
+        },
+        reviewId: result.reviewId,
       };
     },
 

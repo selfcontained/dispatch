@@ -62,6 +62,32 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: vi.fn(async () => ({ stdout: "", stderr: "", exitCode: 0 })),
 }));
 
+vi.mock("../src/agents/reviews.js", () => ({
+  resolveReviewFeedbackItem: vi.fn(async () => ({
+    item: {
+      id: 10,
+      reviewId: 5,
+      status: "resolved",
+      resolution: "fixed",
+      resolutionNote: null,
+    },
+    reviewId: 5,
+    reviewStatus: "partially_resolved",
+  })),
+  addThreadMessage: vi.fn(async () => ({
+    message: {
+      id: 20,
+      feedbackItemId: 10,
+      authorType: "agent",
+      authorAgentId: "agt_test1",
+      type: "text",
+      content: { body: "I fixed this" },
+      createdAt: "2026-01-01T00:00:00Z",
+    },
+    reviewId: 5,
+  })),
+}));
+
 vi.mock("../src/shared/media.js", () => ({
   isMediaFile: vi.fn(() => true),
   isTextFile: vi.fn(() => false),
@@ -99,6 +125,10 @@ import {
 } from "../src/personas/loader.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { isMediaFile, isTextFile } from "../src/shared/media.js";
+import {
+  resolveReviewFeedbackItem,
+  addThreadMessage,
+} from "../src/agents/reviews.js";
 
 function createMockDeps() {
   return {
@@ -1962,6 +1992,89 @@ describe("createMcpHandlers", () => {
           update: "missing.png",
         })
       ).rejects.toThrow("No media file found");
+    });
+  });
+
+  describe("resolveReviewFeedback", () => {
+    it("resolves item and publishes both feedback and review events", async () => {
+      const result = await handlers.resolveReviewFeedback(
+        "agt_test1",
+        10,
+        "fixed",
+        { note: "addressed in latest commit" }
+      );
+      expect(result.item.id).toBe(10);
+      expect(result.reviewStatus).toBe("partially_resolved");
+      expect(resolveReviewFeedbackItem).toHaveBeenCalledWith(
+        deps.pool,
+        10,
+        "agt_test1",
+        "fixed",
+        { note: "addressed in latest commit", resolvedBy: "agt_test1" }
+      );
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "review_feedback.updated",
+        agentId: "agt_test1",
+        feedbackItemId: 10,
+      });
+      expect(deps.publishUiEvent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "review.updated",
+          agentId: "agt_test1",
+          reviewId: 5,
+          status: "partially_resolved",
+        })
+      );
+    });
+
+    it("throws when item not found", async () => {
+      vi.mocked(resolveReviewFeedbackItem).mockResolvedValueOnce(null);
+      await expect(
+        handlers.resolveReviewFeedback("agt_test1", 99, "fixed")
+      ).rejects.toThrow("Review feedback item #99 not found");
+    });
+
+    it("defaults note to null when omitted", async () => {
+      await handlers.resolveReviewFeedback("agt_test1", 10, "ignored");
+      expect(resolveReviewFeedbackItem).toHaveBeenCalledWith(
+        deps.pool,
+        10,
+        "agt_test1",
+        "ignored",
+        { note: null, resolvedBy: "agt_test1" }
+      );
+    });
+  });
+
+  describe("addReviewThreadMessage", () => {
+    it("adds message and publishes feedback event", async () => {
+      const result = await handlers.addReviewThreadMessage(
+        "agt_test1",
+        10,
+        "I fixed this"
+      );
+      expect(result.message.id).toBe(20);
+      expect(result.reviewId).toBe(5);
+      expect(addThreadMessage).toHaveBeenCalledWith(
+        deps.pool,
+        10,
+        "agt_test1",
+        "agent",
+        "I fixed this",
+        "agt_test1"
+      );
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "review_feedback.updated",
+        agentId: "agt_test1",
+        feedbackItemId: 10,
+      });
+    });
+
+    it("throws when item not found", async () => {
+      vi.mocked(addThreadMessage).mockResolvedValueOnce(null);
+      await expect(
+        handlers.addReviewThreadMessage("agt_test1", 99, "hello")
+      ).rejects.toThrow("Review feedback item #99 not found");
     });
   });
 
