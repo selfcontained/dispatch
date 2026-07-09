@@ -24,6 +24,7 @@ export type PersonaInteractionCallbacks = {
   resolveFeedback?: McpRequestContext["resolveFeedback"];
   resolveReviewFeedback?: McpRequestContext["resolveReviewFeedback"];
   addReviewThreadMessage?: McpRequestContext["addReviewThreadMessage"];
+  listReviewFeedback?: McpRequestContext["listReviewFeedback"];
   submitResolution?: McpRequestContext["submitResolution"];
 };
 
@@ -248,15 +249,47 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  // ── dispatch_resolve_review_feedback ──────────────────────────────
+  // ── dispatch_review_list_feedback ────────────────────────────────
   if (
-    allowed.has("dispatch_resolve_review_feedback") &&
+    allowed.has("dispatch_review_list_feedback") &&
+    callbacks.listReviewFeedback
+  ) {
+    const listReviewFeedback = callbacks.listReviewFeedback;
+
+    server.registerTool(
+      "dispatch_review_list_feedback",
+      {
+        description:
+          "List human review feedback items for this agent. Returns all feedback items across all reviews, including their IDs, file paths, status, resolution, and thread messages. Use this to discover item IDs before calling dispatch_review_resolve or dispatch_review_add_message.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const items = await listReviewFeedback(agentId);
+          const summary =
+            items.length === 0
+              ? "No review feedback items found."
+              : `Found ${items.length} review feedback item(s).`;
+          return {
+            content: [{ type: "text", text: summary }],
+            structuredContent: { items },
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  // ── dispatch_review_resolve ──────────────────────────────────────
+  if (
+    allowed.has("dispatch_review_resolve") &&
     callbacks.resolveReviewFeedback
   ) {
     const resolveReviewFeedback = callbacks.resolveReviewFeedback;
 
     server.registerTool(
-      "dispatch_resolve_review_feedback",
+      "dispatch_review_resolve",
       {
         description:
           "Resolve a human review feedback item. Marks the item as fixed, dismissed, or wont_fix. The parent review status is automatically recomputed (open → partially_resolved → resolved).",
@@ -303,15 +336,15 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  // ── dispatch_add_review_message ─────────────────────────────────
+  // ── dispatch_review_add_message ──────────────────────────────────
   if (
-    allowed.has("dispatch_add_review_message") &&
+    allowed.has("dispatch_review_add_message") &&
     callbacks.addReviewThreadMessage
   ) {
     const addReviewThreadMessage = callbacks.addReviewThreadMessage;
 
     server.registerTool(
-      "dispatch_add_review_message",
+      "dispatch_review_add_message",
       {
         description:
           "Add a message to a review feedback item's thread. Use this to reply to a human review comment — for example, to ask a clarifying question or explain your approach before resolving.",

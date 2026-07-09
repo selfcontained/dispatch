@@ -260,8 +260,16 @@ export async function resolveReviewFeedbackItem(
        SET status = 'resolved', resolution = $1, resolution_note = $2,
            resolved_by = $3, resolved_at = NOW(), updated_at = NOW()
        FROM reviews r
-       WHERE fi.id = $4 AND fi.review_id = r.id AND r.agent_id = $5
-       RETURNING ${FEEDBACK_ITEM_SELECT}, r.agent_id AS "agentId"`,
+       WHERE fi.id = $4 AND fi.review_id = r.id
+         AND (r.agent_id = $5 OR r.assigned_agent_id = $5)
+       RETURNING
+         fi.id, fi.review_id AS "reviewId", fi.file_path AS "filePath",
+         fi.line_start AS "lineStart", fi.line_end AS "lineEnd",
+         fi.diff_snapshot AS "diffSnapshot", fi.base_ref AS "baseRef",
+         fi.status, fi.resolution, fi.resolution_note AS "resolutionNote",
+         fi.resolved_by AS "resolvedBy", fi.resolved_at AS "resolvedAt",
+         fi.created_at AS "createdAt", fi.updated_at AS "updatedAt",
+         r.agent_id AS "agentId"`,
       [resolution, opts.note ?? null, opts.resolvedBy ?? null, itemId, agentId]
     );
     const item = itemResult.rows[0];
@@ -314,7 +322,7 @@ export async function addThreadMessage(
     `SELECT fi.review_id AS "reviewId"
      FROM review_feedback_items fi
      JOIN reviews r ON r.id = fi.review_id
-     WHERE fi.id = $1 AND r.agent_id = $2`,
+     WHERE fi.id = $1 AND (r.agent_id = $2 OR r.assigned_agent_id = $2)`,
     [itemId, agentId]
   );
   if (ownership.rows.length === 0) return null;
@@ -354,7 +362,7 @@ export async function listFeedbackItemsForAgent(
             fi.created_at AS "createdAt", fi.updated_at AS "updatedAt"
      FROM review_feedback_items fi
      JOIN reviews r ON r.id = fi.review_id
-     WHERE r.agent_id = $1
+     WHERE (r.agent_id = $1 OR r.assigned_agent_id = $1)
      ORDER BY fi.created_at ASC`,
     [agentId]
   );

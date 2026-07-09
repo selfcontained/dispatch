@@ -40,6 +40,7 @@ import { runCommand } from "../shared/lib/run-command.js";
 import {
   resolveReviewFeedbackItem,
   addThreadMessage,
+  listFeedbackItemsForAgent,
 } from "../agents/reviews.js";
 import type {
   ParentContextResult,
@@ -310,6 +311,10 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         submittedAt: resolution?.submittedAt ?? null,
         resolutions,
       };
+    },
+
+    async listReviewFeedback(agentId: string) {
+      return listFeedbackItemsForAgent(pool, agentId);
     },
 
     async resolveReviewFeedback(
