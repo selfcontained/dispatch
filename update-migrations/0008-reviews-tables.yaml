@@ -1,0 +1,42 @@
+id: reviews-tables
+title: Verify reviews tables migration
+summary: >
+  Adds `reviews`, `review_feedback_items`, and `review_thread_messages` tables
+  for the new diff review feature. reviews stores top-level review records
+  scoped to an agent; review_feedback_items stores per-file/line feedback with
+  resolution tracking; review_thread_messages stores threaded replies on
+  feedback items. All tables are additive. The migration runs automatically on
+  server boot. Route this update through assisted-update so the operator can
+  confirm the migration applied cleanly and the service is healthy.
+
+alreadySatisfied:
+  description: >
+    The install is already on the target tag, the local health endpoint
+    returns status=ok, and release.json reports the target tag. Server boot
+    runs migrations idempotently and all three tables are additive, so any
+    healthy install at the target tag has already taken the migration — no
+    operator action is required.
+
+instructions:
+  - Confirm the service has been restarted to the target release tag.
+  - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok.
+  - Confirm release.json under the install directory reports the target tag.
+  - Since alreadySatisfied is true on every healthy install at the target tag,
+    do not perform any change steps — proceed straight to the validate phase.
+    The framework re-runs the checks below server-side and marks the migration
+    applied.
+
+validation:
+  requiredChecks:
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - If the new release does not return healthy, roll back to the previous
+    release tag using the normal release rollback path for this host. The
+    reviews, review_feedback_items, and review_thread_messages tables are
+    additive — leaving them in place after rollback is harmless and is safer
+    than dropping them manually.
+  - Restart the service and confirm $DISPATCH_API_URL/api/v1/health returns
+    status=ok and release.json reports the prior tag.

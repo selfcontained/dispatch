@@ -1,6 +1,6 @@
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
-import { useNavigate } from "react-router-dom";
+import { useSearchParams } from "react-router-dom";
 import {
   ChevronDown,
   ChevronRight,
@@ -13,7 +13,6 @@ import {
   MessageSquare,
   PanelLeftClose,
   PanelLeftOpen,
-  X,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
@@ -85,15 +84,25 @@ import {
   type DiffFile,
   type DiffFileStatus,
 } from "@/hooks/use-agent-diff";
-import { agentRoute } from "@/lib/agent-routes";
 import {
   type DiffViewType,
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
   diffFileTreeOpenAtom,
   diffViewStateAtomFamily,
+  reviewDraftAtomFamily,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { ReviewModeBar, type DraftComment } from "@/components/app/review-mode";
+import {
+  InlineCommentForm,
+  InlineDraftAnnotation,
+  InlineFeedbackAnnotation,
+} from "@/components/app/diff-annotations";
+import {
+  type ReviewFeedbackItem,
+  useAllReviewFeedbackItems,
+} from "@/hooks/use-agent-reviews";
 
 type LineSelection = {
   filePath: string;
@@ -106,20 +115,89 @@ type ChangesTabProps = {
   agentId: string | null;
   active: boolean;
   isMobile?: boolean;
+  onReviewSubmitted?: (reviewId: number) => void;
 };
 
 export const ChangesTab = memo(function ChangesTab({
   agentId,
   active,
   isMobile,
+  onReviewSubmitted,
 }: ChangesTabProps): JSX.Element {
   const storedViewType = useAtomValue(diffViewTypeAtom);
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
   const { data, isLoading } = useAgentDiff(agentId, active, ignoreWhitespace);
+  const feedbackItems = useAllReviewFeedbackItems(agentId, active);
   const [viewState, setViewState] = useAtom(
     diffViewStateAtomFamily(agentId ?? "")
   );
+
+  const [reviewState, setReviewState] = useAtom(
+    reviewDraftAtomFamily(agentId ?? "")
+  );
+  const reviewMode = reviewState.reviewMode;
+  const draftComments = reviewState.drafts;
+
+  const setReviewMode = useCallback(
+    (mode: boolean) => {
+      setReviewState((prev) => ({ ...prev, reviewMode: mode }));
+    },
+    [setReviewState]
+  );
+
+  const addDraft = useCallback(
+    (filePath: string, startLine: number, endLine: number, comment: string) => {
+      setReviewState((prev) => ({
+        ...prev,
+        drafts: [
+          ...prev.drafts,
+          {
+            id: `draft-${prev.nextId}`,
+            filePath,
+            startLine,
+            endLine,
+            comment,
+          },
+        ],
+        nextId: prev.nextId + 1,
+      }));
+    },
+    [setReviewState]
+  );
+
+  const removeDraft = useCallback(
+    (id: string) => {
+      setReviewState((prev) => {
+        const next = prev.drafts.filter((d) => d.id !== id);
+        return {
+          ...prev,
+          drafts: next,
+          reviewMode: next.length === 0 ? false : prev.reviewMode,
+        };
+      });
+    },
+    [setReviewState]
+  );
+
+  const updateDraft = useCallback(
+    (id: string, comment: string) => {
+      setReviewState((prev) => ({
+        ...prev,
+        drafts: prev.drafts.map((d) => (d.id === id ? { ...d, comment } : d)),
+      }));
+    },
+    [setReviewState]
+  );
+
+  const clearDrafts = useCallback(() => {
+    setReviewState((prev) => ({
+      ...prev,
+      drafts: [],
+      reviewMode: false,
+      nextId: 0,
+    }));
+  }, [setReviewState]);
 
   const collapsedFiles = useMemo(
     () => new Set(viewState.collapsedFiles),
@@ -189,6 +267,47 @@ export const ChangesTab = memo(function ChangesTab({
     [setViewState]
   );
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navFileTarget = searchParams.get("file");
+  const navLineTarget = searchParams.get("line");
+
+  useEffect(() => {
+    if (!navFileTarget || files.length === 0) return;
+    const targetFile = files.find((f) => f.path === navFileTarget);
+    setSearchParams({}, { replace: true });
+    if (targetFile) {
+      requestAnimationFrame(() => {
+        scrollToFile(navFileTarget);
+        if (navLineTarget && targetFile.diff) {
+          const lineNum = Number(navLineTarget);
+          if (Number.isInteger(lineNum) && lineNum > 0) {
+            requestAnimationFrame(() => {
+              try {
+                const parsed = parseDiff(targetFile.diff!, {
+                  nearbySequences: "zip",
+                });
+                const hunks = parsed[0]?.hunks ?? [];
+                const changeKey = findLastChangeKeyInRange(
+                  hunks,
+                  lineNum,
+                  lineNum
+                );
+                if (changeKey) {
+                  const el = scrollRef.current?.querySelector(
+                    `[id="${CSS.escape(changeKey)}"]`
+                  );
+                  el?.scrollIntoView({ block: "center", behavior: "smooth" });
+                }
+              } catch {
+                // diff parse failed — fall back to file-level scroll
+              }
+            });
+          }
+        }
+      });
+    }
+  }, [navFileTarget, navLineTarget, files, scrollToFile, setSearchParams]);
+
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -247,31 +366,52 @@ export const ChangesTab = memo(function ChangesTab({
   }
 
   return (
-    <div className="flex h-full min-h-0">
-      <FileTree
-        files={files}
-        selectedFile={selectedFile}
-        onSelectFile={scrollToFile}
-        open={fileTreeOpen}
-        onToggleOpen={() => setFileTreeOpen((v) => !v)}
-        collapsedDirs={collapsedDirs}
-        onToggleDir={toggleCollapseDir}
-      />
-      <DiffPane
-        agentId={agentId}
-        files={files}
-        collapsedFiles={collapsedFiles}
-        onToggleCollapse={toggleCollapseFile}
-        fileRefs={fileRefs}
-        lineSelection={lineSelection}
-        onLineSelection={handleLineSelection}
-        commentOpen={commentOpen}
-        onCommentOpen={setCommentOpen}
-        viewType={viewType}
-        ignoreWhitespace={ignoreWhitespace}
-        scrollRef={scrollRef}
-        onScroll={handleScroll}
-      />
+    <div className="flex h-full min-h-0 flex-col">
+      {reviewMode && agentId && (
+        <ReviewModeBar
+          agentId={agentId}
+          drafts={draftComments}
+          onClearDrafts={clearDrafts}
+          onExitReview={() => setReviewMode(false)}
+          onReviewSubmitted={(reviewId) => {
+            setReviewMode(false);
+            onReviewSubmitted?.(reviewId);
+          }}
+        />
+      )}
+      <div className="flex min-h-0 flex-1">
+        <FileTree
+          files={files}
+          selectedFile={selectedFile}
+          onSelectFile={scrollToFile}
+          open={fileTreeOpen}
+          onToggleOpen={() => setFileTreeOpen((v) => !v)}
+          collapsedDirs={collapsedDirs}
+          onToggleDir={toggleCollapseDir}
+        />
+        <DiffPane
+          agentId={agentId}
+          files={files}
+          collapsedFiles={collapsedFiles}
+          onToggleCollapse={toggleCollapseFile}
+          fileRefs={fileRefs}
+          lineSelection={lineSelection}
+          onLineSelection={handleLineSelection}
+          commentOpen={commentOpen}
+          onCommentOpen={setCommentOpen}
+          viewType={viewType}
+          ignoreWhitespace={ignoreWhitespace}
+          scrollRef={scrollRef}
+          onScroll={handleScroll}
+          reviewMode={reviewMode}
+          draftComments={draftComments}
+          onAddDraft={addDraft}
+          onRemoveDraft={removeDraft}
+          onUpdateDraft={updateDraft}
+          onStartReview={() => setReviewMode(true)}
+          feedbackItems={feedbackItems}
+        />
+      </div>
     </div>
   );
 });
@@ -519,6 +659,18 @@ type DiffPaneProps = {
   ignoreWhitespace: boolean;
   scrollRef: React.RefObject<HTMLDivElement>;
   onScroll: () => void;
+  reviewMode?: boolean;
+  draftComments?: DraftComment[];
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  onRemoveDraft?: (id: string) => void;
+  onUpdateDraft?: (id: string, comment: string) => void;
+  onStartReview?: () => void;
+  feedbackItems?: ReviewFeedbackItem[];
 };
 
 function DiffPane({
@@ -535,6 +687,13 @@ function DiffPane({
   ignoreWhitespace,
   scrollRef,
   onScroll,
+  reviewMode,
+  draftComments,
+  onAddDraft,
+  onRemoveDraft,
+  onUpdateDraft,
+  onStartReview,
+  feedbackItems,
 }: DiffPaneProps): JSX.Element {
   return (
     <div
@@ -562,6 +721,15 @@ function DiffPane({
           onCommentOpen={onCommentOpen}
           viewType={viewType}
           ignoreWhitespace={ignoreWhitespace}
+          reviewMode={reviewMode}
+          draftComments={draftComments?.filter((d) => d.filePath === file.path)}
+          onAddDraft={onAddDraft}
+          onRemoveDraft={onRemoveDraft}
+          onUpdateDraft={onUpdateDraft}
+          onStartReview={onStartReview}
+          feedbackItems={feedbackItems?.filter(
+            (fi) => fi.filePath === file.path
+          )}
         />
       ))}
     </div>
@@ -580,6 +748,18 @@ type FileDiffSectionProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
+  reviewMode?: boolean;
+  draftComments?: DraftComment[];
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  onRemoveDraft?: (id: string) => void;
+  onUpdateDraft?: (id: string, comment: string) => void;
+  onStartReview?: () => void;
+  feedbackItems?: ReviewFeedbackItem[];
 };
 
 function FileDiffSection({
@@ -594,12 +774,19 @@ function FileDiffSection({
   onCommentOpen,
   viewType,
   ignoreWhitespace,
+  reviewMode,
+  draftComments,
+  onAddDraft,
+  onRemoveDraft,
+  onUpdateDraft,
+  onStartReview,
+  feedbackItems,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div ref={setRef} className="rounded-md border border-border/50">
       <button
         type="button"
-        className="sticky top-0 z-10 flex w-full items-center gap-2 rounded-t-md border-b border-border/50 bg-muted/40 px-3 py-2 text-left text-xs hover:bg-muted/60"
+        className="sticky top-0 z-10 flex w-full items-center gap-2 rounded-t-md border-b border-border/50 bg-background/95 backdrop-blur-sm px-3 py-2 text-left text-xs hover:bg-muted/60"
         onClick={onToggleCollapse}
       >
         {collapsed ? (
@@ -645,6 +832,13 @@ function FileDiffSection({
               onCommentOpen={onCommentOpen}
               viewType={viewType}
               ignoreWhitespace={ignoreWhitespace}
+              reviewMode={reviewMode}
+              draftComments={draftComments}
+              onAddDraft={onAddDraft}
+              onRemoveDraft={onRemoveDraft}
+              onUpdateDraft={onUpdateDraft}
+              onStartReview={onStartReview}
+              feedbackItems={feedbackItems}
             />
           </motion.div>
         )}
@@ -662,6 +856,18 @@ type FileDiffContentProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
+  reviewMode?: boolean;
+  draftComments?: DraftComment[];
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  onRemoveDraft?: (id: string) => void;
+  onUpdateDraft?: (id: string, comment: string) => void;
+  onStartReview?: () => void;
+  feedbackItems?: ReviewFeedbackItem[];
 };
 
 function FileDiffContent({
@@ -673,6 +879,13 @@ function FileDiffContent({
   onCommentOpen,
   viewType,
   ignoreWhitespace,
+  reviewMode,
+  draftComments,
+  onAddDraft,
+  onRemoveDraft,
+  onUpdateDraft,
+  onStartReview,
+  feedbackItems,
 }: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
@@ -737,6 +950,13 @@ function FileDiffContent({
       commentOpen={commentOpen}
       onCommentOpen={onCommentOpen}
       viewType={viewType}
+      reviewMode={reviewMode}
+      draftComments={draftComments}
+      onAddDraft={onAddDraft}
+      onRemoveDraft={onRemoveDraft}
+      onUpdateDraft={onUpdateDraft}
+      onStartReview={onStartReview}
+      feedbackItems={feedbackItems}
     />
   );
 }
@@ -858,6 +1078,18 @@ type UnifiedDiffViewProps = {
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
+  reviewMode?: boolean;
+  draftComments?: DraftComment[];
+  onAddDraft?: (
+    filePath: string,
+    startLine: number,
+    endLine: number,
+    comment: string
+  ) => void;
+  onRemoveDraft?: (id: string) => void;
+  onUpdateDraft?: (id: string, comment: string) => void;
+  onStartReview?: () => void;
+  feedbackItems?: ReviewFeedbackItem[];
 };
 
 const UnifiedDiffView = memo(function UnifiedDiffView({
@@ -869,6 +1101,13 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   commentOpen,
   onCommentOpen,
   viewType,
+  reviewMode,
+  draftComments,
+  onAddDraft,
+  onRemoveDraft,
+  onUpdateDraft,
+  onStartReview,
+  feedbackItems,
 }: UnifiedDiffViewProps): JSX.Element {
   const parsed = useMemo(() => {
     try {
@@ -948,31 +1187,104 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
   }, [file, lineSelection]);
 
   const widgets = useMemo(() => {
-    if (!file || !lineSelection || !agentId || !commentOpen) return {};
-    const lastKey = findLastChangeKeyInRange(
-      file.hunks,
-      lineSelection.startLine,
-      lineSelection.endLine
-    );
-    if (!lastKey) return {};
-    return {
-      [lastKey]: (
-        <InlineCommentForm
-          agentId={agentId}
-          filePath={filePath}
-          startLine={lineSelection.startLine}
-          endLine={lineSelection.endLine}
-          onCancel={() => {
-            onCommentOpen(false);
-            onLineSelection(null);
-          }}
-          onSubmitted={() => {
-            onCommentOpen(false);
-            onLineSelection(null);
-          }}
-        />
-      ),
-    };
+    if (!file) return {};
+    const w: Record<string, React.ReactElement> = {};
+
+    // Inline feedback item annotations — group by change key so multiple
+    // items on the same line all render
+    if (feedbackItems) {
+      const grouped = new Map<string, typeof feedbackItems>();
+      for (const fi of feedbackItems) {
+        if (fi.lineStart == null) continue;
+        const key = findLastChangeKeyInRange(
+          file.hunks,
+          fi.lineStart,
+          fi.lineEnd ?? fi.lineStart
+        );
+        if (!key) continue;
+        const list = grouped.get(key) ?? [];
+        list.push(fi);
+        grouped.set(key, list);
+      }
+      for (const [key, items] of grouped) {
+        w[key] = (
+          <>
+            {items.map((fi) => {
+              const firstMsg = fi.messages[0]?.content?.body ?? "";
+              const isResolved = fi.status === "resolved";
+              return (
+                <InlineFeedbackAnnotation
+                  key={fi.id}
+                  feedbackItem={fi}
+                  comment={firstMsg}
+                  isResolved={isResolved}
+                />
+              );
+            })}
+          </>
+        );
+      }
+    }
+
+    // Draft comment annotations (review mode) — append to existing feedback
+    if (draftComments) {
+      for (const draft of draftComments) {
+        const key = findLastChangeKeyInRange(
+          file.hunks,
+          draft.startLine,
+          draft.endLine
+        );
+        if (!key) continue;
+        const draftWidget = (
+          <InlineDraftAnnotation
+            draft={draft}
+            onRemove={onRemoveDraft}
+            onUpdate={onUpdateDraft}
+          />
+        );
+        const existing = w[key];
+        w[key] = existing ? (
+          <>
+            {existing}
+            {draftWidget}
+          </>
+        ) : (
+          draftWidget
+        );
+      }
+    }
+
+    // Active comment form (unified split-button: Chat / Start review / Add comment)
+    if (lineSelection && agentId && commentOpen) {
+      const lastKey = findLastChangeKeyInRange(
+        file.hunks,
+        lineSelection.startLine,
+        lineSelection.endLine
+      );
+      if (lastKey) {
+        w[lastKey] = (
+          <InlineCommentForm
+            agentId={agentId}
+            filePath={filePath}
+            startLine={lineSelection.startLine}
+            endLine={lineSelection.endLine}
+            reviewMode={reviewMode}
+            onStartReview={onStartReview}
+            onAddDraft={onAddDraft}
+            onCancel={() => {
+              onCommentOpen(false);
+              onLineSelection(null);
+            }}
+            onSubmitted={() => {
+              onCommentOpen(false);
+              onLineSelection(null);
+            }}
+          />
+        );
+      }
+    }
+
+    return w;
   }, [
     file,
     lineSelection,
@@ -981,14 +1293,34 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     onLineSelection,
     commentOpen,
     onCommentOpen,
+    reviewMode,
+    onStartReview,
+    draftComments,
+    onAddDraft,
+    onRemoveDraft,
+    onUpdateDraft,
+    feedbackItems,
   ]);
 
   const diffRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
   const [buttonPos, setButtonPos] = useState<{
     top: number;
     left: number;
     width: number;
   } | null>(null);
+
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      if (entry) {
+        el.style.setProperty("--diff-scroll-w", `${entry.contentRect.width}px`);
+      }
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   useEffect(() => {
     if (!lineSelection || commentOpen || !diffRef.current) {
@@ -1050,7 +1382,10 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
         "[&_.diff.diff-split_.diff-code]:px-2 [&_.diff.diff-split_.diff-code]:py-0 [&_.diff.diff-split_.diff-code]:whitespace-pre-wrap [&_.diff.diff-split_.diff-code]:break-words"
       )}
     >
-      <div className="overflow-x-auto overflow-y-clip">
+      <div
+        ref={scrollRef}
+        className="overflow-x-auto overflow-y-clip [&_.diff-widget-content>*]:max-w-[var(--diff-scroll-w,100%)]"
+      >
         <Diff
           viewType={viewType}
           diffType={diffType}
@@ -1082,116 +1417,3 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
     </div>
   );
 });
-
-function InlineCommentForm({
-  agentId,
-  filePath,
-  startLine,
-  endLine,
-  onCancel,
-  onSubmitted,
-}: {
-  agentId: string;
-  filePath: string;
-  startLine: number;
-  endLine: number;
-  onCancel: () => void;
-  onSubmitted: () => void;
-}): JSX.Element {
-  const [comment, setComment] = useState("");
-  const [submitting, setSubmitting] = useState(false);
-  const navigate = useNavigate();
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
-
-  const lineLabel =
-    startLine === endLine
-      ? `Line ${startLine}`
-      : `Lines ${startLine}–${endLine}`;
-
-  const handleSubmit = useCallback(async () => {
-    if (!comment.trim() || submitting) return;
-    setSubmitting(true);
-    try {
-      const res = await fetch(`/api/v1/agents/${agentId}/diff/comment`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ filePath, startLine, endLine, comment }),
-      });
-      if (!res.ok) {
-        const data = (await res.json().catch(() => ({}))) as {
-          error?: string;
-        };
-        throw new Error(data.error ?? "Failed to send comment");
-      }
-      onSubmitted();
-      navigate(agentRoute(agentId), { replace: true });
-    } catch {
-      setSubmitting(false);
-    }
-  }, [
-    agentId,
-    comment,
-    endLine,
-    filePath,
-    navigate,
-    onSubmitted,
-    startLine,
-    submitting,
-  ]);
-
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
-        e.preventDefault();
-        handleSubmit();
-      }
-      if (e.key === "Escape") {
-        e.preventDefault();
-        onCancel();
-      }
-    },
-    [handleSubmit, onCancel]
-  );
-
-  return (
-    <div className="border-t border-border/50 bg-muted/20 px-4 py-3">
-      <div className="mb-2 flex items-center gap-2 text-[11px] text-muted-foreground">
-        <MessageSquare className="h-3 w-3" />
-        <span className="font-mono">{filePath}</span>
-        <span>·</span>
-        <span>{lineLabel}</span>
-      </div>
-      <textarea
-        ref={textareaRef}
-        className="w-full resize-none rounded border border-border bg-background px-3 py-2 text-xs text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
-        placeholder="Leave a comment for the agent…"
-        rows={3}
-        value={comment}
-        onChange={(e) => setComment(e.target.value)}
-        onKeyDown={handleKeyDown}
-        autoFocus
-        disabled={submitting}
-      />
-      <div className="mt-2 flex items-center justify-end gap-2">
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded px-2 py-1 text-xs text-muted-foreground hover:bg-muted/40"
-          onClick={onCancel}
-          disabled={submitting}
-        >
-          <X className="h-3 w-3" />
-          Cancel
-        </button>
-        <button
-          type="button"
-          className="flex items-center gap-1 rounded bg-primary px-3 py-1 text-xs text-primary-foreground hover:bg-primary/90 disabled:opacity-50"
-          onClick={handleSubmit}
-          disabled={!comment.trim() || submitting}
-        >
-          {submitting && <Loader2 className="h-3 w-3 animate-spin" />}
-          Chat Now
-        </button>
-      </div>
-    </div>
-  );
-}
