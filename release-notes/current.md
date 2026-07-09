@@ -1,5 +1,5 @@
 ## What's Changed
-* Add MCP tools for review feedback resolution by @selfcontained in https://github.com/selfcontained/dispatch/pull/741
+* Fix review feedback MCP tools: SQL bug, ownership, naming, and list tool by @selfcontained in https://github.com/selfcontained/dispatch/pull/742
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.27.0...v0.27.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.27.1...v0.27.2
