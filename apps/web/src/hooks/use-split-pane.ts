@@ -5,13 +5,14 @@ import {
   type CenterTab,
   type SplitPaneState,
   defaultSplitPaneState,
+  inactiveSplitPaneStateAtom,
   splitPaneStateAtomFamily,
 } from "@/lib/store";
 
-const INACTIVE_ATOM = splitPaneStateAtomFamily("");
-
 export function useSplitPane(agentId: string | null, isMobile: boolean) {
-  const atom = agentId ? splitPaneStateAtomFamily(agentId) : INACTIVE_ATOM;
+  const atom = agentId
+    ? splitPaneStateAtomFamily(agentId)
+    : inactiveSplitPaneStateAtom;
   const [rawState, setState] = useAtom(atom);
 
   const splitState: SplitPaneState =
@@ -38,14 +39,16 @@ export function useSplitPane(agentId: string | null, isMobile: boolean) {
   );
 
   const exitSplit = useCallback(() => {
+    if (isMobile || !agentId) return;
     setState((prev) => ({
       ...prev,
       mode: "single",
     }));
-  }, [setState]);
+  }, [agentId, isMobile, setState]);
 
   const updateSizes = useCallback(
     (sizes: number[]) => {
+      if (isMobile || !agentId) return;
       if (sizes.length >= 2) {
         setState((prev) => ({
           ...prev,
@@ -53,7 +56,7 @@ export function useSplitPane(agentId: string | null, isMobile: boolean) {
         }));
       }
     },
-    [setState]
+    [agentId, isMobile, setState]
   );
 
   const handleTabDrop = useCallback(

@@ -252,6 +252,10 @@ export const defaultSplitPaneState: SplitPaneState = {
   sizes: [50, 50],
 };
 
+export const inactiveSplitPaneStateAtom = atom<SplitPaneState>(
+  defaultSplitPaneState
+);
+
 export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
 
 export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
