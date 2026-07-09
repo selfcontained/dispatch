@@ -44,6 +44,7 @@ import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType, isCliAgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
+import { defaultSplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
 import { useAgents } from "@/hooks/use-agents";
@@ -528,6 +529,9 @@ export function AgentsView({
                         activeTab={changesMatch ? "changes" : "terminal"}
                         onTabChange={onTabChange}
                         diffStats={focusedDiffStats}
+                        isSplit={false}
+                        splitState={defaultSplitPaneState}
+                        isMobile={isMobile}
                       />
                     </>
                   ) : null}
