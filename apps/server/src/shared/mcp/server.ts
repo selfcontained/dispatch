@@ -139,6 +139,8 @@ const JOB_TOOLS = new Set([
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
+  "dispatch_resolve_review_feedback",
+  "dispatch_add_review_message",
   "dispatch_submit_resolution",
   "dispatch_cancel_recheck",
   "job_complete",

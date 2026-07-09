@@ -352,6 +352,8 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain("dispatch_launch_persona");
     expect(response.body).toContain("dispatch_get_feedback");
     expect(response.body).toContain("dispatch_resolve_feedback");
+    expect(response.body).toContain("dispatch_resolve_review_feedback");
+    expect(response.body).toContain("dispatch_add_review_message");
     expect(response.body).toContain("dispatch_submit_resolution");
     expect(response.body).toContain("dispatch_cancel_recheck");
     expect(response.body).toContain("job_complete");
