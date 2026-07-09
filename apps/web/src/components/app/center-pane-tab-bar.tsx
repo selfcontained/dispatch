@@ -61,13 +61,13 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
           role="tab"
           aria-selected={activeTab === tab.id}
           data-testid={`center-tab-${tab.id}`}
-          draggable={!isMobile}
+          draggable={!isMobile && activeTab !== tab.id}
           onDragStart={(e) => handleDragStart(e, tab.id)}
           className={cn(
-            "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors cursor-grab active:cursor-grabbing",
+            "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
             activeTab === tab.id
               ? "text-foreground"
-              : "text-muted-foreground hover:text-foreground/80"
+              : "cursor-grab text-muted-foreground hover:text-foreground/80 active:cursor-grabbing"
           )}
           onClick={() => {
             if (isSplit) {
