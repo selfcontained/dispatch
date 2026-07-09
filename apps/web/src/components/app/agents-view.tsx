@@ -248,6 +248,12 @@ export function AgentsView({
     return () => observer.disconnect();
   }, [isSplit]);
 
+  useEffect(() => {
+    const reset = () => setIsDraggingTab(false);
+    document.addEventListener("dragend", reset);
+    return () => document.removeEventListener("dragend", reset);
+  }, []);
+
   const handleContentDragOver = useCallback((e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
     setIsDraggingTab(true);
