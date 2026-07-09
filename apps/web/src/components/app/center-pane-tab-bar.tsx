@@ -86,7 +86,10 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
           {tab.id === "changes" && hasChanges ? (
             <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-1.5 py-0 font-mono text-[10px] font-normal normal-case tracking-normal">
               <span className="text-status-working">+{diffStats.added}</span>
-              <span className="text-status-blocked">-{diffStats.deleted}</span>
+              <span className="text-status-blocked">
+                {"−"}
+                {diffStats.deleted}
+              </span>
             </span>
           ) : null}
         </button>

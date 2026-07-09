@@ -64,6 +64,8 @@ export function useSplitPane(agentId: string | null, isMobile: boolean) {
       if (isMobile || !agentId) return;
 
       if (splitState.mode === "split") {
+        const otherSide = side === "left" ? "right" : "left";
+        if (splitState[otherSide] === draggedTab) return;
         setState((prev) => ({
           ...prev,
           [side]: draggedTab,
@@ -73,7 +75,7 @@ export function useSplitPane(agentId: string | null, isMobile: boolean) {
 
       enterSplit(draggedTab, side, activeTab);
     },
-    [agentId, enterSplit, isMobile, setState, splitState.mode]
+    [agentId, enterSplit, isMobile, setState, splitState]
   );
 
   return useMemo(
