@@ -482,6 +482,8 @@ async function registerRoutes() {
     mcpLaunchAgent: mcpHandlers.launchAgent,
     mcpGetFeedback: mcpHandlers.getFeedback,
     mcpResolveFeedback: mcpHandlers.resolveFeedback,
+    mcpResolveReviewFeedback: mcpHandlers.resolveReviewFeedback,
+    mcpAddReviewThreadMessage: mcpHandlers.addReviewThreadMessage,
     mcpSubmitResolution: mcpHandlers.submitResolution,
     mcpCancelRecheck: mcpHandlers.cancelRecheck,
     mcpSendMessage: mcpHandlers.sendMessage,
