@@ -328,11 +328,20 @@ function FeedbackItemRow({
       )}
     >
       <div
+        role="button"
+        tabIndex={0}
+        aria-expanded={expanded}
         className={cn(
           "cursor-pointer px-3 py-2 text-left",
           state === "open" ? "bg-muted/20" : "bg-muted/10"
         )}
         onClick={() => setExpanded((v) => !v)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            setExpanded((v) => !v);
+          }
+        }}
       >
         <div className="flex items-center gap-2">
           <ChevronRight

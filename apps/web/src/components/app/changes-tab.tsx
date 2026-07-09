@@ -273,19 +273,34 @@ export const ChangesTab = memo(function ChangesTab({
 
   useEffect(() => {
     if (!navFileTarget || files.length === 0) return;
-    const found = files.some((f) => f.path === navFileTarget);
+    const targetFile = files.find((f) => f.path === navFileTarget);
     setSearchParams({}, { replace: true });
-    if (found) {
+    if (targetFile) {
       requestAnimationFrame(() => {
         scrollToFile(navFileTarget);
-        if (navLineTarget) {
+        if (navLineTarget && targetFile.diff) {
           const lineNum = Number(navLineTarget);
           if (Number.isInteger(lineNum) && lineNum > 0) {
             requestAnimationFrame(() => {
-              const lineEl = scrollRef.current?.querySelector(
-                `[data-line-number="${lineNum}"]`
-              );
-              lineEl?.scrollIntoView({ block: "center", behavior: "smooth" });
+              try {
+                const parsed = parseDiff(targetFile.diff!, {
+                  nearbySequences: "zip",
+                });
+                const hunks = parsed[0]?.hunks ?? [];
+                const changeKey = findLastChangeKeyInRange(
+                  hunks,
+                  lineNum,
+                  lineNum
+                );
+                if (changeKey) {
+                  const el = scrollRef.current?.querySelector(
+                    `[id="${CSS.escape(changeKey)}"]`
+                  );
+                  el?.scrollIntoView({ block: "center", behavior: "smooth" });
+                }
+              } catch {
+                // diff parse failed — fall back to file-level scroll
+              }
             });
           }
         }
@@ -1211,7 +1226,7 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
       }
     }
 
-    // Draft comment annotations (review mode)
+    // Draft comment annotations (review mode) — append to existing feedback
     if (draftComments) {
       for (const draft of draftComments) {
         const key = findLastChangeKeyInRange(
@@ -1220,12 +1235,21 @@ const UnifiedDiffView = memo(function UnifiedDiffView({
           draft.endLine
         );
         if (!key) continue;
-        w[key] = (
+        const draftWidget = (
           <InlineDraftAnnotation
             draft={draft}
             onRemove={onRemoveDraft}
             onUpdate={onUpdateDraft}
           />
+        );
+        const existing = w[key];
+        w[key] = existing ? (
+          <>
+            {existing}
+            {draftWidget}
+          </>
+        ) : (
+          draftWidget
         );
       }
     }
