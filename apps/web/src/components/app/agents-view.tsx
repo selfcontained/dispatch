@@ -232,6 +232,22 @@ export function AgentsView({
   const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
     useSplitPane(focusedAgentId, isMobile);
 
+  const splitLeftRef = useRef<HTMLDivElement>(null);
+  const splitButtonRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!isSplit) return;
+    const panel = splitLeftRef.current;
+    const btn = splitButtonRef.current;
+    if (!panel || !btn) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (width != null) btn.style.left = `${width}px`;
+    });
+    observer.observe(panel);
+    return () => observer.disconnect();
+  }, [isSplit]);
+
   const handleContentDragOver = useCallback((e: React.DragEvent) => {
     if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
     setIsDraggingTab(true);
@@ -647,15 +663,6 @@ export function AgentsView({
               >
                 {isSplit ? (
                   <div className="relative h-full">
-                    <button
-                      type="button"
-                      onClick={exitSplit}
-                      title="Unsplit panes"
-                      data-testid="unsplit-button"
-                      className="absolute left-1/2 top-0 z-20 flex -translate-x-1/2 cursor-pointer items-center justify-center rounded-md border bg-background p-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                    >
-                      <Split className="h-4 w-4 shrink-0" />
-                    </button>
                     <ResizablePanelGroup
                       orientation="horizontal"
                       onLayoutChanged={handleSplitLayoutChange}
@@ -666,7 +673,10 @@ export function AgentsView({
                         defaultSize={splitState.sizes[0]}
                         minSize={20}
                       >
-                        <div className="flex h-full flex-col">
+                        <div
+                          ref={splitLeftRef}
+                          className="flex h-full flex-col"
+                        >
                           <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
                             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                               {splitState.left === "terminal"
@@ -709,6 +719,17 @@ export function AgentsView({
                         </div>
                       </ResizablePanel>
                     </ResizablePanelGroup>
+                    <button
+                      ref={splitButtonRef}
+                      type="button"
+                      onClick={exitSplit}
+                      title="Unsplit panes"
+                      data-testid="unsplit-button"
+                      className="absolute top-0 z-50 flex h-8 -translate-x-1/2 cursor-pointer items-center justify-center rounded-md border bg-background px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                      style={{ left: `${splitState.sizes[0]}%` }}
+                    >
+                      <Split className="h-4 w-4 shrink-0" />
+                    </button>
                   </div>
                 ) : (
                   <>
