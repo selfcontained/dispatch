@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen, Split } from "lucide-react";
 
@@ -235,6 +243,24 @@ export function AgentsView({
 
   const splitLeftRef = useRef<HTMLDivElement>(null);
   const splitButtonRef = useRef<HTMLButtonElement>(null);
+  const defaultTerminalSlotRef = useRef<HTMLDivElement>(null);
+  const splitTerminalSlotRef = useRef<HTMLDivElement>(null);
+  const stableTerminalContainerRef = useRef<HTMLDivElement | null>(null);
+  if (!stableTerminalContainerRef.current) {
+    stableTerminalContainerRef.current = document.createElement("div");
+    stableTerminalContainerRef.current.className = "h-full";
+  }
+
+  useLayoutEffect(() => {
+    const container = stableTerminalContainerRef.current;
+    if (!container) return;
+    const target = isSplit
+      ? splitTerminalSlotRef.current
+      : defaultTerminalSlotRef.current;
+    if (target && container.parentElement !== target) {
+      target.appendChild(container);
+    }
+  }, [isSplit, splitState.left, splitState.right]);
 
   useEffect(() => {
     if (!isSplit) return;
@@ -725,9 +751,14 @@ export function AgentsView({
                             ) : null}
                           </div>
                           <div className="min-h-0 flex-1">
-                            {splitState.left === "terminal"
-                              ? terminalElement
-                              : changesElement}
+                            {splitState.left === "terminal" ? (
+                              <div
+                                ref={splitTerminalSlotRef}
+                                className="h-full"
+                              />
+                            ) : (
+                              changesElement
+                            )}
                           </div>
                         </div>
                       </ResizablePanel>
@@ -749,9 +780,14 @@ export function AgentsView({
                             ) : null}
                           </div>
                           <div className="min-h-0 flex-1">
-                            {splitState.right === "terminal"
-                              ? terminalElement
-                              : changesElement}
+                            {splitState.right === "terminal" ? (
+                              <div
+                                ref={splitTerminalSlotRef}
+                                className="h-full"
+                              />
+                            ) : (
+                              changesElement
+                            )}
                           </div>
                         </div>
                       </ResizablePanel>
@@ -770,14 +806,21 @@ export function AgentsView({
                   </div>
                 ) : (
                   <>
-                    <div className={cn("h-full", changesMatch && "hidden")}>
-                      {terminalElement}
-                    </div>
+                    <div
+                      ref={defaultTerminalSlotRef}
+                      className={cn("h-full", changesMatch && "hidden")}
+                    />
                     <Routes>
                       <Route path="changes" element={changesElement} />
                     </Routes>
                   </>
                 )}
+                {stableTerminalContainerRef.current
+                  ? createPortal(
+                      terminalElement,
+                      stableTerminalContainerRef.current
+                    )
+                  : null}
                 <SplitDropZones
                   visible={isDraggingTab && !isMobile}
                   onDrop={handleDropOnZone}
