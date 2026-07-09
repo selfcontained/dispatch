@@ -222,6 +222,100 @@ export async function getReview(
   return { ...review, items };
 }
 
+export async function resolveReviewFeedbackItem(
+  pool: Pool,
+  itemId: number,
+  agentId: string,
+  resolution: "fixed" | "ignored" | "wont_fix",
+  opts: { note?: string | null; resolvedBy?: string | null } = {}
+): Promise<{
+  item: ReviewFeedbackItemRecord;
+  reviewId: number;
+  reviewStatus: string;
+} | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+
+    const itemResult = await client.query<
+      ReviewFeedbackItemRecord & { agentId: string }
+    >(
+      `UPDATE review_feedback_items fi
+       SET status = 'resolved', resolution = $1, resolution_note = $2,
+           resolved_by = $3, resolved_at = NOW(), updated_at = NOW()
+       FROM reviews r
+       WHERE fi.id = $4 AND fi.review_id = r.id AND r.agent_id = $5
+       RETURNING ${FEEDBACK_ITEM_SELECT}, r.agent_id AS "agentId"`,
+      [resolution, opts.note ?? null, opts.resolvedBy ?? null, itemId, agentId]
+    );
+    const item = itemResult.rows[0];
+    if (!item) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const countsResult = await client.query<{
+      total: number;
+      resolved: number;
+    }>(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE status = 'resolved')::int AS resolved
+       FROM review_feedback_items WHERE review_id = $1`,
+      [item.reviewId]
+    );
+    const { total, resolved } = countsResult.rows[0]!;
+    const newReviewStatus =
+      resolved === total
+        ? "resolved"
+        : resolved > 0
+          ? "partially_resolved"
+          : "open";
+
+    await client.query(
+      `UPDATE reviews SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [newReviewStatus, item.reviewId]
+    );
+
+    await client.query("COMMIT");
+    return { item, reviewId: item.reviewId, reviewStatus: newReviewStatus };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
+export async function addThreadMessage(
+  pool: Pool,
+  itemId: number,
+  agentId: string,
+  authorType: "human" | "agent",
+  body: string,
+  authorAgentId?: string | null
+): Promise<{ message: ReviewThreadMessageRecord; reviewId: number } | null> {
+  const ownership = await pool.query<{ reviewId: number }>(
+    `SELECT fi.review_id AS "reviewId"
+     FROM review_feedback_items fi
+     JOIN reviews r ON r.id = fi.review_id
+     WHERE fi.id = $1 AND r.agent_id = $2`,
+    [itemId, agentId]
+  );
+  if (ownership.rows.length === 0) return null;
+
+  const result = await pool.query<ReviewThreadMessageRecord>(
+    `INSERT INTO review_thread_messages (feedback_item_id, author_type, author_agent_id, type, content)
+     VALUES ($1, $2, $3, 'text', $4)
+     ${THREAD_MESSAGE_RETURNING}`,
+    [itemId, authorType, authorAgentId ?? null, JSON.stringify({ body })]
+  );
+
+  return {
+    message: result.rows[0]!,
+    reviewId: ownership.rows[0]!.reviewId,
+  };
+}
+
 export async function listFeedbackItemsForAgent(
   pool: Pool,
   agentId: string

@@ -216,6 +216,132 @@ export async function registerReviewRoutes(
     }
   });
 
+  app.patch(
+    "/api/v1/agents/:id/reviews/items/:itemId",
+    async (request, reply) => {
+      const params = request.params as { id?: string; itemId?: string };
+      const agentId = params.id ?? "";
+      const itemId = parseInt(params.itemId ?? "", 10);
+
+      if (isNaN(itemId)) {
+        return reply.code(400).send({ error: "Invalid item id." });
+      }
+
+      const body = request.body as {
+        resolution?: unknown;
+        note?: unknown;
+      } | null;
+
+      const validResolutions = ["fixed", "ignored", "wont_fix"] as const;
+      if (
+        typeof body?.resolution !== "string" ||
+        !(validResolutions as readonly string[]).includes(body.resolution)
+      ) {
+        return reply.code(400).send({
+          error: "resolution must be one of: fixed, ignored, wont_fix",
+        });
+      }
+
+      let note: string | null = null;
+      if (typeof body.note === "string") {
+        if (body.note.length > 10_000) {
+          return reply
+            .code(400)
+            .send({ error: "note exceeds 10,000 character limit." });
+        }
+        note = body.note;
+      }
+
+      try {
+        const agent = await deps.agentManager.getAgent(agentId);
+        if (!agent) return reply.code(404).send({ error: "Agent not found." });
+
+        const result = await reviewQueries.resolveReviewFeedbackItem(
+          deps.pool,
+          itemId,
+          agentId,
+          body.resolution as "fixed" | "ignored" | "wont_fix",
+          { note }
+        );
+        if (!result) {
+          return reply.code(404).send({ error: "Feedback item not found." });
+        }
+
+        deps.publishUiEvent({
+          type: "review_feedback.updated",
+          agentId,
+          feedbackItemId: result.item.id,
+        });
+        deps.publishUiEvent({
+          type: "review.updated",
+          agentId,
+          reviewId: result.reviewId,
+          status: result.reviewStatus,
+        });
+
+        return { item: result.item };
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
+
+  app.post(
+    "/api/v1/agents/:id/reviews/items/:itemId/messages",
+    async (request, reply) => {
+      const params = request.params as { id?: string; itemId?: string };
+      const agentId = params.id ?? "";
+      const itemId = parseInt(params.itemId ?? "", 10);
+
+      if (isNaN(itemId)) {
+        return reply.code(400).send({ error: "Invalid item id." });
+      }
+
+      const body = request.body as {
+        body?: unknown;
+        authorType?: unknown;
+      } | null;
+
+      if (typeof body?.body !== "string" || !body.body.trim()) {
+        return reply.code(400).send({ error: "body is required." });
+      }
+      if (body.body.length > 10_000) {
+        return reply
+          .code(400)
+          .send({ error: "body exceeds 10,000 character limit." });
+      }
+
+      const authorType =
+        body.authorType === "agent" ? ("agent" as const) : ("human" as const);
+
+      try {
+        const agent = await deps.agentManager.getAgent(agentId);
+        if (!agent) return reply.code(404).send({ error: "Agent not found." });
+
+        const result = await reviewQueries.addThreadMessage(
+          deps.pool,
+          itemId,
+          agentId,
+          authorType,
+          body.body.trim()
+        );
+        if (!result) {
+          return reply.code(404).send({ error: "Feedback item not found." });
+        }
+
+        deps.publishUiEvent({
+          type: "review_feedback.updated",
+          agentId,
+          feedbackItemId: itemId,
+        });
+
+        return { message: result.message };
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
+
   app.get("/api/v1/agents/:id/reviews", async (request, reply) => {
     const params = request.params as { id?: string };
     const agentId = params.id ?? "";
