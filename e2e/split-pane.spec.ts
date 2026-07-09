@@ -154,6 +154,29 @@ test.describe("Split pane", () => {
     await expect(terminalTab).toHaveAttribute("aria-selected", "true");
   });
 
+  test("split mode is ignored on mobile viewport", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-split-mobile-${Date.now()}`,
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await waitForAppShell(page, agent.name);
+
+    // Seed split state in localStorage — on mobile this should be ignored.
+    await seedSplitState(page, agent.id);
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await waitForAppShell(page, agent.name);
+
+    // The unsplit button should NOT appear — mobile forces single-pane mode.
+    await expect(page.getByTestId("unsplit-button")).not.toBeVisible();
+    // Terminal pane should still be visible in single-pane mode.
+    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+  });
+
   test("drag tab to split and unsplit via button", async ({
     page,
     request,
