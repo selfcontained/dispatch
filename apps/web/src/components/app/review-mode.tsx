@@ -8,6 +8,7 @@ import {
 } from "lucide-react";
 
 import { useSubmitReview } from "@/hooks/use-agent-reviews";
+import type { PersistedDraftComment } from "@/lib/store";
 import {
   Dialog,
   DialogContent,
@@ -16,13 +17,7 @@ import {
   DialogDescription,
 } from "@/components/ui/dialog";
 
-export type DraftComment = {
-  id: string;
-  filePath: string;
-  startLine: number;
-  endLine: number;
-  comment: string;
-};
+export type DraftComment = PersistedDraftComment;
 
 type ReviewModeBarProps = {
   agentId: string;

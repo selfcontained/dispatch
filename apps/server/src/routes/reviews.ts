@@ -66,11 +66,9 @@ export async function registerReviewRoutes(
           .send({ error: `items[${i}].comment is required.` });
       }
       if (raw.comment.length > 10_000) {
-        return reply
-          .code(400)
-          .send({
-            error: `items[${i}].comment exceeds 10,000 character limit.`,
-          });
+        return reply.code(400).send({
+          error: `items[${i}].comment exceeds 10,000 character limit.`,
+        });
       }
 
       const item: reviewQueries.CreateReviewInput["items"][number] = {
@@ -79,11 +77,9 @@ export async function registerReviewRoutes(
 
       if (raw.filePath !== undefined && raw.filePath !== null) {
         if (typeof raw.filePath !== "string" || !raw.filePath.trim()) {
-          return reply
-            .code(400)
-            .send({
-              error: `items[${i}].filePath must be a non-empty string.`,
-            });
+          return reply.code(400).send({
+            error: `items[${i}].filePath must be a non-empty string.`,
+          });
         }
         if (raw.filePath.includes("..")) {
           return reply
@@ -98,11 +94,9 @@ export async function registerReviewRoutes(
             !Number.isInteger(raw.startLine) ||
             raw.startLine < 1
           ) {
-            return reply
-              .code(400)
-              .send({
-                error: `items[${i}].startLine must be a positive integer.`,
-              });
+            return reply.code(400).send({
+              error: `items[${i}].startLine must be a positive integer.`,
+            });
           }
           item.startLine = raw.startLine;
 
@@ -234,6 +228,25 @@ export async function registerReviewRoutes(
       return deps.handleAgentError(reply, error);
     }
   });
+
+  app.get(
+    "/api/v1/agents/:id/reviews/feedback-items",
+    async (request, reply) => {
+      const params = request.params as { id?: string };
+      const agentId = params.id ?? "";
+      try {
+        const agent = await deps.agentManager.getAgent(agentId);
+        if (!agent) return reply.code(404).send({ error: "Agent not found." });
+        const items = await reviewQueries.listFeedbackItemsForAgent(
+          deps.pool,
+          agentId
+        );
+        return { items };
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
 
   app.get("/api/v1/agents/:id/reviews/:reviewId", async (request, reply) => {
     const params = request.params as { id?: string; reviewId?: string };

@@ -1,10 +1,5 @@
-import { useCallback, useMemo } from "react";
-import {
-  useMutation,
-  useQueries,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { useCallback } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
@@ -154,28 +149,25 @@ export function useSubmitReview(agentId: string | null) {
   });
 }
 
+function feedbackItemsQueryKey(agentId: string): [string, string] {
+  return ["agent-feedback-items", agentId];
+}
+
 export function useAllReviewFeedbackItems(
   agentId: string | null,
   enabled: boolean
 ): ReviewFeedbackItem[] {
-  const { reviews } = useAgentReviews(agentId, enabled);
-
-  const detailQueries = useQueries({
-    queries: reviews.map((r) => ({
-      queryKey: reviewDetailQueryKey(agentId ?? "", r.id),
-      queryFn: async () => {
-        const resp = await api<{ review: ReviewWithItems }>(
-          `/api/v1/agents/${agentId}/reviews/${r.id}`
-        );
-        return resp.review;
-      },
-      enabled: enabled && !!agentId,
-      staleTime: 10_000,
-    })),
+  const query = useQuery<ReviewFeedbackItem[]>({
+    queryKey: feedbackItemsQueryKey(agentId ?? ""),
+    queryFn: async () => {
+      const resp = await api<{ items: ReviewFeedbackItem[] }>(
+        `/api/v1/agents/${agentId}/reviews/feedback-items`
+      );
+      return resp.items;
+    },
+    enabled: enabled && !!agentId,
+    staleTime: 10_000,
   });
 
-  return useMemo(
-    () => detailQueries.flatMap((q) => q.data?.items ?? []),
-    [detailQueries]
-  );
+  return query.data ?? [];
 }

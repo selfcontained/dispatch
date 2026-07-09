@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import {
   Bot,
   CheckCircle2,
@@ -9,7 +10,6 @@ import {
   XCircle,
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useQueryClient } from "@tanstack/react-query";
 
 import {
   useAgentReviews,
@@ -17,7 +17,7 @@ import {
   type ReviewListItem,
   type ReviewFeedbackItem,
 } from "@/hooks/use-agent-reviews";
-import { agentDiffQueryKey, type DiffResponse } from "@/hooks/use-agent-diff";
+import { useAgentDiff } from "@/hooks/use-agent-diff";
 import {
   Tooltip,
   TooltipContent,
@@ -60,36 +60,36 @@ function feedbackState(item: ReviewFeedbackItem): FeedbackState {
 type ReviewsSidebarContentProps = {
   agentId: string | null;
   onNavigateToFile?: (filePath: string, lineStart: number | null) => void;
-  autoExpandReviewId?: number | null;
-  onAutoExpandConsumed?: () => void;
 };
 
 export const ReviewsSidebarContent = memo(function ReviewsSidebarContent({
   agentId,
   onNavigateToFile,
-  autoExpandReviewId,
-  onAutoExpandConsumed,
 }: ReviewsSidebarContentProps): JSX.Element {
   const { reviews, isLoading } = useAgentReviews(agentId, !!agentId);
   const [expandedReviewId, setExpandedReviewId] = useState<number | null>(null);
-  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { data: diffData } = useAgentDiff(agentId, !!agentId);
 
   useEffect(() => {
-    if (autoExpandReviewId != null) {
-      setExpandedReviewId(autoExpandReviewId);
-      onAutoExpandConsumed?.();
+    const expandReview = searchParams.get("expandReview");
+    if (expandReview != null) {
+      setExpandedReviewId(parseInt(expandReview, 10));
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("expandReview");
+          return next;
+        },
+        { replace: true }
+      );
     }
-  }, [autoExpandReviewId, onAutoExpandConsumed]);
+  }, [searchParams, setSearchParams]);
 
   const diffFilePaths = useMemo(() => {
-    if (!agentId) return undefined;
-    const queries = queryClient.getQueriesData<DiffResponse>({
-      queryKey: agentDiffQueryKey(agentId),
-    });
-    const files = queries[0]?.[1]?.files;
-    if (!files) return undefined;
-    return new Set(files.map((f) => f.path));
-  }, [agentId, queryClient]);
+    if (!diffData?.files) return undefined;
+    return new Set(diffData.files.map((f) => f.path));
+  }, [diffData]);
 
   if (!agentId) {
     return (
