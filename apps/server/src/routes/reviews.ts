@@ -200,8 +200,18 @@ export async function registerReviewRoutes(
         }
       }
       notifLines.push("");
+      notifLines.push("How to handle this review:");
       notifLines.push(
-        "Review each item above and address the feedback in your code."
+        "1. Read each feedback item. For each one, decide whether to fix it, push back, or dismiss it."
+      );
+      notifLines.push(
+        "2. If you have a question or want to explain your approach before acting, use dispatch_add_review_message to reply on that item's thread."
+      );
+      notifLines.push(
+        "3. After addressing an item (or deciding not to), call dispatch_resolve_review_feedback to mark it as fixed, ignored, or wont_fix. Include a note when dismissing so the reviewer understands why."
+      );
+      notifLines.push(
+        "4. Work through all items — the review status updates automatically as you resolve each one."
       );
       notifLines.push("--- END ---");
 
