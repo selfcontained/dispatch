@@ -268,6 +268,23 @@ Guardrails:
 - Prefer rollback to the last confirmed healthy tag over speculative fixes if the service does not come back.
 - Restore service availability before deeper diagnosis.
 
+Service architecture and recovery model:
+- Dispatch runs from a compiled Bun binary in ${deps.serverDir}/dist/bun, named like dispatch-<version>-bun-<platform>-<arch>.
+- The managed update endpoint downloads a pre-built release tarball, checks out the target tag, extracts the binary, writes release.json, then restarts the service.
+- If the managed update fails mid-deploy, git may already point at ${input.tag} while the matching binary is missing or stale.
+- On boot, Dispatch prunes release binaries that do not match the running version; after a partial deploy this can leave dist/bun empty.
+- Diagnostic for the expected binary:
+  \`platform=$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/darwin/;s/linux/linux/'); arch=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); ls -l dist/bun/dispatch-*-bun-$platform-$arch\`
+- If no matching binary exists, recover by building from source in ${deps.serverDir}: \`bin/dispatch-server build\` (requires bun and pnpm on PATH).
+- Restart after a successful source build with: \`bin/dispatch-server restart\`.
+
+Rollback recovery:
+- Prefer the managed endpoint first. Use manual recovery only after it fails or the service does not restart cleanly.
+- Find the last confirmed healthy tag from service logs, release history, release.json before the failed run, or \`git tag --sort=-version:refname\`; do not assume the current release.json is healthy after a partial deploy.
+- Manual rollback sequence: \`git checkout <healthy-tag>\`, then \`bin/dispatch-server build\`, then \`bin/dispatch-server restart\`.
+- Before restarting after rollback, confirm dist/bun contains a binary whose version matches the checked-out tag and current platform/arch.
+- Validate service health with ${dispatchHealthUrl()} before reporting success.
+
 Suggested workflow:
 1. Capture the current repo/tag/service state.
 2. Trigger the existing managed Dispatch update flow first by calling the built-in update endpoint the UI uses with the provided bearer token, for example:
