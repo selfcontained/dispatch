@@ -1,13 +1,9 @@
 ## What's Changed
-* Add cross-repo messaging, agent creation, and diff-view-state tests by @selfcontained in https://github.com/selfcontained/dispatch/pull/725
-* Document dispatch_launch_agent, cross-repo messaging, sidebar reordering by @selfcontained in https://github.com/selfcontained/dispatch/pull/726
-* Extract review/persona handlers from mcp-handlers.ts by @selfcontained in https://github.com/selfcontained/dispatch/pull/727
-* Add brain-tools MCP tool registration unit tests by @selfcontained in https://github.com/selfcontained/dispatch/pull/728
-* Fix Automations docs: webhook location, add dispatch_launch_agent by @selfcontained in https://github.com/selfcontained/dispatch/pull/731
-* Extract utility functions and GitHub helpers from release-runtime.ts by @selfcontained in https://github.com/selfcontained/dispatch/pull/732
-* Document dispatch_launch_agent tool and sidebar reordering by @selfcontained in https://github.com/selfcontained/dispatch/pull/720
-* List personas from worktree and repo roots by @selfcontained in https://github.com/selfcontained/dispatch/pull/733
-* Fix duplicate sidebar reorder tip by @selfcontained in https://github.com/selfcontained/dispatch/pull/734
+* Refactor create-agent-dialog: extract hook and type select by @selfcontained in https://github.com/selfcontained/dispatch/pull/737
+* Add release-helpers and launchPersona edge case tests by @selfcontained in https://github.com/selfcontained/dispatch/pull/738
+* Refactor feedback-panel.tsx: extract detail panel and finding row by @selfcontained in https://github.com/selfcontained/dispatch/pull/739
+* Refactor createAgent(): extract input prep and DB insert by @selfcontained in https://github.com/selfcontained/dispatch/pull/740
+* Add diff review submission and feedback sidebar (Phase 3a) by @selfcontained in https://github.com/selfcontained/dispatch/pull/730
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.26.1...v0.26.3
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.26.3...v0.27.0
