@@ -93,8 +93,9 @@ const AGENT_TOOLS = new Set([
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
-  "dispatch_resolve_review_feedback",
-  "dispatch_add_review_message",
+  "dispatch_review_list_feedback",
+  "dispatch_review_resolve",
+  "dispatch_review_add_message",
   "dispatch_submit_resolution",
   "dispatch_cancel_recheck",
   "list_agents",
@@ -139,8 +140,9 @@ const JOB_TOOLS = new Set([
   "dispatch_launch_persona",
   "dispatch_get_feedback",
   "dispatch_resolve_feedback",
-  "dispatch_resolve_review_feedback",
-  "dispatch_add_review_message",
+  "dispatch_review_list_feedback",
+  "dispatch_review_resolve",
+  "dispatch_review_add_message",
   "dispatch_submit_resolution",
   "dispatch_cancel_recheck",
   "job_complete",
@@ -360,6 +362,30 @@ export type McpRequestContext = {
     message: { id: number; feedbackItemId: number; content: { body: string } };
     reviewId: number;
   }>;
+  listReviewFeedback?: (agentId: string) => Promise<
+    Array<{
+      id: number;
+      reviewId: number;
+      filePath: string | null;
+      lineStart: number | null;
+      lineEnd: number | null;
+      diffSnapshot: string | null;
+      baseRef: string | null;
+      status: string;
+      resolution: string | null;
+      resolutionNote: string | null;
+      resolvedBy: string | null;
+      resolvedAt: string | null;
+      createdAt: string;
+      updatedAt: string;
+      messages: Array<{
+        id: number;
+        authorType: string;
+        content: { body: string };
+        createdAt: string;
+      }>;
+    }>
+  >;
   submitResolution?: (
     agentId: string,
     input: { personaAgentId: string; summary: string }
@@ -530,6 +556,7 @@ async function createDispatchMcpServer(
       resolveFeedback: context.resolveFeedback,
       resolveReviewFeedback: context.resolveReviewFeedback,
       addReviewThreadMessage: context.addReviewThreadMessage,
+      listReviewFeedback: context.listReviewFeedback,
       submitResolution: context.submitResolution,
     });
   }
