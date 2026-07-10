@@ -7,6 +7,7 @@ export type Tip = {
   docsSection?: string;
   since: string;
   surfaces: Surface[];
+  desktopOnly?: boolean;
 };
 
 export const tips: Tip[] = [
@@ -81,6 +82,7 @@ export const tips: Tip[] = [
     docsSection: "agents#split-tabs",
     since: "0.27.4",
     surfaces: ["inline", "ambient"],
+    desktopOnly: true,
   },
   {
     id: "session-rename",
