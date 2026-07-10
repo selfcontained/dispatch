@@ -260,6 +260,9 @@ export function AgentsView({
     if (target && container.parentElement !== target) {
       target.appendChild(container);
     }
+    return () => {
+      container.remove();
+    };
   }, [isSplit, splitState.left, splitState.right]);
 
   useEffect(() => {
