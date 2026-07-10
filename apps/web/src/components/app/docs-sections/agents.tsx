@@ -186,9 +186,32 @@ export function AgentsContent() {
         </P>
         <P>
           Select one or more lines in a diff, then click the comment icon to
-          leave a note for the agent. The comment is injected into the agent's
-          terminal with the file path and line range so the agent can act on it
-          immediately.
+          leave feedback. The primary action is <strong>Start a review</strong>,
+          which enters review mode and saves the comment as a draft. Use the
+          dropdown to pick <strong>Chat</strong> instead — that sends the
+          comment directly to the agent's terminal as a one-off message (the
+          original behavior).
+        </P>
+        <P>
+          In review mode, a bar at the top shows your draft count and a{" "}
+          <strong>Submit review</strong> button. Keep adding draft comments
+          across different files, then submit them all at once with an optional
+          summary. Each comment becomes a feedback item the agent can see via
+          its <Code>dispatch_review_list_feedback</Code> tool. The agent can
+          reply to individual items, resolve them, or ask clarifying questions —
+          all visible in the <strong>Reviews</strong> tab of the media sidebar.
+        </P>
+      </Section>
+
+      <Section>
+        <H3>Split pane</H3>
+        <P>
+          Drag an inactive tab (<strong>Terminal</strong> or{" "}
+          <strong>Changes</strong>) onto the left or right drop zone to show
+          both side by side. A resize handle between the panes lets you adjust
+          the ratio. Click the <strong>unsplit</strong> button on the divider to
+          return to single-tab view. The split layout persists per agent. Split
+          pane is not available on mobile.
         </P>
       </Section>
 
@@ -283,15 +306,6 @@ export function AgentsContent() {
           Archiving a parent does not archive its launched children — they
           continue running on their own. This differs from persona reviewers,
           which are always archived alongside their parent.
-        </P>
-      </Section>
-
-      <Section>
-        <H3>Reordering agents</H3>
-        <P>
-          Drag and drop agent cards in the sidebar to reorder them. You can also
-          focus a card and press <Code>Alt+↑</Code> or <Code>Alt+↓</Code> to
-          move it. The custom order is saved per session.
         </P>
       </Section>
     </>

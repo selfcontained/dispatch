@@ -154,6 +154,22 @@ export const tips: Tip[] = [
     since: "0.24.0",
     surfaces: ["ambient"],
   },
+  {
+    id: "diff-review",
+    title: "Diff Review",
+    body: "Select lines in the Changes tab and submit review comments. The agent can respond, resolve items, or ask questions in threaded conversations.",
+    docsSection: "agents",
+    since: "0.27.0",
+    surfaces: ["ambient"],
+  },
+  {
+    id: "split-pane",
+    title: "Split Pane",
+    body: "Drag the Terminal or Changes tab to the left or right drop zone to view them side by side. Click the split button on the divider to unsplit.",
+    docsSection: "agents",
+    since: "0.27.0",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {
