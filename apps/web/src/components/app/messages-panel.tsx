@@ -112,12 +112,13 @@ export function MessageBubble({
             type="button"
             onClick={() => copyText(message.content)}
             className={cn(
-              "ml-auto rounded p-0.5 transition-colors",
+              "ml-auto -mr-1 flex h-6 w-6 items-center justify-center rounded transition-colors",
               isSent
                 ? "text-primary-foreground/40 hover:text-primary-foreground/80"
                 : "text-muted-foreground hover:text-foreground"
             )}
             title="Copy to clipboard"
+            aria-label="Copy message"
           >
             {copied ? (
               <Check className="h-2.5 w-2.5 text-emerald-400" />

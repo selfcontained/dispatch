@@ -432,11 +432,11 @@ export function MediaSidebarContent({
     >
       {/* Tab header */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
-        <div className="flex flex-1">
+        <div className="flex min-w-0 flex-1 overflow-x-auto">
           <button
             onClick={() => setActiveTab("pins")}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
               activeTab === "pins"
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground/80"
@@ -455,7 +455,7 @@ export function MediaSidebarContent({
           <button
             onClick={() => setActiveTab("media")}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
               activeTab === "media"
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground/80"
@@ -474,7 +474,7 @@ export function MediaSidebarContent({
           <button
             onClick={() => setActiveTab("brain")}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
               activeTab === "brain"
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground/80"
@@ -507,7 +507,7 @@ export function MediaSidebarContent({
           <button
             onClick={() => setActiveTab("messages")}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
               activeTab === "messages"
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground/80"

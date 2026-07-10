@@ -557,6 +557,9 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       // Persistence must never block delivery, so a failed insert is swallowed
       // and logged. Only announce message.created when the row actually landed,
       // otherwise the UI would refetch and find nothing.
+      const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(
+        () => null
+      );
       const messageStore = new MessageStore(pool);
       const persisted = await messageStore
         .insertMessage({
@@ -567,8 +570,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
           content: input.message,
           delivered,
           senderRepoRoot,
-          // Same repo today (send rule); stored for future cross-repo support.
-          recipientRepoRoot: senderRepoRoot,
+          recipientRepoRoot,
         })
         .then(() => true)
         .catch((err) => {

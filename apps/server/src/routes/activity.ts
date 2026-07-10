@@ -679,10 +679,13 @@ export async function registerActivityRoutes(
                 content, delivered,
                 read_at AS "readAt",
                 created_at AS "createdAt"
-           FROM agent_messages
-          WHERE sender_agent_id = $1 OR recipient_agent_id = $1
-          ORDER BY created_at ASC
-          LIMIT 500`,
+           FROM (
+             SELECT * FROM agent_messages
+              WHERE sender_agent_id = $1 OR recipient_agent_id = $1
+              ORDER BY created_at DESC
+              LIMIT 500
+           ) recent
+           ORDER BY created_at ASC`,
         [id]
       ),
     ]);

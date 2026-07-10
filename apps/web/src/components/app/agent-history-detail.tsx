@@ -231,13 +231,13 @@ function DetailTabs({
   return (
     <>
       <div className="min-w-0">
-        <div className="flex items-center gap-1 border-b border-border pb-0">
+        <div className="flex min-w-0 items-center gap-1 overflow-x-auto border-b border-border pb-0">
           {tabs.map(({ key, label, count }) => (
             <button
               key={key}
               onClick={() => setTab(key)}
               className={cn(
-                "relative px-3 py-1.5 text-xs font-medium transition-colors",
+                "relative shrink-0 px-3 py-1.5 text-xs font-medium transition-colors",
                 tab === key
                   ? "text-foreground"
                   : "text-muted-foreground hover:text-foreground"
