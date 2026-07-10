@@ -1,6 +1,6 @@
 ## What's Changed
-* Add split pane for terminal/changes area by @selfcontained in https://github.com/selfcontained/dispatch/pull/743
-* Improve assisted update recovery prompts by @selfcontained in https://github.com/selfcontained/dispatch/pull/744
+* Fix review feedback UI: overflow, text wrapping, and visual polish by @selfcontained in https://github.com/selfcontained/dispatch/pull/746
+* Fix terminal disconnect when toggling split pane mode by @selfcontained in https://github.com/selfcontained/dispatch/pull/745
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.27.2...v0.27.3
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.27.3...v0.27.4
