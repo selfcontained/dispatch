@@ -171,8 +171,22 @@ export function ToolsContent() {
             the reviewer exits cleanly
           </li>
           <li>
-            <Code>dispatch_launch_agent</Code> — launch a new child agent to
-            work on a subtask (see the Agents section for details)
+            <Code>dispatch_review_list_feedback</Code> — list human review
+            feedback items for this agent, including file paths, statuses, and
+            thread messages
+          </li>
+          <li>
+            <Code>dispatch_review_resolve</Code> — resolve a review feedback
+            item as fixed, ignored, or wont_fix
+          </li>
+          <li>
+            <Code>dispatch_review_add_message</Code> — reply to a review
+            feedback thread (ask a clarifying question or explain an approach)
+          </li>
+          <li>
+            <Code>dispatch_launch_agent</Code> — launch a new agent as a child
+            of the current session with a name, prompt, and optional agent type,
+            worktree settings, full access mode, or template
           </li>
           <li>
             <Code>list_agents</Code> — list other agents in the same repo with
@@ -181,11 +195,6 @@ export function ToolsContent() {
           <li>
             <Code>dispatch_send_message</Code> — send a message to another
             running agent by ID or name; the target can reply the same way
-          </li>
-          <li>
-            <Code>dispatch_launch_agent</Code> — launch a new agent as a child
-            of the current session with a name, prompt, and optional agent type,
-            worktree settings, full access mode, or template
           </li>
           <li>
             <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,{" "}

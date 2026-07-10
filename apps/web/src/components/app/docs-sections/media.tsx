@@ -97,9 +97,9 @@ export function MediaContent() {
         <H3>Media sidebar</H3>
         <P>
           Click any agent's media count badge (or press{" "}
-          <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The sidebar has
-          three tabs: <strong>Pins</strong>, <strong>Media</strong>, and{" "}
-          <strong>Brain</strong>.
+          <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The sidebar has four
+          tabs: <strong>Pins</strong>, <strong>Media</strong>,{" "}
+          <strong>Brain</strong>, and <strong>Reviews</strong>.
         </P>
         <P>
           The <strong>Pins</strong> tab shows values the agent has surfaced via{" "}
@@ -110,7 +110,12 @@ export function MediaContent() {
           with a badge. The <strong>Brain</strong> tab displays shared-memory
           objects, lists, and events the agent has written — useful for
           inspecting job state or inter-agent coordination without calling the
-          Brain tools yourself.
+          Brain tools yourself. The <strong>Reviews</strong> tab shows human
+          review feedback submitted from the Changes tab — each review has a
+          status badge (open, partially resolved, or resolved), and you can
+          expand it to see individual items, threaded messages, diff snapshots,
+          and resolutions. Click a file path to jump to that location in the
+          Changes tab.
         </P>
         <P>
           The sidebar opens in <strong>drawer</strong> mode by default —
