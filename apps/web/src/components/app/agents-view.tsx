@@ -908,9 +908,6 @@ export function AgentsView({
             selectedAgentWorkspaceRoot={
               focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
             }
-            selectedAgentRepoRoot={
-              focusedAgent?.gitContext?.repoRoot ?? focusedAgent?.cwd ?? null
-            }
             selectedAgentPins={focusedAgent?.pins ?? []}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
@@ -959,9 +956,6 @@ export function AgentsView({
             selectedAgentName={focusedAgent?.name ?? null}
             selectedAgentWorkspaceRoot={
               focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
-            }
-            selectedAgentRepoRoot={
-              focusedAgent?.gitContext?.repoRoot ?? focusedAgent?.cwd ?? null
             }
             selectedAgentPins={focusedAgent?.pins ?? []}
             animatingMediaKeys={animatingMediaKeys}
