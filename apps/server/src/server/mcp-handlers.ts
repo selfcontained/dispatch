@@ -28,6 +28,7 @@ import { resolveHeadSha } from "../shared/git/worktree.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
+import { createWhiteboardHandlers } from "./mcp-whiteboard-handlers.js";
 
 const AGENT_LATEST_EVENT_TYPES = [
   "working",
@@ -151,8 +152,16 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     sendAgentPrompt,
   });
 
+  const whiteboardHandlers = createWhiteboardHandlers({
+    pool,
+    mediaRoot,
+    agentManager,
+    publishUiEvent,
+  });
+
   return {
     ...reviewHandlers,
+    ...whiteboardHandlers,
 
     async upsertEvent(
       agentId: string,

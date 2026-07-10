@@ -279,7 +279,7 @@ export function reconcileDiffViewStateStorage(
 // Split pane state — per-agent split/single mode and pane sizes
 // ---------------------------------------------------------------------------
 
-export type CenterTab = "terminal" | "changes";
+export type CenterTab = "terminal" | "changes" | "whiteboard";
 
 export type SplitPaneState = {
   mode: "single" | "split";
@@ -327,3 +327,11 @@ export function reconcileSplitPaneStateStorage(
 
   keysToDelete.forEach((key) => window.localStorage.removeItem(key));
 }
+
+// ---------------------------------------------------------------------------
+// Whiteboard agent-drew indicator
+// ---------------------------------------------------------------------------
+
+export const whiteboardAgentDrewAtomFamily = atomFamily((_agentId: string) =>
+  atom(false)
+);

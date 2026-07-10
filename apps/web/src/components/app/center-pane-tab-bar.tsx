@@ -1,8 +1,14 @@
 import { memo, useCallback } from "react";
 
+import { useAtomValue } from "jotai";
+
 import type { DiffStats } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
-import { type CenterTab, type SplitPaneState } from "@/lib/store";
+import {
+  type CenterTab,
+  type SplitPaneState,
+  whiteboardAgentDrewAtomFamily,
+} from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export const TAB_DRAG_MIME = "application/x-dispatch-tab";
@@ -15,6 +21,7 @@ type TabDef = {
 const TABS: TabDef[] = [
   { id: "terminal", label: "Terminal" },
   { id: "changes", label: "Changes" },
+  { id: "whiteboard", label: "Whiteboard" },
 ];
 
 type CenterPaneTabBarProps = {
@@ -24,6 +31,7 @@ type CenterPaneTabBarProps = {
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
+  agentId: string | null;
 };
 
 export const CenterPaneTabBar = memo(function CenterPaneTabBar({
@@ -33,9 +41,13 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   isSplit,
   splitState,
   isMobile,
+  agentId,
 }: CenterPaneTabBarProps): JSX.Element {
   const hasChanges =
     diffStats && (diffStats.added > 0 || diffStats.deleted > 0);
+  const whiteboardAgentDrew = useAtomValue(
+    whiteboardAgentDrewAtomFamily(agentId ?? "")
+  );
 
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
@@ -93,6 +105,11 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
                   {diffStats.deleted}
                 </span>
               </span>
+            ) : null}
+            {tab.id === "whiteboard" &&
+            whiteboardAgentDrew &&
+            activeTab !== "whiteboard" ? (
+              <span className="h-2 w-2 rounded-full bg-violet-500" />
             ) : null}
           </button>
         );

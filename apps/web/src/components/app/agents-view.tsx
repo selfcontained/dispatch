@@ -71,6 +71,8 @@ import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
+import { useTheme } from "@/hooks/use-theme";
+import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
@@ -134,8 +136,11 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
+  const { theme } = useTheme();
+
   const {
     changesMatch,
+    whiteboardMatch,
     feedbackDetail,
     feedbackDetailRendered,
     handleFeedbackTransitionEnd,
@@ -300,11 +305,15 @@ export function AgentsView({
 
   const handleDropOnZone = useCallback(
     (tab: string, side: "left" | "right") => {
-      const activeTab: CenterTab = changesMatch ? "changes" : "terminal";
+      const activeTab: CenterTab = changesMatch
+        ? "changes"
+        : whiteboardMatch
+          ? "whiteboard"
+          : "terminal";
       handleTabDrop(tab as CenterTab, side, activeTab);
       setIsDraggingTab(false);
     },
-    [changesMatch, handleTabDrop]
+    [changesMatch, whiteboardMatch, handleTabDrop]
   );
 
   const handleSplitLayoutChange = useCallback(
@@ -678,7 +687,13 @@ export function AgentsView({
                         {focusedAgent.name}
                       </span>
                       <CenterPaneTabBar
-                        activeTab={changesMatch ? "changes" : "terminal"}
+                        activeTab={
+                          changesMatch
+                            ? "changes"
+                            : whiteboardMatch
+                              ? "whiteboard"
+                              : "terminal"
+                        }
                         onTabChange={(tab) => {
                           if (isSplit) {
                             exitSplit();
@@ -689,6 +704,7 @@ export function AgentsView({
                         isSplit={isSplit}
                         splitState={splitState}
                         isMobile={isMobile}
+                        agentId={focusedAgentId ?? null}
                       />
                     </>
                   ) : null}
@@ -747,7 +763,9 @@ export function AgentsView({
                             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                               {splitState.left === "terminal"
                                 ? "Terminal"
-                                : "Changes"}
+                                : splitState.left === "whiteboard"
+                                  ? "Whiteboard"
+                                  : "Changes"}
                             </span>
                             {splitState.left === "changes" && !isMobile ? (
                               <ChangesSettingsPopover />
@@ -758,6 +776,12 @@ export function AgentsView({
                               <div
                                 ref={splitTerminalSlotRef}
                                 className="h-full"
+                              />
+                            ) : splitState.left === "whiteboard" ? (
+                              <WhiteboardPane
+                                agentId={focusedAgentId ?? null}
+                                active={true}
+                                theme={theme}
                               />
                             ) : (
                               changesElement
@@ -776,7 +800,9 @@ export function AgentsView({
                             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                               {splitState.right === "terminal"
                                 ? "Terminal"
-                                : "Changes"}
+                                : splitState.right === "whiteboard"
+                                  ? "Whiteboard"
+                                  : "Changes"}
                             </span>
                             {splitState.right === "changes" && !isMobile ? (
                               <ChangesSettingsPopover />
@@ -787,6 +813,12 @@ export function AgentsView({
                               <div
                                 ref={splitTerminalSlotRef}
                                 className="h-full"
+                              />
+                            ) : splitState.right === "whiteboard" ? (
+                              <WhiteboardPane
+                                agentId={focusedAgentId ?? null}
+                                active={true}
+                                theme={theme}
                               />
                             ) : (
                               changesElement
@@ -811,10 +843,23 @@ export function AgentsView({
                   <>
                     <div
                       ref={defaultTerminalSlotRef}
-                      className={cn("h-full", changesMatch && "hidden")}
+                      className={cn(
+                        "h-full",
+                        (changesMatch || whiteboardMatch) && "hidden"
+                      )}
                     />
                     <Routes>
                       <Route path="changes" element={changesElement} />
+                      <Route
+                        path="whiteboard"
+                        element={
+                          <WhiteboardPane
+                            agentId={focusedAgentId ?? null}
+                            active={true}
+                            theme={theme}
+                          />
+                        }
+                      />
                     </Routes>
                   </>
                 )}

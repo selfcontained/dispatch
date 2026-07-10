@@ -21,6 +21,7 @@ import { registerPersonaTools } from "./persona-tools.js";
 import { registerPrTools } from "./pr-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { toToolError } from "./tool-error.js";
+import { registerWhiteboardTools } from "./whiteboard-tools.js";
 
 export type McpAgent = {
   id: string;
@@ -126,6 +127,8 @@ const AGENT_TOOLS = new Set([
   "create_template",
   "update_template",
   "delete_template",
+  "whiteboard_get",
+  "whiteboard_update",
 ]);
 
 const JOB_TOOLS = new Set([
@@ -470,6 +473,18 @@ export type McpRequestContext = {
   toolScope?: "agent" | "reviewer" | "job";
   brainStore?: BrainStore;
   publishBrainChanged?: (repoRoot: string) => void;
+  getWhiteboard?: (
+    agentId: string
+  ) => Promise<{
+    scene: unknown;
+    version: number;
+    elements: unknown[];
+    snapshotPath: string | null;
+  }>;
+  updateWhiteboard?: (
+    agentId: string,
+    ops: unknown[]
+  ) => Promise<{ version: number; elementCount: number }>;
 };
 
 export async function handleMcpRequest(
@@ -604,6 +619,15 @@ async function createDispatchMcpServer(
     getFeedbackSummary:
       context.getFeedbackSummary ?? context.jobTools?.getFeedbackSummary,
   });
+
+  // ── Whiteboard tools ──────────────────────────────────────────────
+  if (context.agent && context.getWhiteboard && context.updateWhiteboard) {
+    registerWhiteboardTools(server, allowed, {
+      agentId: context.agent.id,
+      getWhiteboard: context.getWhiteboard,
+      updateWhiteboard: context.updateWhiteboard,
+    });
+  }
 
   // ── Job & template CRUD tools ─────────────────────────────────────
   if (context.crudTools) {

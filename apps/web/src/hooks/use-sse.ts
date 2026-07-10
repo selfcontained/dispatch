@@ -12,6 +12,9 @@ import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import { showWebNotification } from "@/lib/web-notifications";
+import { whiteboardQueryKey } from "@/hooks/use-whiteboard";
+import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
+import { getDefaultStore } from "jotai";
 import {
   CACHED_RELEASE_INFO_QUERY_KEY,
   type ReleaseInfoSnapshot,
@@ -54,6 +57,11 @@ type UiEvent =
   | {
       type: "release.cached_info_changed";
       snapshot: ReleaseInfoSnapshot | null;
+    }
+  | {
+      type: "whiteboard.changed";
+      agentId: string;
+      source: "user" | "agent";
     };
 
 function patchAgentHasStream(
@@ -168,6 +176,17 @@ export function useSSE(authState: AuthState): void {
                   : file
               )
           );
+          return;
+        }
+
+        if (payload.type === "whiteboard.changed") {
+          void queryClient.invalidateQueries({
+            queryKey: whiteboardQueryKey(payload.agentId),
+          });
+          if (payload.source === "agent") {
+            const store = getDefaultStore();
+            store.set(whiteboardAgentDrewAtomFamily(payload.agentId), true);
+          }
           return;
         }
 

@@ -20,6 +20,8 @@
     "@fastify/rate-limit": "^10.3.0",
     "@fastify/websocket": "^11.2.0",
     "@modelcontextprotocol/sdk": "^1.27.1",
+    "@tldraw/store": "5.2.4",
+    "@tldraw/tlschema": "5.2.4",
     "bcryptjs": "^3.0.3",
     "croner": "^10.0.1",
     "dotenv": "^17.3.1",

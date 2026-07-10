@@ -62,6 +62,11 @@ export type UiEvent =
   | {
       type: "release.cached_info_changed";
       snapshot: ReleaseInfoSnapshot | null;
+    }
+  | {
+      type: "whiteboard.changed";
+      agentId: string;
+      source: "user" | "agent";
     };
 
 export class UiEventBroker {

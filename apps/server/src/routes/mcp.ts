@@ -72,6 +72,8 @@ type McpRouteDeps = {
   mcpJobLog: unknown;
   mcpSendMessage: unknown;
   mcpListAgentsForAgent: unknown;
+  mcpGetWhiteboard: unknown;
+  mcpUpdateWhiteboard: unknown;
   mcpMethodNotAllowed: () => unknown;
 };
 
@@ -239,6 +241,8 @@ export async function registerMcpRoutes(
       crudTools: buildCrudCallbacks(deps),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
+      getWhiteboard: deps.mcpGetWhiteboard,
+      updateWhiteboard: deps.mcpUpdateWhiteboard,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
@@ -329,6 +333,8 @@ export async function registerMcpRoutes(
       crudTools: buildCrudCallbacks(deps),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
+      getWhiteboard: deps.mcpGetWhiteboard,
+      updateWhiteboard: deps.mcpUpdateWhiteboard,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 

@@ -110,6 +110,7 @@ import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
+import { registerWhiteboardRoutes } from "./routes/whiteboard.js";
 import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
@@ -499,6 +500,8 @@ async function registerRoutes() {
     mcpJobFailed: mcpHandlers.jobFailed,
     mcpJobNeedsInput: mcpHandlers.jobNeedsInput,
     mcpJobLog: mcpHandlers.jobLog,
+    mcpGetWhiteboard: mcpHandlers.getWhiteboardForAgent,
+    mcpUpdateWhiteboard: mcpHandlers.updateWhiteboardForAgent,
     mcpMethodNotAllowed,
   });
 
@@ -641,6 +644,15 @@ async function registerRoutes() {
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
     handleAgentError,
+  });
+
+  // --- Whiteboard ---
+
+  await registerWhiteboardRoutes(app, {
+    pool,
+    mediaRoot: config.mediaRoot,
+    agentManager,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 
   // --- Feedback ---
