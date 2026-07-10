@@ -14,24 +14,25 @@ export type AgentMessage = {
   createdAt: string;
 };
 
-export function useAgentMessages(agentId: string | null): {
+type MessagesPayload = {
   messages: AgentMessage[];
   unreadCount: number;
-  markRead: () => void;
+};
+
+function messagesQueryKey(agentId: string | null) {
+  return ["messages", agentId];
+}
+
+export function useAgentMessages(agentId: string | null): {
+  messages: AgentMessage[];
   isLoading: boolean;
 } {
-  const queryClient = useQueryClient();
-
-  const { data, isLoading } = useQuery<{
-    messages: AgentMessage[];
-    unreadCount: number;
-  }>({
-    queryKey: ["messages", agentId],
+  const { data, isLoading } = useQuery<MessagesPayload>({
+    queryKey: messagesQueryKey(agentId),
     queryFn: async () => {
-      const payload = await api<{
-        messages: AgentMessage[];
-        unreadCount: number;
-      }>(`/api/v1/agents/${agentId}/messages`);
+      const payload = await api<MessagesPayload>(
+        `/api/v1/agents/${agentId}/messages`
+      );
       return {
         messages: payload.messages ?? [],
         unreadCount: payload.unreadCount ?? 0,
@@ -44,28 +45,50 @@ export function useAgentMessages(agentId: string | null): {
     refetchOnReconnect: true,
   });
 
-  const messages = data?.messages ?? [];
-  // Server-derived (uses the partial unread index) so the badge stays accurate
-  // even though the message list is capped.
-  const unreadCount = data?.unreadCount ?? 0;
+  return { messages: data?.messages ?? [], isLoading };
+}
 
-  const markMutation = useMutation({
+export function useAgentUnreadCount(agentId: string | null): number {
+  const { data } = useQuery<MessagesPayload>({
+    queryKey: messagesQueryKey(agentId),
+    queryFn: async () => {
+      const payload = await api<MessagesPayload>(
+        `/api/v1/agents/${agentId}/messages`
+      );
+      return {
+        messages: payload.messages ?? [],
+        unreadCount: payload.unreadCount ?? 0,
+      };
+    },
+    enabled: !!agentId,
+    staleTime: 0,
+    refetchOnMount: true,
+    refetchOnWindowFocus: true,
+    refetchOnReconnect: true,
+  });
+
+  return data?.unreadCount ?? 0;
+}
+
+export function useMarkMessagesRead(agentId: string | null): () => void {
+  const queryClient = useQueryClient();
+
+  const { mutate } = useMutation({
     mutationFn: async () => {
       if (!agentId) return;
       await api(`/api/v1/agents/${agentId}/messages/read`, { method: "POST" });
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({
-        queryKey: ["messages", agentId],
+        queryKey: messagesQueryKey(agentId),
         exact: true,
       });
     },
   });
 
-  const { mutate: markMutate } = markMutation;
-  const markRead = useCallback(() => {
-    if (agentId && unreadCount > 0) markMutate();
-  }, [agentId, unreadCount, markMutate]);
+  const unreadCount = useAgentUnreadCount(agentId);
 
-  return { messages, unreadCount, markRead, isLoading };
+  return useCallback(() => {
+    if (agentId && unreadCount > 0) mutate();
+  }, [agentId, unreadCount, mutate]);
 }

@@ -65,7 +65,10 @@ import { type IdeType } from "@/lib/ide-types";
 import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
-import { useAgentMessages } from "@/hooks/use-agent-messages";
+import {
+  useAgentUnreadCount,
+  useMarkMessagesRead,
+} from "@/hooks/use-agent-messages";
 import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
@@ -330,8 +333,8 @@ export function AgentsView({
     refreshMedia,
   } = useMedia(focusedAgentId, mediaPanelOpen);
 
-  const { unreadCount: unreadMessageCount, markRead: markMessagesRead } =
-    useAgentMessages(focusedAgentId);
+  const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
+  const markMessagesRead = useMarkMessagesRead(focusedAgentId);
 
   // Only mark read when the sidebar is actually open on the Messages tab.
   // MediaSidebarContent stays mounted while closed and the active tab is

@@ -327,3 +327,39 @@ export function reconcileSplitPaneStateStorage(
 
   keysToDelete.forEach((key) => window.localStorage.removeItem(key));
 }
+
+// ---------------------------------------------------------------------------
+// Message group collapsed state — per-agent set of collapsed thread IDs
+// ---------------------------------------------------------------------------
+
+export const MESSAGE_GROUPS_STATE_STORAGE_PREFIX =
+  "dispatch:messageGroupsState:";
+
+export const messageGroupsCollapsedAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<string[]>(
+    `${MESSAGE_GROUPS_STATE_STORAGE_PREFIX}${agentId}`,
+    []
+  )
+);
+
+export function reconcileMessageGroupsStateStorage(
+  agentIds: Iterable<string>
+): void {
+  if (typeof window === "undefined") return;
+
+  const liveAgentIds = new Set(agentIds);
+  const keysToDelete: string[] = [];
+
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key?.startsWith(MESSAGE_GROUPS_STATE_STORAGE_PREFIX)) continue;
+
+    const agentId = key
+      .slice(MESSAGE_GROUPS_STATE_STORAGE_PREFIX.length)
+      .trim();
+    if (!agentId || liveAgentIds.has(agentId)) continue;
+    keysToDelete.push(key);
+  }
+
+  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+}

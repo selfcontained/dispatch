@@ -108,7 +108,7 @@ test.describe("Agent messages", () => {
     await expect(historyMessagesTabButton).toBeVisible();
     await historyMessagesTabButton.click();
 
-    const historyMessages = page.getByTestId("history-message");
+    const historyMessages = page.getByTestId("message-item");
     await expect(
       historyMessages.filter({ hasText: receivedContent })
     ).toBeVisible();
