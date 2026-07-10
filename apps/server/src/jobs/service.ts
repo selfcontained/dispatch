@@ -689,7 +689,6 @@ export class JobService {
           );
         }
         if (run) return run;
-        throw error;
       })
       .finally(() => {
         this.monitors.delete(runId);
