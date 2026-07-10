@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { getRangeBounds, type ActivityRange } from "@/hooks/use-activity";
 import { type AgentPin } from "@/components/app/types";
+import { type AgentMessage } from "@/hooks/use-agent-messages";
 
 const HISTORY_QUERY_OPTIONS = {
   staleTime: 60_000,
@@ -112,6 +113,7 @@ export type HistoryAgentDetail = {
   tokenUsage: HistoryTokenUsage;
   media: HistoryMedia[];
   feedback: HistoryFeedbackItem[];
+  messages: AgentMessage[];
   stateDurations: Record<string, number>;
 };
 

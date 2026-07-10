@@ -105,6 +105,7 @@ import { registerFeedbackRoutes } from "./routes/feedback.js";
 import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
+import { registerMessagesRoutes } from "./routes/messages.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -578,6 +579,11 @@ async function registerRoutes() {
     mediaRoot: config.mediaRoot,
     agentManager,
     appLog: app.log,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  });
+
+  await registerMessagesRoutes(app, {
+    pool,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 

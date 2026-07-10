@@ -782,4 +782,24 @@ describe("GET /api/v1/history/agents/:id", () => {
     expect(feedback[0].description).toBe("potential XSS");
     expect(feedback[0].persona).toBe("security-review");
   });
+
+  it("includes agent messages in the history detail", async () => {
+    const agentId = await createAgent({ name: "history-agent" });
+    // Seed a message where the history agent is the sender.
+    await ctx.pool.query(
+      `INSERT INTO agent_messages
+         (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name, content, delivered)
+       VALUES ('11111111-1111-1111-1111-111111111111', $1, 'agt_other', 'Hist', 'Other', 'history msg', true)`,
+      [agentId]
+    );
+
+    const res = await authedInject("GET", `/api/v1/history/agents/${agentId}`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { messages: Array<{ content: string }> };
+    expect(body.messages.map((m) => m.content)).toContain("history msg");
+
+    await ctx.pool.query(
+      "DELETE FROM agent_messages WHERE id = '11111111-1111-1111-1111-111111111111'"
+    );
+  });
 });

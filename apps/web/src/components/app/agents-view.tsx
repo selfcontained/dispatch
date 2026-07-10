@@ -65,6 +65,10 @@ import { type IdeType } from "@/lib/ide-types";
 import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
+import {
+  useAgentUnreadCount,
+  useMarkMessagesRead,
+} from "@/hooks/use-agent-messages";
 import { useAgents } from "@/hooks/use-agents";
 import { useMedia } from "@/hooks/use-media";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
@@ -328,6 +332,17 @@ export function AgentsView({
     mediaViewportRef,
     refreshMedia,
   } = useMedia(focusedAgentId, mediaPanelOpen);
+
+  const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
+  const markMessagesRead = useMarkMessagesRead(focusedAgentId);
+
+  // Only mark read when the sidebar is actually open on the Messages tab.
+  // MediaSidebarContent stays mounted while closed and the active tab is
+  // persisted per-agent, so gating on the tab alone would silently clear
+  // unread state for agents whose last-used tab was Messages.
+  useEffect(() => {
+    if (mediaPanelOpen && mediaActiveTab === "messages") markMessagesRead();
+  }, [mediaPanelOpen, mediaActiveTab, markMessagesRead]);
 
   const focusedAgentHasStream = focusedAgent?.hasStream ?? false;
   const focusedAgentStreamUrl = focusedAgentId
@@ -707,9 +722,9 @@ export function AgentsView({
                       data-testid="toggle-media-sidebar"
                     >
                       <PanelLeftOpen className="h-4 w-4" />
-                      {unseenMediaCount > 0 ? (
+                      {unseenMediaCount + unreadMessageCount > 0 ? (
                         <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                          {unseenMediaCount}
+                          {unseenMediaCount + unreadMessageCount}
                         </span>
                       ) : null}
                     </Button>
@@ -893,12 +908,10 @@ export function AgentsView({
             selectedAgentWorkspaceRoot={
               focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
             }
-            selectedAgentRepoRoot={
-              focusedAgent?.gitContext?.repoRoot ?? focusedAgent?.cwd ?? null
-            }
             selectedAgentPins={focusedAgent?.pins ?? []}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
+            unreadMessageCount={unreadMessageCount}
             mediaViewportRef={mediaViewportRef}
             setMediaOpen={setMediaOpen}
             activeTab={mediaActiveTab}
@@ -944,12 +957,10 @@ export function AgentsView({
             selectedAgentWorkspaceRoot={
               focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
             }
-            selectedAgentRepoRoot={
-              focusedAgent?.gitContext?.repoRoot ?? focusedAgent?.cwd ?? null
-            }
             selectedAgentPins={focusedAgent?.pins ?? []}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
+            unreadMessageCount={unreadMessageCount}
             mediaViewportRef={mediaViewportRef}
             activeTab={mediaActiveTab}
             setActiveTab={setMediaActiveTab}

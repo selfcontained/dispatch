@@ -12,6 +12,9 @@ async function waitForAppShell(
     .getByText(agentName)
     .first()
     .waitFor({ state: "visible" });
+  // Wait for the agent to actually be focused (URL-routed) so per-agent
+  // atoms like splitPaneState are active.
+  await page.getByTestId("current-session-name").waitFor({ state: "attached" });
 }
 
 /** Seed split-pane state directly in localStorage — deterministic, avoids

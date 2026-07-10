@@ -4,11 +4,11 @@ import {
   ChevronRight,
   ExternalLink,
   FileText,
+  Image,
   MonitorPlay,
   Pin,
   PinOff,
   X,
-  Image,
   File as FileIcon,
   Video,
   Upload,
@@ -19,7 +19,7 @@ import { type AgentPin, type MediaFile } from "@/components/app/types";
 import { type MediaSidebarTab } from "@/lib/store";
 import { MediaActions } from "@/components/app/media-lightbox";
 import { isTextFile, stripTimestamp } from "@/components/app/media-file-utils";
-import { BrainTabContent } from "@/components/app/brain-tab-content";
+import { MessagesPanel } from "@/components/app/messages-panel";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { ReviewsSidebarContent } from "@/components/app/reviews-sidebar";
 import { useAgentReviews } from "@/hooks/use-agent-reviews";
@@ -51,7 +51,6 @@ type MediaSidebarSharedProps = {
   selectedAgentId: string | null;
   selectedAgentName: string | null;
   selectedAgentWorkspaceRoot: string | null;
-  selectedAgentRepoRoot: string | null;
   selectedAgentPins: AgentPin[];
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
@@ -59,6 +58,7 @@ type MediaSidebarSharedProps = {
   hasStream: boolean;
   streamUrl: string | null;
   unseenMediaCount: number;
+  unreadMessageCount: number;
   onUploadFile?: (agentId: string, file: File) => Promise<void>;
   onNavigateToFile?: (filePath: string, lineStart: number | null) => void;
 };
@@ -393,7 +393,6 @@ export function MediaSidebarContent({
   selectedAgentId,
   selectedAgentName,
   selectedAgentWorkspaceRoot,
-  selectedAgentRepoRoot,
   selectedAgentPins,
   animatingMediaKeys,
   mediaViewportRef,
@@ -408,9 +407,13 @@ export function MediaSidebarContent({
   onTogglePin,
   className,
   unseenMediaCount,
+  unreadMessageCount,
   onUploadFile,
   onNavigateToFile,
-}: MediaSidebarContentProps & { unseenMediaCount: number }): JSX.Element {
+}: MediaSidebarContentProps & {
+  unseenMediaCount: number;
+  unreadMessageCount: number;
+}): JSX.Element {
   const { reviews } = useAgentReviews(selectedAgentId, !!selectedAgentId);
   const reviewUnresolvedCount = reviews.reduce(
     (sum, r) => sum + (r.itemCount - r.resolvedCount),
@@ -426,11 +429,11 @@ export function MediaSidebarContent({
     >
       {/* Tab header */}
       <div className="flex min-h-14 items-center pt-[env(safe-area-inset-top)]">
-        <div className="flex flex-1">
+        <div className="flex min-w-0 flex-1">
           <button
             onClick={() => setActiveTab("pins")}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
               activeTab === "pins"
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground/80"
@@ -438,7 +441,7 @@ export function MediaSidebarContent({
           >
             Pins
             {activeTab === "pins" ? (
-              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
+              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
             ) : null}
             {selectedAgentPins.length > 0 && (
               <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-primary text-[8px] text-primary-foreground">
@@ -449,7 +452,7 @@ export function MediaSidebarContent({
           <button
             onClick={() => setActiveTab("media")}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
               activeTab === "media"
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground/80"
@@ -457,7 +460,7 @@ export function MediaSidebarContent({
           >
             Media
             {activeTab === "media" ? (
-              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
+              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
             ) : null}
             {unseenMediaCount > 0 && (
               <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] text-destructive-foreground">
@@ -466,23 +469,9 @@ export function MediaSidebarContent({
             )}
           </button>
           <button
-            onClick={() => setActiveTab("brain")}
-            className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-              activeTab === "brain"
-                ? "text-foreground"
-                : "text-muted-foreground hover:text-foreground/80"
-            )}
-          >
-            Brain
-            {activeTab === "brain" ? (
-              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
-            ) : null}
-          </button>
-          <button
             onClick={() => setActiveTab("reviews")}
             className={cn(
-              "relative flex items-center gap-1.5 px-4 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
               activeTab === "reviews"
                 ? "text-foreground"
                 : "text-muted-foreground hover:text-foreground/80"
@@ -490,11 +479,30 @@ export function MediaSidebarContent({
           >
             Reviews
             {activeTab === "reviews" ? (
-              <span className="absolute bottom-0 left-4 right-4 h-0.5 bg-foreground" />
+              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
             ) : null}
             {reviewUnresolvedCount > 0 && (
               <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-amber-500 text-[8px] text-white">
                 {reviewUnresolvedCount}
+              </span>
+            )}
+          </button>
+          <button
+            onClick={() => setActiveTab("messages")}
+            className={cn(
+              "relative flex shrink-0 items-center gap-1.5 px-3 py-2.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              activeTab === "messages"
+                ? "text-foreground"
+                : "text-muted-foreground hover:text-foreground/80"
+            )}
+          >
+            Messages
+            {activeTab === "messages" ? (
+              <span className="absolute bottom-0 left-3 right-3 h-0.5 bg-foreground" />
+            ) : null}
+            {unreadMessageCount > 0 && (
+              <span className="absolute top-0 right-0 flex h-4 w-4 items-center justify-center rounded-full bg-destructive text-[8px] text-destructive-foreground">
+                {unreadMessageCount}
               </span>
             )}
           </button>
@@ -570,17 +578,6 @@ export function MediaSidebarContent({
       <div
         className={cn(
           "flex min-h-0 flex-1 flex-col",
-          activeTab !== "brain" && "hidden"
-        )}
-      >
-        <BrainTabContent
-          agentId={selectedAgentId}
-          repoRoot={selectedAgentRepoRoot}
-        />
-      </div>
-      <div
-        className={cn(
-          "flex min-h-0 flex-1 flex-col",
           activeTab !== "reviews" && "hidden"
         )}
       >
@@ -588,6 +585,14 @@ export function MediaSidebarContent({
           agentId={selectedAgentId}
           onNavigateToFile={onNavigateToFile}
         />
+      </div>
+      <div
+        className={cn(
+          "flex min-h-0 flex-1 flex-col",
+          activeTab !== "messages" && "hidden"
+        )}
+      >
+        <MessagesPanel agentId={selectedAgentId} />
       </div>
     </aside>
   );

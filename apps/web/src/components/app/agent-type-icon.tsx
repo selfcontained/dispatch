@@ -1,4 +1,4 @@
-import { Terminal as TerminalIcon } from "lucide-react";
+import { Bot, Terminal as TerminalIcon } from "lucide-react";
 import { siClaude, siCursor } from "simple-icons";
 
 import { cn } from "@/lib/utils";
@@ -38,8 +38,11 @@ function normalizeAgentType(
   if (type === "terminal") {
     return "terminal";
   }
-  if (type === "codex" || !type) {
+  if (type === "codex") {
     return "codex";
+  }
+  if (!type) {
+    return "unknown";
   }
   return "unknown";
 }
@@ -59,7 +62,9 @@ export function AgentTypeIcon({
           ? "Cursor"
           : normalizedType === "terminal"
             ? "Terminal"
-            : "Codex";
+            : normalizedType === "codex"
+              ? "Codex"
+              : "Agent";
   const statusClass = eventType ? eventColorClass[eventType] : "";
   const baseClass = statusClass
     ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
@@ -90,6 +95,18 @@ export function AgentTypeIcon({
         aria-label={`${label} agent`}
       >
         <TerminalIcon className="h-3.5 w-3.5" aria-hidden="true" />
+      </span>
+    );
+  }
+
+  if (normalizedType === "unknown") {
+    return (
+      <span
+        className={cn(baseClass, statusClass, className)}
+        title={`${label} agent`}
+        aria-label={`${label} agent`}
+      >
+        <Bot className="h-3.5 w-3.5" aria-hidden="true" />
       </span>
     );
   }

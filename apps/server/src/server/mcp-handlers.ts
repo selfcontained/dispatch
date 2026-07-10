@@ -28,6 +28,7 @@ import { resolveHeadSha } from "../shared/git/worktree.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
+import { MessageStore } from "../messages/store.js";
 
 const AGENT_LATEST_EVENT_TYPES = [
   "working",
@@ -538,14 +539,60 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       });
       const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nReply with dispatch_send_message using the replyTarget above.`;
 
+      // Deliver first: a persistence failure must never block delivery.
+      let delivered = false;
+      let deliveryError: unknown = null;
       try {
         await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+        delivered = true;
       } catch (err) {
+        deliveryError = err;
         appLog.error(
           { err, senderId: agentId, targetId: target.id },
           "dispatch_send_message: tmux delivery failed"
         );
-        throw err;
+      }
+
+      // Record the message (including failed deliveries) so it is viewable.
+      // Persistence must never block delivery, so a failed insert is swallowed
+      // and logged. Only announce message.created when the row actually landed,
+      // otherwise the UI would refetch and find nothing.
+      const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(
+        () => null
+      );
+      const messageStore = new MessageStore(pool);
+      const persisted = await messageStore
+        .insertMessage({
+          senderAgentId: agentId,
+          recipientAgentId: target.id,
+          senderName: sender.name,
+          recipientName: target.name,
+          content: input.message,
+          delivered,
+          senderRepoRoot,
+          recipientRepoRoot,
+        })
+        .then(() => true)
+        .catch((err) => {
+          appLog.error(
+            { err, senderId: agentId, targetId: target.id },
+            "dispatch_send_message: failed to persist message"
+          );
+          return false;
+        });
+
+      if (persisted) {
+        publishUiEvent({
+          type: "message.created",
+          senderAgentId: agentId,
+          recipientAgentId: target.id,
+        });
+      }
+
+      if (!delivered) {
+        throw deliveryError instanceof Error
+          ? deliveryError
+          : new Error(`Failed to deliver message to "${target.name}".`);
       }
 
       appLog.info(

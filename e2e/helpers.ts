@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Pool } from "pg";
 import { type Page, type APIRequestContext } from "@playwright/test";
 
@@ -236,6 +237,55 @@ export async function setAgentRoleViaDB(
   } finally {
     await pool.end();
   }
+}
+
+/**
+ * Seed a row directly into `agent_messages`, bypassing the real
+ * dispatch_send_message path (which requires two running tmux agents and
+ * cannot run in the inert-runtime E2E stack). `agent_messages` has no FK
+ * constraints, so the "other" participant id can be any string.
+ */
+export async function seedAgentMessageViaDB(message: {
+  senderAgentId: string;
+  recipientAgentId: string;
+  senderName: string;
+  recipientName: string;
+  content: string;
+  delivered?: boolean;
+  read?: boolean;
+  senderRepoRoot?: string | null;
+  recipientRepoRoot?: string | null;
+}): Promise<string> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required to seed agent messages.");
+  }
+
+  const id = randomUUID();
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    await pool.query(
+      `INSERT INTO agent_messages
+         (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name,
+          content, delivered, read_at, sender_repo_root, recipient_repo_root)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        id,
+        message.senderAgentId,
+        message.recipientAgentId,
+        message.senderName,
+        message.recipientName,
+        message.content,
+        message.delivered ?? true,
+        message.read ? new Date() : null,
+        message.senderRepoRoot ?? null,
+        message.recipientRepoRoot ?? null,
+      ]
+    );
+  } finally {
+    await pool.end();
+  }
+  return id;
 }
 
 export async function seedPersonaRecheckFixtureViaDB(

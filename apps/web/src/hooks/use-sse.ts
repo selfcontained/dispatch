@@ -43,6 +43,8 @@ type UiEvent =
   | { type: "job.changed" }
   | { type: "template.changed" }
   | { type: "brain.changed"; repoRoot: string }
+  | { type: "message.created"; senderAgentId: string; recipientAgentId: string }
+  | { type: "message.read"; agentId: string }
   | {
       type: "notification";
       notificationId: string;
@@ -210,6 +212,26 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "brain.changed") {
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
+          return;
+        }
+
+        if (payload.type === "message.created") {
+          void queryClient.invalidateQueries({
+            queryKey: ["messages", payload.senderAgentId],
+            exact: true,
+          });
+          void queryClient.invalidateQueries({
+            queryKey: ["messages", payload.recipientAgentId],
+            exact: true,
+          });
+          return;
+        }
+
+        if (payload.type === "message.read") {
+          void queryClient.invalidateQueries({
+            queryKey: ["messages", payload.agentId],
+            exact: true,
+          });
           return;
         }
 
