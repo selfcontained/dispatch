@@ -548,14 +548,18 @@ export function AgentsView({
     />
   );
 
-  const changesElement = (
+  const changesVisible =
+    (isSplit &&
+      (splitState.left === "changes" || splitState.right === "changes")) ||
+    (!isSplit && changesMatch);
+  const changesElement = changesVisible ? (
     <ChangesTab
       agentId={focusedAgentId}
       active={true}
       isMobile={isMobile}
       onReviewSubmitted={handleReviewSubmitted}
     />
-  );
+  ) : null;
 
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
