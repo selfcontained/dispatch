@@ -1,12 +1,4 @@
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -23,6 +15,7 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { parseDiff } from "react-diff-view";
+import { useVirtualizer } from "@tanstack/react-virtual";
 
 import {
   useAgentDiff,
@@ -57,7 +50,6 @@ type ChangesTabProps = {
   onReviewSubmitted?: (reviewId: number) => void;
 };
 
-const DIFF_FILE_OVERSCAN_PX = 1200;
 const DIFF_FILE_MIN_HEIGHT = 46;
 const DIFF_FILE_MAX_ESTIMATED_HEIGHT = 900;
 const DIFF_FILE_LINE_HEIGHT = 22;
@@ -669,212 +661,104 @@ function DiffPane({
   onForceLoad,
   onRegisterScrollToFile,
 }: DiffPaneProps): JSX.Element {
-  const [scrollTop, setScrollTop] = useState(0);
-  const [viewportHeight, setViewportHeight] = useState(0);
-  const [measuredSizes, setMeasuredSizes] = useState<Map<string, number>>(
-    () => new Map()
-  );
-
   const fileIndexByPath = useMemo(() => {
     const indexes = new Map<string, number>();
     files.forEach((file, index) => indexes.set(file.path, index));
     return indexes;
   }, [files]);
 
-  const estimatedSizes = useMemo(
-    () =>
-      files.map((file) => {
-        const measured = measuredSizes.get(file.path);
-        if (measured != null) return measured;
-        return estimateFileDiffHeight(file, collapsedFiles.has(file.path));
-      }),
-    [collapsedFiles, files, measuredSizes]
-  );
-
-  const offsets = useMemo(() => {
-    const next: number[] = [];
-    let cursor = 0;
-    for (const size of estimatedSizes) {
-      next.push(cursor);
-      cursor += size;
-    }
-    return { positions: next, total: cursor };
-  }, [estimatedSizes]);
-
-  const visibleRange = useMemo(() => {
-    const min = Math.max(0, scrollTop - DIFF_FILE_OVERSCAN_PX);
-    const max = scrollTop + viewportHeight + DIFF_FILE_OVERSCAN_PX;
-    let start = 0;
-    while (
-      start < files.length &&
-      offsets.positions[start]! + estimatedSizes[start]! < min
-    ) {
-      start += 1;
-    }
-    let end = start;
-    while (end < files.length && offsets.positions[end]! < max) {
-      end += 1;
-    }
-    return {
-      start,
-      end: Math.min(files.length, Math.max(end, start + 1)),
-    };
-  }, [
-    estimatedSizes,
-    files.length,
-    offsets.positions,
-    scrollTop,
-    viewportHeight,
-  ]);
-
-  const scrollAnchorIndex = useMemo(() => {
-    let index = 0;
-    while (
-      index < files.length &&
-      offsets.positions[index]! + estimatedSizes[index]! <= scrollTop
-    ) {
-      index += 1;
-    }
-    return index;
-  }, [estimatedSizes, files.length, offsets.positions, scrollTop]);
-
-  const visibleFiles = files.slice(visibleRange.start, visibleRange.end);
-  const topSpacer = offsets.positions[visibleRange.start] ?? 0;
-  const bottomSpacer =
-    offsets.total -
-    (offsets.positions[visibleRange.end] ??
-      offsets.positions[visibleRange.end - 1]! +
-        (estimatedSizes[visibleRange.end - 1] ?? 0));
-
-  const handleScroll = useCallback(
-    (event: React.UIEvent<HTMLDivElement>) => {
-      setScrollTop(event.currentTarget.scrollTop);
-      onScroll();
-    },
-    [onScroll]
-  );
-
-  const measureFile = useCallback(
-    (path: string, height: number) => {
-      const rounded = Math.ceil(height) + DIFF_FILE_GAP_PX;
-      const previous = measuredSizes.get(path);
-      if (previous === rounded) return;
-
-      const index = fileIndexByPath.get(path);
-      const currentSize =
-        index == null
-          ? (previous ?? rounded)
-          : (estimatedSizes[index] ?? rounded);
-      setMeasuredSizes((prev) => new Map(prev).set(path, rounded));
-
-      // Keep the first viewport file anchored while a measured height replaces an estimate above it.
-      if (
-        index != null &&
-        index < scrollAnchorIndex &&
-        rounded !== currentSize
-      ) {
-        const el = scrollRef.current;
-        if (el) {
-          const nextScrollTop = Math.max(
-            0,
-            el.scrollTop + rounded - currentSize
-          );
-          el.scrollTop = nextScrollTop;
-          setScrollTop(nextScrollTop);
-        }
-      }
-    },
-    [
-      estimatedSizes,
-      fileIndexByPath,
-      measuredSizes,
-      scrollRef,
-      scrollAnchorIndex,
-    ]
-  );
-
-  useLayoutEffect(() => {
-    const el = scrollRef.current;
-    if (!el) return;
-    setScrollTop(el.scrollTop);
-    setViewportHeight(el.clientHeight);
-
-    const observer = new ResizeObserver(() => {
-      setViewportHeight(el.clientHeight);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [scrollRef]);
+  const rowVirtualizer = useVirtualizer({
+    count: files.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: (index) =>
+      estimateFileDiffHeight(
+        files[index]!,
+        collapsedFiles.has(files[index]!.path)
+      ),
+    getItemKey: (index) => files[index]!.path,
+    overscan: 4,
+    gap: DIFF_FILE_GAP_PX,
+  });
 
   useEffect(() => {
     onRegisterScrollToFile?.((path: string) => {
       const index = fileIndexByPath.get(path);
       if (index == null) return;
-      scrollRef.current?.scrollTo({
-        top: offsets.positions[index] ?? 0,
+      rowVirtualizer.scrollToIndex(index, {
+        align: "start",
         behavior: "smooth",
       });
     });
     return () => onRegisterScrollToFile?.(null);
-  }, [fileIndexByPath, offsets.positions, onRegisterScrollToFile, scrollRef]);
+  }, [fileIndexByPath, onRegisterScrollToFile, rowVirtualizer]);
 
   return (
     <div
       ref={scrollRef}
-      onScroll={handleScroll}
+      onScroll={onScroll}
       className="min-h-0 flex-1 overflow-y-auto bg-background px-3 pb-3"
     >
-      <div style={{ height: `${topSpacer}px` }} />
-      <div className="space-y-3">
-        {visibleFiles.map((file) => (
-          <MeasuredFileDiffSection
-            key={file.path}
-            agentId={agentId}
-            file={file}
-            collapsed={collapsedFiles.has(file.path)}
-            onToggleCollapse={() => onToggleCollapse(file.path)}
-            setRef={(el) => {
-              if (el) {
-                fileRefs.current?.set(file.path, el);
-              } else {
-                fileRefs.current?.delete(file.path);
-              }
-            }}
-            onMeasure={measureFile}
-            lineSelection={lineSelection}
-            onLineSelection={onLineSelection}
-            commentOpen={commentOpen}
-            onCommentOpen={onCommentOpen}
-            viewType={viewType}
-            ignoreWhitespace={ignoreWhitespace}
-            reviewMode={reviewMode}
-            draftComments={draftComments?.filter(
-              (d) => d.filePath === file.path
-            )}
-            onAddDraft={onAddDraft}
-            onRemoveDraft={onRemoveDraft}
-            onUpdateDraft={onUpdateDraft}
-            onStartReview={onStartReview}
-            feedbackItems={feedbackItems?.filter(
-              (fi) => fi.filePath === file.path
-            )}
-            forceLoaded={forceLoadedFiles.has(file.path)}
-            onForceLoad={() => onForceLoad(file.path)}
-          />
-        ))}
+      <div
+        className="relative w-full"
+        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
+      >
+        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
+          const file = files[virtualRow.index]!;
+          return (
+            <div
+              key={virtualRow.key}
+              data-index={virtualRow.index}
+              ref={rowVirtualizer.measureElement}
+              className="absolute left-0 top-0 w-full"
+              style={{ transform: `translateY(${virtualRow.start}px)` }}
+            >
+              <FileDiffSection
+                agentId={agentId}
+                file={file}
+                collapsed={collapsedFiles.has(file.path)}
+                onToggleCollapse={() => onToggleCollapse(file.path)}
+                setRef={(el) => {
+                  if (el) {
+                    fileRefs.current?.set(file.path, el);
+                  } else {
+                    fileRefs.current?.delete(file.path);
+                  }
+                }}
+                lineSelection={lineSelection}
+                onLineSelection={onLineSelection}
+                commentOpen={commentOpen}
+                onCommentOpen={onCommentOpen}
+                viewType={viewType}
+                ignoreWhitespace={ignoreWhitespace}
+                reviewMode={reviewMode}
+                draftComments={draftComments?.filter(
+                  (d) => d.filePath === file.path
+                )}
+                onAddDraft={onAddDraft}
+                onRemoveDraft={onRemoveDraft}
+                onUpdateDraft={onUpdateDraft}
+                onStartReview={onStartReview}
+                feedbackItems={feedbackItems?.filter(
+                  (fi) => fi.filePath === file.path
+                )}
+                forceLoaded={forceLoadedFiles.has(file.path)}
+                onForceLoad={() => onForceLoad(file.path)}
+              />
+            </div>
+          );
+        })}
       </div>
-      <div style={{ height: `${Math.max(0, bottomSpacer)}px` }} />
     </div>
   );
 }
 
 function estimateFileDiffHeight(file: DiffFile, collapsed: boolean): number {
-  if (collapsed) return DIFF_FILE_MIN_HEIGHT + DIFF_FILE_GAP_PX;
-  if (file.truncated || !file.diff) return 88 + DIFF_FILE_GAP_PX;
+  if (collapsed) return DIFF_FILE_MIN_HEIGHT;
+  if (file.truncated || !file.diff) return 88;
   const estimated =
     DIFF_FILE_MIN_HEIGHT +
     Math.min(file.added + file.deleted + 12, 38) * DIFF_FILE_LINE_HEIGHT;
-  return Math.min(DIFF_FILE_MAX_ESTIMATED_HEIGHT, estimated) + DIFF_FILE_GAP_PX;
+  return Math.min(DIFF_FILE_MAX_ESTIMATED_HEIGHT, estimated);
 }
 
 type FileDiffSectionProps = {
@@ -904,41 +788,6 @@ type FileDiffSectionProps = {
   forceLoaded: boolean;
   onForceLoad: () => void;
 };
-
-type MeasuredFileDiffSectionProps = FileDiffSectionProps & {
-  onMeasure: (path: string, height: number) => void;
-};
-
-function MeasuredFileDiffSection({
-  onMeasure,
-  setRef,
-  file,
-  ...props
-}: MeasuredFileDiffSectionProps): JSX.Element {
-  const sectionRef = useRef<HTMLDivElement | null>(null);
-
-  const setMeasuredRef = useCallback(
-    (el: HTMLDivElement | null) => {
-      sectionRef.current = el;
-      setRef(el);
-    },
-    [setRef]
-  );
-
-  useLayoutEffect(() => {
-    const el = sectionRef.current;
-    if (!el) return;
-    onMeasure(file.path, el.getBoundingClientRect().height);
-    const observer = new ResizeObserver((entries) => {
-      const height = entries[0]?.contentRect.height;
-      if (height != null) onMeasure(file.path, height);
-    });
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [file.path, onMeasure]);
-
-  return <FileDiffSection {...props} file={file} setRef={setMeasuredRef} />;
-}
 
 function FileDiffSection({
   agentId,
