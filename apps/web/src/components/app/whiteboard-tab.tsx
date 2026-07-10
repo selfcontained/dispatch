@@ -231,6 +231,12 @@ function WhiteboardCanvas({
   }, [applyRemote]);
 
   useEffect(() => {
+    if (visible && excalidrawAPI) {
+      excalidrawAPI.refresh();
+    }
+  }, [visible, excalidrawAPI]);
+
+  useEffect(() => {
     if (visible) return;
     if (saveTimerRef.current !== undefined) {
       window.clearTimeout(saveTimerRef.current);
