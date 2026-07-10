@@ -12,6 +12,16 @@ const IDLE_DELAY_MS = 2.5 * 60 * 1000; // 2.5 minutes
 const SHOW_CHANCE = 0.4;
 const AUTO_HIDE_MS = 30_000;
 const ALL_SEEN_MS = 5_000;
+const DESKTOP_MEDIA_QUERY = "(min-width: 768px)";
+
+function isTipEligibleForViewport(tip: Tip, isDesktop: boolean): boolean {
+  return !tip.desktopOnly || isDesktop;
+}
+
+function getIsDesktop(): boolean {
+  if (typeof window === "undefined") return true;
+  return window.matchMedia(DESKTOP_MEDIA_QUERY).matches;
+}
 
 export function AmbientTipBar() {
   const navigate = useNavigate();
@@ -21,6 +31,7 @@ export function AmbientTipBar() {
   const setEnabled = useSetAtom(tipsEnabledAtom);
 
   const [visibleTip, setVisibleTip] = useState<Tip | null>(null);
+  const [isDesktop, setIsDesktop] = useState(getIsDesktop);
   const [allSeenMessage, setAllSeenMessage] = useState(false);
   const shownThisSessionRef = useRef(new Set<string>());
   const hoveredRef = useRef(false);
@@ -32,12 +43,13 @@ export function AmbientTipBar() {
     const eligible = tips.filter(
       (t) =>
         t.surfaces.includes("ambient") &&
+        isTipEligibleForViewport(t, isDesktop) &&
         !dismissed.includes(t.id) &&
         !shownThisSessionRef.current.has(t.id)
     );
     if (eligible.length === 0) return null;
     return eligible[Math.floor(Math.random() * eligible.length)]!;
-  }, [dismissed]);
+  }, [dismissed, isDesktop]);
 
   const startAutoHide = useCallback(() => {
     clearTimeout(autoHideTimerRef.current);
@@ -67,6 +79,20 @@ export function AmbientTipBar() {
   }, [enabled, visibleTip, getEligibleTip, startAutoHide]);
 
   const lastResetRef = useRef(0);
+
+  useEffect(() => {
+    const media = window.matchMedia(DESKTOP_MEDIA_QUERY);
+    const onChange = () => setIsDesktop(media.matches);
+    onChange();
+    media.addEventListener("change", onChange);
+    return () => media.removeEventListener("change", onChange);
+  }, []);
+
+  useEffect(() => {
+    if (visibleTip?.desktopOnly && !isDesktop) {
+      setVisibleTip(null);
+    }
+  }, [isDesktop, visibleTip]);
 
   useEffect(() => {
     if (!enabled) {
@@ -126,7 +152,10 @@ export function AmbientTipBar() {
   const handleRequestTip = useCallback(() => {
     if (visibleTip || allSeenMessage) return;
     const eligible = tips.filter(
-      (t) => t.surfaces.includes("ambient") && !dismissed.includes(t.id)
+      (t) =>
+        t.surfaces.includes("ambient") &&
+        isTipEligibleForViewport(t, isDesktop) &&
+        !dismissed.includes(t.id)
     );
     if (eligible.length === 0) {
       setAllSeenMessage(true);
@@ -141,7 +170,7 @@ export function AmbientTipBar() {
     shownThisSessionRef.current.add(tip.id);
     setVisibleTip(tip);
     startAutoHide();
-  }, [visibleTip, allSeenMessage, dismissed, startAutoHide]);
+  }, [visibleTip, allSeenMessage, dismissed, isDesktop, startAutoHide]);
 
   useEffect(() => {
     return () => clearTimeout(allSeenTimerRef.current);

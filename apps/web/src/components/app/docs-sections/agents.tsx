@@ -166,7 +166,7 @@ export function AgentsContent() {
       </Section>
 
       <Section>
-        <H3>Changes tab</H3>
+        <H3 id="split-tabs">Changes tab</H3>
         <P>
           The <strong>Changes</strong> tab next to <strong>Terminal</strong> in
           the center pane shows a diff of the agent's uncommitted work against
@@ -183,6 +183,13 @@ export function AgentsContent() {
           <strong>Hide whitespace changes</strong> to filter out whitespace-only
           edits. These settings persist across sessions. On mobile, the diff
           always renders in unified mode.
+        </P>
+        <P>
+          On desktop, drag the <strong>Terminal</strong> or{" "}
+          <strong>Changes</strong> tab onto the left or right side of the center
+          pane to split the workspace. Split panes let you keep the terminal and
+          diff visible together, resize them with the center handle, and return
+          to a single pane with the unsplit control.
         </P>
         <P>
           Select one or more lines in a diff, then click the comment icon to
