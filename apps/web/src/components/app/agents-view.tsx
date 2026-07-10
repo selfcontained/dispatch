@@ -9,8 +9,12 @@ import {
 import { createPortal } from "react-dom";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { useAtomValue } from "jotai";
+
+import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
 
 import { ChangesTab } from "@/components/app/changes-tab";
+import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
 import {
   CenterPaneTabBar,
@@ -128,7 +132,7 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
-  const { changesMatch, onTabChange } = useAgentsViewRouting({
+  const { changesMatch, whiteboardMatch, onTabChange } = useAgentsViewRouting({
     routeAgentId,
     agentsLoaded,
     validatedSelectedAgentId,
@@ -220,6 +224,10 @@ export function AgentsView({
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
+
+  const whiteboardAgentDrew = useAtomValue(
+    whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
+  );
 
   const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
     useSplitPane(focusedAgentId, isMobile);
@@ -688,7 +696,13 @@ export function AgentsView({
                         {focusedAgent.name}
                       </span>
                       <CenterPaneTabBar
-                        activeTab={changesMatch ? "changes" : "terminal"}
+                        activeTab={
+                          changesMatch
+                            ? "changes"
+                            : whiteboardMatch
+                              ? "whiteboard"
+                              : "terminal"
+                        }
                         onTabChange={(tab) => {
                           if (isSplit) {
                             exitSplit();
@@ -696,6 +710,7 @@ export function AgentsView({
                           onTabChange(tab);
                         }}
                         diffStats={focusedDiffStats}
+                        whiteboardAgentDrew={whiteboardAgentDrew}
                         isSplit={isSplit}
                         splitState={splitState}
                         isMobile={isMobile}
@@ -752,11 +767,18 @@ export function AgentsView({
                   <>
                     <div
                       ref={defaultTerminalSlotRef}
-                      className={cn("h-full", changesMatch && "hidden")}
+                      className={cn(
+                        "h-full",
+                        (changesMatch || whiteboardMatch) && "hidden"
+                      )}
                     />
                     <Routes>
                       <Route path="changes" element={changesElement} />
                     </Routes>
+                    <WhiteboardPane
+                      agentId={focusedAgentId}
+                      active={!!whiteboardMatch}
+                    />
                   </>
                 )}
                 {stableTerminalContainerRef.current

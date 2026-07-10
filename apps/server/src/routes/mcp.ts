@@ -49,6 +49,9 @@ type McpRouteDeps = {
   mcpListMedia: unknown;
   mcpDeleteMedia: unknown;
   mcpListPins: unknown;
+  mcpGetWhiteboard: unknown;
+  mcpUpdateWhiteboard: unknown;
+  mcpClearWhiteboard: unknown;
   mcpListPersonas: unknown;
   mcpLaunchPersona: unknown;
   mcpLaunchAgent: unknown;
@@ -200,6 +203,9 @@ export async function registerMcpRoutes(
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
       deleteMedia: deps.mcpDeleteMedia,
+      getWhiteboard: deps.mcpGetWhiteboard,
+      updateWhiteboard: deps.mcpUpdateWhiteboard,
+      clearWhiteboard: deps.mcpClearWhiteboard,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
       deletePinByLabel: deps.mcpDeletePinByLabel,
@@ -286,6 +292,9 @@ export async function registerMcpRoutes(
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
       deleteMedia: deps.mcpDeleteMedia,
+      getWhiteboard: deps.mcpGetWhiteboard,
+      updateWhiteboard: deps.mcpUpdateWhiteboard,
+      clearWhiteboard: deps.mcpClearWhiteboard,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
       launchAgent: deps.mcpLaunchAgent,

@@ -107,6 +107,7 @@ import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerMessagesRoutes } from "./routes/messages.js";
+import { registerWhiteboardRoutes } from "./routes/whiteboard.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
@@ -593,6 +594,9 @@ async function registerRoutes() {
     mcpShareMedia: mcpHandlers.shareMedia,
     mcpListMedia: mcpHandlers.listMedia,
     mcpDeleteMedia: mcpHandlers.deleteMedia,
+    mcpGetWhiteboard: mcpHandlers.getWhiteboard,
+    mcpUpdateWhiteboard: mcpHandlers.updateWhiteboard,
+    mcpClearWhiteboard: mcpHandlers.clearWhiteboard,
     mcpListPersonas: mcpHandlers.listPersonas,
     mcpLaunchPersona: mcpHandlers.launchPersona,
     mcpLaunchAgent: mcpHandlers.launchAgent,
@@ -699,6 +703,13 @@ async function registerRoutes() {
 
   await registerMessagesRoutes(app, {
     pool,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  });
+
+  await registerWhiteboardRoutes(app, {
+    pool,
+    mediaRoot: config.mediaRoot,
+    agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 

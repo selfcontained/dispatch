@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
+import { useStore } from "jotai";
 import {
   type Agent,
   type AuthState,
@@ -11,6 +12,7 @@ import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
+import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
 import { showWebNotification } from "@/lib/web-notifications";
 import {
   CACHED_RELEASE_INFO_QUERY_KEY,
@@ -32,6 +34,12 @@ type UiEvent =
     }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
+  | {
+      type: "whiteboard.changed";
+      agentId: string;
+      version: number;
+      source: "user" | "agent";
+    }
   | { type: "media.seen"; agentId: string; keys: string[] }
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
@@ -132,6 +140,7 @@ export function applyReviewCreated(
 
 export function useSSE(authState: AuthState): void {
   const queryClient = useQueryClient();
+  const jotaiStore = useStore();
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
@@ -154,6 +163,7 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
           void queryClient.invalidateQueries({ queryKey: ["templates"] });
           void queryClient.invalidateQueries({ queryKey: ["brain"] });
+          void queryClient.invalidateQueries({ queryKey: ["whiteboard"] });
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
@@ -207,6 +217,20 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "stream.stopped") {
           patchAgentHasStream(queryClient, payload.agentId, false);
+          return;
+        }
+
+        if (payload.type === "whiteboard.changed") {
+          if (payload.source === "agent") {
+            void queryClient.invalidateQueries({
+              queryKey: ["whiteboard", payload.agentId],
+              exact: true,
+            });
+            jotaiStore.set(
+              whiteboardAgentDrewAtomFamily(payload.agentId),
+              true
+            );
+          }
           return;
         }
 
@@ -345,5 +369,5 @@ export function useSSE(authState: AuthState): void {
       document.removeEventListener("visibilitychange", onVisChange);
       closeSSE();
     };
-  }, [authState, queryClient]);
+  }, [authState, queryClient, jotaiStore]);
 }

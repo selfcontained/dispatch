@@ -5,3 +5,7 @@ export function agentRoute(agentId: string): string {
 export function agentChangesRoute(agentId: string): string {
   return `/agents/${agentId}/changes`;
 }
+
+export function agentWhiteboardRoute(agentId: string): string {
+  return `/agents/${agentId}/whiteboard`;
+}

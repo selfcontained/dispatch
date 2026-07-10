@@ -27,6 +27,7 @@ import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 import { MessageStore } from "../messages/store.js";
+import { createWhiteboardHandlers } from "./mcp-whiteboard-handlers.js";
 
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
@@ -708,8 +709,16 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     appLog: deps.appLog,
   });
 
+  const whiteboardHandlers = createWhiteboardHandlers({
+    pool,
+    mediaRoot,
+    agentManager,
+    publishUiEvent,
+  });
+
   return {
     ...reviewHandlers,
+    ...whiteboardHandlers,
 
     upsertEvent: (
       agentId: string,

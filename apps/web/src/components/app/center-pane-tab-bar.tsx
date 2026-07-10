@@ -15,6 +15,7 @@ type TabDef = {
 const TABS: TabDef[] = [
   { id: "terminal", label: "Terminal" },
   { id: "changes", label: "Changes" },
+  { id: "whiteboard", label: "Whiteboard" },
 ];
 
 const compactDiffCountFormatter = new Intl.NumberFormat("en-US", {
@@ -30,6 +31,7 @@ type CenterPaneTabBarProps = {
   activeTab: CenterTab;
   onTabChange: (tab: CenterTab) => void;
   diffStats: DiffStats | null | undefined;
+  whiteboardAgentDrew?: boolean;
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
@@ -39,6 +41,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   activeTab,
   onTabChange,
   diffStats,
+  whiteboardAgentDrew = false,
   isSplit,
   splitState,
   isMobile,
@@ -94,6 +97,14 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
           >
             <span className="relative pb-1.5 -mb-1.5">
               {tab.label}
+              {tab.id === "whiteboard" &&
+              whiteboardAgentDrew &&
+              activeTab !== "whiteboard" ? (
+                <span
+                  data-testid="whiteboard-agent-drew-dot"
+                  className="absolute -right-2 -top-0.5 h-1.5 w-1.5 rounded-full bg-violet-500"
+                />
+              ) : null}
               {activeTab === tab.id && !isSplit ? (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-foreground" />
               ) : null}
