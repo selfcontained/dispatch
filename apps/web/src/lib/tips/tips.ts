@@ -75,6 +75,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "split-tabs",
+    title: "Split Tabs",
+    body: "Drag the Changes tab to the left or right side of the center pane to compare the diff beside the live terminal. Use the split handle to resize or unsplit.",
+    docsSection: "agents#split-tabs",
+    since: "0.27.4",
+    surfaces: ["inline", "ambient"],
+  },
+  {
     id: "session-rename",
     title: "Rename Sessions",
     body: "Expand an agent in the sidebar and click the edit button to open session settings and rename it directly.",
