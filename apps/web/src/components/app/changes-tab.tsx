@@ -727,6 +727,17 @@ function DiffPane({
     viewportHeight,
   ]);
 
+  const scrollAnchorIndex = useMemo(() => {
+    let index = 0;
+    while (
+      index < files.length &&
+      offsets.positions[index]! + estimatedSizes[index]! <= scrollTop
+    ) {
+      index += 1;
+    }
+    return index;
+  }, [estimatedSizes, files.length, offsets.positions, scrollTop]);
+
   const visibleFiles = files.slice(visibleRange.start, visibleRange.end);
   const topSpacer = offsets.positions[visibleRange.start] ?? 0;
   const bottomSpacer =
@@ -756,10 +767,10 @@ function DiffPane({
           : (estimatedSizes[index] ?? rounded);
       setMeasuredSizes((prev) => new Map(prev).set(path, rounded));
 
-      // Keep the first visible file anchored while a measured height replaces an estimate above it.
+      // Keep the first viewport file anchored while a measured height replaces an estimate above it.
       if (
         index != null &&
-        index < visibleRange.start &&
+        index < scrollAnchorIndex &&
         rounded !== currentSize
       ) {
         const el = scrollRef.current;
@@ -778,7 +789,7 @@ function DiffPane({
       fileIndexByPath,
       measuredSizes,
       scrollRef,
-      visibleRange.start,
+      scrollAnchorIndex,
     ]
   );
 
