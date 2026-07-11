@@ -56,9 +56,10 @@ test.describe("Split pane", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await waitForAppShell(page, agent.name);
 
-    // Split mode should be restored from localStorage.
+    // Split mode should be restored from localStorage. Use a longer timeout
+    // because parallel test SSE events can delay atom hydration after reload.
     await expect(page.getByTestId("unsplit-button")).toBeVisible({
-      timeout: 5000,
+      timeout: 10_000,
     });
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
   });
@@ -76,7 +77,7 @@ test.describe("Split pane", () => {
     await waitForAppShell(page, agent.name);
 
     const unsplitBtn = page.getByTestId("unsplit-button");
-    await expect(unsplitBtn).toBeVisible({ timeout: 5000 });
+    await expect(unsplitBtn).toBeVisible({ timeout: 10_000 });
 
     // While split, both tabs are rendered as panes — tab bar is empty.
     await expect(page.getByTestId("center-tab-terminal")).not.toBeVisible();
@@ -108,7 +109,7 @@ test.describe("Split pane", () => {
     await page.reload({ waitUntil: "domcontentloaded" });
     await waitForAppShell(page, agent.name);
     await expect(page.getByTestId("unsplit-button")).toBeVisible({
-      timeout: 5000,
+      timeout: 10_000,
     });
 
     // Terminal and Changes are both placed in split panes (left + right),
@@ -139,7 +140,7 @@ test.describe("Split pane", () => {
     await waitForAppShell(page, agent.name);
 
     const unsplitBtn = page.getByTestId("unsplit-button");
-    await expect(unsplitBtn).toBeVisible({ timeout: 5000 });
+    await expect(unsplitBtn).toBeVisible({ timeout: 10_000 });
     await unsplitBtn.click();
     await expect(unsplitBtn).not.toBeVisible();
 
