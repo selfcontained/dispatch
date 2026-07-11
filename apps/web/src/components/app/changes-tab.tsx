@@ -1,12 +1,4 @@
-import {
-  memo,
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -23,7 +15,6 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { parseDiff } from "react-diff-view";
-import { useVirtualizer } from "@tanstack/react-virtual";
 
 import {
   useAgentDiff,
@@ -57,11 +48,6 @@ type ChangesTabProps = {
   isMobile?: boolean;
   onReviewSubmitted?: (reviewId: number) => void;
 };
-
-const DIFF_FILE_MIN_HEIGHT = 46;
-const DIFF_FILE_MAX_ESTIMATED_HEIGHT = 900;
-const DIFF_FILE_LINE_HEIGHT = 22;
-const DIFF_FILE_GAP_PX = 12;
 
 export const ChangesTab = memo(function ChangesTab({
   agentId,
@@ -178,18 +164,12 @@ export const ChangesTab = memo(function ChangesTab({
   );
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [forceLoadedFiles, setForceLoadedFiles] = useState<Set<string>>(
-    () => new Set()
-  );
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(
     null
   );
   const [commentOpen, setCommentOpen] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useAtom(diffFileTreeOpenAtom);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const [pendingVirtualScrollPath, setPendingVirtualScrollPath] = useState<
-    string | null
-  >(null);
 
   const handleLineSelection = useCallback((sel: LineSelection | null) => {
     setLineSelection(sel);
@@ -207,8 +187,6 @@ export const ChangesTab = memo(function ChangesTab({
       const el = fileRefs.current.get(path);
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
-      } else {
-        setPendingVirtualScrollPath(path);
       }
       setViewState((prev) => {
         const s = new Set(prev.collapsedFiles);
@@ -216,61 +194,50 @@ export const ChangesTab = memo(function ChangesTab({
         s.delete(path);
         return { ...prev, collapsedFiles: [...s] };
       });
-      return true;
     },
     [setViewState]
   );
 
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const navFileTarget = searchParams.get("file");
   const navLineTarget = searchParams.get("line");
 
   useEffect(() => {
     if (!navFileTarget || files.length === 0) return;
     const targetFile = files.find((f) => f.path === navFileTarget);
-    if (!targetFile) {
-      return;
-    }
-
-    let fileScrollAttempts = 0;
-    const scrollToTarget = () => {
-      if (!scrollToFile(navFileTarget)) {
-        if (fileScrollAttempts++ < 60) requestAnimationFrame(scrollToTarget);
-        return;
-      }
-      if (!navLineTarget || !targetFile.diff) {
-        return;
-      }
-
-      const lineNum = Number(navLineTarget);
-      if (!Number.isInteger(lineNum) || lineNum <= 0) return;
-
-      let lineScrollAttempts = 0;
-      const scrollToLine = () => {
-        try {
-          const parsed = parseDiff(targetFile.diff!, {
-            nearbySequences: "zip",
-          });
-          const hunks = parsed[0]?.hunks ?? [];
-          const changeKey = findLastChangeKeyInRange(hunks, lineNum, lineNum);
-          if (changeKey) {
-            const el = scrollRef.current?.querySelector(
-              `[id="${CSS.escape(changeKey)}"]`
-            );
-            if (el) {
-              el.scrollIntoView({ block: "center", behavior: "smooth" });
-              return;
-            }
+    setSearchParams({}, { replace: true });
+    if (targetFile) {
+      requestAnimationFrame(() => {
+        scrollToFile(navFileTarget);
+        if (navLineTarget && targetFile.diff) {
+          const lineNum = Number(navLineTarget);
+          if (Number.isInteger(lineNum) && lineNum > 0) {
+            requestAnimationFrame(() => {
+              try {
+                const parsed = parseDiff(targetFile.diff!, {
+                  nearbySequences: "zip",
+                });
+                const hunks = parsed[0]?.hunks ?? [];
+                const changeKey = findLastChangeKeyInRange(
+                  hunks,
+                  lineNum,
+                  lineNum
+                );
+                if (changeKey) {
+                  const el = scrollRef.current?.querySelector(
+                    `[id="${CSS.escape(changeKey)}"]`
+                  );
+                  el?.scrollIntoView({ block: "center", behavior: "smooth" });
+                }
+              } catch {
+                // diff parse failed — fall back to file-level scroll
+              }
+            });
           }
-        } catch {
-          // Diff parse failed — fall back to file-level scroll.
         }
-        if (lineScrollAttempts++ < 60) requestAnimationFrame(scrollToLine);
-      };
-      requestAnimationFrame(scrollToLine);
-    };
-    requestAnimationFrame(scrollToTarget);
-  }, [navFileTarget, navLineTarget, files, scrollToFile, setViewState]);
+      });
+    }
+  }, [navFileTarget, navLineTarget, files, scrollToFile, setSearchParams]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -374,17 +341,6 @@ export const ChangesTab = memo(function ChangesTab({
           onUpdateDraft={updateDraft}
           onStartReview={() => setReviewMode(true)}
           feedbackItems={feedbackItems}
-          forceLoadedFiles={forceLoadedFiles}
-          pendingVirtualScrollPath={pendingVirtualScrollPath}
-          onPendingVirtualScrollHandled={() =>
-            setPendingVirtualScrollPath(null)
-          }
-          onForceLoad={(path) => {
-            setForceLoadedFiles((prev) => {
-              if (prev.has(path)) return prev;
-              return new Set(prev).add(path);
-            });
-          }}
         />
       </div>
     </div>
@@ -646,10 +602,6 @@ type DiffPaneProps = {
   onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
-  forceLoadedFiles: Set<string>;
-  pendingVirtualScrollPath: string | null;
-  onPendingVirtualScrollHandled: () => void;
-  onForceLoad: (path: string) => void;
 };
 
 function DiffPane({
@@ -673,127 +625,46 @@ function DiffPane({
   onUpdateDraft,
   onStartReview,
   feedbackItems,
-  forceLoadedFiles,
-  pendingVirtualScrollPath,
-  onPendingVirtualScrollHandled,
-  onForceLoad,
 }: DiffPaneProps): JSX.Element {
-  const fileIndexByPath = useMemo(() => {
-    const indexes = new Map<string, number>();
-    files.forEach((file, index) => indexes.set(file.path, index));
-    return indexes;
-  }, [files]);
-
-  const rowVirtualizer = useVirtualizer({
-    count: files.length,
-    getScrollElement: () => scrollRef.current,
-    estimateSize: (index) =>
-      estimateFileDiffHeight(
-        files[index]!,
-        collapsedFiles.has(files[index]!.path)
-      ),
-    getItemKey: (index) => files[index]!.path,
-    overscan: 4,
-    gap: DIFF_FILE_GAP_PX,
-  });
-
-  useLayoutEffect(() => {
-    if (!pendingVirtualScrollPath || !scrollRef.current) return;
-    let cancelled = false;
-    let attempts = 0;
-    const scrollToTarget = () => {
-      if (cancelled) return;
-      const index = fileIndexByPath.get(pendingVirtualScrollPath);
-      const offset =
-        index == null
-          ? undefined
-          : rowVirtualizer.getOffsetForIndex(index, "start")?.[0];
-      if (offset != null && scrollRef.current) {
-        scrollRef.current.scrollTo({ top: offset, behavior: "auto" });
-        onPendingVirtualScrollHandled();
-        return;
-      }
-      if (attempts++ < 60) requestAnimationFrame(scrollToTarget);
-    };
-    requestAnimationFrame(scrollToTarget);
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    fileIndexByPath,
-    onPendingVirtualScrollHandled,
-    pendingVirtualScrollPath,
-    rowVirtualizer,
-    scrollRef,
-  ]);
-
   return (
     <div
       ref={scrollRef}
       onScroll={onScroll}
-      className="min-h-0 flex-1 overflow-y-auto bg-background px-3 pb-3"
+      className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background px-3 pb-3"
     >
-      <div
-        className="relative w-full"
-        style={{ height: `${rowVirtualizer.getTotalSize()}px` }}
-      >
-        {rowVirtualizer.getVirtualItems().map((virtualRow) => {
-          const file = files[virtualRow.index]!;
-          return (
-            <div
-              key={virtualRow.key}
-              data-index={virtualRow.index}
-              ref={rowVirtualizer.measureElement}
-              className="absolute left-0 w-full"
-              style={{ top: `${virtualRow.start}px` }}
-            >
-              <FileDiffSection
-                agentId={agentId}
-                file={file}
-                collapsed={collapsedFiles.has(file.path)}
-                onToggleCollapse={() => onToggleCollapse(file.path)}
-                setRef={(el) => {
-                  if (el) {
-                    fileRefs.current?.set(file.path, el);
-                  } else {
-                    fileRefs.current?.delete(file.path);
-                  }
-                }}
-                lineSelection={lineSelection}
-                onLineSelection={onLineSelection}
-                commentOpen={commentOpen}
-                onCommentOpen={onCommentOpen}
-                viewType={viewType}
-                ignoreWhitespace={ignoreWhitespace}
-                reviewMode={reviewMode}
-                draftComments={draftComments?.filter(
-                  (d) => d.filePath === file.path
-                )}
-                onAddDraft={onAddDraft}
-                onRemoveDraft={onRemoveDraft}
-                onUpdateDraft={onUpdateDraft}
-                onStartReview={onStartReview}
-                feedbackItems={feedbackItems?.filter(
-                  (fi) => fi.filePath === file.path
-                )}
-                forceLoaded={forceLoadedFiles.has(file.path)}
-                onForceLoad={() => onForceLoad(file.path)}
-              />
-            </div>
-          );
-        })}
-      </div>
+      {files.map((file) => (
+        <FileDiffSection
+          key={file.path}
+          agentId={agentId}
+          file={file}
+          collapsed={collapsedFiles.has(file.path)}
+          onToggleCollapse={() => onToggleCollapse(file.path)}
+          setRef={(el) => {
+            if (el) {
+              fileRefs.current?.set(file.path, el);
+            } else {
+              fileRefs.current?.delete(file.path);
+            }
+          }}
+          lineSelection={lineSelection}
+          onLineSelection={onLineSelection}
+          commentOpen={commentOpen}
+          onCommentOpen={onCommentOpen}
+          viewType={viewType}
+          ignoreWhitespace={ignoreWhitespace}
+          reviewMode={reviewMode}
+          draftComments={draftComments?.filter((d) => d.filePath === file.path)}
+          onAddDraft={onAddDraft}
+          onRemoveDraft={onRemoveDraft}
+          onUpdateDraft={onUpdateDraft}
+          onStartReview={onStartReview}
+          feedbackItems={feedbackItems?.filter(
+            (fi) => fi.filePath === file.path
+          )}
+        />
+      ))}
     </div>
   );
-}
-
-function estimateFileDiffHeight(file: DiffFile, collapsed: boolean): number {
-  if (collapsed) return DIFF_FILE_MIN_HEIGHT;
-  if (file.truncated || !file.diff) return 88;
-  const estimated =
-    DIFF_FILE_MIN_HEIGHT +
-    Math.min(file.added + file.deleted + 12, 38) * DIFF_FILE_LINE_HEIGHT;
-  return Math.min(DIFF_FILE_MAX_ESTIMATED_HEIGHT, estimated);
 }
 
 type FileDiffSectionProps = {
@@ -820,8 +691,6 @@ type FileDiffSectionProps = {
   onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
-  forceLoaded: boolean;
-  onForceLoad: () => void;
 };
 
 function FileDiffSection({
@@ -843,8 +712,6 @@ function FileDiffSection({
   onUpdateDraft,
   onStartReview,
   feedbackItems,
-  forceLoaded,
-  onForceLoad,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div ref={setRef} className="rounded-md border border-border/50">
@@ -903,8 +770,6 @@ function FileDiffSection({
               onUpdateDraft={onUpdateDraft}
               onStartReview={onStartReview}
               feedbackItems={feedbackItems}
-              forceLoaded={forceLoaded}
-              onForceLoad={onForceLoad}
             />
           </motion.div>
         )}
@@ -934,8 +799,6 @@ type FileDiffContentProps = {
   onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
-  forceLoaded: boolean;
-  onForceLoad: () => void;
 };
 
 function FileDiffContent({
@@ -954,23 +817,22 @@ function FileDiffContent({
   onUpdateDraft,
   onStartReview,
   feedbackItems,
-  forceLoaded,
-  onForceLoad,
 }: FileDiffContentProps): JSX.Element {
+  const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
     agentId,
     file.path,
-    file.truncated && forceLoaded,
+    file.truncated && forceLoad,
     ignoreWhitespace
   );
 
   const diffText = file.truncated
-    ? forceLoaded
+    ? forceLoad
       ? (fileDiffData?.diff ?? null)
       : null
     : file.diff;
 
-  if (file.truncated && !forceLoaded) {
+  if (file.truncated && !forceLoad) {
     return (
       <div className="flex items-center justify-between bg-muted/10 px-4 py-3 text-xs text-muted-foreground">
         <span>
@@ -980,7 +842,7 @@ function FileDiffContent({
         <button
           type="button"
           className="rounded border border-border px-2 py-0.5 text-xs text-foreground hover:bg-muted/40"
-          onClick={onForceLoad}
+          onClick={() => setForceLoad(true)}
         >
           Load diff
         </button>
@@ -988,7 +850,7 @@ function FileDiffContent({
     );
   }
 
-  if (file.truncated && forceLoaded && fileDiffLoading) {
+  if (file.truncated && forceLoad && fileDiffLoading) {
     return (
       <div className="flex items-center gap-2 px-4 py-3 text-xs text-muted-foreground">
         <Loader2 className="h-3 w-3 animate-spin" />
