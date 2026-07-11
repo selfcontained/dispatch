@@ -148,7 +148,49 @@ test.describe("Media sidebar", () => {
     await expect(lightbox).toContainText("1/2");
     await expect(lightbox).toContainText("Second image");
 
-    await page.getByTestId("media-lightbox-next").click();
+    const imageViewport = page.getByTestId("media-lightbox-image-viewport");
+    await expect(imageViewport).toBeVisible();
+    await expect(imageViewport).toHaveCSS("touch-action", "none");
+    await expect(page.getByTestId("media-lightbox-zoom-reset")).toHaveText(
+      "100%"
+    );
+
+    await page.getByTestId("media-lightbox-zoom-in").click();
+    await expect(page.getByTestId("media-lightbox-zoom-reset")).toHaveText(
+      "150%"
+    );
+    await page.getByTestId("media-lightbox-zoom-reset").click();
+
+    await page.getByTestId("media-lightbox-zoom-in").dblclick();
+    await expect(page.getByTestId("media-lightbox-zoom-reset")).toHaveText(
+      "225%"
+    );
+    await page.getByTestId("media-lightbox-zoom-reset").dblclick();
+    await expect(page.getByTestId("media-lightbox-zoom-reset")).toHaveText(
+      "100%"
+    );
+
+    await imageViewport.dispatchEvent("pointerdown", {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: 280,
+      clientY: 300,
+    });
+    await imageViewport.dispatchEvent("pointermove", {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: 120,
+      clientY: 305,
+    });
+    await imageViewport.dispatchEvent("pointerup", {
+      pointerId: 1,
+      pointerType: "touch",
+      isPrimary: true,
+      clientX: 120,
+      clientY: 305,
+    });
     await expect(lightbox).toContainText("2/2");
     await expect(lightbox).toContainText("First image");
 
