@@ -710,10 +710,10 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
   });
 
   const whiteboardHandlers = createWhiteboardHandlers({
-    pool,
-    mediaRoot,
-    agentManager,
-    publishUiEvent,
+    pool: deps.pool,
+    mediaRoot: deps.mediaRoot,
+    agentManager: deps.agentManager,
+    publishUiEvent: deps.publishUiEvent,
   });
 
   return {

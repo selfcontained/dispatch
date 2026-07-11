@@ -4,6 +4,7 @@ import {
   Excalidraw,
   exportToBlob,
   getSceneVersion,
+  restoreElements,
 } from "@excalidraw/excalidraw";
 import type {
   ExcalidrawImperativeAPI,
@@ -190,14 +191,15 @@ function WhiteboardCanvas({
   const applyRemote = useCallback(
     (remote: WhiteboardData) => {
       if (!excalidrawAPI) return;
-      versionRef.current = remote.version;
-      sceneVersionRef.current = getSceneVersion(
-        remote.scene.elements as readonly ExcalidrawElement[]
+      const hydrated = restoreElements(
+        remote.scene.elements as ExcalidrawElement[],
+        excalidrawAPI.getSceneElements(),
+        { repairBindings: true }
       );
-      excalidrawAPI.updateScene({
-        elements: remote.scene.elements as ExcalidrawElement[],
-      });
-      setBoardEmpty(remote.scene.elements.length === 0);
+      versionRef.current = remote.version;
+      sceneVersionRef.current = getSceneVersion(hydrated);
+      excalidrawAPI.updateScene({ elements: hydrated });
+      setBoardEmpty(hydrated.length === 0);
       if (snapshotTimerRef.current !== undefined) {
         window.clearTimeout(snapshotTimerRef.current);
       }
