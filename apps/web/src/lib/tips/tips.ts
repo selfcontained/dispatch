@@ -173,6 +173,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "agent-messages",
+    title: "Agent Messages",
+    body: "Open the Messages tab in the media sidebar to see all inter-agent messages grouped by conversation partner, with delivery status and timestamps.",
+    docsSection: "media",
+    since: "0.28.0",
+    surfaces: ["ambient"],
+  },
+  {
     id: "split-pane",
     title: "Split Pane",
     body: "Drag the Terminal or Changes tab to the left or right drop zone to view them side by side. Click the split button on the divider to unsplit.",

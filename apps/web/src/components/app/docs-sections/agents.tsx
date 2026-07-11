@@ -295,7 +295,7 @@ export function AgentsContent() {
           worktree with unmerged commits or uncommitted changes, you'll be asked
           whether to keep or remove the worktree. Archived agents are preserved
           in the History section of the Activity page, where you can review
-          their events, media, pins, and feedback.
+          their events, media, pins, feedback, and messages.
         </P>
       </Section>
 
@@ -307,7 +307,9 @@ export function AgentsContent() {
           independently and appears as a top-level entry in the sidebar — it
           inherits the parent's working directory and full-access mode by
           default. Each child is told which agent launched it and can coordinate
-          back using <Code>dispatch_send_message</Code>.
+          back using <Code>dispatch_send_message</Code>. Messages are persisted
+          and visible in the <strong>Messages</strong> tab of the media sidebar,
+          grouped by conversation partner.
         </P>
         <P>
           Archiving a parent does not archive its launched children — they

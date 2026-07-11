@@ -99,7 +99,7 @@ export function MediaContent() {
           Click any agent's media count badge (or press{" "}
           <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The sidebar has four
           tabs: <strong>Pins</strong>, <strong>Media</strong>,{" "}
-          <strong>Brain</strong>, and <strong>Reviews</strong>.
+          <strong>Reviews</strong>, and <strong>Messages</strong>.
         </P>
         <P>
           The <strong>Pins</strong> tab shows values the agent has surfaced via{" "}
@@ -107,15 +107,15 @@ export function MediaContent() {
           other key info. The <strong>Media</strong> tab shows shared files in
           reverse chronological order (most recent 50); click an item to open
           the full-screen lightbox. New items since your last visit are marked
-          with a badge. The <strong>Brain</strong> tab displays shared-memory
-          objects, lists, and events the agent has written — useful for
-          inspecting job state or inter-agent coordination without calling the
-          Brain tools yourself. The <strong>Reviews</strong> tab shows human
-          review feedback submitted from the Changes tab — each review has a
-          status badge (open, partially resolved, or resolved), and you can
-          expand it to see individual items, threaded messages, diff snapshots,
-          and resolutions. Click a file path to jump to that location in the
-          Changes tab.
+          with a badge. The <strong>Reviews</strong> tab shows human review
+          feedback submitted from the Changes tab — each review has a status
+          badge (open, partially resolved, or resolved), and you can expand it
+          to see individual items, threaded messages, diff snapshots, and
+          resolutions. Click a file path to jump to that location in the Changes
+          tab. The <strong>Messages</strong> tab shows inter-agent messages
+          grouped by conversation partner — sent and received messages appear in
+          chat-style bubbles with timestamps and delivery status. Unread
+          messages show a badge count on the tab.
         </P>
         <P>
           The sidebar opens in <strong>drawer</strong> mode by default —
