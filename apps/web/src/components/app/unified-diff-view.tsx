@@ -504,6 +504,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
           viewType={viewType}
           diffType={diffType}
           hunks={file.hunks}
+          generateAnchorID={getChangeKey}
           tokens={tokens}
           gutterEvents={gutterEvents}
           selectedChanges={selectedChanges}

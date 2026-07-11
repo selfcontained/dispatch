@@ -1,4 +1,12 @@
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useAtom, useAtomValue } from "jotai";
 import { useSearchParams } from "react-router-dom";
 import {
@@ -179,7 +187,12 @@ export const ChangesTab = memo(function ChangesTab({
   const [commentOpen, setCommentOpen] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useAtom(diffFileTreeOpenAtom);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const scrollToVirtualFileRef = useRef<((path: string) => void) | null>(null);
+  const scrollToVirtualFileRef = useRef<((path: string) => boolean) | null>(
+    null
+  );
+  const [pendingVirtualScrollPath, setPendingVirtualScrollPath] = useState<
+    string | null
+  >(null);
 
   const handleLineSelection = useCallback((sel: LineSelection | null) => {
     setLineSelection(sel);
@@ -195,9 +208,11 @@ export const ChangesTab = memo(function ChangesTab({
     (path: string) => {
       setSelectedFile(path);
       const el = fileRefs.current.get(path);
+      const canScroll = Boolean(el || scrollToVirtualFileRef.current);
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
       } else {
+        setPendingVirtualScrollPath(path);
         scrollToVirtualFileRef.current?.(path);
       }
       setViewState((prev) => {
@@ -206,57 +221,61 @@ export const ChangesTab = memo(function ChangesTab({
         s.delete(path);
         return { ...prev, collapsedFiles: [...s] };
       });
+      return canScroll;
     },
     [setViewState]
   );
 
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navFileTarget = searchParams.get("file");
   const navLineTarget = searchParams.get("line");
 
   useEffect(() => {
     if (!navFileTarget || files.length === 0) return;
     const targetFile = files.find((f) => f.path === navFileTarget);
-    setSearchParams({}, { replace: true });
-    if (targetFile) {
-      requestAnimationFrame(() => {
-        scrollToFile(navFileTarget);
-        if (navLineTarget && targetFile.diff) {
-          const lineNum = Number(navLineTarget);
-          if (Number.isInteger(lineNum) && lineNum > 0) {
-            let attempts = 0;
-            const scrollToLine = () => {
-              try {
-                const parsed = parseDiff(targetFile.diff!, {
-                  nearbySequences: "zip",
-                });
-                const hunks = parsed[0]?.hunks ?? [];
-                const changeKey = findLastChangeKeyInRange(
-                  hunks,
-                  lineNum,
-                  lineNum
-                );
-                if (changeKey) {
-                  const el = scrollRef.current?.querySelector(
-                    `[id="${CSS.escape(changeKey)}"]`
-                  );
-                  if (el) {
-                    el.scrollIntoView({ block: "center", behavior: "smooth" });
-                    return;
-                  }
-                }
-              } catch {
-                // diff parse failed — fall back to file-level scroll
-              }
-              // The target file may need to enter the virtual window first.
-              if (attempts++ < 60) requestAnimationFrame(scrollToLine);
-            };
-            requestAnimationFrame(scrollToLine);
-          }
-        }
-      });
+    if (!targetFile) {
+      return;
     }
-  }, [navFileTarget, navLineTarget, files, scrollToFile, setSearchParams]);
+
+    let fileScrollAttempts = 0;
+    const scrollToTarget = () => {
+      if (!scrollToFile(navFileTarget)) {
+        if (fileScrollAttempts++ < 60) requestAnimationFrame(scrollToTarget);
+        return;
+      }
+      if (!navLineTarget || !targetFile.diff) {
+        return;
+      }
+
+      const lineNum = Number(navLineTarget);
+      if (!Number.isInteger(lineNum) || lineNum <= 0) return;
+
+      let lineScrollAttempts = 0;
+      const scrollToLine = () => {
+        try {
+          const parsed = parseDiff(targetFile.diff!, {
+            nearbySequences: "zip",
+          });
+          const hunks = parsed[0]?.hunks ?? [];
+          const changeKey = findLastChangeKeyInRange(hunks, lineNum, lineNum);
+          if (changeKey) {
+            const el = scrollRef.current?.querySelector(
+              `[id="${CSS.escape(changeKey)}"]`
+            );
+            if (el) {
+              el.scrollIntoView({ block: "center", behavior: "smooth" });
+              return;
+            }
+          }
+        } catch {
+          // Diff parse failed — fall back to file-level scroll.
+        }
+        if (lineScrollAttempts++ < 60) requestAnimationFrame(scrollToLine);
+      };
+      requestAnimationFrame(scrollToLine);
+    };
+    requestAnimationFrame(scrollToTarget);
+  }, [navFileTarget, navLineTarget, files, scrollToFile, setViewState]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -361,6 +380,10 @@ export const ChangesTab = memo(function ChangesTab({
           onStartReview={() => setReviewMode(true)}
           feedbackItems={feedbackItems}
           forceLoadedFiles={forceLoadedFiles}
+          pendingVirtualScrollPath={pendingVirtualScrollPath}
+          onPendingVirtualScrollHandled={() =>
+            setPendingVirtualScrollPath(null)
+          }
           onForceLoad={(path) => {
             setForceLoadedFiles((prev) => {
               if (prev.has(path)) return prev;
@@ -632,8 +655,10 @@ type DiffPaneProps = {
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
   forceLoadedFiles: Set<string>;
+  pendingVirtualScrollPath: string | null;
+  onPendingVirtualScrollHandled: () => void;
   onForceLoad: (path: string) => void;
-  onRegisterScrollToFile?: (fn: ((path: string) => void) | null) => void;
+  onRegisterScrollToFile?: (fn: ((path: string) => boolean) | null) => void;
 };
 
 function DiffPane({
@@ -658,6 +683,8 @@ function DiffPane({
   onStartReview,
   feedbackItems,
   forceLoadedFiles,
+  pendingVirtualScrollPath,
+  onPendingVirtualScrollHandled,
   onForceLoad,
   onRegisterScrollToFile,
 }: DiffPaneProps): JSX.Element {
@@ -680,17 +707,51 @@ function DiffPane({
     gap: DIFF_FILE_GAP_PX,
   });
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     onRegisterScrollToFile?.((path: string) => {
       const index = fileIndexByPath.get(path);
-      if (index == null) return;
-      rowVirtualizer.scrollToIndex(index, {
-        align: "start",
+      const scrollElement = scrollRef.current;
+      if (index == null || !scrollElement) return false;
+      const offset = rowVirtualizer.getOffsetForIndex(index, "start")?.[0];
+      if (offset == null) return false;
+      scrollElement.scrollTo({
+        top: offset,
         behavior: "smooth",
       });
+      return true;
     });
     return () => onRegisterScrollToFile?.(null);
-  }, [fileIndexByPath, onRegisterScrollToFile, rowVirtualizer]);
+  }, [fileIndexByPath, onRegisterScrollToFile, rowVirtualizer, scrollRef]);
+
+  useLayoutEffect(() => {
+    if (!pendingVirtualScrollPath || !scrollRef.current) return;
+    let cancelled = false;
+    let attempts = 0;
+    const scrollToTarget = () => {
+      if (cancelled) return;
+      const index = fileIndexByPath.get(pendingVirtualScrollPath);
+      const offset =
+        index == null
+          ? undefined
+          : rowVirtualizer.getOffsetForIndex(index, "start")?.[0];
+      if (offset != null && scrollRef.current) {
+        scrollRef.current.scrollTo({ top: offset, behavior: "auto" });
+        onPendingVirtualScrollHandled();
+        return;
+      }
+      if (attempts++ < 60) requestAnimationFrame(scrollToTarget);
+    };
+    requestAnimationFrame(scrollToTarget);
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    fileIndexByPath,
+    onPendingVirtualScrollHandled,
+    pendingVirtualScrollPath,
+    rowVirtualizer,
+    scrollRef,
+  ]);
 
   return (
     <div
@@ -709,8 +770,8 @@ function DiffPane({
               key={virtualRow.key}
               data-index={virtualRow.index}
               ref={rowVirtualizer.measureElement}
-              className="absolute left-0 top-0 w-full"
-              style={{ transform: `translateY(${virtualRow.start}px)` }}
+              className="absolute left-0 w-full"
+              style={{ top: `${virtualRow.start}px` }}
             >
               <FileDiffSection
                 agentId={agentId}
