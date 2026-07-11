@@ -187,9 +187,6 @@ export const ChangesTab = memo(function ChangesTab({
   const [commentOpen, setCommentOpen] = useState(false);
   const [fileTreeOpen, setFileTreeOpen] = useAtom(diffFileTreeOpenAtom);
   const fileRefs = useRef<Map<string, HTMLDivElement>>(new Map());
-  const scrollToVirtualFileRef = useRef<((path: string) => boolean) | null>(
-    null
-  );
   const [pendingVirtualScrollPath, setPendingVirtualScrollPath] = useState<
     string | null
   >(null);
@@ -208,12 +205,10 @@ export const ChangesTab = memo(function ChangesTab({
     (path: string) => {
       setSelectedFile(path);
       const el = fileRefs.current.get(path);
-      const canScroll = Boolean(el || scrollToVirtualFileRef.current);
       if (el) {
         el.scrollIntoView({ behavior: "smooth", block: "start" });
       } else {
         setPendingVirtualScrollPath(path);
-        scrollToVirtualFileRef.current?.(path);
       }
       setViewState((prev) => {
         const s = new Set(prev.collapsedFiles);
@@ -221,7 +216,7 @@ export const ChangesTab = memo(function ChangesTab({
         s.delete(path);
         return { ...prev, collapsedFiles: [...s] };
       });
-      return canScroll;
+      return true;
     },
     [setViewState]
   );
@@ -389,9 +384,6 @@ export const ChangesTab = memo(function ChangesTab({
               if (prev.has(path)) return prev;
               return new Set(prev).add(path);
             });
-          }}
-          onRegisterScrollToFile={(fn) => {
-            scrollToVirtualFileRef.current = fn;
           }}
         />
       </div>
@@ -658,7 +650,6 @@ type DiffPaneProps = {
   pendingVirtualScrollPath: string | null;
   onPendingVirtualScrollHandled: () => void;
   onForceLoad: (path: string) => void;
-  onRegisterScrollToFile?: (fn: ((path: string) => boolean) | null) => void;
 };
 
 function DiffPane({
@@ -686,7 +677,6 @@ function DiffPane({
   pendingVirtualScrollPath,
   onPendingVirtualScrollHandled,
   onForceLoad,
-  onRegisterScrollToFile,
 }: DiffPaneProps): JSX.Element {
   const fileIndexByPath = useMemo(() => {
     const indexes = new Map<string, number>();
@@ -706,22 +696,6 @@ function DiffPane({
     overscan: 4,
     gap: DIFF_FILE_GAP_PX,
   });
-
-  useLayoutEffect(() => {
-    onRegisterScrollToFile?.((path: string) => {
-      const index = fileIndexByPath.get(path);
-      const scrollElement = scrollRef.current;
-      if (index == null || !scrollElement) return false;
-      const offset = rowVirtualizer.getOffsetForIndex(index, "start")?.[0];
-      if (offset == null) return false;
-      scrollElement.scrollTo({
-        top: offset,
-        behavior: "smooth",
-      });
-      return true;
-    });
-    return () => onRegisterScrollToFile?.(null);
-  }, [fileIndexByPath, onRegisterScrollToFile, rowVirtualizer, scrollRef]);
 
   useLayoutEffect(() => {
     if (!pendingVirtualScrollPath || !scrollRef.current) return;
