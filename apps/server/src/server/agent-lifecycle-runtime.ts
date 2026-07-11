@@ -104,8 +104,9 @@ export function createAgentLifecycleRuntime(
             if (archivingAgentIds.has(agent.id)) {
               continue;
             }
-            console.log(
-              `[reconcile] Agent ${agent.id} (${agent.name}) resuming interrupted archive`
+            appLog.info(
+              { agentId: agent.id, agentName: agent.name },
+              "Resuming interrupted archive"
             );
             publishUiEvent({
               type: "agent.upsert",
@@ -136,8 +137,9 @@ export function createAgentLifecycleRuntime(
             });
             trackArchive(agent.id, archivePromise);
           } else {
-            console.log(
-              `[reconcile] Agent ${agent.id} (${agent.name}) status corrected to stopped`
+            appLog.info(
+              { agentId: agent.id, agentName: agent.name },
+              "Agent status corrected to stopped"
             );
             publishUiEvent({
               type: "agent.upsert",
