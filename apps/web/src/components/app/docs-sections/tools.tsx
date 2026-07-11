@@ -260,8 +260,8 @@ export function ToolsContent() {
           findings or assessments between recurring job runs, sharing
           configuration between agents working in the same repo, and recording
           structured observations that other agents can query. You can inspect
-          an agent's Brain activity in the <strong>Brain</strong> tab of the
-          sidebar.
+          Brain activity from the <strong>Brains</strong> tab on the Automations
+          page.
         </P>
       </Section>
 
@@ -275,9 +275,10 @@ export function ToolsContent() {
         </P>
         <P>
           Use <Code>list_agents</Code> to discover running agents and{" "}
-          <Code>dispatch_send_message</Code> to coordinate between them. The
-          launched agent receives the parent's ID in its startup context so it
-          can message back.
+          <Code>dispatch_send_message</Code> to coordinate between them.
+          Messages are persisted and visible in the <strong>Messages</strong>{" "}
+          tab of the media sidebar. The launched agent receives the parent's ID
+          in its startup context so it can message back.
         </P>
       </Section>
 
