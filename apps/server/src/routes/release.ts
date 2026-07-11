@@ -670,9 +670,8 @@ export async function registerReleaseRoutes(
         }
         pendingMigrationManifests = evaluation.pending.map((m) => m.manifest);
       } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
         request.log.warn(
-          { tag: body.tag, err: message },
+          { tag: body.tag, err },
           "Migration evaluation failed, falling back to legacy metadata"
         );
       }
