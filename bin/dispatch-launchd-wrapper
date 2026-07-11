@@ -11,6 +11,17 @@
 
 export TERM="${TERM:-xterm-256color}"
 
+# Enlarge the I/O thread pool. The token harvester reads agent session files
+# from a gcsfuse mount; on a mount stall an in-flight readdir/read syscall
+# cannot be cancelled and stays blocked on an I/O-pool thread until the kernel
+# unblocks it. The default libuv pool is small (4), so a few wedged harvester
+# threads could otherwise starve all other fs/dns/crypto work server-wide.
+# NOTE: production runs the Bun binary, which uses its own I/O threadpool (not
+# libuv) and may not honor this knob — it hardens Node-based dev/test paths,
+# and the mount-io breaker's low concurrency/threshold is the primary backstop
+# on the wedged-syscall leak regardless of runtime. Override before launch.
+export UV_THREADPOOL_SIZE="${UV_THREADPOOL_SIZE:-16}"
+
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OS_NAME="$(uname -s)"
 ARCH_NAME="$(uname -m)"

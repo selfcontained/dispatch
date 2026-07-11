@@ -6,6 +6,7 @@ import { createInterface } from "node:readline";
 
 import type { Pool } from "pg";
 
+import { mountIO } from "../shared/mount-io/index.js";
 import type { AgentRecord } from "./manager.js";
 
 type ModelTokenTotals = {
@@ -65,7 +66,10 @@ export function cwdToClaudeProjectDir(cwd: string): string {
 export async function discoverSessionFiles(dir: string): Promise<string[]> {
   let entries: string[];
   try {
-    entries = await readdir(dir);
+    // @types/node@24 readdir has no {signal} overload; bounded by MountIO timeout only
+    entries = await mountIO.run("readdir:claude-projects", (_signal) =>
+      readdir(dir)
+    );
   } catch {
     return [];
   }
@@ -78,57 +82,62 @@ async function parseClaudeSessionTokenUsage(
   filePath: string
 ): Promise<SessionTokenSummary> {
   const sessionId = path.basename(filePath, ".jsonl");
-  const totals = new Map<string, ModelTokenTotals>();
-  let sessionStart: string | null = null;
-  let sessionEnd: string | null = null;
+  return mountIO.run(`read:claude:${sessionId}`, async (signal, heartbeat) => {
+    const totals = new Map<string, ModelTokenTotals>();
+    let sessionStart: string | null = null;
+    let sessionEnd: string | null = null;
 
-  const rl = createInterface({
-    input: createReadStream(filePath, { encoding: "utf-8" }),
-    crlfDelay: Infinity,
+    const rl = createInterface({
+      input: createReadStream(filePath, { encoding: "utf-8", signal }),
+      crlfDelay: Infinity,
+    });
+
+    for await (const line of rl) {
+      // Progress made — re-arm the idle deadline so a slow-but-streaming read
+      // is not mistaken for a stall.
+      heartbeat();
+      if (!line.trim()) continue;
+      let entry: Record<string, unknown>;
+      try {
+        entry = JSON.parse(line);
+      } catch {
+        continue;
+      }
+
+      if (entry.type !== "assistant") continue;
+      const message = entry.message as Record<string, unknown> | undefined;
+      if (!message?.usage) continue;
+
+      const usage = message.usage as Record<string, number>;
+      const model = (message.model as string) ?? "unknown";
+      const ts = entry.timestamp as string | undefined;
+
+      if (ts) {
+        if (!sessionStart) sessionStart = ts;
+        sessionEnd = ts;
+      }
+
+      let bucket = totals.get(model);
+      if (!bucket) {
+        bucket = {
+          inputTokens: 0,
+          cacheCreationTokens: 0,
+          cacheReadTokens: 0,
+          outputTokens: 0,
+          messageCount: 0,
+        };
+        totals.set(model, bucket);
+      }
+
+      bucket.inputTokens += usage.input_tokens ?? 0;
+      bucket.cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
+      bucket.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
+      bucket.outputTokens += usage.output_tokens ?? 0;
+      bucket.messageCount += 1;
+    }
+
+    return { sessionId, totals, sessionStart, sessionEnd };
   });
-
-  for await (const line of rl) {
-    if (!line.trim()) continue;
-    let entry: Record<string, unknown>;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    if (entry.type !== "assistant") continue;
-    const message = entry.message as Record<string, unknown> | undefined;
-    if (!message?.usage) continue;
-
-    const usage = message.usage as Record<string, number>;
-    const model = (message.model as string) ?? "unknown";
-    const ts = entry.timestamp as string | undefined;
-
-    if (ts) {
-      if (!sessionStart) sessionStart = ts;
-      sessionEnd = ts;
-    }
-
-    let bucket = totals.get(model);
-    if (!bucket) {
-      bucket = {
-        inputTokens: 0,
-        cacheCreationTokens: 0,
-        cacheReadTokens: 0,
-        outputTokens: 0,
-        messageCount: 0,
-      };
-      totals.set(model, bucket);
-    }
-
-    bucket.inputTokens += usage.input_tokens ?? 0;
-    bucket.cacheCreationTokens += usage.cache_creation_input_tokens ?? 0;
-    bucket.cacheReadTokens += usage.cache_read_input_tokens ?? 0;
-    bucket.outputTokens += usage.output_tokens ?? 0;
-    bucket.messageCount += 1;
-  }
-
-  return { sessionId, totals, sessionStart, sessionEnd };
 }
 
 async function harvestClaudeTokenUsage(
@@ -151,6 +160,13 @@ async function harvestClaudeTokenUsage(
   }
 
   for (const file of files) {
+    if (!mountIO.available()) {
+      logger?.warn(
+        { projectDir },
+        "mount unavailable, aborting Claude harvest"
+      );
+      break;
+    }
     try {
       const summary = await parseClaudeSessionTokenUsage(file);
 
@@ -195,15 +211,17 @@ type CodexTokenUsage = {
  * Recursively discover all rollout JSONL files under ~/.codex/sessions/.
  * Files are organized as YYYY/MM/DD/rollout-*.jsonl.
  */
-async function discoverCodexRolloutFiles(): Promise<string[]> {
+/** Exported for testing (stall behavior); no production caller besides harvest. */
+export async function discoverCodexRolloutFiles(): Promise<string[]> {
   const files: string[] = [];
 
   async function walk(dir: string): Promise<void> {
     let entries: import("node:fs").Dirent[];
     try {
-      entries = (await readdir(dir, {
-        withFileTypes: true,
-      })) as import("node:fs").Dirent[];
+      // @types/node@24 readdir has no {signal} overload; bounded by MountIO timeout only
+      entries = await mountIO.run("readdir:codex-sessions", (_signal) =>
+        readdir(dir, { withFileTypes: true })
+      );
     } catch {
       return;
     }
@@ -235,59 +253,60 @@ async function parseCodexRolloutForAgent(
   sessionStart: string | null;
   sessionEnd: string | null;
 } | null> {
-  let matched = false;
-  let lastUsage: CodexTokenUsage | null = null;
-  let model = "unknown";
-  let sessionStart: string | null = null;
-  let sessionEnd: string | null = null;
-  let linesRead = 0;
+  return mountIO.run(
+    `read:codex:${path.basename(filePath)}`,
+    async (signal, heartbeat) => {
+      let matched = false;
+      let lastUsage: CodexTokenUsage | null = null;
+      let model = "unknown";
+      let sessionStart: string | null = null;
+      let sessionEnd: string | null = null;
+      let linesRead = 0;
 
-  const rl = createInterface({
-    input: createReadStream(filePath, { encoding: "utf-8" }),
-    crlfDelay: Infinity,
-  });
+      const rl = createInterface({
+        input: createReadStream(filePath, { encoding: "utf-8", signal }),
+        crlfDelay: Infinity,
+      });
 
-  for await (const line of rl) {
-    linesRead++;
-
-    // Check for agent tag in the first 20 lines
-    if (!matched) {
-      if (linesRead > 20) break;
-      const tagMatch = DISPATCH_TAG_RE.exec(line);
-      if (tagMatch && tagMatch[1] === agentId) matched = true;
-      continue;
-    }
-
-    if (!line.trim()) continue;
-    let entry: Record<string, unknown>;
-    try {
-      entry = JSON.parse(line);
-    } catch {
-      continue;
-    }
-
-    const ts = entry.timestamp as string | undefined;
-    if (ts && !sessionStart) sessionStart = ts;
-    if (ts) sessionEnd = ts;
-
-    if (entry.type === "turn_context") {
-      const payload = entry.payload as Record<string, unknown> | undefined;
-      if (payload?.model) model = payload.model as string;
-    }
-
-    if (entry.type === "event_msg") {
-      const payload = entry.payload as Record<string, unknown> | undefined;
-      if (payload?.type === "token_count") {
-        const info = payload.info as Record<string, unknown> | undefined;
-        if (info?.total_token_usage) {
-          lastUsage = info.total_token_usage as CodexTokenUsage;
+      for await (const line of rl) {
+        // Progress made — re-arm the idle deadline (see Claude parser above).
+        heartbeat();
+        linesRead++;
+        if (!matched) {
+          if (linesRead > 20) break;
+          const tagMatch = DISPATCH_TAG_RE.exec(line);
+          if (tagMatch && tagMatch[1] === agentId) matched = true;
+          continue;
+        }
+        if (!line.trim()) continue;
+        let entry: Record<string, unknown>;
+        try {
+          entry = JSON.parse(line);
+        } catch {
+          continue;
+        }
+        const ts = entry.timestamp as string | undefined;
+        if (ts && !sessionStart) sessionStart = ts;
+        if (ts) sessionEnd = ts;
+        if (entry.type === "turn_context") {
+          const payload = entry.payload as Record<string, unknown> | undefined;
+          if (payload?.model) model = payload.model as string;
+        }
+        if (entry.type === "event_msg") {
+          const payload = entry.payload as Record<string, unknown> | undefined;
+          if (payload?.type === "token_count") {
+            const info = payload.info as Record<string, unknown> | undefined;
+            if (info?.total_token_usage) {
+              lastUsage = info.total_token_usage as CodexTokenUsage;
+            }
+          }
         }
       }
-    }
-  }
 
-  if (!matched || !lastUsage) return null;
-  return { usage: lastUsage, model, sessionStart, sessionEnd };
+      if (!matched || !lastUsage) return null;
+      return { usage: lastUsage, model, sessionStart, sessionEnd };
+    }
+  );
 }
 
 async function harvestCodexTokenUsage(
@@ -299,6 +318,10 @@ async function harvestCodexTokenUsage(
   if (rolloutFiles.length === 0) return;
 
   for (const file of rolloutFiles) {
+    if (!mountIO.available()) {
+      logger?.warn({}, "mount unavailable, aborting Codex harvest");
+      break;
+    }
     try {
       const result = await parseCodexRolloutForAgent(file, agent.id);
       if (!result) continue;

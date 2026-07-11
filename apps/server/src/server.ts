@@ -36,6 +36,7 @@ import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import { mimeType, resolveMediaDir } from "./shared/media.js";
+import { mountIO } from "./shared/mount-io/index.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
 import {
@@ -153,6 +154,9 @@ const app = Fastify({
   ...(config.tls && { https: { cert: config.tls.cert, key: config.tls.key } }),
 });
 const pool = createPool(config);
+// Route mount-io breaker open/recover transitions to the app logger so
+// operators get clear timestamps for a stalled gcsfuse mount.
+mountIO.setLogger(app.log);
 const agentManager = new AgentManager(pool, app.log, config);
 const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
