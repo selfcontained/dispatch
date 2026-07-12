@@ -614,4 +614,559 @@ describe("JobService", () => {
       await service.shutdown();
     });
   });
+
+  describe("addJob validation", () => {
+    it("rejects invalid cron expression", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await expect(
+        service.addJob({
+          name: "bad-cron",
+          directory: "/tmp/test-bad-cron",
+          prompt: "Test",
+          schedule: "invalid cron",
+        })
+      ).rejects.toThrow("invalid cron expression");
+
+      await service.shutdown();
+    });
+
+    it("rejects enabled without schedule", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await expect(
+        service.addJob({
+          name: "no-sched-enabled",
+          directory: "/tmp/test-no-sched",
+          prompt: "Test",
+          enabled: true,
+        })
+      ).rejects.toThrow("needs a schedule");
+
+      await service.shutdown();
+    });
+
+    it("treats empty string schedule as null", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      const job = await service.addJob({
+        name: "empty-sched",
+        directory: "/tmp/test-empty-sched",
+        prompt: "Test",
+        schedule: "",
+      });
+
+      expect(job.schedule).toBeNull();
+      await service.shutdown();
+    });
+
+    it("creates a backing template for the job", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      const job = await service.addJob({
+        name: "template-test",
+        directory: "/tmp/test-template",
+        prompt: "My prompt",
+        agentType: "codex",
+        useWorktree: true,
+      });
+
+      expect(job.templateId).toBeTruthy();
+
+      const { rows } = await pool.query(
+        "SELECT * FROM templates WHERE id = $1",
+        [job.templateId]
+      );
+      expect(rows.length).toBe(1);
+      expect(rows[0].prompt).toBe("My prompt");
+      expect(rows[0].agent_type).toBe("codex");
+      expect(rows[0].use_worktree).toBe(true);
+
+      await service.shutdown();
+    });
+
+    it("uses provided defaults for optional fields", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      const job = await service.addJob({
+        name: "defaults-test",
+        directory: "/tmp/test-defaults",
+        prompt: "p",
+        timeoutMs: 60_000,
+        needsInputTimeoutMs: 120_000,
+        autoArchive: false,
+        singleton: false,
+        callable: true,
+      });
+
+      expect(job.timeoutMs).toBe(60_000);
+      expect(job.needsInputTimeoutMs).toBe(120_000);
+      expect(job.autoArchive).toBe(false);
+      expect(job.singleton).toBe(false);
+      expect(job.callable).toBe(true);
+
+      await service.shutdown();
+    });
+  });
+
+  describe("updateJob validation and logic", () => {
+    it("rejects invalid cron on update", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await service.addJob({
+        name: "upd-bad-cron",
+        directory: "/tmp/test-upd-cron",
+        prompt: "Test",
+      });
+
+      await expect(
+        service.updateJob({
+          name: "upd-bad-cron",
+          directory: "/tmp/test-upd-cron",
+          schedule: "not a cron",
+        })
+      ).rejects.toThrow("invalid cron expression");
+
+      await service.shutdown();
+    });
+
+    it("rejects enabling without schedule on update", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await service.addJob({
+        name: "upd-no-sched",
+        directory: "/tmp/test-upd-no-sched",
+        prompt: "Test",
+      });
+
+      await expect(
+        service.updateJob({
+          name: "upd-no-sched",
+          directory: "/tmp/test-upd-no-sched",
+          enabled: true,
+        })
+      ).rejects.toThrow("needs a schedule");
+
+      await service.shutdown();
+    });
+
+    it("rejects duplicate name on rename", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await service.addJob({
+        name: "original-a",
+        directory: "/tmp/test-rename-dup",
+        prompt: "A",
+      });
+      await service.addJob({
+        name: "original-b",
+        directory: "/tmp/test-rename-dup",
+        prompt: "B",
+      });
+
+      await expect(
+        service.updateJob({
+          name: "original-a",
+          directory: "/tmp/test-rename-dup",
+          displayName: "original-b",
+        })
+      ).rejects.toThrow("already exists");
+
+      await service.shutdown();
+    });
+
+    it("propagates config changes to backing template", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      const job = await service.addJob({
+        name: "prop-test",
+        directory: "/tmp/test-prop",
+        prompt: "Original",
+        agentType: "claude",
+      });
+
+      await service.updateJob({
+        name: "prop-test",
+        directory: "/tmp/test-prop",
+        prompt: "Updated prompt",
+        agentType: "codex",
+        fullAccess: true,
+      });
+
+      const { rows } = await pool.query(
+        "SELECT * FROM templates WHERE id = $1",
+        [job.templateId]
+      );
+      expect(rows[0].prompt).toBe("Updated prompt");
+      expect(rows[0].agent_type).toBe("codex");
+      expect(rows[0].full_access).toBe(true);
+
+      await service.shutdown();
+    });
+
+    it("stops scheduler when disabling via updateJob", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await service.addJob({
+        name: "sched-disable",
+        directory: "/tmp/test-sched-dis",
+        prompt: "Test",
+        schedule: "0 */6 * * *",
+        enabled: true,
+      });
+
+      const updated = await service.updateJob({
+        name: "sched-disable",
+        directory: "/tmp/test-sched-dis",
+        enabled: false,
+      });
+
+      expect(updated.enabled).toBe(false);
+      await service.shutdown();
+    });
+  });
+
+  describe("enableJob / disableJob", () => {
+    it("enableJob throws when job has no schedule", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await service.addJob({
+        name: "enable-no-sched",
+        directory: "/tmp/test-enable-nosched",
+        prompt: "Test",
+      });
+
+      await expect(
+        service.enableJob({
+          name: "enable-no-sched",
+          directory: "/tmp/test-enable-nosched",
+        })
+      ).rejects.toThrow("no schedule configured");
+
+      await service.shutdown();
+    });
+
+    it("enableJob rejects too-frequent schedule", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      const store = new JobStore(pool);
+
+      const job = await makeJob(store, {
+        name: "enable-freq",
+        directory: "/tmp/test-enable-freq",
+        schedule: "* * * * *",
+      });
+
+      await expect(
+        service.enableJob({
+          name: "enable-freq",
+          directory: "/tmp/test-enable-freq",
+        })
+      ).rejects.toThrow();
+
+      await service.shutdown();
+    });
+
+    it("enableJob succeeds with valid schedule", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      const store = new JobStore(pool);
+
+      await makeJob(store, {
+        name: "enable-valid",
+        directory: "/tmp/test-enable-valid",
+        schedule: "0 */6 * * *",
+      });
+
+      const updated = await service.enableJob({
+        name: "enable-valid",
+        directory: "/tmp/test-enable-valid",
+      });
+
+      expect(updated.enabled).toBe(true);
+      await service.shutdown();
+    });
+
+    it("disableJob stops scheduler and marks disabled", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      const store = new JobStore(pool);
+
+      const job = await makeJob(store, {
+        name: "disable-test",
+        directory: "/tmp/test-disable",
+        schedule: "0 */6 * * *",
+      });
+      await store.updateJobConfig(job.id, { enabled: true });
+
+      const updated = await service.disableJob({
+        name: "disable-test",
+        directory: "/tmp/test-disable",
+      });
+
+      expect(updated.enabled).toBe(false);
+      await service.shutdown();
+    });
+  });
+
+  describe("removeJob", () => {
+    it("removes job and cleans up backing template", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      const job = await service.addJob({
+        name: "remove-clean",
+        directory: "/tmp/test-remove-clean",
+        prompt: "Test",
+      });
+      const templateId = job.templateId!;
+
+      const removed = await service.removeJob({
+        name: "remove-clean",
+        directory: "/tmp/test-remove-clean",
+      });
+
+      expect(removed.id).toBe(job.id);
+
+      const { rows } = await pool.query(
+        "SELECT * FROM templates WHERE id = $1",
+        [templateId]
+      );
+      expect(rows.length).toBe(0);
+
+      await service.shutdown();
+    });
+
+    it("throws for non-existent job", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await expect(
+        service.removeJob({
+          name: "ghost",
+          directory: "/tmp/test-ghost",
+        })
+      ).rejects.toThrow("not found");
+
+      await service.shutdown();
+    });
+  });
+
+  describe("runJob singleton enforcement", () => {
+    it("throws when singleton job already has active run", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      const store = new JobStore(pool);
+
+      const job = await makeJob(store, {
+        name: "singleton-test",
+        directory: "/tmp/test-singleton",
+      });
+
+      await store.createRun(job.id, {
+        ...makeRunConfig("singleton-test"),
+        triggerSource: "manual",
+        autoArchive: true,
+      });
+
+      await expect(
+        service.runJob({
+          name: "singleton-test",
+          directory: "/tmp/test-singleton",
+        })
+      ).rejects.toThrow("already has active run");
+
+      await service.shutdown();
+    });
+  });
+
+  describe("runJob crash on agent spawn", () => {
+    it("marks run as crashed when agent creation fails", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      const store = new JobStore(pool);
+
+      await makeJob(store, {
+        name: "crash-spawn",
+        directory: "/tmp/test-crash",
+      });
+
+      vi.mocked(mockAgentManager.createAgent).mockRejectedValue(
+        new Error("tmux exploded")
+      );
+
+      await expect(
+        service.runJob({
+          name: "crash-spawn",
+          directory: "/tmp/test-crash",
+        })
+      ).rejects.toThrow("failed to start: tmux exploded");
+
+      const runs = await store.listRunsForJob(
+        (await store.getJobByDirectoryAndName(
+          "/tmp/test-crash",
+          "crash-spawn"
+        ))!.id
+      );
+      expect(runs[0].status).toBe("crashed");
+
+      await service.shutdown();
+    });
+  });
+
+  describe("listRunsForJob", () => {
+    it("returns job and runs", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+      const store = new JobStore(pool);
+
+      const job = await makeJob(store, {
+        name: "list-runs",
+        directory: "/tmp/test-list-runs",
+      });
+      await store.createRun(job.id, {
+        ...makeRunConfig("list-runs"),
+        triggerSource: "manual",
+        autoArchive: true,
+      });
+
+      const result = await service.listRunsForJob({
+        name: "list-runs",
+        directory: "/tmp/test-list-runs",
+      });
+
+      expect(result.job.id).toBe(job.id);
+      expect(result.runs.length).toBe(1);
+
+      await service.shutdown();
+    });
+
+    it("throws for non-existent job", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      await expect(
+        service.listRunsForJob({
+          name: "nope",
+          directory: "/tmp/nope",
+        })
+      ).rejects.toThrow("not found");
+
+      await service.shutdown();
+    });
+  });
+
+  describe("getStats", () => {
+    it("returns stats and recent runs", async () => {
+      const service = new JobService(
+        pool,
+        mockAgentManager,
+        mockLog,
+        mockConfig
+      );
+
+      const result = await service.getStats();
+
+      expect(result).toHaveProperty("stats");
+      expect(result).toHaveProperty("recentRuns");
+      expect(result.stats).toHaveProperty("totalRuns");
+      expect(result.stats).toHaveProperty("successCount");
+      expect(result.stats).toHaveProperty("failureCount");
+      expect(result.stats).toHaveProperty("daily");
+      expect(Array.isArray(result.recentRuns)).toBe(true);
+
+      await service.shutdown();
+    });
+  });
 });
