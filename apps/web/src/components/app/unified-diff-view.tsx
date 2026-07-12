@@ -264,9 +264,7 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
         const ln = getNewLineNumber(change);
         if (ln === null) return;
 
-        const mouseEvent = e as unknown as MouseEvent;
-
-        if (mouseEvent.shiftKey && lineSelection) {
+        if (e.shiftKey && lineSelection) {
           const start = Math.min(lineSelection.anchorLine, ln);
           const end = Math.max(lineSelection.anchorLine, ln);
           onLineSelection({
