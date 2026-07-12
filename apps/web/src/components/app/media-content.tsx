@@ -13,18 +13,17 @@ import {
 
 import { type MediaFile } from "@/components/app/types";
 import { MediaActions } from "@/components/app/media-lightbox";
-import { isTextFile, stripTimestamp } from "@/components/app/media-file-utils";
+import {
+  fileExtension,
+  isTextFile,
+  stripTimestamp,
+} from "@/components/app/media-file-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 
 const ACCEPTED_EXTENSIONS =
   ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
-
-function fileExtension(name: string): string {
-  const dot = name.lastIndexOf(".");
-  return dot === -1 ? "" : name.slice(dot + 1).toLowerCase();
-}
 
 export type MediaContentProps = {
   mediaFiles: MediaFile[];
@@ -103,7 +102,6 @@ function MediaItemCard({
 
   return (
     <article
-      key={`${file.name}:${file.updatedAt}`}
       data-media-key={`${file.name}:${file.updatedAt}`}
       className={cn(
         "border-b-2 border-border px-3 py-3",
@@ -146,7 +144,7 @@ function MediaItemCard({
               {stripTimestamp(file.name)}
             </span>
             <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {fileExtension(file.name)}
+              {fileExtension(file.name).replace(".", "")}
             </span>
           </div>
         </button>
