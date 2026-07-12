@@ -16,9 +16,10 @@ export function UpdatesContent() {
         <H3>Current version</H3>
         <P>
           The top of the pane shows the deployed release tag and when it was
-          deployed, plus an expandable card with the package version, git SHA,
-          and release notes. If the release page is on GitHub, a link opens it
-          in a new tab.
+          deployed, with a detail card below showing the package version and git
+          SHA. Release notes are in a separate collapsible section — click the
+          header to expand. If the release is on GitHub, a link next to the
+          header opens it in a new tab.
         </P>
       </Section>
 
@@ -158,11 +159,11 @@ export function UpdatesContent() {
       <Section>
         <H3>Reload</H3>
         <P>
-          <strong>Reload</strong> picks up the latest web bundle by forcing the
-          service worker to take control on the next load. The dropdown offers{" "}
-          <strong>Clear cache &amp; reload</strong>, which unregisters all
-          service workers and clears the Cache Storage API entries first —
-          useful if the app feels stuck on a stale build.
+          <strong>Reload</strong> unregisters the service worker and reloads so
+          the next page load picks up the latest build directly. The dropdown
+          offers <strong>Clear cache &amp; reload</strong>, which also clears
+          all Cache Storage API entries before reloading — useful if the app
+          feels stuck on a stale build.
         </P>
       </Section>
     </>
