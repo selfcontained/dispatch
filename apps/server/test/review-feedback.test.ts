@@ -96,7 +96,7 @@ describe("PATCH /api/v1/agents/:id/reviews/items/:itemId", () => {
     expect(result.item.resolution).toBe("fixed");
   });
 
-  it("resolves a feedback item as ignored with a note", async () => {
+  it("resolves a feedback item as dismissed with a note", async () => {
     const review = await createReview(AGENT_ID, [{ comment: "Do this" }]);
     const itemId = review.items[0].id;
 
@@ -104,27 +104,24 @@ describe("PATCH /api/v1/agents/:id/reviews/items/:itemId", () => {
       method: "PATCH",
       url: `/api/v1/agents/${AGENT_ID}/reviews/items/${itemId}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { resolution: "ignored", note: "Not applicable" },
+      payload: { resolution: "dismissed", note: "Not applicable" },
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.json().item.resolution).toBe("ignored");
+    expect(response.json().item.resolution).toBe("dismissed");
     expect(response.json().item.resolutionNote).toBe("Not applicable");
   });
 
-  it("resolves a feedback item as wont_fix", async () => {
+  it("rejects unsupported review resolutions", async () => {
     const review = await createReview(AGENT_ID, [{ comment: "Refactor" }]);
-    const itemId = review.items[0].id;
-
     const response = await ctx.app.inject({
       method: "PATCH",
-      url: `/api/v1/agents/${AGENT_ID}/reviews/items/${itemId}`,
+      url: `/api/v1/agents/${AGENT_ID}/reviews/items/${review.items[0].id}`,
       headers: { cookie: sessionCookie, "content-type": "application/json" },
-      payload: { resolution: "wont_fix", note: "By design" },
+      payload: { resolution: "wont_fix" },
     });
 
-    expect(response.statusCode).toBe(200);
-    expect(response.json().item.resolution).toBe("wont_fix");
+    expect(response.statusCode).toBe(400);
   });
 
   it("updates review status to resolved when all items are resolved", async () => {
@@ -169,6 +166,34 @@ describe("PATCH /api/v1/agents/:id/reviews/items/:itemId", () => {
       headers: { cookie: sessionCookie },
     });
     expect(reviewResponse.json().review.status).toBe("partially_resolved");
+  });
+
+  it("reopens a resolved feedback item", async () => {
+    const review = await createReview(AGENT_ID, [{ comment: "Bug 1" }]);
+    const itemId = review.items[0].id;
+
+    await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/agents/${AGENT_ID}/reviews/items/${itemId}`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { resolution: "fixed" },
+    });
+    const response = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/agents/${AGENT_ID}/reviews/items/${itemId}`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { resolution: null },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json().item.status).toBe("open");
+    expect(response.json().item.resolution).toBeNull();
+    const reviewResponse = await ctx.app.inject({
+      method: "GET",
+      url: `/api/v1/agents/${AGENT_ID}/reviews/${review.id}`,
+      headers: { cookie: sessionCookie },
+    });
+    expect(reviewResponse.json().review.status).toBe("open");
   });
 
   it("returns 404 for item belonging to different agent", async () => {

@@ -209,6 +209,8 @@ type UnifiedDiffViewProps = {
   onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
+  focusedFeedbackItemId?: number | null;
+  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
 };
 
 export const UnifiedDiffView = memo(function UnifiedDiffView({
@@ -227,6 +229,8 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
   onUpdateDraft,
   onStartReview,
   feedbackItems,
+  focusedFeedbackItemId,
+  onFeedbackFocusComplete,
 }: UnifiedDiffViewProps): JSX.Element {
   const parsed = useMemo(() => {
     try {
@@ -330,9 +334,12 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
               return (
                 <InlineFeedbackAnnotation
                   key={fi.id}
+                  agentId={agentId}
                   feedbackItem={fi}
                   comment={firstMsg}
                   isResolved={isResolved}
+                  focused={fi.id === focusedFeedbackItemId}
+                  onFocusComplete={onFeedbackFocusComplete}
                 />
               );
             })}
@@ -413,6 +420,8 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
     onRemoveDraft,
     onUpdateDraft,
     feedbackItems,
+    focusedFeedbackItemId,
+    onFeedbackFocusComplete,
   ]);
 
   const diffRef = useRef<HTMLDivElement>(null);

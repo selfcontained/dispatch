@@ -149,6 +149,59 @@ export function useSubmitReview(agentId: string | null) {
   });
 }
 
+function invalidateReviewQueries(
+  queryClient: ReturnType<typeof useQueryClient>,
+  agentId: string
+) {
+  void queryClient.invalidateQueries({ queryKey: reviewsQueryKey(agentId) });
+  void queryClient.invalidateQueries({
+    predicate: (query) =>
+      query.queryKey[0] === "agent-review-detail" &&
+      query.queryKey[1] === agentId,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: feedbackItemsQueryKey(agentId),
+  });
+}
+
+export function useAddReviewThreadMessage(agentId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ itemId, body }: { itemId: number; body: string }) => {
+      const response = await api<{ message: ReviewThreadMessage }>(
+        `/api/v1/agents/${agentId}/reviews/items/${itemId}/messages`,
+        { method: "POST", body: JSON.stringify({ body }) }
+      );
+      return response.message;
+    },
+    onSuccess: () => {
+      if (agentId) invalidateReviewQueries(queryClient, agentId);
+    },
+  });
+}
+
+export function useSetReviewFeedbackResolution(agentId: string | null) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      itemId,
+      resolution,
+    }: {
+      itemId: number;
+      resolution: "fixed" | "dismissed" | null;
+    }) => {
+      const response = await api<{ item: ReviewFeedbackItem }>(
+        `/api/v1/agents/${agentId}/reviews/items/${itemId}`,
+        { method: "PATCH", body: JSON.stringify({ resolution }) }
+      );
+      return response.item;
+    },
+    onSuccess: () => {
+      if (agentId) invalidateReviewQueries(queryClient, agentId);
+    },
+  });
+}
+
 function feedbackItemsQueryKey(agentId: string): [string, string] {
   return ["agent-feedback-items", agentId];
 }

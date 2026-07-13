@@ -348,7 +348,7 @@ export type McpRequestContext = {
   resolveReviewFeedback?: (
     agentId: string,
     itemId: number,
-    resolution: "fixed" | "ignored" | "wont_fix",
+    resolution: "fixed" | "dismissed",
     opts?: { note?: string | null }
   ) => Promise<{
     item: { id: number; reviewId: number; status: string; resolution: string };

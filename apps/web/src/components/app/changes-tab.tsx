@@ -164,6 +164,14 @@ export const ChangesTab = memo(function ChangesTab({
   );
 
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [focusedFeedbackItemId, setFocusedFeedbackItemId] = useState<
+    number | null
+  >(null);
+  const handleFeedbackFocusComplete = useCallback((feedbackItemId: number) => {
+    setFocusedFeedbackItemId((current) =>
+      current === feedbackItemId ? null : current
+    );
+  }, []);
   const [lineSelection, setLineSelection] = useState<LineSelection | null>(
     null
   );
@@ -201,15 +209,23 @@ export const ChangesTab = memo(function ChangesTab({
   const [searchParams, setSearchParams] = useSearchParams();
   const navFileTarget = searchParams.get("file");
   const navLineTarget = searchParams.get("line");
+  const navFeedbackTarget = searchParams.get("feedback");
 
   useEffect(() => {
     if (!navFileTarget || files.length === 0) return;
     const targetFile = files.find((f) => f.path === navFileTarget);
+    if (isMobile) setFileTreeOpen(false);
+    const feedbackItemId = navFeedbackTarget ? Number(navFeedbackTarget) : null;
+    setFocusedFeedbackItemId(
+      feedbackItemId != null && Number.isInteger(feedbackItemId)
+        ? feedbackItemId
+        : null
+    );
     setSearchParams({}, { replace: true });
     if (targetFile) {
       requestAnimationFrame(() => {
         scrollToFile(navFileTarget);
-        if (navLineTarget && targetFile.diff) {
+        if (!navFeedbackTarget && navLineTarget && targetFile.diff) {
           const lineNum = Number(navLineTarget);
           if (Number.isInteger(lineNum) && lineNum > 0) {
             requestAnimationFrame(() => {
@@ -224,10 +240,12 @@ export const ChangesTab = memo(function ChangesTab({
                   lineNum
                 );
                 if (changeKey) {
-                  const el = scrollRef.current?.querySelector(
-                    `[id="${CSS.escape(changeKey)}"]`
+                  const changeCell = scrollRef.current?.querySelector(
+                    `[data-change-key="${CSS.escape(changeKey)}"]`
                   );
-                  el?.scrollIntoView({ block: "center", behavior: "smooth" });
+                  changeCell
+                    ?.closest("tr")
+                    ?.scrollIntoView({ block: "center", behavior: "smooth" });
                 }
               } catch {
                 // diff parse failed — fall back to file-level scroll
@@ -237,7 +255,16 @@ export const ChangesTab = memo(function ChangesTab({
         }
       });
     }
-  }, [navFileTarget, navLineTarget, files, scrollToFile, setSearchParams]);
+  }, [
+    navFileTarget,
+    navLineTarget,
+    navFeedbackTarget,
+    files,
+    isMobile,
+    scrollToFile,
+    setFileTreeOpen,
+    setSearchParams,
+  ]);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -341,6 +368,8 @@ export const ChangesTab = memo(function ChangesTab({
           onUpdateDraft={updateDraft}
           onStartReview={() => setReviewMode(true)}
           feedbackItems={feedbackItems}
+          focusedFeedbackItemId={focusedFeedbackItemId}
+          onFeedbackFocusComplete={handleFeedbackFocusComplete}
         />
       </div>
     </div>
@@ -602,6 +631,8 @@ type DiffPaneProps = {
   onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
+  focusedFeedbackItemId?: number | null;
+  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
 };
 
 function DiffPane({
@@ -625,6 +656,8 @@ function DiffPane({
   onUpdateDraft,
   onStartReview,
   feedbackItems,
+  focusedFeedbackItemId,
+  onFeedbackFocusComplete,
 }: DiffPaneProps): JSX.Element {
   return (
     <div
@@ -661,6 +694,8 @@ function DiffPane({
           feedbackItems={feedbackItems?.filter(
             (fi) => fi.filePath === file.path
           )}
+          focusedFeedbackItemId={focusedFeedbackItemId}
+          onFeedbackFocusComplete={onFeedbackFocusComplete}
         />
       ))}
     </div>
@@ -691,6 +726,8 @@ type FileDiffSectionProps = {
   onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
+  focusedFeedbackItemId?: number | null;
+  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
 };
 
 function FileDiffSection({
@@ -712,6 +749,8 @@ function FileDiffSection({
   onUpdateDraft,
   onStartReview,
   feedbackItems,
+  focusedFeedbackItemId,
+  onFeedbackFocusComplete,
 }: FileDiffSectionProps): JSX.Element {
   return (
     <div ref={setRef} className="rounded-md border border-border/50">
@@ -770,6 +809,8 @@ function FileDiffSection({
               onUpdateDraft={onUpdateDraft}
               onStartReview={onStartReview}
               feedbackItems={feedbackItems}
+              focusedFeedbackItemId={focusedFeedbackItemId}
+              onFeedbackFocusComplete={onFeedbackFocusComplete}
             />
           </motion.div>
         )}
@@ -799,6 +840,8 @@ type FileDiffContentProps = {
   onUpdateDraft?: (id: string, comment: string) => void;
   onStartReview?: () => void;
   feedbackItems?: ReviewFeedbackItem[];
+  focusedFeedbackItemId?: number | null;
+  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
 };
 
 function FileDiffContent({
@@ -817,6 +860,8 @@ function FileDiffContent({
   onUpdateDraft,
   onStartReview,
   feedbackItems,
+  focusedFeedbackItemId,
+  onFeedbackFocusComplete,
 }: FileDiffContentProps): JSX.Element {
   const [forceLoad, setForceLoad] = useState(false);
   const { data: fileDiffData, isLoading: fileDiffLoading } = useAgentFileDiff(
@@ -888,6 +933,8 @@ function FileDiffContent({
       onUpdateDraft={onUpdateDraft}
       onStartReview={onStartReview}
       feedbackItems={feedbackItems}
+      focusedFeedbackItemId={focusedFeedbackItemId}
+      onFeedbackFocusComplete={onFeedbackFocusComplete}
     />
   );
 }
