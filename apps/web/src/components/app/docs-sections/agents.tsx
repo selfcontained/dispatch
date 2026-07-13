@@ -121,9 +121,10 @@ export function AgentsContent() {
       <Section>
         <H3>Starting and stopping</H3>
         <P>
-          Press the play button to resume a stopped agent. Press the stop button
-          to terminate it. Click an agent card to attach your terminal to its
-          session, or click again to detach without stopping.
+          Press the play button to resume a stopped agent. Press the pause
+          button to stop it — a confirmation dialog appears first, and you can
+          resume the session later. Click an agent card to attach your terminal
+          to its session, or click again to detach without stopping.
         </P>
       </Section>
 
