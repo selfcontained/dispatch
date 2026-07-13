@@ -1,6 +1,5 @@
 import {
   type ChangeEvent,
-  type ClipboardEvent,
   useCallback,
   useEffect,
   useId,
@@ -10,25 +9,22 @@ import {
 import {
   ChevronLeft,
   Clipboard,
-  FileText,
   Link2,
   Paperclip,
   Plus,
   Upload,
-  X,
 } from "lucide-react";
 
 import {
-  type ClipboardSuggestion,
   STARTUP_FILE_ACCEPT,
-  createClipboardSuggestionFromText,
-  getClipboardFilesFromEvent,
-  getClipboardSuggestion,
   normalizeUrl,
-  startupFileExt,
   startupFileKey,
-  startupLinkLabel,
 } from "@/components/app/create-agent-dialog-clipboard";
+import {
+  ContextFileItem,
+  ContextLinkItem,
+} from "@/components/app/context-picker-items";
+import { useContextPickerClipboard } from "@/components/app/use-context-picker-clipboard";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -186,101 +182,19 @@ export function ContextPicker({
 
   const rootRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const clipboardRequestIdRef = useRef(0);
-  const clipboardPasteRef = useRef<HTMLInputElement>(null);
-  const pasteTooltipTimerRef = useRef<ReturnType<typeof setTimeout>>();
 
   const [linkDraft, setLinkDraft] = useState("");
-  const [checkingClipboard, setCheckingClipboard] = useState(false);
-  const [clipboardPasteMode, setClipboardPasteMode] = useState(false);
-  const [pasteTooltip, setPasteTooltip] = useState<string | null>(null);
-  const [clipboardReadFeedback, setClipboardReadFeedback] = useState<
-    string | null
-  >(null);
   const [addOpen, setAddOpen] = useState(false);
   const [addMode, setAddMode] = useState<"menu" | "link">("menu");
 
+  const clipboard = useContextPickerClipboard({
+    onAppendFiles,
+    onAddLink,
+    onClipboardText,
+  });
+  const { handlePaste: clipboardHandlePaste } = clipboard;
+
   const hasContextItems = files.length > 0 || links.length > 0;
-
-  const applyClipboardSuggestion = useCallback(
-    (suggestion: ClipboardSuggestion) => {
-      switch (suggestion.kind) {
-        case "image":
-        case "file":
-          onAppendFiles([suggestion.file]);
-          break;
-        case "url":
-          onAddLink(suggestion.url);
-          break;
-        case "text":
-          onClipboardText?.(suggestion.text);
-          break;
-      }
-    },
-    [onAppendFiles, onAddLink, onClipboardText]
-  );
-
-  const handleCheckClipboard = useCallback(() => {
-    setCheckingClipboard(true);
-    setClipboardReadFeedback(null);
-    const requestId = clipboardRequestIdRef.current + 1;
-    clipboardRequestIdRef.current = requestId;
-    void getClipboardSuggestion().then((result) => {
-      if (clipboardRequestIdRef.current !== requestId) return;
-      setCheckingClipboard(false);
-      if (result.suggestion) {
-        if (result.suggestion.kind === "text" && !onClipboardText) {
-          setClipboardReadFeedback("Nothing readable found on the clipboard.");
-        } else {
-          applyClipboardSuggestion(result.suggestion);
-        }
-        return;
-      }
-      if (result.status === "blocked" || result.status === "unsupported") {
-        setClipboardPasteMode(true);
-        requestAnimationFrame(() => clipboardPasteRef.current?.focus());
-      } else {
-        setClipboardReadFeedback("Nothing readable found on the clipboard.");
-      }
-    });
-  }, [applyClipboardSuggestion, onClipboardText]);
-
-  const handleClipboardPasteInput = useCallback(
-    (event: ClipboardEvent<HTMLInputElement>) => {
-      event.preventDefault();
-      const pastedFiles = getClipboardFilesFromEvent(event);
-      if (pastedFiles.length > 0) {
-        onAppendFiles(pastedFiles);
-        setClipboardPasteMode(false);
-        return;
-      }
-      const textSuggestion = createClipboardSuggestionFromText(
-        event.clipboardData.getData("text/plain")
-      );
-      if (textSuggestion?.kind === "url") {
-        applyClipboardSuggestion(textSuggestion);
-        setClipboardPasteMode(false);
-        return;
-      }
-      if (onClipboardText && textSuggestion?.kind === "text") {
-        onClipboardText(textSuggestion.text);
-        setClipboardPasteMode(false);
-        return;
-      }
-      clearTimeout(pasteTooltipTimerRef.current);
-      setPasteTooltip("No files or images found");
-      pasteTooltipTimerRef.current = setTimeout(
-        () => setPasteTooltip(null),
-        2500
-      );
-    },
-    [onAppendFiles, applyClipboardSuggestion, onClipboardText]
-  );
-
-  const handleClipboardPasteBlur = useCallback(() => {
-    setClipboardPasteMode(false);
-    setPasteTooltip(null);
-  }, []);
 
   const handleFileChange = useCallback(
     (event: ChangeEvent<HTMLInputElement>) => {
@@ -291,27 +205,13 @@ export function ContextPicker({
     [onAppendFiles]
   );
 
-  const handlePaste = useCallback(
-    (event: ClipboardEvent<HTMLElement>) => {
+  const handleRootPaste = useCallback(
+    (event: React.ClipboardEvent<HTMLElement>) => {
       if (rootRef.current && !rootRef.current.contains(event.target as Node))
         return;
-      const pastedFiles = getClipboardFilesFromEvent(event);
-      if (pastedFiles.length > 0) {
-        event.preventDefault();
-        onAppendFiles(pastedFiles);
-        setClipboardReadFeedback(null);
-        return;
-      }
-      const textSuggestion = createClipboardSuggestionFromText(
-        event.clipboardData.getData("text/plain")
-      );
-      if (textSuggestion?.kind === "url") {
-        event.preventDefault();
-        applyClipboardSuggestion(textSuggestion);
-        setClipboardReadFeedback(null);
-      }
+      clipboardHandlePaste(event);
     },
-    [onAppendFiles, applyClipboardSuggestion]
+    [clipboardHandlePaste]
   );
 
   const handleAddOpenChange = useCallback((next: boolean) => {
@@ -353,6 +253,25 @@ export function ContextPicker({
     setAddOpen(false);
   }, [normalizedLinkDraft, onAddLink]);
 
+  const popoverContent =
+    addMode === "menu" ? (
+      <AddContextMenu
+        onAddFile={handleAddFileFromMenu}
+        onAddLink={handleAddLinkFromMenu}
+      />
+    ) : (
+      <AddContextLinkForm
+        value={linkDraft}
+        onChange={setLinkDraft}
+        onSubmit={handleAddLinkSubmit}
+        onBack={handleAddLinkBack}
+        isValid={linkDraftIsValid}
+        inputId={linkInputId}
+        errorId={linkErrorId}
+        testIdPrefix={testIdPrefix}
+      />
+    );
+
   return (
     <div
       ref={rootRef}
@@ -363,7 +282,7 @@ export function ContextPicker({
           : "border-border/70",
         className
       )}
-      onPaste={handlePaste}
+      onPaste={handleRootPaste}
       {...(testIdPrefix ? { "data-testid": testIdPrefix } : {})}
     >
       <div className="flex items-start justify-between gap-2">
@@ -374,22 +293,22 @@ export function ContextPicker({
           </div>
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
-        {clipboardPasteMode ? (
+        {clipboard.clipboardPasteMode ? (
           <div className="relative shrink-0">
             <input
-              ref={clipboardPasteRef}
+              ref={clipboard.clipboardPasteRef}
               type="text"
               placeholder="Paste here"
               className="h-7 w-32 rounded-md border border-border/70 bg-background/40 px-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onPaste={handleClipboardPasteInput}
-              onBlur={handleClipboardPasteBlur}
+              onPaste={clipboard.handleClipboardPasteInput}
+              onBlur={clipboard.handleClipboardPasteBlur}
             />
-            {pasteTooltip ? (
+            {clipboard.pasteTooltip ? (
               <div
                 className="absolute right-0 top-full z-50 mt-1.5 whitespace-nowrap rounded-md border bg-popover px-2.5 py-1.5 text-xs text-popover-foreground shadow-md animate-in fade-in-0 zoom-in-95"
                 role="status"
               >
-                {pasteTooltip}
+                {clipboard.pasteTooltip}
               </div>
             ) : null}
           </div>
@@ -399,13 +318,13 @@ export function ContextPicker({
             variant="default"
             size="sm"
             className="h-7 shrink-0 gap-1 px-2 text-xs"
-            onClick={handleCheckClipboard}
-            disabled={checkingClipboard}
+            onClick={clipboard.handleCheckClipboard}
+            disabled={clipboard.checkingClipboard}
             {...(testIdPrefix
               ? { "data-testid": `${testIdPrefix}-clipboard-action` }
               : {})}
           >
-            {checkingClipboard ? (
+            {clipboard.checkingClipboard ? (
               <ActivityBars size={12} className="mr-0.5" />
             ) : (
               <Clipboard className="h-3 w-3" />
@@ -414,7 +333,7 @@ export function ContextPicker({
           </Button>
         )}
       </div>
-      {clipboardReadFeedback ? (
+      {clipboard.clipboardReadFeedback ? (
         <p
           className="text-xs text-muted-foreground"
           role="status"
@@ -423,7 +342,7 @@ export function ContextPicker({
             ? { "data-testid": `${testIdPrefix}-clipboard-feedback` }
             : {})}
         >
-          {clipboardReadFeedback}
+          {clipboard.clipboardReadFeedback}
         </p>
       ) : null}
       <input
@@ -469,97 +388,26 @@ export function ContextPicker({
             </button>
           </PopoverTrigger>
           <PopoverContent align="start" className="w-72 p-1">
-            {addMode === "menu" ? (
-              <AddContextMenu
-                onAddFile={handleAddFileFromMenu}
-                onAddLink={handleAddLinkFromMenu}
-              />
-            ) : (
-              <AddContextLinkForm
-                value={linkDraft}
-                onChange={setLinkDraft}
-                onSubmit={handleAddLinkSubmit}
-                onBack={handleAddLinkBack}
-                isValid={linkDraftIsValid}
-                inputId={linkInputId}
-                errorId={linkErrorId}
-                testIdPrefix={testIdPrefix}
-              />
-            )}
+            {popoverContent}
           </PopoverContent>
         </Popover>
       ) : (
         <div className="flex flex-wrap items-start gap-3">
-          {files.map((file) => {
-            const key = startupFileKey(file);
-            const preview = filePreviewsRef.current.get(key);
-            return (
-              <div key={key} className="group flex w-12 flex-col gap-0.5">
-                <div className="relative h-12 w-12 overflow-hidden rounded-md border border-border/70 bg-muted/40">
-                  {preview ? (
-                    <img
-                      src={preview}
-                      alt=""
-                      className="h-full w-full object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-full w-full flex-col items-center justify-center text-muted-foreground">
-                      <FileText className="h-3.5 w-3.5" />
-                      <span className="text-[8px] font-medium tracking-wide">
-                        {startupFileExt(file.name)}
-                      </span>
-                    </div>
-                  )}
-                  <button
-                    type="button"
-                    className="absolute -right-2 -top-2 flex h-10 w-10 items-start justify-end rounded-full p-2 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
-                    onClick={() => onRemoveFile(file)}
-                    aria-label={`Remove ${file.name}`}
-                  >
-                    <span className="rounded-full border border-border/70 bg-background p-0.5">
-                      <X className="h-2.5 w-2.5" />
-                    </span>
-                  </button>
-                </div>
-                <span
-                  className="w-full truncate text-[8px] leading-tight text-muted-foreground"
-                  title={file.name}
-                >
-                  {file.name}
-                </span>
-              </div>
-            );
-          })}
-          {links.map((link) => {
-            const { host, rest } = startupLinkLabel(link);
-            return (
-              <div
-                key={link}
-                className="group relative flex h-12 max-w-[180px] flex-col justify-center gap-0.5 rounded-md border border-border/70 bg-muted/40 px-2 pr-7 leading-tight"
-                title={link}
-              >
-                <div className="flex items-center gap-1 text-[10px] text-foreground">
-                  <Link2 className="h-2.5 w-2.5 shrink-0 text-muted-foreground" />
-                  <span className="truncate font-medium">{host}</span>
-                </div>
-                {rest ? (
-                  <span className="truncate text-[9px] text-muted-foreground">
-                    {rest}
-                  </span>
-                ) : null}
-                <button
-                  type="button"
-                  className="absolute -right-2 -top-2 flex h-10 w-10 items-start justify-end rounded-full p-2 text-muted-foreground transition-opacity hover:text-foreground focus:opacity-100 group-hover:opacity-100"
-                  onClick={() => onRemoveLink(link)}
-                  aria-label={`Remove ${link}`}
-                >
-                  <span className="rounded-full border border-border/70 bg-background p-0.5">
-                    <X className="h-2.5 w-2.5" />
-                  </span>
-                </button>
-              </div>
-            );
-          })}
+          {files.map((file) => (
+            <ContextFileItem
+              key={startupFileKey(file)}
+              file={file}
+              preview={filePreviewsRef.current.get(startupFileKey(file))}
+              onRemove={() => onRemoveFile(file)}
+            />
+          ))}
+          {links.map((link) => (
+            <ContextLinkItem
+              key={link}
+              link={link}
+              onRemove={() => onRemoveLink(link)}
+            />
+          ))}
           <Popover open={addOpen} onOpenChange={handleAddOpenChange}>
             <PopoverTrigger asChild>
               <button
@@ -583,23 +431,7 @@ export function ContextPicker({
               </button>
             </PopoverTrigger>
             <PopoverContent align="start" className="w-72 p-1">
-              {addMode === "menu" ? (
-                <AddContextMenu
-                  onAddFile={handleAddFileFromMenu}
-                  onAddLink={handleAddLinkFromMenu}
-                />
-              ) : (
-                <AddContextLinkForm
-                  value={linkDraft}
-                  onChange={setLinkDraft}
-                  onSubmit={handleAddLinkSubmit}
-                  onBack={handleAddLinkBack}
-                  isValid={linkDraftIsValid}
-                  inputId={linkInputId}
-                  errorId={linkErrorId}
-                  testIdPrefix={testIdPrefix}
-                />
-              )}
+              {popoverContent}
             </PopoverContent>
           </Popover>
         </div>
