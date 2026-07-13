@@ -320,7 +320,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
     async resolveReviewFeedback(
       agentId: string,
       itemId: number,
-      resolution: "fixed" | "ignored" | "wont_fix",
+      resolution: "fixed" | "dismissed",
       opts: { note?: string | null } = {}
     ): Promise<{
       item: {

@@ -292,7 +292,7 @@ export function registerPersonaInteractionTools(
       "dispatch_review_resolve",
       {
         description:
-          "Resolve a human review feedback item. Marks the item as fixed, dismissed, or wont_fix. The parent review status is automatically recomputed (open → partially_resolved → resolved).",
+          "Resolve a human review feedback item. Marks the item as fixed or dismissed. The parent review status is automatically recomputed (open → partially_resolved → resolved).",
         inputSchema: {
           itemId: z
             .number()
@@ -300,16 +300,16 @@ export function registerPersonaInteractionTools(
             .positive()
             .describe("The ID of the review feedback item to resolve."),
           resolution: z
-            .enum(["fixed", "ignored", "wont_fix"])
+            .enum(["fixed", "dismissed"])
             .describe(
-              "Resolution type: 'fixed' if addressed, 'ignored' if not applicable, 'wont_fix' if acknowledged but intentionally left."
+              "Resolution type: 'fixed' if addressed, 'dismissed' if closing without a change."
             ),
           note: z
             .string()
             .max(10_000)
             .optional()
             .describe(
-              "Optional note explaining the resolution. Encouraged for 'dismissed' and 'wont_fix'."
+              "Optional note explaining the resolution. Encouraged when dismissed."
             ),
         },
       },
@@ -347,7 +347,7 @@ export function registerPersonaInteractionTools(
       "dispatch_review_add_message",
       {
         description:
-          "Add a message to a review feedback item's thread. Use this to reply to a human review comment — for example, to ask a clarifying question or explain your approach before resolving.",
+          "Add a concise message to a review feedback item's thread. Use this to ask a clarifying question or explain your approach before resolving. Keep it to 1–3 short sentences (maximum 1,200 characters).",
         inputSchema: {
           itemId: z
             .number()
@@ -359,8 +359,10 @@ export function registerPersonaInteractionTools(
           body: z
             .string()
             .min(1)
-            .max(50_000)
-            .describe("The message body (plain text or markdown)."),
+            .max(1_200)
+            .describe(
+              "A brief plain-text or Markdown reply (1–3 short sentences)."
+            ),
         },
       },
       async (args) => {

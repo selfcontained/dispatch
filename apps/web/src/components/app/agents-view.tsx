@@ -368,16 +368,20 @@ export function AgentsView({
   }, []);
 
   const handleNavigateToFile = useCallback(
-    (filePath: string, lineStart: number | null) => {
+    (filePath: string, lineStart: number | null, feedbackItemId?: number) => {
       if (!focusedAgentId) return;
       const params = new URLSearchParams();
       params.set("file", filePath);
       if (lineStart != null) params.set("line", String(lineStart));
+      if (feedbackItemId != null) {
+        params.set("feedback", String(feedbackItemId));
+      }
       navTo(`/agents/${focusedAgentId}/changes?${params.toString()}`, {
         replace: true,
       });
+      if (isMobile) setMobileMediaOpen(false);
     },
-    [focusedAgentId, navTo]
+    [focusedAgentId, isMobile, navTo, setMobileMediaOpen]
   );
 
   const handleReviewSubmitted = useCallback(

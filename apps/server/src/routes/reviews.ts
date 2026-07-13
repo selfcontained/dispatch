@@ -208,10 +208,10 @@ export async function registerReviewRoutes(
         "2. Read each feedback item. For each one, decide whether to fix it, push back, or dismiss it."
       );
       notifLines.push(
-        "3. If you have a question or want to explain your approach before acting, use dispatch_review_add_message to reply on that item's thread."
+        "3. If you have a question or need to explain your approach, use dispatch_review_add_message to reply on that item's thread. Keep replies to 1–3 short sentences (max 1,200 characters)."
       );
       notifLines.push(
-        "4. After addressing an item (or deciding not to), call dispatch_review_resolve to mark it as fixed, ignored, or wont_fix. Include a note when dismissing so the reviewer understands why."
+        "4. After addressing an item (or deciding not to), call dispatch_review_resolve to mark it as fixed or dismissed. Include a brief note when dismissing so the reviewer understands why."
       );
       notifLines.push(
         "5. Work through all items — the review status updates automatically as you resolve each one."
@@ -246,13 +246,14 @@ export async function registerReviewRoutes(
         note?: unknown;
       } | null;
 
-      const validResolutions = ["fixed", "ignored", "wont_fix"] as const;
+      const validResolutions = ["fixed", "dismissed"] as const;
       if (
-        typeof body?.resolution !== "string" ||
-        !(validResolutions as readonly string[]).includes(body.resolution)
+        body?.resolution !== null &&
+        (typeof body?.resolution !== "string" ||
+          !(validResolutions as readonly string[]).includes(body.resolution))
       ) {
         return reply.code(400).send({
-          error: "resolution must be one of: fixed, ignored, wont_fix",
+          error: "resolution must be fixed, dismissed, or null",
         });
       }
 
@@ -270,13 +271,20 @@ export async function registerReviewRoutes(
         const agent = await deps.agentManager.getAgent(agentId);
         if (!agent) return reply.code(404).send({ error: "Agent not found." });
 
-        const result = await reviewQueries.resolveReviewFeedbackItem(
-          deps.pool,
-          itemId,
-          agentId,
-          body.resolution as "fixed" | "ignored" | "wont_fix",
-          { note }
-        );
+        const result =
+          body.resolution === null
+            ? await reviewQueries.reopenReviewFeedbackItem(
+                deps.pool,
+                itemId,
+                agentId
+              )
+            : await reviewQueries.resolveReviewFeedbackItem(
+                deps.pool,
+                itemId,
+                agentId,
+                body.resolution as "fixed" | "dismissed",
+                { note }
+              );
         if (!result) {
           return reply.code(404).send({ error: "Feedback item not found." });
         }
@@ -346,6 +354,20 @@ export async function registerReviewRoutes(
           agentId,
           feedbackItemId: itemId,
         });
+
+        try {
+          await deps.sendAgentPrompt(
+            agentId,
+            [
+              "--- DISPATCH: Review Thread Reply ---",
+              `Feedback item #${itemId}: ${body.body.trim()}`,
+              "Reply only if useful. Keep any reply to 1–3 short sentences (max 1,200 characters).",
+              "--- END ---",
+            ].join("\n")
+          );
+        } catch {
+          // tmux delivery is best-effort
+        }
 
         return { message: result.message };
       } catch (error) {

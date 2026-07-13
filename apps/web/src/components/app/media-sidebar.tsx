@@ -60,7 +60,11 @@ type MediaSidebarSharedProps = {
   streamUrl: string | null;
   unseenMediaCount: number;
   onUploadFile?: (agentId: string, file: File) => Promise<void>;
-  onNavigateToFile?: (filePath: string, lineStart: number | null) => void;
+  onNavigateToFile?: (
+    filePath: string,
+    lineStart: number | null,
+    feedbackItemId?: number
+  ) => void;
 };
 
 type MediaSidebarProps = MediaSidebarSharedProps & {

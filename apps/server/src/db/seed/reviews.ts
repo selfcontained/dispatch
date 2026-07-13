@@ -168,7 +168,7 @@ const REVIEWS: ReviewSeed[] = [
         lineEnd: 60,
         diffSnapshot: null,
         status: "resolved",
-        resolution: "wont_fix",
+        resolution: "dismissed",
         resolutionNote:
           "Response shape matches the existing pattern used by other endpoints — changing it would be a breaking change.",
         messages: [

@@ -242,7 +242,7 @@ export async function resolveReviewFeedbackItem(
   pool: Pool,
   itemId: number,
   agentId: string,
-  resolution: "fixed" | "ignored" | "wont_fix",
+  resolution: "fixed" | "dismissed",
   opts: { note?: string | null; resolvedBy?: string | null } = {}
 ): Promise<{
   item: ReviewFeedbackItemRecord;
@@ -310,6 +310,70 @@ export async function resolveReviewFeedbackItem(
   }
 }
 
+export async function reopenReviewFeedbackItem(
+  pool: Pool,
+  itemId: number,
+  agentId: string
+): Promise<{
+  item: ReviewFeedbackItemRecord;
+  reviewId: number;
+  reviewStatus: string;
+} | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const itemResult = await client.query<ReviewFeedbackItemRecord>(
+      `UPDATE review_feedback_items fi
+       SET status = 'open', resolution = NULL, resolution_note = NULL,
+           resolved_by = NULL, resolved_at = NULL, updated_at = NOW()
+       FROM reviews r
+       WHERE fi.id = $1 AND fi.review_id = r.id
+         AND (r.agent_id = $2 OR r.assigned_agent_id = $2)
+       RETURNING
+         fi.id, fi.review_id AS "reviewId", fi.file_path AS "filePath",
+         fi.line_start AS "lineStart", fi.line_end AS "lineEnd",
+         fi.diff_snapshot AS "diffSnapshot", fi.base_ref AS "baseRef",
+         fi.status, fi.resolution, fi.resolution_note AS "resolutionNote",
+         fi.resolved_by AS "resolvedBy", fi.resolved_at AS "resolvedAt",
+         fi.created_at AS "createdAt", fi.updated_at AS "updatedAt"`,
+      [itemId, agentId]
+    );
+    const item = itemResult.rows[0];
+    if (!item) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const countsResult = await client.query<{
+      total: number;
+      resolved: number;
+    }>(
+      `SELECT COUNT(*)::int AS total,
+              COUNT(*) FILTER (WHERE status = 'resolved')::int AS resolved
+       FROM review_feedback_items WHERE review_id = $1`,
+      [item.reviewId]
+    );
+    const { total, resolved } = countsResult.rows[0]!;
+    const reviewStatus =
+      resolved === total
+        ? "resolved"
+        : resolved > 0
+          ? "partially_resolved"
+          : "open";
+    await client.query(
+      `UPDATE reviews SET status = $1, updated_at = NOW() WHERE id = $2`,
+      [reviewStatus, item.reviewId]
+    );
+    await client.query("COMMIT");
+    return { item, reviewId: item.reviewId, reviewStatus };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}
+
 export async function addThreadMessage(
   pool: Pool,
   itemId: number,
@@ -318,6 +382,11 @@ export async function addThreadMessage(
   body: string,
   authorAgentId?: string | null
 ): Promise<{ message: ReviewThreadMessageRecord; reviewId: number } | null> {
+  if (authorType === "agent" && body.length > 1_200) {
+    throw new Error(
+      "Agent review thread replies must be 1,200 characters or fewer."
+    );
+  }
   const ownership = await pool.query<{ reviewId: number }>(
     `SELECT fi.review_id AS "reviewId"
      FROM review_feedback_items fi
