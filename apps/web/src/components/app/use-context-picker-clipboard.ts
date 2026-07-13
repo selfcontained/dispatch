@@ -129,14 +129,14 @@ export function useContextPickerClipboard({
   );
 
   return {
-    checkingClipboard,
-    clipboardPasteMode,
+    checking: checkingClipboard,
+    pasteMode: clipboardPasteMode,
     pasteTooltip,
-    clipboardReadFeedback,
-    clipboardPasteRef,
-    handleCheckClipboard,
-    handleClipboardPasteInput,
-    handleClipboardPasteBlur,
+    readFeedback: clipboardReadFeedback,
+    pasteRef: clipboardPasteRef,
+    handleCheck: handleCheckClipboard,
+    handlePasteInput: handleClipboardPasteInput,
+    handlePasteBlur: handleClipboardPasteBlur,
     handlePaste,
   };
 }

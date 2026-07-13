@@ -293,15 +293,15 @@ export function ContextPicker({
           </div>
           <p className="text-xs text-muted-foreground">{description}</p>
         </div>
-        {clipboard.clipboardPasteMode ? (
+        {clipboard.pasteMode ? (
           <div className="relative shrink-0">
             <input
-              ref={clipboard.clipboardPasteRef}
+              ref={clipboard.pasteRef}
               type="text"
               placeholder="Paste here"
               className="h-7 w-32 rounded-md border border-border/70 bg-background/40 px-2 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
-              onPaste={clipboard.handleClipboardPasteInput}
-              onBlur={clipboard.handleClipboardPasteBlur}
+              onPaste={clipboard.handlePasteInput}
+              onBlur={clipboard.handlePasteBlur}
             />
             {clipboard.pasteTooltip ? (
               <div
@@ -318,13 +318,13 @@ export function ContextPicker({
             variant="default"
             size="sm"
             className="h-7 shrink-0 gap-1 px-2 text-xs"
-            onClick={clipboard.handleCheckClipboard}
-            disabled={clipboard.checkingClipboard}
+            onClick={clipboard.handleCheck}
+            disabled={clipboard.checking}
             {...(testIdPrefix
               ? { "data-testid": `${testIdPrefix}-clipboard-action` }
               : {})}
           >
-            {clipboard.checkingClipboard ? (
+            {clipboard.checking ? (
               <ActivityBars size={12} className="mr-0.5" />
             ) : (
               <Clipboard className="h-3 w-3" />
@@ -333,7 +333,7 @@ export function ContextPicker({
           </Button>
         )}
       </div>
-      {clipboard.clipboardReadFeedback ? (
+      {clipboard.readFeedback ? (
         <p
           className="text-xs text-muted-foreground"
           role="status"
@@ -342,7 +342,7 @@ export function ContextPicker({
             ? { "data-testid": `${testIdPrefix}-clipboard-feedback` }
             : {})}
         >
-          {clipboard.clipboardReadFeedback}
+          {clipboard.readFeedback}
         </p>
       ) : null}
       <input
