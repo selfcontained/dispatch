@@ -78,7 +78,7 @@ export const tips: Tip[] = [
   {
     id: "uncommitted-diff",
     title: "Filter Uncommitted Changes",
-    body: "Choose whether Changes includes uncommitted files.",
+    body: "Choose whether Changes includes uncommitted work.",
     docsSection: "agents#split-tabs",
     since: "0.28.2",
     surfaces: ["inline"],

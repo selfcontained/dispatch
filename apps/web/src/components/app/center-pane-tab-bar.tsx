@@ -17,6 +17,15 @@ const TABS: TabDef[] = [
   { id: "changes", label: "Changes" },
 ];
 
+const compactDiffCountFormatter = new Intl.NumberFormat("en-US", {
+  notation: "compact",
+  maximumSignificantDigits: 2,
+});
+
+export function formatDiffCount(count: number): string {
+  return compactDiffCountFormatter.format(count).toLowerCase();
+}
+
 type CenterPaneTabBarProps = {
   activeTab: CenterTab;
   onTabChange: (tab: CenterTab) => void;
@@ -36,6 +45,9 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
 }: CenterPaneTabBarProps): JSX.Element {
   const hasChanges =
     diffStats && (diffStats.added > 0 || diffStats.deleted > 0);
+  const diffStatsLabel = diffStats
+    ? `${diffStats.added.toLocaleString("en-US")} additions, ${diffStats.deleted.toLocaleString("en-US")} deletions`
+    : undefined;
 
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
@@ -67,7 +79,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             onDragStart={(e) => handleDragStart(e, tab.id)}
             className={cn(
               "relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-              tab.id === "changes" && "w-36 pr-[4.5rem]",
+              tab.id === "changes" && "sm:w-36",
               activeTab === tab.id
                 ? "text-foreground"
                 : "cursor-grab text-muted-foreground hover:text-foreground/80 active:cursor-grabbing"
@@ -85,16 +97,22 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
               {activeTab === tab.id && !isSplit ? (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-foreground" />
               ) : null}
-            </span>
-            {tab.id === "changes" && hasChanges ? (
-              <span className="absolute right-3 inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-1.5 py-0 font-mono text-[10px] font-normal normal-case tracking-normal">
-                <span className="text-status-working">+{diffStats.added}</span>
-                <span className="text-status-blocked">
-                  {"−"}
-                  {diffStats.deleted}
+              {tab.id === "changes" && hasChanges ? (
+                <span
+                  aria-label={diffStatsLabel}
+                  title={diffStatsLabel}
+                  className="absolute left-full top-0 ml-1.5 hidden items-center gap-1 whitespace-nowrap rounded-full border border-border/50 bg-muted/30 px-1.5 py-0 font-mono text-[10px] font-normal normal-case tracking-normal sm:inline-flex"
+                >
+                  <span aria-hidden="true" className="text-status-working">
+                    +{formatDiffCount(diffStats.added)}
+                  </span>
+                  <span aria-hidden="true" className="text-status-blocked">
+                    {"−"}
+                    {formatDiffCount(diffStats.deleted)}
+                  </span>
                 </span>
-              </span>
-            ) : null}
+              ) : null}
+            </span>
           </button>
         );
 
