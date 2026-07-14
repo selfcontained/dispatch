@@ -177,7 +177,7 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>dispatch_review_resolve</Code> — resolve a review feedback
-            item as fixed, ignored, or wont_fix
+            item as fixed or dismissed
           </li>
           <li>
             <Code>dispatch_review_add_message</Code> — reply to a review

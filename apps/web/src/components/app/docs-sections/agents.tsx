@@ -205,9 +205,15 @@ export function AgentsContent() {
           <strong>Submit review</strong> button. Keep adding draft comments
           across different files, then submit them all at once with an optional
           summary. Each comment becomes a feedback item the agent can see via
-          its <Code>dispatch_review_list_feedback</Code> tool. The agent can
-          reply to individual items, resolve them, or ask clarifying questions —
-          all visible in the <strong>Reviews</strong> tab of the media sidebar.
+          its <Code>dispatch_review_list_feedback</Code> tool.
+        </P>
+        <P>
+          Feedback threads are interactive from both sides. The agent can reply,
+          resolve items as <strong>fixed</strong> or <strong>dismissed</strong>,
+          or ask clarifying questions via MCP tools. You can do the same from
+          the UI — reply to a thread, mark an item resolved, or reopen it —
+          either inline in the diff or from the <strong>Reviews</strong> tab of
+          the media sidebar.
         </P>
       </Section>
 
