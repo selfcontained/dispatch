@@ -8,6 +8,8 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 
+import { addThreadMessage } from "../src/agents/reviews.js";
+import { AGENT_REVIEW_REPLY_MAX_CHARS } from "../src/shared/review-limits.js";
 import { useInjectApp } from "./helpers/inject-app.js";
 
 const ctx = useInjectApp();
@@ -282,6 +284,43 @@ describe("POST /api/v1/agents/:id/reviews/items/:itemId/messages", () => {
     });
 
     expect(response.statusCode).toBe(200);
+  });
+
+  it("limits new agent replies to 600 characters without limiting humans", async () => {
+    const review = await createReview(AGENT_ID, [{ comment: "Fix this" }]);
+    const itemId = review.items[0].id;
+
+    await expect(
+      addThreadMessage(
+        ctx.pool,
+        itemId,
+        AGENT_ID,
+        "agent",
+        "a".repeat(AGENT_REVIEW_REPLY_MAX_CHARS),
+        AGENT_ID
+      )
+    ).resolves.not.toBeNull();
+
+    await expect(
+      addThreadMessage(
+        ctx.pool,
+        itemId,
+        AGENT_ID,
+        "agent",
+        "a".repeat(AGENT_REVIEW_REPLY_MAX_CHARS + 1),
+        AGENT_ID
+      )
+    ).rejects.toThrow("600 characters or fewer");
+
+    await expect(
+      addThreadMessage(
+        ctx.pool,
+        itemId,
+        AGENT_ID,
+        "human",
+        "h".repeat(AGENT_REVIEW_REPLY_MAX_CHARS + 1)
+      )
+    ).resolves.not.toBeNull();
   });
 });
 
