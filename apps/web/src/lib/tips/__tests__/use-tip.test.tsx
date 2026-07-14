@@ -10,7 +10,7 @@ import {
 } from "../tips-state";
 import { useTip } from "../use-tip";
 
-vi.mock("@/lib/version", () => ({ BUILD_VERSION: "0.23.0" }));
+vi.mock("@/lib/version", () => ({ BUILD_VERSION: "0.29.0" }));
 
 function renderUseTip(id: string, store: ReturnType<typeof createStore>) {
   return renderHook(() => useTip(id), {
@@ -48,6 +48,12 @@ describe("useTip", () => {
   it("shouldShowInline is false when lastSeenVersion is null (first-time user)", () => {
     const { result } = renderUseTip("personas", store);
     expect(result.current.shouldShowInline).toBe(false);
+  });
+
+  it("shows a tip added at the user's version on any newer build", () => {
+    store.set(lastSeenVersionAtom, "0.28.2");
+    const { result } = renderUseTip("uncommitted-diff", store);
+    expect(result.current.shouldShowInline).toBe(true);
   });
 
   it("shouldShowAmbient is true for undismissed tips regardless of version", () => {

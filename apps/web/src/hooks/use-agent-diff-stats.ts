@@ -1,13 +1,18 @@
 import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useAtomValue } from "jotai";
 
 import type { DiffStats } from "@/components/app/types";
 import { api } from "@/lib/api";
+import { diffIncludeUncommittedAtom } from "@/lib/store";
 
 type DiffStatsResponse = { diffStats: DiffStats | null };
 
-export function diffStatsQueryKey(agentId: string): [string, string] {
-  return ["agent-diff", agentId];
+export function diffStatsQueryKey(
+  agentId: string,
+  includeUncommitted: boolean
+): [string, string, boolean] {
+  return ["agent-diff", agentId, includeUncommitted];
 }
 
 /**
@@ -30,12 +35,13 @@ export function useAgentDiffStats(
   refresh: () => void;
 } {
   const queryClient = useQueryClient();
+  const includeUncommitted = useAtomValue(diffIncludeUncommittedAtom);
 
   const query = useQuery<DiffStats | null>({
-    queryKey: diffStatsQueryKey(agentId),
+    queryKey: diffStatsQueryKey(agentId, includeUncommitted),
     queryFn: async () => {
       const payload = await api<DiffStatsResponse>(
-        `/api/v1/agents/${agentId}/diff-stats`
+        `/api/v1/agents/${agentId}/diff-stats?includeUncommitted=${includeUncommitted}`
       );
       return payload.diffStats;
     },
@@ -47,9 +53,9 @@ export function useAgentDiffStats(
 
   const refresh = useCallback(() => {
     void queryClient.invalidateQueries({
-      queryKey: diffStatsQueryKey(agentId),
+      queryKey: diffStatsQueryKey(agentId, includeUncommitted),
     });
-  }, [agentId, queryClient]);
+  }, [agentId, includeUncommitted, queryClient]);
 
   return { diffStats: query.data, refresh };
 }

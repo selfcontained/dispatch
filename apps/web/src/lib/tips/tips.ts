@@ -76,6 +76,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "uncommitted-diff",
+    title: "Filter Uncommitted Changes",
+    body: "Choose whether Changes includes uncommitted work.",
+    docsSection: "agents#split-tabs",
+    since: "0.28.2",
+    surfaces: ["inline"],
+  },
+  {
     id: "split-tabs",
     title: "Split Tabs",
     body: "Drag the Changes tab to the left or right side of the center pane to compare the diff beside the live terminal. Use the split handle to resize or unsplit.",

@@ -362,6 +362,37 @@ describe("getAgentDiff stats consistency", () => {
     expect(file.added).toBe(2500);
     expect(file.deleted).toBe(3);
   });
+
+  it("uses committed-only ranges and omits untracked files when requested", async () => {
+    await writeFile(path.join(tmpDir, "uncommitted.ts"), "not committed\n");
+    const committedDiff = generateDiffLines("committed.ts", 2);
+    const runner = vi.fn(
+      makeMockRunner(
+        "2\t0\tcommitted.ts",
+        "A\tcommitted.ts",
+        committedDiff,
+        "uncommitted.ts"
+      )
+    );
+
+    const result = await getAgentDiff(tmpDir, BASE_REF, runner, {
+      includeUncommitted: false,
+    });
+
+    expect(result!.files.map((file) => file.path)).toEqual(["committed.ts"]);
+    expect(
+      runner.mock.calls
+        .map(([, args]) => args.join(" "))
+        .filter((args) => args.includes(" diff "))
+    ).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining(`diff ${MERGE_BASE_SHA} HEAD`),
+      ])
+    );
+    expect(
+      runner.mock.calls.some(([, args]) => args.includes("ls-files"))
+    ).toBe(false);
+  });
 });
 
 describe("getAgentFileDiff (force load)", () => {
@@ -430,6 +461,28 @@ describe("getAgentFileDiff (force load)", () => {
       expect(result!.added).toBe(2);
       expect(result!.diff).toContain("+hello");
       expect(result!.diff).toContain("+world");
+    } finally {
+      await rm(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not force-load an untracked file in committed-only mode", async () => {
+    const tmpDir = await mkdtemp(
+      path.join(os.tmpdir(), "agent-diff-file-committed-test-")
+    );
+    try {
+      await writeFile(path.join(tmpDir, "new.ts"), "uncommitted\n");
+      const runner = makeMockRunner("", "", "");
+
+      const result = await getAgentFileDiff(
+        tmpDir,
+        BASE_REF,
+        "new.ts",
+        runner,
+        { includeUncommitted: false }
+      );
+
+      expect(result).toBeNull();
     } finally {
       await rm(tmpDir, { recursive: true, force: true });
     }

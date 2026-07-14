@@ -717,8 +717,8 @@ export function AgentsView({
                   ) : null}
                 </div>
                 <div className="flex items-center justify-end gap-1">
-                  {changesMatch && !isMobile && !isSplit ? (
-                    <ChangesSettingsPopover />
+                  {changesMatch && !isSplit ? (
+                    <ChangesSettingsPopover isMobile={isMobile} />
                   ) : null}
                   {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
                     <Button

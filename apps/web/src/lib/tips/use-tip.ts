@@ -19,15 +19,18 @@ export function useTip(id: string) {
   const lastSeenVersion = useAtomValue(lastSeenVersionAtom);
 
   const isDismissed = dismissed.includes(id);
+  const isInReleaseWindow =
+    tip !== null && lastSeenVersion !== null
+      ? isVersionNewer(BUILD_VERSION, tip.since) &&
+        !isVersionNewer(lastSeenVersion, tip.since)
+      : false;
 
   const shouldShowInline =
     tip !== null &&
     enabled &&
     !isDismissed &&
     tip.surfaces.includes("inline") &&
-    lastSeenVersion !== null &&
-    isVersionNewer(tip.since, lastSeenVersion) &&
-    !isVersionNewer(tip.since, BUILD_VERSION);
+    isInReleaseWindow;
 
   const shouldShowAmbient =
     tip !== null && enabled && !isDismissed && tip.surfaces.includes("ambient");

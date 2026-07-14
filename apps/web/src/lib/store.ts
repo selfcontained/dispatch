@@ -104,6 +104,11 @@ export const diffIgnoreWhitespaceAtom = atomWithLocalStorage<boolean>(
   true
 );
 
+export const diffIncludeUncommittedAtom = atomWithLocalStorage<boolean>(
+  "dispatch:diffIncludeUncommitted",
+  true
+);
+
 export const diffFileTreeOpenAtom = atomWithLocalStorage<boolean>(
   "dispatch:diffFileTreeOpen",
   true

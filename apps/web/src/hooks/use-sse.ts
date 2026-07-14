@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import { useQueryClient } from "@tanstack/react-query";
+import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import {
   type Agent,
   type AuthState,
@@ -70,6 +70,24 @@ function patchAgentHasStream(
   );
 }
 
+export function applyDiffStateChanged(
+  queryClient: QueryClient,
+  agentId: string,
+  diffStats: DiffStats | null
+): void {
+  queryClient.setQueryData<DiffStats | null>(
+    diffStatsQueryKey(agentId, true),
+    diffStats
+  );
+  void queryClient.invalidateQueries({
+    queryKey: diffStatsQueryKey(agentId, false),
+    exact: true,
+  });
+  void queryClient.invalidateQueries({
+    queryKey: agentDiffQueryKey(agentId),
+  });
+}
+
 export function useSSE(authState: AuthState): void {
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -123,13 +141,11 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.diff_state_changed") {
-          queryClient.setQueryData<DiffStats | null>(
-            diffStatsQueryKey(payload.agentId),
+          applyDiffStateChanged(
+            queryClient,
+            payload.agentId,
             payload.diffStats
           );
-          void queryClient.invalidateQueries({
-            queryKey: agentDiffQueryKey(payload.agentId),
-          });
           return;
         }
 
