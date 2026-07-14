@@ -1454,7 +1454,19 @@ describe("createMcpHandlers", () => {
       expect(result.targetAgentId).toBe("agt_target1");
       expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
         "agt_target1",
-        expect.stringContaining("DISPATCH MESSAGE"),
+        `--- DISPATCH MESSAGE ---\n${JSON.stringify({
+          from: "test-agent",
+          senderId: "agt_test1",
+          message: "hello",
+          replyTarget: "agt_test1",
+        })}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`,
+        { swallowFailure: false }
+      );
+      expect(deps.sendAgentPrompt).not.toHaveBeenCalledWith(
+        "agt_target1",
+        expect.stringContaining(
+          "Reply with dispatch_send_message using the replyTarget above."
+        ),
         { swallowFailure: false }
       );
     });

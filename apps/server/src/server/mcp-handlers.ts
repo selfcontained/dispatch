@@ -537,7 +537,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         message: input.message,
         replyTarget: agentId,
       });
-      const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nReply with dispatch_send_message using the replyTarget above.`;
+      const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
 
       // Deliver first: a persistence failure must never block delivery.
       let delivered = false;
