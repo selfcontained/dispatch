@@ -20,6 +20,8 @@ type CommandRunner = (
 export type GetDiffStatsOptions = {
   /** Override for tests. */
   runCommand?: CommandRunner;
+  /** Include staged, unstaged, and untracked working-tree changes. */
+  includeUncommitted?: boolean;
 };
 
 /**
@@ -45,6 +47,7 @@ export async function getDiffStats(
   options: GetDiffStatsOptions = {}
 ): Promise<DiffStats | null> {
   const run = options.runCommand ?? runCommand;
+  const includeUncommitted = options.includeUncommitted !== false;
   try {
     const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
       runCommand: run,
@@ -61,16 +64,21 @@ export async function getDiffStats(
     }
     const mergeBaseSha = mergeBase.stdout.trim();
 
+    const diffRange = includeUncommitted
+      ? [mergeBaseSha]
+      : [mergeBaseSha, "HEAD"];
     const [tracked, untracked] = await Promise.all([
-      run("git", ["-C", worktreePath, "diff", mergeBaseSha, "--numstat"], {
+      run("git", ["-C", worktreePath, "diff", ...diffRange, "--numstat"], {
         allowedExitCodes: [0],
         timeoutMs: GIT_TIMEOUT_MS,
       }),
-      run(
-        "git",
-        ["-C", worktreePath, "ls-files", "--others", "--exclude-standard"],
-        { allowedExitCodes: [0], timeoutMs: GIT_TIMEOUT_MS }
-      ),
+      includeUncommitted
+        ? run(
+            "git",
+            ["-C", worktreePath, "ls-files", "--others", "--exclude-standard"],
+            { allowedExitCodes: [0], timeoutMs: GIT_TIMEOUT_MS }
+          )
+        : Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
     ]);
 
     const trackedPaths = extractPathsFromNumstat(tracked.stdout);

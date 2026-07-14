@@ -3,6 +3,7 @@ import { Settings } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
+import { TipSpot } from "@/components/tips/tip-spot";
 import {
   Popover,
   PopoverContent,
@@ -12,6 +13,7 @@ import {
   type DiffViewType,
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
+  diffIncludeUncommittedAtom,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -25,65 +27,85 @@ export function ChangesSettingsPopover(): JSX.Element {
   const [ignoreWhitespace, setIgnoreWhitespace] = useAtom(
     diffIgnoreWhitespaceAtom
   );
+  const [includeUncommitted, setIncludeUncommitted] = useAtom(
+    diffIncludeUncommittedAtom
+  );
 
   return (
-    <Popover>
-      <PopoverTrigger asChild>
-        <Button
-          size="icon"
-          variant="ghost"
-          title="Diff settings"
-          data-testid="changes-settings-button"
-        >
-          <Settings className="h-4 w-4" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent align="end" side="bottom" className="w-56 p-3">
-        <div className="space-y-3">
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Diff view
-            </span>
-            <div
-              role="group"
-              aria-label="Diff view"
-              className="flex rounded-md border border-border/60 bg-muted/30 p-0.5"
-            >
-              {VIEW_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  type="button"
-                  aria-pressed={viewType === opt.value}
-                  className={cn(
-                    "flex-1 rounded-[3px] px-2 py-1 text-xs font-medium transition-colors",
-                    viewType === opt.value
-                      ? "bg-background text-foreground shadow-sm"
-                      : "text-muted-foreground hover:text-foreground"
-                  )}
-                  onClick={() => setViewType(opt.value)}
-                >
-                  {opt.label}
-                </button>
-              ))}
+    <TipSpot tipId="uncommitted-diff" side="bottom" align="end" sideOffset={4}>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            size="icon"
+            variant="ghost"
+            title="Diff settings"
+            data-testid="changes-settings-button"
+          >
+            <Settings className="h-4 w-4" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent align="end" side="bottom" className="w-64 p-3">
+          <div className="space-y-3">
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Diff view
+              </span>
+              <div
+                role="group"
+                aria-label="Diff view"
+                className="flex rounded-md border border-border/60 bg-muted/30 p-0.5"
+              >
+                {VIEW_OPTIONS.map((opt) => (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    aria-pressed={viewType === opt.value}
+                    className={cn(
+                      "flex-1 rounded-[3px] px-2 py-1 text-xs font-medium transition-colors",
+                      viewType === opt.value
+                        ? "bg-background text-foreground shadow-sm"
+                        : "text-muted-foreground hover:text-foreground"
+                    )}
+                    onClick={() => setViewType(opt.value)}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Changes
+              </span>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={includeUncommitted}
+                  onCheckedChange={(v) => setIncludeUncommitted(v === true)}
+                  data-testid="changes-include-uncommitted"
+                />
+                <span className="whitespace-nowrap text-xs text-foreground">
+                  Include uncommitted changes
+                </span>
+              </label>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Whitespace
+              </span>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={ignoreWhitespace}
+                  onCheckedChange={(v) => setIgnoreWhitespace(v === true)}
+                  data-testid="changes-ignore-whitespace"
+                />
+                <span className="whitespace-nowrap text-xs text-foreground">
+                  Hide whitespace changes
+                </span>
+              </label>
             </div>
           </div>
-          <div className="space-y-1.5">
-            <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
-              Whitespace
-            </span>
-            <label className="flex items-center gap-2 cursor-pointer">
-              <Checkbox
-                checked={ignoreWhitespace}
-                onCheckedChange={(v) => setIgnoreWhitespace(v === true)}
-                data-testid="changes-ignore-whitespace"
-              />
-              <span className="text-xs text-foreground">
-                Hide whitespace changes
-              </span>
-            </label>
-          </div>
-        </div>
-      </PopoverContent>
-    </Popover>
+        </PopoverContent>
+      </Popover>
+    </TipSpot>
   );
 }

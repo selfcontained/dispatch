@@ -123,8 +123,11 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.diff_state_changed") {
+          void queryClient.invalidateQueries({
+            queryKey: ["agent-diff", payload.agentId],
+          });
           queryClient.setQueryData<DiffStats | null>(
-            diffStatsQueryKey(payload.agentId),
+            diffStatsQueryKey(payload.agentId, true),
             payload.diffStats
           );
           void queryClient.invalidateQueries({

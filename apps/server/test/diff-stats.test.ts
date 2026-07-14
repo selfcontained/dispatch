@@ -110,6 +110,31 @@ describe("getDiffStats", () => {
     expect(result).toMatchObject({ added: 15, deleted: 2, files: 2 });
   });
 
+  it("compares merge-base to HEAD and skips untracked files when requested", async () => {
+    const worktreePath = tempRoot;
+    const committedOnlyKey = `-C ${worktreePath} diff ${MERGE_BASE_SHA} HEAD --numstat`;
+    const runCommand = withCommands(worktreePath, "main", {
+      [committedOnlyKey]: () => ok("4\t1\tsrc/committed.ts"),
+    });
+
+    const result = await getDiffStats(worktreePath, "main", {
+      runCommand,
+      includeUncommitted: false,
+    });
+
+    expect(result).toMatchObject({ added: 4, deleted: 1, files: 1 });
+    expect(runCommand).toHaveBeenCalledWith(
+      "git",
+      ["-C", worktreePath, "diff", MERGE_BASE_SHA, "HEAD", "--numstat"],
+      expect.any(Object)
+    );
+    expect(runCommand).not.toHaveBeenCalledWith(
+      "git",
+      expect.arrayContaining(["ls-files"]),
+      expect.anything()
+    );
+  });
+
   it("captures committed AND uncommitted edits to the same file as one net diff", async () => {
     // Regression: the previous two-stream approach deduped by path and
     // dropped the uncommitted slice when a file appeared in both. With a

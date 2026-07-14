@@ -66,7 +66,8 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             draggable={!isMobile && activeTab !== tab.id}
             onDragStart={(e) => handleDragStart(e, tab.id)}
             className={cn(
-              "flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              tab.id === "changes" && "w-36 pr-[4.5rem]",
               activeTab === tab.id
                 ? "text-foreground"
                 : "cursor-grab text-muted-foreground hover:text-foreground/80 active:cursor-grabbing"
@@ -86,7 +87,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
               ) : null}
             </span>
             {tab.id === "changes" && hasChanges ? (
-              <span className="inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-1.5 py-0 font-mono text-[10px] font-normal normal-case tracking-normal">
+              <span className="absolute right-3 inline-flex items-center gap-1 rounded-full border border-border/50 bg-muted/30 px-1.5 py-0 font-mono text-[10px] font-normal normal-case tracking-normal">
                 <span className="text-status-working">+{diffStats.added}</span>
                 <span className="text-status-blocked">
                   {"−"}

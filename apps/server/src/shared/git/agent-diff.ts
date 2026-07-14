@@ -188,7 +188,7 @@ export async function getAgentDiff(
   worktreePath: string,
   baseRef: string | null,
   run: CommandRunner = runCommand,
-  options?: { ignoreWhitespace?: boolean }
+  options?: { ignoreWhitespace?: boolean; includeUncommitted?: boolean }
 ): Promise<DiffResponse | null> {
   const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
     runCommand: run,
@@ -206,11 +206,15 @@ export async function getAgentDiff(
   const mergeBaseSha = mergeBaseResult.stdout.trim();
 
   const wsFlag = options?.ignoreWhitespace ? ["-w"] : [];
+  const includeUncommitted = options?.includeUncommitted !== false;
+  const diffRange = includeUncommitted
+    ? [mergeBaseSha]
+    : [mergeBaseSha, "HEAD"];
   const [numstatResult, statusResult, diffResult, untrackedResult] =
     await Promise.all([
       run(
         "git",
-        ["-C", worktreePath, "diff", mergeBaseSha, "--numstat", ...wsFlag],
+        ["-C", worktreePath, "diff", ...diffRange, "--numstat", ...wsFlag],
         {
           allowedExitCodes: [0],
           timeoutMs: GIT_TIMEOUT_MS,
@@ -218,7 +222,7 @@ export async function getAgentDiff(
       ),
       run(
         "git",
-        ["-C", worktreePath, "diff", mergeBaseSha, "--name-status", ...wsFlag],
+        ["-C", worktreePath, "diff", ...diffRange, "--name-status", ...wsFlag],
         {
           allowedExitCodes: [0],
           timeoutMs: GIT_TIMEOUT_MS,
@@ -230,7 +234,7 @@ export async function getAgentDiff(
           "-C",
           worktreePath,
           "diff",
-          mergeBaseSha,
+          ...diffRange,
           "-U3",
           "--no-color",
           ...wsFlag,
@@ -240,14 +244,16 @@ export async function getAgentDiff(
           timeoutMs: GIT_TIMEOUT_MS,
         }
       ),
-      run(
-        "git",
-        ["-C", worktreePath, "ls-files", "--others", "--exclude-standard"],
-        {
-          allowedExitCodes: [0],
-          timeoutMs: GIT_TIMEOUT_MS,
-        }
-      ),
+      includeUncommitted
+        ? run(
+            "git",
+            ["-C", worktreePath, "ls-files", "--others", "--exclude-standard"],
+            {
+              allowedExitCodes: [0],
+              timeoutMs: GIT_TIMEOUT_MS,
+            }
+          )
+        : Promise.resolve({ exitCode: 0, stdout: "", stderr: "" }),
     ]);
 
   const entries = parseNumstatWithStatus(
@@ -317,7 +323,7 @@ export async function getAgentFileDiff(
   baseRef: string | null,
   filePath: string,
   run: CommandRunner = runCommand,
-  options?: { ignoreWhitespace?: boolean }
+  options?: { ignoreWhitespace?: boolean; includeUncommitted?: boolean }
 ): Promise<FileDiffResponse | null> {
   const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
     runCommand: run,
@@ -335,6 +341,10 @@ export async function getAgentFileDiff(
   const mergeBaseSha = mergeBaseResult.stdout.trim();
 
   const wsFlag2 = options?.ignoreWhitespace ? ["-w"] : [];
+  const includeUncommitted = options?.includeUncommitted !== false;
+  const diffRange2 = includeUncommitted
+    ? [mergeBaseSha]
+    : [mergeBaseSha, "HEAD"];
   const [numstatResult, statusResult, diffResult] = await Promise.all([
     run(
       "git",
@@ -342,7 +352,7 @@ export async function getAgentFileDiff(
         "-C",
         worktreePath,
         "diff",
-        mergeBaseSha,
+        ...diffRange2,
         "--numstat",
         ...wsFlag2,
         "--",
@@ -356,7 +366,7 @@ export async function getAgentFileDiff(
         "-C",
         worktreePath,
         "diff",
-        mergeBaseSha,
+        ...diffRange2,
         "--name-status",
         ...wsFlag2,
         "--",
@@ -370,7 +380,7 @@ export async function getAgentFileDiff(
         "-C",
         worktreePath,
         "diff",
-        mergeBaseSha,
+        ...diffRange2,
         "-U3",
         "--no-color",
         ...wsFlag2,
@@ -387,15 +397,21 @@ export async function getAgentFileDiff(
   );
 
   if (entries.length === 0) {
-    const { lines, content } = await readUntrackedFile(worktreePath, filePath);
-    if (lines === 0 && content === null) return null;
-    return {
-      path: filePath,
-      status: "added" as DiffFileStatus,
-      added: lines,
-      deleted: 0,
-      diff: buildUntrackedDiff(filePath, content!),
-    };
+    if (includeUncommitted) {
+      const { lines, content } = await readUntrackedFile(
+        worktreePath,
+        filePath
+      );
+      if (lines === 0 && content === null) return null;
+      return {
+        path: filePath,
+        status: "added" as DiffFileStatus,
+        added: lines,
+        deleted: 0,
+        diff: buildUntrackedDiff(filePath, content!),
+      };
+    }
+    return null;
   }
 
   const entry = entries[0]!;

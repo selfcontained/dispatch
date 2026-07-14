@@ -7,6 +7,7 @@ import {
 import { RENAME_PROMPT } from "../../agents/auto-rename-prompter.js";
 import { shouldSuggestSessionRename } from "../../agents/tmux/session-name.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
+import { getDiffStats } from "../../shared/git/diff-stats.js";
 import {
   AGENT_LATEST_EVENT_TYPES,
   isAgentLatestEventType,
@@ -325,6 +326,28 @@ export async function registerAgentLifecycleRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
+    const includeUncommitted =
+      (request.query as { includeUncommitted?: string }).includeUncommitted !==
+      "false";
+
+    if (!includeUncommitted) {
+      const gitContextWorktreePath = agent.gitContext?.isWorktree
+        ? agent.gitContext.worktreePath
+        : null;
+      const worktreePath =
+        agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
+      if (!worktreePath) return { diffStats: null };
+
+      const baseRef =
+        agent.baseBranch ??
+        (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+      return {
+        diffStats: await getDiffStats(worktreePath, baseRef, {
+          includeUncommitted: false,
+        }),
+      };
+    }
+
     // Await the signal so first-paint always sees a fresh value rather
     // than the cold-cache `null` followed by an SSE update milliseconds
     // later. The 3s freshness window inside the refresher still absorbs
@@ -360,11 +383,15 @@ export async function registerAgentLifecycleRoutes(
       (agent.worktreePath || gitContextWorktreePath ? "main" : null);
 
     try {
-      const ignoreWhitespace =
-        (request.query as { ignoreWhitespace?: string }).ignoreWhitespace !==
-        "false";
+      const query = request.query as {
+        ignoreWhitespace?: string;
+        includeUncommitted?: string;
+      };
+      const ignoreWhitespace = query.ignoreWhitespace !== "false";
+      const includeUncommitted = query.includeUncommitted !== "false";
       const result = await getAgentDiff(worktreePath, baseRef, undefined, {
         ignoreWhitespace,
+        includeUncommitted,
       });
       if (!result) {
         return { baseRef: null, files: [] };
@@ -378,7 +405,12 @@ export async function registerAgentLifecycleRoutes(
 
   app.get("/api/v1/agents/:id/diff/file", async (request, reply) => {
     const params = request.params as { id?: string };
-    const query = request.query as { path?: string; force?: string };
+    const query = request.query as {
+      path?: string;
+      force?: string;
+      ignoreWhitespace?: string;
+      includeUncommitted?: string;
+    };
     const id = params.id ?? "";
 
     if (!query.path) {
@@ -410,15 +442,14 @@ export async function registerAgentLifecycleRoutes(
       (agent.worktreePath || gitContextWorktreePath ? "main" : null);
 
     try {
-      const ignoreWhitespace =
-        (request.query as { ignoreWhitespace?: string }).ignoreWhitespace !==
-        "false";
+      const ignoreWhitespace = query.ignoreWhitespace !== "false";
+      const includeUncommitted = query.includeUncommitted !== "false";
       const result = await getAgentFileDiff(
         worktreePath,
         baseRef,
         query.path,
         undefined,
-        { ignoreWhitespace }
+        { ignoreWhitespace, includeUncommitted }
       );
       if (!result) {
         return reply.code(404).send({ error: "File not found in diff." });
