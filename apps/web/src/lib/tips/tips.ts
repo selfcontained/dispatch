@@ -167,7 +167,7 @@ export const tips: Tip[] = [
   {
     id: "diff-review",
     title: "Diff Review",
-    body: "Select lines in the Changes tab and submit review comments. The agent can respond, resolve items, or ask questions in threaded conversations.",
+    body: "Select lines in the Changes tab and submit review comments. Both you and the agent can reply, resolve, or reopen items in threaded conversations.",
     docsSection: "agents",
     since: "0.27.0",
     surfaces: ["ambient"],
