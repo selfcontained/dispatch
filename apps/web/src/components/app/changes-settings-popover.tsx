@@ -22,8 +22,15 @@ const VIEW_OPTIONS: { value: DiffViewType; label: string }[] = [
   { value: "split", label: "Split" },
 ];
 
-export function ChangesSettingsPopover(): JSX.Element {
+type ChangesSettingsPopoverProps = {
+  isMobile?: boolean;
+};
+
+export function ChangesSettingsPopover({
+  isMobile = false,
+}: ChangesSettingsPopoverProps): JSX.Element {
   const [viewType, setViewType] = useAtom(diffViewTypeAtom);
+  const effectiveViewType = isMobile ? "unified" : viewType;
   const [ignoreWhitespace, setIgnoreWhitespace] = useAtom(
     diffIgnoreWhitespaceAtom
   );
@@ -53,25 +60,42 @@ export function ChangesSettingsPopover(): JSX.Element {
               <div
                 role="group"
                 aria-label="Diff view"
+                aria-describedby={
+                  isMobile ? "mobile-diff-view-hint" : undefined
+                }
                 className="flex rounded-md border border-border/60 bg-muted/30 p-0.5"
               >
-                {VIEW_OPTIONS.map((opt) => (
-                  <button
-                    key={opt.value}
-                    type="button"
-                    aria-pressed={viewType === opt.value}
-                    className={cn(
-                      "flex-1 rounded-[3px] px-2 py-1 text-xs font-medium transition-colors",
-                      viewType === opt.value
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    )}
-                    onClick={() => setViewType(opt.value)}
-                  >
-                    {opt.label}
-                  </button>
-                ))}
+                {VIEW_OPTIONS.map((opt) => {
+                  const disabled = isMobile && opt.value === "split";
+                  return (
+                    <button
+                      key={opt.value}
+                      type="button"
+                      disabled={disabled}
+                      aria-pressed={effectiveViewType === opt.value}
+                      className={cn(
+                        "flex-1 rounded-[3px] px-2 py-1 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                        effectiveViewType === opt.value
+                          ? "bg-background text-foreground shadow-sm"
+                          : "text-muted-foreground hover:text-foreground"
+                      )}
+                      onClick={() => {
+                        if (!isMobile) setViewType(opt.value);
+                      }}
+                    >
+                      {opt.label}
+                    </button>
+                  );
+                })}
               </div>
+              {isMobile ? (
+                <p
+                  id="mobile-diff-view-hint"
+                  className="text-[11px] text-muted-foreground"
+                >
+                  Split view is available on larger screens.
+                </p>
+              ) : null}
             </div>
             <div className="space-y-1.5">
               <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
