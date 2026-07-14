@@ -39,16 +39,22 @@ import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/ui/markdown";
 import { ReviewDiffSnapshot } from "@/components/app/review-diff-snapshot";
 
-const REVIEW_STATUS_STYLES: Record<string, { badge: string; label: string }> = {
+const REVIEW_STATUS_STYLES: Record<
+  string,
+  { rail: string; badge: string; label: string }
+> = {
   open: {
+    rail: "border-l-status-waiting/60",
     badge: "bg-status-waiting/15 text-status-waiting",
     label: "Open",
   },
   partially_resolved: {
+    rail: "border-l-status-waiting/60",
     badge: "bg-status-waiting/15 text-status-waiting",
     label: "Open",
   },
   resolved: {
+    rail: "border-l-status-working/60",
     badge: "bg-status-working/15 text-status-working",
     label: "Resolved",
   },
@@ -189,7 +195,12 @@ function ReviewRow({
   });
 
   return (
-    <div className="relative mb-3 overflow-clip rounded-md bg-muted/[0.07]">
+    <div
+      className={cn(
+        "relative mb-3 overflow-clip rounded-md border-l-2 bg-muted/[0.07]",
+        statusStyle.rail
+      )}
+    >
       <button
         type="button"
         className="flex w-full items-start gap-2 overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors hover:bg-muted/30"
@@ -207,16 +218,15 @@ function ReviewRow({
           <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
         <div className="min-w-0 flex-1">
-          {review.summary && (
-            <p
-              className={cn(
-                "text-xs text-foreground/90",
-                !expanded && "truncate"
-              )}
-            >
-              {review.summary}
-            </p>
-          )}
+          <p
+            className={cn(
+              "text-xs text-foreground/90",
+              !expanded && "truncate",
+              !review.summary && "text-muted-foreground"
+            )}
+          >
+            {review.summary || "Review feedback"}
+          </p>
           <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
             <span className="flex items-center gap-1">
               <MessageCircle className="h-2.5 w-2.5" />
