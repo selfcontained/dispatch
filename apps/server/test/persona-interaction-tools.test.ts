@@ -203,6 +203,30 @@ describe("registerPersonaInteractionTools", () => {
     expect(names).toContain("dispatch_submit_resolution");
   });
 
+  it("caps dispatch_review_add_message input at 600 characters", () => {
+    const callbacks: PersonaInteractionCallbacks = {
+      agentId,
+      addReviewThreadMessage: vi.fn(async () => ({
+        message: { id: 1 },
+        reviewId: 1,
+      })),
+    };
+    registerPersonaInteractionTools(
+      server as any,
+      new Set(["dispatch_review_add_message"]),
+      callbacks
+    );
+
+    const inputSchema = server.tools[0].config.inputSchema as {
+      body: {
+        safeParse: (value: string) => { success: boolean };
+      };
+    };
+    expect(inputSchema.body.safeParse("a".repeat(600)).success).toBe(true);
+    expect(inputSchema.body.safeParse("a".repeat(601)).success).toBe(false);
+    expect(server.tools[0].config.description).toContain("max 600 characters");
+  });
+
   describe("tool handlers", () => {
     it("list_personas calls resolvePersonaList with correct roots", async () => {
       const personas = [

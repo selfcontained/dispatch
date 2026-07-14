@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
 
+import { AGENT_REVIEW_REPLY_MAX_CHARS } from "../shared/review-limits.js";
+
 export type ReviewRecord = {
   id: number;
   agentId: string;
@@ -382,9 +384,9 @@ export async function addThreadMessage(
   body: string,
   authorAgentId?: string | null
 ): Promise<{ message: ReviewThreadMessageRecord; reviewId: number } | null> {
-  if (authorType === "agent" && body.length > 1_200) {
+  if (authorType === "agent" && body.length > AGENT_REVIEW_REPLY_MAX_CHARS) {
     throw new Error(
-      "Agent review thread replies must be 1,200 characters or fewer."
+      `Agent review thread replies must be ${AGENT_REVIEW_REPLY_MAX_CHARS} characters or fewer.`
     );
   }
   const ownership = await pool.query<{ reviewId: number }>(

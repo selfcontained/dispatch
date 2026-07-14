@@ -1,6 +1,11 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import {
+  AGENT_REVIEW_REPLY_GUIDANCE,
+  AGENT_REVIEW_REPLY_MAX_CHARS,
+} from "../review-limits.js";
+
 import { mergePersonasWithWorktreePrecedence } from "../../personas/loader.js";
 import type { McpRequestContext } from "./server.js";
 import { toToolError } from "./tool-error.js";
@@ -346,8 +351,7 @@ export function registerPersonaInteractionTools(
     server.registerTool(
       "dispatch_review_add_message",
       {
-        description:
-          "Add a concise message to a review feedback item's thread. Use this to ask a clarifying question or explain your approach before resolving. Keep it to 1–3 short sentences (maximum 1,200 characters).",
+        description: `Add a concise message to a review feedback item's thread. Use it only for a necessary clarifying question or essential explanation before resolving. ${AGENT_REVIEW_REPLY_GUIDANCE}`,
         inputSchema: {
           itemId: z
             .number()
@@ -359,9 +363,9 @@ export function registerPersonaInteractionTools(
           body: z
             .string()
             .min(1)
-            .max(1_200)
+            .max(AGENT_REVIEW_REPLY_MAX_CHARS)
             .describe(
-              "A brief plain-text or Markdown reply (1–3 short sentences)."
+              "A brief plain-text or Markdown reply (1–2 short sentences)."
             ),
         },
       },

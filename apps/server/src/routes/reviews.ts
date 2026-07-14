@@ -6,6 +6,7 @@ import type { UiEvent } from "../server/ui-events.js";
 import * as reviewQueries from "../agents/reviews.js";
 import { getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { extractHunkAroundLines } from "../shared/lib/extract-hunk.js";
+import { AGENT_REVIEW_REPLY_GUIDANCE } from "../shared/review-limits.js";
 
 type ReviewRouteDeps = {
   pool: Pool;
@@ -209,7 +210,7 @@ export async function registerReviewRoutes(
         "2. Read each feedback item. For each one, decide whether to fix it, push back, or dismiss it."
       );
       notifLines.push(
-        "3. If you have a question or need to explain your approach, use dispatch_review_add_message to reply on that item's thread. Keep replies to 1–3 short sentences (max 1,200 characters)."
+        `3. If a reply is useful, use dispatch_review_add_message on that item's thread. ${AGENT_REVIEW_REPLY_GUIDANCE}`
       );
       notifLines.push(
         "4. After addressing an item (or deciding not to), call dispatch_review_resolve to mark it as fixed or dismissed. Include a brief note when dismissing so the reviewer understands why."
@@ -362,7 +363,7 @@ export async function registerReviewRoutes(
             [
               "--- DISPATCH: Review Thread Reply ---",
               `Feedback item #${itemId}: ${body.body.trim()}`,
-              "Reply only if useful. Keep any reply to 1–3 short sentences (max 1,200 characters).",
+              `Reply only if useful. ${AGENT_REVIEW_REPLY_GUIDANCE}`,
               "--- END ---",
             ].join("\n")
           );
