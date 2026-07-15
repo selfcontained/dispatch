@@ -131,178 +131,643 @@ async function addressableAgents<
   return result;
 }
 
-export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
-  const {
-    pool,
-    mediaRoot,
-    agentManager,
-    jobService,
-    slackNotifier,
-    publishUiEvent,
-    withStreamFlag,
-    sendAgentPrompt,
-    appLog,
-  } = deps;
+// ---------------------------------------------------------------------------
+// Extracted handler functions
+// ---------------------------------------------------------------------------
 
+async function handleUpsertEvent(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  event: { type: string; message: string; metadata?: Record<string, unknown> }
+): Promise<void> {
+  if (!isAgentLatestEventType(event.type)) {
+    throw new Error(
+      `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`
+    );
+  }
+  const agent = await deps.agentManager.upsertLatestEvent(agentId, {
+    type: event.type,
+    message: event.message.trim(),
+    metadata: event.metadata,
+  });
+  deps.publishUiEvent({
+    type: "agent.upsert",
+    agent: deps.withStreamFlag(agent),
+  });
+}
+
+async function handleSendNotify(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  input: NotifyInput
+): Promise<NotifyResult> {
+  const agent = await deps.agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+  return deps.slackNotifier.sendNotification(agent, input);
+}
+
+async function handleSubmitFeedback(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  feedback: FeedbackInput
+): Promise<FeedbackRecord> {
+  const record = await deps.agentManager.submitFeedback(agentId, feedback);
+  deps.publishUiEvent({
+    type: "feedback.created",
+    agentId,
+    feedback: record,
+  });
+  return record;
+}
+
+async function handleGetFeedback(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  opts: { persona?: string; limit?: number }
+) {
+  return deps.agentManager.listFeedbackByParentGrouped(
+    agentId,
+    opts.persona,
+    opts.limit
+  );
+}
+
+async function handleResolveFeedback(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  feedbackId: number,
+  status: "fixed" | "ignored",
+  options: { reason?: string | null } = {}
+): Promise<FeedbackRecord> {
+  const parent = await deps.agentManager.getAgent(agentId);
+  const resolutionCommit = parent ? await resolveHeadSha(parent.cwd) : null;
+  const record = await deps.agentManager.updateFeedbackStatusByParent(
+    feedbackId,
+    agentId,
+    status,
+    { reason: options.reason ?? null, resolutionCommit }
+  );
+  if (!record) {
+    throw new Error(
+      `Feedback #${feedbackId} not found or not owned by a child of this agent.`
+    );
+  }
+  deps.publishUiEvent({
+    type: "feedback.updated",
+    agentId: record.agentId,
+    feedback: record,
+  });
+  return record;
+}
+
+async function handleUpsertPin(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  pin: { label: string; value: string; type: string }
+): Promise<void> {
+  if (!isPinType(pin.type)) {
+    throw new Error(`Invalid pin type: ${pin.type}`);
+  }
+  validatePinValue(pin.type, pin.value);
+  const agent = await deps.agentManager.upsertPin(agentId, {
+    label: pin.label,
+    value: pin.value,
+    type: pin.type,
+  });
+  deps.publishUiEvent({
+    type: "agent.upsert",
+    agent: deps.withStreamFlag(agent),
+  });
+}
+
+async function handleDeletePin(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  label: string
+): Promise<void> {
+  const agent = await deps.agentManager.deletePin(agentId, label);
+  deps.publishUiEvent({
+    type: "agent.upsert",
+    agent: deps.withStreamFlag(agent),
+  });
+}
+
+async function handleRenameSession(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  name: string
+): Promise<{ id: string; name: string }> {
+  const agent = await deps.agentManager.renameAgent(agentId, name);
+  deps.publishUiEvent({
+    type: "agent.upsert",
+    agent: deps.withStreamFlag(agent),
+  });
+  return { id: agent.id, name: agent.name };
+}
+
+async function handleJobComplete(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  report: unknown
+): Promise<{ runId: string; status: string }> {
+  const run = await deps.jobService.completeRunForAgent(agentId, report);
+  return { runId: run.id, status: run.status };
+}
+
+async function handleJobFailed(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  report: unknown
+): Promise<{ runId: string; status: string }> {
+  const run = await deps.jobService.failRunForAgent(agentId, report);
+  return { runId: run.id, status: run.status };
+}
+
+async function handleJobNeedsInput(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  question: string
+): Promise<{ runId: string; status: string }> {
+  const run = await deps.jobService.markNeedsInputForAgent(agentId, question);
+  return { runId: run.id, status: run.status };
+}
+
+async function handleJobLog(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  input: {
+    task: string;
+    message: string;
+    level: "debug" | "info" | "warn" | "error";
+  }
+): Promise<{ runId: string; status: string }> {
+  const run = await deps.jobService.logForAgent(agentId, input);
+  return { runId: run.id, status: run.status };
+}
+
+async function handleLaunchAgent(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  input: {
+    name: string;
+    prompt: string;
+    type?: string;
+    useWorktree?: boolean;
+    createNewBranch?: boolean;
+    baseBranch?: string;
+    worktreeBranch?: string;
+    fullAccess?: boolean;
+    templateId?: string;
+    cwd?: string;
+  }
+): Promise<{ agentId: string; name: string }> {
+  const parent = await deps.agentManager.getAgent(agentId);
+  if (!parent) throw new Error("Parent agent not found.");
+
+  const agentType = input.type ?? parent.type ?? "claude";
+  if (
+    !CLI_AGENT_TYPES.includes(agentType as (typeof CLI_AGENT_TYPES)[number])
+  ) {
+    throw new Error(
+      `Unsupported agent type "${agentType}". Must be one of: ${CLI_AGENT_TYPES.join(", ")}.`
+    );
+  }
+
+  const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
+  if (
+    !enabledAgentTypes.includes(agentType as (typeof CLI_AGENT_TYPES)[number])
+  ) {
+    throw new Error(`${agentType} agents are disabled in settings.`);
+  }
+
+  const parentCwd = parent.worktreePath ?? parent.cwd;
+  const useWorktree = input.useWorktree ?? false;
+  const createNewBranch = input.createNewBranch ?? false;
+  const fullAccess = parent.fullAccess && input.fullAccess !== false;
+
+  const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
+
+  const agent = await deps.agentManager.createAgent({
+    name: input.name,
+    type: agentType as (typeof CLI_AGENT_TYPES)[number],
+    cwd: input.cwd ?? parentCwd,
+    fullAccess,
+    useWorktree,
+    createNewBranch,
+    baseBranch: input.baseBranch,
+    worktreeBranch: input.worktreeBranch,
+    parentAgentId: agentId,
+    cliSessionId,
+    initialPrompt: buildChildAgentInitialPrompt(agentId, input.prompt),
+    templateId: input.templateId,
+  });
+
+  deps.publishUiEvent({
+    type: "agent.upsert",
+    agent: deps.withStreamFlag(agent),
+  });
+
+  return { agentId: agent.id, name: agent.name };
+}
+
+async function handleShareMedia(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  opts: {
+    filePath: string;
+    description: string;
+    source?: string;
+    name?: string;
+    update?: string;
+  }
+): Promise<{
+  fileName: string;
+  url: string;
+  sizeBytes: number;
+  source: string;
+  description: string;
+}> {
+  const agent = await deps.agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+
+  if (!isMediaFile(opts.filePath)) {
+    throw new Error(
+      "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
+    );
+  }
+
+  const isText = isTextFile(opts.filePath);
+  const validSources = ["screenshot", "stream", "simulator", "text"];
+  const source = isText
+    ? "text"
+    : opts.source && validSources.includes(opts.source)
+      ? opts.source
+      : "screenshot";
+
+  const buffer = await readFile(opts.filePath);
+  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
+  await mkdir(mediaDir, { recursive: true });
+
+  if (opts.update) {
+    const existing = await deps.pool.query<{ file_name: string }>(
+      `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2 FOR UPDATE`,
+      [agentId, opts.update]
+    );
+    if (existing.rows.length === 0) {
+      throw new Error(
+        "No media file found with the given fileName for this agent."
+      );
+    }
+
+    const fileName = existing.rows[0].file_name;
+    const filePath = path.join(mediaDir, fileName);
+    const resolvedMediaDir = path.resolve(mediaDir);
+    if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
+      throw new Error("Invalid media file path.");
+    }
+
+    await writeFile(filePath, buffer);
+    await deps.pool.query(
+      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW()
+       WHERE agent_id = $3 AND file_name = $4`,
+      [buffer.length, opts.description, agentId, fileName]
+    );
+
+    deps.publishUiEvent({ type: "media.changed", agentId });
+    return {
+      fileName,
+      url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+      sizeBytes: buffer.length,
+      source,
+      description: opts.description,
+    };
+  }
+
+  const timestamp = new Date()
+    .toISOString()
+    .replace(/[:.]/g, "-")
+    .replace("T", "-")
+    .replace("Z", "");
+  const baseName = opts.name ?? path.basename(opts.filePath);
+  const ext0 = path.extname(baseName).toLowerCase();
+  const fallbackExt =
+    ext0 === ".mp4" ? ".mp4" : isText ? ext0 || ".txt" : ".png";
+  const safeName =
+    baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") ||
+    `shared-${timestamp}${fallbackExt}`;
+  const ext = path.extname(safeName);
+  const base = path.basename(safeName, ext);
+  const fileName = `${base}-${timestamp}${ext}`;
+
+  await writeFile(path.join(mediaDir, fileName), buffer);
+  await deps.pool.query(
+    `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [agentId, fileName, source, buffer.length, opts.description]
+  );
+
+  deps.publishUiEvent({ type: "media.changed", agentId });
+  return {
+    fileName,
+    url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+    sizeBytes: buffer.length,
+    source,
+    description: opts.description,
+  };
+}
+
+async function handleSendMessage(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  input: { target: string; message: string; senderRepoRoot: string | null }
+): Promise<{
+  delivered: boolean;
+  targetAgentId: string;
+  targetAgentName: string;
+}> {
+  const sender = await deps.agentManager.getAgent(agentId);
+  if (!sender) throw new Error("Sender agent not found.");
+
+  const senderRepoRoot = input.senderRepoRoot;
+  const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
+
+  const allAgents = await addressableAgents(
+    await deps.agentManager.listAgents(),
+    agentId,
+    senderRepoRoot,
+    crossRepo
+  );
+
+  const isAgentId = input.target.startsWith("agt_");
+
+  let target: (typeof allAgents)[number] | undefined;
+  if (isAgentId) {
+    target = allAgents.find((a) => a.id === input.target);
+  } else {
+    const lowerTarget = input.target.toLowerCase();
+    const matches = allAgents.filter(
+      (a) =>
+        a.status === "running" && a.name.toLowerCase().includes(lowerTarget)
+    );
+    if (matches.length === 1) {
+      target = matches[0];
+    } else if (matches.length > 1) {
+      const list = matches.map((a) => `  ${a.id} "${a.name}"`).join("\n");
+      throw new Error(
+        `Multiple agents match "${input.target}". Use the agent ID:\n${list}`
+      );
+    }
+  }
+
+  if (!target) {
+    const running = allAgents
+      .filter((a) => a.status === "running")
+      .map((a) => `  ${a.id} "${a.name}"`)
+      .join("\n");
+    throw new Error(
+      `No agent found matching "${input.target}".${running ? ` Running agents:\n${running}` : " No other agents are running."}`
+    );
+  }
+
+  if (target.status !== "running") {
+    throw new Error(
+      `Agent "${target.name}" (${target.id}) is ${target.status}, not running.`
+    );
+  }
+
+  const envelope = JSON.stringify({
+    from: sender.name,
+    senderId: agentId,
+    message: input.message,
+    replyTarget: agentId,
+  });
+  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
+
+  // Deliver first: a persistence failure must never block delivery.
+  let delivered = false;
+  let deliveryError: unknown = null;
+  try {
+    await deps.sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+    delivered = true;
+  } catch (err) {
+    deliveryError = err;
+    deps.appLog.error(
+      { err, senderId: agentId, targetId: target.id },
+      "dispatch_send_message: tmux delivery failed"
+    );
+  }
+
+  // Record the message (including failed deliveries) so it is viewable.
+  // Persistence must never block delivery, so a failed insert is swallowed
+  // and logged. Only announce message.created when the row actually landed,
+  // otherwise the UI would refetch and find nothing.
+  const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(() => null);
+  const messageStore = new MessageStore(deps.pool);
+  const persisted = await messageStore
+    .insertMessage({
+      senderAgentId: agentId,
+      recipientAgentId: target.id,
+      senderName: sender.name,
+      recipientName: target.name,
+      content: input.message,
+      delivered,
+      senderRepoRoot,
+      recipientRepoRoot,
+    })
+    .then(() => true)
+    .catch((err) => {
+      deps.appLog.error(
+        { err, senderId: agentId, targetId: target.id },
+        "dispatch_send_message: failed to persist message"
+      );
+      return false;
+    });
+
+  if (persisted) {
+    deps.publishUiEvent({
+      type: "message.created",
+      senderAgentId: agentId,
+      recipientAgentId: target.id,
+    });
+  }
+
+  if (!delivered) {
+    throw deliveryError instanceof Error
+      ? deliveryError
+      : new Error(`Failed to deliver message to "${target.name}".`);
+  }
+
+  deps.appLog.info(
+    { senderId: agentId, targetId: target.id },
+    "dispatch_send_message: delivered"
+  );
+  return {
+    delivered: true,
+    targetAgentId: target.id,
+    targetAgentName: target.name,
+  };
+}
+
+async function handleListAgentsForAgent(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  senderRepoRoot: string | null
+): Promise<
+  Array<{
+    id: string;
+    name: string;
+    status: string;
+    latestEvent: { type: string; message: string } | null;
+  }>
+> {
+  const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
+
+  const agents = await addressableAgents(
+    await deps.agentManager.listAgents(),
+    agentId,
+    senderRepoRoot,
+    crossRepo
+  );
+  const result: Array<{
+    id: string;
+    name: string;
+    status: string;
+    latestEvent: { type: string; message: string } | null;
+  }> = [];
+  for (const a of agents) {
+    result.push({
+      id: a.id,
+      name: a.name,
+      status: a.status,
+      latestEvent: a.latestEvent
+        ? { type: a.latestEvent.type, message: a.latestEvent.message }
+        : null,
+    });
+  }
+  return result;
+}
+
+async function handleListMedia(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  opts: { source?: string }
+): Promise<
+  Array<{
+    fileName: string;
+    filePath: string;
+    source: string;
+    description: string | null;
+    sizeBytes: number;
+    createdAt: string;
+  }>
+> {
+  const agent = await deps.agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+
+  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
+  const whereClause = opts.source
+    ? `WHERE agent_id = $1 AND source = $2`
+    : `WHERE agent_id = $1`;
+  const params: (string | number)[] = opts.source
+    ? [agentId, opts.source]
+    : [agentId];
+
+  const result = await deps.pool.query<{
+    file_name: string;
+    source: string;
+    description: string | null;
+    size_bytes: number;
+    created_at: Date;
+  }>(
+    `SELECT file_name, source, description, size_bytes, created_at
+     FROM media ${whereClause}
+     ORDER BY created_at DESC LIMIT 100`,
+    params
+  );
+
+  return result.rows.map((row) => ({
+    fileName: row.file_name,
+    filePath: path.join(mediaDir, row.file_name),
+    source: row.source,
+    description: row.description ?? null,
+    sizeBytes: row.size_bytes,
+    createdAt: row.created_at.toISOString(),
+  }));
+}
+
+// ---------------------------------------------------------------------------
+// Thin delegation layer
+// ---------------------------------------------------------------------------
+
+export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
   const reviewHandlers = createReviewHandlers({
-    pool,
-    agentManager,
-    publishUiEvent,
-    withStreamFlag,
-    sendAgentPrompt,
+    pool: deps.pool,
+    agentManager: deps.agentManager,
+    publishUiEvent: deps.publishUiEvent,
+    withStreamFlag: deps.withStreamFlag,
+    sendAgentPrompt: deps.sendAgentPrompt,
   });
 
   return {
     ...reviewHandlers,
 
-    async upsertEvent(
+    upsertEvent: (
       agentId: string,
       event: {
         type: string;
         message: string;
         metadata?: Record<string, unknown>;
       }
-    ): Promise<void> {
-      if (!isAgentLatestEventType(event.type)) {
-        throw new Error(
-          `type must be one of: ${AGENT_LATEST_EVENT_TYPES.join(", ")}.`
-        );
-      }
-      const agent = await agentManager.upsertLatestEvent(agentId, {
-        type: event.type,
-        message: event.message.trim(),
-        metadata: event.metadata,
-      });
-      publishUiEvent({ type: "agent.upsert", agent: withStreamFlag(agent) });
-    },
+    ) => handleUpsertEvent(deps, agentId, event),
 
-    async sendNotify(
-      agentId: string,
-      input: NotifyInput
-    ): Promise<NotifyResult> {
-      const agent = await agentManager.getAgent(agentId);
-      if (!agent) throw new Error("Agent not found.");
-      return slackNotifier.sendNotification(agent, input);
-    },
+    sendNotify: (agentId: string, input: NotifyInput) =>
+      handleSendNotify(deps, agentId, input),
 
-    async submitFeedback(
-      agentId: string,
-      feedback: FeedbackInput
-    ): Promise<FeedbackRecord> {
-      const record = await agentManager.submitFeedback(agentId, feedback);
-      publishUiEvent({
-        type: "feedback.created",
-        agentId,
-        feedback: record,
-      });
-      return record;
-    },
+    submitFeedback: (agentId: string, feedback: FeedbackInput) =>
+      handleSubmitFeedback(deps, agentId, feedback),
 
-    async getFeedback(
+    getFeedback: (
       agentId: string,
       opts: { persona?: string; limit?: number }
-    ) {
-      return agentManager.listFeedbackByParentGrouped(
-        agentId,
-        opts.persona,
-        opts.limit
-      );
-    },
+    ) => handleGetFeedback(deps, agentId, opts),
 
-    async resolveFeedback(
+    resolveFeedback: (
       agentId: string,
       feedbackId: number,
       status: "fixed" | "ignored",
       options: { reason?: string | null } = {}
-    ): Promise<FeedbackRecord> {
-      const parent = await agentManager.getAgent(agentId);
-      const resolutionCommit = parent ? await resolveHeadSha(parent.cwd) : null;
-      const record = await agentManager.updateFeedbackStatusByParent(
-        feedbackId,
-        agentId,
-        status,
-        { reason: options.reason ?? null, resolutionCommit }
-      );
-      if (!record) {
-        throw new Error(
-          `Feedback #${feedbackId} not found or not owned by a child of this agent.`
-        );
-      }
-      publishUiEvent({
-        type: "feedback.updated",
-        agentId: record.agentId,
-        feedback: record,
-      });
-      return record;
-    },
+    ) => handleResolveFeedback(deps, agentId, feedbackId, status, options),
 
-    async upsertPin(
+    upsertPin: (
       agentId: string,
       pin: { label: string; value: string; type: string }
-    ): Promise<void> {
-      if (!isPinType(pin.type)) {
-        throw new Error(`Invalid pin type: ${pin.type}`);
-      }
-      validatePinValue(pin.type, pin.value);
-      const agent = await agentManager.upsertPin(agentId, {
-        label: pin.label,
-        value: pin.value,
-        type: pin.type,
-      });
-      publishUiEvent({ type: "agent.upsert", agent: withStreamFlag(agent) });
-    },
+    ) => handleUpsertPin(deps, agentId, pin),
 
-    async deletePin(agentId: string, label: string): Promise<void> {
-      const agent = await agentManager.deletePin(agentId, label);
-      publishUiEvent({ type: "agent.upsert", agent: withStreamFlag(agent) });
-    },
+    deletePin: (agentId: string, label: string) =>
+      handleDeletePin(deps, agentId, label),
 
-    async renameSession(
-      agentId: string,
-      name: string
-    ): Promise<{ id: string; name: string }> {
-      const agent = await agentManager.renameAgent(agentId, name);
-      publishUiEvent({ type: "agent.upsert", agent: withStreamFlag(agent) });
-      return { id: agent.id, name: agent.name };
-    },
+    renameSession: (agentId: string, name: string) =>
+      handleRenameSession(deps, agentId, name),
 
-    async jobComplete(
-      agentId: string,
-      report: unknown
-    ): Promise<{ runId: string; status: string }> {
-      const run = await jobService.completeRunForAgent(agentId, report);
-      return { runId: run.id, status: run.status };
-    },
+    jobComplete: (agentId: string, report: unknown) =>
+      handleJobComplete(deps, agentId, report),
 
-    async jobFailed(
-      agentId: string,
-      report: unknown
-    ): Promise<{ runId: string; status: string }> {
-      const run = await jobService.failRunForAgent(agentId, report);
-      return { runId: run.id, status: run.status };
-    },
+    jobFailed: (agentId: string, report: unknown) =>
+      handleJobFailed(deps, agentId, report),
 
-    async jobNeedsInput(
-      agentId: string,
-      question: string
-    ): Promise<{ runId: string; status: string }> {
-      const run = await jobService.markNeedsInputForAgent(agentId, question);
-      return { runId: run.id, status: run.status };
-    },
+    jobNeedsInput: (agentId: string, question: string) =>
+      handleJobNeedsInput(deps, agentId, question),
 
-    async jobLog(
+    jobLog: (
       agentId: string,
       input: {
         task: string;
         message: string;
         level: "debug" | "info" | "warn" | "error";
       }
-    ): Promise<{ runId: string; status: string }> {
-      const run = await jobService.logForAgent(agentId, input);
-      return { runId: run.id, status: run.status };
-    },
+    ) => handleJobLog(deps, agentId, input),
 
-    async launchAgent(
+    launchAgent: (
       agentId: string,
       input: {
         name: string;
@@ -316,59 +781,9 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         templateId?: string;
         cwd?: string;
       }
-    ): Promise<{ agentId: string; name: string }> {
-      const parent = await agentManager.getAgent(agentId);
-      if (!parent) throw new Error("Parent agent not found.");
+    ) => handleLaunchAgent(deps, agentId, input),
 
-      const agentType = input.type ?? parent.type ?? "claude";
-      if (
-        !CLI_AGENT_TYPES.includes(agentType as (typeof CLI_AGENT_TYPES)[number])
-      ) {
-        throw new Error(
-          `Unsupported agent type "${agentType}". Must be one of: ${CLI_AGENT_TYPES.join(", ")}.`
-        );
-      }
-
-      const enabledAgentTypes = await getEnabledAgentTypes(pool);
-      if (
-        !enabledAgentTypes.includes(
-          agentType as (typeof CLI_AGENT_TYPES)[number]
-        )
-      ) {
-        throw new Error(`${agentType} agents are disabled in settings.`);
-      }
-
-      const parentCwd = parent.worktreePath ?? parent.cwd;
-      const useWorktree = input.useWorktree ?? false;
-      const createNewBranch = input.createNewBranch ?? false;
-      const fullAccess = parent.fullAccess && input.fullAccess !== false;
-
-      const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
-
-      const agent = await agentManager.createAgent({
-        name: input.name,
-        type: agentType as (typeof CLI_AGENT_TYPES)[number],
-        cwd: input.cwd ?? parentCwd,
-        fullAccess,
-        useWorktree,
-        createNewBranch,
-        baseBranch: input.baseBranch,
-        worktreeBranch: input.worktreeBranch,
-        parentAgentId: agentId,
-        cliSessionId,
-        initialPrompt: buildChildAgentInitialPrompt(agentId, input.prompt),
-        templateId: input.templateId,
-      });
-
-      publishUiEvent({
-        type: "agent.upsert",
-        agent: withStreamFlag(agent),
-      });
-
-      return { agentId: agent.id, name: agent.name };
-    },
-
-    async shareMedia(
+    shareMedia: (
       agentId: string,
       opts: {
         filePath: string;
@@ -377,318 +792,17 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         name?: string;
         update?: string;
       }
-    ): Promise<{
-      fileName: string;
-      url: string;
-      sizeBytes: number;
-      source: string;
-      description: string;
-    }> {
-      const agent = await agentManager.getAgent(agentId);
-      if (!agent) throw new Error("Agent not found.");
+    ) => handleShareMedia(deps, agentId, opts),
 
-      if (!isMediaFile(opts.filePath)) {
-        throw new Error(
-          "Unsupported file type. Use images (png/jpg/gif/webp), video (mp4), documents (pdf), or text files (txt/md/json/yaml/ts/py/etc)."
-        );
-      }
-
-      const isText = isTextFile(opts.filePath);
-      const validSources = ["screenshot", "stream", "simulator", "text"];
-      const source = isText
-        ? "text"
-        : opts.source && validSources.includes(opts.source)
-          ? opts.source
-          : "screenshot";
-
-      const buffer = await readFile(opts.filePath);
-      const mediaDir = resolveMediaDir(agentId, agent.mediaDir, mediaRoot);
-      await mkdir(mediaDir, { recursive: true });
-
-      if (opts.update) {
-        const existing = await pool.query<{ file_name: string }>(
-          `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2 FOR UPDATE`,
-          [agentId, opts.update]
-        );
-        if (existing.rows.length === 0) {
-          throw new Error(
-            "No media file found with the given fileName for this agent."
-          );
-        }
-
-        const fileName = existing.rows[0].file_name;
-        const filePath = path.join(mediaDir, fileName);
-        const resolvedMediaDir = path.resolve(mediaDir);
-        if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
-          throw new Error("Invalid media file path.");
-        }
-
-        await writeFile(filePath, buffer);
-        await pool.query(
-          `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW()
-           WHERE agent_id = $3 AND file_name = $4`,
-          [buffer.length, opts.description, agentId, fileName]
-        );
-
-        publishUiEvent({ type: "media.changed", agentId });
-        return {
-          fileName,
-          url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
-          sizeBytes: buffer.length,
-          source,
-          description: opts.description,
-        };
-      }
-
-      const timestamp = new Date()
-        .toISOString()
-        .replace(/[:.]/g, "-")
-        .replace("T", "-")
-        .replace("Z", "");
-      const baseName = opts.name ?? path.basename(opts.filePath);
-      const ext0 = path.extname(baseName).toLowerCase();
-      const fallbackExt =
-        ext0 === ".mp4" ? ".mp4" : isText ? ext0 || ".txt" : ".png";
-      const safeName =
-        baseName.replace(/ /g, "-").replace(/[^A-Za-z0-9._-]/g, "") ||
-        `shared-${timestamp}${fallbackExt}`;
-      const ext = path.extname(safeName);
-      const base = path.basename(safeName, ext);
-      const fileName = `${base}-${timestamp}${ext}`;
-
-      await writeFile(path.join(mediaDir, fileName), buffer);
-      await pool.query(
-        `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-         VALUES ($1, $2, $3, $4, $5)`,
-        [agentId, fileName, source, buffer.length, opts.description]
-      );
-
-      publishUiEvent({ type: "media.changed", agentId });
-      return {
-        fileName,
-        url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
-        sizeBytes: buffer.length,
-        source,
-        description: opts.description,
-      };
-    },
-
-    async sendMessage(
+    sendMessage: (
       agentId: string,
       input: { target: string; message: string; senderRepoRoot: string | null }
-    ): Promise<{
-      delivered: boolean;
-      targetAgentId: string;
-      targetAgentName: string;
-    }> {
-      const sender = await agentManager.getAgent(agentId);
-      if (!sender) throw new Error("Sender agent not found.");
+    ) => handleSendMessage(deps, agentId, input),
 
-      const senderRepoRoot = input.senderRepoRoot;
-      const crossRepo = await isCrossRepoMessagingEnabled(pool);
+    listAgentsForAgent: (agentId: string, senderRepoRoot: string | null) =>
+      handleListAgentsForAgent(deps, agentId, senderRepoRoot),
 
-      const allAgents = await addressableAgents(
-        await agentManager.listAgents(),
-        agentId,
-        senderRepoRoot,
-        crossRepo
-      );
-
-      const isAgentId = input.target.startsWith("agt_");
-
-      let target: (typeof allAgents)[number] | undefined;
-      if (isAgentId) {
-        target = allAgents.find((a) => a.id === input.target);
-      } else {
-        const lowerTarget = input.target.toLowerCase();
-        const matches = allAgents.filter(
-          (a) =>
-            a.status === "running" && a.name.toLowerCase().includes(lowerTarget)
-        );
-        if (matches.length === 1) {
-          target = matches[0];
-        } else if (matches.length > 1) {
-          const list = matches.map((a) => `  ${a.id} "${a.name}"`).join("\n");
-          throw new Error(
-            `Multiple agents match "${input.target}". Use the agent ID:\n${list}`
-          );
-        }
-      }
-
-      if (!target) {
-        const running = allAgents
-          .filter((a) => a.status === "running")
-          .map((a) => `  ${a.id} "${a.name}"`)
-          .join("\n");
-        throw new Error(
-          `No agent found matching "${input.target}".${running ? ` Running agents:\n${running}` : " No other agents are running."}`
-        );
-      }
-
-      if (target.status !== "running") {
-        throw new Error(
-          `Agent "${target.name}" (${target.id}) is ${target.status}, not running.`
-        );
-      }
-
-      const envelope = JSON.stringify({
-        from: sender.name,
-        senderId: agentId,
-        message: input.message,
-        replyTarget: agentId,
-      });
-      const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
-
-      // Deliver first: a persistence failure must never block delivery.
-      let delivered = false;
-      let deliveryError: unknown = null;
-      try {
-        await sendAgentPrompt(target.id, prompt, { swallowFailure: false });
-        delivered = true;
-      } catch (err) {
-        deliveryError = err;
-        appLog.error(
-          { err, senderId: agentId, targetId: target.id },
-          "dispatch_send_message: tmux delivery failed"
-        );
-      }
-
-      // Record the message (including failed deliveries) so it is viewable.
-      // Persistence must never block delivery, so a failed insert is swallowed
-      // and logged. Only announce message.created when the row actually landed,
-      // otherwise the UI would refetch and find nothing.
-      const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(
-        () => null
-      );
-      const messageStore = new MessageStore(pool);
-      const persisted = await messageStore
-        .insertMessage({
-          senderAgentId: agentId,
-          recipientAgentId: target.id,
-          senderName: sender.name,
-          recipientName: target.name,
-          content: input.message,
-          delivered,
-          senderRepoRoot,
-          recipientRepoRoot,
-        })
-        .then(() => true)
-        .catch((err) => {
-          appLog.error(
-            { err, senderId: agentId, targetId: target.id },
-            "dispatch_send_message: failed to persist message"
-          );
-          return false;
-        });
-
-      if (persisted) {
-        publishUiEvent({
-          type: "message.created",
-          senderAgentId: agentId,
-          recipientAgentId: target.id,
-        });
-      }
-
-      if (!delivered) {
-        throw deliveryError instanceof Error
-          ? deliveryError
-          : new Error(`Failed to deliver message to "${target.name}".`);
-      }
-
-      appLog.info(
-        { senderId: agentId, targetId: target.id },
-        "dispatch_send_message: delivered"
-      );
-      return {
-        delivered: true,
-        targetAgentId: target.id,
-        targetAgentName: target.name,
-      };
-    },
-
-    async listAgentsForAgent(
-      agentId: string,
-      senderRepoRoot: string | null
-    ): Promise<
-      Array<{
-        id: string;
-        name: string;
-        status: string;
-        latestEvent: { type: string; message: string } | null;
-      }>
-    > {
-      const crossRepo = await isCrossRepoMessagingEnabled(pool);
-
-      const agents = await addressableAgents(
-        await agentManager.listAgents(),
-        agentId,
-        senderRepoRoot,
-        crossRepo
-      );
-      const result: Array<{
-        id: string;
-        name: string;
-        status: string;
-        latestEvent: { type: string; message: string } | null;
-      }> = [];
-      for (const a of agents) {
-        result.push({
-          id: a.id,
-          name: a.name,
-          status: a.status,
-          latestEvent: a.latestEvent
-            ? { type: a.latestEvent.type, message: a.latestEvent.message }
-            : null,
-        });
-      }
-      return result;
-    },
-
-    async listMedia(
-      agentId: string,
-      opts: { source?: string }
-    ): Promise<
-      Array<{
-        fileName: string;
-        filePath: string;
-        source: string;
-        description: string | null;
-        sizeBytes: number;
-        createdAt: string;
-      }>
-    > {
-      const agent = await agentManager.getAgent(agentId);
-      if (!agent) throw new Error("Agent not found.");
-
-      const mediaDir = resolveMediaDir(agentId, agent.mediaDir, mediaRoot);
-      const whereClause = opts.source
-        ? `WHERE agent_id = $1 AND source = $2`
-        : `WHERE agent_id = $1`;
-      const params: (string | number)[] = opts.source
-        ? [agentId, opts.source]
-        : [agentId];
-
-      const result = await pool.query<{
-        file_name: string;
-        source: string;
-        description: string | null;
-        size_bytes: number;
-        created_at: Date;
-      }>(
-        `SELECT file_name, source, description, size_bytes, created_at
-         FROM media ${whereClause}
-         ORDER BY created_at DESC LIMIT 100`,
-        params
-      );
-
-      return result.rows.map((row) => ({
-        fileName: row.file_name,
-        filePath: path.join(mediaDir, row.file_name),
-        source: row.source,
-        description: row.description ?? null,
-        sizeBytes: row.size_bytes,
-        createdAt: row.created_at.toISOString(),
-      }));
-    },
+    listMedia: (agentId: string, opts: { source?: string }) =>
+      handleListMedia(deps, agentId, opts),
   };
 }
