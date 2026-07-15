@@ -547,6 +547,48 @@ describe("GET /api/v1/history/projects", () => {
     expect(projOption.usageCount).toBe(1);
   });
 
+  it("handles search with LIKE special characters", async () => {
+    await createAgent({ cwd: "/home/user/100%-proj" });
+    await createAgent({ cwd: "/home/user/other" });
+
+    const res = await authedInject(
+      "GET",
+      "/api/v1/history/projects?search=100%25"
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projects.length).toBe(1);
+    expect(res.json().projects[0]).toBe("/home/user/100%-proj");
+  });
+
+  it("clamps limit to maximum of 50", async () => {
+    await createAgent({ cwd: "/home/user/proj" });
+
+    const res = await authedInject("GET", "/api/v1/history/projects?limit=999");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projects.length).toBeLessThanOrEqual(50);
+  });
+
+  it("uses gitContext.repoRoot for project grouping", async () => {
+    await createAgent({
+      cwd: "/home/user/worktree1",
+      gitContext: { repoRoot: "/home/user/repo" },
+    });
+    await createAgent({
+      cwd: "/home/user/worktree2",
+      gitContext: { repoRoot: "/home/user/repo" },
+    });
+
+    const res = await authedInject("GET", "/api/v1/history/projects");
+    expect(res.statusCode).toBe(200);
+    const proj = res
+      .json()
+      .projectOptions.find(
+        (p: { path: string }) => p.path === "/home/user/repo"
+      );
+    expect(proj).toBeTruthy();
+    expect(proj.usageCount).toBe(2);
+  });
+
   it("returns iconUrl when gitContext has repoIconPath", async () => {
     const agentId = await createAgent({
       cwd: "/home/user/icon-proj",
@@ -686,6 +728,222 @@ describe("GET /api/v1/history/agents", () => {
     expect(names[1]).toBe("charlie");
   });
 
+  it("filters by type", async () => {
+    await createAgent({
+      name: "codex-agent",
+      deletedAt: new Date().toISOString(),
+    });
+    const terminalId = await createAgent({
+      name: "terminal-agent",
+      deletedAt: new Date().toISOString(),
+    });
+    await ctx.pool.query(`UPDATE agents SET type = 'terminal' WHERE id = $1`, [
+      terminalId,
+    ]);
+
+    const res = await authedInject(
+      "GET",
+      "/api/v1/history/agents?type=terminal"
+    );
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.total).toBe(1);
+    expect(body.agents[0].name).toBe("terminal-agent");
+  });
+
+  it("sorts by updated_at", async () => {
+    const oldId = await createAgent({
+      name: "old-update",
+      deletedAt: new Date().toISOString(),
+    });
+    const newId = await createAgent({
+      name: "new-update",
+      deletedAt: new Date().toISOString(),
+    });
+    await ctx.pool.query(
+      `UPDATE agents SET updated_at = NOW() - interval '1 hour' WHERE id = $1`,
+      [oldId]
+    );
+    await ctx.pool.query(`UPDATE agents SET updated_at = NOW() WHERE id = $1`, [
+      newId,
+    ]);
+
+    const resDesc = await authedInject(
+      "GET",
+      "/api/v1/history/agents?sort=updated_at&order=desc"
+    );
+    expect(resDesc.statusCode).toBe(200);
+    expect(resDesc.json().agents[0].name).toBe("new-update");
+
+    const resAsc = await authedInject(
+      "GET",
+      "/api/v1/history/agents?sort=updated_at&order=asc"
+    );
+    expect(resAsc.statusCode).toBe(200);
+    expect(resAsc.json().agents[0].name).toBe("old-update");
+  });
+
+  it("ignores invalid sort values and defaults to created_at", async () => {
+    await createAgent({
+      name: "agent-a",
+      deletedAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    await createAgent({
+      name: "agent-b",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const res = await authedInject(
+      "GET",
+      "/api/v1/history/agents?sort=; DROP TABLE agents--"
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agents[0].name).toBe("agent-b");
+  });
+
+  it("defaults order to DESC for non-asc values", async () => {
+    await createAgent({
+      name: "first",
+      deletedAt: new Date(Date.now() - 1000).toISOString(),
+    });
+    await createAgent({
+      name: "second",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const res = await authedInject(
+      "GET",
+      "/api/v1/history/agents?order=invalid"
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agents[0].name).toBe("second");
+  });
+
+  it("handles search with LIKE special characters", async () => {
+    await createAgent({
+      name: "100% complete",
+      deletedAt: new Date().toISOString(),
+    });
+    await createAgent({
+      name: "other-agent",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const resPct = await authedInject(
+      "GET",
+      "/api/v1/history/agents?search=100%25"
+    );
+    expect(resPct.statusCode).toBe(200);
+    expect(resPct.json().total).toBe(1);
+    expect(resPct.json().agents[0].name).toBe("100% complete");
+  });
+
+  it("handles search with underscore LIKE wildcard", async () => {
+    await createAgent({
+      name: "a_b_test",
+      deletedAt: new Date().toISOString(),
+    });
+    await createAgent({
+      name: "axbxtest",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const res = await authedInject("GET", "/api/v1/history/agents?search=a_b");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().total).toBe(1);
+    expect(res.json().agents[0].name).toBe("a_b_test");
+  });
+
+  it("clamps limit to maximum of 100", async () => {
+    await createAgent({
+      name: "agent",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const res = await authedInject("GET", "/api/v1/history/agents?limit=999");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().limit).toBe(100);
+  });
+
+  it("clamps negative limit to 1", async () => {
+    await createAgent({
+      name: "agent",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const res = await authedInject("GET", "/api/v1/history/agents?limit=-5");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().limit).toBe(1);
+  });
+
+  it("treats zero limit as default (50)", async () => {
+    await createAgent({
+      name: "agent",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const res = await authedInject("GET", "/api/v1/history/agents?limit=0");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().limit).toBe(50);
+  });
+
+  it("clamps negative offset to 0", async () => {
+    await createAgent({
+      name: "agent",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const res = await authedInject("GET", "/api/v1/history/agents?offset=-5");
+    expect(res.statusCode).toBe(200);
+    expect(res.json().offset).toBe(0);
+    expect(res.json().total).toBe(1);
+  });
+
+  it("filters by date range", async () => {
+    const oldAgent = await createAgent({
+      name: "old-agent",
+      deletedAt: new Date().toISOString(),
+    });
+    await ctx.pool.query(
+      `UPDATE agents SET created_at = '2026-01-01T00:00:00Z' WHERE id = $1`,
+      [oldAgent]
+    );
+    await createAgent({
+      name: "recent-agent",
+      deletedAt: new Date().toISOString(),
+    });
+
+    const res = await authedInject(
+      "GET",
+      "/api/v1/history/agents?start=2026-07-01T00:00:00Z"
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().total).toBe(1);
+    expect(res.json().agents[0].name).toBe("recent-agent");
+  });
+
+  it("uses gitContext.repoRoot for project filter", async () => {
+    await createAgent({
+      cwd: "/home/user/worktree",
+      gitContext: { repoRoot: "/home/user/real-repo" },
+      deletedAt: new Date().toISOString(),
+    });
+
+    const resByRepo = await authedInject(
+      "GET",
+      "/api/v1/history/agents?project=/home/user/real-repo"
+    );
+    expect(resByRepo.statusCode).toBe(200);
+    expect(resByRepo.json().total).toBe(1);
+
+    const resByCwd = await authedInject(
+      "GET",
+      "/api/v1/history/agents?project=/home/user/worktree"
+    );
+    expect(resByCwd.statusCode).toBe(200);
+    expect(resByCwd.json().total).toBe(0);
+  });
+
   it("includes children and groupTotalTokens", async () => {
     const parentId = await createAgent({
       name: "parent-with-child",
@@ -801,5 +1059,70 @@ describe("GET /api/v1/history/agents/:id", () => {
     await ctx.pool.query(
       "DELETE FROM agent_messages WHERE id = '11111111-1111-1111-1111-111111111111'"
     );
+  });
+
+  it("includes messages where agent is the recipient", async () => {
+    const agentId = await createAgent({ name: "recipient-agent" });
+    await ctx.pool.query(
+      `INSERT INTO agent_messages
+         (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name, content, delivered)
+       VALUES ('22222222-2222-2222-2222-222222222222', 'agt_sender', $1, 'Sender', 'Recv', 'incoming msg', true)`,
+      [agentId]
+    );
+
+    const res = await authedInject("GET", `/api/v1/history/agents/${agentId}`);
+    expect(res.statusCode).toBe(200);
+    const body = res.json() as { messages: Array<{ content: string }> };
+    expect(body.messages.map((m) => m.content)).toContain("incoming msg");
+
+    await ctx.pool.query(
+      "DELETE FROM agent_messages WHERE id = '22222222-2222-2222-2222-222222222222'"
+    );
+  });
+
+  it("computes stateDurations from events", async () => {
+    const agentId = await createAgent({ name: "duration-agent" });
+    const today = new Date().toISOString().slice(0, 10);
+    await seedEvent(agentId, "working", `${today}T10:00:00Z`);
+    await seedEvent(agentId, "blocked", `${today}T10:15:00Z`);
+    await seedEvent(agentId, "done", `${today}T10:20:00Z`);
+
+    const res = await authedInject("GET", `/api/v1/history/agents/${agentId}`);
+    expect(res.statusCode).toBe(200);
+    const { stateDurations } = res.json();
+    expect(stateDurations).toBeDefined();
+    expect(stateDurations.working).toBeGreaterThan(0);
+    expect(stateDurations.blocked).toBeGreaterThan(0);
+  });
+
+  it("returns zero tokens when no usage exists", async () => {
+    const agentId = await createAgent({ name: "no-tokens-agent" });
+    const res = await authedInject("GET", `/api/v1/history/agents/${agentId}`);
+    expect(res.statusCode).toBe(200);
+    const { tokenUsage } = res.json();
+    expect(Number(tokenUsage.total_input)).toBe(0);
+    expect(Number(tokenUsage.total_output)).toBe(0);
+    expect(Number(tokenUsage.total_messages)).toBe(0);
+    expect(tokenUsage.by_model).toEqual([]);
+  });
+
+  it("returns multiple models in token breakdown", async () => {
+    const agentId = await createAgent({ name: "multi-model" });
+    await seedTokenUsage(agentId, {
+      model: "claude-opus-4-20250514",
+      inputTokens: 1000,
+      outputTokens: 500,
+    });
+    await seedTokenUsage(agentId, {
+      model: "claude-sonnet-4-20250514",
+      inputTokens: 200,
+      outputTokens: 100,
+    });
+
+    const res = await authedInject("GET", `/api/v1/history/agents/${agentId}`);
+    expect(res.statusCode).toBe(200);
+    const { tokenUsage } = res.json();
+    expect(tokenUsage.by_model.length).toBe(2);
+    expect(tokenUsage.by_model[0].model).toBe("claude-opus-4-20250514");
   });
 });
