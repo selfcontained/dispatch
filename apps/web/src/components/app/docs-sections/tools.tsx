@@ -186,11 +186,11 @@ export function ToolsContent() {
           <li>
             <Code>dispatch_launch_agent</Code> — launch a new agent as a child
             of the current session with a name, prompt, and optional agent type,
-            worktree settings, full access mode, or template
+            working directory, worktree settings, full access mode, or template
           </li>
           <li>
             <Code>list_agents</Code> — list other agents in the same repo with
-            their IDs, statuses, and latest activity
+            their IDs, names, statuses, and latest activity
           </li>
           <li>
             <Code>dispatch_send_message</Code> — send a message to another
