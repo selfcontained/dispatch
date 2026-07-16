@@ -63,6 +63,42 @@ describe("GET /api/v1/system/defaults", () => {
   });
 });
 
+describe("GET /api/v1/system/resources", () => {
+  it("returns a bounded operational snapshot", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/system/resources?window=15m",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.sampleIntervalMs).toBe(5_000);
+    expect(body.current.server.rssBytes).toBeGreaterThan(0);
+    expect(body.current.database.pool.max).toBeGreaterThan(0);
+    expect(Array.isArray(body.series)).toBe(true);
+    expect(body.series.length).toBeLessThanOrEqual(720);
+    expect(body.subsystems.map((item: { id: string }) => item.id)).toEqual(
+      expect.arrayContaining([
+        "api-server",
+        "database",
+        "agent-reconciliation",
+        "activity-monitor",
+        "git-diff-refreshes",
+      ])
+    );
+  });
+
+  it("rejects unsupported history windows", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/system/resources?window=24h",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/window/);
+  });
+});
+
 describe("GET /api/v1/system/path-info", () => {
   it("rejects missing path parameter", async () => {
     const res = await ctx.app.inject({

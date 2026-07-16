@@ -8,6 +8,7 @@ import {
   type ReleaseInfoSnapshot,
 } from "./release-info.js";
 import { pruneCacheExcept } from "./release-tarball-cache.js";
+import type { SubsystemTracker } from "./observability/subsystem-tracker.js";
 
 export const AUTOMATIC_UPDATE_MODE_KEY = "automatic_update_mode";
 export const AUTOMATIC_UPDATE_MODES = ["off", "check"] as const;
@@ -67,6 +68,7 @@ export type AutoCheckRuntimeDeps = {
    *  dismissed-by-tag localStorage atom). */
   broadcast: AutoCheckBroadcaster;
   logger: Logger;
+  tracker?: SubsystemTracker;
 };
 
 export type AutoCheckRuntime = ReturnType<typeof createAutoCheckRuntime>;
@@ -130,27 +132,36 @@ export function createAutoCheckRuntime(deps: AutoCheckRuntimeDeps) {
     // before the first await observes the in-flight state and coalesces
     // onto the same promise.
     const promise = (async (): Promise<RunResult> => {
+      const trackedRun = deps.tracker?.start();
       if (deps.isApplyInProgress()) {
+        trackedRun?.succeed({ skipped: 1 });
         return { ok: "skipped", reason: "apply in progress" };
       }
       const mode = await readAutomaticUpdateMode(deps.pool).catch(
         () => DEFAULT_MODE
       );
       if (mode === "off") {
+        deps.tracker?.setDisabled(true);
+        trackedRun?.succeed({ skipped: 1 });
         return { ok: "skipped", reason: "mode=off" };
       }
+      deps.tracker?.setDisabled(false);
 
       deps.logger.info({ reason }, "auto-update: running release check");
       const result = await computeReleaseInfo(deps.computeDeps, {
         logger: deps.logger,
       });
       if (!result.ok) {
+        trackedRun?.fail(new Error(result.error));
         deps.logger.warn(
           { error: result.error },
           "auto-update: release check failed; keeping previous snapshot"
         );
         return { ok: false, reason: result.error };
       }
+      trackedRun?.succeed({
+        updateAvailable: result.snapshot.updateAvailable ? 1 : 0,
+      });
       snapshot = result.snapshot;
       emitBroadcast();
 

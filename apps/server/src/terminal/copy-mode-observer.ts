@@ -37,8 +37,28 @@ const DETACH_GRACE_MS = 2_000;
 
 export class CopyModeObserverManager {
   private readonly observers = new Map<string, SessionObserver>();
+  private pollCount = 0;
+  private pollFailures = 0;
 
   constructor(private readonly publishTerminalState: PublishTerminalState) {}
+
+  getMetrics(): {
+    observers: number;
+    viewers: number;
+    pollCount: number;
+    pollFailures: number;
+  } {
+    let viewers = 0;
+    for (const observer of this.observers.values()) {
+      viewers += observer.viewers.size;
+    }
+    return {
+      observers: this.observers.size,
+      viewers,
+      pollCount: this.pollCount,
+      pollFailures: this.pollFailures,
+    };
+  }
 
   attachViewer(
     agentId: string,
@@ -207,8 +227,15 @@ export class CopyModeObserverManager {
     }
 
     observer.pollInFlight = (async () => {
+      this.pollCount += 1;
       const observedAt = Date.now();
-      const state = await observer.terminal.getCopyModeState();
+      let state;
+      try {
+        state = await observer.terminal.getCopyModeState();
+      } catch (error) {
+        this.pollFailures += 1;
+        throw error;
+      }
       const now = Date.now();
 
       if (!state.inCopyMode) {

@@ -2,6 +2,7 @@ import {
   getDiffStats as defaultGetDiffStats,
   type DiffStats,
 } from "../shared/git/diff-stats.js";
+import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
 
 export type DiffStatsAgent = {
   worktreePath: string | null;
@@ -36,6 +37,7 @@ export type DiffStatsRefresherOptions = {
   computeDiffStats?: ComputeDiffStats;
   freshnessMs?: number;
   logger?: WarnLogger;
+  tracker?: SubsystemTracker;
 };
 
 const DEFAULT_FRESHNESS_MS = 3_000;
@@ -61,13 +63,28 @@ export class DiffStatsRefresher {
   private readonly computeDiffStats: ComputeDiffStats;
   private readonly freshnessMs: number;
   private readonly logger: WarnLogger | null;
+  private readonly tracker: SubsystemTracker | null;
+  private signals = 0;
+  private dedupedSignals = 0;
 
   constructor(options: DiffStatsRefresherOptions) {
     this.getAgent = options.getAgent;
     this.publishEvent = options.publishEvent;
-    this.computeDiffStats = options.computeDiffStats ?? defaultGetDiffStats;
+    this.computeDiffStats =
+      options.computeDiffStats ??
+      (async (worktreePath, baseRef) => {
+        let commandError: unknown = null;
+        const stats = await defaultGetDiffStats(worktreePath, baseRef, {
+          onError: (error) => {
+            commandError = error;
+          },
+        });
+        if (commandError !== null) throw commandError;
+        return stats;
+      });
     this.freshnessMs = options.freshnessMs ?? DEFAULT_FRESHNESS_MS;
     this.logger = options.logger ?? null;
+    this.tracker = options.tracker ?? null;
   }
 
   /**
@@ -75,8 +92,12 @@ export class DiffStatsRefresher {
    * still warm; shares the in-flight promise when one is running.
    */
   signal(agentId: string): Promise<void> {
+    this.signals += 1;
     const existing = this.inFlight.get(agentId);
-    if (existing) return existing;
+    if (existing) {
+      this.dedupedSignals += 1;
+      return existing;
+    }
 
     const last = this.lastSignaledAt.get(agentId) ?? 0;
     const now = Date.now();
@@ -102,6 +123,20 @@ export class DiffStatsRefresher {
     return this.cache.get(agentId) ?? null;
   }
 
+  getMetrics(): {
+    cacheEntries: number;
+    inFlight: number;
+    signals: number;
+    dedupedSignals: number;
+  } {
+    return {
+      cacheEntries: this.cache.size,
+      inFlight: this.inFlight.size,
+      signals: this.signals,
+      dedupedSignals: this.dedupedSignals,
+    };
+  }
+
   /**
    * Drop any cached state for an agent (archive/delete cleanup).
    */
@@ -112,6 +147,7 @@ export class DiffStatsRefresher {
   }
 
   private async refresh(agentId: string): Promise<void> {
+    const trackedRun = this.tracker?.start();
     let nextStats: DiffStats | null = null;
     try {
       const agent = await this.getAgent(agentId);
@@ -139,12 +175,15 @@ export class DiffStatsRefresher {
         nextStats = await this.computeDiffStats(path, baseRef);
       }
     } catch (err) {
+      trackedRun?.fail(err);
       this.logger?.warn(
         { err, agentId },
         "Diff stats refresh failed; leaving cache unchanged"
       );
       return;
     }
+
+    trackedRun?.succeed({ files: nextStats?.files ?? 0 });
 
     const previous = this.cache.has(agentId)
       ? this.cache.get(agentId)

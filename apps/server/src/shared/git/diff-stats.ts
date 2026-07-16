@@ -22,6 +22,8 @@ export type GetDiffStatsOptions = {
   runCommand?: CommandRunner;
   /** Include staged, unstaged, and untracked working-tree changes. */
   includeUncommitted?: boolean;
+  /** Receives command/probe failures while the public result remains null. */
+  onError?: (error: unknown) => void;
 };
 
 /**
@@ -51,6 +53,7 @@ export async function getDiffStats(
   try {
     const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
       runCommand: run,
+      onError: options.onError,
     });
     if (!resolvedBase) return null;
 
@@ -85,7 +88,8 @@ export async function getDiffStats(
     const ignoredPaths = await getGitIgnoredPaths(
       worktreePath,
       trackedPaths,
-      run
+      run,
+      options.onError
     );
 
     let added = 0;
@@ -123,7 +127,8 @@ export async function getDiffStats(
       files: seenFiles.size,
       computedAt: Date.now(),
     };
-  } catch {
+  } catch (error) {
+    options.onError?.(error);
     return null;
   }
 }
@@ -145,7 +150,8 @@ const CHECK_IGNORE_BATCH_SIZE = 500;
 async function getGitIgnoredPaths(
   worktreePath: string,
   paths: string[],
-  run: CommandRunner
+  run: CommandRunner,
+  onError?: (error: unknown) => void
 ): Promise<Set<string>> {
   if (paths.length === 0) return new Set();
   const ignored = new Set<string>();
@@ -164,7 +170,8 @@ async function getGitIgnoredPaths(
       }
     }
     return ignored;
-  } catch {
+  } catch (error) {
+    onError?.(error);
     return ignored;
   }
 }

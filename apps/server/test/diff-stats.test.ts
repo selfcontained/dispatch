@@ -320,9 +320,14 @@ describe("getDiffStats", () => {
     const runCommand = vi.fn(async () => {
       throw new Error("git: command not found");
     });
+    const onError = vi.fn();
 
-    const result = await getDiffStats(tempRoot, "main", { runCommand });
+    const result = await getDiffStats(tempRoot, "main", {
+      runCommand,
+      onError,
+    });
     expect(result).toBeNull();
+    expect(onError).toHaveBeenCalledWith(expect.any(Error));
   });
 
   it("rejects refs that start with `-` so a crafted base branch can't be parsed as a git option", async () => {

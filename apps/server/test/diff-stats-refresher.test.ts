@@ -6,6 +6,7 @@ import {
   type DiffStatsChangedEvent,
 } from "../src/agents/diff-stats-refresher.js";
 import type { DiffStats } from "../src/shared/git/diff-stats.js";
+import { SubsystemTracker } from "../src/observability/subsystem-tracker.js";
 
 type AgentMap = Map<string, DiffStatsAgent>;
 
@@ -398,12 +399,18 @@ describe("DiffStatsRefresher", () => {
       throw new Error("git exploded");
     });
     const warn = vi.fn();
+    const tracker = new SubsystemTracker({
+      id: "git",
+      label: "Git",
+      description: "Refreshes diffs",
+    });
     const refresher = new DiffStatsRefresher({
       getAgent: async (id) => agents.get(id) ?? null,
       publishEvent: (event) => events.push(event),
       computeDiffStats: compute,
       freshnessMs: 1_000,
       logger: { warn },
+      tracker,
     });
 
     await refresher.signal("a1");
@@ -415,5 +422,10 @@ describe("DiffStatsRefresher", () => {
     expect(refresher.getStats("a1")).toMatchObject({ added: 5 });
     expect(events).toHaveLength(1);
     expect(warn).toHaveBeenCalled();
+    expect(tracker.snapshot()).toMatchObject({
+      state: "degraded",
+      failures: 1,
+      lastError: "Operation failed",
+    });
   });
 });

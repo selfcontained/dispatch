@@ -13,6 +13,7 @@ import { ReleasesAdmin } from "@/components/app/release-admin";
 import { UpdatesSection } from "@/components/app/release-manager";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { ServiceStatus } from "@/components/app/service-status";
+import { ServiceResourcesSettings } from "@/components/app/service-resources-settings";
 import { type ServiceState } from "@/components/app/types";
 import { WorktreeLocationSettings } from "@/components/app/worktree-location-settings";
 import { type IconColorId } from "@/hooks/use-icon-color";
@@ -206,6 +207,7 @@ export function SettingsContent({
         )}
         {activeSection === "notifications" && <NotificationSettings />}
         {activeSection === "connections" && <BrowserExtensionSettings />}
+        {activeSection === "resources" && <ServiceResourcesSettings />}
         {activeSection === "updates" && (
           <UpdatesSection stream={releaseStream} />
         )}

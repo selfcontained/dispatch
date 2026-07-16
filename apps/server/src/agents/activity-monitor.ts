@@ -44,7 +44,7 @@ export type ActivityMonitorDeps = {
 
 export type ActivityMonitor = {
   /** Run one activity-check pass across all running agents. */
-  check(): Promise<void>;
+  check(): Promise<{ agentsScanned: number; corrections: number }>;
   /** Drop tracked state for an agent (e.g. on stop/archive). */
   forget(agentId: string): void;
 };
@@ -71,8 +71,9 @@ export function createActivityMonitor(
   const state = new Map<string, ActivityState>();
 
   return {
-    async check(): Promise<void> {
+    async check(): Promise<{ agentsScanned: number; corrections: number }> {
       const { pool, logger } = deps;
+      let corrections = 0;
 
       const result = await pool.query(
         `SELECT id,
@@ -132,6 +133,8 @@ export function createActivityMonitor(
                 { agentId: row.id },
                 "Activity monitor: correction skipped — event was updated concurrently"
               );
+            } else {
+              corrections += 1;
             }
           } else if (!paneChanged && eventType === "working") {
             const staleDurationMs = now - prev.lastChangeAt;
@@ -151,6 +154,8 @@ export function createActivityMonitor(
                   { agentId: row.id },
                   "Activity monitor: correction skipped — event was updated concurrently"
                 );
+              } else {
+                corrections += 1;
               }
             }
           }
@@ -168,6 +173,8 @@ export function createActivityMonitor(
           state.delete(id);
         }
       }
+
+      return { agentsScanned: result.rows.length, corrections };
     },
 
     forget(agentId: string): void {

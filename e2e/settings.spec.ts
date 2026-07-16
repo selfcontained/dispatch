@@ -139,6 +139,42 @@ test.describe("Settings pane", () => {
     await expect(page.getByText("Browser extension connected")).toBeVisible();
   });
 
+  test("shows live service resources and expands subsystem details", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("settings-button").click();
+    await page
+      .getByTestId("sidebar-shell")
+      .getByText("Resources", { exact: true })
+      .click();
+
+    const dashboard = page.getByTestId("service-resources-dashboard");
+    await expect(dashboard).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\/settings\/resources$/);
+    await expect(
+      dashboard.getByTestId("resource-card-dispatch-cpu")
+    ).toBeVisible();
+    await expect(dashboard.getByTestId("resource-card-database")).toBeVisible();
+    await expect(
+      dashboard.getByText(/host load uses the right load axis/i)
+    ).toBeVisible();
+    await expect(
+      dashboard.getByText("Browser streams", { exact: true })
+    ).toHaveCount(0);
+
+    const databaseRow = dashboard.getByTestId("subsystem-database");
+    await databaseRow.click();
+    await expect(databaseRow).toHaveAttribute("aria-expanded", "true");
+    await expect(dashboard.getByText("pool total")).toBeVisible();
+
+    await dashboard.getByTestId("refresh-service-resources").click();
+    await expect(
+      dashboard.getByTestId("refresh-service-resources")
+    ).toBeEnabled({ timeout: 10_000 });
+  });
+
   test("agent type settings filter the create-agent dialog", async ({
     page,
   }) => {
