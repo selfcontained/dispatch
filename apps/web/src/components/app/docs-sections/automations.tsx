@@ -187,10 +187,9 @@ export function AutomationsContent() {
           </li>
           <li>
             <strong>Prompt</strong> — the instructions sent as the agent's first
-            message. Supports <Code>{"{{D:Arg Name}}"}</Code> placeholders just
-            like templates. Dispatch prepends a short preamble that names the
-            job, includes the run ID, and reminds the agent to drive the run to
-            a terminal state. Required before a run can start.
+            message. Dispatch prepends a short preamble that names the job,
+            includes the run ID, and reminds the agent to drive the run to a
+            terminal state. Required before a run can start.
           </li>
           <li>
             <strong>Show in command palette</strong> — when on, the job appears
@@ -329,6 +328,13 @@ export function AutomationsContent() {
             <Code>dispatch_resolve_feedback</Code>,{" "}
             <Code>dispatch_submit_resolution</Code>, and{" "}
             <Code>dispatch_cancel_recheck</Code>. See below.
+          </li>
+          <li>
+            <strong>Human review</strong> —{" "}
+            <Code>dispatch_review_list_feedback</Code>,{" "}
+            <Code>dispatch_review_resolve</Code>, and{" "}
+            <Code>dispatch_review_add_message</Code>. Read, resolve, and reply
+            to review feedback left on the Changes tab.
           </li>
           <li>
             <strong>Brain (shared memory)</strong> —{" "}
