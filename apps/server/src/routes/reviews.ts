@@ -197,8 +197,11 @@ export async function registerReviewRoutes(
             })),
           })
         );
-      } catch {
-        // tmux delivery is best-effort
+      } catch (error) {
+        app.log.warn(
+          { err: error, agentId: assignedId, reviewId: review.id },
+          "Review prompt injection failed after the review mutation was saved"
+        );
       }
 
       return { review };
@@ -301,8 +304,16 @@ export async function registerReviewRoutes(
                 note,
               })
             );
-          } catch {
-            // tmux delivery is best-effort
+          } catch (error) {
+            app.log.warn(
+              {
+                err: error,
+                agentId: counterpartId,
+                reviewId: result.reviewId,
+                feedbackItemId: itemId,
+              },
+              "Review prompt injection failed after the review mutation was saved"
+            );
           }
         }
 
@@ -378,8 +389,16 @@ export async function registerReviewRoutes(
                 body: body.body.trim(),
               })
             );
-          } catch {
-            // tmux delivery is best-effort
+          } catch (error) {
+            app.log.warn(
+              {
+                err: error,
+                agentId: counterpartId,
+                reviewId: result.reviewId,
+                feedbackItemId: itemId,
+              },
+              "Review prompt injection failed after the review mutation was saved"
+            );
           }
         }
 

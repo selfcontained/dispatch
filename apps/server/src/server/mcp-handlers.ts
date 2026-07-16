@@ -646,6 +646,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     publishUiEvent: deps.publishUiEvent,
     withStreamFlag: deps.withStreamFlag,
     sendAgentPrompt: deps.sendAgentPrompt,
+    appLog: deps.appLog,
   });
 
   return {

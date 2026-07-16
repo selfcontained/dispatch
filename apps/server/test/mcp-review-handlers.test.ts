@@ -98,6 +98,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
         ({ ...agent, hasStream: false }) as never
     ),
     sendAgentPrompt: vi.fn().mockResolvedValue(undefined),
+    appLog: { warn: vi.fn() },
     ...overrides,
   };
 }
@@ -202,6 +203,50 @@ describe("createReviewHandlers", () => {
   });
 
   describe("submitReview", () => {
+    it("logs prompt injection failures without rolling back the saved review", async () => {
+      const { createReview, getReviewByReviewerAgent } =
+        await import("../src/agents/reviews.js");
+      vi.mocked(getReviewByReviewerAgent).mockResolvedValueOnce(null);
+      vi.mocked(createReview).mockResolvedValueOnce({
+        id: 40,
+        status: "resolved",
+        summary: "Looks good.",
+        items: [],
+      } as never);
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn(async (id: string) =>
+            id === "agt_reviewer"
+              ? {
+                  id,
+                  name: "security-parent",
+                  role: "review",
+                  persona: "security",
+                  parentAgentId: "agt_parent",
+                }
+              : { id: "agt_parent", name: "parent", baseBranch: "main" }
+          ),
+        },
+        sendAgentPrompt: vi.fn().mockRejectedValue(new Error("not running")),
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      await expect(
+        handlers.submitReview("agt_reviewer", {
+          summary: "Looks good.",
+          feedback: [],
+        })
+      ).resolves.toMatchObject({ review: { id: 40 } });
+      expect(deps.appLog.warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          err: expect.any(Error),
+          agentId: "agt_parent",
+        }),
+        "Review prompt injection failed after the review mutation was saved"
+      );
+    });
+
     it("allows feedback items without a review summary", async () => {
       const { createReview, getReviewByReviewerAgent } =
         await import("../src/agents/reviews.js");

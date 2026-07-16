@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
@@ -94,6 +95,7 @@ type CreateReviewHandlersDeps = {
     agent: T
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
+  appLog: Pick<FastifyBaseLogger, "warn">;
 };
 
 export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
@@ -103,6 +105,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
     publishUiEvent,
     withStreamFlag,
     sendAgentPrompt,
+    appLog,
   } = deps;
 
   const sendPromptBestEffort = async (
@@ -112,8 +115,11 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
     if (!agentId) return;
     try {
       await sendAgentPrompt(agentId, prompt);
-    } catch {
-      // Review mutations remain durable even if terminal injection is unavailable.
+    } catch (error) {
+      appLog.warn(
+        { err: error, agentId },
+        "Review prompt injection failed after the review mutation was saved"
+      );
     }
   };
 
