@@ -131,6 +131,51 @@ describe("computeActivityStats", () => {
     expect(stats.stateDurations.waiting_user).toBe(30 * MIN);
     expect(stats.totalWorkingMs).toBe(15 * MIN);
   });
+
+  it("resets session accumulators after idle events", () => {
+    const rows = [
+      row("a1", "blocked", "2026-01-01T00:00:00Z"),
+      row("a1", "idle", "2026-01-01T00:05:00Z"),
+      row("a1", "waiting_user", "2026-01-01T01:00:00Z"),
+      row("a1", "idle", "2026-01-01T01:10:00Z"),
+    ];
+    const stats = computeActivityStats(rows, null);
+    expect(stats.avgBlockedMs).toBe(Math.round((5 * MIN) / 2));
+    expect(stats.avgWaitingMs).toBe(Math.round((10 * MIN) / 2));
+  });
+
+  it("does not count idle segments as duration", () => {
+    const rows = [
+      row("a1", "working", "2026-01-01T00:00:00Z"),
+      row("a1", "idle", "2026-01-01T00:10:00Z"),
+      row("a1", "working", "2026-01-01T01:00:00Z"),
+      row("a1", "done", "2026-01-01T01:05:00Z"),
+    ];
+    const stats = computeActivityStats(rows, null);
+    expect(stats.totalWorkingMs).toBe(15 * MIN);
+  });
+
+  it("accumulates custom event types into stateDurations", () => {
+    const rows = [
+      row("a1", "researching", "2026-01-01T00:00:00Z"),
+      row("a1", "done", "2026-01-01T00:20:00Z"),
+    ];
+    const stats = computeActivityStats(rows, null);
+    expect(stats.stateDurations.researching).toBe(20 * MIN);
+    expect(stats.totalWorkingMs).toBe(0);
+  });
+
+  it("excludes pre-range-only sessions from averages", () => {
+    const rangeStart = new Date("2026-01-01T01:00:00Z");
+    const rows = [
+      row("a1", "blocked", "2026-01-01T00:00:00Z"),
+      row("a1", "done", "2026-01-01T00:30:00Z"),
+      row("a2", "blocked", "2026-01-01T01:00:00Z"),
+      row("a2", "done", "2026-01-01T01:10:00Z"),
+    ];
+    const stats = computeActivityStats(rows, rangeStart);
+    expect(stats.avgBlockedMs).toBe(10 * MIN);
+  });
 });
 
 describe("computeDailyStatus", () => {
@@ -227,6 +272,83 @@ describe("computeDailyStatus", () => {
     const days = computeDailyStatus(rows, null, "day");
     expect(days).toHaveLength(2);
     expect(String(days[0].day) < String(days[1].day)).toBe(true);
+  });
+
+  it("groups by week granularity using ISO Monday starts", () => {
+    // Two events in the same ISO week should land in one bucket
+    // 2026-01-05 is a Monday, 2026-01-09 is a Friday
+    const rows = [
+      row("a1", "working", "2026-01-05T12:00:00Z"),
+      row("a1", "done", "2026-01-05T12:10:00Z"),
+      row("a2", "working", "2026-01-09T12:00:00Z"),
+      row("a2", "done", "2026-01-09T12:10:00Z"),
+    ];
+    const weeks = computeDailyStatus(rows, null, "week");
+    expect(weeks).toHaveLength(1);
+    expect(weeks[0].working).toBe(20 * MIN);
+  });
+
+  it("separates events in different ISO weeks", () => {
+    // 2026-01-09 is Friday of week 2, 2026-01-12 is Monday of week 3
+    const rows = [
+      row("a1", "working", "2026-01-09T12:00:00Z"),
+      row("a1", "done", "2026-01-09T12:10:00Z"),
+      row("a2", "working", "2026-01-12T12:00:00Z"),
+      row("a2", "done", "2026-01-12T12:20:00Z"),
+    ];
+    const weeks = computeDailyStatus(rows, null, "week");
+    expect(weeks).toHaveLength(2);
+    expect(String(weeks[0].day) < String(weeks[1].day)).toBe(true);
+  });
+
+  it("groups Sunday into the previous ISO week", () => {
+    // 2026-01-11 is Sunday — ISO week says it belongs to the week starting Monday Jan 5
+    // 2026-01-05 is Monday of the same ISO week
+    const rows = [
+      row("a1", "working", "2026-01-05T12:00:00Z"),
+      row("a1", "done", "2026-01-05T12:10:00Z"),
+      row("a2", "working", "2026-01-11T12:00:00Z"),
+      row("a2", "done", "2026-01-11T12:10:00Z"),
+    ];
+    const weeks = computeDailyStatus(rows, null, "week");
+    expect(weeks).toHaveLength(1);
+    expect(weeks[0].working).toBe(20 * MIN);
+  });
+
+  it("groups by month granularity", () => {
+    // Two events in the same month should land in one bucket
+    const rows = [
+      row("a1", "working", "2026-01-05T12:00:00Z"),
+      row("a1", "done", "2026-01-05T12:10:00Z"),
+      row("a2", "working", "2026-01-25T12:00:00Z"),
+      row("a2", "done", "2026-01-25T12:20:00Z"),
+    ];
+    const months = computeDailyStatus(rows, null, "month");
+    expect(months).toHaveLength(1);
+    expect(months[0].working).toBe(30 * MIN);
+  });
+
+  it("separates events in different months", () => {
+    const rows = [
+      row("a1", "working", "2026-01-15T12:00:00Z"),
+      row("a1", "done", "2026-01-15T12:10:00Z"),
+      row("a2", "working", "2026-02-15T12:00:00Z"),
+      row("a2", "done", "2026-02-15T12:20:00Z"),
+    ];
+    const months = computeDailyStatus(rows, null, "month");
+    expect(months).toHaveLength(2);
+    expect(String(months[0].day) < String(months[1].day)).toBe(true);
+  });
+
+  it("month bucket key uses the 1st of the month", () => {
+    const rows = [
+      row("a1", "working", "2026-03-15T12:00:00Z"),
+      row("a1", "done", "2026-03-15T12:10:00Z"),
+    ];
+    const months = computeDailyStatus(rows, null, "month");
+    expect(months).toHaveLength(1);
+    const dayStr = String(months[0].day);
+    expect(dayStr).toMatch(/-01$/);
   });
 });
 
@@ -332,5 +454,73 @@ describe("computeWorkingTimeByProject", () => {
     }
     const result = computeWorkingTimeByProject(rows, null);
     expect(result).toHaveLength(20);
+  });
+
+  it("accumulates time from multiple agents on the same project", () => {
+    const rows = [
+      row("a1", "working", "2026-01-01T00:00:00Z", "/shared"),
+      row("a1", "done", "2026-01-01T00:10:00Z", "/shared"),
+      row("a2", "working", "2026-01-01T00:00:00Z", "/shared"),
+      row("a2", "done", "2026-01-01T00:20:00Z", "/shared"),
+    ];
+    const result = computeWorkingTimeByProject(rows, null);
+    expect(result).toEqual([
+      { project_dir: "/shared", working_time_ms: 30 * MIN },
+    ]);
+  });
+
+  it("inherits project dir from previous event when current is null", () => {
+    const rows = [
+      row("a1", "working", "2026-01-01T00:00:00Z", "/proj"),
+      row("a1", "blocked", "2026-01-01T00:10:00Z"),
+      row("a1", "working", "2026-01-01T00:15:00Z"),
+      row("a1", "done", "2026-01-01T00:25:00Z"),
+    ];
+    const result = computeWorkingTimeByProject(rows, null);
+    expect(result).toEqual([
+      { project_dir: "/proj", working_time_ms: 20 * MIN },
+    ]);
+  });
+
+  it("attributes time to the project at segment start when agent switches projects", () => {
+    const rows = [
+      row("a1", "working", "2026-01-01T00:00:00Z", "/proj-a"),
+      row("a1", "working", "2026-01-01T00:10:00Z", "/proj-b"),
+      row("a1", "done", "2026-01-01T00:20:00Z", "/proj-b"),
+    ];
+    const result = computeWorkingTimeByProject(rows, null);
+    expect(result).toHaveLength(2);
+    const projA = result.find((r) => r.project_dir === "/proj-a");
+    const projB = result.find((r) => r.project_dir === "/proj-b");
+    expect(projA?.working_time_ms).toBe(10 * MIN);
+    expect(projB?.working_time_ms).toBe(10 * MIN);
+  });
+
+  it("excludes segments where rangeStart makes duration zero", () => {
+    const rows = [
+      row("a1", "working", "2026-01-01T00:00:00Z", "/proj"),
+      row("a1", "done", "2026-01-01T00:10:00Z", "/proj"),
+    ];
+    const result = computeWorkingTimeByProject(
+      rows,
+      new Date("2026-01-01T00:10:00Z")
+    );
+    expect(result).toEqual([]);
+  });
+
+  it("handles interleaved agents sorted by agent_id then time", () => {
+    const rows = [
+      row("a1", "working", "2026-01-01T00:00:00Z", "/proj-a"),
+      row("a1", "done", "2026-01-01T00:10:00Z", "/proj-a"),
+      row("a2", "working", "2026-01-01T00:05:00Z", "/proj-b"),
+      row("a2", "done", "2026-01-01T00:25:00Z", "/proj-b"),
+      row("a3", "working", "2026-01-01T00:00:00Z", "/proj-a"),
+      row("a3", "done", "2026-01-01T00:15:00Z", "/proj-a"),
+    ];
+    const result = computeWorkingTimeByProject(rows, null);
+    const projA = result.find((r) => r.project_dir === "/proj-a");
+    const projB = result.find((r) => r.project_dir === "/proj-b");
+    expect(projA?.working_time_ms).toBe(25 * MIN);
+    expect(projB?.working_time_ms).toBe(20 * MIN);
   });
 });
