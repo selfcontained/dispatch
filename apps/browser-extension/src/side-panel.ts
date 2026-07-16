@@ -8,6 +8,7 @@ import type {
 } from "./types";
 import { usesInsecureHttp } from "./lib/dispatch-url";
 import { canSubmitFeedback } from "./lib/feedback-form";
+import { classifyPickerPage } from "./lib/picker-access";
 
 const SELECTIONS_KEY = "dispatchAgentSelections";
 
@@ -44,6 +45,7 @@ let notice: Notice | null = null;
 let busy = false;
 let pickerActive = false;
 let pickerTabId: number | null = null;
+let pendingPickerAccessTabId: number | null = null;
 let pickerTransitioning = false;
 let restorePickerFocus = false;
 let connectionUrlInput = "";
@@ -299,9 +301,11 @@ function renderFeedback(shell: HTMLElement): void {
   pickerAction.className = "picker-toggle-action";
   pickerAction.textContent = pickerActive
     ? "Click to stop selecting"
-    : selection
-      ? "Pick a different element"
-      : "Click to inspect the page";
+    : pendingPickerAccessTabId !== null
+      ? "Allow access in Chrome's toolbar"
+      : selection
+        ? "Pick a different element"
+        : "Click to inspect the page";
   pickerCopy.append(pickerTitle, pickerAction);
 
   const pickerState = document.createElement("span");
@@ -565,6 +569,61 @@ async function stopPicker(renderAfter = true): Promise<void> {
   if (renderAfter) render();
 }
 
+async function injectPicker(tabId: number): Promise<void> {
+  await chrome.scripting.executeScript({
+    target: { tabId },
+    files: ["picker.js"],
+  });
+  pendingPickerAccessTabId = null;
+  pickerActive = true;
+  pickerTabId = tabId;
+}
+
+async function requestPickerSiteAccess(tabId: number): Promise<void> {
+  if (typeof chrome.permissions.addHostAccessRequest !== "function") {
+    throw new Error(
+      "Chrome needs access to this site. Focus the page, reopen Dispatch feedback from the extension toolbar, then try again."
+    );
+  }
+
+  await chrome.permissions.addHostAccessRequest({ tabId });
+  pendingPickerAccessTabId = tabId;
+  setNotice(
+    "info",
+    "Chrome needs access to this site. Click Allow beside the extension icon in Chrome's toolbar; element selection will start automatically."
+  );
+}
+
+async function resumePickerAfterSiteAccess(): Promise<void> {
+  const tabId = pendingPickerAccessTabId;
+  if (tabId === null || pickerTransitioning) return;
+
+  pickerTransitioning = true;
+  try {
+    const activeTab = await getActiveTab();
+    if (activeTab.id !== tabId) {
+      pendingPickerAccessTabId = null;
+      setNotice(
+        "info",
+        "Site access was granted. Return to that page and click Element selector."
+      );
+      return;
+    }
+    if (classifyPickerPage(activeTab.url) === "needs-site-access") return;
+    await injectPicker(tabId);
+    notice = null;
+  } catch {
+    pendingPickerAccessTabId = null;
+    setNotice(
+      "error",
+      "Chrome granted site access, but element selection could not start. Try again on the page."
+    );
+  } finally {
+    pickerTransitioning = false;
+    render();
+  }
+}
+
 async function togglePicker(): Promise<void> {
   if (pickerTransitioning) return;
   pickerTransitioning = true;
@@ -577,17 +636,17 @@ async function togglePicker(): Promise<void> {
 
     notice = null;
     const tab = await getActiveTab();
-    if (!tab.url || !/^https?:/i.test(tab.url)) {
+    const pageAccess = classifyPickerPage(tab.url);
+    if (pageAccess === "unsupported") {
       throw new Error(
         "Element selection is available on HTTP and HTTPS pages."
       );
     }
-    await chrome.scripting.executeScript({
-      target: { tabId: tab.id as number },
-      files: ["picker.js"],
-    });
-    pickerActive = true;
-    pickerTabId = tab.id as number;
+    if (pageAccess === "needs-site-access") {
+      await requestPickerSiteAccess(tab.id as number);
+      return;
+    }
+    await injectPicker(tab.id as number);
   } catch (error) {
     pickerActive = false;
     pickerTabId = null;
@@ -669,7 +728,14 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
   }
 });
 
+chrome.permissions.onAdded.addListener(() => {
+  void resumePickerAfterSiteAccess();
+});
+
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+  if (tabId === pendingPickerAccessTabId && changeInfo.status === "loading") {
+    pendingPickerAccessTabId = null;
+  }
   if (
     pickerActive &&
     tabId === pickerTabId &&
@@ -683,6 +749,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
+  if (tabId === pendingPickerAccessTabId) pendingPickerAccessTabId = null;
   if (!pickerActive || tabId !== pickerTabId) return;
   pickerActive = false;
   pickerTabId = null;
