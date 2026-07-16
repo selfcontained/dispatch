@@ -1,0 +1,44 @@
+id: unified-reviews-migration
+title: Verify unified reviews migration
+summary: >
+  Migrates legacy persona review records into the unified reviews, feedback
+  items, and thread messages model, then adds explicit review-agent roles and
+  reviewer uniqueness protection. The database migrations run automatically
+  on server boot, are idempotent, and retain the legacy source rows. Route this
+  update through assisted update so the operator can allow for a longer first
+  startup on installations with substantial legacy review history and confirm
+  that the service returns healthy afterward.
+
+alreadySatisfied:
+  description: >
+    The install is already on the target tag, the service has completed startup,
+    the local health endpoint returns status=ok, and release.json reports the
+    target tag. A healthy server at the target tag has completed migrations
+    0032 through 0034; rerunning them is safe and does not duplicate migrated
+    reviews or feedback items.
+
+instructions:
+  - Confirm the service has been restarted to the target release tag.
+  - Allow extra startup time if the installation contains substantial legacy
+    persona review history; migration 0032 copies those records once into the
+    unified review model while retaining the legacy source rows.
+  - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok after startup.
+  - Confirm release.json under the install directory reports the target tag.
+  - If the healthy target state is already satisfied, do not modify review data
+    manually; proceed straight to the validate phase.
+
+validation:
+  requiredChecks:
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - If the target release does not return healthy, roll back to the previous
+    release tag using the normal release rollback path for this host.
+  - Leave the additive unified review tables, migrated rows, agent role values,
+    and reviewer uniqueness index in place. The legacy review source rows are
+    retained, and removing migrated data manually is less safe than leaving it
+    for a later target release to reuse idempotently.
+  - Restart the prior release and confirm $DISPATCH_API_URL/api/v1/health
+    returns status=ok and release.json reports the prior tag.
