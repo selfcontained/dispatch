@@ -26,8 +26,35 @@ function reasonLabel(reason: SubsystemSnapshot["statusReason"]): string | null {
 
 function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
   const [expanded, setExpanded] = useState(false);
-  const metadata = Object.entries(subsystem.metadata);
   const statusReason = reasonLabel(subsystem.statusReason);
+  const stats = [
+    ...(subsystem.p95DurationMs === null
+      ? []
+      : [
+          {
+            key: "p95-duration",
+            label: "p95 duration",
+            value: formatMs(subsystem.p95DurationMs),
+            isFailure: false,
+          },
+        ]),
+    ...(subsystem.failures === 0
+      ? []
+      : [
+          {
+            key: "failures",
+            label: "Failures",
+            value: subsystem.failures.toLocaleString(),
+            isFailure: true,
+          },
+        ]),
+    ...Object.entries(subsystem.metadata).map(([key, value]) => ({
+      key,
+      label: metadataLabel(key),
+      value: value.toLocaleString(),
+      isFailure: false,
+    })),
+  ];
   return (
     <div className="border-b border-border last:border-b-0">
       <button
@@ -74,19 +101,27 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
           {statusReason && (
             <p className="mt-2 text-status-waiting">{statusReason}</p>
           )}
-          <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2">
-            {subsystem.p95DurationMs !== null && (
-              <span>p95 {formatMs(subsystem.p95DurationMs)}</span>
-            )}
-            {subsystem.failures > 0 && (
-              <span>{subsystem.failures} failures</span>
-            )}
-            {metadata.map(([key, value]) => (
-              <span key={key}>
-                {metadataLabel(key)} {value.toLocaleString()}
-              </span>
-            ))}
-          </div>
+          {stats.length > 0 && (
+            <div className="mt-3 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-4">
+              {stats.map((stat) => (
+                <div
+                  key={stat.key}
+                  className="rounded-md border border-border/80 bg-background/40 px-3 py-2 shadow-sm"
+                >
+                  <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
+                    {stat.label}
+                  </span>
+                  <span
+                    className={`mt-0.5 block text-sm font-semibold tabular-nums ${
+                      stat.isFailure ? "text-status-blocked" : "text-foreground"
+                    }`}
+                  >
+                    {stat.value}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
           {subsystem.lastError && (
             <p className="mt-3 text-status-blocked">{subsystem.lastError}</p>
           )}
