@@ -56,8 +56,10 @@ export function BrowserExtensionSettings(): JSX.Element {
   const [showAllConnections, setShowAllConnections] = useState(false);
   const [copiedUrl, copyText] = useCopyText();
   const connectionsBeforeApprovalRef = useRef<Set<string>>(new Set());
+  const previousConnectionCountRef = useRef<number | null>(null);
   const connectionsQuery = useQuery({
     queryKey: connectionsQueryKey,
+    refetchOnWindowFocus: "always",
     queryFn: async () => {
       const result = await api<{ connections: BrowserExtensionConnection[] }>(
         "/api/v1/browser-extension/connections"
@@ -139,6 +141,21 @@ export function BrowserExtensionSettings(): JSX.Element {
     nextParams.delete("code");
     setSearchParams(nextParams, { replace: true });
   }, [approvalState, code, pairingId, searchParams, setSearchParams]);
+
+  useEffect(() => {
+    if (!connectionsQuery.data) return;
+
+    const connectionCount = connectionsQuery.data.length;
+    const previousConnectionCount = previousConnectionCountRef.current;
+    previousConnectionCountRef.current = connectionCount;
+
+    if (
+      previousConnectionCount !== null &&
+      connectionCount > previousConnectionCount
+    ) {
+      setShowInstallGuide(false);
+    }
+  }, [connectionsQuery.data]);
 
   const approvePairing = async () => {
     if (!pairingId || !code) return;
@@ -394,7 +411,7 @@ export function BrowserExtensionSettings(): JSX.Element {
                   data-testid="extension-install-guide"
                 >
                   <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div>
+                    <div className="min-w-0 flex-[1_1_16rem]">
                       <p className="text-sm font-medium">
                         Finish setup in Chrome
                       </p>
@@ -415,8 +432,8 @@ export function BrowserExtensionSettings(): JSX.Element {
                       </Button>
                     )}
                   </div>
-                  <div className="grid gap-3 md:grid-cols-3">
-                    <div className="rounded-lg border border-border p-3">
+                  <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
+                    <div className="min-w-0 rounded-lg border border-border p-3">
                       <FolderOpen
                         className="mb-2 h-4 w-4 text-primary"
                         aria-hidden="true"
@@ -424,29 +441,30 @@ export function BrowserExtensionSettings(): JSX.Element {
                       <p className="text-sm font-medium">
                         1. Unzip the download
                       </p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 break-words text-xs text-muted-foreground">
                         Keep the extracted folder somewhere Chrome can continue
                         to access it.
                       </p>
                     </div>
-                    <div className="rounded-lg border border-border p-3">
+                    <div className="min-w-0 rounded-lg border border-border p-3">
                       <Puzzle
                         className="mb-2 h-4 w-4 text-primary"
                         aria-hidden="true"
                       />
                       <p className="text-sm font-medium">2. Load the folder</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
-                        Open <code>chrome://extensions</code>, enable Developer
-                        mode, then choose Load unpacked.
+                      <p className="mt-1 break-words text-xs text-muted-foreground">
+                        Open{" "}
+                        <code className="break-all">chrome://extensions</code>,
+                        enable Developer mode, then choose Load unpacked.
                       </p>
                     </div>
-                    <div className="rounded-lg border border-border p-3">
+                    <div className="min-w-0 rounded-lg border border-border p-3">
                       <Chrome
                         className="mb-2 h-4 w-4 text-primary"
                         aria-hidden="true"
                       />
                       <p className="text-sm font-medium">3. Connect Dispatch</p>
-                      <p className="mt-1 text-xs text-muted-foreground">
+                      <p className="mt-1 break-words text-xs text-muted-foreground">
                         Open the extension, enter this Dispatch URL, and verify
                         the pairing code here.
                       </p>

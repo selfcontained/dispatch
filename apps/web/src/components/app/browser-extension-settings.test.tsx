@@ -6,7 +6,11 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,15 +18,16 @@ import { BrowserExtensionSettings } from "./browser-extension-settings";
 
 function renderSettings(search = "") {
   const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
+    defaultOptions: { queries: { retry: false, staleTime: 30_000 } },
   });
-  return render(
+  const rendered = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[`/settings/connections${search}`]}>
         <BrowserExtensionSettings />
       </MemoryRouter>
     </QueryClientProvider>
   );
+  return { ...rendered, queryClient };
 }
 
 function connectionsResponse(connections: unknown[] = []) {
@@ -38,6 +43,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  focusManager.setFocused(undefined);
   vi.restoreAllMocks();
 });
 
@@ -123,6 +129,42 @@ describe("BrowserExtensionSettings", () => {
       "/api/v1/browser-extension/connections/11111111-1111-4111-8111-111111111111",
       expect.objectContaining({ method: "DELETE", credentials: "include" })
     );
+  });
+
+  it("closes setup when a newly paired browser appears", async () => {
+    let connections: unknown[] = [];
+    vi.mocked(globalThis.fetch).mockImplementation(async () =>
+      connectionsResponse(connections)
+    );
+    renderSettings();
+
+    await screen.findByText("Try browser feedback");
+    fireEvent.click(
+      screen.getByRole("button", { name: "Already downloaded?" })
+    );
+    expect(await screen.findByText("Finish setup in Chrome")).toBeTruthy();
+
+    connections = [
+      {
+        id: "33333333-3333-4333-8333-333333333333",
+        deviceName: "New Chrome",
+        createdAt: new Date().toISOString(),
+        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+        lastUsedAt: null,
+      },
+    ];
+    focusManager.setFocused(false);
+    focusManager.setFocused(true);
+
+    expect(await screen.findByText("New Chrome")).toBeTruthy();
+    await waitFor(() => {
+      expect(screen.queryByText("Finish setup in Chrome")).toBe(null);
+    });
+    expect(
+      screen
+        .getByRole("button", { name: "Add another browser" })
+        .getAttribute("aria-expanded")
+    ).toBe("false");
   });
 
   it("keeps a large connection list compact until requested", async () => {

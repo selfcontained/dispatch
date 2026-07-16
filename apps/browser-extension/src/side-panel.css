@@ -293,6 +293,27 @@ label {
   background: #1c1917;
 }
 
+.preview-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.preview-header p {
+  min-width: 0;
+}
+
+.preview-clear {
+  flex: none;
+  min-height: auto;
+  padding: 2px 6px;
+  border-color: transparent;
+  color: #c4b5fd;
+  background: transparent;
+  font-size: 11px;
+}
+
 .preview code,
 .preview p {
   overflow-wrap: anywhere;

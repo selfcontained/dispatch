@@ -422,9 +422,22 @@ function renderFeedback(shell: HTMLElement): void {
 function createPreview(): HTMLElement {
   const preview = document.createElement("section");
   preview.className = "preview";
+  const header = document.createElement("div");
+  header.className = "preview-header";
   const page = document.createElement("p");
   page.textContent =
     selection?.page.title || selection?.page.url || "Selected page";
+  const clear = document.createElement("button");
+  clear.type = "button";
+  clear.className = "preview-clear";
+  clear.textContent = "Clear";
+  clear.setAttribute("aria-label", "Clear selected element");
+  clear.disabled = busy;
+  clear.addEventListener("click", () => {
+    selection = null;
+    render();
+  });
+  header.append(page, clear);
   const selector = document.createElement("code");
   selector.textContent = selection?.element.selector ?? "";
   const text = document.createElement("p");
@@ -453,7 +466,7 @@ function createPreview(): HTMLElement {
       )
     : "";
   surroundingDetails.append(surroundingSummary, surroundingContext);
-  preview.append(page, selector, text, details, surroundingDetails);
+  preview.append(header, selector, text, details, surroundingDetails);
   return preview;
 }
 
@@ -608,7 +621,7 @@ async function stopPicker(renderAfter = true): Promise<void> {
   if (tabId !== null) {
     await chrome.scripting
       .executeScript({
-        target: { tabId },
+        target: { tabId, allFrames: true },
         func: cleanupInjectedPicker,
       })
       .catch(() => {
@@ -619,20 +632,40 @@ async function stopPicker(renderAfter = true): Promise<void> {
 }
 
 async function injectPicker(tabId: number): Promise<void> {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    await chrome.scripting.executeScript({
-      target: { tabId },
-      files: ["picker.js"],
-    });
-    const [result] = await chrome.scripting.executeScript({
-      target: { tabId },
-      func: injectedPickerIsReady,
-    });
-    if (result?.result === true) {
-      pickerActive = true;
-      pickerTabId = tabId;
-      return;
+  // Arm message acceptance before injection. A user can click immediately after
+  // picker.js installs, before the readiness probe returns to this panel.
+  pickerActive = true;
+  pickerTabId = tabId;
+
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    if (!pickerActive || pickerTabId !== tabId) return;
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        files: ["picker.js"],
+      });
+      if (!pickerActive || pickerTabId !== tabId) return;
+      const results = await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: injectedPickerIsReady,
+      });
+      if (!pickerActive || pickerTabId !== tabId) return;
+      if (results.some((result) => result.result === true)) {
+        return;
+      }
+    } catch {
+      // A new host grant can take a moment to reach scripting.executeScript.
+      // Retry below after removing any partial injection from accessible frames.
     }
+
+    await chrome.scripting
+      .executeScript({
+        target: { tabId, allFrames: true },
+        func: cleanupInjectedPicker,
+      })
+      .catch(() => {
+        // Host access may still be propagating, so cleanup can fail as well.
+      });
     await delay(150);
   }
   throw new Error("Element selection did not start on this page. Try again.");
@@ -652,16 +685,22 @@ async function requestPageAccess(): Promise<boolean> {
   return !wasAlreadyGranted;
 }
 
-async function getSettledActiveTab(): Promise<chrome.tabs.Tab> {
-  let lastCompleteTabId: number | null = null;
+async function getSettledTab(tabId: number): Promise<chrome.tabs.Tab> {
+  let lastReadyTabId: number | null = null;
   for (let attempt = 0; attempt < 20; attempt += 1) {
-    const tab = await getActiveTab();
-    const isComplete = tab.status === undefined || tab.status === "complete";
-    if (isComplete && tab.id === lastCompleteTabId) return tab;
-    lastCompleteTabId = isComplete ? (tab.id as number) : null;
+    const tab = await chrome.tabs.get(tabId);
+    const pageAccess = classifyPickerPage(tab.url);
+    if (pageAccess === "unsupported") return tab;
+    const isReady =
+      (tab.status === undefined || tab.status === "complete") &&
+      pageAccess === "ready";
+    if (isReady && tab.id === lastReadyTabId) return tab;
+    lastReadyTabId = isReady ? (tab.id as number) : null;
     await delay(100);
   }
-  throw new Error("The page is still loading. Try Element selector again.");
+  throw new Error(
+    "Chrome is still applying page access. Try Element selector again."
+  );
 }
 
 async function togglePicker(): Promise<void> {
@@ -675,10 +714,14 @@ async function togglePicker(): Promise<void> {
     }
 
     notice = null;
+    // Start resolving the intended tab without awaiting so permissions.request
+    // still runs in the selector button's original user-gesture call stack.
+    const intendedTabPromise = getActiveTab();
     const accessWasNewlyGranted = await requestPageAccess();
+    const intendedTab = await intendedTabPromise;
     const tab = accessWasNewlyGranted
-      ? await getSettledActiveTab()
-      : await getActiveTab();
+      ? await getSettledTab(intendedTab.id as number)
+      : await chrome.tabs.get(intendedTab.id as number);
     const pageAccess = classifyPickerPage(tab.url);
     if (pageAccess !== "ready") {
       throw new Error(
@@ -794,7 +837,7 @@ window.addEventListener("pagehide", () => {
   if (tabId !== null) {
     void chrome.scripting
       .executeScript({
-        target: { tabId },
+        target: { tabId, allFrames: true },
         func: cleanupInjectedPicker,
       })
       .catch(() => {

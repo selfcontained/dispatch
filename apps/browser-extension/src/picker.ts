@@ -45,15 +45,32 @@ document.documentElement.append(selectorBadge);
 let hovered: Element | null = null;
 
 function cleanup(): void {
-  document.removeEventListener("mousemove", handleMove, true);
-  document.removeEventListener("click", handleClick, true);
-  document.removeEventListener("keydown", handleKeydown, true);
+  window.removeEventListener("mousemove", handleMove, true);
+  window.removeEventListener("pointerdown", blockPagePointerEvent, true);
+  window.removeEventListener("pointerup", blockPagePointerEvent, true);
+  window.removeEventListener("mousedown", blockPageMouseEvent, true);
+  window.removeEventListener("mouseup", blockPageMouseEvent, true);
+  window.removeEventListener("click", handleClick, true);
+  window.removeEventListener("keydown", handleKeydown, true);
   window.removeEventListener("scroll", handleViewportChange, true);
   window.removeEventListener("resize", handleViewportChange);
   overlay.remove();
   selectorBadge.remove();
   hovered = null;
   delete window.__dispatchElementPickerCleanup;
+}
+
+function eventElement(event: Event): Element | null {
+  return (
+    event
+      .composedPath()
+      .find(
+        (target): target is Element =>
+          target instanceof Element &&
+          target !== overlay &&
+          target !== selectorBadge
+      ) ?? null
+  );
 }
 
 function positionPicker(target: Element, updateSelector: boolean): void {
@@ -74,11 +91,20 @@ function positionPicker(target: Element, updateSelector: boolean): void {
 }
 
 function handleMove(event: MouseEvent): void {
-  const target = event.composedPath()[0];
-  if (!(target instanceof Element) || target === overlay) return;
+  const target = eventElement(event);
+  if (!target) return;
   const targetChanged = target !== hovered;
   hovered = target;
   positionPicker(target, targetChanged);
+}
+
+function blockPagePointerEvent(event: PointerEvent): void {
+  event.stopImmediatePropagation();
+}
+
+function blockPageMouseEvent(event: MouseEvent): void {
+  event.preventDefault();
+  event.stopImmediatePropagation();
 }
 
 function handleViewportChange(): void {
@@ -87,11 +113,12 @@ function handleViewportChange(): void {
 }
 
 function handleClick(event: MouseEvent): void {
-  if (!hovered) return;
+  const target = eventElement(event) ?? hovered;
+  if (!target) return;
   event.preventDefault();
   event.stopImmediatePropagation();
   try {
-    const selection = createBrowserSelection(hovered);
+    const selection = createBrowserSelection(target);
     cleanup();
     void chrome.runtime.sendMessage({
       type: "picker:selected",
@@ -110,9 +137,13 @@ function handleKeydown(event: KeyboardEvent): void {
   void chrome.runtime.sendMessage({ type: "picker:cancelled" });
 }
 
-document.addEventListener("mousemove", handleMove, true);
-document.addEventListener("click", handleClick, true);
-document.addEventListener("keydown", handleKeydown, true);
+window.addEventListener("mousemove", handleMove, true);
+window.addEventListener("pointerdown", blockPagePointerEvent, true);
+window.addEventListener("pointerup", blockPagePointerEvent, true);
+window.addEventListener("mousedown", blockPageMouseEvent, true);
+window.addEventListener("mouseup", blockPageMouseEvent, true);
+window.addEventListener("click", handleClick, true);
+window.addEventListener("keydown", handleKeydown, true);
 window.addEventListener("scroll", handleViewportChange, true);
 window.addEventListener("resize", handleViewportChange);
 window.__dispatchElementPickerCleanup = cleanup;
