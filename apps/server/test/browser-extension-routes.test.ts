@@ -1,8 +1,13 @@
 import crypto from "node:crypto";
 
-import { beforeEach, describe, expect, it } from "vitest";
+import Fastify from "fastify";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { cleanupBrowserExtensionData } from "../src/routes/browser-extension.js";
+import type { AgentRecord } from "../src/agents/manager.js";
+import {
+  cleanupBrowserExtensionData,
+  registerBrowserExtensionRoutes,
+} from "../src/routes/browser-extension.js";
 import { useInjectApp } from "./helpers/inject-app.js";
 
 const ctx = useInjectApp();
@@ -64,6 +69,40 @@ async function approveAndExchange(deviceName?: string) {
   };
 }
 
+function submissionPayload(clientSubmissionId = crypto.randomUUID()) {
+  return {
+    clientSubmissionId,
+    agentId: "agt_running",
+    comment: "The spacing collapses here.",
+    page: { url: "http://localhost:3000/checkout", title: "Checkout" },
+    element: {
+      tagName: "section",
+      selector: "main > section.checkout-summary",
+      text: "Order summary",
+    },
+  };
+}
+
+async function createSubmissionTestApp(
+  sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>
+) {
+  const app = Fastify({ logger: false });
+  const runningAgent = {
+    id: "agt_running",
+    status: "running",
+  } as AgentRecord;
+  await registerBrowserExtensionRoutes(app, {
+    pool: ctx.pool,
+    agentManager: {
+      getAgent: async (agentId) =>
+        agentId === runningAgent.id ? runningAgent : null,
+      listAgents: async () => [runningAgent],
+    },
+    sendAgentPrompt,
+  });
+  return app;
+}
+
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM browser_feedback_submissions");
   await ctx.pool.query("DELETE FROM browser_extension_pairings");
@@ -109,11 +148,12 @@ describe("browser extension pairing", () => {
     );
     await ctx.pool.query(
       `INSERT INTO browser_feedback_submissions
-         (id, agent_id, comment, page_context, element_context, created_at)
+         (id, client_submission_id, agent_id, comment, page_context,
+          element_context, created_at)
        VALUES
-         ($1, 'agt_old', 'Old feedback', '{}'::jsonb, '{}'::jsonb,
+         ($1, $1, 'agt_old', 'Old feedback', '{}'::jsonb, '{}'::jsonb,
           now() - interval '91 days'),
-         ($2, 'agt_current', 'Current feedback', '{}'::jsonb, '{}'::jsonb,
+         ($2, $2, 'agt_current', 'Current feedback', '{}'::jsonb, '{}'::jsonb,
           now())`,
       [crypto.randomUUID(), crypto.randomUUID()]
     );
@@ -440,6 +480,7 @@ describe("browser extension scoped API", () => {
       url: "/api/v1/browser-extension/submissions",
       headers: { authorization: `Bearer ${token}` },
       payload: {
+        clientSubmissionId: crypto.randomUUID(),
         agentId: "agt_running",
         comment: "The spacing collapses here.",
         page: { url: "http://localhost:3000/checkout", title: "Checkout" },
@@ -485,10 +526,17 @@ describe("browser extension scoped API", () => {
     });
 
     expect(response.statusCode).toBe(502);
-    const body = response.json<{ submissionId: string; status: string }>();
+    const body = response.json<{
+      submissionId: string;
+      status: string;
+      error: string;
+    }>();
     expect(body.status).toBe("failed");
+    expect(body.error).toBe("Prompt delivery failed.");
+    expect(body.error).not.toContain("terminal session");
     const stored = await ctx.pool.query<{
       delivery_status: string;
+      delivery_error: string;
       comment: string;
       page_context: { url: string };
       element_context: {
@@ -498,12 +546,14 @@ describe("browser extension scoped API", () => {
         searchHints: string[];
       };
     }>(
-      `SELECT delivery_status, comment, page_context, element_context
+      `SELECT delivery_status, delivery_error, comment, page_context, element_context
          FROM browser_feedback_submissions WHERE id = $1`,
       [body.submissionId]
     );
     expect(stored.rows[0]).toMatchObject({
       delivery_status: "failed",
+      delivery_error:
+        "Agent has no active terminal session — prompt cannot be delivered.",
       comment: "The spacing collapses here.",
       page_context: { url: "http://localhost:3000/checkout" },
       element_context: {
@@ -518,6 +568,111 @@ describe("browser extension scoped API", () => {
     });
   });
 
+  it("reconciles a successful duplicate retry without redelivering", async () => {
+    const { token } = await approveAndExchange();
+    const sendAgentPrompt = vi.fn(async () => undefined);
+    const app = await createSubmissionTestApp(sendAgentPrompt);
+    const payload = submissionPayload();
+
+    try {
+      const first = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers: { authorization: `Bearer ${token}` },
+        payload,
+      });
+      expect(first.statusCode).toBe(200);
+
+      // Simulate the extension losing the successful response and retrying the
+      // same logical submission with its retained client id.
+      const retry = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers: { authorization: `Bearer ${token}` },
+        payload,
+      });
+
+      expect(retry.statusCode).toBe(200);
+      expect(retry.json()).toEqual(first.json());
+      expect(sendAgentPrompt).toHaveBeenCalledTimes(1);
+      const stored = await ctx.pool.query<{ count: number }>(
+        `SELECT count(*)::int AS count
+           FROM browser_feedback_submissions
+          WHERE client_submission_id = $1`,
+        [payload.clientSubmissionId]
+      );
+      expect(stored.rows[0].count).toBe(1);
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("returns pending for a concurrent duplicate without redelivering", async () => {
+    const { token } = await approveAndExchange();
+    let markDeliveryStarted!: () => void;
+    let releaseDelivery!: () => void;
+    const deliveryStarted = new Promise<void>((resolve) => {
+      markDeliveryStarted = resolve;
+    });
+    const deliveryBlocked = new Promise<void>((resolve) => {
+      releaseDelivery = resolve;
+    });
+    const sendAgentPrompt = vi.fn(async () => {
+      markDeliveryStarted();
+      await deliveryBlocked;
+    });
+    const app = await createSubmissionTestApp(sendAgentPrompt);
+    const payload = submissionPayload();
+
+    try {
+      const firstResponse = app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers: { authorization: `Bearer ${token}` },
+        payload,
+      });
+      await deliveryStarted;
+
+      const concurrent = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers: { authorization: `Bearer ${token}` },
+        payload,
+      });
+      expect(concurrent.statusCode).toBe(202);
+      expect(concurrent.json()).toMatchObject({ status: "pending" });
+
+      releaseDelivery();
+      const delivered = await firstResponse;
+      expect(delivered.statusCode).toBe(200);
+      expect(concurrent.json<{ submissionId: string }>().submissionId).toBe(
+        delivered.json<{ submissionId: string }>().submissionId
+      );
+      expect(sendAgentPrompt).toHaveBeenCalledTimes(1);
+    } finally {
+      releaseDelivery();
+      await app.close();
+    }
+  });
+
+  it("requires a UUID client submission id", async () => {
+    const { token } = await approveAndExchange();
+    const { clientSubmissionId: _clientSubmissionId, ...payload } =
+      submissionPayload();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/browser-extension/submissions",
+      headers: { authorization: `Bearer ${token}` },
+      payload,
+    });
+
+    expect(response.statusCode).toBe(400);
+    const count = await ctx.pool.query<{ count: number }>(
+      "SELECT count(*)::int AS count FROM browser_feedback_submissions"
+    );
+    expect(count.rows[0].count).toBe(0);
+  });
+
   it("rejects oversized untrusted context before delivery", async () => {
     const { token } = await approveAndExchange();
     const response = await ctx.app.inject({
@@ -525,6 +680,7 @@ describe("browser extension scoped API", () => {
       url: "/api/v1/browser-extension/submissions",
       headers: { authorization: `Bearer ${token}` },
       payload: {
+        clientSubmissionId: crypto.randomUUID(),
         agentId: "agt_running",
         comment: "x".repeat(10_001),
         page: { url: "http://localhost:3000" },

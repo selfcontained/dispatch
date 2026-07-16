@@ -68,6 +68,8 @@ async function setupPanel(
   let selectDuringNextFileInjection = false;
   let agents = initialAgents;
   let nextAgentError: Error | null = null;
+  let nextSubmissionError: Error | null = null;
+  let nextSubmissionTerminalFailure = false;
   let pairingStartCount = 0;
   let exchangeStartedCount = 0;
   let deferNextExchange = false;
@@ -176,6 +178,19 @@ async function setupPanel(
       };
     }
     if (request.type === "submission:create") {
+      if (nextSubmissionTerminalFailure) {
+        nextSubmissionTerminalFailure = false;
+        return {
+          ok: false,
+          error: "Prompt delivery failed.",
+          submissionTerminalFailure: true,
+        };
+      }
+      if (nextSubmissionError) {
+        const error = nextSubmissionError;
+        nextSubmissionError = null;
+        throw error;
+      }
       return { ok: true, data: {} };
     }
     if (request.type === "pairing:start") {
@@ -270,6 +285,7 @@ async function setupPanel(
 
   return {
     executeScript,
+    sendMessage,
     tabsGet,
     permissionsRequest,
     permissionsRemove,
@@ -300,6 +316,12 @@ async function setupPanel(
     },
     failNextAgentRefresh(message = "Could not refresh agents") {
       nextAgentError = new Error(message);
+    },
+    failNextSubmission(message = "Dispatch did not respond in time") {
+      nextSubmissionError = new Error(message);
+    },
+    failNextSubmissionTerminally() {
+      nextSubmissionTerminalFailure = true;
     },
     failNextFileInjection() {
       failNextFileInjection = true;
@@ -434,6 +456,8 @@ describe("side panel picker flow", () => {
     const disclosure = document.querySelector(".page-access-disclosure");
     expect(disclosure?.textContent).toContain("all HTTP and HTTPS websites");
     expect(disclosure?.textContent).toContain("embedded frames");
+    expect(disclosure?.textContent).toContain("reads hovered elements locally");
+    expect(disclosure?.textContent).toContain("surrounding page context");
     expect(panel.permissionsRequest).not.toHaveBeenCalled();
     (
       document.querySelector(
@@ -682,6 +706,105 @@ describe("side panel picker flow", () => {
     expect(textarea.selectionStart).toBe(4);
     expect(document.querySelector(".status.success")).toBeNull();
     vi.useRealTimers();
+  });
+
+  it("reuses the submission id after an ambiguous delivery error", async () => {
+    const panel = await setupPanel(true);
+    (document.querySelector(".picker-toggle") as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        document.querySelector(".picker-toggle")?.getAttribute("aria-pressed")
+      ).toBe("true");
+    });
+    panel.sendPickerSelection();
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.value = "Keep this retry id stable";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    panel.failNextSubmission();
+
+    (
+      document.querySelector("button.primary:last-child") as HTMLButtonElement
+    ).click();
+    await waitFor(() => {
+      expect(document.querySelector("[role='alert']")?.textContent).toContain(
+        "Dispatch did not respond in time"
+      );
+    });
+
+    (
+      document.querySelector("button.primary:last-child") as HTMLButtonElement
+    ).click();
+    await waitFor(() => {
+      expect(document.querySelector(".status.success")?.textContent).toContain(
+        "Feedback delivered"
+      );
+    });
+
+    const submissionRequests = panel.sendMessage.mock.calls
+      .map(([request]) => request)
+      .filter(
+        (
+          request
+        ): request is {
+          type: "submission:create";
+          clientSubmissionId: string;
+        } => request.type === "submission:create"
+      );
+    expect(submissionRequests).toHaveLength(2);
+    expect(submissionRequests[0]?.clientSubmissionId).toMatch(
+      /^[0-9a-f-]{36}$/
+    );
+    expect(submissionRequests[1]?.clientSubmissionId).toBe(
+      submissionRequests[0]?.clientSubmissionId
+    );
+  });
+
+  it("uses a new submission id after a confirmed terminal delivery failure", async () => {
+    const panel = await setupPanel(true);
+    (document.querySelector(".picker-toggle") as HTMLButtonElement).click();
+    await waitFor(() => {
+      expect(
+        document.querySelector(".picker-toggle")?.getAttribute("aria-pressed")
+      ).toBe("true");
+    });
+    panel.sendPickerSelection();
+    const textarea = document.querySelector("textarea") as HTMLTextAreaElement;
+    textarea.value = "Retry a confirmed failure";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    panel.failNextSubmissionTerminally();
+
+    (
+      document.querySelector("button.primary:last-child") as HTMLButtonElement
+    ).click();
+    await waitFor(() => {
+      expect(document.querySelector("[role='alert']")?.textContent).toContain(
+        "Prompt delivery failed"
+      );
+    });
+
+    (
+      document.querySelector("button.primary:last-child") as HTMLButtonElement
+    ).click();
+    await waitFor(() => {
+      expect(document.querySelector(".status.success")?.textContent).toContain(
+        "Feedback delivered"
+      );
+    });
+
+    const submissionRequests = panel.sendMessage.mock.calls
+      .map(([request]) => request)
+      .filter(
+        (
+          request
+        ): request is {
+          type: "submission:create";
+          clientSubmissionId: string;
+        } => request.type === "submission:create"
+      );
+    expect(submissionRequests).toHaveLength(2);
+    expect(submissionRequests[1]?.clientSubmissionId).not.toBe(
+      submissionRequests[0]?.clientSubmissionId
+    );
   });
 
   it("cancels pairing, revokes its new permission, and can restart immediately", async () => {

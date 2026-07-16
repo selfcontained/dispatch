@@ -54,9 +54,11 @@ and feedback without transport encryption. HTTPS should be preferred on
 untrusted networks.
 
 Chrome blocks script injection on browser-owned pages such as
-`chrome://extensions` and the Chrome Web Store. Selection is limited to the
-top-level page and reachable open DOM; cross-origin frames and closed shadow
-roots are not inspected.
+`chrome://extensions` and the Chrome Web Store. After the user grants access to
+HTTP and HTTPS sites, selection can inspect reachable open DOM in the top-level
+page and in HTTP/HTTPS frames, including cross-origin frames where Chrome
+permits extension injection. Frames Chrome refuses to inject into and closed
+shadow roots are not inspected.
 
 ## Release checks
 

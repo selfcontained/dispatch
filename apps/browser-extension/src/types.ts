@@ -76,6 +76,7 @@ export type WorkerRequest =
   | { type: "agents:list" }
   | {
       type: "submission:create";
+      clientSubmissionId: string;
       agentId: string;
       comment: string;
       selection: BrowserSelection;
@@ -109,4 +110,5 @@ export interface WorkerResponse<T = unknown> {
   ok: boolean;
   data?: T;
   error?: string;
+  submissionTerminalFailure?: boolean;
 }

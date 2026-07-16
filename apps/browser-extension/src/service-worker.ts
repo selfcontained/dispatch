@@ -42,7 +42,8 @@ void chrome.storage.local.setAccessLevel({ accessLevel: "TRUSTED_CONTEXTS" });
 class HttpStatusError extends Error {
   constructor(
     message: string,
-    readonly status: number
+    readonly status: number,
+    readonly submissionTerminalFailure = false
   ) {
     super(message);
   }
@@ -76,6 +77,7 @@ async function fetchJson<T>(
   try {
     response = await fetch(url, {
       ...init,
+      redirect: "error",
       signal: init.signal ?? AbortSignal.timeout(REQUEST_TIMEOUT_MS),
     });
   } catch (error) {
@@ -88,12 +90,21 @@ async function fetchJson<T>(
     throw error;
   }
   const body = (await response.json().catch(() => null)) as
-    | (T & { message?: string; error?: string })
+    | (T & {
+        message?: string;
+        error?: string;
+        status?: unknown;
+        submissionId?: unknown;
+      })
     | null;
   if (!expectedStatuses.includes(response.status)) {
     const message =
       body?.message ?? body?.error ?? `Dispatch returned ${response.status}.`;
-    throw new HttpStatusError(message, response.status);
+    throw new HttpStatusError(
+      message,
+      response.status,
+      body?.status === "failed" && typeof body.submissionId === "string"
+    );
   }
   if (!body) throw new Error("Dispatch returned an empty response.");
   return body;
@@ -198,11 +209,13 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
     }
     case "submission:create": {
       const body: {
+        clientSubmissionId: string;
         agentId: string;
         comment: string;
         page: BrowserSelection["page"];
         element: BrowserSelection["element"];
       } = {
+        clientSubmissionId: request.clientSubmissionId,
         agentId: request.agentId,
         comment: request.comment,
         page: request.selection.page,
@@ -226,6 +239,10 @@ chrome.runtime.onMessage.addListener(
       .catch((error: unknown) => {
         sendResponse({
           ok: false,
+          submissionTerminalFailure:
+            error instanceof HttpStatusError
+              ? error.submissionTerminalFailure
+              : undefined,
           error:
             error instanceof Error
               ? error.message

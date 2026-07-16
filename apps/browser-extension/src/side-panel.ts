@@ -65,6 +65,12 @@ let noticeDismissTimer: number | null = null;
 let pairingController: AbortController | null = null;
 let pairingPermissionToRevoke: string | null = null;
 let pairingInFlightExchange: Promise<PairingResult> | null = null;
+let pendingSubmission: {
+  id: string;
+  agentId: string;
+  comment: string;
+  selection: BrowserSelection;
+} | null = null;
 
 function cleanupInjectedPicker(): void {
   window.__dispatchElementPickerCleanup?.();
@@ -99,12 +105,25 @@ function cancellableDelay(ms: number, signal: AbortSignal): Promise<void> {
   });
 }
 
+class WorkerRequestError extends Error {
+  constructor(
+    message: string,
+    readonly submissionTerminalFailure: boolean
+  ) {
+    super(message);
+  }
+}
+
 async function sendWorker<T>(request: WorkerRequest): Promise<T> {
   const response = (await chrome.runtime.sendMessage(
     request
   )) as WorkerResponse<T>;
-  if (!response?.ok)
-    throw new Error(response?.error ?? "Extension request failed.");
+  if (!response?.ok) {
+    throw new WorkerRequestError(
+      response?.error ?? "Extension request failed.",
+      response?.submissionTerminalFailure === true
+    );
+  }
   return response.data as T;
 }
 
@@ -543,7 +562,7 @@ function createPageAccessDisclosure(): HTMLElement {
   const explanation = document.createElement("p");
   explanation.textContent = pageAccessDenied
     ? "Chrome did not grant access. Try again to reopen its permission prompt, or dismiss this request."
-    : "Element selection needs permission to read and change page content, including embedded frames, on all HTTP and HTTPS websites. Dispatch only collects an element after you click it, and Chrome lets you revoke access later.";
+    : "Element selection needs permission to read and change page content, including embedded frames, on all HTTP and HTTPS websites. While the selector is on, Dispatch reads hovered elements locally to draw the highlight. It sends the selected element and surrounding page context only after you click it; Chrome lets you revoke access later.";
   const actions = document.createElement("div");
   actions.className = "page-access-actions";
   const allow = document.createElement("button");
@@ -735,6 +754,7 @@ async function disconnectFromDispatch(): Promise<void> {
   selectedAgentId = "";
   selection = null;
   comment = "";
+  pendingSubmission = null;
   notice = result.revokedRemotely
     ? null
     : {
@@ -986,20 +1006,43 @@ async function togglePicker(requestAccess = true): Promise<void> {
 
 async function submitFeedback(): Promise<void> {
   if (!selection || !selectedAgentId || !comment.trim()) return;
+  const submittedSelection = selection;
+  const submittedComment = comment.trim();
+  if (
+    !pendingSubmission ||
+    pendingSubmission.agentId !== selectedAgentId ||
+    pendingSubmission.comment !== submittedComment ||
+    pendingSubmission.selection !== submittedSelection
+  ) {
+    pendingSubmission = {
+      id: crypto.randomUUID(),
+      agentId: selectedAgentId,
+      comment: submittedComment,
+      selection: submittedSelection,
+    };
+  }
   busy = true;
   notice = null;
   render();
   try {
     await sendWorker({
       type: "submission:create",
-      agentId: selectedAgentId,
-      comment: comment.trim(),
-      selection,
+      clientSubmissionId: pendingSubmission.id,
+      agentId: pendingSubmission.agentId,
+      comment: pendingSubmission.comment,
+      selection: pendingSubmission.selection,
     });
+    pendingSubmission = null;
     comment = "";
     selection = null;
     setNotice("success", "Feedback delivered to the selected agent.");
   } catch (error) {
+    if (
+      error instanceof WorkerRequestError &&
+      error.submissionTerminalFailure
+    ) {
+      pendingSubmission = null;
+    }
     const refreshedConnection = await sendWorker<ConnectionStatus>({
       type: "connection:status",
     }).catch(() => null);

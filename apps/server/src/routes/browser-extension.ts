@@ -14,6 +14,7 @@ const CLEANUP_INTERVAL_MS = 24 * 60 * 60 * 1000;
 const SUBMISSION_RETENTION_DAYS = 90;
 const REVOKED_TOKEN_RETENTION_DAYS = 1;
 const EXTENSION_SCOPES = ["agents:read", "submissions:write"] as const;
+const PUBLIC_DELIVERY_ERROR = "Prompt delivery failed.";
 
 const PairingBodySchema = z.object({
   deviceName: z.string().trim().min(1).max(120),
@@ -87,11 +88,19 @@ const ElementContextSchema = z.object({
 });
 
 const SubmissionBodySchema = z.object({
+  clientSubmissionId: z.uuid(),
   agentId: z.string().trim().min(1).max(128),
   comment: z.string().trim().min(1).max(10_000),
   page: PageContextSchema,
   element: ElementContextSchema,
 });
+
+type SubmissionDeliveryStatus = "pending" | "delivered" | "failed";
+
+type StoredSubmission = {
+  id: string;
+  delivery_status: SubmissionDeliveryStatus;
+};
 
 type BrowserExtensionRouteDeps = {
   pool: Pool;
@@ -229,6 +238,20 @@ function sanitizeAgent(agent: AgentRecord) {
         }
       : null,
   };
+}
+
+function sendStoredSubmission(reply: FastifyReply, row: StoredSubmission) {
+  const result = {
+    submissionId: row.id,
+    status: row.delivery_status,
+  };
+  if (row.delivery_status === "failed") {
+    return reply.code(502).send({ ...result, error: PUBLIC_DELIVERY_ERROR });
+  }
+  if (row.delivery_status === "pending") {
+    return reply.code(202).send(result);
+  }
+  return reply.send(result);
 }
 
 export async function cleanupBrowserExtensionData(pool: Pool): Promise<void> {
@@ -537,6 +560,17 @@ export async function registerBrowserExtensionRoutes(
     async (request, reply) => {
       const input = parseInput(SubmissionBodySchema, request.body, reply);
       if (!input) return;
+      const tokenId = request.browserExtensionAuth!.tokenId;
+      const existing = await deps.pool.query<StoredSubmission>(
+        `SELECT id, delivery_status
+           FROM browser_feedback_submissions
+          WHERE token_id = $1 AND client_submission_id = $2`,
+        [tokenId, input.clientSubmissionId]
+      );
+      if (existing.rows[0]) {
+        return sendStoredSubmission(reply, existing.rows[0]);
+      }
+
       const agent = await deps.agentManager.getAgent(input.agentId);
       if (!agent) return reply.code(404).send({ error: "Agent not found." });
       if (agent.status !== "running") {
@@ -544,32 +578,41 @@ export async function registerBrowserExtensionRoutes(
       }
 
       const submissionId = crypto.randomUUID();
-      await deps.pool.query(
+      const inserted = await deps.pool.query<StoredSubmission>(
         `INSERT INTO browser_feedback_submissions
-           (id, token_id, agent_id, comment, page_context, element_context)
-         VALUES ($1, $2, $3, $4, $5, $6)`,
+           (id, token_id, client_submission_id, agent_id, comment,
+            page_context, element_context)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
+         ON CONFLICT (token_id, client_submission_id) DO NOTHING
+         RETURNING id, delivery_status`,
         [
           submissionId,
-          request.browserExtensionAuth!.tokenId,
+          tokenId,
+          input.clientSubmissionId,
           input.agentId,
           input.comment,
           input.page,
           input.element,
         ]
       );
+      if (!inserted.rows[0]) {
+        const concurrent = await deps.pool.query<StoredSubmission>(
+          `SELECT id, delivery_status
+             FROM browser_feedback_submissions
+            WHERE token_id = $1 AND client_submission_id = $2`,
+          [tokenId, input.clientSubmissionId]
+        );
+        if (!concurrent.rows[0]) {
+          throw new Error("Concurrent browser submission could not be loaded.");
+        }
+        return sendStoredSubmission(reply, concurrent.rows[0]);
+      }
 
       try {
         await deps.sendAgentPrompt(
           input.agentId,
           buildBrowserFeedbackPrompt(input)
         );
-        await deps.pool.query(
-          `UPDATE browser_feedback_submissions
-              SET delivery_status = 'delivered', delivered_at = now()
-            WHERE id = $1`,
-          [submissionId]
-        );
-        return { submissionId, status: "delivered" as const };
       } catch (error) {
         const message =
           error instanceof Error
@@ -585,10 +628,30 @@ export async function registerBrowserExtensionRoutes(
           { err: error, submissionId, agentId: input.agentId },
           "Browser feedback delivery failed"
         );
-        return reply
-          .code(502)
-          .send({ submissionId, status: "failed", error: message });
+        return reply.code(502).send({
+          submissionId,
+          status: "failed",
+          error: PUBLIC_DELIVERY_ERROR,
+        });
       }
+
+      try {
+        await deps.pool.query(
+          `UPDATE browser_feedback_submissions
+              SET delivery_status = 'delivered', delivered_at = now()
+            WHERE id = $1`,
+          [submissionId]
+        );
+      } catch (error) {
+        request.log.error(
+          { err: error, submissionId, agentId: input.agentId },
+          "Browser feedback status persistence failed after prompt delivery"
+        );
+        // The prompt was delivered, so never invite an automatic retry that
+        // could duplicate it. A retry with the same client ID reconciles here.
+        return reply.code(202).send({ submissionId, status: "pending" });
+      }
+      return { submissionId, status: "delivered" as const };
     }
   );
 }
