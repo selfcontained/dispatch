@@ -78,6 +78,20 @@ export function ServiceResourcesDashboard({
     agentRssMb:
       sample.agentRssBytes === null ? null : sample.agentRssBytes / 1024 / 1024,
   }));
+  const workloadItems = [
+    { label: "Running agents", value: current.workloads.runningAgents },
+    { label: "Connected browsers", value: current.workloads.sseClients },
+    {
+      label: "Active terminal views",
+      value: current.workloads.terminalViewers,
+    },
+    { label: "Scheduled jobs", value: current.workloads.scheduledJobs },
+    {
+      label: "Git refreshes active",
+      value: current.workloads.gitRefreshesInFlight,
+      wide: true,
+    },
+  ];
 
   return (
     <>
@@ -123,12 +137,16 @@ export function ServiceResourcesDashboard({
           value={
             current.agents.rssBytes === null
               ? "Unavailable"
-              : formatBytes(current.agents.rssBytes)
+              : current.agents.processCount === 0
+                ? "None"
+                : formatBytes(current.agents.rssBytes)
           }
           detail={
             current.agents.cpuPercent === null
               ? "Process-tree sampling unavailable"
-              : `${current.agents.cpuPercent.toFixed(1)}% CPU · ${current.agents.processCount ?? 0} processes`
+              : current.agents.processCount === 0
+                ? "No agent processes running"
+                : `${current.agents.cpuPercent.toFixed(1)}% CPU · ${current.agents.processCount ?? 0} processes`
           }
           scope="Agents"
         />
@@ -150,7 +168,7 @@ export function ServiceResourcesDashboard({
           icon={HardDrive}
           label="Host memory free"
           value={formatBytes(current.host.freeMemoryBytes)}
-          detail={`${current.host.load1.toFixed(2)} one-minute load`}
+          detail={`${current.host.load1.toFixed(2)} load / ${current.host.cpuCount} CPUs`}
           scope="Host"
         />
       </section>
@@ -186,19 +204,15 @@ export function ServiceResourcesDashboard({
             </CardTitle>
           </CardHeader>
           <CardContent className="grid grid-cols-2 gap-3 text-sm">
-            {[
-              ["Running agents", current.workloads.runningAgents],
-              ["SSE clients", current.workloads.sseClients],
-              ["Terminal viewers", current.workloads.terminalViewers],
-              ["Scheduled jobs", current.workloads.scheduledJobs],
-              ["Git refreshes", current.workloads.gitRefreshesInFlight],
-            ].map(([label, value]) => (
+            {workloadItems.map((item) => (
               <div
-                key={String(label)}
-                className="rounded-lg border border-border bg-muted/25 p-3"
+                key={item.label}
+                className={`rounded-lg border border-border bg-muted/25 p-3 ${item.wide ? "col-span-2" : ""}`}
               >
-                <div className="text-xs text-muted-foreground">{label}</div>
-                <div className="mt-1 text-xl font-semibold">{value}</div>
+                <div className="text-xs text-muted-foreground">
+                  {item.label}
+                </div>
+                <div className="mt-1 text-xl font-semibold">{item.value}</div>
               </div>
             ))}
           </CardContent>

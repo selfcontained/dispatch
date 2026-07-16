@@ -45,14 +45,23 @@ export function ServiceResourcesSettings(): JSX.Element {
             and host.
           </p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {stale && (
             <span className="text-xs text-status-waiting">Data is stale</span>
           )}
-          <span className="hidden text-xs text-muted-foreground sm:inline">
-            {dataUpdatedAt > 0
-              ? `Updated ${new Date(dataUpdatedAt).toLocaleTimeString()}`
-              : ""}
+          <span
+            className="text-xs text-muted-foreground"
+            data-testid="resources-updated-at"
+          >
+            {dataUpdatedAt > 0 && (
+              <>
+                <span className="hidden sm:inline">Updated </span>
+                {new Date(dataUpdatedAt).toLocaleTimeString([], {
+                  hour: "numeric",
+                  minute: "2-digit",
+                })}
+              </>
+            )}
           </span>
           <Select
             value={window}

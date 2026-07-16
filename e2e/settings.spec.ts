@@ -158,6 +158,13 @@ test.describe("Settings pane", () => {
     ).toBeVisible();
     await expect(dashboard.getByTestId("resource-card-database")).toBeVisible();
     await expect(
+      dashboard.getByTestId("resource-card-agent-processes").getByText("None")
+    ).toBeVisible();
+    await expect(dashboard.getByText(/load \/ \d+ CPUs/)).toBeVisible();
+    await expect(dashboard.getByText("Connected browsers")).toBeVisible();
+    await expect(dashboard.getByText("Active terminal views")).toBeVisible();
+    await expect(dashboard.getByText("Git refreshes active")).toBeVisible();
+    await expect(
       dashboard.getByText(/host load uses the right load axis/i)
     ).toBeVisible();
     await expect(
@@ -165,6 +172,7 @@ test.describe("Settings pane", () => {
     ).toHaveCount(0);
 
     const databaseRow = dashboard.getByTestId("subsystem-database");
+    await expect(databaseRow.getByText("Active")).toBeVisible();
     await databaseRow.click();
     await expect(databaseRow).toHaveAttribute("aria-expanded", "true");
     await expect(dashboard.getByText("pool total")).toBeVisible();
@@ -173,6 +181,9 @@ test.describe("Settings pane", () => {
     await expect(
       dashboard.getByTestId("refresh-service-resources")
     ).toBeEnabled({ timeout: 10_000 });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(dashboard.getByTestId("resources-updated-at")).toBeVisible();
   });
 
   test("agent type settings filter the create-agent dialog", async ({

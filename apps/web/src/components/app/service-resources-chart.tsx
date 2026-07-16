@@ -101,10 +101,10 @@ export function ResourceChart({
                 <YAxis
                   yAxisId="secondary"
                   orientation="right"
-                  width={58}
+                  width={36}
                   tickLine={false}
                   axisLine={false}
-                  tickFormatter={(value) => `${Number(value).toFixed(1)} load`}
+                  tickFormatter={(value) => Number(value).toFixed(1)}
                 />
               )}
               <ChartTooltip

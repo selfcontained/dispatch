@@ -56,8 +56,10 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
           {subsystem.inFlight > 0
             ? `${subsystem.inFlight} in flight`
             : subsystem.runs > 0
-              ? `${subsystem.runs} runs`
-              : "Waiting"}
+              ? `${subsystem.runs} ${subsystem.runs === 1 ? "run" : "runs"}`
+              : subsystem.state === "healthy"
+                ? "Active"
+                : "Waiting"}
         </span>
         <Badge variant={stateBadgeVariant(subsystem.state)}>
           {stateLabel(subsystem.state)}
