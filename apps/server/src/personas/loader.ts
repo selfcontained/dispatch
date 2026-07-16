@@ -142,61 +142,37 @@ export async function loadPersonaBySlug(
 }
 
 /**
- * Standard feedback guidance injected into every persona prompt.
- * This ensures consistent severity definitions and feedback hygiene
- * regardless of what the repo-specific persona markdown contains.
+ * Standard review guidance injected into every persona prompt.
+ * This keeps submission and thread behavior predictable regardless of what
+ * the repo-specific persona markdown contains.
  */
-function buildStandardFeedbackGuidance(
-  includeDiff: boolean,
-  opts: { agentType?: Exclude<AgentType, "terminal"> } = {}
-): string {
+function buildStandardFeedbackGuidance(includeDiff: boolean): string {
   const scopeLine = includeDiff
     ? "- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes."
     : "- Only flag issues that are within the scope of the work under review described in the parent context. Do not flag pre-existing issues unless directly caused or worsened by the work under review.";
-  const cursorCallHint =
-    opts.agentType === "cursor"
-      ? ' In Cursor, use `functions.dispatch-review_status({ message: "Starting review" })`.'
-      : "";
   const reviewLifecycle = [
-    `- Call \`review_status\` with a short message when you begin reviewing.${cursorCallHint} Ping it again at meaningful phase changes (e.g. "Reading diff", "Running tests") so the parent can see what you're working on.`,
-    "- Call `dispatch_feedback` for each finding as you go.",
-    '- When finished with this round, call `dispatch_complete_review` with a `verdict` (`approve` or `request_changes`) and a `summary`. This is the single canonical completion call; do not also try `review_status` with a "complete" status — that path has been removed and the schema will reject it.',
-    "- Emit a terminal `dispatch_event` (type `done` or `idle`) to signal end of turn.",
+    "- Before inspecting the target, call `dispatch_event` with type `working` and a short phase description. Refresh it at distinct review phases so the parent sees accurate progress.",
+    "- Inspect the complete review target before submitting. Collect findings during the pass instead of sending direct messages to the parent.",
+    "- Call `dispatch_review_submit` exactly once when the initial pass is complete. Always include a concise summary explaining the result. Submit all actionable concerns in the `feedback` array; use an empty array for a clean approval.",
+    "- After submission, use `dispatch_review_add_message` for a clarifying question or reply on an existing item. Use `dispatch_review_add_feedback` only for a genuinely new concern.",
+    "- Keep all review discussion in feedback-item threads. Do not use direct agent messages for review content.",
+    "- Immediately after submitting, call `dispatch_event` with type `done`, or `waiting_user` only if a tracked feedback thread needs a reply. Never leave the agent `working` while waiting. Later thread updates will arrive as structured injected prompts and may start a new turn.",
   ].join("\n");
 
   return `
 ## Feedback Guidelines (from Dispatch)
 
 ### How to submit feedback
-- Call \`dispatch_feedback\` for each finding with: severity, description, and a concrete suggestion. Include file path and line number when applicable.
+- Submit findings through the \`feedback\` array on \`dispatch_review_submit\`. Each item needs a concrete comment and may include a file path and line range.
 ${scopeLine}
 
 ### Review lifecycle
 ${reviewLifecycle}
 
-### Severity levels
-- **critical**: Exploitable vulnerability, data loss risk, or broken core functionality
-- **high**: Significant issue that should be fixed before merge
-- **medium**: Missing validation, weak error handling, or correctness concern
-- **low**: Minor issue, hardening opportunity, or improvement suggestion
-- **info**: Non-obvious good decision that a future contributor might mistakenly undo
-
-### Info feedback limits — STRICT
-Do NOT submit positive affirmations, praise, or "good job" feedback. Feedback like "Good defense-in-depth...", "Good design decision...", or "This is well-structured..." is noise and will be ignored — do not submit it. The \`info\` severity is ONLY for non-obvious decisions that a future contributor might mistakenly undo. Limit to at most 2 items per review. If you have nothing critical to preserve, submit zero info items.
+### Feedback hygiene
+Submit only actionable concerns or clarifying questions that need a tracked response. Do not create praise-only or informational feedback items. Put the overall assessment and useful positive context in the review summary instead.
 `.trim();
 }
-
-const RECHECK_ROUND_TRIP_GUIDANCE = `
-## Recheck round-trip
-
-This is a two-round review. You have a round-1 obligation (already described above) AND a round-2 obligation described below. Do not emit a terminal \`dispatch_event\` until BOTH rounds are complete or the recheck has been explicitly cancelled.
-
-**After round 1.** Once you've submitted your initial verdict via \`dispatch_complete_review\`, do not exit. The server will push a short prompt into your terminal here when the parent submits their resolution. When that prompt arrives, call \`dispatch_get_recheck_context\` to fetch the parent's resolution summary, per-item resolutions, and the exact commit range to inspect with local \`git diff\`. There is no tool to poll while waiting for that prompt. Keep this turn alive however your agent runtime allows, and act on it when it arrives. If the parent cancels the recheck, you'll receive a cancellation prompt instead — wrap up cleanly when you see it.
-
-**Round 2.** When the round-2 prompt arrives, re-evaluate each original finding against what the parent actually did. For every original concern that remains unresolved, submit a new \`dispatch_feedback\` item with \`respondsToFeedbackId\` set to the original feedback item's ID so the parent can see which round-2 findings map back to which round-1 concerns. If the parent fully addressed everything, submit no new feedback and approve.
-
-**Mandatory round-2 close.** After you finish round 2 — whether you found new issues or not — you MUST call \`dispatch_complete_review\` a second time with your round-2 verdict (\`approve\` or \`request_changes\`) and a fresh \`summary\`. The review is not closed until you do this. Only then emit a terminal \`dispatch_event\`.
-`.trim();
 
 export type AssemblePersonaPromptOptions = {
   /** When false, omits the git diff section from the prompt. Defaults to true. */
@@ -283,12 +259,7 @@ export function assemblePersonaPrompt(
   if (options.agentType === "cursor") {
     sections.push(buildCursorDispatchToolGuidance());
   }
-  sections.push(
-    buildStandardFeedbackGuidance(includeDiff, {
-      agentType: options.agentType,
-    })
-  );
-  sections.push(RECHECK_ROUND_TRIP_GUIDANCE);
+  sections.push(buildStandardFeedbackGuidance(includeDiff));
   sections.push(`## Context from parent agent\n${context}`);
   if (includeDiff && diffResult) {
     if (diffResult.diffByteSize <= INLINE_DIFF_THRESHOLD_BYTES) {

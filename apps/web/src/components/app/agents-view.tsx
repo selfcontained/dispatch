@@ -144,12 +144,10 @@ export function AgentsView({
     feedbackDetailRendered,
     handleFeedbackTransitionEnd,
     closeFeedbackDetail,
-    openFeedbackDetail,
     navigateFeedbackItem,
     onTabChange,
   } = useAgentsViewRouting({
     routeAgentId,
-    agents,
     agentsLoaded,
     validatedSelectedAgentId,
   });
@@ -427,10 +425,7 @@ export function AgentsView({
   const selectedExpansionTarget = useMemo(() => {
     if (!validatedSelectedAgentId) return null;
     const selected = agents.find((a) => a.id === validatedSelectedAgentId);
-    return (
-      (selected?.persona ? selected.parentAgentId : null) ??
-      validatedSelectedAgentId
-    );
+    return selected?.parentAgentId ?? validatedSelectedAgentId;
   }, [agents, validatedSelectedAgentId]);
   const prevSelectedExpansionTargetRef = useRef<string | null>(null);
 
@@ -643,10 +638,7 @@ export function AgentsView({
               detachTerminal={detachAndClearSelection}
               attachToAgent={attachToAgent}
               startAgent={startAgent}
-              sendTerminalInput={sendTerminalInput}
               connectedAgentId={connectedAgentId}
-              onOpenFeedbackDetail={openFeedbackDetail}
-              feedbackDetailState={isMobile ? null : feedbackDetail}
               onRequestClose={
                 isMobile ? () => setMobileLeftOpen(false) : undefined
               }

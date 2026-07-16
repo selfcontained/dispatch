@@ -41,6 +41,10 @@ vi.mock("../src/reviews/injection-prompts.js", () => ({
   buildParentRound1FeedbackPrompt: vi.fn(() => "round1-prompt"),
   buildParentReviewCompletePrompt: vi.fn(() => "complete-prompt"),
   buildPersonaKickoffPrompt: vi.fn(() => "kickoff-prompt"),
+  buildReviewSubmittedPrompt: vi.fn(() => "submitted-prompt"),
+  buildReviewFeedbackAddedPrompt: vi.fn(() => "feedback-added-prompt"),
+  buildReviewItemStatePrompt: vi.fn(() => "item-state-prompt"),
+  buildReviewThreadUpdatePrompt: vi.fn(() => "thread-update-prompt"),
   buildReviewerRecheckReadyPrompt: vi.fn(() => "recheck-ready-prompt"),
   buildReviewerRecheckCancelledPrompt: vi.fn(() => "recheck-cancelled-prompt"),
 }));
@@ -63,6 +67,12 @@ vi.mock("../src/shared/lib/run-command.js", () => ({
 }));
 
 vi.mock("../src/agents/reviews.js", () => ({
+  createReview: vi.fn(),
+  getReviewByReviewerAgent: vi.fn(async () => null),
+  getReviewRecord: vi.fn(async () => null),
+  addReviewFeedbackItem: vi.fn(),
+  reopenReviewFeedbackItem: vi.fn(),
+  listFeedbackItemsForAgent: vi.fn(async () => []),
   resolveReviewFeedbackItem: vi.fn(async () => ({
     item: {
       id: 10,
@@ -900,7 +910,7 @@ describe("createMcpHandlers", () => {
   });
 
   describe("launchPersona", () => {
-    it("launches a persona agent and creates review", async () => {
+    it("launches a persona agent without creating a review yet", async () => {
       const result = await handlers.launchPersona("agt_test1", {
         persona: "security",
         context: "review this PR",
@@ -913,9 +923,10 @@ describe("createMcpHandlers", () => {
           persona: "security",
           parentAgentId: "agt_test1",
           type: "claude",
+          role: "review",
         })
       );
-      expect(deps.agentManager.createPersonaReview).toHaveBeenCalled();
+      expect(deps.agentManager.createPersonaReview).not.toHaveBeenCalled();
     });
 
     it("passes the Cursor runtime to persona prompt assembly for Cursor review agents", async () => {
@@ -2022,7 +2033,11 @@ describe("createMcpHandlers", () => {
         10,
         "agt_test1",
         "fixed",
-        { note: "addressed in latest commit", resolvedBy: "agt_test1" }
+        {
+          authorType: "agent",
+          note: "addressed in latest commit",
+          resolvedBy: "agt_test1",
+        }
       );
       expect(deps.publishUiEvent).toHaveBeenCalledWith({
         type: "review_feedback.updated",
@@ -2053,7 +2068,7 @@ describe("createMcpHandlers", () => {
         10,
         "agt_test1",
         "ignored",
-        { note: null, resolvedBy: "agt_test1" }
+        { authorType: "agent", note: null, resolvedBy: "agt_test1" }
       );
     });
   });

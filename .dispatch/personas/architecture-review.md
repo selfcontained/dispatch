@@ -58,6 +58,6 @@ Your review MUST focus exclusively on the code that was changed in the diff belo
 1. Read the diff carefully first to understand exactly what changed.
 2. Explore surrounding code to understand context and existing patterns.
 3. For frontend changes in Dispatch, explicitly check state ownership, route/layout ownership, file boundaries, and whether the diff actually follows the repo’s local architecture rules.
-4. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
+4. Collect actionable findings and submit them together in the `feedback` array when you call `dispatch_review_submit` (see the injected Feedback Guidelines below).
 5. **Make findings actionable.** Each finding should include a concrete suggestion for what to change. Avoid abstract observations like "this could be cleaner" — specify what the better structure looks like and where to apply it.
 6. **Only submit feedback for actual issues.** Do not submit positive observations or affirmations about things that are well-designed. If the architecture is sound, say so in your review summary and approve with fewer feedback items. Every feedback item should identify something that needs to change.

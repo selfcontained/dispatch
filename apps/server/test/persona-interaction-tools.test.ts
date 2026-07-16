@@ -90,17 +90,17 @@ describe("buildLaunchPersonaResponseText", () => {
     expect(text).toContain("agt_test123");
   });
 
-  it("includes instructions about the round-trip review", () => {
+  it("explains the unified review flow", () => {
     const text = buildLaunchPersonaResponseText("ux", "agt_abc");
-    expect(text).toContain("round-trip review");
-    expect(text).toContain("dispatch_get_feedback");
-    expect(text).toContain("dispatch_resolve_feedback");
-    expect(text).toContain("dispatch_submit_resolution");
+    expect(text).toContain("dispatch_review_submit");
+    expect(text).toContain("dispatch_review_list_feedback");
+    expect(text).toContain("dispatch_review_resolve");
+    expect(text).toContain("clean approval");
   });
 
-  it("includes the personaAgentId in the tool call example", () => {
+  it("includes the reviewer agent ID", () => {
     const text = buildLaunchPersonaResponseText("perf", "agt_xyz789");
-    expect(text).toContain('personaAgentId="agt_xyz789"');
+    expect(text).toContain("agt_xyz789");
   });
 });
 
@@ -175,6 +175,8 @@ describe("registerPersonaInteractionTools", () => {
     const callbacks: PersonaInteractionCallbacks = {
       agentId,
       listReviewFeedback: vi.fn(async () => []),
+      submitReview: vi.fn(async () => ({ review: { id: 1 } })),
+      addReviewFeedback: vi.fn(async () => ({ item: { id: 2 } })),
       resolveReviewFeedback: vi.fn(async () => ({
         item: { id: 1 },
         reviewId: 1,
@@ -184,6 +186,11 @@ describe("registerPersonaInteractionTools", () => {
         message: { id: 1 },
         reviewId: 1,
       })),
+      reopenReviewFeedback: vi.fn(async () => ({
+        item: { id: 1 },
+        reviewId: 1,
+        reviewStatus: "open",
+      })),
       submitResolution: vi.fn(async () => ({
         review: { id: 1 },
         resolution: { roundNumber: 2 },
@@ -191,14 +198,20 @@ describe("registerPersonaInteractionTools", () => {
     };
     const allowed = new Set([
       "dispatch_review_list_feedback",
+      "dispatch_review_submit",
+      "dispatch_review_add_feedback",
       "dispatch_review_resolve",
+      "dispatch_review_reopen",
       "dispatch_review_add_message",
       "dispatch_submit_resolution",
     ]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
     expect(names).toContain("dispatch_review_list_feedback");
+    expect(names).toContain("dispatch_review_submit");
+    expect(names).toContain("dispatch_review_add_feedback");
     expect(names).toContain("dispatch_review_resolve");
+    expect(names).toContain("dispatch_review_reopen");
     expect(names).toContain("dispatch_review_add_message");
     expect(names).toContain("dispatch_submit_resolution");
   });

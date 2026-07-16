@@ -17,7 +17,7 @@ export type Agent = {
   id: string;
   name: string;
   type?: string;
-  role?: "standard" | "assisted_update";
+  role?: "standard" | "review" | "assisted_update";
   status: AgentStatus;
   cwd: string;
   worktreePath: string | null;

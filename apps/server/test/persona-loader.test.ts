@@ -236,25 +236,23 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain("git diff HEAD");
   });
 
-  it("includes standard severity levels", () => {
+  it("guides reviewers to submit one summarized review", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-
-    expect(result).toContain("**critical**");
-    expect(result).toContain("**high**");
-    expect(result).toContain("**medium**");
-    expect(result).toContain("**low**");
-    expect(result).toContain("**info**");
+    expect(result).toContain("dispatch_review_submit");
+    expect(result).toContain("concise summary");
+    expect(result).toContain("empty array for a clean approval");
   });
 
-  it("includes info feedback limits", () => {
+  it("keeps review discussion in tracked item threads", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("Info feedback limits");
-    expect(result).toContain("Do NOT submit positive affirmations");
+    expect(result).toContain("dispatch_review_add_message");
+    expect(result).toContain("dispatch_review_add_feedback");
+    expect(result).toContain("Do not use direct agent messages");
   });
 
   it("does not include Cursor tool guidance by default", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("Call `review_status`");
+    expect(result).toContain("Call `dispatch_review_submit`");
     expect(result).not.toContain("dispatch-<tool_name>");
     expect(result).not.toContain("functions.dispatch-review_status");
   });
@@ -265,31 +263,25 @@ describe("assemblePersonaPrompt", () => {
     });
     expect(result).toContain("dispatch-<tool_name>");
     expect(result).toContain("report the exact tool error");
-    expect(result).toContain(
-      'functions.dispatch-review_status({ message: "Starting review" })'
-    );
+    expect(result).toContain("functions.dispatch-dispatch_event");
   });
 
-  it("always includes the recheck round-trip block", () => {
+  it("does not inject the legacy round-trip lifecycle", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
-    expect(result).toContain("Recheck round-trip");
-    expect(result).toContain("dispatch_complete_review");
-    expect(result).toContain("respondsToFeedbackId");
-    expect(result).toContain("dispatch_get_recheck_context");
-    expect(result).not.toContain("dispatch_await_recheck");
-    expect(result).not.toContain("pollAgainInSeconds");
-    expect(result).toMatch(/push a short prompt/i);
-    expect(result).toMatch(/exact commit range/i);
+    expect(result).not.toContain("Recheck round-trip");
+    expect(result).not.toContain("dispatch_complete_review");
+    expect(result).not.toContain("dispatch_get_recheck_context");
+    expect(result).not.toContain("respondsToFeedbackId");
   });
 
-  it("places the recheck block before context and diff sections", () => {
+  it("places review guidance before context and diff sections", () => {
     const result = assemblePersonaPrompt(
       basePersona,
       "ctx",
       makeDiffResult("diff")
     );
 
-    const guidanceIdx = result.indexOf("Recheck round-trip");
+    const guidanceIdx = result.indexOf("## Feedback Guidelines");
     const contextIdx = result.indexOf("## Context from parent agent");
     const diffIdx = result.indexOf("## Changes to review");
     expect(guidanceIdx).toBeLessThan(contextIdx);

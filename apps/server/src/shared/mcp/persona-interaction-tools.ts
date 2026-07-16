@@ -28,6 +28,9 @@ export type PersonaInteractionCallbacks = {
   getFeedback?: McpRequestContext["getFeedback"];
   resolveFeedback?: McpRequestContext["resolveFeedback"];
   resolveReviewFeedback?: McpRequestContext["resolveReviewFeedback"];
+  reopenReviewFeedback?: McpRequestContext["reopenReviewFeedback"];
+  submitReview?: McpRequestContext["submitReview"];
+  addReviewFeedback?: McpRequestContext["addReviewFeedback"];
   addReviewThreadMessage?: McpRequestContext["addReviewThreadMessage"];
   listReviewFeedback?: McpRequestContext["listReviewFeedback"];
   submitResolution?: McpRequestContext["submitResolution"];
@@ -60,6 +63,82 @@ export function registerPersonaInteractionTools(
   callbacks: PersonaInteractionCallbacks
 ): void {
   const { agentId } = callbacks;
+
+  const feedbackItemSchema = {
+    filePath: z.string().optional().describe("Repo-relative file path."),
+    startLine: z.number().int().positive().optional(),
+    endLine: z.number().int().positive().optional(),
+    comment: z.string().min(1).max(10_000),
+  };
+
+  if (allowed.has("dispatch_review_submit") && callbacks.submitReview) {
+    const submitReview = callbacks.submitReview;
+    server.registerTool(
+      "dispatch_review_submit",
+      {
+        description:
+          "Submit this reviewer's completed initial pass. Creates one agent-authored review assigned to the parent agent. `summary` is always required. `feedback` may be empty for a clean approval; that still creates a resolved review record with the summary.",
+        inputSchema: {
+          summary: z.string().min(1).max(10_000),
+          feedback: z.array(z.object(feedbackItemSchema)).max(100).default([]),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await submitReview(agentId, args);
+          const count = result.review.items.length;
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  count === 0
+                    ? `Review #${result.review.id} submitted as a clean approval.`
+                    : `Review #${result.review.id} submitted with ${count} feedback item(s).`,
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (
+    allowed.has("dispatch_review_add_feedback") &&
+    callbacks.addReviewFeedback
+  ) {
+    const addReviewFeedback = callbacks.addReviewFeedback;
+    server.registerTool(
+      "dispatch_review_add_feedback",
+      {
+        description:
+          "Add one genuinely new concern to a review already submitted by this reviewer. Use dispatch_review_add_message instead when continuing an existing concern.",
+        inputSchema: {
+          reviewId: z.number().int().positive(),
+          ...feedbackItemSchema,
+        },
+      },
+      async (args) => {
+        try {
+          const result = await addReviewFeedback(agentId, args);
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Feedback item #${result.item.id} added to review #${args.reviewId}. Review status: ${result.reviewStatus}.`,
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   // ── list_personas ────────────────────────────────────────────────
   if (allowed.has("list_personas") && callbacks.listPersonas) {
@@ -101,7 +180,7 @@ export function registerPersonaInteractionTools(
       "dispatch_launch_persona",
       {
         description:
-          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions. Available personas are defined in .dispatch/personas/ as markdown files. Reviews always include a recheck pass — the reviewer stays alive after its initial verdict and performs a second pass after you call dispatch_submit_resolution.",
+          "Launch a persona agent to review or test your current work. The persona runs in your working directory with specialized instructions and submits one tracked review through dispatch_review_submit. Findings and follow-up discussion use review feedback item threads.",
         inputSchema: {
           persona: z
             .string()
@@ -265,12 +344,14 @@ export function registerPersonaInteractionTools(
       "dispatch_review_list_feedback",
       {
         description:
-          "List human review feedback items for this agent. Returns all feedback items across all reviews, including their IDs, file paths, status, resolution, and thread messages. Use this to discover item IDs before calling dispatch_review_resolve or dispatch_review_add_message.",
-        inputSchema: {},
+          "List review feedback items for reviews this agent participates in. Returns item IDs, file locations, status, resolution, and the complete tracked thread. Optionally filter by reviewId.",
+        inputSchema: {
+          reviewId: z.number().int().positive().optional(),
+        },
       },
-      async () => {
+      async (args) => {
         try {
-          const items = await listReviewFeedback(agentId);
+          const items = await listReviewFeedback(agentId, args.reviewId);
           const summary =
             items.length === 0
               ? "No review feedback items found."
@@ -278,6 +359,39 @@ export function registerPersonaInteractionTools(
           return {
             content: [{ type: "text", text: summary }],
             structuredContent: { items },
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("dispatch_review_reopen") && callbacks.reopenReviewFeedback) {
+    const reopenReviewFeedback = callbacks.reopenReviewFeedback;
+    server.registerTool(
+      "dispatch_review_reopen",
+      {
+        description:
+          "Reopen a resolved review feedback item when the parent agent determines more work or discussion is needed. The review status is recomputed automatically.",
+        inputSchema: {
+          itemId: z.number().int().positive(),
+          note: z.string().max(10_000).optional(),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await reopenReviewFeedback(agentId, args.itemId, {
+            note: args.note ?? null,
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `Review feedback #${args.itemId} reopened. Review status: ${result.reviewStatus}.`,
+              },
+            ],
+            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);
@@ -297,7 +411,7 @@ export function registerPersonaInteractionTools(
       "dispatch_review_resolve",
       {
         description:
-          "Resolve a human review feedback item. Marks the item as fixed or dismissed. The parent review status is automatically recomputed (open → partially_resolved → resolved).",
+          "Parent-only. Resolve a review feedback item as fixed or dismissed. Review status is automatically derived from the current feedback item states.",
         inputSchema: {
           itemId: z
             .number()
@@ -442,17 +556,11 @@ export function buildLaunchPersonaResponseText(
   persona: string,
   agentId: string
 ): string {
-  return `Launched persona "${persona}" as agent ${agentId}.
+  return `Launched persona "${persona}" as review agent ${agentId}.
 
-This is a multi-step round-trip review — do not emit a terminal dispatch_event yet. The reviewer will stay alive waiting for your resolution, and the server will push a new prompt into this terminal when each round transitions.
+The reviewer will inspect the target and create a review only when it calls dispatch_review_submit. Dispatch will inject a structured REVIEW SUBMITTED block here with the review summary and any feedback item IDs.
 
-1. Wait for round 1. The server will inject a new prompt here when the reviewer submits their round-1 verdict. There is no tool to poll — keep this turn alive however your agent runtime allows, then act on the prompt when it arrives.
+If the review has feedback, call dispatch_review_list_feedback with its reviewId before acting. Keep all questions and explanations tracked in the corresponding item thread with dispatch_review_add_message. Resolve an item with dispatch_review_resolve when it is fixed or intentionally dismissed, and use dispatch_review_reopen if it needs more work.
 
-2. When the round-1 prompt arrives, call dispatch_get_feedback (personaAgentId="${agentId}") to read the items. For each one, decide if you'll fix it or ignore it. Apply the fix, then call dispatch_resolve_feedback (status 'fixed' or 'ignored' — include a 'reason' for any you ignore).
-
-3. Commit your fixes before submitting the resolution. dispatch_submit_resolution captures the current HEAD as the resolution commit, and the reviewer's round-2 diff is computed from that commit. If you submit while your fixes are uncommitted, the reviewer sees an empty diff and will re-flag the same issues.
-
-4. Call dispatch_submit_resolution with a 1–3 sentence summary of what you addressed. This triggers the reviewer's round-2 pass.
-
-5. Wait for round 2. The server will inject another prompt here when the reviewer submits their round-2 verdict. Read any new findings (filter dispatch_get_feedback for items where respondsToFeedbackId points at one of your round-1 items), then wrap up and emit a terminal dispatch_event.`;
+A clean approval is also recorded: the reviewer submits a required summary with an empty feedback array, creating a resolved review with no items. No legacy round or recheck lifecycle is required.`;
 }

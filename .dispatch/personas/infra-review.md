@@ -59,5 +59,5 @@ Treat the supplied diff as the hard review boundary.
 
 1. Read the diff carefully first to understand exactly what changed. Identify which lines and behaviors are actually in scope before you start cataloging concerns.
 2. Use `grep` and `read` to trace how the changed lines interact with the OS layer.
-3. Submit findings via `dispatch_feedback` (see Feedback Guidelines below for severity levels and limits).
+3. Collect actionable findings and submit them together in the `feedback` array when you call `dispatch_review_submit` (see the injected Feedback Guidelines below).
 4. **Only submit feedback for actual issues.** Do not submit positive observations or affirmations about things that are correctly implemented. If the infrastructure is solid, say so in your review summary and approve with fewer feedback items. Every feedback item should identify something that needs to change.

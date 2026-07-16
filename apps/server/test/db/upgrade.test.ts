@@ -70,7 +70,27 @@ describe.skipIf(!hasMigrationsToTest)(
         ('agent-1', 'My Agent', 'claude-code', 'running', '/home/user/project', true,
          '["--model", "opus"]'::jsonb,
          '[{"label":"API","value":"http://localhost:3000","type":"url"}]'::jsonb),
-        ('agent-2', 'Helper', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb)
+        ('agent-2', 'Helper', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb),
+        ('agent-3', 'Security Reviewer', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb),
+        ('agent-4', 'Clean Reviewer', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb)
+    `);
+
+      await pool.query(`
+      UPDATE agents
+      SET persona = CASE id
+            WHEN 'agent-3' THEN 'security-review'
+            WHEN 'agent-4' THEN 'architecture-review'
+          END,
+          parent_agent_id = 'agent-1'
+      WHERE id IN ('agent-3', 'agent-4')
+    `);
+
+      await pool.query(`
+      INSERT INTO persona_reviews
+        (agent_id, parent_agent_id, persona, status, verdict, summary)
+      VALUES
+        ('agent-3', 'agent-1', 'security-review', 'complete', 'request_changes', 'One security concern.'),
+        ('agent-4', 'agent-1', 'architecture-review', 'complete', 'approve', 'Architecture is sound.')
     `);
 
       await pool.query(`
@@ -109,7 +129,9 @@ describe.skipIf(!hasMigrationsToTest)(
 
       await pool.query(`
       INSERT INTO agent_feedback (agent_id, severity, file_path, line_number, description, suggestion, status)
-      VALUES ('agent-1', 'warning', 'src/index.ts', 42, 'Unused import', 'Remove the import', 'open')
+      VALUES
+        ('agent-1', 'warning', 'src/index.ts', 42, 'Unused import', 'Remove the import', 'open'),
+        ('agent-3', 'high', 'src/auth.ts', 12, 'Missing authorization check', 'Validate ownership', 'open')
     `);
 
       await pool.query(`
@@ -131,7 +153,7 @@ describe.skipIf(!hasMigrationsToTest)(
 
     it("should preserve agents with all fields intact", async () => {
       const agents = await pool.query(`SELECT * FROM agents ORDER BY id`);
-      expect(agents.rowCount).toBe(2);
+      expect(agents.rowCount).toBe(4);
 
       const agent1 = agents.rows[0];
       expect(agent1.id).toBe("agent-1");
@@ -148,6 +170,47 @@ describe.skipIf(!hasMigrationsToTest)(
       expect(agent2.id).toBe("agent-2");
       expect(agent2.type).toBe("codex");
       expect(agent2.status).toBe("stopped");
+
+      expect(agents.rows[2].role).toBe("review");
+      expect(agents.rows[3].role).toBe("review");
+    });
+
+    it("should migrate legacy persona reviews into unified reviews", async () => {
+      const reviews = await pool.query(
+        `SELECT reviewer_agent_id, summary, status
+         FROM reviews
+         WHERE reviewer_agent_id IN ('agent-3', 'agent-4')
+         ORDER BY reviewer_agent_id`
+      );
+      expect(reviews.rows).toEqual([
+        {
+          reviewer_agent_id: "agent-3",
+          summary: "One security concern.",
+          status: "open",
+        },
+        {
+          reviewer_agent_id: "agent-4",
+          summary: "Architecture is sound.",
+          status: "resolved",
+        },
+      ]);
+
+      const feedback = await pool.query(
+        `SELECT fi.file_path, fi.line_start, fi.status, m.content
+         FROM review_feedback_items fi
+         JOIN reviews r ON r.id = fi.review_id
+         JOIN review_thread_messages m ON m.feedback_item_id = fi.id
+         WHERE r.reviewer_agent_id = 'agent-3' AND m.type = 'text'`
+      );
+      expect(feedback.rows).toHaveLength(1);
+      expect(feedback.rows[0]).toMatchObject({
+        file_path: "src/auth.ts",
+        line_start: 12,
+        status: "open",
+        content: {
+          body: "Missing authorization check\n\nSuggestion: Validate ownership",
+        },
+      });
     });
 
     it("should preserve media with descriptions", async () => {

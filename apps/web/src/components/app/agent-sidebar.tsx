@@ -3,7 +3,6 @@ import { useAtom } from "jotai";
 
 import { AgentCard } from "@/components/app/agent-card";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { type FeedbackDetailState } from "@/components/app/feedback-panel";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -48,10 +47,7 @@ export type AgentListContentProps = {
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
-  sendTerminalInput?: (data: string) => void;
   connectedAgentId?: string | null;
-  onOpenFeedbackDetail?: (state: FeedbackDetailState) => void;
-  feedbackDetailState?: FeedbackDetailState;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
 };
@@ -77,10 +73,7 @@ export function AgentListContent({
   detachTerminal,
   attachToAgent,
   startAgent,
-  sendTerminalInput,
   connectedAgentId,
-  onOpenFeedbackDetail,
-  feedbackDetailState,
   onRequestClose,
   closeOnSessionAction = false,
 }: AgentListContentProps): JSX.Element {
@@ -103,7 +96,7 @@ export function AgentListContent({
       : (enabledAgentTypes[0] ?? "codex");
   const showCreateTypePicker = enabledAgentTypes.length > 1;
   const topLevelAgents = useMemo(
-    () => agents.filter((a) => !a.parentAgentId || !a.persona),
+    () => agents.filter((a) => !a.parentAgentId),
     [agents]
   );
   const topLevelAgentIds = useMemo(
@@ -335,7 +328,7 @@ export function AgentListContent({
                   agent={agent}
                   agents={agents}
                   childAgents={agents.filter(
-                    (a) => a.parentAgentId === agent.id && !!a.persona
+                    (a) => a.parentAgentId === agent.id
                   )}
                   selectedAgentId={selectedAgentId}
                   expandedAgentId={expandedAgentId}
@@ -350,12 +343,9 @@ export function AgentListContent({
                   setDeleteConfirmOpen={setDeleteConfirmOpen}
                   setStopTarget={setStopTarget}
                   setStopConfirmOpen={setStopConfirmOpen}
-                  sendTerminalInput={sendTerminalInput}
                   enabledAgentTypes={enabledAgentTypes}
                   enabledIdes={enabledIdes}
                   connectedAgentId={connectedAgentId}
-                  onOpenFeedbackDetail={onOpenFeedbackDetail}
-                  feedbackDetailState={feedbackDetailState}
                   onRequestClose={onRequestClose}
                   closeOnSessionAction={closeOnSessionAction}
                   containerProps={{

@@ -56,6 +56,9 @@ type McpRouteDeps = {
   mcpGetFeedback: unknown;
   mcpResolveFeedback: unknown;
   mcpResolveReviewFeedback: unknown;
+  mcpReopenReviewFeedback: unknown;
+  mcpSubmitReview: unknown;
+  mcpAddReviewFeedback: unknown;
   mcpAddReviewThreadMessage: unknown;
   mcpListReviewFeedback: unknown;
   mcpSubmitResolution: unknown;
@@ -195,6 +198,7 @@ export async function registerMcpRoutes(
         id: agent.id,
         cwd: agent.cwd,
         type: agent.type,
+        role: agent.role,
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
@@ -216,6 +220,9 @@ export async function registerMcpRoutes(
       getFeedback: deps.mcpGetFeedback,
       resolveFeedback: deps.mcpResolveFeedback,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
+      reopenReviewFeedback: deps.mcpReopenReviewFeedback,
+      submitReview: deps.mcpSubmitReview,
+      addReviewFeedback: deps.mcpAddReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
       submitResolution: deps.mcpSubmitResolution,
@@ -283,6 +290,7 @@ export async function registerMcpRoutes(
         id: agent.id,
         cwd: agent.cwd,
         type: agent.type,
+        role: agent.role,
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
@@ -302,6 +310,9 @@ export async function registerMcpRoutes(
       getFeedback: deps.mcpGetFeedback,
       resolveFeedback: deps.mcpResolveFeedback,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
+      reopenReviewFeedback: deps.mcpReopenReviewFeedback,
+      submitReview: deps.mcpSubmitReview,
+      addReviewFeedback: deps.mcpAddReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
       submitResolution: deps.mcpSubmitResolution,

@@ -160,12 +160,12 @@ describe("MCP CRUD tools", () => {
       }
     });
 
-    it("does NOT expose CRUD tools for persona agents", async () => {
+    it("does NOT expose CRUD tools for review agents", async () => {
       await ctx.pool.query(
-        `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
+        `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
          VALUES
-         ('agt_crud_parent', 'parent', 'claude', 'running', '/tmp', null, null, false),
-         ('agt_crud_persona', 'persona', 'claude', 'running', '/tmp', 'security-review', 'agt_crud_parent', false)`
+         ('agt_crud_parent', 'parent', 'claude', 'standard', 'running', '/tmp', null, null, false),
+         ('agt_crud_persona', 'persona', 'claude', 'review', 'running', '/tmp', 'security-review', 'agt_crud_parent', false)`
       );
       await ctx.pool.query(
         `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, status, round_number, allow_recheck)

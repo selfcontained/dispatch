@@ -9,7 +9,7 @@ export type AgentStatus =
 
 export type AgentType = "codex" | "claude" | "opencode" | "cursor" | "terminal";
 
-export type AgentRole = "standard" | "assisted_update";
+export type AgentRole = "standard" | "review" | "assisted_update";
 
 export type AgentLatestEventType =
   | "working"

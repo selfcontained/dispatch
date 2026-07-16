@@ -23,6 +23,10 @@ import {
   buildParentRound1FeedbackPrompt,
   buildParentReviewCompletePrompt,
   buildPersonaKickoffPrompt,
+  buildReviewSubmittedPrompt,
+  buildReviewFeedbackAddedPrompt,
+  buildReviewItemStatePrompt,
+  buildReviewThreadUpdatePrompt,
   buildReviewerRecheckCancelledPrompt,
   buildReviewerRecheckReadyPrompt,
 } from "../reviews/injection-prompts.js";
@@ -38,7 +42,12 @@ import { getPrStatus } from "../shared/github/pr.js";
 import { resolveHeadSha } from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import {
+  createReview,
+  addReviewFeedbackItem,
+  getReviewByReviewerAgent,
+  getReviewRecord,
   resolveReviewFeedbackItem,
+  reopenReviewFeedbackItem,
   addThreadMessage,
   listFeedbackItemsForAgent,
 } from "../agents/reviews.js";
@@ -50,6 +59,34 @@ import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
+
+function validateReviewFeedbackLocation(input: {
+  filePath?: string;
+  startLine?: number;
+  endLine?: number;
+}): void {
+  if (input.filePath) {
+    const pathSegments = input.filePath.replaceAll("\\", "/").split("/");
+    if (
+      input.filePath.startsWith("/") ||
+      /^[A-Za-z]:[\\/]/.test(input.filePath) ||
+      pathSegments.includes("..")
+    ) {
+      throw new Error("Review feedback file paths must be repo-relative.");
+    }
+  }
+  if (!input.filePath && (input.startLine || input.endLine)) {
+    throw new Error("Review feedback line numbers require a filePath.");
+  }
+  if (input.endLine && !input.startLine) {
+    throw new Error("Review feedback endLine requires startLine.");
+  }
+  if (input.endLine && input.startLine && input.endLine < input.startLine) {
+    throw new Error(
+      "Review feedback endLine must be greater than or equal to startLine."
+    );
+  }
+}
 
 type CreateReviewHandlersDeps = {
   pool: Pool;
@@ -69,6 +106,18 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
     withStreamFlag,
     sendAgentPrompt,
   } = deps;
+
+  const sendPromptBestEffort = async (
+    agentId: string | null,
+    prompt: string
+  ) => {
+    if (!agentId) return;
+    try {
+      await sendAgentPrompt(agentId, prompt);
+    } catch {
+      // Review mutations remain durable even if terminal injection is unavailable.
+    }
+  };
 
   return {
     async submitResolution(
@@ -313,8 +362,121 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
       };
     },
 
-    async listReviewFeedback(agentId: string) {
-      return listFeedbackItemsForAgent(pool, agentId);
+    async submitReview(
+      agentId: string,
+      input: {
+        summary: string;
+        feedback: Array<{
+          filePath?: string;
+          startLine?: number;
+          endLine?: number;
+          comment: string;
+        }>;
+      }
+    ) {
+      const reviewer = await agentManager.getAgent(agentId);
+      if (reviewer?.role !== "review" || !reviewer.parentAgentId) {
+        throw new Error(
+          "dispatch_review_submit is only available to review agents."
+        );
+      }
+      if (await getReviewByReviewerAgent(pool, agentId)) {
+        throw new Error(
+          "This reviewer has already submitted its review. Use dispatch_review_add_feedback for a new concern or dispatch_review_add_message for an existing thread."
+        );
+      }
+      const parent = await agentManager.getAgent(reviewer.parentAgentId);
+      if (!parent) throw new Error("Parent agent not found.");
+
+      for (const item of input.feedback) {
+        validateReviewFeedbackLocation(item);
+      }
+
+      const review = await createReview(pool, {
+        agentId: parent.id,
+        assignedAgentId: parent.id,
+        reviewerType: "agent",
+        reviewerAgentId: reviewer.id,
+        summary: input.summary.trim(),
+        baseRef: parent.baseBranch,
+        items: input.feedback,
+      });
+
+      publishUiEvent({
+        type: "review.created",
+        agentId: parent.id,
+        reviewId: review.id,
+      });
+      await sendPromptBestEffort(
+        parent.id,
+        buildReviewSubmittedPrompt({
+          reviewId: review.id,
+          reviewerName: reviewer.persona ?? reviewer.name,
+          reviewerAgentId: reviewer.id,
+          summary: input.summary.trim(),
+          items: review.items.map((item) => ({
+            id: item.id,
+            filePath: item.filePath,
+            lineStart: item.lineStart,
+            body: item.messages[0]?.content.body ?? "",
+          })),
+        })
+      );
+      return { review };
+    },
+
+    async addReviewFeedback(
+      agentId: string,
+      input: {
+        reviewId: number;
+        filePath?: string;
+        startLine?: number;
+        endLine?: number;
+        comment: string;
+      }
+    ) {
+      const reviewer = await agentManager.getAgent(agentId);
+      if (reviewer?.role !== "review") {
+        throw new Error("Only review agents can add review feedback.");
+      }
+      validateReviewFeedbackLocation(input);
+      const result = await addReviewFeedbackItem(
+        pool,
+        input.reviewId,
+        agentId,
+        input
+      );
+      if (!result) {
+        throw new Error(
+          `Review #${input.reviewId} was not submitted by this reviewer.`
+        );
+      }
+      const review = await getReviewRecord(pool, input.reviewId);
+      publishUiEvent({
+        type: "review_feedback.updated",
+        agentId: review?.agentId ?? reviewer.parentAgentId ?? agentId,
+        feedbackItemId: result.item.id,
+      });
+      publishUiEvent({
+        type: "review.updated",
+        agentId: review?.agentId ?? reviewer.parentAgentId ?? agentId,
+        reviewId: input.reviewId,
+        status: result.reviewStatus,
+      });
+      await sendPromptBestEffort(
+        review?.assignedAgentId ?? review?.agentId ?? reviewer.parentAgentId,
+        buildReviewFeedbackAddedPrompt({
+          reviewId: input.reviewId,
+          itemId: result.item.id,
+          reviewerName: reviewer.persona ?? reviewer.name,
+          body: input.comment,
+        })
+      );
+      return result;
+    },
+
+    async listReviewFeedback(agentId: string, reviewId?: number) {
+      return listFeedbackItemsForAgent(pool, agentId, reviewId);
     },
 
     async resolveReviewFeedback(
@@ -336,7 +498,11 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         itemId,
         agentId,
         resolution,
-        { note: opts.note ?? null, resolvedBy: agentId }
+        {
+          note: opts.note ?? null,
+          resolvedBy: agentId,
+          authorType: "agent",
+        }
       );
       if (!result) {
         throw new Error(
@@ -354,12 +520,71 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         reviewId: result.reviewId,
         status: result.reviewStatus,
       });
+      const review = await getReviewRecord(pool, result.reviewId);
+      await sendPromptBestEffort(
+        review?.reviewerAgentId ?? null,
+        buildReviewItemStatePrompt({
+          reviewId: result.reviewId,
+          itemId,
+          action: "resolved",
+          resolution,
+          note: opts.note ?? null,
+        })
+      );
       return {
         item: {
           id: result.item.id,
           reviewId: result.reviewId,
           status: result.item.status,
           resolution: result.item.resolution!,
+        },
+        reviewStatus: result.reviewStatus,
+      };
+    },
+
+    async reopenReviewFeedback(
+      agentId: string,
+      itemId: number,
+      opts: { note?: string | null } = {}
+    ) {
+      const result = await reopenReviewFeedbackItem(pool, itemId, agentId, {
+        note: opts.note ?? null,
+        reopenedBy: agentId,
+        authorType: "agent",
+      });
+      if (!result) {
+        throw new Error(
+          `Review feedback item #${itemId} not found or not owned by this agent.`
+        );
+      }
+      const review = await getReviewRecord(pool, result.reviewId);
+      const eventAgentId = review?.agentId ?? agentId;
+      publishUiEvent({
+        type: "review_feedback.updated",
+        agentId: eventAgentId,
+        feedbackItemId: itemId,
+      });
+      publishUiEvent({
+        type: "review.updated",
+        agentId: eventAgentId,
+        reviewId: result.reviewId,
+        status: result.reviewStatus,
+      });
+      await sendPromptBestEffort(
+        review?.reviewerAgentId ?? null,
+        buildReviewItemStatePrompt({
+          reviewId: result.reviewId,
+          itemId,
+          action: "reopened",
+          note: opts.note ?? null,
+        })
+      );
+      return {
+        item: {
+          id: result.item.id,
+          reviewId: result.reviewId,
+          status: result.item.status,
+          resolution: null,
         },
         reviewStatus: result.reviewStatus,
       };
@@ -390,11 +615,26 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
           `Review feedback item #${itemId} not found or not owned by this agent.`
         );
       }
+      const review = await getReviewRecord(pool, result.reviewId);
       publishUiEvent({
         type: "review_feedback.updated",
-        agentId,
+        agentId: review?.agentId ?? agentId,
         feedbackItemId: itemId,
       });
+      const actor = await agentManager.getAgent(agentId);
+      const targetAgentId =
+        review?.reviewerAgentId === agentId
+          ? (review.assignedAgentId ?? review.agentId)
+          : (review?.reviewerAgentId ?? null);
+      await sendPromptBestEffort(
+        targetAgentId,
+        buildReviewThreadUpdatePrompt({
+          reviewId: result.reviewId,
+          itemId,
+          from: actor?.persona ?? actor?.name ?? agentId,
+          body,
+        })
+      );
       return {
         message: {
           id: result.message.id,
@@ -533,6 +773,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
       const agent = await agentManager.createAgent({
         name: `${opts.persona}-${agentId.slice(-6)}`,
         type: personaAgentType,
+        role: "review",
         cwd: parentCwd,
         agentArgs: personaArgs,
         fullAccess: parent.fullAccess,
@@ -542,14 +783,6 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         personaContext: opts.context,
         cliSessionId,
         initialPrompt: buildPersonaKickoffPrompt(),
-      });
-
-      const launchCommit = await resolveHeadSha(parentCwd);
-      await agentManager.createPersonaReview({
-        agentId: agent.id,
-        parentAgentId: agentId,
-        persona: opts.persona,
-        lastReviewedCommit: launchCommit,
       });
 
       const agentWithReview = await agentManager.getAgent(agent.id);

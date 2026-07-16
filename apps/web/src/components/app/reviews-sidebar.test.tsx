@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
-import { render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewListItem } from "@/hooks/use-agent-reviews";
 import { ReviewsSidebarContent } from "./reviews-sidebar";
@@ -13,6 +13,7 @@ const reviews: ReviewListItem[] = [
     assignedAgentId: "agent-1",
     reviewerType: "human",
     reviewerAgentId: null,
+    reviewerName: null,
     summary: null,
     status: "open",
     baseRef: "main",
@@ -27,6 +28,7 @@ const reviews: ReviewListItem[] = [
     assignedAgentId: "agent-1",
     reviewerType: "human",
     reviewerAgentId: null,
+    reviewerName: null,
     summary: "Resolved review",
     status: "resolved",
     baseRef: "main",
@@ -41,6 +43,7 @@ const reviews: ReviewListItem[] = [
     assignedAgentId: "agent-1",
     reviewerType: "human",
     reviewerAgentId: null,
+    reviewerName: null,
     summary: "Partially resolved review",
     status: "partially_resolved",
     baseRef: "main",
@@ -49,18 +52,116 @@ const reviews: ReviewListItem[] = [
     itemCount: 2,
     resolvedCount: 1,
   },
+  {
+    id: 4,
+    agentId: "agent-1",
+    assignedAgentId: "agent-1",
+    reviewerType: "agent",
+    reviewerAgentId: "reviewer-1",
+    reviewerName: "Security Review",
+    summary: "No actionable security issues found.",
+    status: "resolved",
+    baseRef: "main",
+    createdAt: "2026-07-13T15:00:00.000Z",
+    updatedAt: "2026-07-13T15:00:00.000Z",
+    itemCount: 0,
+    resolvedCount: 0,
+  },
+  {
+    id: 5,
+    agentId: "agent-1",
+    assignedAgentId: "agent-1",
+    reviewerType: "agent",
+    reviewerAgentId: "reviewer-2",
+    reviewerName: "Product Review",
+    summary: "Actionable reviewer feedback",
+    status: "open",
+    baseRef: "main",
+    createdAt: "2026-07-13T14:00:00.000Z",
+    updatedAt: "2026-07-13T14:00:00.000Z",
+    itemCount: 1,
+    resolvedCount: 0,
+  },
 ];
+
+const threadReview = {
+  ...reviews[4],
+  items: [
+    {
+      id: 51,
+      reviewId: 5,
+      filePath: "apps/web/src/example.tsx",
+      lineStart: 10,
+      lineEnd: 10,
+      diffSnapshot: null,
+      baseRef: "main",
+      status: "resolved",
+      resolution: "fixed",
+      resolutionNote: "Implementation verified",
+      resolvedBy: "human",
+      resolvedAt: "2026-07-13T14:03:00.000Z",
+      createdAt: "2026-07-13T14:00:00.000Z",
+      updatedAt: "2026-07-13T14:03:00.000Z",
+      messages: [
+        {
+          id: 510,
+          feedbackItemId: 51,
+          authorType: "agent",
+          authorAgentId: "reviewer-2",
+          type: "feedback",
+          content: { body: "Clarify the review state." },
+          createdAt: "2026-07-13T14:00:00.000Z",
+        },
+        {
+          id: 511,
+          feedbackItemId: 51,
+          authorType: "human",
+          authorAgentId: null,
+          type: "message",
+          content: { body: "Updated the copy." },
+          createdAt: "2026-07-13T14:02:00.000Z",
+        },
+        {
+          id: 512,
+          feedbackItemId: 51,
+          authorType: "human",
+          authorAgentId: null,
+          type: "resolution",
+          content: { body: "Implementation verified", resolution: "fixed" },
+          createdAt: "2026-07-13T14:03:00.000Z",
+        },
+      ],
+    },
+  ],
+};
 
 vi.mock("@/hooks/use-agent-reviews", () => ({
   useAgentReviews: () => ({ reviews, isLoading: false }),
-  useAgentReviewDetail: () => ({ review: null, isLoading: false }),
-  useAddReviewThreadMessage: vi.fn(),
-  useSetReviewFeedbackResolution: vi.fn(),
+  useAgentReviewDetail: (_agentId: string, reviewId: number) => ({
+    review:
+      reviewId === 4
+        ? { ...reviews[3], items: [] }
+        : reviewId === 5
+          ? threadReview
+          : null,
+    isLoading: false,
+  }),
+  useAddReviewThreadMessage: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+  }),
+  useSetReviewFeedbackResolution: () => ({
+    mutateAsync: vi.fn(),
+    isPending: false,
+    variables: undefined,
+  }),
 }));
 
 vi.mock("@/hooks/use-agent-diff", () => ({
   useAgentDiff: () => ({ data: null }),
 }));
+
+afterEach(cleanup);
 
 function reviewRowFor(text: string): HTMLElement {
   const row = screen.getByText(text).closest("button")?.parentElement;
@@ -85,5 +186,36 @@ describe("ReviewsSidebarContent", () => {
     expect(reviewRowFor("Resolved review").className).toContain(
       "border-l-status-working/60"
     );
+  });
+
+  it("shows reviewer attribution and expands a tracked clean approval", () => {
+    render(
+      <MemoryRouter>
+        <ReviewsSidebarContent agentId="agent-1" />
+      </MemoryRouter>
+    );
+
+    expect(screen.getByText("Security Review")).toBeTruthy();
+    expect(screen.getByText("Approved · no feedback")).toBeTruthy();
+    fireEvent.click(screen.getByText("No actionable security issues found."));
+    expect(screen.getByText("Approved without feedback")).toBeTruthy();
+  });
+
+  it("describes submitted agent feedback and preserves state-change context", () => {
+    render(
+      <MemoryRouter>
+        <ReviewsSidebarContent agentId="agent-1" />
+      </MemoryRouter>
+    );
+
+    fireEvent.click(screen.getByText("Actionable reviewer feedback"));
+    expect(
+      screen.getByText(/Reviewer feedback submitted — awaiting action/)
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByText("Clarify the review state."));
+    expect(screen.getByText("State change")).toBeTruthy();
+    expect(screen.getByText(/Marked fixed/)).toBeTruthy();
+    expect(screen.getAllByText(/Implementation verified/)).toHaveLength(2);
   });
 });

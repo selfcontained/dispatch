@@ -22,7 +22,7 @@ test.describe("Persona recheck UI", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("renders round badges, round 2 grouping, and cancel recheck", async ({
+  test("shows lightweight review children without the retired lifecycle", async ({
     page,
     request,
   }) => {
@@ -37,57 +37,43 @@ test.describe("Persona recheck UI", () => {
     await waitForAppShell(page);
 
     await expect(
-      page
-        .getByTestId(`agent-card-${fixture.round1AgentId}`)
-        .getByText("R1", { exact: true })
+      page.getByTestId(`agent-card-${fixture.round1AgentId}`)
+    ).not.toBeVisible();
+    await expect(
+      page.getByTestId(`agent-card-${fixture.awaitingRecheckAgentId}`)
+    ).not.toBeVisible();
+    await expect(
+      page.getByTestId(`agent-card-${fixture.round2AgentId}`)
+    ).not.toBeVisible();
+    await expect(
+      page.getByTestId(`child-agent-row-${fixture.round1AgentId}`)
     ).toBeVisible();
     await expect(
-      page
-        .getByTestId(`agent-card-${fixture.awaitingRecheckAgentId}`)
-        .getByText("R2 pending", { exact: true })
+      page.getByTestId(`child-agent-row-${fixture.awaitingRecheckAgentId}`)
     ).toBeVisible();
     await expect(
-      page
-        .getByTestId(`agent-card-${fixture.awaitingRecheckAgentId}`)
-        .getByText("Rechecking")
+      page.getByTestId(`child-agent-row-${fixture.round2AgentId}`)
     ).toBeVisible();
+    await expect(page.getByText("Sub Agents", { exact: true })).toBeVisible();
     await expect(
-      page
-        .getByTestId(`agent-card-${fixture.round2AgentId}`)
-        .getByText("R2", { exact: true })
-    ).toBeVisible();
-
-    await expect(page.getByText("Round 2 findings")).toBeVisible();
-
-    const original = page.getByRole("button", {
-      name: /The retry loop bypasses the circuit breaker on the cache-miss path/i,
-    });
-    const followup = page.getByRole("button", {
-      name: /Round 2: fallback retries still skip the breaker/i,
-    });
-    await expect(original).toBeVisible();
-    await expect(followup).toBeVisible();
-
-    const [originalBox, followupBox] = await Promise.all([
-      original.boundingBox(),
-      followup.boundingBox(),
-    ]);
-    expect(originalBox).not.toBeNull();
-    expect(followupBox).not.toBeNull();
-    expect(followupBox!.x).toBeGreaterThan(originalBox!.x);
+      page.locator('[data-agent-role="review"]').getByText("Review", {
+        exact: true,
+      })
+    ).toHaveCount(3);
+    await expect(page.getByText("R1", { exact: true })).not.toBeVisible();
+    await expect(
+      page.getByText("R2 pending", { exact: true })
+    ).not.toBeVisible();
+    await expect(page.getByText("Round 2 findings")).not.toBeVisible();
 
     await page.goto(
       `/agents/${agent.id}/review/${fixture.awaitingRecheckAgentId}`,
       { waitUntil: "domcontentloaded" }
     );
     await waitForAppShell(page);
-    await expect(page.getByText("Review Summary")).toBeVisible();
-    const cancelButton = page.getByTestId("cancel-recheck-button");
-    await expect(cancelButton).toBeVisible();
-
-    page.once("dialog", (dialog) => dialog.accept());
-    await cancelButton.click();
-    await expect(cancelButton).not.toBeVisible();
+    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
+    await expect(page.getByText("Review Summary")).not.toBeVisible();
+    await expect(page.getByTestId("cancel-recheck-button")).not.toBeVisible();
   });
 
   test("launcher does not show allowRecheck toggle (recheck is always on)", async ({

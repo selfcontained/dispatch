@@ -227,11 +227,23 @@ function ReviewRow({
           >
             {review.summary || "Review feedback"}
           </p>
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+            {review.reviewerType === "agent"
+              ? review.reviewerName || "Review agent"
+              : "Human reviewer"}
+          </p>
           <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <MessageCircle className="h-2.5 w-2.5" />
-              {review.resolvedCount}/{review.itemCount} resolved
-            </span>
+            {review.itemCount === 0 ? (
+              <span className="flex items-center gap-1 text-status-working">
+                <CheckCircle2 className="h-2.5 w-2.5" />
+                Approved · no feedback
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <MessageCircle className="h-2.5 w-2.5" />
+                {review.resolvedCount}/{review.itemCount} resolved
+              </span>
+            )}
             <span className="flex items-center gap-1">
               <Clock className="h-2.5 w-2.5" />
               {timeStr}
@@ -260,19 +272,35 @@ function ReviewRow({
             <div className="px-1.5 pb-2 pt-1">
               {review.status === "open" && (
                 <p className="mb-2 px-1 text-[10px] text-muted-foreground">
-                  Sent to agent — waiting for response · {timeStr}
+                  {review.reviewerType === "agent"
+                    ? "Reviewer feedback submitted — awaiting action"
+                    : "Sent for review — waiting for response"}{" "}
+                  · {timeStr}
                 </p>
               )}
               {detail ? (
-                detail.items.map((item) => (
-                  <FeedbackItemRow
-                    key={item.id}
-                    agentId={agentId}
-                    item={item}
-                    onNavigateToFile={onNavigateToFile}
-                    diffFilePaths={diffFilePaths}
-                  />
-                ))
+                detail.items.length === 0 ? (
+                  <div className="mx-1 rounded-md border border-status-working/25 bg-status-working/[0.06] px-3 py-2.5">
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-status-working">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Approved without feedback
+                    </p>
+                    <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                      The reviewer found no actionable issues. The review
+                      summary above records their rationale.
+                    </p>
+                  </div>
+                ) : (
+                  detail.items.map((item) => (
+                    <FeedbackItemRow
+                      key={item.id}
+                      agentId={agentId}
+                      item={item}
+                      onNavigateToFile={onNavigateToFile}
+                      diffFilePaths={diffFilePaths}
+                    />
+                  ))
+                )
               ) : (
                 <div className="flex items-center justify-center py-4 text-[10px] text-muted-foreground">
                   Loading items…
@@ -480,7 +508,8 @@ function FeedbackItemRow({
                   message={message}
                   grouped={
                     index > 0 &&
-                    messages[index - 1]?.authorType === message.authorType
+                    messages[index - 1]?.authorType === message.authorType &&
+                    messages[index - 1]?.type === message.type
                   }
                 />
               ))}
@@ -668,6 +697,19 @@ function ThreadMessage({
   grouped: boolean;
 }): JSX.Element {
   const isAgent = message.authorType !== "human";
+  const isStateChange =
+    message.type === "resolution" || message.type === "reopen";
+  const stateChangeLabel =
+    message.type === "reopen"
+      ? "Reopened feedback"
+      : message.content?.resolution
+        ? `Marked ${message.content.resolution}`
+        : "Updated feedback state";
+  const body = isStateChange
+    ? message.content?.body
+      ? `${stateChangeLabel}\n\n${message.content.body}`
+      : stateChangeLabel
+    : message.content?.body || "Updated feedback";
   return (
     <div className={cn(grouped ? "mt-1" : "mt-2.5", isAgent ? "pr-6" : "pl-6")}>
       {!grouped && (
@@ -677,7 +719,9 @@ function ThreadMessage({
             !isAgent && "justify-end"
           )}
         >
-          <span className="font-medium">{isAgent ? "Agent" : "You"}</span>
+          <span className="font-medium">
+            {isStateChange ? "State change" : isAgent ? "Agent" : "You"}
+          </span>
           <span>·</span>
           <span>
             {new Date(message.createdAt).toLocaleTimeString(undefined, {
@@ -691,14 +735,14 @@ function ThreadMessage({
         className={cn(
           !grouped && "mt-0.5",
           "rounded-xl px-2.5 py-1.5",
-          isAgent
-            ? "rounded-bl-sm bg-muted text-foreground"
-            : "rounded-br-sm bg-primary/10 text-foreground ring-1 ring-inset ring-primary/20"
+          isStateChange
+            ? "rounded-md border border-border/70 bg-muted/30 text-muted-foreground"
+            : isAgent
+              ? "rounded-bl-sm bg-muted text-foreground"
+              : "rounded-br-sm bg-primary/10 text-foreground ring-1 ring-inset ring-primary/20"
         )}
       >
-        <Markdown className="text-xs text-foreground">
-          {message.content?.body ?? ""}
-        </Markdown>
+        <Markdown className="text-xs text-foreground">{body}</Markdown>
       </div>
     </div>
   );

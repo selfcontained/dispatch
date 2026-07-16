@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 
 import { AgentMeta, FrontTruncatedValue } from "@/components/app/agent-meta";
+import { ChildAgentRow } from "@/components/app/child-agent-row";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { DiffStatBadge } from "@/components/app/diff-stat-badge";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
@@ -25,10 +26,6 @@ import {
   latestEventColor,
   formatRelativeTime,
 } from "@/components/app/agent-event-utils";
-import {
-  type FeedbackDetailState,
-  ParentFeedbackPanel,
-} from "@/components/app/feedback-panel";
 import { IdeLaunchButton } from "@/components/app/ide-launch-button";
 import { PersonaLauncher } from "@/components/app/persona-launcher";
 import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
@@ -122,10 +119,7 @@ export type AgentCardProps = {
   setDeleteConfirmOpen: (open: boolean) => void;
   setStopTarget: (agent: Agent | null) => void;
   setStopConfirmOpen: (open: boolean) => void;
-  sendTerminalInput?: (data: string) => void;
   connectedAgentId?: string | null;
-  onOpenFeedbackDetail?: (state: FeedbackDetailState) => void;
-  feedbackDetailState?: FeedbackDetailState;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
   enabledAgentTypes: AgentType[];
@@ -193,10 +187,7 @@ export function AgentCard({
   setDeleteConfirmOpen,
   setStopTarget,
   setStopConfirmOpen,
-  sendTerminalInput,
   connectedAgentId,
-  onOpenFeedbackDetail,
-  feedbackDetailState,
   onRequestClose,
   closeOnSessionAction = false,
   enabledAgentTypes,
@@ -706,30 +697,36 @@ export function AgentCard({
                     ) : null}
                   </div>
                 ) : null}
+                {childAgents.length > 0 ? (
+                  <div className="space-y-1.5 border-t border-border/50 pt-2">
+                    <div className="flex items-center justify-between px-0.5">
+                      <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/75">
+                        Sub Agents
+                      </span>
+                      <span className="text-[10px] text-muted-foreground/55">
+                        {childAgents.length}
+                      </span>
+                    </div>
+                    <div className="space-y-1">
+                      {childAgents.map((child) => (
+                        <ChildAgentRow
+                          key={child.id}
+                          agent={child}
+                          state={getVisualState(child)}
+                          isConnected={connectedAgentId === child.id}
+                          attachToAgent={attachToAgent}
+                          detachTerminal={detachTerminal}
+                          startAgent={startAgent}
+                          onRequestClose={onRequestClose}
+                          closeOnSessionAction={closeOnSessionAction}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
               </div>
               {!agent.persona ? (
                 <div className="flex flex-col gap-3 px-0 pb-1">
-                  {isTerminalAgent ? null : (
-                    <ParentFeedbackPanel
-                      parentAgentId={agent.id}
-                      sendTerminalInput={sendTerminalInput}
-                      isConnected={connectedAgentId === agent.id}
-                      onRequestClose={onRequestClose}
-                      closeOnSessionAction={closeOnSessionAction}
-                      onOpenDetail={onOpenFeedbackDetail}
-                      activeDetailItemId={
-                        feedbackDetailState?.parentAgentId === agent.id &&
-                        "itemId" in feedbackDetailState
-                          ? feedbackDetailState.itemId
-                          : null
-                      }
-                      childAgents={childAgents}
-                      selectedAgentId={selectedAgentId}
-                      agentVisualState={getVisualState}
-                      detachTerminal={detachTerminal}
-                      attachToAgent={attachToAgent}
-                    />
-                  )}
                   <div className="flex min-h-9 items-center justify-between gap-2 pt-2">
                     <div className="min-h-9 min-w-0 flex items-center">
                       {isTerminalAgent ? null : (

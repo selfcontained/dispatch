@@ -130,7 +130,7 @@ export async function registerPersonaReviewRoutes(
         `Use the dispatch_launch_persona MCP tool to launch the "${body.persona}" persona on your current work.`,
         `Use agentType: "${body.agentType}" and includeDiff: ${includeDiff ? "true" : "false"}.`,
         "Treat this as an author-requested review for the current worktree/branch.",
-        "Do not emit a terminal dispatch_event yet — you will receive a terminal prompt here when the reviewer reports back, and again after round 2.",
+        "Wait for the structured REVIEW SUBMITTED prompt before acting on findings. Keep all review discussion in feedback-item threads with the dispatch_review_* tools.",
         "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
       ].join(" ");
 

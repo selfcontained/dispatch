@@ -4,7 +4,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 
-import type { AgentType as CliAgentType } from "../../agents/types.js";
+import type {
+  AgentRole,
+  AgentType as CliAgentType,
+} from "../../agents/types.js";
 import type { BrainStore } from "../../brain/store.js";
 import { registerAgentLaunchTools } from "./agent-launch-tools.js";
 import { registerAgentLifecycleTools } from "./agent-lifecycle-tools.js";
@@ -26,6 +29,7 @@ export type McpAgent = {
   id: string;
   cwd: string;
   type?: CliAgentType | null;
+  role?: AgentRole | null;
   persona?: string | null;
   parentAgentId?: string | null;
   baseBranch?: string | null;
@@ -88,16 +92,12 @@ const AGENT_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_share",
   "dispatch_list_media",
-  "dispatch_feedback",
   "list_personas",
   "dispatch_launch_persona",
-  "dispatch_get_feedback",
-  "dispatch_resolve_feedback",
   "dispatch_review_list_feedback",
   "dispatch_review_resolve",
+  "dispatch_review_reopen",
   "dispatch_review_add_message",
-  "dispatch_submit_resolution",
-  "dispatch_cancel_recheck",
   "list_agents",
   "dispatch_send_message",
   "dispatch_launch_agent",
@@ -138,13 +138,10 @@ const JOB_TOOLS = new Set([
   "dispatch_share",
   "dispatch_list_media",
   "dispatch_launch_persona",
-  "dispatch_get_feedback",
-  "dispatch_resolve_feedback",
   "dispatch_review_list_feedback",
   "dispatch_review_resolve",
+  "dispatch_review_reopen",
   "dispatch_review_add_message",
-  "dispatch_submit_resolution",
-  "dispatch_cancel_recheck",
   "job_complete",
   "job_failed",
   "job_needs_input",
@@ -182,22 +179,22 @@ const JOB_TOOLS = new Set([
   "delete_template",
 ]);
 
-const PERSONA_TOOLS = new Set([
-  "review_status",
-  "dispatch_complete_review",
-  "dispatch_get_recheck_context",
+const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_event",
   "dispatch_pin",
   "dispatch_share",
-  "dispatch_feedback",
+  "dispatch_review_submit",
+  "dispatch_review_add_feedback",
+  "dispatch_review_list_feedback",
+  "dispatch_review_add_message",
   "get_parent_context",
 ]);
 
-type AgentType = "agent" | "job" | "persona";
-const TOOL_SETS: Record<AgentType, Set<string>> = {
+type AgentCapabilityType = "agent" | "job" | "review";
+const TOOL_SETS: Record<AgentCapabilityType, Set<string>> = {
   agent: AGENT_TOOLS,
   job: JOB_TOOLS,
-  persona: PERSONA_TOOLS,
+  review: REVIEW_AGENT_TOOLS,
 };
 
 export type PinInput = {
@@ -354,6 +351,46 @@ export type McpRequestContext = {
     item: { id: number; reviewId: number; status: string; resolution: string };
     reviewStatus: string;
   }>;
+  reopenReviewFeedback?: (
+    agentId: string,
+    itemId: number,
+    opts?: { note?: string | null }
+  ) => Promise<{
+    item: { id: number; reviewId: number; status: string; resolution: null };
+    reviewStatus: string;
+  }>;
+  submitReview?: (
+    agentId: string,
+    input: {
+      summary: string;
+      feedback: Array<{
+        filePath?: string;
+        startLine?: number;
+        endLine?: number;
+        comment: string;
+      }>;
+    }
+  ) => Promise<{
+    review: {
+      id: number;
+      status: string;
+      summary: string | null;
+      items: Array<{ id: number }>;
+    };
+  }>;
+  addReviewFeedback?: (
+    agentId: string,
+    input: {
+      reviewId: number;
+      filePath?: string;
+      startLine?: number;
+      endLine?: number;
+      comment: string;
+    }
+  ) => Promise<{
+    item: { id: number; reviewId: number };
+    reviewStatus: string;
+  }>;
   addReviewThreadMessage?: (
     agentId: string,
     itemId: number,
@@ -362,7 +399,10 @@ export type McpRequestContext = {
     message: { id: number; feedbackItemId: number; content: { body: string } };
     reviewId: number;
   }>;
-  listReviewFeedback?: (agentId: string) => Promise<
+  listReviewFeedback?: (
+    agentId: string,
+    reviewId?: number
+  ) => Promise<
     Array<{
       id: number;
       reviewId: number;
@@ -503,14 +543,15 @@ async function createDispatchMcpServer(
     version: "0.0.0",
   });
   const defaultCwd = context.agent?.cwd ?? undefined;
-  const agentType: AgentType = context.agent?.persona
-    ? "persona"
-    : context.jobTools
-      ? "job"
-      : "agent";
+  const agentType: AgentCapabilityType =
+    context.agent?.role === "review"
+      ? "review"
+      : context.jobTools
+        ? "job"
+        : "agent";
   const allowed = new Set(TOOL_SETS[agentType]);
 
-  // ── Persona / review lifecycle tools ────────────────────────────────
+  // ── Review lifecycle tools ──────────────────────────────────────────
   if (context.agent) {
     registerPersonaTools(server, allowed, {
       agentId: context.agent.id,
@@ -555,6 +596,9 @@ async function createDispatchMcpServer(
       getFeedback: context.getFeedback,
       resolveFeedback: context.resolveFeedback,
       resolveReviewFeedback: context.resolveReviewFeedback,
+      reopenReviewFeedback: context.reopenReviewFeedback,
+      submitReview: context.submitReview,
+      addReviewFeedback: context.addReviewFeedback,
       addReviewThreadMessage: context.addReviewThreadMessage,
       listReviewFeedback: context.listReviewFeedback,
       submitResolution: context.submitResolution,

@@ -335,9 +335,9 @@ export async function seedPersonaRecheckFixtureViaDB(
         await client.query(
           `
           INSERT INTO agents (
-            id, name, type, status, cwd, codex_args, full_access, pins,
+            id, name, type, role, status, cwd, codex_args, full_access, pins,
             persona, parent_agent_id, created_at, updated_at
-          ) VALUES ($1,$2,'claude','stopped','/tmp','[]'::jsonb,false,'[]'::jsonb,$3,$4,NOW(),NOW())
+          ) VALUES ($1,$2,'claude','review','stopped','/tmp','[]'::jsonb,false,'[]'::jsonb,$3,$4,NOW(),NOW())
           `,
           [child.id, child.name, child.persona, parentAgentId]
         );
@@ -524,7 +524,7 @@ export async function cleanupE2EAgents(
   if (mode === "tracked") {
     const ids = [...trackedAgentIds];
     trackedAgentIds.clear();
-    // Also delete child agents (e.g. persona reviewers)
+    // Also delete sub-agents (e.g. persona reviewers)
     if (ids.length > 0) {
       const res = await request.get(`${API}/agents`, {
         headers: authHeaders(),

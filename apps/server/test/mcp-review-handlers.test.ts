@@ -44,6 +44,14 @@ vi.mock("../src/reviews/injection-prompts.js", () => ({
     .fn()
     .mockReturnValue("review-complete-prompt"),
   buildPersonaKickoffPrompt: vi.fn().mockReturnValue("kickoff-prompt"),
+  buildReviewSubmittedPrompt: vi.fn().mockReturnValue("submitted-prompt"),
+  buildReviewFeedbackAddedPrompt: vi
+    .fn()
+    .mockReturnValue("feedback-added-prompt"),
+  buildReviewItemStatePrompt: vi.fn().mockReturnValue("item-state-prompt"),
+  buildReviewThreadUpdatePrompt: vi
+    .fn()
+    .mockReturnValue("thread-update-prompt"),
   buildReviewerRecheckCancelledPrompt: vi
     .fn()
     .mockReturnValue("recheck-cancelled-prompt"),
@@ -53,7 +61,12 @@ vi.mock("../src/reviews/injection-prompts.js", () => ({
 }));
 
 vi.mock("../src/agents/reviews.js", () => ({
+  createReview: vi.fn(),
+  getReviewByReviewerAgent: vi.fn().mockResolvedValue(null),
+  getReviewRecord: vi.fn().mockResolvedValue(null),
+  addReviewFeedbackItem: vi.fn(),
   resolveReviewFeedbackItem: vi.fn(),
+  reopenReviewFeedbackItem: vi.fn(),
   addThreadMessage: vi.fn(),
   listFeedbackItemsForAgent: vi.fn().mockResolvedValue([]),
 }));
@@ -576,6 +589,115 @@ describe("createReviewHandlers", () => {
           reviewId: 10,
         })
       );
+    });
+  });
+
+  describe("submitReview", () => {
+    it("records and notifies the parent about a clean approval", async () => {
+      const { createReview, getReviewByReviewerAgent } =
+        await import("../src/agents/reviews.js");
+      vi.mocked(getReviewByReviewerAgent).mockResolvedValueOnce(null);
+      vi.mocked(createReview).mockResolvedValueOnce({
+        id: 42,
+        status: "resolved",
+        summary: "No actionable issues found.",
+        items: [],
+      } as never);
+
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn(async (id: string) =>
+            id === "agt_reviewer"
+              ? {
+                  id,
+                  name: "security-parent",
+                  role: "review",
+                  persona: "security",
+                  parentAgentId: "agt_parent",
+                }
+              : {
+                  id: "agt_parent",
+                  name: "parent",
+                  baseBranch: "main",
+                }
+          ),
+        },
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      const result = await handlers.submitReview("agt_reviewer", {
+        summary: "No actionable issues found.",
+        feedback: [],
+      });
+
+      expect(result.review).toMatchObject({ id: 42, status: "resolved" });
+      expect(createReview).toHaveBeenCalledWith(
+        deps.pool,
+        expect.objectContaining({
+          agentId: "agt_parent",
+          reviewerAgentId: "agt_reviewer",
+          items: [],
+        })
+      );
+      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
+        "agt_parent",
+        "submitted-prompt"
+      );
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "review.created",
+        agentId: "agt_parent",
+        reviewId: 42,
+      });
+    });
+
+    it("prevents a reviewer from submitting twice", async () => {
+      const { getReviewByReviewerAgent } =
+        await import("../src/agents/reviews.js");
+      vi.mocked(getReviewByReviewerAgent).mockResolvedValueOnce({
+        id: 42,
+      } as never);
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn().mockResolvedValue({
+            id: "agt_reviewer",
+            role: "review",
+            persona: "security",
+            parentAgentId: "agt_parent",
+          }),
+        },
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      await expect(
+        handlers.submitReview("agt_reviewer", {
+          summary: "Again",
+          feedback: [],
+        })
+      ).rejects.toThrow("already submitted");
+    });
+
+    it("does not infer review authorization from a persona", async () => {
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn().mockResolvedValue({
+            id: "agt_persona",
+            role: "standard",
+            persona: "security",
+            parentAgentId: "agt_parent",
+          }),
+        },
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      await expect(
+        handlers.submitReview("agt_persona", {
+          summary: "Not a review agent",
+          feedback: [],
+        })
+      ).rejects.toThrow("only available to review agents");
     });
   });
 

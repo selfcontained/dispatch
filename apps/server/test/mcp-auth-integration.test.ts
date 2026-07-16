@@ -103,14 +103,14 @@ describe("MCP auth integration", () => {
     expect(jobResponse.json()).toEqual({ error: "Agent not found." });
   });
 
-  it("never exposes removed await tools and exposes recheck context for all persona sessions", async () => {
+  it("exposes only unified review tools to review-role sessions", async () => {
     await ctx.pool.query(
-      `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
+      `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
        VALUES
-       ('agt_parentreview', 'parent', 'codex', 'running', '/tmp', null, null, false),
-       ('agt_persona_plain', 'plain-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
-       ('agt_persona_recheck', 'recheck-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
-       ('agt_persona_round2', 'round2-reviewer', 'codex', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false)`
+       ('agt_parentreview', 'parent', 'codex', 'standard', 'running', '/tmp', null, null, false),
+       ('agt_persona_plain', 'plain-reviewer', 'codex', 'review', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
+       ('agt_persona_recheck', 'recheck-reviewer', 'codex', 'review', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
+       ('agt_persona_round2', 'round2-reviewer', 'codex', 'review', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false)`
     );
     await ctx.pool.query(
       `INSERT INTO persona_reviews (
@@ -155,7 +155,12 @@ describe("MCP auth integration", () => {
       expect(response.statusCode).toBe(200);
       expect(response.body).not.toContain("dispatch_await_recheck");
       expect(response.body).not.toContain("dispatch_await_review");
-      expect(response.body).toContain("dispatch_get_recheck_context");
+      expect(response.body).toContain("dispatch_review_submit");
+      expect(response.body).toContain("dispatch_review_add_feedback");
+      expect(response.body).toContain("dispatch_review_list_feedback");
+      expect(response.body).toContain("dispatch_review_add_message");
+      expect(response.body).not.toContain("dispatch_get_recheck_context");
+      expect(response.body).not.toContain("dispatch_complete_review");
     }
 
     const round2Response = await ctx.app.inject({
@@ -169,12 +174,37 @@ describe("MCP auth integration", () => {
       payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
     });
     expect(round2Response.statusCode).toBe(200);
-    expect(round2Response.body).toContain("dispatch_get_recheck_context");
+    expect(round2Response.body).toContain("dispatch_review_submit");
+    expect(round2Response.body).not.toContain("dispatch_get_recheck_context");
     expect(round2Response.body).not.toContain("dispatch_await_recheck");
     expect(round2Response.body).not.toContain("dispatch_await_review");
   });
 
-  it("only returns authoritative recheck diff metadata while round 2 is ready", async () => {
+  it("does not infer review tools from persona metadata", async () => {
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
+       VALUES ('agt_persona_standard', 'specialist', 'codex', 'standard', 'running', '/tmp', 'architecture-guide', null, false)`
+    );
+    const authTokenResult = await ctx.pool.query<{ value: string }>(
+      "SELECT value FROM settings WHERE key = 'auth_token'"
+    );
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: "/api/mcp/agt_persona_standard",
+      headers: {
+        authorization: `Bearer ${ctx.auth.createAgentMcpToken(authTokenResult.rows[0]!.value, "agt_persona_standard")}`,
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      payload: { jsonrpc: "2.0", id: 1, method: "tools/list", params: {} },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.body).toContain("dispatch_rename_session");
+    expect(response.body).not.toContain('"name":"dispatch_review_submit"');
+  });
+
+  it("does not expose the legacy recheck context tool", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
        VALUES
@@ -240,22 +270,15 @@ describe("MCP auth integration", () => {
       });
 
       expect(response.statusCode).toBe(200);
+      void expectedAvailability;
+      void compareRange;
       expect(response.body).toContain(
-        `"availability":"${expectedAvailability}"`
+        "Tool dispatch_get_recheck_context not found"
       );
-      if (compareRange) {
-        expect(response.body).toContain(`"compareRange":"${compareRange}"`);
-        expect(response.body).toContain(
-          `"gitDiffCommand":"git diff ${compareRange}"`
-        );
-      } else {
-        expect(response.body).toContain('"compareRange":null');
-        expect(response.body).toContain('"gitDiffCommand":null');
-      }
     }
   });
 
-  it("nulls compareRange when stored commits are not git-SHA-shaped", async () => {
+  it("keeps the legacy recheck tool unavailable for migrated sessions", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
        VALUES
@@ -299,9 +322,9 @@ describe("MCP auth integration", () => {
     });
 
     expect(response.statusCode).toBe(200);
-    expect(response.body).toContain('"availability":"ready"');
-    expect(response.body).toContain('"compareRange":null');
-    expect(response.body).toContain('"gitDiffCommand":null');
+    expect(response.body).toContain(
+      "Tool dispatch_get_recheck_context not found"
+    );
   });
 
   it("exposes dispatch_event, rename, and the persona review/recheck flow on the job-scoped MCP route", async () => {
@@ -350,13 +373,12 @@ describe("MCP auth integration", () => {
     expect(response.body).toContain("dispatch_list_media");
     expect(response.body).toContain("list_personas");
     expect(response.body).toContain("dispatch_launch_persona");
-    expect(response.body).toContain("dispatch_get_feedback");
-    expect(response.body).toContain("dispatch_resolve_feedback");
     expect(response.body).toContain("dispatch_review_list_feedback");
     expect(response.body).toContain("dispatch_review_resolve");
+    expect(response.body).toContain("dispatch_review_reopen");
     expect(response.body).toContain("dispatch_review_add_message");
-    expect(response.body).toContain("dispatch_submit_resolution");
-    expect(response.body).toContain("dispatch_cancel_recheck");
+    expect(response.body).not.toContain("dispatch_submit_resolution");
+    expect(response.body).not.toContain("dispatch_cancel_recheck");
     expect(response.body).toContain("job_complete");
     expect(response.body).toContain("job_log");
   });
