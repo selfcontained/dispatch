@@ -72,7 +72,10 @@ export function ServiceResourcesDashboard({
 }) {
   const current = data.current;
   const chartData = data.series.map((sample) => ({
-    ...sample,
+    at: sample.at,
+    serverCpuPercent: sample.serverCpuPercent,
+    agentCpuPercent: sample.agentCpuPercent,
+    hostLoad1: sample.hostLoad1,
     serverRssMb: sample.serverRssBytes / 1024 / 1024,
     serverHeapMb: sample.serverHeapBytes / 1024 / 1024,
     agentRssMb:
@@ -193,7 +196,10 @@ export function ServiceResourcesDashboard({
         />
       </section>
 
-      <ServiceResourcesSubsystems subsystems={data.subsystems} />
+      <ServiceResourcesSubsystems
+        subsystems={data.subsystems}
+        series={data.series}
+      />
 
       <section className="grid gap-4 md:grid-cols-2">
         <Card>

@@ -1,5 +1,6 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ChevronDown, ChevronRight, Server } from "lucide-react";
+import { Area, AreaChart, YAxis } from "recharts";
 
 import { Badge } from "@/components/ui/badge";
 import {
@@ -9,7 +10,12 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
-import type { SubsystemSnapshot } from "@/hooks/use-service-resources";
+import { ChartContainer, type ChartConfig } from "@/components/ui/chart";
+import type {
+  ResourceSample,
+  SubsystemResourceSample,
+  SubsystemSnapshot,
+} from "@/hooks/use-service-resources";
 import {
   formatMs,
   metadataLabel,
@@ -24,10 +30,94 @@ function reasonLabel(reason: SubsystemSnapshot["statusReason"]): string | null {
   return null;
 }
 
-function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
+type SubsystemStat = {
+  key: string;
+  label: string;
+  value: string;
+  isFailure: boolean;
+  historyValue: (sample: SubsystemResourceSample) => number | null;
+  formatHistoryValue: (value: number) => string;
+};
+
+function StatSparkline({
+  stat,
+  data,
+  testId,
+}: {
+  stat: SubsystemStat;
+  data: Array<{ at: number; value: number }>;
+  testId: string;
+}) {
+  const gradientId = `subsystem-trend-${useId().replaceAll(":", "")}`;
+  if (data.length < 2) {
+    return (
+      <div
+        className="mt-2 flex h-9 items-end border-b border-dashed border-border/70 pb-1 text-[9px] uppercase tracking-wider text-muted-foreground/70"
+        data-testid={testId}
+      >
+        Collecting trend…
+      </div>
+    );
+  }
+
+  const values = data.map((point) => point.value);
+  const minimum = Math.min(...values);
+  const maximum = Math.max(...values);
+  const padding =
+    minimum === maximum
+      ? Math.max(1, Math.abs(maximum) * 0.05)
+      : (maximum - minimum) * 0.12;
+  const rangeLabel = `${stat.formatHistoryValue(minimum)} to ${stat.formatHistoryValue(maximum)}`;
+  const color = stat.isFailure
+    ? "hsl(var(--status-blocked))"
+    : "hsl(var(--chart-1))";
+  const config = {
+    value: { label: stat.label, color },
+  } satisfies ChartConfig;
+
+  return (
+    <ChartContainer
+      config={config}
+      className="mt-1.5 h-10 w-full aspect-auto"
+      initialDimension={{ width: 140, height: 40 }}
+      role="img"
+      aria-label={`${stat.label} recent trend, ${rangeLabel}`}
+      data-testid={testId}
+    >
+      <AreaChart data={data} margin={{ top: 3, right: 0, bottom: 0, left: 0 }}>
+        <defs>
+          <linearGradient id={gradientId} x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor={color} stopOpacity={0.3} />
+            <stop offset="95%" stopColor={color} stopOpacity={0.02} />
+          </linearGradient>
+        </defs>
+        <YAxis
+          hide
+          domain={[Math.max(0, minimum - padding), maximum + padding]}
+        />
+        <Area
+          type="monotone"
+          dataKey="value"
+          stroke={color}
+          fill={`url(#${gradientId})`}
+          strokeWidth={1.5}
+          isAnimationActive={false}
+        />
+      </AreaChart>
+    </ChartContainer>
+  );
+}
+
+function SubsystemRow({
+  subsystem,
+  series,
+}: {
+  subsystem: SubsystemSnapshot;
+  series: ResourceSample[];
+}) {
   const [expanded, setExpanded] = useState(false);
   const statusReason = reasonLabel(subsystem.statusReason);
-  const stats = [
+  const stats: SubsystemStat[] = [
     ...(subsystem.p95DurationMs === null
       ? []
       : [
@@ -36,6 +126,9 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
             label: "p95 duration",
             value: formatMs(subsystem.p95DurationMs),
             isFailure: false,
+            historyValue: (sample: SubsystemResourceSample) =>
+              sample.p95DurationMs,
+            formatHistoryValue: formatMs,
           },
         ]),
     ...(subsystem.failures === 0
@@ -46,6 +139,8 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
             label: "Failures",
             value: subsystem.failures.toLocaleString(),
             isFailure: true,
+            historyValue: (sample: SubsystemResourceSample) => sample.failures,
+            formatHistoryValue: (value: number) => value.toLocaleString(),
           },
         ]),
     ...Object.entries(subsystem.metadata).map(([key, value]) => ({
@@ -53,6 +148,10 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
       label: metadataLabel(key),
       value: value.toLocaleString(),
       isFailure: false,
+      historyValue: (sample: SubsystemResourceSample) =>
+        sample.metadata[key] ?? null,
+      formatHistoryValue: (historyValue: number) =>
+        historyValue.toLocaleString(),
     })),
   ];
   return (
@@ -106,7 +205,7 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
               {stats.map((stat) => (
                 <div
                   key={stat.key}
-                  className="rounded-md border border-border/80 bg-background/40 px-3 py-2 shadow-sm"
+                  className="rounded-md border border-border/80 bg-background/40 px-3 pb-2 pt-2 shadow-sm"
                 >
                   <span className="block text-[10px] font-medium uppercase tracking-wider text-muted-foreground">
                     {stat.label}
@@ -118,6 +217,16 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
                   >
                     {stat.value}
                   </span>
+                  <StatSparkline
+                    stat={stat}
+                    data={series.flatMap((sample) => {
+                      const history = sample.subsystems?.[subsystem.id];
+                      if (!history) return [];
+                      const value = stat.historyValue(history);
+                      return value === null ? [] : [{ at: sample.at, value }];
+                    })}
+                    testId={`subsystem-stat-trend-${subsystem.id}-${stat.key}`}
+                  />
                 </div>
               ))}
             </div>
@@ -133,8 +242,10 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
 
 export function ServiceResourcesSubsystems({
   subsystems,
+  series,
 }: {
   subsystems: SubsystemSnapshot[];
+  series: ResourceSample[];
 }) {
   return (
     <Card>
@@ -155,7 +266,11 @@ export function ServiceResourcesSubsystems({
           <span className="text-right">State</span>
         </div>
         {subsystems.map((subsystem) => (
-          <SubsystemRow key={subsystem.id} subsystem={subsystem} />
+          <SubsystemRow
+            key={subsystem.id}
+            subsystem={subsystem}
+            series={series}
+          />
         ))}
       </CardContent>
     </Card>

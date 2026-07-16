@@ -19,6 +19,13 @@ export type ResourceSample = {
   agentCpuPercent: number | null;
   agentRssBytes: number | null;
   hostLoad1: number;
+  subsystems: Record<string, SubsystemResourceSample>;
+};
+
+export type SubsystemResourceSample = {
+  p95DurationMs: number | null;
+  failures: number;
+  metadata: Record<string, number>;
 };
 
 export type SubsystemSnapshot = {

@@ -77,6 +77,15 @@ describe("GET /api/v1/system/resources", () => {
     expect(body.current.database.pool.max).toBeGreaterThan(0);
     expect(Array.isArray(body.series)).toBe(true);
     expect(body.series.length).toBeLessThanOrEqual(720);
+    if (body.series.length > 0) {
+      expect(body.series[0]?.subsystems?.database?.metadata).toEqual(
+        expect.objectContaining({
+          poolTotal: expect.any(Number),
+          poolIdle: expect.any(Number),
+          poolWaiting: expect.any(Number),
+        })
+      );
+    }
     expect(body.subsystems.map((item: { id: string }) => item.id)).toEqual(
       expect.arrayContaining([
         "api-server",

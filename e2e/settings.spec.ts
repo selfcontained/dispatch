@@ -176,6 +176,9 @@ test.describe("Settings pane", () => {
     await databaseRow.click();
     await expect(databaseRow).toHaveAttribute("aria-expanded", "true");
     await expect(dashboard.getByText("pool total")).toBeVisible();
+    await expect(
+      dashboard.getByTestId("subsystem-stat-trend-database-poolTotal")
+    ).toBeVisible();
 
     await dashboard.getByTestId("refresh-service-resources").click();
     await expect(

@@ -27,6 +27,13 @@ export type ResourceSample = {
   agentCpuPercent: number | null;
   agentRssBytes: number | null;
   hostLoad1: number;
+  subsystems: Record<string, SubsystemResourceSample>;
+};
+
+export type SubsystemResourceSample = {
+  p95DurationMs: number | null;
+  failures: number;
+  metadata: Record<string, number>;
 };
 
 type HttpBucket = {
@@ -34,6 +41,12 @@ type HttpBucket = {
   requests: number;
   errors: number;
   durationsMs: number[];
+};
+
+type HttpSnapshot = {
+  requestCount: number;
+  errors: number;
+  p95DurationMs: number | null;
 };
 
 export type HttpRequestToken = {
@@ -291,99 +304,9 @@ export class ServiceResources {
     const now = Date.now();
     const memory = process.memoryUsage();
     const [load1, load5, load15] = os.loadavg();
-    const httpBuckets = this.getActiveHttpBuckets(now);
-    const requestCount = httpBuckets.reduce(
-      (sum, bucket) => sum + bucket.requests,
-      0
-    );
-    const errors = httpBuckets.reduce((sum, bucket) => sum + bucket.errors, 0);
-    const durations = httpBuckets.flatMap((bucket) => bucket.durationsMs);
-    const trackedSubsystems = this.deps.subsystemTrackers.map((tracker) =>
-      tracker.snapshot(now)
-    );
+    const http = this.getHttpSnapshot(now);
     const workloads = { ...this.workloads };
-    const httpP95 = percentile95(durations);
-    const operationalSubsystems = [
-      operationalSubsystem({
-        id: "api-server",
-        label: "API server",
-        description: "Handles authenticated HTTP, SSE, and WebSocket traffic.",
-        state: errors > 0 ? "degraded" : "healthy",
-        runs: requestCount,
-        failures: errors,
-        lastDurationMs: httpP95,
-        metadata: {
-          requestsPerMinute: requestCount,
-          inFlight: this.httpInFlight,
-        },
-      }),
-      operationalSubsystem({
-        id: "database",
-        label: "Database",
-        description: "PostgreSQL connectivity and connection-pool capacity.",
-        state:
-          this.database.state === "unavailable"
-            ? "degraded"
-            : this.database.state === "unknown"
-              ? "unknown"
-              : this.database.pool.waiting > 0
-                ? "degraded"
-                : "healthy",
-        lastDurationMs: this.database.latencyMs,
-        metadata: {
-          poolTotal: this.database.pool.total,
-          poolIdle: this.database.pool.idle,
-          poolWaiting: this.database.pool.waiting,
-        },
-      }),
-      operationalSubsystem({
-        id: "job-schedulers",
-        label: "Job schedulers",
-        description: "Cron schedules and monitors for active automation runs.",
-        state:
-          workloads.scheduledJobs > 0 || workloads.jobMonitors > 0
-            ? "healthy"
-            : "idle",
-        metadata: {
-          scheduledJobs: workloads.scheduledJobs,
-          activeMonitors: workloads.jobMonitors,
-        },
-      }),
-      operationalSubsystem({
-        id: "ui-event-stream",
-        label: "UI event stream",
-        description: "Connected browser clients receiving server-sent events.",
-        state: ownerSubsystemState({
-          active: workloads.sseClients,
-          ...this.ownerHealth.uiEvents,
-        }),
-        runs: workloads.uiEventsPublished,
-        failures: workloads.uiWriteFailures,
-        metadata: {
-          clients: workloads.sseClients,
-          eventsPublished: workloads.uiEventsPublished,
-          writeFailures: workloads.uiWriteFailures,
-        },
-      }),
-      operationalSubsystem({
-        id: "terminal-observers",
-        label: "Terminal observers",
-        description: "Viewer-driven terminal copy-mode observation.",
-        state: ownerSubsystemState({
-          active: workloads.terminalObservers,
-          ...this.ownerHealth.terminalObservers,
-        }),
-        runs: workloads.terminalPolls,
-        failures: workloads.terminalPollFailures,
-        metadata: {
-          observers: workloads.terminalObservers,
-          viewers: workloads.terminalViewers,
-          polls: workloads.terminalPolls,
-          pollFailures: workloads.terminalPollFailures,
-        },
-      }),
-    ];
-    const subsystems = [...operationalSubsystems, ...trackedSubsystems];
+    const subsystems = this.getSubsystemSnapshots(now, http, workloads);
     const reasons: Array<{ code: string; message: string }> = [];
 
     if (this.database.state === "unavailable") {
@@ -460,17 +383,126 @@ export class ServiceResources {
         database: { ...this.database, pool: this.poolSnapshot() },
         eventLoop: { p95DelayMs: eventLoopP95 },
         http: {
-          requestsPerMinute: requestCount,
+          requestsPerMinute: http.requestCount,
           inFlight: this.httpInFlight,
           errorRatePercent:
-            requestCount > 0 ? round((errors / requestCount) * 100, 1) : 0,
-          p95DurationMs: httpP95,
+            http.requestCount > 0
+              ? round((http.errors / http.requestCount) * 100, 1)
+              : 0,
+          p95DurationMs: http.p95DurationMs,
         },
         workloads,
       },
       subsystems,
       series,
     };
+  }
+
+  private getHttpSnapshot(now: number): HttpSnapshot {
+    const buckets = this.getActiveHttpBuckets(now);
+    const requestCount = buckets.reduce(
+      (sum, bucket) => sum + bucket.requests,
+      0
+    );
+    const errors = buckets.reduce((sum, bucket) => sum + bucket.errors, 0);
+    return {
+      requestCount,
+      errors,
+      p95DurationMs: percentile95(
+        buckets.flatMap((bucket) => bucket.durationsMs)
+      ),
+    };
+  }
+
+  private getSubsystemSnapshots(
+    now: number,
+    http: HttpSnapshot,
+    workloads: WorkloadSnapshot
+  ): SubsystemSnapshot[] {
+    const operationalSubsystems = [
+      operationalSubsystem({
+        id: "api-server",
+        label: "API server",
+        description: "Handles authenticated HTTP, SSE, and WebSocket traffic.",
+        state: http.errors > 0 ? "degraded" : "healthy",
+        runs: http.requestCount,
+        failures: http.errors,
+        lastDurationMs: http.p95DurationMs,
+        metadata: {
+          requestsPerMinute: http.requestCount,
+          inFlight: this.httpInFlight,
+        },
+      }),
+      operationalSubsystem({
+        id: "database",
+        label: "Database",
+        description: "PostgreSQL connectivity and connection-pool capacity.",
+        state:
+          this.database.state === "unavailable"
+            ? "degraded"
+            : this.database.state === "unknown"
+              ? "unknown"
+              : this.database.pool.waiting > 0
+                ? "degraded"
+                : "healthy",
+        lastDurationMs: this.database.latencyMs,
+        metadata: {
+          poolTotal: this.database.pool.total,
+          poolIdle: this.database.pool.idle,
+          poolWaiting: this.database.pool.waiting,
+        },
+      }),
+      operationalSubsystem({
+        id: "job-schedulers",
+        label: "Job schedulers",
+        description: "Cron schedules and monitors for active automation runs.",
+        state:
+          workloads.scheduledJobs > 0 || workloads.jobMonitors > 0
+            ? "healthy"
+            : "idle",
+        metadata: {
+          scheduledJobs: workloads.scheduledJobs,
+          activeMonitors: workloads.jobMonitors,
+        },
+      }),
+      operationalSubsystem({
+        id: "ui-event-stream",
+        label: "UI event stream",
+        description: "Connected browser clients receiving server-sent events.",
+        state: ownerSubsystemState({
+          active: workloads.sseClients,
+          ...this.ownerHealth.uiEvents,
+        }),
+        runs: workloads.uiEventsPublished,
+        failures: workloads.uiWriteFailures,
+        metadata: {
+          clients: workloads.sseClients,
+          eventsPublished: workloads.uiEventsPublished,
+          writeFailures: workloads.uiWriteFailures,
+        },
+      }),
+      operationalSubsystem({
+        id: "terminal-observers",
+        label: "Terminal observers",
+        description: "Viewer-driven terminal copy-mode observation.",
+        state: ownerSubsystemState({
+          active: workloads.terminalObservers,
+          ...this.ownerHealth.terminalObservers,
+        }),
+        runs: workloads.terminalPolls,
+        failures: workloads.terminalPollFailures,
+        metadata: {
+          observers: workloads.terminalObservers,
+          viewers: workloads.terminalViewers,
+          polls: workloads.terminalPolls,
+          pollFailures: workloads.terminalPollFailures,
+        },
+      }),
+    ];
+    const trackedSubsystems = this.deps.subsystemTrackers.map((tracker) =>
+      tracker.snapshot(now)
+    );
+    return [...operationalSubsystems, ...trackedSubsystems];
   }
 
   private async runSampleLoop(generation: number): Promise<void> {
@@ -536,6 +568,11 @@ export class ServiceResources {
     this.lastExternalSampleAt = lastExternalSampleAt;
 
     const memory = process.memoryUsage();
+    const subsystemSnapshots = this.getSubsystemSnapshots(
+      now,
+      this.getHttpSnapshot(now),
+      workloads
+    );
     this.samples.push({
       at: now,
       serverCpuPercent: currentCpuPercent,
@@ -544,6 +581,16 @@ export class ServiceResources {
       agentCpuPercent: agentProcesses.cpuPercent,
       agentRssBytes: agentProcesses.rssBytes,
       hostLoad1: os.loadavg()[0],
+      subsystems: Object.fromEntries(
+        subsystemSnapshots.map((subsystem) => [
+          subsystem.id,
+          {
+            p95DurationMs: subsystem.p95DurationMs,
+            failures: subsystem.failures,
+            metadata: { ...subsystem.metadata },
+          },
+        ])
+      ),
     });
     if (this.samples.length > MAX_SAMPLES) {
       this.samples = this.samples.slice(-MAX_SAMPLES);

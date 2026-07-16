@@ -97,6 +97,38 @@ describe("ServiceResources", () => {
     resources.stop();
   });
 
+  it("retains subsystem metrics with each resource sample", async () => {
+    const current = workloads();
+    current.scheduledJobs = 1;
+    const resources = new ServiceResources({
+      pool: createPool(),
+      listAgentSessions: async () => [],
+      getWorkloads: () => ({ ...current }),
+      subsystemTrackers: [],
+      processTreeSupported: false,
+    });
+
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    current.scheduledJobs = 3;
+    await vi.advanceTimersByTimeAsync(5_000);
+
+    const { series } = resources.getSnapshot();
+    expect(series).toHaveLength(2);
+    expect(series[0]?.subsystems["job-schedulers"]?.metadata).toMatchObject({
+      scheduledJobs: 1,
+    });
+    expect(series[1]?.subsystems["job-schedulers"]?.metadata).toMatchObject({
+      scheduledJobs: 3,
+    });
+    expect(series[1]?.subsystems.database?.metadata).toMatchObject({
+      poolTotal: 1,
+      poolIdle: 1,
+      poolWaiting: 0,
+    });
+    resources.stop();
+  });
+
   it("keeps a fresh running-agent count when process probing fails", async () => {
     const runProcessCommand = vi.fn(async () => {
       throw new Error("tmux unavailable");
