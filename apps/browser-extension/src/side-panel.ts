@@ -12,6 +12,7 @@ import { classifyPickerPage } from "./lib/picker-access";
 
 const SELECTIONS_KEY = "dispatchAgentSelections";
 const PAGE_ACCESS_ORIGINS = ["http://*/*", "https://*/*"];
+const SUCCESS_NOTICE_DURATION_MS = 4_000;
 
 interface PairingDetails {
   baseUrl: string;
@@ -51,6 +52,7 @@ let pageAccessGranted = false;
 let restorePickerFocus = false;
 let connectionUrlInput = "";
 let insecureAcknowledgedFor: string | null = null;
+let noticeDismissTimer: number | null = null;
 
 function cleanupInjectedPicker(): void {
   window.__dispatchElementPickerCleanup?.();
@@ -82,14 +84,22 @@ function setNotice(
   verificationCode?: string,
   dismissAfterMs?: number
 ): void {
+  if (noticeDismissTimer !== null) {
+    window.clearTimeout(noticeDismissTimer);
+    noticeDismissTimer = null;
+  }
   const nextNotice = { kind, message, verificationCode };
   notice = nextNotice;
-  if (dismissAfterMs) {
-    window.setTimeout(() => {
+  const duration =
+    dismissAfterMs ??
+    (kind === "success" ? SUCCESS_NOTICE_DURATION_MS : undefined);
+  if (duration !== undefined) {
+    noticeDismissTimer = window.setTimeout(() => {
+      noticeDismissTimer = null;
       if (notice !== nextNotice) return;
       notice = null;
       render();
-    }, dismissAfterMs);
+    }, duration);
   }
 }
 
