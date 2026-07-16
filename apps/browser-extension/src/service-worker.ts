@@ -149,15 +149,25 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
     case "pairing:start": {
       const baseUrl = normalizeDispatchBaseUrl(request.baseUrl);
       const deviceName = await getDeviceName();
-      const pairing = await fetchJson<PairingStartResponse>(
-        `${baseUrl}/api/v1/auth/browser-extension/pairings`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ deviceName }),
-        },
-        [200, 201]
-      );
+      let pairing: PairingStartResponse;
+      try {
+        pairing = await fetchJson<PairingStartResponse>(
+          `${baseUrl}/api/v1/auth/browser-extension/pairings`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ deviceName }),
+          },
+          [200, 201]
+        );
+      } catch (error) {
+        if (error instanceof HttpStatusError && error.status === 404) {
+          throw new Error(
+            "This Dispatch instance does not support browser feedback pairing. Connect to the Dispatch instance managing your agent, not the web app you want to inspect."
+          );
+        }
+        throw error;
+      }
       return { ok: true, data: { ...pairing, baseUrl } };
     }
     case "pairing:exchange": {
