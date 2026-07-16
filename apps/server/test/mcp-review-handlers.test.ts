@@ -685,6 +685,43 @@ describe("createReviewHandlers", () => {
       ).rejects.toThrow("already submitted");
     });
 
+    it("maps a concurrent duplicate submission to the existing-review error", async () => {
+      const { createReview, getReviewByReviewerAgent } =
+        await import("../src/agents/reviews.js");
+      vi.mocked(getReviewByReviewerAgent).mockResolvedValueOnce(null);
+      vi.mocked(createReview).mockRejectedValueOnce({
+        code: "23505",
+        constraint: "idx_reviews_unique_agent_reviewer",
+      });
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn(async (id: string) =>
+            id === "agt_reviewer"
+              ? {
+                  id,
+                  role: "review",
+                  persona: "security",
+                  parentAgentId: "agt_parent",
+                }
+              : {
+                  id: "agt_parent",
+                  name: "parent",
+                  baseBranch: "main",
+                }
+          ),
+        },
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      await expect(
+        handlers.submitReview("agt_reviewer", {
+          summary: "Concurrent submission",
+          feedback: [],
+        })
+      ).rejects.toThrow("already submitted");
+    });
+
     it("does not infer review authorization from a persona", async () => {
       const deps = makeDeps({
         agentManager: {

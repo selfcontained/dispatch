@@ -359,6 +359,20 @@ describe.skipIf(!hasMigrationsToTest)(
       expect(existingItems.rows[0].count).toBe(0);
     });
 
+    it("should enforce one unified review per reviewer agent", async () => {
+      await expect(
+        pool.query(`
+          INSERT INTO reviews
+            (agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, summary, status)
+          VALUES
+            ('agent-1', 'agent-1', 'agent', 'agent-6', 'Concurrent duplicate.', 'resolved')
+        `)
+      ).rejects.toMatchObject({
+        code: "23505",
+        constraint: "idx_reviews_unique_agent_reviewer",
+      });
+    });
+
     it("should remain idempotent when the migration SQL is executed again", async () => {
       const before = await pool.query(
         `SELECT

@@ -15,10 +15,16 @@ export function buildPersonaKickoffPrompt(): string {
   ]);
 }
 
+const DISPATCH_PROMPT_MARKER_PATTERN = /---\s*(?:END\s+)?DISPATCH\s*:/gi;
+
+function escapeDispatchPromptMarkers(value: string): string {
+  return value.replace(DISPATCH_PROMPT_MARKER_PATTERN, "[DISPATCH MARKER]");
+}
+
 export function buildReviewPromptBlock(kind: string, lines: string[]): string {
   return [
     `--- DISPATCH: ${kind} ---`,
-    ...lines,
+    ...lines.map(escapeDispatchPromptMarkers),
     `--- END DISPATCH: ${kind} ---`,
   ].join("\n");
 }

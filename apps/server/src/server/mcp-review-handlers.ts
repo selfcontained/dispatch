@@ -59,6 +59,17 @@ import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
+const UNIQUE_AGENT_REVIEW_INDEX = "idx_reviews_unique_agent_reviewer";
+const REVIEW_ALREADY_SUBMITTED_MESSAGE =
+  "This reviewer has already submitted its review. Use dispatch_review_add_feedback for a new concern or dispatch_review_add_message for an existing thread.";
+
+function isDuplicateAgentReviewError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const pgError = error as { code?: unknown; constraint?: unknown };
+  return (
+    pgError.code === "23505" && pgError.constraint === UNIQUE_AGENT_REVIEW_INDEX
+  );
+}
 
 function validateReviewFeedbackLocation(input: {
   filePath?: string;
@@ -381,9 +392,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         );
       }
       if (await getReviewByReviewerAgent(pool, agentId)) {
-        throw new Error(
-          "This reviewer has already submitted its review. Use dispatch_review_add_feedback for a new concern or dispatch_review_add_message for an existing thread."
-        );
+        throw new Error(REVIEW_ALREADY_SUBMITTED_MESSAGE);
       }
       const parent = await agentManager.getAgent(reviewer.parentAgentId);
       if (!parent) throw new Error("Parent agent not found.");
@@ -392,15 +401,23 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         validateReviewFeedbackLocation(item);
       }
 
-      const review = await createReview(pool, {
-        agentId: parent.id,
-        assignedAgentId: parent.id,
-        reviewerType: "agent",
-        reviewerAgentId: reviewer.id,
-        summary: input.summary.trim(),
-        baseRef: parent.baseBranch,
-        items: input.feedback,
-      });
+      let review;
+      try {
+        review = await createReview(pool, {
+          agentId: parent.id,
+          assignedAgentId: parent.id,
+          reviewerType: "agent",
+          reviewerAgentId: reviewer.id,
+          summary: input.summary.trim(),
+          baseRef: parent.baseBranch,
+          items: input.feedback,
+        });
+      } catch (error) {
+        if (isDuplicateAgentReviewError(error)) {
+          throw new Error(REVIEW_ALREADY_SUBMITTED_MESSAGE);
+        }
+        throw error;
+      }
 
       publishUiEvent({
         type: "review.created",
