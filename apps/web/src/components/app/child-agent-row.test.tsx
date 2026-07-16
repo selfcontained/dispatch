@@ -93,7 +93,6 @@ describe("ChildAgentRow", () => {
   it("opens a submitted review from the row without attaching its terminal", () => {
     const submittedAgent = {
       ...baseAgent,
-      hasSubmittedReview: true,
       submittedReviewId: 42,
     };
     const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
@@ -108,7 +107,6 @@ describe("ChildAgentRow", () => {
   it("keeps the terminal control independent from review navigation", () => {
     const { attachToAgent, openSubmittedReview } = renderRow({
       ...baseAgent,
-      hasSubmittedReview: true,
       submittedReviewId: 42,
     });
 

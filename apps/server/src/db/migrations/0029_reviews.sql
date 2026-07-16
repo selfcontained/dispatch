@@ -13,9 +13,6 @@ CREATE TABLE IF NOT EXISTS reviews (
 
 CREATE INDEX IF NOT EXISTS idx_reviews_agent ON reviews(agent_id);
 CREATE INDEX IF NOT EXISTS idx_reviews_assigned ON reviews(assigned_agent_id);
-CREATE UNIQUE INDEX IF NOT EXISTS idx_reviews_unique_agent_reviewer
-  ON reviews(reviewer_agent_id)
-  WHERE reviewer_type = 'agent' AND reviewer_agent_id IS NOT NULL;
 
 CREATE TABLE IF NOT EXISTS review_feedback_items (
   id SERIAL PRIMARY KEY,

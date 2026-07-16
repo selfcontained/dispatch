@@ -104,14 +104,14 @@ export function applyAgentUpsert(
   }
 
   const existing = current[index]!;
-  const nextAgent = existing.hasSubmittedReview
-    ? {
-        ...incoming,
-        hasSubmittedReview: true,
-        submittedReviewId:
-          incoming.submittedReviewId ?? existing.submittedReviewId,
-      }
-    : incoming;
+  const nextAgent =
+    existing.submittedReviewId != null
+      ? {
+          ...incoming,
+          submittedReviewId:
+            incoming.submittedReviewId ?? existing.submittedReviewId,
+        }
+      : incoming;
   const next = [...current];
   next[index] = nextAgent;
   return sortAgentsByCreatedAtDesc(next);
@@ -125,11 +125,9 @@ export function applyReviewCreated(
   if (!reviewerAgentId) return;
   queryClient.setQueryData<Agent[]>(["agents"], (old) =>
     old?.map((agent) =>
-      agent.id === reviewerAgentId && !agent.hasSubmittedReview
-        ? { ...agent, hasSubmittedReview: true, submittedReviewId: reviewId }
-        : agent.id === reviewerAgentId && agent.submittedReviewId !== reviewId
-          ? { ...agent, submittedReviewId: reviewId }
-          : agent
+      agent.id === reviewerAgentId && agent.submittedReviewId !== reviewId
+        ? { ...agent, submittedReviewId: reviewId }
+        : agent
     )
   );
 }

@@ -27,7 +27,10 @@ const migrationFiles = readdirSync(migrationsDir)
   .filter((f) => f.endsWith(".sql") || f.endsWith(".ts") || f.endsWith(".js"))
   .sort();
 
-const hasMigrationsToTest = migrationFiles.length > 1;
+const reviewMigrationStart = migrationFiles.indexOf(
+  "0032_migrate-persona-reviews.sql"
+);
+const hasMigrationsToTest = reviewMigrationStart > 0;
 
 let pool: Pool;
 
@@ -40,27 +43,23 @@ afterAll(async () => {
 });
 
 describe.skipIf(!hasMigrationsToTest)(
-  "upgrade: applying latest migration preserves existing data",
+  "upgrade: applying unified review migrations preserves existing data",
   () => {
-    it("should apply all migrations except the last", async () => {
-      const countBeforeLast = migrationFiles.length - 1;
-
+    it("should apply all migrations before the unified review migration", async () => {
       await runMigrations({
         databaseUrl: getTestDatabaseUrl(),
-        count: countBeforeLast,
+        count: reviewMigrationStart,
       });
 
-      // Verify the last migration has NOT been applied
+      // Verify the unified review migration chain has NOT been applied.
       const applied = await pool.query(
         `SELECT name FROM pgmigrations ORDER BY run_on`
       );
       const appliedNames = applied.rows.map((r: { name: string }) => r.name);
-      expect(appliedNames).toHaveLength(countBeforeLast);
-
-      const lastMigrationName = migrationFiles[
-        migrationFiles.length - 1
-      ].replace(/\.[^.]+$/, "");
-      expect(appliedNames).not.toContain(lastMigrationName);
+      expect(appliedNames).toHaveLength(reviewMigrationStart);
+      expect(appliedNames).not.toContain("0032_migrate-persona-reviews");
+      expect(appliedNames).not.toContain("0033_review-agent-role");
+      expect(appliedNames).not.toContain("0034_unique-agent-review");
     });
 
     it("should seed representative data", async () => {
@@ -171,8 +170,8 @@ describe.skipIf(!hasMigrationsToTest)(
     `);
     });
 
-    it("should apply the latest migration without errors", async () => {
-      // Run remaining migrations (just the last one)
+    it("should apply the unified review migrations without errors", async () => {
+      // Run the persona migration, role backfill, and unique-index migration.
       await runMigrations(getTestDatabaseUrl());
 
       // All migrations should now be applied
@@ -380,12 +379,13 @@ describe.skipIf(!hasMigrationsToTest)(
            (SELECT COUNT(*)::int FROM review_feedback_items) AS items,
            (SELECT COUNT(*)::int FROM review_thread_messages) AS messages`
       );
-      const latestMigrationSql = readFileSync(
-        path.join(migrationsDir, migrationFiles[migrationFiles.length - 1]),
-        "utf8"
-      );
-
-      await pool.query(latestMigrationSql);
+      for (const migrationFile of migrationFiles.slice(reviewMigrationStart)) {
+        const migrationSql = readFileSync(
+          path.join(migrationsDir, migrationFile),
+          "utf8"
+        );
+        await pool.query(migrationSql);
+      }
 
       const after = await pool.query(
         `SELECT

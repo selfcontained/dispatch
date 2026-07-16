@@ -15,10 +15,10 @@ import {
 
 function agent(
   id: string,
-  hasSubmittedReview: boolean,
+  submittedReviewId: number | null,
   createdAt = "2026-07-16T12:00:00.000Z"
 ): Agent {
-  return { id, hasSubmittedReview, createdAt } as Agent;
+  return { id, submittedReviewId, createdAt } as Agent;
 }
 
 describe("applyDiffStateChanged", () => {
@@ -61,24 +61,22 @@ describe("applyDiffStateChanged", () => {
 describe("review submission SSE state", () => {
   it("marks the reviewer submitted when review.created arrives", () => {
     const queryClient = new QueryClient();
-    queryClient.setQueryData<Agent[]>(["agents"], [agent("reviewer", false)]);
+    queryClient.setQueryData<Agent[]>(["agents"], [agent("reviewer", null)]);
 
     applyReviewCreated(queryClient, "reviewer", 42);
 
     expect(queryClient.getQueryData<Agent[]>(["agents"])?.[0]).toMatchObject({
       id: "reviewer",
-      hasSubmittedReview: true,
       submittedReviewId: 42,
     });
   });
 
   it("does not let a stale agent upsert reactivate a submitted review", () => {
-    const current = [{ ...agent("reviewer", true), submittedReviewId: 42 }];
-    const incoming = agent("reviewer", false);
+    const current = [agent("reviewer", 42)];
+    const incoming = agent("reviewer", null);
 
     expect(applyAgentUpsert(current, incoming)[0]).toMatchObject({
       id: "reviewer",
-      hasSubmittedReview: true,
       submittedReviewId: 42,
     });
   });

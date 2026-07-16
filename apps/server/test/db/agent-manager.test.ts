@@ -865,7 +865,6 @@ describe("AgentManager", () => {
       );
 
       const fetched = await manager.getAgent(reviewer.id);
-      expect(fetched?.hasSubmittedReview).toBe(true);
       expect(fetched?.submittedReviewId).toBe(inserted.rows[0]?.id);
     });
 
