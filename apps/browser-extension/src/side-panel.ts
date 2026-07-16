@@ -56,6 +56,17 @@ function cleanupInjectedPicker(): void {
   window.__dispatchElementPickerCleanup?.();
 }
 
+function injectedPickerIsReady(): boolean {
+  return Boolean(
+    window.__dispatchElementPickerCleanup &&
+    document.querySelector("[data-dispatch-picker-overlay]")
+  );
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 async function sendWorker<T>(request: WorkerRequest): Promise<T> {
   const response = (await chrome.runtime.sendMessage(
     request
@@ -598,15 +609,27 @@ async function stopPicker(renderAfter = true): Promise<void> {
 }
 
 async function injectPicker(tabId: number): Promise<void> {
-  await chrome.scripting.executeScript({
-    target: { tabId },
-    files: ["picker.js"],
-  });
-  pickerActive = true;
-  pickerTabId = tabId;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    await chrome.scripting.executeScript({
+      target: { tabId },
+      files: ["picker.js"],
+    });
+    const [result] = await chrome.scripting.executeScript({
+      target: { tabId },
+      func: injectedPickerIsReady,
+    });
+    if (result?.result === true) {
+      pickerActive = true;
+      pickerTabId = tabId;
+      return;
+    }
+    await delay(150);
+  }
+  throw new Error("Element selection did not start on this page. Try again.");
 }
 
-async function requestPageAccess(): Promise<void> {
+async function requestPageAccess(): Promise<boolean> {
+  const wasAlreadyGranted = pageAccessGranted;
   const granted = await chrome.permissions.request({
     origins: PAGE_ACCESS_ORIGINS,
   });
@@ -616,6 +639,19 @@ async function requestPageAccess(): Promise<void> {
     );
   }
   pageAccessGranted = true;
+  return !wasAlreadyGranted;
+}
+
+async function getSettledActiveTab(): Promise<chrome.tabs.Tab> {
+  let lastCompleteTabId: number | null = null;
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    const tab = await getActiveTab();
+    const isComplete = tab.status === undefined || tab.status === "complete";
+    if (isComplete && tab.id === lastCompleteTabId) return tab;
+    lastCompleteTabId = isComplete ? (tab.id as number) : null;
+    await delay(100);
+  }
+  throw new Error("The page is still loading. Try Element selector again.");
 }
 
 async function togglePicker(): Promise<void> {
@@ -629,8 +665,10 @@ async function togglePicker(): Promise<void> {
     }
 
     notice = null;
-    await requestPageAccess();
-    const tab = await getActiveTab();
+    const accessWasNewlyGranted = await requestPageAccess();
+    const tab = accessWasNewlyGranted
+      ? await getSettledActiveTab()
+      : await getActiveTab();
     const pageAccess = classifyPickerPage(tab.url);
     if (pageAccess !== "ready") {
       throw new Error(
