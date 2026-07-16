@@ -34,6 +34,13 @@ export function isAgentType(value: string): value is AgentType {
   return AGENT_TYPES.includes(value as AgentType);
 }
 
+export function isNestedReviewAgent(agent: {
+  parentAgentId?: string | null;
+  role?: string | null;
+}): boolean {
+  return Boolean(agent.parentAgentId) && agent.role === "review";
+}
+
 export function sortAgentTypes<T extends AgentType>(types: T[]): T[] {
   return [...types].sort((a, b) => {
     if (a === "terminal") return 1;

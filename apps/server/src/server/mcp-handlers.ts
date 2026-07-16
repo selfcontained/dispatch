@@ -5,12 +5,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import type {
-  AgentManager,
-  AgentRecord,
-  FeedbackInput,
-  FeedbackRecord,
-} from "../agents/manager.js";
+import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -24,7 +19,6 @@ import type {
 } from "../notifications/slack.js";
 import { isPinType, validatePinValue } from "../pins.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
-import { resolveHeadSha } from "../shared/git/worktree.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
@@ -164,60 +158,6 @@ async function handleSendNotify(
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
   return deps.slackNotifier.sendNotification(agent, input);
-}
-
-async function handleSubmitFeedback(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  feedback: FeedbackInput
-): Promise<FeedbackRecord> {
-  const record = await deps.agentManager.submitFeedback(agentId, feedback);
-  deps.publishUiEvent({
-    type: "feedback.created",
-    agentId,
-    feedback: record,
-  });
-  return record;
-}
-
-async function handleGetFeedback(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  opts: { persona?: string; limit?: number }
-) {
-  return deps.agentManager.listFeedbackByParentGrouped(
-    agentId,
-    opts.persona,
-    opts.limit
-  );
-}
-
-async function handleResolveFeedback(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  feedbackId: number,
-  status: "fixed" | "ignored",
-  options: { reason?: string | null } = {}
-): Promise<FeedbackRecord> {
-  const parent = await deps.agentManager.getAgent(agentId);
-  const resolutionCommit = parent ? await resolveHeadSha(parent.cwd) : null;
-  const record = await deps.agentManager.updateFeedbackStatusByParent(
-    feedbackId,
-    agentId,
-    status,
-    { reason: options.reason ?? null, resolutionCommit }
-  );
-  if (!record) {
-    throw new Error(
-      `Feedback #${feedbackId} not found or not owned by a child of this agent.`
-    );
-  }
-  deps.publishUiEvent({
-    type: "feedback.updated",
-    agentId: record.agentId,
-    feedback: record,
-  });
-  return record;
 }
 
 async function handleUpsertPin(
@@ -706,6 +646,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     publishUiEvent: deps.publishUiEvent,
     withStreamFlag: deps.withStreamFlag,
     sendAgentPrompt: deps.sendAgentPrompt,
+    appLog: deps.appLog,
   });
 
   return {
@@ -722,21 +663,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     sendNotify: (agentId: string, input: NotifyInput) =>
       handleSendNotify(deps, agentId, input),
-
-    submitFeedback: (agentId: string, feedback: FeedbackInput) =>
-      handleSubmitFeedback(deps, agentId, feedback),
-
-    getFeedback: (
-      agentId: string,
-      opts: { persona?: string; limit?: number }
-    ) => handleGetFeedback(deps, agentId, opts),
-
-    resolveFeedback: (
-      agentId: string,
-      feedbackId: number,
-      status: "fixed" | "ignored",
-      options: { reason?: string | null } = {}
-    ) => handleResolveFeedback(deps, agentId, feedbackId, status, options),
 
     upsertPin: (
       agentId: string,

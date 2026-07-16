@@ -4,7 +4,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import * as z from "zod/v4";
 
-import type { AgentType as CliAgentType } from "../../agents/types.js";
+import type {
+  AgentRole,
+  AgentType as CliAgentType,
+} from "../../agents/types.js";
 import type { BrainStore } from "../../brain/store.js";
 import { registerAgentLaunchTools } from "./agent-launch-tools.js";
 import { registerAgentLifecycleTools } from "./agent-lifecycle-tools.js";
@@ -17,7 +20,6 @@ import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
 } from "./persona-interaction-tools.js";
-import { registerPersonaTools } from "./persona-tools.js";
 import { registerPrTools } from "./pr-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { toToolError } from "./tool-error.js";
@@ -26,12 +28,10 @@ export type McpAgent = {
   id: string;
   cwd: string;
   type?: CliAgentType | null;
+  role?: AgentRole | null;
   persona?: string | null;
   parentAgentId?: string | null;
   baseBranch?: string | null;
-  review?: {
-    status?: string | null;
-  } | null;
 };
 
 export type MediaResult = {
@@ -40,40 +40,6 @@ export type MediaResult = {
   sizeBytes: number;
   source: string;
   description: string;
-};
-
-export type FeedbackInput = {
-  severity?: "critical" | "high" | "medium" | "low" | "info";
-  filePath?: string;
-  lineNumber?: number;
-  description: string;
-  suggestion?: string;
-  mediaRef?: string;
-  respondsToFeedbackId?: number;
-};
-
-export type FeedbackItem = {
-  id: number;
-  severity: string;
-  description: string;
-  filePath: string | null;
-  lineNumber: number | null;
-  suggestion: string | null;
-  mediaRef: string | null;
-  status: string;
-  roundNumber: number;
-  respondsToFeedbackId: number | null;
-  createdAt: string;
-};
-
-export type PersonaFeedbackGroup = {
-  persona: string;
-  agentId: string;
-  feedback: FeedbackItem[];
-};
-
-export type GetFeedbackResult = {
-  personas: PersonaFeedbackGroup[];
 };
 
 // ── Tool sets per agent type ──────────────────────────────────────────
@@ -88,16 +54,12 @@ const AGENT_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_share",
   "dispatch_list_media",
-  "dispatch_feedback",
   "list_personas",
   "dispatch_launch_persona",
-  "dispatch_get_feedback",
-  "dispatch_resolve_feedback",
   "dispatch_review_list_feedback",
   "dispatch_review_resolve",
+  "dispatch_review_reopen",
   "dispatch_review_add_message",
-  "dispatch_submit_resolution",
-  "dispatch_cancel_recheck",
   "list_agents",
   "dispatch_send_message",
   "dispatch_launch_agent",
@@ -138,13 +100,10 @@ const JOB_TOOLS = new Set([
   "dispatch_share",
   "dispatch_list_media",
   "dispatch_launch_persona",
-  "dispatch_get_feedback",
-  "dispatch_resolve_feedback",
   "dispatch_review_list_feedback",
   "dispatch_review_resolve",
+  "dispatch_review_reopen",
   "dispatch_review_add_message",
-  "dispatch_submit_resolution",
-  "dispatch_cancel_recheck",
   "job_complete",
   "job_failed",
   "job_needs_input",
@@ -153,8 +112,6 @@ const JOB_TOOLS = new Set([
   "dispatch_send_message",
   "dispatch_launch_agent",
   "list_personas",
-  "list_recent_persona_reviews",
-  "list_recent_feedback",
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
@@ -182,22 +139,22 @@ const JOB_TOOLS = new Set([
   "delete_template",
 ]);
 
-const PERSONA_TOOLS = new Set([
-  "review_status",
-  "dispatch_complete_review",
-  "dispatch_get_recheck_context",
+const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_event",
   "dispatch_pin",
   "dispatch_share",
-  "dispatch_feedback",
+  "dispatch_review_submit",
+  "dispatch_review_add_feedback",
+  "dispatch_review_list_feedback",
+  "dispatch_review_add_message",
   "get_parent_context",
 ]);
 
-type AgentType = "agent" | "job" | "persona";
-const TOOL_SETS: Record<AgentType, Set<string>> = {
+type AgentCapabilityType = "agent" | "job" | "review";
+const TOOL_SETS: Record<AgentCapabilityType, Set<string>> = {
   agent: AGENT_TOOLS,
   job: JOB_TOOLS,
-  persona: PERSONA_TOOLS,
+  review: REVIEW_AGENT_TOOLS,
 };
 
 export type PinInput = {
@@ -205,14 +162,6 @@ export type PinInput = {
   value?: string;
   type?: "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
   delete?: boolean;
-};
-
-export type ReviewVerdict = "approve" | "request_changes";
-
-export type ReviewCompletion = {
-  verdict: ReviewVerdict;
-  summary: string;
-  filesReviewed?: string[];
 };
 
 export type ParentContextResult = {
@@ -224,34 +173,6 @@ export type ParentContextResult = {
     source: string;
     sizeBytes: number;
     createdAt: string;
-  }>;
-};
-
-export type RecheckContextResult = {
-  availability: "waiting_for_resolution" | "ready" | "complete" | "cancelled";
-  reviewStatus: string;
-  persona: string;
-  reviewId: number;
-  reviewRoundNumber: number | null;
-  resolutionRoundNumber: number | null;
-  resolutionSummary: string | null;
-  lastReviewedCommit: string | null;
-  resolutionCommit: string | null;
-  compareRange: string | null;
-  gitDiffCommand: string | null;
-  submittedAt: string | null;
-  resolutions: Array<{
-    feedbackId: number;
-    originalDescription: string;
-    originalSeverity: string;
-    status: string;
-    reason: string | null;
-    filePath: string | null;
-    lineNumber: number | null;
-    suggestion: string | null;
-    resolutionCommit: string | null;
-    resolvedAt: string | null;
-    roundNumber: number;
   }>;
 };
 
@@ -303,10 +224,6 @@ export type McpRequestContext = {
       createdAt: string;
     }>
   >;
-  submitFeedback?: (
-    agentId: string,
-    feedback: FeedbackInput
-  ) => Promise<{ id: number }>;
   listPersonas?: (
     agentCwd: string
   ) => Promise<Array<{ slug: string; name: string; description: string }>>;
@@ -335,16 +252,6 @@ export type McpRequestContext = {
       cwd?: string;
     }
   ) => Promise<{ agentId: string; name: string }>;
-  getFeedback?: (
-    agentId: string,
-    opts: { persona?: string; limit?: number }
-  ) => Promise<GetFeedbackResult>;
-  resolveFeedback?: (
-    agentId: string,
-    feedbackId: number,
-    status: "fixed" | "ignored",
-    options?: { reason?: string | null }
-  ) => Promise<FeedbackItem>;
   resolveReviewFeedback?: (
     agentId: string,
     itemId: number,
@@ -352,6 +259,46 @@ export type McpRequestContext = {
     opts?: { note?: string | null }
   ) => Promise<{
     item: { id: number; reviewId: number; status: string; resolution: string };
+    reviewStatus: string;
+  }>;
+  reopenReviewFeedback?: (
+    agentId: string,
+    itemId: number,
+    opts?: { note?: string | null }
+  ) => Promise<{
+    item: { id: number; reviewId: number; status: string; resolution: null };
+    reviewStatus: string;
+  }>;
+  submitReview?: (
+    agentId: string,
+    input: {
+      summary?: string;
+      feedback: Array<{
+        filePath?: string;
+        startLine?: number;
+        endLine?: number;
+        comment: string;
+      }>;
+    }
+  ) => Promise<{
+    review: {
+      id: number;
+      status: string;
+      summary: string | null;
+      items: Array<{ id: number }>;
+    };
+  }>;
+  addReviewFeedback?: (
+    agentId: string,
+    input: {
+      reviewId: number;
+      filePath?: string;
+      startLine?: number;
+      endLine?: number;
+      comment: string;
+    }
+  ) => Promise<{
+    item: { id: number; reviewId: number };
     reviewStatus: string;
   }>;
   addReviewThreadMessage?: (
@@ -362,7 +309,10 @@ export type McpRequestContext = {
     message: { id: number; feedbackItemId: number; content: { body: string } };
     reviewId: number;
   }>;
-  listReviewFeedback?: (agentId: string) => Promise<
+  listReviewFeedback?: (
+    agentId: string,
+    reviewId?: number
+  ) => Promise<
     Array<{
       id: number;
       reviewId: number;
@@ -386,44 +336,12 @@ export type McpRequestContext = {
       }>;
     }>
   >;
-  submitResolution?: (
-    agentId: string,
-    input: { personaAgentId: string; summary: string }
-  ) => Promise<{
-    review: { id: number; agentId: string; status: string };
-    resolution: {
-      id: number;
-      reviewId: number;
-      roundNumber: number;
-      summary: string;
-      resolutionCommit: string | null;
-      submittedAt: string;
-    };
-  }>;
   upsertPin?: (
     agentId: string,
     pin: { label: string; value: string; type: string }
   ) => Promise<void>;
   deletePin?: (agentId: string, label: string) => Promise<void>;
   getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
-  getRecheckContext?: (agentId: string) => Promise<RecheckContextResult | null>;
-  updateReviewStatus?: (
-    agentId: string,
-    input: { status: string; message?: string }
-  ) => Promise<void>;
-  completeReview?: (
-    agentId: string,
-    input: {
-      verdict: string;
-      summary: string;
-      filesReviewed?: string[];
-      message?: string;
-    }
-  ) => Promise<void>;
-  cancelRecheck?: (
-    agentId: string,
-    input: { personaAgentId: string; reason?: string }
-  ) => Promise<void>;
   sendMessage?: (
     agentId: string,
     input: { target: string; message: string; senderRepoRoot: string | null }
@@ -503,25 +421,13 @@ async function createDispatchMcpServer(
     version: "0.0.0",
   });
   const defaultCwd = context.agent?.cwd ?? undefined;
-  const agentType: AgentType = context.agent?.persona
-    ? "persona"
-    : context.jobTools
-      ? "job"
-      : "agent";
+  const agentType: AgentCapabilityType =
+    context.agent?.role === "review"
+      ? "review"
+      : context.jobTools
+        ? "job"
+        : "agent";
   const allowed = new Set(TOOL_SETS[agentType]);
-
-  // ── Persona / review lifecycle tools ────────────────────────────────
-  if (context.agent) {
-    registerPersonaTools(server, allowed, {
-      agentId: context.agent.id,
-      parentAgentId: context.agent.parentAgentId,
-      updateReviewStatus: context.updateReviewStatus,
-      completeReview: context.completeReview,
-      getParentContext: context.getParentContext,
-      getRecheckContext: context.getRecheckContext,
-      cancelRecheck: context.cancelRecheck,
-    });
-  }
 
   // ── PR tools (create_pr, get_pr_status) ────────────────────────────
   registerPrTools(server, allowed, {
@@ -542,22 +448,22 @@ async function createDispatchMcpServer(
 
   if (allowed.has("dispatch_pin")) registerPinTool(server, context);
   if (allowed.has("dispatch_share")) registerShareTool(server, context);
-  if (allowed.has("dispatch_feedback")) registerFeedbackTool(server, context);
-
-  // ── Parent-side persona interaction tools ─────────────────────────
+  // ── Persona launch and unified review tools ───────────────────────
   if (context.agent) {
     registerPersonaInteractionTools(server, allowed, {
       agentId: context.agent.id,
+      parentAgentId: context.agent.parentAgentId,
       worktreeRoot: context.worktreeRoot,
       repoRoot: context.repoRoot,
       listPersonas: context.listPersonas,
       launchPersona: context.launchPersona,
-      getFeedback: context.getFeedback,
-      resolveFeedback: context.resolveFeedback,
       resolveReviewFeedback: context.resolveReviewFeedback,
+      reopenReviewFeedback: context.reopenReviewFeedback,
+      submitReview: context.submitReview,
+      addReviewFeedback: context.addReviewFeedback,
       addReviewThreadMessage: context.addReviewThreadMessage,
       listReviewFeedback: context.listReviewFeedback,
-      submitResolution: context.submitResolution,
+      getParentContext: context.getParentContext,
     });
   }
 
@@ -854,77 +760,6 @@ function registerShareTool(
             },
           ],
           structuredContent: result,
-        };
-      } catch (error) {
-        return toToolError(error);
-      }
-    }
-  );
-}
-
-function registerFeedbackTool(
-  server: McpServer,
-  context: McpRequestContext
-): void {
-  if (!context.agent || !context.submitFeedback) return;
-  const agentId = context.agent.id;
-  const submitFeedback = context.submitFeedback;
-
-  server.registerTool(
-    "dispatch_feedback",
-    {
-      description:
-        "Submit a structured feedback finding to Dispatch. Use this to report issues, suggestions, or observations about the code being reviewed. Each call creates one feedback item.",
-      inputSchema: {
-        severity: z
-          .enum(["critical", "high", "medium", "low", "info"])
-          .default("info")
-          .describe("Severity level of the finding."),
-        filePath: z
-          .string()
-          .optional()
-          .describe(
-            "File path relative to repo root where the issue was found."
-          ),
-        lineNumber: z.number().optional().describe("Line number in the file."),
-        description: z
-          .string()
-          .describe("What was found — the issue or observation."),
-        suggestion: z
-          .string()
-          .optional()
-          .describe("Suggested fix or action to take."),
-        mediaRef: z
-          .string()
-          .optional()
-          .describe(
-            "Filename of a previously shared media file (from dispatch_share) to attach."
-          ),
-        respondsToFeedbackId: z
-          .number()
-          .int()
-          .positive()
-          .optional()
-          .describe(
-            "Optional original feedback ID this follow-up finding responds to during a recheck round."
-          ),
-      },
-    },
-    async (args) => {
-      try {
-        const result = await submitFeedback(agentId, {
-          severity: args.severity,
-          filePath: args.filePath,
-          lineNumber: args.lineNumber,
-          description: args.description,
-          suggestion: args.suggestion,
-          mediaRef: args.mediaRef,
-          respondsToFeedbackId: args.respondsToFeedbackId,
-        });
-        return {
-          content: [
-            { type: "text", text: `Feedback #${result.id} submitted.` },
-          ],
         };
       } catch (error) {
         return toToolError(error);

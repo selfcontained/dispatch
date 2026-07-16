@@ -30,10 +30,6 @@ import {
 } from "@/components/app/agents-view-utils";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
-import {
-  DesktopFeedbackDetail,
-  MobileFeedbackDetail,
-} from "@/components/app/agents-view-feedback-detail";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import {
   MediaSidebar,
@@ -60,7 +56,11 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { uploadAgentMedia } from "@/lib/media-upload";
-import { type AgentType, isCliAgentType } from "@/lib/agent-types";
+import {
+  type AgentType,
+  isCliAgentType,
+  isNestedReviewAgent,
+} from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -138,18 +138,8 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
-  const {
-    changesMatch,
-    feedbackDetail,
-    feedbackDetailRendered,
-    handleFeedbackTransitionEnd,
-    closeFeedbackDetail,
-    openFeedbackDetail,
-    navigateFeedbackItem,
-    onTabChange,
-  } = useAgentsViewRouting({
+  const { changesMatch, onTabChange } = useAgentsViewRouting({
     routeAgentId,
-    agents,
     agentsLoaded,
     validatedSelectedAgentId,
   });
@@ -218,7 +208,6 @@ export function AgentsView({
     leftOpen,
     deferMediaResize,
     mediaResizeSettleKey,
-    feedbackOpen: !!feedbackDetail,
   });
 
   useEffect(() => {
@@ -411,6 +400,20 @@ export function AgentsView({
     [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]
   );
 
+  const handleOpenSubmittedReview = useCallback(
+    (reviewer: Agent) => {
+      if (!reviewer.parentAgentId || reviewer.submittedReviewId == null) return;
+      navTo(
+        `/agents/${reviewer.parentAgentId}?expandReview=${reviewer.submittedReviewId}`
+      );
+      setExpandedAgentId(reviewer.parentAgentId);
+      setMediaOpen(true);
+      setMediaActiveTab("reviews");
+      if (isMobile) setMobileLeftOpen(false);
+    },
+    [isMobile, navTo, setMediaActiveTab, setMediaOpen, setMobileLeftOpen]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!expandedAgentId) {
@@ -427,10 +430,9 @@ export function AgentsView({
   const selectedExpansionTarget = useMemo(() => {
     if (!validatedSelectedAgentId) return null;
     const selected = agents.find((a) => a.id === validatedSelectedAgentId);
-    return (
-      (selected?.persona ? selected.parentAgentId : null) ??
-      validatedSelectedAgentId
-    );
+    return selected && isNestedReviewAgent(selected)
+      ? (selected.parentAgentId ?? validatedSelectedAgentId)
+      : validatedSelectedAgentId;
   }, [agents, validatedSelectedAgentId]);
   const prevSelectedExpansionTargetRef = useRef<string | null>(null);
 
@@ -643,10 +645,8 @@ export function AgentsView({
               detachTerminal={detachAndClearSelection}
               attachToAgent={attachToAgent}
               startAgent={startAgent}
-              sendTerminalInput={sendTerminalInput}
+              openSubmittedReview={handleOpenSubmittedReview}
               connectedAgentId={connectedAgentId}
-              onOpenFeedbackDetail={openFeedbackDetail}
-              feedbackDetailState={isMobile ? null : feedbackDetail}
               onRequestClose={
                 isMobile ? () => setMobileLeftOpen(false) : undefined
               }
@@ -658,14 +658,11 @@ export function AgentsView({
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <div
             className={cn(
-              "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
+              "grid h-full min-h-0 min-w-0",
               isMobile
                 ? "grid-rows-[minmax(0,1fr)_auto]"
-                : feedbackDetail
-                  ? "grid-rows-[minmax(0,1fr)_minmax(0,1fr)]"
-                  : "grid-rows-[minmax(0,1fr)_0fr]"
+                : "grid-rows-[minmax(0,1fr)]"
             )}
-            onTransitionEnd={handleFeedbackTransitionEnd}
           >
             <div className="relative flex h-full min-h-0 min-w-0 flex-col">
               <div className="relative z-10 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-background px-3">
@@ -871,26 +868,6 @@ export function AgentsView({
               ) : null}
             </div>
 
-            {!isMobile ? (
-              <div
-                className={cn(
-                  "min-h-0 overflow-hidden transition-opacity duration-300",
-                  feedbackDetail ? "opacity-100" : "opacity-0"
-                )}
-              >
-                {feedbackDetailRendered ? (
-                  <DesktopFeedbackDetail
-                    detail={feedbackDetailRendered}
-                    agents={agents}
-                    connectedAgentId={connectedAgentId}
-                    sendTerminalInput={sendTerminalInput}
-                    onClose={closeFeedbackDetail}
-                    onNavigateItem={navigateFeedbackItem}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-
             {isMobile ? (
               <MobileTerminalToolbar
                 onSendInput={sendTerminalInput}
@@ -935,17 +912,6 @@ export function AgentsView({
           />
         </div>
       </div>
-
-      {isMobile && feedbackDetail ? (
-        <MobileFeedbackDetail
-          detail={feedbackDetail}
-          agents={agents}
-          connectedAgentId={connectedAgentId}
-          sendTerminalInput={sendTerminalInput}
-          onClose={closeFeedbackDetail}
-          onNavigateItem={navigateFeedbackItem}
-        />
-      ) : null}
 
       {isMobile ? (
         <GlassSidebar

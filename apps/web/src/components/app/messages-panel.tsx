@@ -19,6 +19,7 @@ import {
   type AgentMessage,
 } from "@/hooks/use-agent-messages";
 import { useCopyText } from "@/hooks/use-copy";
+import { api } from "@/lib/api";
 import { messageGroupsCollapsedAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -198,6 +199,10 @@ export function MessagesPanel({
 
   const { data: agentMap } = useQuery<Agent[], Error, Map<string, Agent>>({
     queryKey: ["agents"],
+    queryFn: async () => {
+      const result = await api<{ agents: Agent[] }>("/api/v1/agents");
+      return result.agents;
+    },
     select: (agents) => new Map(agents.map((a) => [a.id, a])),
   });
 

@@ -21,8 +21,6 @@ beforeEach(async () => {
   await ctx.pool.query("DELETE FROM jobs");
   await ctx.pool.query("DELETE FROM templates");
   await ctx.pool.query("DELETE FROM agent_token_usage");
-  await ctx.pool.query("DELETE FROM agent_feedback");
-  await ctx.pool.query("DELETE FROM persona_reviews");
   await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM media_seen");
   await ctx.pool.query("DELETE FROM media");
@@ -160,18 +158,13 @@ describe("MCP CRUD tools", () => {
       }
     });
 
-    it("does NOT expose CRUD tools for persona agents", async () => {
+    it("does NOT expose CRUD tools for review agents", async () => {
       await ctx.pool.query(
-        `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
+        `INSERT INTO agents (id, name, type, role, status, cwd, persona, parent_agent_id, full_access)
          VALUES
-         ('agt_crud_parent', 'parent', 'claude', 'running', '/tmp', null, null, false),
-         ('agt_crud_persona', 'persona', 'claude', 'running', '/tmp', 'security-review', 'agt_crud_parent', false)`
+         ('agt_crud_parent', 'parent', 'claude', 'standard', 'running', '/tmp', null, null, false),
+         ('agt_crud_persona', 'persona', 'claude', 'review', 'running', '/tmp', 'security-review', 'agt_crud_parent', false)`
       );
-      await ctx.pool.query(
-        `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, status, round_number, allow_recheck)
-         VALUES ('agt_crud_persona', 'agt_crud_parent', 'security-review', 'reviewing', 1, true)`
-      );
-
       const response = await mcpToolsList(
         "/api/mcp/agt_crud_persona",
         ctx.auth.createAgentMcpToken(authToken, "agt_crud_persona")

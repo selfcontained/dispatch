@@ -57,7 +57,6 @@ export function useTerminal(args: {
   leftOpen: boolean;
   deferMediaResize: boolean;
   mediaResizeSettleKey: number;
-  feedbackOpen: boolean;
 }): {
   connState: ConnState;
   connectedAgentId: string | null;
@@ -90,7 +89,6 @@ export function useTerminal(args: {
     leftOpen,
     deferMediaResize,
     mediaResizeSettleKey,
-    feedbackOpen,
   } = args;
   const queryClient = useQueryClient();
 
@@ -810,7 +808,7 @@ export function useTerminal(args: {
   useEffect(() => {
     if (isMobile) return;
     requestFit();
-  }, [isMobile, leftOpen, feedbackOpen, requestFit]);
+  }, [isMobile, leftOpen, requestFit]);
 
   // Media sidebar width animates; the deferMediaResize gate suppresses
   // ResizeObserver fits during the slide, then this effect kicks one off

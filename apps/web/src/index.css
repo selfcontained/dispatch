@@ -1048,24 +1048,24 @@ html[data-theme="matrix"] [role="button"] {
   will-change: transform, box-shadow, background-color;
 }
 
-/* Persona reviewing row — chasing border that reuses the reconnect gradient.
+/* Review child before its initial submission — chasing border that reuses the reconnect gradient.
    A ::before pseudo-element holds a rotating conic-gradient clipped to a 1.5px
    ring via mask-composite. The `from` angle is animated smoothly through a
    registered custom property so the bright arc travels around the edge. */
-@property --persona-chase-angle {
+@property --child-agent-chase-angle {
   syntax: "<angle>";
   initial-value: 0deg;
   inherits: false;
 }
-@keyframes persona-reviewing-chase-spin {
+@keyframes child-agent-review-chase-spin {
   to {
-    --persona-chase-angle: 360deg;
+    --child-agent-chase-angle: 360deg;
   }
 }
-.persona-reviewing-row {
+.child-agent-review-active-row {
   position: relative;
 }
-.persona-reviewing-row::before {
+.child-agent-review-active-row::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -1073,7 +1073,7 @@ html[data-theme="matrix"] [role="button"] {
   padding: 1.5px;
   pointer-events: none;
   background: conic-gradient(
-    from var(--persona-chase-angle, 0deg),
+    from var(--child-agent-chase-angle, 0deg),
     transparent 0deg,
     hsl(var(--status-blocked)) 40deg,
     hsl(var(--status-waiting)) 70deg,
@@ -1087,10 +1087,10 @@ html[data-theme="matrix"] [role="button"] {
     linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: persona-reviewing-chase-spin 4s linear infinite;
+  animation: child-agent-review-chase-spin 4s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .persona-reviewing-row::before {
+  .child-agent-review-active-row::before {
     display: none;
   }
 }
@@ -1107,7 +1107,7 @@ html[data-hidden] .dispatch-activity-bar {
 html[data-hidden] .animate-spin {
   animation-play-state: paused;
 }
-html[data-hidden] .persona-reviewing-row::before {
+html[data-hidden] .child-agent-review-active-row::before {
   animation-play-state: paused;
 }
 html[data-hidden] .animate-sidebar-nav-pulse {

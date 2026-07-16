@@ -138,7 +138,9 @@ async function seedTokenUsage(
 }
 
 beforeEach(async () => {
-  await ctx.pool.query("DELETE FROM agent_feedback");
+  await ctx.pool.query("DELETE FROM review_thread_messages");
+  await ctx.pool.query("DELETE FROM review_feedback_items");
+  await ctx.pool.query("DELETE FROM reviews");
   await ctx.pool.query("DELETE FROM media");
   await ctx.pool.query("DELETE FROM agent_token_usage");
   await ctx.pool.query("DELETE FROM agent_events");
@@ -1026,17 +1028,30 @@ describe("GET /api/v1/history/agents/:id", () => {
       `UPDATE agents SET persona = 'security-review' WHERE id = $1`,
       [childId]
     );
+    const review = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO reviews (
+         agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, status
+       ) VALUES ($1, $1, 'agent', $2, 'open')
+       RETURNING id`,
+      [parentId, childId]
+    );
+    const item = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO review_feedback_items (review_id, status)
+       VALUES ($1, 'open') RETURNING id`,
+      [review.rows[0]!.id]
+    );
     await ctx.pool.query(
-      `INSERT INTO agent_feedback (agent_id, severity, description, status)
-       VALUES ($1, 'warning', 'potential XSS', 'open')`,
-      [childId]
+      `INSERT INTO review_thread_messages (
+         feedback_item_id, author_type, author_agent_id, content
+       ) VALUES ($1, 'agent', $2, $3)`,
+      [item.rows[0]!.id, childId, JSON.stringify({ body: "potential XSS" })]
     );
 
     const res = await authedInject("GET", `/api/v1/history/agents/${parentId}`);
     expect(res.statusCode).toBe(200);
     const { feedback } = res.json();
     expect(feedback.length).toBe(1);
-    expect(feedback[0].severity).toBe("warning");
+    expect(feedback[0].severity).toBe("info");
     expect(feedback[0].description).toBe("potential XSS");
     expect(feedback[0].persona).toBe("security-review");
   });

@@ -103,7 +103,6 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
-  await pool.query("DELETE FROM agent_feedback");
   await pool.query("DELETE FROM media_seen");
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM agents");

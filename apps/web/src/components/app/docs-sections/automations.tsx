@@ -316,19 +316,17 @@ export function AutomationsContent() {
             <strong>Discovery &amp; messaging</strong> —{" "}
             <Code>list_agents</Code>, <Code>dispatch_send_message</Code>,{" "}
             <Code>dispatch_launch_agent</Code>, <Code>list_personas</Code>,{" "}
-            <Code>list_recent_persona_reviews</Code>,{" "}
-            <Code>list_recent_feedback</Code>, <Code>get_activity_summary</Code>
-            , <Code>get_agent_history</Code>, and{" "}
-            <Code>get_feedback_summary</Code> let a job sweep over recent
+            <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,
+            and <Code>get_feedback_summary</Code> let a job sweep over recent
             activity, coordinate with other agents, or post a summary.
           </li>
           <li>
-            <strong>Round-trip review</strong> —{" "}
+            <strong>Tracked reviews</strong> —{" "}
             <Code>dispatch_launch_persona</Code>,{" "}
-            <Code>dispatch_get_feedback</Code>,{" "}
-            <Code>dispatch_resolve_feedback</Code>,{" "}
-            <Code>dispatch_submit_resolution</Code>, and{" "}
-            <Code>dispatch_cancel_recheck</Code>. See below.
+            <Code>dispatch_review_list_feedback</Code>,{" "}
+            <Code>dispatch_review_add_message</Code>,{" "}
+            <Code>dispatch_review_resolve</Code>, and{" "}
+            <Code>dispatch_review_reopen</Code>. See below.
           </li>
           <li>
             <strong>Brain (shared memory)</strong> —{" "}
@@ -357,12 +355,10 @@ export function AutomationsContent() {
           Because job agents can launch personas and act on their findings, a
           recurring job can self-review its own work without a human in the
           loop: open a PR with <Code>create_pr</Code>, launch a persona with{" "}
-          <Code>dispatch_launch_persona</Code>, read findings with{" "}
-          <Code>dispatch_get_feedback</Code>, fix and commit them, then{" "}
-          <Code>dispatch_submit_resolution</Code> — the reviewer rechecks
-          against the new HEAD and emits a final verdict. The mechanics are
-          documented under <strong>Reviewers → Round-trip reviews</strong> and
-          apply unchanged to job agents.
+          <Code>dispatch_launch_persona</Code>, read any findings with{" "}
+          <Code>dispatch_review_list_feedback</Code>, converse in item threads,
+          and set each outcome with <Code>dispatch_review_resolve</Code>. A
+          clean approval is recorded with its summary and requires no follow-up.
         </P>
       </Section>
 

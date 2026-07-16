@@ -7,10 +7,8 @@ import { SEED_TAG } from "./constants.js";
 import { seedAgents } from "./agents.js";
 import { seedActivityEvents } from "./activity.js";
 import { seedTokenUsage } from "./token-usage.js";
-import { seedFeedback } from "./feedback.js";
 import { seedMedia } from "./media.js";
 import { seedJobs } from "./jobs.js";
-import { seedPersonaReviews } from "./persona-reviews.js";
 import { seedReviews } from "./reviews.js";
 
 type SeedOptions = {
@@ -55,9 +53,6 @@ async function clearSeeded(client: PoolClient): Promise<void> {
     SEED_TAG,
   ]);
   await client.query(`DELETE FROM jobs WHERE id LIKE 'seed-job-%'`);
-  await client.query(
-    `DELETE FROM persona_reviews WHERE agent_id LIKE 'seed-%'`
-  );
   await client.query(`DELETE FROM reviews WHERE agent_id LIKE 'seed-%'`);
   await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
     SEED_TAG,
@@ -66,7 +61,7 @@ async function clearSeeded(client: PoolClient): Promise<void> {
   await client.query(`DELETE FROM agent_events WHERE metadata->>'seed' = $1`, [
     "activity-demo",
   ]);
-  // Deleting agents cascades to media, feedback, token usage, events, persona_reviews.
+  // Deleting agents cascades to media, token usage, events, and reviews.
   await client.query(`DELETE FROM agents WHERE id LIKE 'seed-%'`);
 }
 
@@ -84,9 +79,7 @@ export async function seedDevData(
     await seedAgents(client);
     await seedActivityEvents(client);
     await seedTokenUsage(client);
-    await seedPersonaReviews(client);
     await seedReviews(client);
-    await seedFeedback(client);
     await seedMedia(client);
     await seedJobs(client);
     await client.query("COMMIT");

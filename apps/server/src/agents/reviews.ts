@@ -1,4 +1,4 @@
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 import { AGENT_REVIEW_REPLY_MAX_CHARS } from "../shared/review-limits.js";
 
@@ -38,7 +38,7 @@ export type ReviewThreadMessageRecord = {
   authorType: string;
   authorAgentId: string | null;
   type: string;
-  content: { body: string };
+  content: { body: string; resolution?: "fixed" | "dismissed" | null };
   createdAt: string;
 };
 
@@ -109,8 +109,8 @@ export async function createReview(
     await client.query("BEGIN");
 
     const reviewResult = await client.query<ReviewRecord>(
-      `INSERT INTO reviews (agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, summary, base_ref)
-       VALUES ($1, $2, $3, $4, $5, $6)
+      `INSERT INTO reviews (agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, summary, status, base_ref)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)
        ${REVIEW_RETURNING}`,
       [
         input.agentId,
@@ -118,6 +118,7 @@ export async function createReview(
         input.reviewerType,
         input.reviewerAgentId ?? null,
         input.summary ?? null,
+        input.items.length === 0 ? "resolved" : "open",
         input.baseRef ?? null,
       ]
     );
@@ -169,7 +170,118 @@ export async function createReview(
   }
 }
 
+export async function getReviewByReviewerAgent(
+  pool: Pool,
+  reviewerAgentId: string
+): Promise<ReviewRecord | null> {
+  const result = await pool.query<ReviewRecord>(
+    `SELECT ${REVIEW_SELECT}
+     FROM reviews
+     WHERE reviewer_type = 'agent' AND reviewer_agent_id = $1
+     ORDER BY created_at DESC
+     LIMIT 1`,
+    [reviewerAgentId]
+  );
+  return result.rows[0] ?? null;
+}
+
+export async function getReviewRecord(
+  pool: Pool,
+  reviewId: number
+): Promise<ReviewRecord | null> {
+  const result = await pool.query<ReviewRecord>(
+    `SELECT ${REVIEW_SELECT} FROM reviews WHERE id = $1`,
+    [reviewId]
+  );
+  return result.rows[0] ?? null;
+}
+
+async function recomputeReviewStatus(
+  client: PoolClient,
+  reviewId: number
+): Promise<string> {
+  const countsResult = await client.query<{ total: number; resolved: number }>(
+    `SELECT COUNT(*)::int AS total,
+            COUNT(*) FILTER (WHERE status = 'resolved')::int AS resolved
+     FROM review_feedback_items WHERE review_id = $1`,
+    [reviewId]
+  );
+  const { total, resolved } = countsResult.rows[0]!;
+  const status =
+    total === 0 || resolved === total
+      ? "resolved"
+      : resolved > 0
+        ? "partially_resolved"
+        : "open";
+  await client.query(
+    `UPDATE reviews SET status = $1, updated_at = NOW() WHERE id = $2`,
+    [status, reviewId]
+  );
+  return status;
+}
+
+export async function addReviewFeedbackItem(
+  pool: Pool,
+  reviewId: number,
+  reviewerAgentId: string,
+  item: CreateReviewInput["items"][number]
+): Promise<{
+  item: ReviewFeedbackItemRecord & { messages: ReviewThreadMessageRecord[] };
+  reviewStatus: string;
+} | null> {
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const review = await client.query<{ baseRef: string | null }>(
+      `SELECT base_ref AS "baseRef"
+       FROM reviews
+       WHERE id = $1 AND reviewer_type = 'agent' AND reviewer_agent_id = $2
+       FOR UPDATE`,
+      [reviewId, reviewerAgentId]
+    );
+    if (!review.rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+
+    const itemResult = await client.query<ReviewFeedbackItemRecord>(
+      `INSERT INTO review_feedback_items
+         (review_id, file_path, line_start, line_end, diff_snapshot, base_ref)
+       VALUES ($1, $2, $3, $4, $5, $6)
+       ${FEEDBACK_ITEM_RETURNING}`,
+      [
+        reviewId,
+        item.filePath ?? null,
+        item.startLine ?? null,
+        item.endLine ?? null,
+        item.diffSnapshot ?? null,
+        review.rows[0].baseRef,
+      ]
+    );
+    const feedbackItem = itemResult.rows[0]!;
+    const messageResult = await client.query<ReviewThreadMessageRecord>(
+      `INSERT INTO review_thread_messages
+         (feedback_item_id, author_type, author_agent_id, type, content)
+       VALUES ($1, 'agent', $2, 'text', $3)
+       ${THREAD_MESSAGE_RETURNING}`,
+      [feedbackItem.id, reviewerAgentId, JSON.stringify({ body: item.comment })]
+    );
+    const reviewStatus = await recomputeReviewStatus(client, reviewId);
+    await client.query("COMMIT");
+    return {
+      item: { ...feedbackItem, messages: [messageResult.rows[0]!] },
+      reviewStatus,
+    };
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
 export type ReviewListItem = ReviewRecord & {
+  reviewerName: string | null;
   itemCount: number;
   resolvedCount: number;
 };
@@ -183,12 +295,14 @@ export async function listReviews(
             r.reviewer_type AS "reviewerType", r.reviewer_agent_id AS "reviewerAgentId",
             r.summary, r.status, r.base_ref AS "baseRef",
             r.created_at AS "createdAt", r.updated_at AS "updatedAt",
+            COALESCE(reviewer.persona, reviewer.name) AS "reviewerName",
             COUNT(fi.id)::int AS "itemCount",
             COUNT(fi.id) FILTER (WHERE fi.status = 'resolved')::int AS "resolvedCount"
      FROM reviews r
+     LEFT JOIN agents reviewer ON reviewer.id = r.reviewer_agent_id
      LEFT JOIN review_feedback_items fi ON fi.review_id = r.id
      WHERE r.agent_id = $1
-     GROUP BY r.id
+     GROUP BY r.id, reviewer.persona, reviewer.name
      ORDER BY r.created_at DESC`,
     [agentId]
   );
@@ -245,7 +359,11 @@ export async function resolveReviewFeedbackItem(
   itemId: number,
   agentId: string,
   resolution: "fixed" | "dismissed",
-  opts: { note?: string | null; resolvedBy?: string | null } = {}
+  opts: {
+    note?: string | null;
+    resolvedBy?: string | null;
+    authorType?: "human" | "agent";
+  } = {}
 ): Promise<{
   item: ReviewFeedbackItemRecord;
   reviewId: number;
@@ -280,27 +398,21 @@ export async function resolveReviewFeedbackItem(
       return null;
     }
 
-    const countsResult = await client.query<{
-      total: number;
-      resolved: number;
-    }>(
-      `SELECT COUNT(*)::int AS total,
-              COUNT(*) FILTER (WHERE status = 'resolved')::int AS resolved
-       FROM review_feedback_items WHERE review_id = $1`,
-      [item.reviewId]
-    );
-    const { total, resolved } = countsResult.rows[0]!;
-    const newReviewStatus =
-      resolved === total
-        ? "resolved"
-        : resolved > 0
-          ? "partially_resolved"
-          : "open";
-
     await client.query(
-      `UPDATE reviews SET status = $1, updated_at = NOW() WHERE id = $2`,
-      [newReviewStatus, item.reviewId]
+      `INSERT INTO review_thread_messages
+         (feedback_item_id, author_type, author_agent_id, type, content)
+       VALUES ($1, $2, $3, 'resolution', $4)`,
+      [
+        itemId,
+        opts.authorType ?? "agent",
+        opts.resolvedBy ?? null,
+        JSON.stringify({
+          body: opts.note?.trim() ?? "",
+          resolution,
+        }),
+      ]
     );
+    const newReviewStatus = await recomputeReviewStatus(client, item.reviewId);
 
     await client.query("COMMIT");
     return { item, reviewId: item.reviewId, reviewStatus: newReviewStatus };
@@ -315,7 +427,12 @@ export async function resolveReviewFeedbackItem(
 export async function reopenReviewFeedbackItem(
   pool: Pool,
   itemId: number,
-  agentId: string
+  agentId: string,
+  opts: {
+    note?: string | null;
+    reopenedBy?: string | null;
+    authorType?: "human" | "agent";
+  } = {}
 ): Promise<{
   item: ReviewFeedbackItemRecord;
   reviewId: number;
@@ -346,26 +463,18 @@ export async function reopenReviewFeedbackItem(
       return null;
     }
 
-    const countsResult = await client.query<{
-      total: number;
-      resolved: number;
-    }>(
-      `SELECT COUNT(*)::int AS total,
-              COUNT(*) FILTER (WHERE status = 'resolved')::int AS resolved
-       FROM review_feedback_items WHERE review_id = $1`,
-      [item.reviewId]
-    );
-    const { total, resolved } = countsResult.rows[0]!;
-    const reviewStatus =
-      resolved === total
-        ? "resolved"
-        : resolved > 0
-          ? "partially_resolved"
-          : "open";
     await client.query(
-      `UPDATE reviews SET status = $1, updated_at = NOW() WHERE id = $2`,
-      [reviewStatus, item.reviewId]
+      `INSERT INTO review_thread_messages
+         (feedback_item_id, author_type, author_agent_id, type, content)
+       VALUES ($1, $2, $3, 'reopen', $4)`,
+      [
+        itemId,
+        opts.authorType ?? "agent",
+        opts.reopenedBy ?? null,
+        JSON.stringify({ body: opts.note?.trim() ?? "", resolution: null }),
+      ]
     );
+    const reviewStatus = await recomputeReviewStatus(client, item.reviewId);
     await client.query("COMMIT");
     return { item, reviewId: item.reviewId, reviewStatus };
   } catch (err) {
@@ -393,7 +502,8 @@ export async function addThreadMessage(
     `SELECT fi.review_id AS "reviewId"
      FROM review_feedback_items fi
      JOIN reviews r ON r.id = fi.review_id
-     WHERE fi.id = $1 AND (r.agent_id = $2 OR r.assigned_agent_id = $2)`,
+     WHERE fi.id = $1
+       AND (r.agent_id = $2 OR r.assigned_agent_id = $2 OR r.reviewer_agent_id = $2)`,
     [itemId, agentId]
   );
   if (ownership.rows.length === 0) return null;
@@ -413,7 +523,8 @@ export async function addThreadMessage(
 
 export async function listFeedbackItemsForAgent(
   pool: Pool,
-  agentId: string
+  agentId: string,
+  reviewId?: number
 ): Promise<
   Array<
     ReviewFeedbackItemRecord & {
@@ -433,9 +544,10 @@ export async function listFeedbackItemsForAgent(
             fi.created_at AS "createdAt", fi.updated_at AS "updatedAt"
      FROM review_feedback_items fi
      JOIN reviews r ON r.id = fi.review_id
-     WHERE (r.agent_id = $1 OR r.assigned_agent_id = $1)
+     WHERE (r.agent_id = $1 OR r.assigned_agent_id = $1 OR r.reviewer_agent_id = $1)
+       AND ($2::int IS NULL OR r.id = $2)
      ORDER BY fi.created_at ASC`,
-    [agentId]
+    [agentId, reviewId ?? null]
   );
 
   const itemIds = itemsResult.rows.map((i) => i.id);

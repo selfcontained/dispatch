@@ -17,8 +17,6 @@ const ctx = useInjectApp();
 let sessionCookie: string;
 
 beforeEach(async () => {
-  await ctx.pool.query("DELETE FROM persona_review_resolutions");
-  await ctx.pool.query("DELETE FROM persona_reviews");
   await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM agents");
   await ctx.pool.query("DELETE FROM sessions");
