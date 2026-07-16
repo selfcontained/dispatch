@@ -36,7 +36,7 @@ function statusIcon(status: DiffFileStatus): JSX.Element {
   }
 }
 
-export type DiffPaneProps = {
+type DiffPaneProps = {
   agentId: string | null;
   files: DiffFile[];
   collapsedFiles: Set<string>;
