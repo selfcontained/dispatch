@@ -188,7 +188,7 @@ export function ServiceResourcesDashboard({
         />
         <ResourceChart
           title="Memory history"
-          description="Resident memory and JavaScript heap since the service started."
+          description="Resident memory and JavaScript heap over the selected window."
           data={chartData}
           config={memoryChartConfig}
           keys={["serverRssMb", "serverHeapMb", "agentRssMb"]}

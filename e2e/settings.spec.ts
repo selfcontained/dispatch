@@ -168,6 +168,12 @@ test.describe("Settings pane", () => {
       dashboard.getByText(/host load uses the right load axis/i)
     ).toBeVisible();
     await expect(
+      dashboard.getByText(/History resets when Dispatch restarts/i)
+    ).toBeVisible();
+    await expect(
+      dashboard.getByTestId("refresh-service-resources")
+    ).toHaveCount(0);
+    await expect(
       dashboard.getByText("Browser streams", { exact: true })
     ).toHaveCount(0);
 
@@ -179,11 +185,6 @@ test.describe("Settings pane", () => {
     await expect(
       dashboard.getByTestId("subsystem-stat-trend-database-poolTotal")
     ).toBeVisible();
-
-    await dashboard.getByTestId("refresh-service-resources").click();
-    await expect(
-      dashboard.getByTestId("refresh-service-resources")
-    ).toBeEnabled({ timeout: 10_000 });
 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(dashboard.getByTestId("resources-updated-at")).toBeVisible();

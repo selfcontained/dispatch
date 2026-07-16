@@ -129,7 +129,7 @@ export function useServiceResources(window: ResourceWindow) {
         `/api/v1/system/resources?window=${encodeURIComponent(window)}`
       ),
     refetchInterval: () =>
-      typeof document !== "undefined" && document.hidden ? false : 5_000,
+      typeof document !== "undefined" && document.hidden ? false : 15_000,
     refetchIntervalInBackground: false,
     placeholderData: (previous) => previous,
   });

@@ -1,5 +1,4 @@
 import { useState } from "react";
-import { RefreshCw } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -15,15 +14,13 @@ import {
   type ResourceWindow,
   useServiceResources,
 } from "@/hooks/use-service-resources";
-import { cn } from "@/lib/utils";
 import { ServiceResourcesDashboard } from "./service-resources-dashboard";
 import { stateBadgeVariant, stateLabel } from "./service-resources-format";
 
 export function ServiceResourcesSettings(): JSX.Element {
   const [window, setWindow] = useState<ResourceWindow>("1h");
-  const { data, error, isFetching, refetch, dataUpdatedAt } =
-    useServiceResources(window);
-  const stale = dataUpdatedAt > 0 && Date.now() - dataUpdatedAt > 15_000;
+  const { data, error, refetch, dataUpdatedAt } = useServiceResources(window);
+  const stale = dataUpdatedAt > 0 && Date.now() - dataUpdatedAt > 45_000;
 
   return (
     <div
@@ -42,7 +39,7 @@ export function ServiceResourcesSettings(): JSX.Element {
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
             Live health and resource use for Dispatch, its agents, dependencies,
-            and host.
+            and host. History resets when Dispatch restarts.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
@@ -78,19 +75,6 @@ export function ServiceResourcesSettings(): JSX.Element {
               <SelectItem value="1h">1 hour</SelectItem>
             </SelectContent>
           </Select>
-          <Button
-            size="icon"
-            variant="ghost"
-            className="h-8 w-8"
-            onClick={() => void refetch()}
-            disabled={isFetching}
-            title="Refresh resources"
-            data-testid="refresh-service-resources"
-          >
-            <RefreshCw
-              className={cn("h-4 w-4", isFetching && "animate-spin")}
-            />
-          </Button>
         </div>
       </header>
 
