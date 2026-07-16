@@ -25,7 +25,11 @@ interface PairingResult {
   token?: string;
 }
 
-type Notice = { kind: "error" | "success" | "info"; message: string };
+type Notice = {
+  kind: "error" | "success" | "info";
+  message: string;
+  verificationCode?: string;
+};
 
 const appElement = document.querySelector<HTMLElement>("#app");
 if (!appElement) throw new Error("Side panel root is missing.");
@@ -58,8 +62,12 @@ async function sendWorker<T>(request: WorkerRequest): Promise<T> {
   return response.data as T;
 }
 
-function setNotice(kind: Notice["kind"], message: string): void {
-  notice = { kind, message };
+function setNotice(
+  kind: Notice["kind"],
+  message: string,
+  verificationCode?: string
+): void {
+  notice = { kind, message, verificationCode };
 }
 
 function normalizeUrlInput(input: string): URL {
@@ -155,10 +163,24 @@ function render(): void {
   else renderConnection(shell);
 
   if (notice) {
-    const status = document.createElement("p");
+    const status = document.createElement("div");
     status.className = `status ${notice.kind}`;
     status.setAttribute("role", notice.kind === "error" ? "alert" : "status");
-    status.textContent = notice.message;
+    if (notice.verificationCode) {
+      status.classList.add("verification");
+      const label = document.createElement("p");
+      label.className = "verification-label";
+      label.textContent = "Confirm this code matches Dispatch";
+      const code = document.createElement("code");
+      code.className = "verification-code";
+      code.textContent = notice.verificationCode;
+      const instruction = document.createElement("p");
+      instruction.className = "verification-instruction";
+      instruction.textContent = notice.message;
+      status.append(label, code, instruction);
+    } else {
+      status.textContent = notice.message;
+    }
     shell.append(status);
   }
   app.append(shell);
@@ -429,7 +451,8 @@ async function startPairing(input: string): Promise<void> {
     await chrome.tabs.create({ url: verificationUrl.href, active: true });
     setNotice(
       "info",
-      `Security check: verify Dispatch shows code ${pairing.code}, then approve the connection there.`
+      "Approve the connection there only if it shows the same code.",
+      pairing.code
     );
     render();
     await pollPairing(pairing);
