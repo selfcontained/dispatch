@@ -11,20 +11,19 @@ summary: >
 
 alreadySatisfied:
   description: >
-    The install is already on the target tag, the service has completed startup,
-    the local health endpoint returns status=ok, and release.json reports the
-    target tag. A healthy server at the target tag has completed migrations
-    0032 through 0034; rerunning them is safe and does not duplicate migrated
-    reviews or feedback items.
+    Treat this migration as already satisfied only after verifying that the
+    running service is healthy on the target tag and release.json reports that
+    same target tag. Do not infer this from the target tarball being cached for
+    manifest inspection: the assisted update normally launches before the
+    managed update endpoint applies the target release. A healthy service on
+    the target tag has completed migrations 0032 through 0034; rerunning them
+    is safe and does not duplicate migrated reviews or feedback items.
 
 instructions:
-  - Confirm the service has been restarted to the target release tag.
-  - Allow extra startup time if the installation contains substantial legacy
-    persona review history; migration 0032 copies those records once into the
-    unified review model while retaining the legacy source rows.
   - >
-    Before applying the update, read DATABASE_URL from the service directory's
-    .env without modifying it and run this read-only query:
+    During inspect, before invoking the managed update endpoint, read
+    DATABASE_URL from the service directory's .env without modifying it and
+    run this read-only query:
     SELECT a.name, pr.persona, pr.status FROM persona_reviews pr JOIN agents a
     ON a.id = pr.agent_id WHERE a.deleted_at IS NULL AND pr.status IN
     ('reviewing', 'awaiting_recheck') ORDER BY pr.updated_at DESC.
@@ -32,6 +31,13 @@ instructions:
     list the reviewer agent name, persona, and status for the operator, and tell
     them to finish or cancel those reviews before retrying the update. Do not
     invoke the managed update endpoint while any such rows remain.
+  - If the in-flight review guard is clear and the already-satisfied condition
+    is false, continue through the framework's apply phase and invoke the
+    managed update endpoint. Migrations 0032 through 0034 run automatically
+    when the target service starts.
+  - Allow extra startup time if the installation contains substantial legacy
+    persona review history; migration 0032 copies those records once into the
+    unified review model while retaining the legacy source rows.
   - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok after startup.
   - Confirm release.json under the install directory reports the target tag.
   - If the healthy target state is already satisfied, do not modify review data
