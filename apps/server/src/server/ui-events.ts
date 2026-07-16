@@ -42,6 +42,7 @@ export type UiEvent =
       type: "review.created";
       agentId: string;
       reviewId: number;
+      reviewerAgentId?: string | null;
     }
   | {
       type: "review.updated";

@@ -423,6 +423,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         type: "review.created",
         agentId: parent.id,
         reviewId: review.id,
+        reviewerAgentId: reviewer.id,
       });
       const submittedReviewer = await agentManager.getAgent(reviewer.id);
       if (submittedReviewer) {

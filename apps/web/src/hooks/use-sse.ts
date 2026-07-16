@@ -37,7 +37,11 @@ type UiEvent =
   | { type: "stream.stopped"; agentId: string }
   | { type: "feedback.created"; agentId: string }
   | { type: "feedback.updated"; agentId: string }
-  | { type: "review.created"; agentId: string }
+  | {
+      type: "review.created";
+      agentId: string;
+      reviewerAgentId?: string | null;
+    }
   | { type: "review.updated"; agentId: string }
   | { type: "review_feedback.updated"; agentId: string }
   | { type: "job.changed" }
@@ -88,6 +92,40 @@ export function applyDiffStateChanged(
   });
 }
 
+export function applyAgentUpsert(
+  current: Agent[] | undefined,
+  incoming: Agent
+): Agent[] {
+  if (!current) return [incoming];
+  const index = current.findIndex((agent) => agent.id === incoming.id);
+  if (index === -1) {
+    return sortAgentsByCreatedAtDesc([incoming, ...current]);
+  }
+
+  const existing = current[index]!;
+  const nextAgent =
+    existing.hasSubmittedReview && !incoming.hasSubmittedReview
+      ? { ...incoming, hasSubmittedReview: true }
+      : incoming;
+  const next = [...current];
+  next[index] = nextAgent;
+  return sortAgentsByCreatedAtDesc(next);
+}
+
+export function applyReviewCreated(
+  queryClient: QueryClient,
+  reviewerAgentId: string | null | undefined
+): void {
+  if (!reviewerAgentId) return;
+  queryClient.setQueryData<Agent[]>(["agents"], (old) =>
+    old?.map((agent) =>
+      agent.id === reviewerAgentId && !agent.hasSubmittedReview
+        ? { ...agent, hasSubmittedReview: true }
+        : agent
+    )
+  );
+}
+
 export function useSSE(authState: AuthState): void {
   const queryClient = useQueryClient();
   const eventSourceRef = useRef<EventSource | null>(null);
@@ -119,16 +157,9 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.upsert") {
-          queryClient.setQueryData<Agent[]>(["agents"], (old) => {
-            if (!old) return [payload.agent];
-            const index = old.findIndex((a) => a.id === payload.agent.id);
-            if (index === -1) {
-              return sortAgentsByCreatedAtDesc([payload.agent, ...old]);
-            }
-            const next = [...old];
-            next[index] = payload.agent;
-            return sortAgentsByCreatedAtDesc(next);
-          });
+          queryClient.setQueryData<Agent[]>(["agents"], (old) =>
+            applyAgentUpsert(old, payload.agent)
+          );
           return;
         }
 
@@ -202,6 +233,9 @@ export function useSSE(authState: AuthState): void {
           payload.type === "review.updated" ||
           payload.type === "review_feedback.updated"
         ) {
+          if (payload.type === "review.created") {
+            applyReviewCreated(queryClient, payload.reviewerAgentId);
+          }
           void queryClient.invalidateQueries({
             queryKey: ["agent-reviews", payload.agentId],
           });

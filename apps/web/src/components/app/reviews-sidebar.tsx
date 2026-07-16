@@ -218,15 +218,24 @@ function ReviewRow({
           <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
         <div className="min-w-0 flex-1">
-          <p
+          <div
+            data-testid={`review-summary-${review.id}`}
             className={cn(
-              "text-xs text-foreground/90",
-              !expanded && "truncate",
+              "text-xs leading-[1.45] text-foreground/90",
+              !expanded && "max-h-[1.45em] overflow-hidden",
               !review.summary && "text-muted-foreground"
             )}
           >
-            {review.summary || "Review feedback"}
-          </p>
+            <Markdown
+              className={cn(
+                "text-xs leading-[1.45] text-foreground/90",
+                "prose-p:my-0 prose-ul:my-0 prose-ol:my-0 prose-li:my-0",
+                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+              )}
+            >
+              {review.summary || "Review feedback"}
+            </Markdown>
+          </div>
           <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
             {review.reviewerType === "agent"
               ? review.reviewerName || "Review agent"
@@ -476,17 +485,32 @@ function FeedbackItemRow({
             </Tooltip>
           )}
         </div>
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-          className={cn(
-            "mt-1.5 block w-full rounded-sm pl-5 pr-2 text-left whitespace-pre-wrap break-words text-xs leading-[1.45] text-foreground/90 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            !expanded && "line-clamp-2"
-          )}
-        >
-          {originalFeedback}
-        </button>
+        <div className="relative mt-1.5 pl-5 pr-2">
+          <div
+            data-testid={`feedback-body-${item.id}`}
+            className={cn(
+              "break-words text-xs leading-[1.45] text-foreground/90",
+              !expanded && "max-h-[4.35em] overflow-hidden"
+            )}
+          >
+            <Markdown
+              className={cn(
+                "text-xs leading-[1.45] text-foreground/90",
+                "prose-p:my-0 prose-ul:my-0 prose-ol:my-0 prose-li:my-0",
+                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+              )}
+            >
+              {originalFeedback}
+            </Markdown>
+          </div>
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} feedback description`}
+            onClick={() => setExpanded((value) => !value)}
+            className="absolute inset-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+        </div>
       </div>
       <AnimatePresence initial={false}>
         {expanded && (

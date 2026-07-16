@@ -648,6 +648,7 @@ describe("createReviewHandlers", () => {
         type: "review.created",
         agentId: "agt_parent",
         reviewId: 42,
+        reviewerAgentId: "agt_reviewer",
       });
       expect(deps.publishUiEvent).toHaveBeenCalledWith({
         type: "agent.upsert",

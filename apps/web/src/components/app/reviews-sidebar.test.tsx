@@ -74,7 +74,7 @@ const reviews: ReviewListItem[] = [
     reviewerType: "agent",
     reviewerAgentId: "reviewer-2",
     reviewerName: "Product Review",
-    summary: "Actionable reviewer feedback",
+    summary: "Actionable **reviewer feedback**",
     status: "open",
     baseRef: "main",
     createdAt: "2026-07-13T14:00:00.000Z",
@@ -109,7 +109,9 @@ const threadReview = {
           authorType: "agent",
           authorAgentId: "reviewer-2",
           type: "feedback",
-          content: { body: "Clarify the review state." },
+          content: {
+            body: "Clarify the **review state**.\n\n- Preserve the tracked thread\n- Keep the full explanation visible when expanded",
+          },
           createdAt: "2026-07-13T14:00:00.000Z",
         },
         {
@@ -208,14 +210,45 @@ describe("ReviewsSidebarContent", () => {
       </MemoryRouter>
     );
 
-    fireEvent.click(screen.getByText("Actionable reviewer feedback"));
+    fireEvent.click(screen.getByTestId("review-summary-5"));
     expect(
       screen.getByText(/Reviewer feedback submitted — awaiting action/)
     ).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Clarify the review state."));
+    fireEvent.click(screen.getByRole("button", { name: "Expand feedback" }));
     expect(screen.getByText("State change")).toBeTruthy();
     expect(screen.getByText(/Marked fixed/)).toBeTruthy();
     expect(screen.getAllByText(/Implementation verified/)).toHaveLength(2);
+  });
+
+  it("clips collapsed feedback and renders its full body as markdown", () => {
+    render(
+      <MemoryRouter>
+        <ReviewsSidebarContent agentId="agent-1" />
+      </MemoryRouter>
+    );
+
+    const reviewSummary = screen.getByTestId("review-summary-5");
+    expect(reviewSummary.querySelector("strong")?.textContent).toBe(
+      "reviewer feedback"
+    );
+    fireEvent.click(reviewSummary);
+    const body = screen.getByTestId("feedback-body-51");
+    expect(body.className).toContain("max-h-[4.35em]");
+    expect(body.querySelector("strong")?.textContent).toBe("review state");
+    expect(screen.getByText("Preserve the tracked thread")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Expand feedback description" })
+    );
+    expect(body.className).not.toContain("max-h-[4.35em]");
+    expect(
+      screen.getByText("Keep the full explanation visible when expanded")
+    ).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Collapse feedback description" })
+    );
+    expect(body.className).toContain("max-h-[4.35em]");
   });
 });
