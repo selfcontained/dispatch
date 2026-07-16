@@ -377,13 +377,17 @@ export function buildAgentCommand(
     const flags = [mcpFlag, systemFlag, personalityFlag, sessionFlag]
       .filter(Boolean)
       .join(" ");
-    // initialPrompt becomes the first user message (positional arg to Claude Code CLI)
-    const allArgs = initialPrompt ? [...args, initialPrompt] : args;
-    if (allArgs.length === 0) {
+    // initialPrompt becomes the first user message (positional arg to Claude
+    // Code CLI). Separate it from options with `--` so structured Dispatch
+    // blocks that begin with `---` are not parsed as unknown CLI flags.
+    if (args.length === 0 && !initialPrompt) {
       return `${envPrefix} ${shellEscape(cliBin)} ${flags}`;
     }
-    const escaped = allArgs.map((arg) => shellEscape(arg)).join(" ");
-    return `${envPrefix} ${shellEscape(cliBin)} ${flags} ${escaped}`;
+    const commandArgs = args.map((arg) => shellEscape(arg));
+    if (initialPrompt) {
+      commandArgs.push("--", shellEscape(initialPrompt));
+    }
+    return `${envPrefix} ${shellEscape(cliBin)} ${flags} ${commandArgs.join(" ")}`;
   }
 
   if (type === "opencode") {
