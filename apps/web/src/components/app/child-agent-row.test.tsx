@@ -75,8 +75,11 @@ describe("ChildAgentRow", () => {
       },
     });
 
-    expect(screen.getByText("Review")).toBeTruthy();
+    const badge = screen.getByText("Review");
+    expect(badge.className).toContain("text-primary");
+    expect(badge.className).not.toContain("violet");
     const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.className).toContain("min-h-11");
     expect(row.dataset.agentRole).toBe("review");
     expect(row.dataset.reviewActive).toBe("true");
     expect(row.className).toContain("child-agent-review-active-row");
@@ -110,7 +113,11 @@ describe("ChildAgentRow", () => {
       submittedReviewId: 42,
     });
 
-    fireEvent.click(screen.getByTestId("child-agent-attach-agt_child"));
+    const attachButton = screen.getByTestId("child-agent-attach-agt_child");
+    expect(attachButton.className).toContain("h-11");
+    expect(attachButton.className).toContain("w-11");
+    expect(attachButton.className).toContain("sm:h-7");
+    fireEvent.click(attachButton);
     expect(attachToAgent).toHaveBeenCalledOnce();
     expect(openSubmittedReview).not.toHaveBeenCalled();
   });

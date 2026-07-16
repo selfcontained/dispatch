@@ -215,23 +215,26 @@ function ReviewRow({
         statusStyle.rail
       )}
     >
-      <button
-        type="button"
-        className="flex w-full items-start gap-2 overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors hover:bg-muted/30"
-        onClick={onToggle}
-      >
+      <div className="relative flex w-full items-start gap-2 overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors hover:bg-muted/30">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} review from ${review.reviewerType === "agent" ? review.reviewerName || "review agent" : "human reviewer"}`}
+          className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onToggle}
+        />
         <ChevronRight
           className={cn(
-            "mt-0.5 h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+            "pointer-events-none relative z-10 mt-0.5 h-3 w-3 shrink-0 text-muted-foreground transition-transform",
             expanded && "rotate-90"
           )}
         />
         {review.reviewerType === "human" ? (
-          <User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <User className="pointer-events-none relative z-10 mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         ) : (
-          <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <Bot className="pointer-events-none relative z-10 mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        <div className="min-w-0 flex-1">
+        <div className="pointer-events-none relative z-10 min-w-0 flex-1">
           <div
             data-testid={`review-summary-${review.id}`}
             className={cn(
@@ -244,7 +247,8 @@ function ReviewRow({
               className={cn(
                 "text-xs leading-[1.45] text-foreground/90",
                 "prose-p:my-0 prose-ul:my-0 prose-ol:my-0 prose-li:my-0",
-                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                "[&_a]:pointer-events-auto"
               )}
             >
               {review.summary || "Review feedback"}
@@ -281,7 +285,7 @@ function ReviewRow({
             </span>
           </div>
         </div>
-      </button>
+      </div>
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -500,10 +504,17 @@ function FeedbackItemRow({
           )}
         </div>
         <div className="relative mt-1.5 pl-5 pr-2">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} feedback description`}
+            onClick={() => setExpanded((value) => !value)}
+            className="absolute inset-0 z-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
           <div
             data-testid={`feedback-body-${item.id}`}
             className={cn(
-              "break-words text-xs leading-[1.45] text-foreground/90",
+              "pointer-events-none relative z-10 break-words text-xs leading-[1.45] text-foreground/90",
               !expanded && "max-h-[4.35em] overflow-hidden"
             )}
           >
@@ -511,19 +522,13 @@ function FeedbackItemRow({
               className={cn(
                 "text-xs leading-[1.45] text-foreground/90",
                 "prose-p:my-0 prose-ul:my-0 prose-ol:my-0 prose-li:my-0",
-                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0"
+                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                "[&_a]:pointer-events-auto"
               )}
             >
               {originalFeedback}
             </Markdown>
           </div>
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-label={`${expanded ? "Collapse" : "Expand"} feedback description`}
-            onClick={() => setExpanded((value) => !value)}
-            className="absolute inset-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
         </div>
       </div>
       <AnimatePresence initial={false}>

@@ -68,7 +68,7 @@ export function ChildAgentRow({
       data-agent-role={agent.role ?? "standard"}
       data-review-active={showReviewActivity ? "true" : "false"}
       className={cn(
-        "group relative flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1.5",
+        "group relative flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
         "transition-colors hover:bg-muted/35",
         canOpenSubmittedReview && "cursor-pointer",
         isConnected && "border-primary/35 bg-muted/40",
@@ -109,7 +109,7 @@ export function ChildAgentRow({
             {displayName}
           </span>
           {isReviewAgent ? (
-            <Badge className="h-4 shrink-0 border-violet-500/30 bg-violet-500/10 px-1 text-[8px] font-semibold uppercase tracking-wide text-violet-300">
+            <Badge className="h-4 shrink-0 border-primary/30 bg-primary/10 px-1 text-[8px] font-semibold uppercase tracking-wide text-primary">
               Review
             </Badge>
           ) : null}
@@ -135,7 +135,7 @@ export function ChildAgentRow({
               data-agent-control="true"
               data-testid={`child-agent-resume-${agent.id}`}
               aria-label={`Resume ${displayName}`}
-              className="relative z-20 h-7 w-7 shrink-0"
+              className="relative z-20 h-11 w-11 shrink-0 sm:h-7 sm:w-7"
               onClick={() => {
                 if (closeOnSessionAction) onRequestClose?.();
                 void startAgent(agent);
@@ -155,7 +155,7 @@ export function ChildAgentRow({
               data-agent-control="true"
               data-testid={`child-agent-detach-${agent.id}`}
               aria-label={`Detach from ${displayName}`}
-              className="relative z-20 h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+              className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
               onClick={detachTerminal}
             >
               <X className="h-3.5 w-3.5" />
@@ -172,7 +172,7 @@ export function ChildAgentRow({
               data-agent-control="true"
               data-testid={`child-agent-attach-${agent.id}`}
               aria-label={`Attach to ${displayName}`}
-              className="relative z-20 h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+              className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
               onClick={() => {
                 if (closeOnSessionAction) onRequestClose?.();
                 void attachToAgent(agent);
