@@ -585,6 +585,7 @@ export class ServiceResources {
           pool: this.poolSnapshot(),
         });
       }, DATABASE_PROBE_TIMEOUT_MS);
+      timeout.unref?.();
       void probe.then((snapshot) => {
         clearTimeout(timeout);
         resolve(snapshot);
