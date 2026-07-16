@@ -255,12 +255,33 @@ label {
   flex: 1;
 }
 
+.connection-summary {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
 .connection {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   color: #a8a29e;
   font-size: 12px;
+}
+
+.connection-security-badge {
+  flex: none;
+  padding: 2px 6px;
+  border: 1px solid #a16207;
+  border-radius: 999px;
+  color: #fde68a;
+  background: #422006;
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
 }
 
 .preview {

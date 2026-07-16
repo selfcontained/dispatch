@@ -67,9 +67,18 @@ async function sendWorker<T>(request: WorkerRequest): Promise<T> {
 function setNotice(
   kind: Notice["kind"],
   message: string,
-  verificationCode?: string
+  verificationCode?: string,
+  dismissAfterMs?: number
 ): void {
-  notice = { kind, message, verificationCode };
+  const nextNotice = { kind, message, verificationCode };
+  notice = nextNotice;
+  if (dismissAfterMs) {
+    window.setTimeout(() => {
+      if (notice !== nextNotice) return;
+      notice = null;
+      render();
+    }, dismissAfterMs);
+  }
 }
 
 function normalizeUrlInput(input: string): URL {
@@ -229,10 +238,22 @@ function renderConnection(shell: HTMLElement): void {
 }
 
 function renderFeedback(shell: HTMLElement): void {
-  const connectionLabel = document.createElement("div");
+  const connectionSummary = document.createElement("div");
+  connectionSummary.className = "connection-summary";
+  const connectionLabel = document.createElement("span");
   connectionLabel.className = "connection";
   connectionLabel.title = connection.baseUrl ?? "";
   connectionLabel.textContent = `Connected to ${connection.baseUrl}`;
+  connectionSummary.append(connectionLabel);
+  if (connection.baseUrl && usesInsecureHttp(connection.baseUrl)) {
+    const insecureBadge = document.createElement("span");
+    insecureBadge.className = "connection-security-badge";
+    insecureBadge.textContent = "HTTP";
+    insecureBadge.title =
+      "This connection is not encrypted. Use it only on a trusted network.";
+    insecureBadge.setAttribute("aria-label", insecureBadge.title);
+    connectionSummary.append(insecureBadge);
+  }
 
   const controls = document.createElement("div");
   controls.className = "stack";
@@ -302,7 +323,7 @@ function renderFeedback(shell: HTMLElement): void {
   pickerAction.textContent = pickerActive
     ? "Click to stop selecting"
     : pendingPickerAccessTabId !== null
-      ? "Allow access in Chrome's toolbar"
+      ? "Reopen this panel from Chrome's toolbar"
       : selection
         ? "Pick a different element"
         : "Click to inspect the page";
@@ -373,7 +394,7 @@ function renderFeedback(shell: HTMLElement): void {
   send.textContent = busy ? "Sending…" : "Send to agent";
   send.addEventListener("click", () => void submitFeedback());
   controls.append(send);
-  shell.append(connectionLabel, controls);
+  shell.append(connectionSummary, controls);
 }
 
 function createPreview(): HTMLElement {
@@ -493,7 +514,9 @@ async function pollPairing(pairing: PairingDetails): Promise<void> {
       usesInsecureHttp(pairing.baseUrl) ? "info" : "success",
       usesInsecureHttp(pairing.baseUrl)
         ? "Connected over HTTP. Credentials are unencrypted; use a trusted network."
-        : "Browser connected to Dispatch."
+        : "Browser connected to Dispatch.",
+      undefined,
+      6_000
     );
     await loadAgents();
     render();
@@ -580,17 +603,17 @@ async function injectPicker(tabId: number): Promise<void> {
 }
 
 async function requestPickerSiteAccess(tabId: number): Promise<void> {
-  if (typeof chrome.permissions.addHostAccessRequest !== "function") {
-    throw new Error(
-      "Chrome needs access to this site. Focus the page, reopen Dispatch feedback from the extension toolbar, then try again."
-    );
+  pendingPickerAccessTabId = tabId;
+  if (typeof chrome.permissions.addHostAccessRequest === "function") {
+    await chrome.permissions.addHostAccessRequest({ tabId }).catch(() => {
+      // This API is coupled to Chrome's evolving extensions menu. Reopening
+      // the panel from the action icon remains the reliable activeTab path.
+    });
   }
 
-  await chrome.permissions.addHostAccessRequest({ tabId });
-  pendingPickerAccessTabId = tabId;
   setNotice(
     "info",
-    "Chrome needs access to this site. Click Allow beside the extension icon in Chrome's toolbar; element selection will start automatically."
+    "Chrome needs access to this tab. Click the × above, then reopen Dispatch Browser Feedback from its toolbar icon while this page is active."
   );
 }
 

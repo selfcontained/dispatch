@@ -31,10 +31,12 @@ you want to inspect, and select a running agent.
 The configured Dispatch origin is only the feedback destination. The extension
 can inspect an unrelated HTTP or HTTPS site after the user explicitly invokes
 the picker there. It starts with Chrome's temporary `activeTab` access. If the
-side panel follows the user to another site, the extension requests persistent
-access only to that site through Chrome's host-access control; it never requires
-the inspected page to share an origin with Dispatch. Access to the configured
-Dispatch origin is requested separately at pairing time.
+side panel follows the user to another site, reopening it from the extension
+toolbar grants access to that active tab. On Chrome versions that surface host
+access requests, accepting one grants persistent access only to that site. The
+extension never requires the inspected page to share an origin with Dispatch.
+Access to the configured Dispatch origin is requested separately at pairing
+time.
 
 Before showing or sending the context preview, the extension removes form
 values, editable content, scripts, inline event handlers, `srcdoc`, and likely
