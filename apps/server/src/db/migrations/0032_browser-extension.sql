@@ -37,6 +37,7 @@ CREATE INDEX IF NOT EXISTS browser_extension_pairings_expires_idx
 CREATE TABLE IF NOT EXISTS browser_feedback_submissions (
   id uuid PRIMARY KEY,
   token_id uuid REFERENCES browser_extension_tokens(id) ON DELETE SET NULL,
+  client_submission_id uuid NOT NULL,
   agent_id text NOT NULL,
   comment text NOT NULL,
   page_context jsonb NOT NULL,
@@ -45,7 +46,9 @@ CREATE TABLE IF NOT EXISTS browser_feedback_submissions (
     CHECK (delivery_status IN ('pending', 'delivered', 'failed')),
   delivery_error text,
   created_at timestamptz NOT NULL DEFAULT now(),
-  delivered_at timestamptz
+  delivered_at timestamptz,
+  CONSTRAINT browser_feedback_submissions_token_client_id_unique
+    UNIQUE (token_id, client_submission_id)
 );
 
 CREATE INDEX IF NOT EXISTS browser_feedback_submissions_agent_created_idx
