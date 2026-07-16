@@ -18,7 +18,7 @@ function renderSettings(search = "") {
   });
   return render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[`/settings/general${search}`]}>
+      <MemoryRouter initialEntries={[`/settings/connections${search}`]}>
         <BrowserExtensionSettings />
       </MemoryRouter>
     </QueryClientProvider>
@@ -42,16 +42,33 @@ afterEach(() => {
 });
 
 describe("BrowserExtensionSettings", () => {
-  it("explains browser connections without showing an approval prompt", () => {
+  it("offers the extension download before showing manual setup steps", async () => {
     renderSettings();
 
-    expect(screen.getByText("Connect Chrome to Dispatch")).toBeTruthy();
-    expect(
-      screen.getByText(/send selected page elements and your comments/i)
-    ).toBeTruthy();
+    expect(await screen.findByText("Try browser feedback")).toBeTruthy();
+    expect(screen.getByText(/select an element on any web app/i)).toBeTruthy();
+    const download = screen.getByRole("link", {
+      name: "Download extension ZIP",
+    });
+    expect(download.getAttribute("href")).toBe(
+      "/dispatch-browser-feedback.zip"
+    );
+    expect(download.hasAttribute("download")).toBe(true);
+    expect(screen.queryByText("Finish setup in Chrome")).toBe(null);
     expect(screen.queryByRole("button", { name: "Approve connection" })).toBe(
       null
     );
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Already downloaded?" })
+    );
+
+    expect(await screen.findByText("Finish setup in Chrome")).toBeTruthy();
+    expect(screen.getByText("2. Load the folder")).toBeTruthy();
+    expect(screen.getByText("chrome://extensions")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Copy Dispatch URL" })
+    ).toBeTruthy();
   });
 
   it("lists multiple paired browsers and revokes only the selected one", async () => {
@@ -85,6 +102,16 @@ describe("BrowserExtensionSettings", () => {
 
     expect(await screen.findByText("Work Chrome")).toBeTruthy();
     expect(screen.getByText("Laptop Chrome")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Add another browser" })
+    ).toBeTruthy();
+    expect(screen.queryByText("Finish setup in Chrome")).toBe(null);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Add another browser" })
+    );
+    expect(await screen.findByText("Finish setup in Chrome")).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Download ZIP" })).toBeTruthy();
 
     fireEvent.click(screen.getByRole("button", { name: "Revoke Work Chrome" }));
 
@@ -96,6 +123,33 @@ describe("BrowserExtensionSettings", () => {
       "/api/v1/browser-extension/connections/11111111-1111-4111-8111-111111111111",
       expect.objectContaining({ method: "DELETE", credentials: "include" })
     );
+  });
+
+  it("keeps a large connection list compact until requested", async () => {
+    vi.mocked(globalThis.fetch).mockResolvedValue(
+      connectionsResponse(
+        Array.from({ length: 6 }, (_, index) => ({
+          id: `00000000-0000-4000-8000-00000000000${index}`,
+          deviceName: `Browser ${index + 1}`,
+          createdAt: new Date(Date.now() - 60_000).toISOString(),
+          expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+          lastUsedAt: null,
+        }))
+      )
+    );
+    renderSettings();
+
+    expect(await screen.findByText("Browser 1")).toBeTruthy();
+    expect(screen.queryByText("Browser 6")).toBe(null);
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Show 1 more browser" })
+    );
+
+    expect(await screen.findByText("Browser 6")).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Show fewer browsers" })
+    ).toBeTruthy();
   });
 
   it("approves the pairing request and confirms the connection", async () => {

@@ -79,7 +79,7 @@ describe("browser extension pairing", () => {
     expect(pairing.pairingSecret.length).toBeGreaterThanOrEqual(32);
     expect(pairing.code).toMatch(/^\d{6}$/);
     expect(pairing.verificationPath).toBe(
-      `/settings/general?browserExtensionPairing=${pairing.pairingId}&code=${pairing.code}`
+      `/settings/connections?browserExtensionPairing=${pairing.pairingId}&code=${pairing.code}`
     );
     expect(new Date(pairing.expiresAt).getTime()).toBeGreaterThan(Date.now());
 

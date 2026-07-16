@@ -1,6 +1,19 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
-import { Chrome, MonitorSmartphone, ShieldCheck, Unplug } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronUp,
+  Chrome,
+  Copy,
+  Download,
+  FolderOpen,
+  MonitorSmartphone,
+  Plus,
+  Puzzle,
+  ShieldCheck,
+  Unplug,
+} from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 
 import { Button } from "@/components/ui/button";
@@ -11,6 +24,7 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 
@@ -27,6 +41,7 @@ type BrowserExtensionConnection = {
 const connectionsQueryKey = ["browser-extension", "connections"] as const;
 const postApprovalRefreshAttempts = 6;
 const postApprovalRefreshDelayMs = 500;
+const initiallyVisibleConnections = 5;
 
 export function BrowserExtensionSettings(): JSX.Element {
   const queryClient = useQueryClient();
@@ -37,6 +52,9 @@ export function BrowserExtensionSettings(): JSX.Element {
   const pairingRequestIsValid = Boolean(pairingId && code);
   const [approvalState, setApprovalState] = useState<ApprovalState>("idle");
   const [error, setError] = useState("");
+  const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [showAllConnections, setShowAllConnections] = useState(false);
+  const [copiedUrl, copyText] = useCopyText();
   const connectionsBeforeApprovalRef = useRef<Set<string>>(new Set());
   const connectionsQuery = useQuery({
     queryKey: connectionsQueryKey,
@@ -175,29 +193,46 @@ export function BrowserExtensionSettings(): JSX.Element {
     }
   };
 
-  return (
-    <div>
-      <h3 className="mb-4 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-        Browser Extension
-      </h3>
-      <Card className="max-w-xl" data-testid="browser-extension-settings">
-        <CardHeader className="flex-row items-start gap-3 space-y-0">
-          <div className="rounded-lg bg-primary/10 p-2 text-primary">
-            <Chrome className="h-5 w-5" aria-hidden="true" />
-          </div>
-          <div className="space-y-1.5">
-            <CardTitle className="text-base">
-              Connect Chrome to Dispatch
-            </CardTitle>
-            <CardDescription>
-              The Dispatch extension can send selected page elements and your
-              comments to an agent you choose.
-            </CardDescription>
-          </div>
-        </CardHeader>
+  const connections = connectionsQuery.data ?? [];
+  const hasConnections = connections.length > 0;
+  const visibleConnections = showAllConnections
+    ? connections
+    : connections.slice(0, initiallyVisibleConnections);
+  const hiddenConnectionCount = connections.length - visibleConnections.length;
+  const dispatchUrl = window.location.origin;
 
-        <CardContent className="space-y-5">
-          {(hasPairingRequest || approvalState === "connected") && (
+  return (
+    <div
+      className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-6"
+      data-testid="browser-extension-settings"
+    >
+      <div>
+        <h2 className="text-xl font-semibold">Connections</h2>
+        <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
+          Connect tools that can send work and context to your Dispatch agents.
+        </p>
+      </div>
+
+      {(hasPairingRequest || approvalState === "connected") && (
+        <Card className="border-primary/30">
+          <CardHeader className="flex-row items-start gap-3 space-y-0 pb-3">
+            <div className="rounded-lg bg-primary/10 p-2 text-primary">
+              <ShieldCheck className="h-5 w-5" aria-hidden="true" />
+            </div>
+            <div className="space-y-1.5">
+              <CardTitle className="text-base">
+                {approvalState === "connected"
+                  ? "Browser connected"
+                  : "Approve this browser"}
+              </CardTitle>
+              <CardDescription>
+                {approvalState === "connected"
+                  ? "The extension is ready to send feedback to your agents."
+                  : "Finish the connection request you started in the extension."}
+              </CardDescription>
+            </div>
+          </CardHeader>
+          <CardContent>
             <div className="rounded-lg border border-border bg-background/50 p-4">
               {approvalState === "connected" ? (
                 <div className="flex items-start gap-3" role="status">
@@ -272,19 +307,189 @@ export function BrowserExtensionSettings(): JSX.Element {
                 </div>
               )}
             </div>
-          )}
+          </CardContent>
+        </Card>
+      )}
 
-          <div
-            className={hasPairingRequest ? "border-t border-border pt-5" : ""}
-          >
-            <div className="mb-3">
-              <p className="text-sm font-medium">Paired browsers</p>
-              <p className="mt-1 text-sm text-muted-foreground">
-                Each browser has its own access. Revoking one does not
-                disconnect the others.
+      {!hasPairingRequest &&
+        approvalState !== "connected" &&
+        connectionsQuery.isPending && (
+          <Card>
+            <CardContent className="pt-4">
+              <p className="text-sm text-muted-foreground" role="status">
+                Checking browser connections...
               </p>
-            </div>
+            </CardContent>
+          </Card>
+        )}
 
+      {!hasPairingRequest &&
+        approvalState !== "connected" &&
+        !connectionsQuery.isPending &&
+        !connectionsQuery.isError && (
+          <Card>
+            <CardHeader className="flex-row items-start gap-3 space-y-0">
+              <div className="rounded-lg bg-primary/10 p-2 text-primary">
+                <Chrome className="h-5 w-5" aria-hidden="true" />
+              </div>
+              <div className="min-w-0 flex-1 space-y-1.5">
+                <CardTitle className="text-base">
+                  {hasConnections
+                    ? "Dispatch Browser Feedback"
+                    : "Try browser feedback"}
+                </CardTitle>
+                <CardDescription>
+                  {hasConnections
+                    ? `${connections.length} ${connections.length === 1 ? "browser is" : "browsers are"} paired and ready to send selected page context.`
+                    : "Select an element on any web app, add a comment, and send both directly to an agent."}
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="space-y-4">
+              {!hasConnections && (
+                <div className="flex flex-wrap gap-2">
+                  <Button
+                    asChild
+                    variant="primary"
+                    onClick={() => setShowInstallGuide(true)}
+                  >
+                    <a href="/dispatch-browser-feedback.zip" download>
+                      <Download className="mr-2 h-4 w-4" aria-hidden="true" />
+                      Download extension ZIP
+                    </a>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => setShowInstallGuide((visible) => !visible)}
+                    aria-expanded={showInstallGuide}
+                  >
+                    {showInstallGuide ? "Hide setup" : "Already downloaded?"}
+                    {showInstallGuide ? (
+                      <ChevronUp className="ml-2 h-4 w-4" aria-hidden="true" />
+                    ) : (
+                      <ChevronDown
+                        className="ml-2 h-4 w-4"
+                        aria-hidden="true"
+                      />
+                    )}
+                  </Button>
+                </div>
+              )}
+              {hasConnections && (
+                <Button
+                  type="button"
+                  variant="default"
+                  onClick={() => setShowInstallGuide((visible) => !visible)}
+                  aria-expanded={showInstallGuide}
+                >
+                  <Plus className="mr-2 h-4 w-4" aria-hidden="true" />
+                  Add another browser
+                </Button>
+              )}
+
+              {showInstallGuide && (
+                <div
+                  className="space-y-4 rounded-lg border border-border bg-background/40 p-4"
+                  data-testid="extension-install-guide"
+                >
+                  <div className="flex flex-wrap items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium">
+                        Finish setup in Chrome
+                      </p>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        The extension is a developer preview, so Chrome loads it
+                        from an unzipped folder for now.
+                      </p>
+                    </div>
+                    {hasConnections && (
+                      <Button asChild variant="primary" size="sm">
+                        <a href="/dispatch-browser-feedback.zip" download>
+                          <Download
+                            className="mr-2 h-3.5 w-3.5"
+                            aria-hidden="true"
+                          />
+                          Download ZIP
+                        </a>
+                      </Button>
+                    )}
+                  </div>
+                  <div className="grid gap-3 md:grid-cols-3">
+                    <div className="rounded-lg border border-border p-3">
+                      <FolderOpen
+                        className="mb-2 h-4 w-4 text-primary"
+                        aria-hidden="true"
+                      />
+                      <p className="text-sm font-medium">
+                        1. Unzip the download
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Keep the extracted folder somewhere Chrome can continue
+                        to access it.
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                      <Puzzle
+                        className="mb-2 h-4 w-4 text-primary"
+                        aria-hidden="true"
+                      />
+                      <p className="text-sm font-medium">2. Load the folder</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Open <code>chrome://extensions</code>, enable Developer
+                        mode, then choose Load unpacked.
+                      </p>
+                    </div>
+                    <div className="rounded-lg border border-border p-3">
+                      <Chrome
+                        className="mb-2 h-4 w-4 text-primary"
+                        aria-hidden="true"
+                      />
+                      <p className="text-sm font-medium">3. Connect Dispatch</p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Open the extension, enter this Dispatch URL, and verify
+                        the pairing code here.
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
+                    <code className="min-w-0 flex-1 truncate text-xs">
+                      {dispatchUrl}
+                    </code>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="shrink-0"
+                      onClick={() => copyText(dispatchUrl)}
+                      aria-label="Copy Dispatch URL"
+                    >
+                      {copiedUrl ? (
+                        <Check className="h-3.5 w-3.5" aria-hidden="true" />
+                      ) : (
+                        <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
+                      <span className="ml-1.5">
+                        {copiedUrl ? "Copied" : "Copy"}
+                      </span>
+                    </Button>
+                  </div>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        )}
+
+      {(hasConnections || hasPairingRequest || connectionsQuery.isError) && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Paired browsers</CardTitle>
+            <CardDescription>
+              Each browser has its own access. Revoking one does not disconnect
+              the others.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             {connectionsQuery.isPending ? (
               <p className="text-sm text-muted-foreground" role="status">
                 Loading paired browsers...
@@ -304,13 +509,13 @@ export function BrowserExtensionSettings(): JSX.Element {
                   Try again
                 </Button>
               </div>
-            ) : connectionsQuery.data.length === 0 ? (
+            ) : connections.length === 0 ? (
               <p className="rounded-md border border-dashed border-border px-3 py-4 text-sm text-muted-foreground">
-                No browsers are currently paired.
+                Waiting for this browser to finish connecting.
               </p>
             ) : (
               <div className="space-y-2" data-testid="paired-browser-list">
-                {connectionsQuery.data.map((connection) => (
+                {visibleConnections.map((connection) => (
                   <div
                     key={connection.id}
                     className="flex items-center gap-3 rounded-md border border-border bg-background/50 px-3 py-3"
@@ -347,17 +552,29 @@ export function BrowserExtensionSettings(): JSX.Element {
                     </Button>
                   </div>
                 ))}
+                {connections.length > initiallyVisibleConnections && (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    className="w-full"
+                    onClick={() => setShowAllConnections((visible) => !visible)}
+                  >
+                    {showAllConnections
+                      ? "Show fewer browsers"
+                      : `Show ${hiddenConnectionCount} more ${hiddenConnectionCount === 1 ? "browser" : "browsers"}`}
+                  </Button>
+                )}
               </div>
             )}
-
             {revokeMutation.isError && (
               <p className="mt-2 text-sm text-destructive" role="alert">
                 Could not revoke that browser. Try again.
               </p>
             )}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

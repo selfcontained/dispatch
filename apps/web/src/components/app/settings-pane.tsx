@@ -2,6 +2,7 @@ import { Database, Server, Settings } from "lucide-react";
 
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { AppearanceSettings } from "@/components/app/appearance-settings";
+import { BrowserExtensionSettings } from "@/components/app/browser-extension-settings";
 import { CrossRepoMessagingSettings } from "@/components/app/cross-repo-messaging-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
 import { InstanceNameSettings } from "@/components/app/instance-name-settings";
@@ -227,6 +228,7 @@ export function SettingsContent({
           </div>
         )}
         {activeSection === "notifications" && <NotificationSettings />}
+        {activeSection === "connections" && <BrowserExtensionSettings />}
         {activeSection === "updates" && (
           <UpdatesSection stream={releaseStream} />
         )}

@@ -208,7 +208,7 @@ function verificationPath(pairingId: string, code: string): string {
     browserExtensionPairing: pairingId,
     code,
   });
-  return `/settings/general?${query.toString()}`;
+  return `/settings/connections?${query.toString()}`;
 }
 
 function sanitizeAgent(agent: AgentRecord) {

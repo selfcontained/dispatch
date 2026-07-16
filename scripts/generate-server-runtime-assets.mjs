@@ -43,6 +43,7 @@ const MIME_TYPES = new Map([
   [".webp", "image/webp"],
   [".woff", "font/woff"],
   [".woff2", "font/woff2"],
+  [".zip", "application/zip"],
 ]);
 
 function toPosix(filePath) {
