@@ -442,12 +442,30 @@ export async function getAgentHistory(
             suggestion: string | null;
             status: string;
           }>(
-            `SELECT a.parent_agent_id AS "parentAgentId",
-                    f.id, a.persona, f.severity, f.description,
-                    f.file_path AS "filePath", f.suggestion, f.status
-             FROM agent_feedback f
-             JOIN agents a ON a.id = f.agent_id
-             WHERE a.parent_agent_id = ANY($1)
+            `SELECT r.agent_id AS "parentAgentId",
+                    f.id,
+                    COALESCE(ra.persona, r.reviewer_type, 'unknown') AS persona,
+                    'info' AS severity,
+                    COALESCE(first_message.content->>'body', '') AS description,
+                    f.file_path AS "filePath",
+                    NULL::text AS suggestion,
+                    CASE
+                      WHEN f.status = 'open' THEN 'open'
+                      WHEN f.resolution = 'fixed' THEN 'fixed'
+                      WHEN f.resolution = 'dismissed' THEN 'dismissed'
+                      ELSE f.status
+                    END AS status
+             FROM review_feedback_items f
+             JOIN reviews r ON r.id = f.review_id
+             LEFT JOIN agents ra ON ra.id = r.reviewer_agent_id
+             LEFT JOIN LATERAL (
+               SELECT content
+               FROM review_thread_messages
+               WHERE feedback_item_id = f.id
+               ORDER BY created_at ASC, id ASC
+               LIMIT 1
+             ) first_message ON TRUE
+             WHERE r.agent_id = ANY($1)
              ORDER BY f.created_at ASC`,
             [parentAgentIds]
           )
@@ -463,11 +481,26 @@ export async function getAgentHistory(
             summary: string | null;
             filesReviewed: string[] | null;
           }>(
-            `SELECT parent_agent_id AS "parentAgentId", persona, status,
-                    verdict, summary, files_reviewed AS "filesReviewed"
-             FROM persona_reviews
-             WHERE parent_agent_id = ANY($1)
-             ORDER BY created_at ASC`,
+            `SELECT r.agent_id AS "parentAgentId",
+                    COALESCE(ra.persona, r.reviewer_type, 'unknown') AS persona,
+                    r.status,
+                    CASE
+                      WHEN EXISTS (
+                        SELECT 1 FROM review_feedback_items f WHERE f.review_id = r.id
+                      ) THEN 'request_changes'
+                      ELSE 'approve'
+                    END AS verdict,
+                    r.summary,
+                    ARRAY(
+                      SELECT DISTINCT f.file_path
+                      FROM review_feedback_items f
+                      WHERE f.review_id = r.id AND f.file_path IS NOT NULL
+                      ORDER BY f.file_path
+                    ) AS "filesReviewed"
+             FROM reviews r
+             LEFT JOIN agents ra ON ra.id = r.reviewer_agent_id
+             WHERE r.agent_id = ANY($1)
+             ORDER BY r.created_at ASC`,
             [parentAgentIds]
           )
           .then((r) => r.rows)
@@ -586,11 +619,11 @@ export async function getFeedbackSummary(
   if (params.project) {
     feedbackParams.push(params.project);
     feedbackConditions.push(
-      `COALESCE(pa.git_context->>'repoRoot', pa.cwd, a.cwd) = $${feedbackParams.length}`
+      `COALESCE(pa.git_context->>'repoRoot', pa.cwd) = $${feedbackParams.length}`
     );
   }
 
-  const verdictConditions = ["pr.created_at >= $1", "pr.created_at <= $2"];
+  const verdictConditions = ["r.created_at >= $1", "r.created_at <= $2"];
   const verdictParams: unknown[] = [rangeStart, rangeEnd];
   if (params.project) {
     verdictParams.push(params.project);
@@ -609,12 +642,28 @@ export async function getFeedbackSummary(
       status: string;
       projectRoot: string;
     }>(
-      `SELECT a.persona, f.severity, f.description,
-                f.file_path AS "filePath", f.status,
-                COALESCE(pa.git_context->>'repoRoot', pa.cwd, a.cwd) AS "projectRoot"
-         FROM agent_feedback f
-         JOIN agents a ON a.id = f.agent_id
-         LEFT JOIN agents pa ON pa.id = a.parent_agent_id
+      `SELECT COALESCE(ra.persona, r.reviewer_type, 'unknown') AS persona,
+                'info' AS severity,
+                COALESCE(first_message.content->>'body', '') AS description,
+                f.file_path AS "filePath",
+                CASE
+                  WHEN f.status = 'open' THEN 'open'
+                  WHEN f.resolution = 'fixed' THEN 'fixed'
+                  WHEN f.resolution = 'dismissed' THEN 'dismissed'
+                  ELSE f.status
+                END AS status,
+                COALESCE(pa.git_context->>'repoRoot', pa.cwd) AS "projectRoot"
+         FROM review_feedback_items f
+         JOIN reviews r ON r.id = f.review_id
+         JOIN agents pa ON pa.id = r.agent_id
+         LEFT JOIN agents ra ON ra.id = r.reviewer_agent_id
+         LEFT JOIN LATERAL (
+           SELECT content
+           FROM review_thread_messages
+           WHERE feedback_item_id = f.id
+           ORDER BY created_at ASC, id ASC
+           LIMIT 1
+         ) first_message ON TRUE
          WHERE ${feedbackConditions.join(" AND ")}
          ORDER BY f.created_at ASC`,
       feedbackParams
@@ -627,10 +676,14 @@ export async function getFeedbackSummary(
     }>(
       `SELECT
           COUNT(*)::int AS total,
-          COUNT(*) FILTER (WHERE pr.verdict = 'approve')::int AS approved,
-          COUNT(*) FILTER (WHERE pr.verdict = 'request_changes')::int AS "changesRequested"
-         FROM persona_reviews pr
-         JOIN agents pa ON pa.id = pr.parent_agent_id
+          COUNT(*) FILTER (WHERE NOT EXISTS (
+            SELECT 1 FROM review_feedback_items f WHERE f.review_id = r.id
+          ))::int AS approved,
+          COUNT(*) FILTER (WHERE EXISTS (
+            SELECT 1 FROM review_feedback_items f WHERE f.review_id = r.id
+          ))::int AS "changesRequested"
+         FROM reviews r
+         JOIN agents pa ON pa.id = r.agent_id
          WHERE ${verdictConditions.join(" AND ")}`,
       verdictParams
     ),

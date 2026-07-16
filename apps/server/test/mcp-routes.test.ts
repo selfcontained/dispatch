@@ -20,15 +20,6 @@ vi.mock("../src/shared/git/git-context.js", () => ({
   resolveWorktreeRoot: vi.fn(async () => "/repo"),
 }));
 
-vi.mock("../src/agents/persona-reviews.js", () => ({
-  getPersonaReview: vi.fn(async () => null),
-  listRecentPersonaReviews: vi.fn(async () => []),
-}));
-
-vi.mock("../src/agents/feedback.js", () => ({
-  listRecentFeedback: vi.fn(async () => []),
-}));
-
 vi.mock("../src/agents/telemetry.js", () => ({
   getActivitySummary: vi.fn(async () => ({})),
   getAgentHistory: vi.fn(async () => ({})),

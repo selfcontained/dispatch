@@ -93,7 +93,7 @@ This phase is not done until **CI is green and the PR is merged**. `job_complete
 1. Run `pnpm run format:write` to fix formatting in files you touched.
 2. Commit on a new branch. The PR should only contain code changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was fixed, why it qualifies as tech debt, and what's queued for the next run.
-4. **Launch a reviewer.** After the PR is open, use `dispatch_launch_persona` to launch **one** review persona with `recheck: true`. Pick the best fit based on what you changed:
+4. **Launch a reviewer.** After the PR is open, use `dispatch_launch_persona` to launch **one** review persona. Pick the best fit based on what you changed:
    - `architecture-review` — structural refactors, module boundaries, dependency changes
    - `backend-security-review` — anything touching auth, API routes, data handling, or env vars
    - `frontend-ux-review` — UI component changes, style updates, accessibility

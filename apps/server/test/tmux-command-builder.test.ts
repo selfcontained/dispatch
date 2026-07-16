@@ -385,12 +385,12 @@ describe("buildAgentCommand", () => {
     expect(verboseIdx).toBeGreaterThan(claudeIdx);
   });
 
-  it("for claude with initialPrompt, appends the prompt as a positional arg", () => {
+  it("for claude with initialPrompt, terminates options before the positional arg", () => {
     const cmd = buildAgentCommand(
       baseConfig,
       "claude",
       "standard",
-      [],
+      ["--verbose"],
       "/tmp/media",
       SESSION,
       false,
@@ -399,9 +399,11 @@ describe("buildAgentCommand", () => {
       undefined,
       false,
       false,
-      "begin work"
+      "--- DISPATCH: REVIEW ASSIGNMENT ---\nbegin work"
     );
-    expect(cmd).toContain("'begin work'");
+    expect(cmd).toContain(
+      "'--verbose' -- '--- DISPATCH: REVIEW ASSIGNMENT ---\nbegin work'"
+    );
   });
 
   it("for claude with personalityPrompt, emits a second --append-system-prompt flag", () => {

@@ -5,36 +5,35 @@ import { buildLaunchPersonaResponseText } from "../src/shared/mcp/persona-intera
 describe("buildLaunchPersonaResponseText", () => {
   const persona = "backend-security-review";
   const agentId = "agt_test123";
-  const base = `Launched persona "${persona}" as agent ${agentId}.`;
+  const base = `Launched persona "${persona}" as review agent ${agentId}.`;
 
   it("starts with the launch confirmation", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text.startsWith(base)).toBe(true);
   });
 
-  it("includes round-trip guidance", () => {
+  it("includes unified review guidance", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
-    expect(text).toContain("multi-step round-trip review");
-    expect(text).toContain("dispatch_get_feedback");
-    expect(text).toContain("dispatch_resolve_feedback");
-    expect(text).toContain("dispatch_submit_resolution");
-    expect(text).toContain("respondsToFeedbackId");
+    expect(text).toContain("dispatch_review_submit");
+    expect(text).toContain("dispatch_review_list_feedback");
+    expect(text).toContain("dispatch_review_resolve");
+    expect(text).toContain("dispatch_review_reopen");
   });
 
-  it("tells the parent not to emit a terminal event yet (stay alive)", () => {
+  it("explains that clean approvals are tracked", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
-    expect(text).toContain("do not emit a terminal dispatch_event yet");
+    expect(text).toContain("clean approval");
+    expect(text).toContain("empty feedback array");
   });
 
   it("references the specific reviewer agent id in the guidance", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
-    expect(text).toContain(`personaAgentId="${agentId}"`);
+    expect(text).toContain(agentId);
   });
 
-  it("describes waiting in agent-runtime-neutral terms (no Claude-specific tool names)", () => {
+  it("uses no Claude-specific tool names", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
     expect(text).not.toContain("ScheduleWakeup");
-    expect(text).toMatch(/keep this turn alive/i);
   });
 
   it("does not instruct the parent to call any await/poll tool", () => {
@@ -44,22 +43,20 @@ describe("buildLaunchPersonaResponseText", () => {
     expect(text).not.toMatch(/pollAgainInSeconds/i);
   });
 
-  it("explains that the next-round signal arrives via terminal injection", () => {
+  it("explains that the review signal arrives via structured injection", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
-    expect(text).toMatch(/inject .* prompt/i);
-    expect(text).toMatch(/this terminal/i);
+    expect(text).toMatch(/inject .* structured/i);
+    expect(text).toContain("REVIEW SUBMITTED");
   });
 
-  it("tells the parent to commit fixes before submitting resolution", () => {
+  it("does not mention the legacy resolution lifecycle", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
-    expect(text).toContain(
-      "Commit your fixes before submitting the resolution"
-    );
-    expect(text).toContain("current HEAD");
+    expect(text).not.toContain("dispatch_submit_resolution");
+    expect(text).not.toContain("round 2");
   });
 
   it("places the guidance block after a blank line separator", () => {
     const text = buildLaunchPersonaResponseText(persona, agentId);
-    expect(text).toContain(`${base}\n\nThis is a multi-step round-trip`);
+    expect(text).toContain(`${base}\n\nThe reviewer will inspect`);
   });
 });

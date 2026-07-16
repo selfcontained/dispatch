@@ -33,17 +33,12 @@ vi.mock("../src/shared/git/worktree-status.js", () => ({
   }),
 }));
 
-vi.mock("../src/agents/persona-reviews.js", () => ({
-  getReviewChildAgentIds: vi.fn().mockResolvedValue([]),
-}));
-
 import { runLifecycleHook } from "../src/agents/lifecycle-hooks.js";
 import { cleanupGitWorktree } from "../src/shared/git/worktree.js";
 import {
   getUnmergedChanges,
   getUncommittedChanges,
 } from "../src/shared/git/worktree-status.js";
-import { getReviewChildAgentIds } from "../src/agents/persona-reviews.js";
 
 // ── Helpers ─────────────────────────────────────────────────────────────
 
@@ -92,7 +87,6 @@ const makeAgent = (
   parentAgentId: null,
   personaContext: null,
   reviewAgentType: null,
-  review: null,
   baseBranch: null,
   templateId: null,
   autoReview: false,
@@ -623,18 +617,19 @@ describe("executeArchive", () => {
   });
 
   describe("cascade child deletion", () => {
-    it("deletes review child agents found via persona_reviews", async () => {
+    it("deletes review child agents", async () => {
       const parent = makeAgent("parent");
       const child = makeAgent("child", {
         parentAgentId: "parent",
         status: "stopped",
       });
 
-      vi.mocked(getReviewChildAgentIds)
-        .mockResolvedValueOnce(["child"])
-        .mockResolvedValue([]);
-
-      const pool = makePool(async (sql: string) => {
+      const pool = makePool(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("role = 'review'")) {
+          return params?.[0] === "parent"
+            ? { rows: [{ id: "child" }], rowCount: 1 }
+            : { rows: [], rowCount: 0 };
+        }
         if (sql.includes("INSERT INTO agent_events")) {
           return { rows: [], rowCount: 0 };
         }
@@ -665,8 +660,6 @@ describe("executeArchive", () => {
     it("does not cascade to non-review child agents", async () => {
       const parent = makeAgent("parent");
 
-      vi.mocked(getReviewChildAgentIds).mockResolvedValue([]);
-
       const pool = makePool(async (sql: string) => {
         if (sql.includes("INSERT INTO agent_events")) {
           return { rows: [], rowCount: 0 };
@@ -691,11 +684,12 @@ describe("executeArchive", () => {
     it("continues if a child cascade fails", async () => {
       const parent = makeAgent("parent");
 
-      vi.mocked(getReviewChildAgentIds)
-        .mockResolvedValueOnce(["bad-child"])
-        .mockResolvedValue([]);
-
-      const pool = makePool(async (sql: string) => {
+      const pool = makePool(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("role = 'review'")) {
+          return params?.[0] === "parent"
+            ? { rows: [{ id: "bad-child" }], rowCount: 1 }
+            : { rows: [], rowCount: 0 };
+        }
         if (sql.includes("INSERT INTO agent_events")) {
           return { rows: [], rowCount: 0 };
         }
@@ -918,11 +912,11 @@ describe("deleteAgentDirect", () => {
     const parent = makeAgent("p1", { status: "stopped" });
     const child = makeAgent("c1", { status: "stopped", parentAgentId: "p1" });
 
-    vi.mocked(getReviewChildAgentIds)
-      .mockResolvedValueOnce(["c1"])
-      .mockResolvedValue([]);
-
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool(async (sql: string, params?: unknown[]) =>
+      sql.includes("role = 'review'") && params?.[0] === "p1"
+        ? { rows: [{ id: "c1" }], rowCount: 1 }
+        : { rows: [], rowCount: 0 }
+    );
     const deps = makeDeps({
       pool: pool as never,
       getRequiredAgent: vi.fn().mockImplementation(async (id: string) => {
@@ -961,11 +955,11 @@ describe("deleteAgentDirect", () => {
       parentAgentId: "p1",
     });
 
-    vi.mocked(getReviewChildAgentIds)
-      .mockResolvedValueOnce(["c1"])
-      .mockResolvedValue([]);
-
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool(async (sql: string, params?: unknown[]) =>
+      sql.includes("role = 'review'") && params?.[0] === "p1"
+        ? { rows: [{ id: "c1" }], rowCount: 1 }
+        : { rows: [], rowCount: 0 }
+    );
     const deps = makeDeps({
       pool: pool as never,
       getRequiredAgent: vi.fn().mockImplementation(async (id: string) => {

@@ -9,7 +9,10 @@ export type ReviewThreadMessage = {
   authorType: string;
   authorAgentId: string | null;
   type: string;
-  content: { body: string };
+  content: {
+    body: string;
+    resolution?: "fixed" | "dismissed" | null;
+  };
   createdAt: string;
 };
 
@@ -45,6 +48,7 @@ export type Review = {
 };
 
 export type ReviewListItem = Review & {
+  reviewerName: string | null;
   itemCount: number;
   resolvedCount: number;
 };

@@ -163,12 +163,8 @@ Terminal phases: `done`, `rollback`, `blocked`, `failed`. The forward-only guard
 
 On server startup, `rehydrateActiveAssistedJob` reads the on-disk state and resumes tracking the active job if the persisted phase is non-terminal — this lets the in-app Updates pane keep showing progress across a Dispatch restart that the assisted update itself triggered.
 
-## Persona Review State Machine
+## Review Agent Lifecycle
 
-Persona-review agents (created via `POST /agents/:id/launch-review` or `POST /agents/:id/persona-reviews`) carry a `review` sub-state independent of `AgentStatus`:
+Review agents are ordinary child agents with role `review`. Launching one does not create a review record. The review agent completes its initial pass by calling `dispatch_review_submit`; a review with no feedback items records a clean approval, while a review with items remains open until the parent resolves or dismisses each item.
 
-- `reviewing` → `complete` (single-round review)
-- `reviewing` → `awaiting_recheck` → `reviewing` → `complete` (round-trip review with `dispatch_submit_resolution` from the parent and `dispatch_get_recheck_context` from the reviewer)
-- `cancelled` is a terminal state reachable from any non-terminal review state.
-
-State columns and the round-trip flow were added in migration `0017_persona-review-round-trip.sql`.
+Questions and follow-up discussion use each feedback item's tracked thread. Review status is derived from the item states rather than a separate reviewer state machine.

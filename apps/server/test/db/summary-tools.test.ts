@@ -62,8 +62,9 @@ afterAll(async () => {
 
 beforeEach(async () => {
   await pool.query("DELETE FROM agent_token_usage");
-  await pool.query("DELETE FROM agent_feedback");
-  await pool.query("DELETE FROM persona_reviews");
+  await pool.query("DELETE FROM review_thread_messages");
+  await pool.query("DELETE FROM review_feedback_items");
+  await pool.query("DELETE FROM reviews");
   await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM media_seen");
   await pool.query("DELETE FROM media");
@@ -126,7 +127,7 @@ async function insertEvent(
 }
 
 async function insertFeedback(
-  agentId: string,
+  reviewerAgentId: string,
   opts: {
     severity?: string;
     filePath?: string | null;
@@ -135,15 +136,52 @@ async function insertFeedback(
     createdAt?: Date;
   } = {}
 ): Promise<void> {
-  await pool.query(
-    `INSERT INTO agent_feedback (agent_id, severity, file_path, description, status, created_at)
-     VALUES ($1, $2, $3, $4, $5, $6)`,
+  let reviewResult = await pool.query<{ id: number }>(
+    `SELECT id FROM reviews
+     WHERE reviewer_type = 'agent' AND reviewer_agent_id = $1`,
+    [reviewerAgentId]
+  );
+  if (!reviewResult.rows[0]) {
+    reviewResult = await pool.query<{ id: number }>(
+      `INSERT INTO reviews (
+         agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, status,
+         created_at, updated_at
+       )
+       SELECT parent_agent_id, parent_agent_id, 'agent', id, 'open', $2, $2
+       FROM agents
+       WHERE id = $1
+       RETURNING id`,
+      [reviewerAgentId, opts.createdAt ?? new Date()]
+    );
+  }
+  const status = opts.status ?? "open";
+  const resolution =
+    status === "fixed"
+      ? "fixed"
+      : status === "ignored" || status === "dismissed"
+        ? "dismissed"
+        : null;
+  const itemResult = await pool.query<{ id: number }>(
+    `INSERT INTO review_feedback_items (
+       review_id, file_path, status, resolution, created_at, updated_at
+     ) VALUES ($1, $2, $3, $4, $5, $5)
+     RETURNING id`,
     [
-      agentId,
-      opts.severity ?? "medium",
+      reviewResult.rows[0]!.id,
       opts.filePath ?? null,
-      opts.description ?? "Test finding",
-      opts.status ?? "open",
+      resolution ? "resolved" : "open",
+      resolution,
+      opts.createdAt ?? new Date(),
+    ]
+  );
+  await pool.query(
+    `INSERT INTO review_thread_messages (
+       feedback_item_id, author_type, author_agent_id, content, created_at
+     ) VALUES ($1, 'agent', $2, $3, $4)`,
+    [
+      itemResult.rows[0]!.id,
+      reviewerAgentId,
+      JSON.stringify({ body: opts.description ?? "Test finding" }),
       opts.createdAt ?? new Date(),
     ]
   );
@@ -152,7 +190,7 @@ async function insertFeedback(
 async function insertReview(
   agentId: string,
   parentAgentId: string,
-  persona: string,
+  _persona: string,
   opts: {
     verdict?: string | null;
     summary?: string | null;
@@ -160,19 +198,27 @@ async function insertReview(
     createdAt?: Date;
   } = {}
 ): Promise<void> {
-  await pool.query(
-    `INSERT INTO persona_reviews (agent_id, parent_agent_id, persona, status, verdict, summary, created_at, updated_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $7)`,
+  const result = await pool.query<{ id: number }>(
+    `INSERT INTO reviews (
+       agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id,
+       status, summary, created_at, updated_at
+     ) VALUES ($1, $1, 'agent', $2, $3, $4, $5, $5)
+     RETURNING id`,
     [
-      agentId,
       parentAgentId,
-      persona,
-      opts.status ?? "complete",
-      opts.verdict ?? "approve",
+      agentId,
+      opts.verdict === "request_changes" ? "open" : "resolved",
       opts.summary ?? "Looks good",
       opts.createdAt ?? new Date(),
     ]
   );
+  if (opts.verdict === "request_changes") {
+    await pool.query(
+      `INSERT INTO review_feedback_items (review_id, status, created_at, updated_at)
+       VALUES ($1, 'open', $2, $2)`,
+      [result.rows[0]!.id, opts.createdAt ?? new Date()]
+    );
+  }
 }
 
 function daysAgo(days: number): Date {
@@ -499,7 +545,7 @@ describe("getAgentHistory", () => {
     expect(result.agents).toHaveLength(1);
     expect(result.agents[0].feedback).toBeDefined();
     expect(result.agents[0].feedback).toHaveLength(2);
-    expect(result.agents[0].feedback![0].severity).toBe("high");
+    expect(result.agents[0].feedback![0].severity).toBe("info");
     expect(result.agents[0].feedback![0].persona).toBe("security-review");
   });
 
@@ -609,15 +655,15 @@ describe("getFeedbackSummary", () => {
 
     expect(result.totalFindings).toBe(5);
     expect(result.bySeverity).toEqual({
-      critical: 1,
-      high: 1,
-      medium: 1,
-      low: 1,
-      info: 1,
+      critical: 0,
+      high: 0,
+      medium: 0,
+      low: 0,
+      info: 5,
     });
     expect(result.byStatus.open).toBe(3);
     expect(result.byStatus.fixed).toBe(1);
-    expect(result.byStatus.ignored).toBe(1);
+    expect(result.byStatus.dismissed).toBe(1);
   });
 
   it("groups by persona", async () => {
@@ -664,9 +710,9 @@ describe("getFeedbackSummary", () => {
       groupBy: "severity",
     });
 
-    expect(result.groups).toHaveLength(2);
-    const highGroup = result.groups.find((g) => g.key === "high");
-    expect(highGroup!.count).toBe(2);
+    expect(result.groups).toHaveLength(1);
+    const infoGroup = result.groups.find((g) => g.key === "info");
+    expect(infoGroup!.count).toBe(3);
   });
 
   it("groups by directory relative to project root", async () => {
@@ -822,7 +868,6 @@ describe("getFeedbackSummary", () => {
     await insertFeedback("reviewer", {
       description: "Archived parent finding",
     });
-    await insertReview("reviewer", "parent", "sec", { verdict: "approve" });
     await pool.query(
       "UPDATE agents SET deleted_at = NOW() WHERE id = 'parent'"
     );
@@ -839,6 +884,7 @@ describe("getFeedbackSummary", () => {
       "Archived parent finding"
     );
     expect(result.reviewVerdicts.total).toBe(1);
-    expect(result.reviewVerdicts.approved).toBe(1);
+    expect(result.reviewVerdicts.approved).toBe(0);
+    expect(result.reviewVerdicts.changesRequested).toBe(1);
   });
 });

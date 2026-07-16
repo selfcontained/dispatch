@@ -183,7 +183,7 @@ export function buildLaunchGuidance(
     );
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. After launch, keep the turn alive and wait for server-injected review prompts instead of polling dispatch_get_feedback. For single-pass reviews you'll receive one completion prompt; for recheck reviews you'll receive a round-1 prompt and, after dispatch_submit_resolution, a round-2 prompt. Only call dispatch_get_feedback after a completion prompt says findings are ready. Address critical/high feedback before resolving; medium and below can be resolved with a comment. Call dispatch_resolve_feedback for each item. Don't emit done until all reviews are resolved."
+        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. Wait for the structured REVIEW SUBMITTED prompt instead of polling. If feedback exists, call dispatch_review_list_feedback with the supplied review ID, keep all discussion in item threads via dispatch_review_add_message, and set each outcome with dispatch_review_resolve. Use dispatch_review_reopen if more work is needed. A clean zero-item approval requires no action. Don't emit done until all submitted reviews are resolved."
       );
     }
   }
@@ -377,13 +377,17 @@ export function buildAgentCommand(
     const flags = [mcpFlag, systemFlag, personalityFlag, sessionFlag]
       .filter(Boolean)
       .join(" ");
-    // initialPrompt becomes the first user message (positional arg to Claude Code CLI)
-    const allArgs = initialPrompt ? [...args, initialPrompt] : args;
-    if (allArgs.length === 0) {
+    // initialPrompt becomes the first user message (positional arg to Claude
+    // Code CLI). Separate it from options with `--` so structured Dispatch
+    // blocks that begin with `---` are not parsed as unknown CLI flags.
+    if (args.length === 0 && !initialPrompt) {
       return `${envPrefix} ${shellEscape(cliBin)} ${flags}`;
     }
-    const escaped = allArgs.map((arg) => shellEscape(arg)).join(" ");
-    return `${envPrefix} ${shellEscape(cliBin)} ${flags} ${escaped}`;
+    const commandArgs = args.map((arg) => shellEscape(arg));
+    if (initialPrompt) {
+      commandArgs.push("--", shellEscape(initialPrompt));
+    }
+    return `${envPrefix} ${shellEscape(cliBin)} ${flags} ${commandArgs.join(" ")}`;
   }
 
   if (type === "opencode") {

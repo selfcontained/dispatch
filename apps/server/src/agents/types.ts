@@ -9,7 +9,7 @@ export type AgentStatus =
 
 export type AgentType = "codex" | "claude" | "opencode" | "cursor" | "terminal";
 
-export type AgentRole = "standard" | "assisted_update";
+export type AgentRole = "standard" | "review" | "assisted_update";
 
 export type AgentLatestEventType =
   | "working"
@@ -102,21 +102,7 @@ export type AgentRecord = {
   parentAgentId: string | null;
   personaContext: string | null;
   reviewAgentType: AgentType | null;
-  review: {
-    status: string;
-    message: string | null;
-    verdict: string | null;
-    summary: string | null;
-    filesReviewed: string[] | null;
-    roundNumber: number;
-    updatedAt: string;
-    resolution: {
-      summary: string;
-      resolutionCommit: string | null;
-      submittedAt: string;
-      roundNumber: number;
-    } | null;
-  } | null;
+  submittedReviewId: number | null;
   baseBranch: string | null;
   templateId: string | null;
   autoReview: boolean;

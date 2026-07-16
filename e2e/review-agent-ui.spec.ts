@@ -3,12 +3,8 @@ import { expect, test } from "@playwright/test";
 import {
   cleanupE2EAgents,
   createAgentViaAPI,
-  seedPersonaRecheckFixtureViaDB,
+  seedReviewAgentFixtureViaDB,
 } from "./helpers";
-
-const AUTH_HEADER = {
-  Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
-};
 
 async function waitForAppShell(
   page: import("@playwright/test").Page
@@ -17,12 +13,10 @@ async function waitForAppShell(
   await page.getByTestId("terminal-pane").waitFor({ state: "visible" });
 }
 
-test.describe("Persona recheck UI", () => {
-  test.afterEach(async ({ request }) => {
-    await cleanupE2EAgents(request);
-  });
+test.describe("Review agent UI", () => {
+  test.afterEach(async ({ request }) => cleanupE2EAgents(request));
 
-  test("renders round badges, round 2 grouping, and cancel recheck", async ({
+  test("shows lightweight review agents and opens their submitted review", async ({
     page,
     request,
   }) => {
@@ -31,66 +25,51 @@ test.describe("Persona recheck UI", () => {
       cwd: process.cwd(),
       useWorktree: false,
     });
-    const fixture = await seedPersonaRecheckFixtureViaDB(agent.id);
+    const fixture = await seedReviewAgentFixtureViaDB(agent.id);
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await waitForAppShell(page);
 
+    for (const reviewerId of [
+      fixture.activeAgentId,
+      fixture.openReviewAgentId,
+      fixture.approvedAgentId,
+    ]) {
+      await expect(
+        page.getByTestId(`agent-card-${reviewerId}`)
+      ).not.toBeVisible();
+      await expect(
+        page.getByTestId(`child-agent-row-${reviewerId}`)
+      ).toBeVisible();
+    }
     await expect(
-      page
-        .getByTestId(`agent-card-${fixture.round1AgentId}`)
-        .getByText("R1", { exact: true })
+      page.getByTestId(`agent-card-${fixture.standardChildAgentId}`)
     ).toBeVisible();
+    await expect(page.getByText("Sub Agents", { exact: true })).toBeVisible();
     await expect(
-      page
-        .getByTestId(`agent-card-${fixture.awaitingRecheckAgentId}`)
-        .getByText("R2 pending", { exact: true })
-    ).toBeVisible();
+      page.locator('[data-agent-role="review"]').getByText("Review", {
+        exact: true,
+      })
+    ).toHaveCount(3);
     await expect(
-      page
-        .getByTestId(`agent-card-${fixture.awaitingRecheckAgentId}`)
-        .getByText("Rechecking")
-    ).toBeVisible();
+      page.getByTestId(`child-agent-row-${fixture.activeAgentId}`)
+    ).toHaveAttribute("data-review-active", "true");
     await expect(
-      page
-        .getByTestId(`agent-card-${fixture.round2AgentId}`)
-        .getByText("R2", { exact: true })
-    ).toBeVisible();
+      page.getByTestId(`child-agent-row-${fixture.openReviewAgentId}`)
+    ).toHaveAttribute("data-review-active", "false");
 
-    await expect(page.getByText("Round 2 findings")).toBeVisible();
-
-    const original = page.getByRole("button", {
-      name: /The retry loop bypasses the circuit breaker on the cache-miss path/i,
-    });
-    const followup = page.getByRole("button", {
-      name: /Round 2: fallback retries still skip the breaker/i,
-    });
-    await expect(original).toBeVisible();
-    await expect(followup).toBeVisible();
-
-    const [originalBox, followupBox] = await Promise.all([
-      original.boundingBox(),
-      followup.boundingBox(),
-    ]);
-    expect(originalBox).not.toBeNull();
-    expect(followupBox).not.toBeNull();
-    expect(followupBox!.x).toBeGreaterThan(originalBox!.x);
-
-    await page.goto(
-      `/agents/${agent.id}/review/${fixture.awaitingRecheckAgentId}`,
-      { waitUntil: "domcontentloaded" }
+    await page
+      .getByTestId(`child-agent-open-review-${fixture.openReviewAgentId}`)
+      .click();
+    await expect(page).toHaveURL(
+      new RegExp(`expandReview=${fixture.openReviewId}`)
     );
-    await waitForAppShell(page);
-    await expect(page.getByText("Review Summary")).toBeVisible();
-    const cancelButton = page.getByTestId("cancel-recheck-button");
-    await expect(cancelButton).toBeVisible();
-
-    page.once("dialog", (dialog) => dialog.accept());
-    await cancelButton.click();
-    await expect(cancelButton).not.toBeVisible();
+    await expect(
+      page.getByText("Found one actionable loading-state issue.")
+    ).toBeVisible();
   });
 
-  test("launcher does not show allowRecheck toggle (recheck is always on)", async ({
+  test("launcher uses the unified single-pass review flow", async ({
     page,
     request,
   }) => {
@@ -102,18 +81,24 @@ test.describe("Persona recheck UI", () => {
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await waitForAppShell(page);
-
     await page.getByTestId("launch-reviewer-button").click();
     await expect(
       page.getByRole("heading", { name: "Launch Review" })
     ).toBeVisible();
-
+    await expect(
+      page.getByText(
+        "The reviewer will submit one tracked review, with follow-up discussion kept in its feedback item threads."
+      )
+    ).toBeVisible();
+    await expect(
+      page.getByText(/follow-up verification pass/i)
+    ).not.toBeVisible();
     await expect(
       page.getByTestId("launch-reviewer-allow-recheck")
     ).not.toBeVisible();
   });
 
-  test("launcher shows an error when review launch fails", async ({
+  test("launcher keeps the dialog open when review launch fails", async ({
     page,
     request,
   }) => {
@@ -122,7 +107,6 @@ test.describe("Persona recheck UI", () => {
       cwd: process.cwd(),
       useWorktree: false,
     });
-
     await page.route(
       `**/api/v1/agents/${agent.id}/launch-review`,
       async (route) => {
@@ -138,7 +122,6 @@ test.describe("Persona recheck UI", () => {
 
     await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     await waitForAppShell(page);
-
     await page.getByTestId("launch-reviewer-button").click();
     await page
       .getByTestId("launch-reviewer-persona-architecture-review")

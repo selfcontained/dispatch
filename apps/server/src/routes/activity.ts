@@ -664,12 +664,30 @@ async function handleHistoryAgentDetail(
       status: string;
       createdAt: string;
     }>(
-      `SELECT f.id, f.agent_id AS "agentId", a.persona, f.severity, f.file_path AS "filePath",
-                  f.line_number AS "lineNumber", f.description, f.suggestion, f.media_ref AS "mediaRef",
-                  f.status, f.created_at AS "createdAt"
-           FROM agent_feedback f
-           JOIN agents a ON a.id = f.agent_id
-           WHERE a.parent_agent_id = $1
+      `SELECT f.id, r.reviewer_agent_id AS "agentId",
+                  COALESCE(ra.persona, r.reviewer_type) AS persona,
+                  'info' AS severity,
+                  f.file_path AS "filePath", f.line_start AS "lineNumber",
+                  COALESCE(first_message.content->>'body', '') AS description,
+                  NULL::text AS suggestion, NULL::text AS "mediaRef",
+                  CASE
+                    WHEN f.status = 'open' THEN 'open'
+                    WHEN f.resolution = 'fixed' THEN 'fixed'
+                    WHEN f.resolution = 'dismissed' THEN 'dismissed'
+                    ELSE f.status
+                  END AS status,
+                  f.created_at AS "createdAt"
+           FROM review_feedback_items f
+           JOIN reviews r ON r.id = f.review_id
+           LEFT JOIN agents ra ON ra.id = r.reviewer_agent_id
+           LEFT JOIN LATERAL (
+             SELECT content
+             FROM review_thread_messages
+             WHERE feedback_item_id = f.id
+             ORDER BY created_at ASC, id ASC
+             LIMIT 1
+           ) first_message ON TRUE
+           WHERE r.agent_id = $1
            ORDER BY f.created_at ASC
            LIMIT 500`,
       [id]

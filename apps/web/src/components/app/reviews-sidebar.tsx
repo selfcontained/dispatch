@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Bot,
@@ -84,24 +84,24 @@ export const ReviewsSidebarContent = memo(function ReviewsSidebarContent({
   onNavigateToFile,
 }: ReviewsSidebarContentProps): JSX.Element {
   const { reviews, isLoading } = useAgentReviews(agentId, !!agentId);
-  const [expandedReviewId, setExpandedReviewId] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: diffData } = useAgentDiff(agentId, !!agentId);
-
-  useEffect(() => {
-    const expandReview = searchParams.get("expandReview");
-    if (expandReview != null) {
-      setExpandedReviewId(parseInt(expandReview, 10));
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete("expandReview");
-          return next;
-        },
-        { replace: true }
-      );
-    }
-  }, [searchParams, setSearchParams]);
+  const requestedReviewId = Number(searchParams.get("expandReview"));
+  const expandedReviewId =
+    Number.isInteger(requestedReviewId) && requestedReviewId > 0
+      ? requestedReviewId
+      : null;
+  const setExpandedReviewId = useCallback(
+    (reviewId: number | null) => {
+      setSearchParams((previous) => {
+        const next = new URLSearchParams(previous);
+        if (reviewId == null) next.delete("expandReview");
+        else next.set("expandReview", String(reviewId));
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
 
   const diffFilePaths = useMemo(() => {
     if (!diffData?.files) return undefined;
@@ -149,8 +149,8 @@ export const ReviewsSidebarContent = memo(function ReviewsSidebarContent({
             review={review}
             expanded={expandedReviewId === review.id}
             onToggle={() =>
-              setExpandedReviewId((prev) =>
-                prev === review.id ? null : review.id
+              setExpandedReviewId(
+                expandedReviewId === review.id ? null : review.id
               )
             }
             onNavigateToFile={onNavigateToFile}
@@ -182,6 +182,18 @@ function ReviewRow({
   diffFilePaths?: Set<string>;
 }): JSX.Element {
   const { review: detail } = useAgentReviewDetail(agentId, review.id, expanded);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const frame = window.requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView?.({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [expanded]);
 
   const statusStyle =
     REVIEW_STATUS_STYLES[review.status] ?? DEFAULT_REVIEW_STYLE;
@@ -196,42 +208,69 @@ function ReviewRow({
 
   return (
     <div
+      ref={rowRef}
+      data-review-id={review.id}
       className={cn(
         "relative mb-3 overflow-clip rounded-md border-l-2 bg-muted/[0.07]",
         statusStyle.rail
       )}
     >
-      <button
-        type="button"
-        className="flex w-full items-start gap-2 overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors hover:bg-muted/30"
-        onClick={onToggle}
-      >
+      <div className="relative flex w-full items-start gap-2 overflow-hidden rounded-md px-3 py-2.5 text-left transition-colors hover:bg-muted/30">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          aria-label={`${expanded ? "Collapse" : "Expand"} review from ${review.reviewerType === "agent" ? review.reviewerName || "review agent" : "human reviewer"}`}
+          className="absolute inset-0 z-0 rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={onToggle}
+        />
         <ChevronRight
           className={cn(
-            "mt-0.5 h-3 w-3 shrink-0 text-muted-foreground transition-transform",
+            "pointer-events-none relative z-10 mt-0.5 h-3 w-3 shrink-0 text-muted-foreground transition-transform",
             expanded && "rotate-90"
           )}
         />
         {review.reviewerType === "human" ? (
-          <User className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <User className="pointer-events-none relative z-10 mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         ) : (
-          <Bot className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <Bot className="pointer-events-none relative z-10 mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        <div className="min-w-0 flex-1">
-          <p
+        <div className="pointer-events-none relative z-10 min-w-0 flex-1">
+          <div
+            data-testid={`review-summary-${review.id}`}
             className={cn(
-              "text-xs text-foreground/90",
-              !expanded && "truncate",
+              "text-xs leading-[1.45] text-foreground/90",
+              !expanded && "max-h-[1.45em] overflow-hidden",
               !review.summary && "text-muted-foreground"
             )}
           >
-            {review.summary || "Review feedback"}
+            <Markdown
+              className={cn(
+                "text-xs leading-[1.45] text-foreground/90",
+                "prose-p:my-0 prose-ul:my-0 prose-ol:my-0 prose-li:my-0",
+                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                "[&_a]:pointer-events-auto"
+              )}
+            >
+              {review.summary || "Review feedback"}
+            </Markdown>
+          </div>
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground">
+            {review.reviewerType === "agent"
+              ? review.reviewerName || "Review agent"
+              : "Human reviewer"}
           </p>
           <div className="mt-1.5 flex items-center gap-2 text-[10px] text-muted-foreground">
-            <span className="flex items-center gap-1">
-              <MessageCircle className="h-2.5 w-2.5" />
-              {review.resolvedCount}/{review.itemCount} resolved
-            </span>
+            {review.itemCount === 0 ? (
+              <span className="flex items-center gap-1 text-status-working">
+                <CheckCircle2 className="h-2.5 w-2.5" />
+                Approved · no feedback
+              </span>
+            ) : (
+              <span className="flex items-center gap-1">
+                <MessageCircle className="h-2.5 w-2.5" />
+                {review.resolvedCount}/{review.itemCount} resolved
+              </span>
+            )}
             <span className="flex items-center gap-1">
               <Clock className="h-2.5 w-2.5" />
               {timeStr}
@@ -246,7 +285,7 @@ function ReviewRow({
             </span>
           </div>
         </div>
-      </button>
+      </div>
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div
@@ -260,19 +299,35 @@ function ReviewRow({
             <div className="px-1.5 pb-2 pt-1">
               {review.status === "open" && (
                 <p className="mb-2 px-1 text-[10px] text-muted-foreground">
-                  Sent to agent — waiting for response · {timeStr}
+                  {review.reviewerType === "agent"
+                    ? "Reviewer feedback submitted — awaiting action"
+                    : "Sent for review — waiting for response"}{" "}
+                  · {timeStr}
                 </p>
               )}
               {detail ? (
-                detail.items.map((item) => (
-                  <FeedbackItemRow
-                    key={item.id}
-                    agentId={agentId}
-                    item={item}
-                    onNavigateToFile={onNavigateToFile}
-                    diffFilePaths={diffFilePaths}
-                  />
-                ))
+                detail.items.length === 0 ? (
+                  <div className="mx-1 rounded-md border border-status-working/25 bg-status-working/[0.06] px-3 py-2.5">
+                    <p className="flex items-center gap-1.5 text-xs font-medium text-status-working">
+                      <CheckCircle2 className="h-3.5 w-3.5" />
+                      Approved without feedback
+                    </p>
+                    <p className="mt-1 text-[10px] leading-relaxed text-muted-foreground">
+                      The reviewer found no actionable issues. The review
+                      summary above records their rationale.
+                    </p>
+                  </div>
+                ) : (
+                  detail.items.map((item) => (
+                    <FeedbackItemRow
+                      key={item.id}
+                      agentId={agentId}
+                      item={item}
+                      onNavigateToFile={onNavigateToFile}
+                      diffFilePaths={diffFilePaths}
+                    />
+                  ))
+                )
               ) : (
                 <div className="flex items-center justify-center py-4 text-[10px] text-muted-foreground">
                   Loading items…
@@ -448,17 +503,33 @@ function FeedbackItemRow({
             </Tooltip>
           )}
         </div>
-        <button
-          type="button"
-          aria-expanded={expanded}
-          onClick={() => setExpanded((value) => !value)}
-          className={cn(
-            "mt-1.5 block w-full rounded-sm pl-5 pr-2 text-left whitespace-pre-wrap break-words text-xs leading-[1.45] text-foreground/90 outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            !expanded && "line-clamp-2"
-          )}
-        >
-          {originalFeedback}
-        </button>
+        <div className="relative mt-1.5 pl-5 pr-2">
+          <button
+            type="button"
+            aria-expanded={expanded}
+            aria-label={`${expanded ? "Collapse" : "Expand"} feedback description`}
+            onClick={() => setExpanded((value) => !value)}
+            className="absolute inset-0 z-0 rounded-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          />
+          <div
+            data-testid={`feedback-body-${item.id}`}
+            className={cn(
+              "pointer-events-none relative z-10 break-words text-xs leading-[1.45] text-foreground/90",
+              !expanded && "max-h-[4.35em] overflow-hidden"
+            )}
+          >
+            <Markdown
+              className={cn(
+                "text-xs leading-[1.45] text-foreground/90",
+                "prose-p:my-0 prose-ul:my-0 prose-ol:my-0 prose-li:my-0",
+                "[&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+                "[&_a]:pointer-events-auto"
+              )}
+            >
+              {originalFeedback}
+            </Markdown>
+          </div>
+        </div>
       </div>
       <AnimatePresence initial={false}>
         {expanded && (
@@ -480,7 +551,8 @@ function FeedbackItemRow({
                   message={message}
                   grouped={
                     index > 0 &&
-                    messages[index - 1]?.authorType === message.authorType
+                    messages[index - 1]?.authorType === message.authorType &&
+                    messages[index - 1]?.type === message.type
                   }
                 />
               ))}
@@ -668,6 +740,19 @@ function ThreadMessage({
   grouped: boolean;
 }): JSX.Element {
   const isAgent = message.authorType !== "human";
+  const isStateChange =
+    message.type === "resolution" || message.type === "reopen";
+  const stateChangeLabel =
+    message.type === "reopen"
+      ? "Reopened feedback"
+      : message.content?.resolution
+        ? `Marked ${message.content.resolution}`
+        : "Updated feedback state";
+  const body = isStateChange
+    ? message.content?.body
+      ? `${stateChangeLabel}\n\n${message.content.body}`
+      : stateChangeLabel
+    : message.content?.body || "Updated feedback";
   return (
     <div className={cn(grouped ? "mt-1" : "mt-2.5", isAgent ? "pr-6" : "pl-6")}>
       {!grouped && (
@@ -677,7 +762,9 @@ function ThreadMessage({
             !isAgent && "justify-end"
           )}
         >
-          <span className="font-medium">{isAgent ? "Agent" : "You"}</span>
+          <span className="font-medium">
+            {isStateChange ? "State change" : isAgent ? "Agent" : "You"}
+          </span>
           <span>·</span>
           <span>
             {new Date(message.createdAt).toLocaleTimeString(undefined, {
@@ -691,14 +778,14 @@ function ThreadMessage({
         className={cn(
           !grouped && "mt-0.5",
           "rounded-xl px-2.5 py-1.5",
-          isAgent
-            ? "rounded-bl-sm bg-muted text-foreground"
-            : "rounded-br-sm bg-primary/10 text-foreground ring-1 ring-inset ring-primary/20"
+          isStateChange
+            ? "rounded-md border border-border/70 bg-muted/30 text-muted-foreground"
+            : isAgent
+              ? "rounded-bl-sm bg-muted text-foreground"
+              : "rounded-br-sm bg-primary/10 text-foreground ring-1 ring-inset ring-primary/20"
         )}
       >
-        <Markdown className="text-xs text-foreground">
-          {message.content?.body ?? ""}
-        </Markdown>
+        <Markdown className="text-xs text-foreground">{body}</Markdown>
       </div>
     </div>
   );
