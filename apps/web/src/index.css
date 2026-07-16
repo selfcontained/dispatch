@@ -1048,7 +1048,7 @@ html[data-theme="matrix"] [role="button"] {
   will-change: transform, box-shadow, background-color;
 }
 
-/* Working review child — chasing border that reuses the reconnect gradient.
+/* Review child before its initial submission — chasing border that reuses the reconnect gradient.
    A ::before pseudo-element holds a rotating conic-gradient clipped to a 1.5px
    ring via mask-composite. The `from` angle is animated smoothly through a
    registered custom property so the bright arc travels around the edge. */
@@ -1057,16 +1057,16 @@ html[data-theme="matrix"] [role="button"] {
   initial-value: 0deg;
   inherits: false;
 }
-@keyframes child-agent-working-chase-spin {
+@keyframes child-agent-review-chase-spin {
   to {
     --child-agent-chase-angle: 360deg;
   }
 }
-.child-agent-working-row,
+.child-agent-review-active-row,
 .persona-reviewing-row {
   position: relative;
 }
-.child-agent-working-row::before,
+.child-agent-review-active-row::before,
 .persona-reviewing-row::before {
   content: "";
   position: absolute;
@@ -1089,10 +1089,10 @@ html[data-theme="matrix"] [role="button"] {
     linear-gradient(#fff 0 0);
   -webkit-mask-composite: xor;
   mask-composite: exclude;
-  animation: child-agent-working-chase-spin 4s linear infinite;
+  animation: child-agent-review-chase-spin 4s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .child-agent-working-row::before,
+  .child-agent-review-active-row::before,
   .persona-reviewing-row::before {
     display: none;
   }
@@ -1110,7 +1110,7 @@ html[data-hidden] .dispatch-activity-bar {
 html[data-hidden] .animate-spin {
   animation-play-state: paused;
 }
-html[data-hidden] .child-agent-working-row::before,
+html[data-hidden] .child-agent-review-active-row::before,
 html[data-hidden] .persona-reviewing-row::before {
   animation-play-state: paused;
 }

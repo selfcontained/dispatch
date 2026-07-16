@@ -713,6 +713,9 @@ export function AgentCard({
                           key={child.id}
                           agent={child}
                           state={getVisualState(child)}
+                          isInitialReviewActive={
+                            child.role === "review" && !child.hasSubmittedReview
+                          }
                           isConnected={connectedAgentId === child.id}
                           attachToAgent={attachToAgent}
                           detachTerminal={detachTerminal}

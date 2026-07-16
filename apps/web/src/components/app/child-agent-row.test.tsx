@@ -45,6 +45,7 @@ function renderRow(
       <ChildAgentRow
         agent={agent}
         state="idle"
+        isInitialReviewActive={true}
         isConnected={false}
         attachToAgent={attachToAgent}
         detachTerminal={detachTerminal}
@@ -57,14 +58,29 @@ function renderRow(
 }
 
 describe("ChildAgentRow", () => {
-  it("labels explicitly typed review agents and chases while working", () => {
-    renderRow(baseAgent);
+  it("labels review agents and chases before their initial review is submitted", () => {
+    renderRow({
+      ...baseAgent,
+      latestEvent: {
+        type: "done",
+        message: "Incorrect stale event",
+        updatedAt: "2026-07-15T12:00:00.000Z",
+      },
+    });
 
     expect(screen.getByText("Review")).toBeTruthy();
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.agentRole).toBe("review");
-    expect(row.dataset.working).toBe("true");
-    expect(row.className).toContain("child-agent-working-row");
+    expect(row.dataset.reviewActive).toBe("true");
+    expect(row.className).toContain("child-agent-review-active-row");
+  });
+
+  it("stops chasing after the initial review is submitted", () => {
+    renderRow(baseAgent, { isInitialReviewActive: false });
+
+    const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.dataset.reviewActive).toBe("false");
+    expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
   it("does not infer review purpose from a persona", () => {
@@ -72,8 +88,8 @@ describe("ChildAgentRow", () => {
 
     expect(screen.queryByText("Review")).toBeNull();
     const row = screen.getByTestId("child-agent-row-agt_child");
-    expect(row.dataset.working).toBe("false");
-    expect(row.className).not.toContain("child-agent-working-row");
+    expect(row.dataset.reviewActive).toBe("false");
+    expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
   it("detaches to the detached state without attaching another agent", () => {

@@ -407,6 +407,13 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         agentId: parent.id,
         reviewId: review.id,
       });
+      const submittedReviewer = await agentManager.getAgent(reviewer.id);
+      if (submittedReviewer) {
+        publishUiEvent({
+          type: "agent.upsert",
+          agent: withStreamFlag(submittedReviewer),
+        });
+      }
       await sendPromptBestEffort(
         parent.id,
         buildReviewSubmittedPrompt({

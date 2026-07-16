@@ -19,6 +19,7 @@ import { cn } from "@/lib/utils";
 export type ChildAgentRowProps = {
   agent: Agent;
   state: AgentVisualState;
+  isInitialReviewActive: boolean;
   isConnected: boolean;
   attachToAgent: (agent: Agent) => Promise<void>;
   detachTerminal: () => void;
@@ -30,6 +31,7 @@ export type ChildAgentRowProps = {
 export function ChildAgentRow({
   agent,
   state,
+  isInitialReviewActive,
   isConnected,
   attachToAgent,
   detachTerminal,
@@ -39,10 +41,8 @@ export function ChildAgentRow({
 }: ChildAgentRowProps): JSX.Element {
   const isStopped = state === "stopped";
   const isReviewAgent = agent.role === "review";
-  const isWorking =
-    isReviewAgent &&
-    agent.status === "running" &&
-    agent.latestEvent?.type === "working";
+  const showReviewActivity =
+    isReviewAgent && agent.status === "running" && isInitialReviewActive;
   const displayName = agent.persona ?? agent.name;
   const statusLabel = isStopped
     ? "Stopped"
@@ -62,13 +62,13 @@ export function ChildAgentRow({
     <div
       data-testid={`child-agent-row-${agent.id}`}
       data-agent-role={agent.role ?? "standard"}
-      data-working={isWorking ? "true" : "false"}
+      data-review-active={showReviewActivity ? "true" : "false"}
       className={cn(
         "relative flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1.5",
         "transition-colors hover:bg-muted/35",
         isConnected && "border-primary/35 bg-muted/40",
         isStopped && "opacity-65",
-        isWorking && "child-agent-working-row"
+        showReviewActivity && "child-agent-review-active-row"
       )}
     >
       <AgentTypeIcon

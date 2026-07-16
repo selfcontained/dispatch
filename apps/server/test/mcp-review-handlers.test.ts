@@ -649,6 +649,13 @@ describe("createReviewHandlers", () => {
         agentId: "agt_parent",
         reviewId: 42,
       });
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "agent.upsert",
+        agent: expect.objectContaining({
+          id: "agt_reviewer",
+          hasStream: false,
+        }),
+      });
     });
 
     it("prevents a reviewer from submitting twice", async () => {

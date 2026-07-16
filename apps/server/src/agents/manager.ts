@@ -1404,6 +1404,12 @@ export class AgentManager {
         template_id AS "templateId",
         auto_review AS "autoReview",
         cli_session_id AS "cliSessionId",
+        EXISTS (
+          SELECT 1
+          FROM reviews unified_review
+          WHERE unified_review.reviewer_type = 'agent'
+            AND unified_review.reviewer_agent_id = agents.id
+        ) AS "hasSubmittedReview",
         (SELECT json_build_object(
            'status', pr.status,
            'message', pr.message,
