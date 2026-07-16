@@ -1,4 +1,4 @@
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Bot,
@@ -84,24 +84,24 @@ export const ReviewsSidebarContent = memo(function ReviewsSidebarContent({
   onNavigateToFile,
 }: ReviewsSidebarContentProps): JSX.Element {
   const { reviews, isLoading } = useAgentReviews(agentId, !!agentId);
-  const [expandedReviewId, setExpandedReviewId] = useState<number | null>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const { data: diffData } = useAgentDiff(agentId, !!agentId);
-
-  useEffect(() => {
-    const expandReview = searchParams.get("expandReview");
-    if (expandReview != null) {
-      setExpandedReviewId(parseInt(expandReview, 10));
-      setSearchParams(
-        (prev) => {
-          const next = new URLSearchParams(prev);
-          next.delete("expandReview");
-          return next;
-        },
-        { replace: true }
-      );
-    }
-  }, [searchParams, setSearchParams]);
+  const requestedReviewId = Number(searchParams.get("expandReview"));
+  const expandedReviewId =
+    Number.isInteger(requestedReviewId) && requestedReviewId > 0
+      ? requestedReviewId
+      : null;
+  const setExpandedReviewId = useCallback(
+    (reviewId: number | null) => {
+      setSearchParams((previous) => {
+        const next = new URLSearchParams(previous);
+        if (reviewId == null) next.delete("expandReview");
+        else next.set("expandReview", String(reviewId));
+        return next;
+      });
+    },
+    [setSearchParams]
+  );
 
   const diffFilePaths = useMemo(() => {
     if (!diffData?.files) return undefined;
@@ -149,8 +149,8 @@ export const ReviewsSidebarContent = memo(function ReviewsSidebarContent({
             review={review}
             expanded={expandedReviewId === review.id}
             onToggle={() =>
-              setExpandedReviewId((prev) =>
-                prev === review.id ? null : review.id
+              setExpandedReviewId(
+                expandedReviewId === review.id ? null : review.id
               )
             }
             onNavigateToFile={onNavigateToFile}
@@ -182,6 +182,18 @@ function ReviewRow({
   diffFilePaths?: Set<string>;
 }): JSX.Element {
   const { review: detail } = useAgentReviewDetail(agentId, review.id, expanded);
+  const rowRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!expanded) return;
+    const frame = window.requestAnimationFrame(() => {
+      rowRef.current?.scrollIntoView?.({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [expanded]);
 
   const statusStyle =
     REVIEW_STATUS_STYLES[review.status] ?? DEFAULT_REVIEW_STYLE;
@@ -196,6 +208,8 @@ function ReviewRow({
 
   return (
     <div
+      ref={rowRef}
+      data-review-id={review.id}
       className={cn(
         "relative mb-3 overflow-clip rounded-md border-l-2 bg-muted/[0.07]",
         statusStyle.rail

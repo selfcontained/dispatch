@@ -413,6 +413,20 @@ export function AgentsView({
     [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]
   );
 
+  const handleOpenSubmittedReview = useCallback(
+    (reviewer: Agent) => {
+      if (!reviewer.parentAgentId || reviewer.submittedReviewId == null) return;
+      navTo(
+        `/agents/${reviewer.parentAgentId}?expandReview=${reviewer.submittedReviewId}`
+      );
+      setExpandedAgentId(reviewer.parentAgentId);
+      setMediaOpen(true);
+      setMediaActiveTab("reviews");
+      if (isMobile) setMobileLeftOpen(false);
+    },
+    [isMobile, navTo, setMediaActiveTab, setMediaOpen, setMobileLeftOpen]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!expandedAgentId) {
@@ -644,6 +658,7 @@ export function AgentsView({
               detachTerminal={detachAndClearSelection}
               attachToAgent={attachToAgent}
               startAgent={startAgent}
+              openSubmittedReview={handleOpenSubmittedReview}
               connectedAgentId={connectedAgentId}
               onRequestClose={
                 isMobile ? () => setMobileLeftOpen(false) : undefined

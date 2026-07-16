@@ -40,6 +40,7 @@ function renderRow(
   const attachToAgent = vi.fn().mockResolvedValue(undefined);
   const detachTerminal = vi.fn();
   const startAgent = vi.fn().mockResolvedValue(undefined);
+  const openSubmittedReview = vi.fn();
   render(
     <TooltipProvider>
       <ChildAgentRow
@@ -50,11 +51,17 @@ function renderRow(
         attachToAgent={attachToAgent}
         detachTerminal={detachTerminal}
         startAgent={startAgent}
+        openSubmittedReview={openSubmittedReview}
         {...overrides}
       />
     </TooltipProvider>
   );
-  return { attachToAgent, detachTerminal, startAgent };
+  return {
+    attachToAgent,
+    detachTerminal,
+    startAgent,
+    openSubmittedReview,
+  };
 }
 
 describe("ChildAgentRow", () => {
@@ -81,6 +88,33 @@ describe("ChildAgentRow", () => {
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewActive).toBe("false");
     expect(row.className).not.toContain("child-agent-review-active-row");
+  });
+
+  it("opens a submitted review from the row without attaching its terminal", () => {
+    const submittedAgent = {
+      ...baseAgent,
+      hasSubmittedReview: true,
+      submittedReviewId: 42,
+    };
+    const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
+      isInitialReviewActive: false,
+    });
+
+    fireEvent.click(screen.getByTestId("child-agent-open-review-agt_child"));
+    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
+    expect(attachToAgent).not.toHaveBeenCalled();
+  });
+
+  it("keeps the terminal control independent from review navigation", () => {
+    const { attachToAgent, openSubmittedReview } = renderRow({
+      ...baseAgent,
+      hasSubmittedReview: true,
+      submittedReviewId: 42,
+    });
+
+    fireEvent.click(screen.getByTestId("child-agent-attach-agt_child"));
+    expect(attachToAgent).toHaveBeenCalledOnce();
+    expect(openSubmittedReview).not.toHaveBeenCalled();
   });
 
   it("does not infer review purpose from a persona", () => {

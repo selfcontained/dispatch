@@ -24,6 +24,7 @@ export type ChildAgentRowProps = {
   attachToAgent: (agent: Agent) => Promise<void>;
   detachTerminal: () => void;
   startAgent: (agent: Agent) => Promise<void>;
+  openSubmittedReview: (agent: Agent) => void;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
 };
@@ -36,11 +37,14 @@ export function ChildAgentRow({
   attachToAgent,
   detachTerminal,
   startAgent,
+  openSubmittedReview,
   onRequestClose,
   closeOnSessionAction = false,
 }: ChildAgentRowProps): JSX.Element {
   const isStopped = state === "stopped";
   const isReviewAgent = agent.role === "review";
+  const canOpenSubmittedReview =
+    isReviewAgent && agent.submittedReviewId != null;
   const showReviewActivity =
     isReviewAgent && agent.status === "running" && isInitialReviewActive;
   const displayName = agent.persona ?? agent.name;
@@ -64,21 +68,39 @@ export function ChildAgentRow({
       data-agent-role={agent.role ?? "standard"}
       data-review-active={showReviewActivity ? "true" : "false"}
       className={cn(
-        "relative flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1.5",
+        "group relative flex min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1.5",
         "transition-colors hover:bg-muted/35",
+        canOpenSubmittedReview && "cursor-pointer",
         isConnected && "border-primary/35 bg-muted/40",
         isStopped && "opacity-65",
         showReviewActivity && "child-agent-review-active-row"
       )}
     >
+      {canOpenSubmittedReview ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              data-testid={`child-agent-open-review-${agent.id}`}
+              aria-label={`Open submitted review from ${displayName}`}
+              className="absolute inset-0 z-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              onClick={() => {
+                if (closeOnSessionAction) onRequestClose?.();
+                openSubmittedReview(agent);
+              }}
+            />
+          </TooltipTrigger>
+          <TooltipContent>Open submitted review</TooltipContent>
+        </Tooltip>
+      ) : null}
       <AgentTypeIcon
         type={agent.type}
         eventType={
           agent.status === "running" ? agent.latestEvent?.type : undefined
         }
-        className="h-4.5 w-4.5"
+        className="pointer-events-none relative z-10 h-4.5 w-4.5"
       />
-      <div className="min-w-0 flex-1">
+      <div className="pointer-events-none relative z-10 min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
             className="min-w-0 truncate text-[11px] font-medium"
@@ -113,7 +135,7 @@ export function ChildAgentRow({
               data-agent-control="true"
               data-testid={`child-agent-resume-${agent.id}`}
               aria-label={`Resume ${displayName}`}
-              className="h-7 w-7 shrink-0"
+              className="relative z-20 h-7 w-7 shrink-0"
               onClick={() => {
                 if (closeOnSessionAction) onRequestClose?.();
                 void startAgent(agent);
@@ -133,7 +155,7 @@ export function ChildAgentRow({
               data-agent-control="true"
               data-testid={`child-agent-detach-${agent.id}`}
               aria-label={`Detach from ${displayName}`}
-              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+              className="relative z-20 h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
               onClick={detachTerminal}
             >
               <X className="h-3.5 w-3.5" />
@@ -150,7 +172,7 @@ export function ChildAgentRow({
               data-agent-control="true"
               data-testid={`child-agent-attach-${agent.id}`}
               aria-label={`Attach to ${displayName}`}
-              className="h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
+              className="relative z-20 h-7 w-7 shrink-0 text-muted-foreground hover:text-foreground"
               onClick={() => {
                 if (closeOnSessionAction) onRequestClose?.();
                 void attachToAgent(agent);

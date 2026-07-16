@@ -63,21 +63,23 @@ describe("review submission SSE state", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData<Agent[]>(["agents"], [agent("reviewer", false)]);
 
-    applyReviewCreated(queryClient, "reviewer");
+    applyReviewCreated(queryClient, "reviewer", 42);
 
     expect(queryClient.getQueryData<Agent[]>(["agents"])?.[0]).toMatchObject({
       id: "reviewer",
       hasSubmittedReview: true,
+      submittedReviewId: 42,
     });
   });
 
   it("does not let a stale agent upsert reactivate a submitted review", () => {
-    const current = [agent("reviewer", true)];
+    const current = [{ ...agent("reviewer", true), submittedReviewId: 42 }];
     const incoming = agent("reviewer", false);
 
     expect(applyAgentUpsert(current, incoming)[0]).toMatchObject({
       id: "reviewer",
       hasSubmittedReview: true,
+      submittedReviewId: 42,
     });
   });
 });

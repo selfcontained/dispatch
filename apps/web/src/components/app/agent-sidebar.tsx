@@ -48,6 +48,7 @@ export type AgentListContentProps = {
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
+  openSubmittedReview: (agent: Agent) => void;
   connectedAgentId?: string | null;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
@@ -74,6 +75,7 @@ export function AgentListContent({
   detachTerminal,
   attachToAgent,
   startAgent,
+  openSubmittedReview,
   connectedAgentId,
   onRequestClose,
   closeOnSessionAction = false,
@@ -342,6 +344,7 @@ export function AgentListContent({
                   detachTerminal={detachTerminal}
                   attachToAgent={attachToAgent}
                   startAgent={startAgent}
+                  openSubmittedReview={openSubmittedReview}
                   setDeleteTarget={setDeleteTarget}
                   setDeleteConfirmOpen={setDeleteConfirmOpen}
                   setStopTarget={setStopTarget}

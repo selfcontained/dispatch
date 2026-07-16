@@ -40,6 +40,7 @@ type UiEvent =
   | {
       type: "review.created";
       agentId: string;
+      reviewId: number;
       reviewerAgentId?: string | null;
     }
   | { type: "review.updated"; agentId: string }
@@ -103,10 +104,14 @@ export function applyAgentUpsert(
   }
 
   const existing = current[index]!;
-  const nextAgent =
-    existing.hasSubmittedReview && !incoming.hasSubmittedReview
-      ? { ...incoming, hasSubmittedReview: true }
-      : incoming;
+  const nextAgent = existing.hasSubmittedReview
+    ? {
+        ...incoming,
+        hasSubmittedReview: true,
+        submittedReviewId:
+          incoming.submittedReviewId ?? existing.submittedReviewId,
+      }
+    : incoming;
   const next = [...current];
   next[index] = nextAgent;
   return sortAgentsByCreatedAtDesc(next);
@@ -114,14 +119,17 @@ export function applyAgentUpsert(
 
 export function applyReviewCreated(
   queryClient: QueryClient,
-  reviewerAgentId: string | null | undefined
+  reviewerAgentId: string | null | undefined,
+  reviewId: number
 ): void {
   if (!reviewerAgentId) return;
   queryClient.setQueryData<Agent[]>(["agents"], (old) =>
     old?.map((agent) =>
       agent.id === reviewerAgentId && !agent.hasSubmittedReview
-        ? { ...agent, hasSubmittedReview: true }
-        : agent
+        ? { ...agent, hasSubmittedReview: true, submittedReviewId: reviewId }
+        : agent.id === reviewerAgentId && agent.submittedReviewId !== reviewId
+          ? { ...agent, submittedReviewId: reviewId }
+          : agent
     )
   );
 }
@@ -234,7 +242,11 @@ export function useSSE(authState: AuthState): void {
           payload.type === "review_feedback.updated"
         ) {
           if (payload.type === "review.created") {
-            applyReviewCreated(queryClient, payload.reviewerAgentId);
+            applyReviewCreated(
+              queryClient,
+              payload.reviewerAgentId,
+              payload.reviewId
+            );
           }
           void queryClient.invalidateQueries({
             queryKey: ["agent-reviews", payload.agentId],

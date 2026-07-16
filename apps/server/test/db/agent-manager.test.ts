@@ -843,6 +843,32 @@ describe("AgentManager", () => {
       expect(fetched!.name).toBe("fetch-me");
     });
 
+    it("should expose the submitted review ID for a review agent", async () => {
+      const parent = await manager.createAgent({
+        name: "parent",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+      const reviewer = await manager.createAgent({
+        name: "reviewer",
+        cwd: "/tmp",
+        useWorktree: false,
+        role: "review",
+        parentAgentId: parent.id,
+      });
+      const inserted = await pool.query<{ id: number }>(
+        `INSERT INTO reviews
+           (agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, summary, status)
+         VALUES ($1, $1, 'agent', $2, 'Looks good.', 'resolved')
+         RETURNING id`,
+        [parent.id, reviewer.id]
+      );
+
+      const fetched = await manager.getAgent(reviewer.id);
+      expect(fetched?.hasSubmittedReview).toBe(true);
+      expect(fetched?.submittedReviewId).toBe(inserted.rows[0]?.id);
+    });
+
     it("should round-trip autoReview through getAgent", async () => {
       const created = await manager.createAgent({
         cwd: "/tmp",

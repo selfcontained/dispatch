@@ -115,6 +115,7 @@ export type AgentCardProps = {
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
+  openSubmittedReview: (agent: Agent) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   setDeleteConfirmOpen: (open: boolean) => void;
   setStopTarget: (agent: Agent | null) => void;
@@ -183,6 +184,7 @@ export function AgentCard({
   detachTerminal,
   attachToAgent,
   startAgent,
+  openSubmittedReview,
   setDeleteTarget,
   setDeleteConfirmOpen,
   setStopTarget,
@@ -720,6 +722,7 @@ export function AgentCard({
                           attachToAgent={attachToAgent}
                           detachTerminal={detachTerminal}
                           startAgent={startAgent}
+                          openSubmittedReview={openSubmittedReview}
                           onRequestClose={onRequestClose}
                           closeOnSessionAction={closeOnSessionAction}
                         />

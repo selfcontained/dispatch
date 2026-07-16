@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { ReviewListItem } from "@/hooks/use-agent-reviews";
@@ -171,6 +171,10 @@ function reviewRowFor(text: string): HTMLElement {
   return row;
 }
 
+function LocationSearch(): JSX.Element {
+  return <output data-testid="location-search">{useLocation().search}</output>;
+}
+
 describe("ReviewsSidebarContent", () => {
   it("uses status rails and labels a review without a summary", () => {
     render(
@@ -201,6 +205,24 @@ describe("ReviewsSidebarContent", () => {
     expect(screen.getByText("Approved · no feedback")).toBeTruthy();
     fireEvent.click(screen.getByText("No actionable security issues found."));
     expect(screen.getByText("Approved without feedback")).toBeTruthy();
+  });
+
+  it("keeps the expanded review in URL state", () => {
+    render(
+      <MemoryRouter initialEntries={["/agents/agent-1?expandReview=5"]}>
+        <ReviewsSidebarContent agentId="agent-1" />
+        <LocationSearch />
+      </MemoryRouter>
+    );
+
+    const summary = screen.getByTestId("review-summary-5");
+    expect(summary.className).not.toContain("max-h-[1.45em]");
+    expect(screen.getByTestId("location-search").textContent).toBe(
+      "?expandReview=5"
+    );
+
+    fireEvent.click(summary);
+    expect(screen.getByTestId("location-search").textContent).toBe("");
   });
 
   it("describes submitted agent feedback and preserves state-change context", () => {

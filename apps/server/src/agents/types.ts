@@ -103,6 +103,7 @@ export type AgentRecord = {
   personaContext: string | null;
   reviewAgentType: AgentType | null;
   hasSubmittedReview: boolean;
+  submittedReviewId: number | null;
   review: {
     status: string;
     message: string | null;

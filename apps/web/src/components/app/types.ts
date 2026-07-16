@@ -54,6 +54,7 @@ export type Agent = {
   personaContext?: string | null;
   reviewAgentType?: "codex" | "claude" | "opencode" | "cursor" | null;
   hasSubmittedReview?: boolean;
+  submittedReviewId?: number | null;
   review?: {
     status: string;
     message: string | null;

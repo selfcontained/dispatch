@@ -1410,6 +1410,14 @@ export class AgentManager {
           WHERE unified_review.reviewer_type = 'agent'
             AND unified_review.reviewer_agent_id = agents.id
         ) AS "hasSubmittedReview",
+        (
+          SELECT unified_review.id
+          FROM reviews unified_review
+          WHERE unified_review.reviewer_type = 'agent'
+            AND unified_review.reviewer_agent_id = agents.id
+          ORDER BY unified_review.created_at DESC, unified_review.id DESC
+          LIMIT 1
+        ) AS "submittedReviewId",
         (SELECT json_build_object(
            'status', pr.status,
            'message', pr.message,
