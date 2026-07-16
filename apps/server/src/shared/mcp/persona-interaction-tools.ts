@@ -21,6 +21,7 @@ export type LaunchPersonaAgentType =
 
 export type PersonaInteractionCallbacks = {
   agentId: string;
+  parentAgentId?: string | null;
   worktreeRoot?: string | null;
   repoRoot?: string | null;
   listPersonas?: McpRequestContext["listPersonas"];
@@ -31,6 +32,7 @@ export type PersonaInteractionCallbacks = {
   addReviewFeedback?: McpRequestContext["addReviewFeedback"];
   addReviewThreadMessage?: McpRequestContext["addReviewThreadMessage"];
   listReviewFeedback?: McpRequestContext["listReviewFeedback"];
+  getParentContext?: McpRequestContext["getParentContext"];
 };
 
 type PersonaSummary = { slug: string; name: string; description: string };
@@ -74,15 +76,21 @@ export function registerPersonaInteractionTools(
       "dispatch_review_submit",
       {
         description:
-          "Submit this reviewer's completed initial pass. Creates one agent-authored review assigned to the parent agent. `summary` is always required. `feedback` may be empty for a clean approval; that still creates a resolved review record with the summary.",
+          "Submit this reviewer's completed initial pass. Creates one agent-authored review assigned to the parent agent. `summary` is optional when `feedback` has items, but a nonblank summary is required for a clean approval with no feedback.",
         inputSchema: {
-          summary: z.string().min(1).max(10_000),
+          summary: z.string().max(10_000).optional(),
           feedback: z.array(z.object(feedbackItemSchema)).max(100).default([]),
         },
       },
       async (args) => {
         try {
-          const result = await submitReview(agentId, args);
+          const summary = args.summary?.trim() || undefined;
+          if (args.feedback.length === 0 && !summary) {
+            throw new Error(
+              "summary is required for a clean approval with no feedback items."
+            );
+          }
+          const result = await submitReview(agentId, { ...args, summary });
           const count = result.review.items.length;
           return {
             content: [
@@ -94,6 +102,51 @@ export function registerPersonaInteractionTools(
                     : `Review #${result.review.id} submitted with ${count} feedback item(s).`,
               },
             ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (
+    allowed.has("get_parent_context") &&
+    callbacks.parentAgentId &&
+    callbacks.getParentContext
+  ) {
+    const parentAgentId = callbacks.parentAgentId;
+    const getParentContext = callbacks.getParentContext;
+    server.registerTool(
+      "get_parent_context",
+      {
+        description:
+          "Retrieve the parent agent's pins and shared media. Use this to discover dev server URLs, key files, screenshots, and other context the parent agent has surfaced. Shared media includes an absolute filePath for direct inspection.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const result = await getParentContext(parentAgentId);
+          const parts: string[] = [];
+          if (result.pins.length > 0) {
+            parts.push("Pins:");
+            for (const pin of result.pins) {
+              parts.push(`  ${pin.label} (${pin.type}): ${pin.value}`);
+            }
+          } else {
+            parts.push("No pins set by parent agent.");
+          }
+          if (result.media.length > 0) {
+            parts.push("\nShared media:");
+            for (const media of result.media) {
+              parts.push(
+                `  ${media.fileName} (${media.sizeBytes} bytes) at ${media.filePath}: ${media.description ?? "(no description)"}`
+              );
+            }
+          }
+          return {
+            content: [{ type: "text", text: parts.join("\n") }],
             structuredContent: result,
           };
         } catch (error) {

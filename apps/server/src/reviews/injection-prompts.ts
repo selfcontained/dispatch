@@ -9,7 +9,7 @@ export function buildPersonaKickoffPrompt(): string {
     "Begin your review now. Your persona instructions, the parent's context briefing, and the diff to review are already loaded into your context.",
     "Before inspecting the target, call dispatch_event with type 'working' and a short description of the review phase. Refresh that working event whenever you move to a distinct review phase so your parent can see accurate progress.",
     "Inspect the full review target before submitting. Do not use direct agent messages for review discussion.",
-    "When your initial pass is complete, call dispatch_review_submit exactly once with a concise summary and every actionable finding. The feedback array may be empty for a clean approval, but the summary is always required.",
+    "When your initial pass is complete, call dispatch_review_submit exactly once with every actionable finding. A summary is optional when feedback items carry the review, but a concise nonblank summary is required for a clean approval with an empty feedback array.",
     "After submission, use dispatch_review_add_message for clarifying questions or replies on an existing feedback item. Use dispatch_review_add_feedback only for a genuinely new concern.",
     "Immediately after dispatch_review_submit, call dispatch_event with type 'done' if your pass is complete, or 'waiting_user' only when a tracked feedback thread needs a reply. Never leave your status as 'working' while waiting. Later thread activity will be delivered in a new injected review block.",
   ]);
@@ -33,7 +33,7 @@ export function buildReviewSubmittedPrompt(input: {
   reviewId: number;
   reviewerName: string;
   reviewerAgentId?: string | null;
-  summary: string;
+  summary: string | null;
   items: Array<{
     id: number;
     filePath: string | null;
@@ -45,8 +45,8 @@ export function buildReviewSubmittedPrompt(input: {
     `Review ID: ${input.reviewId}`,
     `Reviewer: ${input.reviewerName}${input.reviewerAgentId ? ` (agent ${input.reviewerAgentId})` : ""}`,
     `Result: ${input.items.length === 0 ? "Approved — no feedback items" : `${input.items.length} feedback item(s) submitted`}`,
-    `Summary: ${input.summary}`,
   ];
+  if (input.summary) lines.push(`Summary: ${input.summary}`);
   if (input.items.length === 0) {
     lines.push(
       "No action is required. This clean approval is recorded as a resolved review."

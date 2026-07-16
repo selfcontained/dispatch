@@ -202,6 +202,73 @@ describe("createReviewHandlers", () => {
   });
 
   describe("submitReview", () => {
+    it("allows feedback items without a review summary", async () => {
+      const { createReview, getReviewByReviewerAgent } =
+        await import("../src/agents/reviews.js");
+      vi.mocked(getReviewByReviewerAgent).mockResolvedValueOnce(null);
+      vi.mocked(createReview).mockResolvedValueOnce({
+        id: 41,
+        status: "open",
+        summary: null,
+        items: [
+          {
+            id: 7,
+            filePath: null,
+            lineStart: null,
+            messages: [{ content: { body: "Actionable issue" } }],
+          },
+        ],
+      } as never);
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn(async (id: string) =>
+            id === "agt_reviewer"
+              ? {
+                  id,
+                  name: "security-parent",
+                  role: "review",
+                  persona: "security",
+                  parentAgentId: "agt_parent",
+                }
+              : { id: "agt_parent", name: "parent", baseBranch: "main" }
+          ),
+        },
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      await handlers.submitReview("agt_reviewer", {
+        feedback: [{ comment: "Actionable issue" }],
+      });
+
+      expect(createReview).toHaveBeenCalledWith(
+        deps.pool,
+        expect.objectContaining({ summary: null })
+      );
+    });
+
+    it("rejects a clean approval without a nonblank summary", async () => {
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn().mockResolvedValue({
+            id: "agt_reviewer",
+            role: "review",
+            persona: "security",
+            parentAgentId: "agt_parent",
+          }),
+        },
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      await expect(
+        handlers.submitReview("agt_reviewer", {
+          summary: "   ",
+          feedback: [],
+        })
+      ).rejects.toThrow("summary is required for a clean approval");
+    });
+
     it("records and notifies the parent about a clean approval", async () => {
       const { createReview, getReviewByReviewerAgent } =
         await import("../src/agents/reviews.js");

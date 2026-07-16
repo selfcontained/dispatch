@@ -147,7 +147,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
     async submitReview(
       agentId: string,
       input: {
-        summary: string;
+        summary?: string;
         feedback: Array<{
           filePath?: string;
           startLine?: number;
@@ -160,6 +160,12 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
       if (reviewer?.role !== "review" || !reviewer.parentAgentId) {
         throw new Error(
           "dispatch_review_submit is only available to review agents."
+        );
+      }
+      const summary = input.summary?.trim() || null;
+      if (input.feedback.length === 0 && !summary) {
+        throw new Error(
+          "summary is required for a clean approval with no feedback items."
         );
       }
       if (await getReviewByReviewerAgent(pool, agentId)) {
@@ -179,7 +185,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
           assignedAgentId: parent.id,
           reviewerType: "agent",
           reviewerAgentId: reviewer.id,
-          summary: input.summary.trim(),
+          summary,
           baseRef: parent.baseBranch,
           items: input.feedback,
         });
@@ -209,7 +215,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
           reviewId: review.id,
           reviewerName: reviewer.persona ?? reviewer.name,
           reviewerAgentId: reviewer.id,
-          summary: input.summary.trim(),
+          summary,
           items: review.items.map((item) => ({
             id: item.id,
             filePath: item.filePath,

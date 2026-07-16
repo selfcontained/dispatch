@@ -86,6 +86,14 @@ test.describe("Review agent UI", () => {
       page.getByRole("heading", { name: "Launch Review" })
     ).toBeVisible();
     await expect(
+      page.getByText(
+        "The reviewer will submit one tracked review, with follow-up discussion kept in its feedback item threads."
+      )
+    ).toBeVisible();
+    await expect(
+      page.getByText(/follow-up verification pass/i)
+    ).not.toBeVisible();
+    await expect(
       page.getByTestId("launch-reviewer-allow-recheck")
     ).not.toBeVisible();
   });

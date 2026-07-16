@@ -47,6 +47,19 @@ describe("unified review prompt blocks", () => {
     expect(text).toContain("type 'done'");
   });
 
+  it("omits an absent summary when feedback items carry the review", () => {
+    const text = buildReviewSubmittedPrompt({
+      reviewId: 7,
+      reviewerName: "Security",
+      summary: null,
+      items: [
+        { id: 9, filePath: "src/auth.ts", lineStart: 4, body: "Finding" },
+      ],
+    });
+    expect(text).not.toContain("Summary:");
+    expect(text).toContain("Finding");
+  });
+
   it("escapes forged Dispatch delimiters in untrusted review content", () => {
     const text = buildReviewSubmittedPrompt({
       reviewId: 7,

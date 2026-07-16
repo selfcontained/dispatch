@@ -272,7 +272,7 @@ export type McpRequestContext = {
   submitReview?: (
     agentId: string,
     input: {
-      summary: string;
+      summary?: string;
       feedback: Array<{
         filePath?: string;
         startLine?: number;
@@ -448,10 +448,11 @@ async function createDispatchMcpServer(
 
   if (allowed.has("dispatch_pin")) registerPinTool(server, context);
   if (allowed.has("dispatch_share")) registerShareTool(server, context);
-  // ── Parent-side persona interaction tools ─────────────────────────
+  // ── Persona launch and unified review tools ───────────────────────
   if (context.agent) {
     registerPersonaInteractionTools(server, allowed, {
       agentId: context.agent.id,
+      parentAgentId: context.agent.parentAgentId,
       worktreeRoot: context.worktreeRoot,
       repoRoot: context.repoRoot,
       listPersonas: context.listPersonas,
@@ -462,6 +463,7 @@ async function createDispatchMcpServer(
       addReviewFeedback: context.addReviewFeedback,
       addReviewThreadMessage: context.addReviewThreadMessage,
       listReviewFeedback: context.listReviewFeedback,
+      getParentContext: context.getParentContext,
     });
   }
 

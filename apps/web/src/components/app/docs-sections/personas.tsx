@@ -23,10 +23,11 @@ export function PersonasContent() {
           diffs (over ~15 KB) are replaced with a file-level summary plus those
           commands so the reviewer can inspect specific files in the worktree.
           The child reviews the work and calls{" "}
-          <Code>dispatch_review_submit</Code> once with a required summary and
-          every initial finding. Pass <Code>includeDiff: false</Code> for
-          non-code reviews (PRDs, docs, media) where the git diff is not the
-          review target.
+          <Code>dispatch_review_submit</Code> once with every initial finding.
+          The summary is optional when feedback items carry the review, and
+          required for a clean approval with no items. Pass{" "}
+          <Code>includeDiff: false</Code> for non-code reviews (PRDs, docs,
+          media) where the git diff is not the review target.
         </P>
         <P>
           Reviewers always run as a CLI-type agent (claude / codex / cursor /

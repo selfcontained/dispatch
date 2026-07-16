@@ -169,6 +169,8 @@ describe("registerPersonaInteractionTools", () => {
   it("registers all review tools when allowed and callbacks present", () => {
     const callbacks: PersonaInteractionCallbacks = {
       agentId,
+      parentAgentId: "agt_parent",
+      getParentContext: vi.fn(async () => ({ pins: [], media: [] })),
       listReviewFeedback: vi.fn(async () => []),
       submitReview: vi.fn(async () => ({ review: { id: 1 } })),
       addReviewFeedback: vi.fn(async () => ({ item: { id: 2 } })),
@@ -194,6 +196,7 @@ describe("registerPersonaInteractionTools", () => {
       "dispatch_review_resolve",
       "dispatch_review_reopen",
       "dispatch_review_add_message",
+      "get_parent_context",
     ]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
@@ -203,6 +206,26 @@ describe("registerPersonaInteractionTools", () => {
     expect(names).toContain("dispatch_review_resolve");
     expect(names).toContain("dispatch_review_reopen");
     expect(names).toContain("dispatch_review_add_message");
+    expect(names).toContain("get_parent_context");
+  });
+
+  it("makes summary optional in the schema and documents the clean-approval requirement", () => {
+    const callbacks: PersonaInteractionCallbacks = {
+      agentId,
+      submitReview: vi.fn(),
+    };
+    registerPersonaInteractionTools(
+      server as any,
+      new Set(["dispatch_review_submit"]),
+      callbacks
+    );
+
+    const tool = server.tools[0];
+    const inputSchema = tool.config.inputSchema as {
+      summary: { safeParse: (value: unknown) => { success: boolean } };
+    };
+    expect(inputSchema.summary.safeParse(undefined).success).toBe(true);
+    expect(tool.config.description).toContain("required for a clean approval");
   });
 
   it("caps dispatch_review_add_message input at 600 characters", () => {
@@ -230,6 +253,71 @@ describe("registerPersonaInteractionTools", () => {
   });
 
   describe("tool handlers", () => {
+    it("get_parent_context returns the parent's pins and media", async () => {
+      const getParentContext = vi.fn(async () => ({
+        pins: [{ label: "Dev", value: "http://localhost", type: "url" }],
+        media: [
+          {
+            fileName: "screen.png",
+            filePath: "/tmp/screen.png",
+            description: "Current UI",
+            source: "screenshot",
+            sizeBytes: 42,
+            createdAt: "2026-07-16T00:00:00Z",
+          },
+        ],
+      }));
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["get_parent_context"]),
+        { agentId, parentAgentId: "agt_parent", getParentContext }
+      );
+
+      const result = (await server.tools[0].handler({})) as any;
+      expect(getParentContext).toHaveBeenCalledWith("agt_parent");
+      expect(result.content[0].text).toContain("Dev (url)");
+      expect(result.content[0].text).toContain("screen.png");
+      expect(result.structuredContent.media).toHaveLength(1);
+    });
+
+    it("requires a summary only when dispatch_review_submit has no feedback", async () => {
+      const submitReview = vi.fn(async () => ({
+        review: {
+          id: 3,
+          status: "open",
+          summary: null,
+          items: [{ id: 5 }],
+        },
+      }));
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["dispatch_review_submit"]),
+        { agentId, submitReview }
+      );
+      const tool = server.tools[0];
+
+      const withFeedback = (await tool.handler({
+        summary: "   ",
+        feedback: [{ comment: "Actionable issue" }],
+      })) as any;
+      expect(withFeedback.isError).not.toBe(true);
+      expect(submitReview).toHaveBeenCalledWith(agentId, {
+        summary: undefined,
+        feedback: [{ comment: "Actionable issue" }],
+      });
+
+      submitReview.mockClear();
+      const cleanWithoutSummary = (await tool.handler({
+        summary: "   ",
+        feedback: [],
+      })) as any;
+      expect(cleanWithoutSummary.isError).toBe(true);
+      expect(cleanWithoutSummary.content[0].text).toContain(
+        "summary is required for a clean approval"
+      );
+      expect(submitReview).not.toHaveBeenCalled();
+    });
+
     it("list_personas calls resolvePersonaList with correct roots", async () => {
       const personas = [
         { slug: "sec", name: "Security", description: "review" },
