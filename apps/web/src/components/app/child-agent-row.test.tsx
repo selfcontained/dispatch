@@ -76,7 +76,13 @@ describe("ChildAgentRow", () => {
     });
 
     const badge = screen.getByText("Review");
-    expect(badge.className).toContain("text-primary");
+    expect(badge.className.split(/\s+/)).toEqual(
+      expect.arrayContaining([
+        "border-primary",
+        "bg-background",
+        "text-foreground",
+      ])
+    );
     expect(badge.className).not.toContain("violet");
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("min-h-11");
