@@ -11,6 +11,7 @@ import { canSubmitFeedback } from "./lib/feedback-form";
 import { classifyPickerPage } from "./lib/picker-access";
 
 const SELECTIONS_KEY = "dispatchAgentSelections";
+const PAGE_ACCESS_ORIGINS = ["http://*/*", "https://*/*"];
 
 interface PairingDetails {
   baseUrl: string;
@@ -45,8 +46,8 @@ let notice: Notice | null = null;
 let busy = false;
 let pickerActive = false;
 let pickerTabId: number | null = null;
-let pendingPickerAccessTabId: number | null = null;
 let pickerTransitioning = false;
+let pageAccessGranted = false;
 let restorePickerFocus = false;
 let connectionUrlInput = "";
 let insecureAcknowledgedFor: string | null = null;
@@ -322,11 +323,11 @@ function renderFeedback(shell: HTMLElement): void {
   pickerAction.className = "picker-toggle-action";
   pickerAction.textContent = pickerActive
     ? "Click to stop selecting"
-    : pendingPickerAccessTabId !== null
-      ? "Reopen this panel from Chrome's toolbar"
-      : selection
-        ? "Pick a different element"
-        : "Click to inspect the page";
+    : selection
+      ? "Pick a different element"
+      : pageAccessGranted
+        ? "Click to inspect the page"
+        : "Grant page access to inspect";
   pickerCopy.append(pickerTitle, pickerAction);
 
   const pickerState = document.createElement("span");
@@ -536,6 +537,10 @@ async function disconnectFromDispatch(): Promise<void> {
       .remove({ origins: [hostPermission(new URL(baseUrl))] })
       .catch(() => false);
   }
+  await chrome.permissions
+    .remove({ origins: PAGE_ACCESS_ORIGINS })
+    .catch(() => false);
+  pageAccessGranted = false;
   connection = { connected: false };
   agents = [];
   selectedAgentId = "";
@@ -597,54 +602,20 @@ async function injectPicker(tabId: number): Promise<void> {
     target: { tabId },
     files: ["picker.js"],
   });
-  pendingPickerAccessTabId = null;
   pickerActive = true;
   pickerTabId = tabId;
 }
 
-async function requestPickerSiteAccess(tabId: number): Promise<void> {
-  pendingPickerAccessTabId = tabId;
-  if (typeof chrome.permissions.addHostAccessRequest === "function") {
-    await chrome.permissions.addHostAccessRequest({ tabId }).catch(() => {
-      // This API is coupled to Chrome's evolving extensions menu. Reopening
-      // the panel from the action icon remains the reliable activeTab path.
-    });
-  }
-
-  setNotice(
-    "info",
-    "Chrome needs access to this tab. Click the × above, then reopen Dispatch Browser Feedback from its toolbar icon while this page is active."
-  );
-}
-
-async function resumePickerAfterSiteAccess(): Promise<void> {
-  const tabId = pendingPickerAccessTabId;
-  if (tabId === null || pickerTransitioning) return;
-
-  pickerTransitioning = true;
-  try {
-    const activeTab = await getActiveTab();
-    if (activeTab.id !== tabId) {
-      pendingPickerAccessTabId = null;
-      setNotice(
-        "info",
-        "Site access was granted. Return to that page and click Element selector."
-      );
-      return;
-    }
-    if (classifyPickerPage(activeTab.url) === "needs-site-access") return;
-    await injectPicker(tabId);
-    notice = null;
-  } catch {
-    pendingPickerAccessTabId = null;
-    setNotice(
-      "error",
-      "Chrome granted site access, but element selection could not start. Try again on the page."
+async function requestPageAccess(): Promise<void> {
+  const granted = await chrome.permissions.request({
+    origins: PAGE_ACCESS_ORIGINS,
+  });
+  if (!granted) {
+    throw new Error(
+      "Page access was not granted. Click Element selector to try again."
     );
-  } finally {
-    pickerTransitioning = false;
-    render();
   }
+  pageAccessGranted = true;
 }
 
 async function togglePicker(): Promise<void> {
@@ -658,16 +629,13 @@ async function togglePicker(): Promise<void> {
     }
 
     notice = null;
+    await requestPageAccess();
     const tab = await getActiveTab();
     const pageAccess = classifyPickerPage(tab.url);
-    if (pageAccess === "unsupported") {
+    if (pageAccess !== "ready") {
       throw new Error(
-        "Element selection is available on HTTP and HTTPS pages."
+        "Chrome does not allow element selection on this page. Try a normal HTTP or HTTPS website."
       );
-    }
-    if (pageAccess === "needs-site-access") {
-      await requestPickerSiteAccess(tab.id as number);
-      return;
     }
     await injectPicker(tab.id as number);
   } catch (error) {
@@ -751,14 +719,7 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
   }
 });
 
-chrome.permissions.onAdded.addListener(() => {
-  void resumePickerAfterSiteAccess();
-});
-
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
-  if (tabId === pendingPickerAccessTabId && changeInfo.status === "loading") {
-    pendingPickerAccessTabId = null;
-  }
   if (
     pickerActive &&
     tabId === pickerTabId &&
@@ -772,7 +733,6 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => {
-  if (tabId === pendingPickerAccessTabId) pendingPickerAccessTabId = null;
   if (!pickerActive || tabId !== pickerTabId) return;
   pickerActive = false;
   pickerTabId = null;
@@ -797,6 +757,9 @@ window.addEventListener("pagehide", () => {
 
 async function initialize(): Promise<void> {
   try {
+    pageAccessGranted = await chrome.permissions.contains({
+      origins: PAGE_ACCESS_ORIGINS,
+    });
     connection = await sendWorker<ConnectionStatus>({
       type: "connection:status",
     });

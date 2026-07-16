@@ -12,12 +12,7 @@ describe("extension manifest", () => {
     expect(manifest.manifest_version).toBe(3);
     expect(manifest.background.service_worker).toBe("service-worker.js");
     expect(manifest.side_panel.default_path).toBe("side-panel.html");
-    expect(manifest.permissions).toEqual([
-      "activeTab",
-      "scripting",
-      "storage",
-      "sidePanel",
-    ]);
+    expect(manifest.permissions).toEqual(["scripting", "storage", "sidePanel"]);
     expect(manifest.optional_host_permissions).toEqual([
       "http://*/*",
       "https://*/*",
