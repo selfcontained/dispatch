@@ -13,6 +13,10 @@ import { classifyPickerPage } from "./lib/picker-access";
 const SELECTIONS_KEY = "dispatchAgentSelections";
 const PAGE_ACCESS_ORIGINS = ["http://*/*", "https://*/*"];
 const SUCCESS_NOTICE_DURATION_MS = 4_000;
+const PICKER_CLEANUP_ATTEMPTS = 3;
+const PICKER_CLEANUP_RETRY_MS = 100;
+const PICKER_CLEANUP_ERROR =
+  "Element selector cleanup could not finish on every frame. Reload the inspected page before selecting again.";
 
 interface PairingDetails {
   baseUrl: string;
@@ -45,14 +49,22 @@ let selection: BrowserSelection | null = null;
 let comment = "";
 let notice: Notice | null = null;
 let busy = false;
+let agentsRefreshing = false;
 let pickerActive = false;
 let pickerTabId: number | null = null;
+let pickerWindowId: number | null = null;
 let pickerTransitioning = false;
+let pickerTransitionCount = 0;
 let pageAccessGranted = false;
+let pageAccessDisclosureVisible = false;
+let pageAccessDenied = false;
 let restorePickerFocus = false;
 let connectionUrlInput = "";
 let insecureAcknowledgedFor: string | null = null;
 let noticeDismissTimer: number | null = null;
+let pairingController: AbortController | null = null;
+let pairingPermissionToRevoke: string | null = null;
+let pairingInFlightExchange: Promise<PairingResult> | null = null;
 
 function cleanupInjectedPicker(): void {
   window.__dispatchElementPickerCleanup?.();
@@ -67,6 +79,24 @@ function injectedPickerIsReady(): boolean {
 
 function delay(ms: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function cancellableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal.aborted) {
+      reject(signal.reason);
+      return;
+    }
+    const onAbort = (): void => {
+      window.clearTimeout(timer);
+      reject(signal.reason);
+    };
+    const timer = window.setTimeout(() => {
+      signal.removeEventListener("abort", onAbort);
+      resolve();
+    }, ms);
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
 }
 
 async function sendWorker<T>(request: WorkerRequest): Promise<T> {
@@ -98,7 +128,9 @@ function setNotice(
       noticeDismissTimer = null;
       if (notice !== nextNotice) return;
       notice = null;
-      render();
+      // Removing only the notice preserves the live textarea node, focus, and
+      // caret while the user starts drafting their next comment.
+      app.querySelector(".status")?.remove();
     }, duration);
   }
 }
@@ -235,6 +267,7 @@ function renderConnection(shell: HTMLElement): void {
   input.required = true;
   input.placeholder = "http://localhost:6767";
   input.value = connectionUrlInput;
+  input.disabled = busy;
   input.setAttribute("autocomplete", "url");
   input.addEventListener("input", () => {
     connectionUrlInput = input.value;
@@ -247,11 +280,21 @@ function renderConnection(shell: HTMLElement): void {
   button.type = "submit";
   button.disabled = busy;
   button.textContent = busy
-    ? "Waiting for approval…"
+    ? pairingController
+      ? "Waiting for approval…"
+      : "Cancelling pairing…"
     : insecureAcknowledgedFor
       ? "Connect over HTTP"
       : "Connect to Dispatch";
   form.append(intro, label, button);
+  if (busy && pairingController) {
+    const cancel = document.createElement("button");
+    cancel.className = "pairing-cancel";
+    cancel.type = "button";
+    cancel.textContent = "Cancel pairing";
+    cancel.addEventListener("click", () => void cancelPairing());
+    form.append(cancel);
+  }
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     void startPairing(input.value);
@@ -288,10 +331,26 @@ function renderFeedback(shell: HTMLElement): void {
       comment,
     });
   };
+  const agentField = document.createElement("div");
+  agentField.className = "agent-field";
+  const agentHeader = document.createElement("div");
+  agentHeader.className = "agent-field-header";
   const agentLabel = document.createElement("label");
+  agentLabel.htmlFor = "dispatch-agent";
   agentLabel.textContent = "Send to agent";
+  const refreshAgentsButton = document.createElement("button");
+  refreshAgentsButton.type = "button";
+  refreshAgentsButton.className = "agent-refresh";
+  refreshAgentsButton.textContent = agentsRefreshing
+    ? "Refreshing…"
+    : "Refresh";
+  refreshAgentsButton.setAttribute("aria-label", "Refresh running agents");
+  refreshAgentsButton.disabled = busy || agentsRefreshing;
+  refreshAgentsButton.addEventListener("click", () => void refreshAgents());
+  agentHeader.append(agentLabel, refreshAgentsButton);
   const agentSelect = document.createElement("select");
-  agentSelect.disabled = busy || agents.length === 0;
+  agentSelect.id = "dispatch-agent";
+  agentSelect.disabled = busy || agentsRefreshing || agents.length === 0;
   if (agents.length === 0) {
     const option = document.createElement("option");
     option.textContent = "No running agents";
@@ -313,8 +372,8 @@ function renderFeedback(shell: HTMLElement): void {
     syncSendState();
     void rememberAgent();
   });
-  agentLabel.append(agentSelect);
-  controls.append(agentLabel);
+  agentField.append(agentHeader, agentSelect);
+  controls.append(agentField);
 
   const selectButton = document.createElement("button");
   const pickerControl = document.createElement("div");
@@ -363,7 +422,7 @@ function renderFeedback(shell: HTMLElement): void {
   selectButton.addEventListener("click", () => {
     restorePickerFocus = true;
     selectButton.disabled = true;
-    void togglePicker();
+    void handleSelectorClick();
   });
   if (restorePickerFocus && !pickerTransitioning) {
     queueMicrotask(() => {
@@ -385,6 +444,9 @@ function renderFeedback(shell: HTMLElement): void {
   }
   pickerControl.append(selectButton, pickerHelpSlot);
   controls.append(pickerControl);
+  if (pageAccessDisclosureVisible && !pageAccessGranted) {
+    controls.append(createPageAccessDisclosure());
+  }
 
   if (selection) controls.append(createPreview());
   else {
@@ -430,7 +492,7 @@ function createPreview(): HTMLElement {
   const clear = document.createElement("button");
   clear.type = "button";
   clear.className = "preview-clear";
-  clear.textContent = "Clear";
+  clear.textContent = "Clear selection";
   clear.setAttribute("aria-label", "Clear selected element");
   clear.disabled = busy;
   clear.addEventListener("click", () => {
@@ -470,9 +532,50 @@ function createPreview(): HTMLElement {
   return preview;
 }
 
+function createPageAccessDisclosure(): HTMLElement {
+  const disclosure = document.createElement("section");
+  disclosure.className = `page-access-disclosure${pageAccessDenied ? " denied" : ""}`;
+  disclosure.setAttribute("aria-live", "polite");
+  const title = document.createElement("strong");
+  title.textContent = pageAccessDenied
+    ? "Page access was denied"
+    : "Allow page inspection";
+  const explanation = document.createElement("p");
+  explanation.textContent = pageAccessDenied
+    ? "Chrome did not grant access. Try again to reopen its permission prompt, or dismiss this request."
+    : "Element selection needs permission to read and change page content, including embedded frames, on all HTTP and HTTPS websites. Dispatch only collects an element after you click it, and Chrome lets you revoke access later.";
+  const actions = document.createElement("div");
+  actions.className = "page-access-actions";
+  const allow = document.createElement("button");
+  allow.type = "button";
+  allow.className = "primary";
+  allow.textContent = pageAccessDenied
+    ? "Try page access again"
+    : "Allow page access";
+  allow.disabled = pickerTransitioning;
+  allow.addEventListener("click", () => {
+    restorePickerFocus = true;
+    allow.disabled = true;
+    void togglePicker();
+  });
+  const dismiss = document.createElement("button");
+  dismiss.type = "button";
+  dismiss.textContent = "Not now";
+  dismiss.disabled = pickerTransitioning;
+  dismiss.addEventListener("click", () => {
+    pageAccessDisclosureVisible = false;
+    pageAccessDenied = false;
+    render();
+  });
+  actions.append(allow, dismiss);
+  disclosure.append(title, explanation, actions);
+  return disclosure;
+}
+
 async function startPairing(input: string): Promise<void> {
   let requestedPermission: string | null = null;
   let permissionWasAlreadyGranted = false;
+  let controller: AbortController | null = null;
   try {
     const url = normalizeUrlInput(input);
     connectionUrlInput = url.origin;
@@ -497,6 +600,12 @@ async function startPairing(input: string): Promise<void> {
       origins: [requestedPermission],
     });
     if (!granted) throw new Error("Dispatch host access was not approved.");
+    pairingController?.abort();
+    controller = new AbortController();
+    pairingController = controller;
+    pairingPermissionToRevoke = permissionWasAlreadyGranted
+      ? null
+      : requestedPermission;
     busy = true;
     setNotice("info", "Starting pairing…");
     render();
@@ -504,43 +613,89 @@ async function startPairing(input: string): Promise<void> {
       type: "pairing:start",
       baseUrl: url.origin,
     });
+    controller.signal.throwIfAborted();
     const verificationUrl = new URL(pairing.verificationPath, pairing.baseUrl);
     if (verificationUrl.origin !== pairing.baseUrl) {
       throw new Error("Dispatch returned an invalid pairing page URL.");
     }
     await chrome.tabs.create({ url: verificationUrl.href, active: true });
+    controller.signal.throwIfAborted();
     setNotice(
       "info",
       "Approve the connection there only if it shows the same code.",
       pairing.code
     );
     render();
-    await pollPairing(pairing);
+    await pollPairing(pairing, controller.signal);
+    pairingPermissionToRevoke = null;
   } catch (error) {
+    if (controller?.signal.aborted) return;
     if (requestedPermission && !permissionWasAlreadyGranted) {
       await chrome.permissions
         .remove({ origins: [requestedPermission] })
         .catch(() => false);
     }
+    pairingPermissionToRevoke = null;
     busy = false;
     setNotice(
       "error",
       error instanceof Error ? error.message : "Pairing failed."
     );
     render();
+  } finally {
+    if (controller && pairingController === controller) {
+      pairingController = null;
+    }
   }
 }
 
-async function pollPairing(pairing: PairingDetails): Promise<void> {
+async function cancelPairing(): Promise<void> {
+  const permissionToRevoke = pairingPermissionToRevoke;
+  const inFlightExchange = pairingInFlightExchange;
+  pairingController?.abort(
+    new DOMException("Pairing was cancelled.", "AbortError")
+  );
+  pairingController = null;
+  pairingPermissionToRevoke = null;
+  setNotice("info", "Cancelling pairing…");
+  render();
+  const lateResult = await inFlightExchange?.catch(() => null);
+  if (lateResult?.status === "approved") {
+    await sendWorker<{ revokedRemotely: boolean }>({
+      type: "connection:disconnect",
+    }).catch(() => null);
+  }
+  if (permissionToRevoke) {
+    await chrome.permissions
+      .remove({ origins: [permissionToRevoke] })
+      .catch(() => false);
+  }
+  busy = false;
+  setNotice("info", "Pairing cancelled. You can connect again immediately.");
+  render();
+}
+
+async function pollPairing(
+  pairing: PairingDetails,
+  signal: AbortSignal
+): Promise<void> {
   const expiresAt = Date.parse(pairing.expiresAt);
   while (Date.now() < expiresAt) {
-    await new Promise((resolve) => setTimeout(resolve, 2_500));
-    const result = await sendWorker<PairingResult>({
+    await cancellableDelay(2_500, signal);
+    const exchange = sendWorker<PairingResult>({
       type: "pairing:exchange",
       baseUrl: pairing.baseUrl,
       pairingId: pairing.pairingId,
       pairingSecret: pairing.pairingSecret,
     });
+    pairingInFlightExchange = exchange;
+    let result: PairingResult;
+    try {
+      result = await exchange;
+    } finally {
+      if (pairingInFlightExchange === exchange) pairingInFlightExchange = null;
+    }
+    signal.throwIfAborted();
     if (result.status !== "approved") continue;
     connection = { connected: true, baseUrl: pairing.baseUrl };
     insecureAcknowledgedFor = null;
@@ -590,14 +745,23 @@ async function disconnectFromDispatch(): Promise<void> {
   render();
 }
 
-async function loadAgents(): Promise<void> {
+async function loadAgents(preserveCurrent = false): Promise<boolean> {
   try {
+    const previousAgentId = selectedAgentId;
     const result = await sendWorker<{ agents: DispatchAgent[] }>({
       type: "agents:list",
     });
     agents = result.agents;
-    selectedAgentId = agents[0]?.id ?? "";
-    await loadRememberedAgent();
+    if (
+      preserveCurrent &&
+      agents.some((agent) => agent.id === previousAgentId)
+    ) {
+      selectedAgentId = previousAgentId;
+    } else {
+      selectedAgentId = agents[0]?.id ?? "";
+      await loadRememberedAgent();
+    }
+    return true;
   } catch (error) {
     const refreshedConnection = await sendWorker<ConnectionStatus>({
       type: "connection:status",
@@ -611,31 +775,71 @@ async function loadAgents(): Promise<void> {
       "error",
       error instanceof Error ? error.message : "Could not load agents."
     );
+    return false;
   }
 }
 
-async function stopPicker(renderAfter = true): Promise<void> {
-  const tabId = pickerTabId;
+async function refreshAgents(): Promise<void> {
+  if (agentsRefreshing) return;
+  agentsRefreshing = true;
+  notice = null;
+  render();
+  await loadAgents(true);
+  agentsRefreshing = false;
+  render();
+}
+
+function disarmPicker(): { tabId: number | null; windowId: number | null } {
+  const state = { tabId: pickerTabId, windowId: pickerWindowId };
   pickerActive = false;
   pickerTabId = null;
-  if (tabId !== null) {
-    await chrome.scripting
-      .executeScript({
-        target: { tabId, allFrames: true },
-        func: cleanupInjectedPicker,
-      })
-      .catch(() => {
-        // The inspected tab may have navigated or closed; local state is still disarmed.
-      });
-  }
-  if (renderAfter) render();
+  pickerWindowId = null;
+  return state;
 }
 
-async function injectPicker(tabId: number): Promise<void> {
+function beginPickerTransition(): void {
+  pickerTransitionCount += 1;
+  pickerTransitioning = true;
+}
+
+function endPickerTransition(): void {
+  pickerTransitionCount = Math.max(0, pickerTransitionCount - 1);
+  pickerTransitioning = pickerTransitionCount > 0;
+}
+
+async function cleanupPickerInTab(tabId: number): Promise<boolean> {
+  for (let attempt = 0; attempt < PICKER_CLEANUP_ATTEMPTS; attempt += 1) {
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId, allFrames: true },
+        func: cleanupInjectedPicker,
+      });
+      return true;
+    } catch {
+      if (attempt < PICKER_CLEANUP_ATTEMPTS - 1) {
+        await delay(PICKER_CLEANUP_RETRY_MS);
+      }
+    }
+  }
+  return false;
+}
+
+async function stopPicker(renderAfter = true): Promise<boolean> {
+  const { tabId } = disarmPicker();
+  let cleaned = true;
+  if (tabId !== null) {
+    cleaned = await cleanupPickerInTab(tabId);
+  }
+  if (renderAfter) render();
+  return cleaned;
+}
+
+async function injectPicker(tabId: number, windowId: number): Promise<void> {
   // Arm message acceptance before injection. A user can click immediately after
   // picker.js installs, before the readiness probe returns to this panel.
   pickerActive = true;
   pickerTabId = tabId;
+  pickerWindowId = windowId;
 
   for (let attempt = 0; attempt < 4; attempt += 1) {
     if (!pickerActive || pickerTabId !== tabId) return;
@@ -677,12 +881,46 @@ async function requestPageAccess(): Promise<boolean> {
     origins: PAGE_ACCESS_ORIGINS,
   });
   if (!granted) {
+    pageAccessDisclosureVisible = true;
+    pageAccessDenied = true;
     throw new Error(
-      "Page access was not granted. Click Element selector to try again."
+      "Chrome denied page access. Use Try page access again below to reopen the permission prompt."
     );
   }
   pageAccessGranted = true;
+  pageAccessDisclosureVisible = false;
+  pageAccessDenied = false;
   return !wasAlreadyGranted;
+}
+
+async function handleSelectorClick(): Promise<void> {
+  if (pickerActive) {
+    await togglePicker(false);
+    return;
+  }
+  try {
+    pageAccessGranted = await chrome.permissions.contains({
+      origins: PAGE_ACCESS_ORIGINS,
+    });
+  } catch (error) {
+    setNotice(
+      "error",
+      error instanceof Error
+        ? error.message
+        : "Chrome could not verify page access."
+    );
+    render();
+    return;
+  }
+  if (!pageAccessGranted) {
+    pageAccessDisclosureVisible = true;
+    pageAccessDenied = false;
+    render();
+    return;
+  }
+  pageAccessDisclosureVisible = false;
+  pageAccessDenied = false;
+  await togglePicker(false);
 }
 
 async function getSettledTab(tabId: number): Promise<chrome.tabs.Tab> {
@@ -703,13 +941,14 @@ async function getSettledTab(tabId: number): Promise<chrome.tabs.Tab> {
   );
 }
 
-async function togglePicker(): Promise<void> {
+async function togglePicker(requestAccess = true): Promise<void> {
   if (pickerTransitioning) return;
-  pickerTransitioning = true;
+  beginPickerTransition();
 
   try {
     if (pickerActive) {
-      await stopPicker(false);
+      const cleaned = await stopPicker(false);
+      if (!cleaned) throw new Error(PICKER_CLEANUP_ERROR);
       return;
     }
 
@@ -717,7 +956,9 @@ async function togglePicker(): Promise<void> {
     // Start resolving the intended tab without awaiting so permissions.request
     // still runs in the selector button's original user-gesture call stack.
     const intendedTabPromise = getActiveTab();
-    const accessWasNewlyGranted = await requestPageAccess();
+    const accessWasNewlyGranted = requestAccess
+      ? await requestPageAccess()
+      : false;
     const intendedTab = await intendedTabPromise;
     const tab = accessWasNewlyGranted
       ? await getSettledTab(intendedTab.id as number)
@@ -728,10 +969,9 @@ async function togglePicker(): Promise<void> {
         "Chrome does not allow element selection on this page. Try a normal HTTP or HTTPS website."
       );
     }
-    await injectPicker(tab.id as number);
+    await injectPicker(tab.id as number, tab.windowId);
   } catch (error) {
-    pickerActive = false;
-    pickerTabId = null;
+    disarmPicker();
     setNotice(
       "error",
       error instanceof Error
@@ -739,7 +979,7 @@ async function togglePicker(): Promise<void> {
         : "Could not start element selection."
     );
   } finally {
-    pickerTransitioning = false;
+    endPickerTransition();
     render();
   }
 }
@@ -787,27 +1027,58 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
   ) {
     return;
   }
+  const completedPickerTabId = pickerTabId;
+  let handled = false;
   if (message.type === "picker:selected" && "selection" in message) {
+    handled = true;
+    beginPickerTransition();
     selection = message.selection as BrowserSelection;
-    pickerActive = false;
-    pickerTabId = null;
+    disarmPicker();
     notice = null;
     void rememberAgent();
     render();
   } else if (message.type === "picker:cancelled") {
-    pickerActive = false;
-    pickerTabId = null;
+    handled = true;
+    beginPickerTransition();
+    disarmPicker();
     notice = null;
     render();
   } else if (message.type === "picker:failed") {
-    pickerActive = false;
-    pickerTabId = null;
+    handled = true;
+    beginPickerTransition();
+    disarmPicker();
     setNotice(
       "error",
       "Could not collect context for that element. Try a different element."
     );
     render();
   }
+  if (handled && completedPickerTabId !== null) {
+    void cleanupPickerInTab(completedPickerTabId).then((cleaned) => {
+      if (!cleaned) setNotice("error", PICKER_CLEANUP_ERROR);
+      endPickerTransition();
+      render();
+    });
+  }
+});
+
+chrome.tabs.onActivated.addListener(({ tabId, windowId }) => {
+  if (
+    !pickerActive ||
+    tabId === pickerTabId ||
+    (pickerWindowId !== null && windowId !== pickerWindowId)
+  ) {
+    return;
+  }
+  void stopPicker(false).then((cleaned) => {
+    setNotice(
+      cleaned ? "info" : "error",
+      cleaned
+        ? "Element selection stopped because you switched tabs."
+        : PICKER_CLEANUP_ERROR
+    );
+    render();
+  });
 });
 
 chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
@@ -816,8 +1087,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
     tabId === pickerTabId &&
     changeInfo.status === "loading"
   ) {
-    pickerActive = false;
-    pickerTabId = null;
+    disarmPicker();
     setNotice("info", "Element selection stopped because the page changed.");
     render();
   }
@@ -825,24 +1095,14 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
 
 chrome.tabs.onRemoved.addListener((tabId) => {
   if (!pickerActive || tabId !== pickerTabId) return;
-  pickerActive = false;
-  pickerTabId = null;
+  disarmPicker();
   render();
 });
 
 window.addEventListener("pagehide", () => {
-  const tabId = pickerTabId;
-  pickerActive = false;
-  pickerTabId = null;
+  const { tabId } = disarmPicker();
   if (tabId !== null) {
-    void chrome.scripting
-      .executeScript({
-        target: { tabId, allFrames: true },
-        func: cleanupInjectedPicker,
-      })
-      .catch(() => {
-        // Closing the inspected tab and the panel together requires no cleanup retry.
-      });
+    void cleanupPickerInTab(tabId);
   }
 });
 

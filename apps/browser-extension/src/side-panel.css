@@ -121,6 +121,32 @@ label {
   gap: 12px;
 }
 
+.agent-field {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-field-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-refresh {
+  min-height: 38px;
+  padding: 7px 10px;
+  border-color: transparent;
+  color: #c4b5fd;
+  background: transparent;
+  font-size: 12px;
+}
+
+.agent-refresh:focus-visible {
+  outline: 2px solid #c4b5fd;
+  outline-offset: 2px;
+}
+
 .picker-control {
   display: grid;
   gap: 6px;
@@ -246,6 +272,37 @@ label {
   line-height: 1.4;
 }
 
+.page-access-disclosure {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid #6d28d9;
+  border-radius: 8px;
+  color: #ddd6fe;
+  background: #2e1065;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.page-access-disclosure.denied {
+  border-color: #b91c1c;
+  color: #fecaca;
+  background: #450a0a;
+}
+
+.page-access-disclosure p {
+  margin: 0;
+}
+
+.page-access-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.page-access-actions > * {
+  flex: 1;
+}
+
 .row {
   display: flex;
   gap: 8px;
@@ -306,12 +363,17 @@ label {
 
 .preview-clear {
   flex: none;
-  min-height: auto;
-  padding: 2px 6px;
-  border-color: transparent;
+  min-height: 40px;
+  padding: 8px 12px;
+  border-color: #57534e;
   color: #c4b5fd;
-  background: transparent;
-  font-size: 11px;
+  background: #262626;
+  font-size: 12px;
+}
+
+.preview-clear:focus-visible {
+  outline: 2px solid #c4b5fd;
+  outline-offset: 2px;
 }
 
 .preview code,
@@ -402,4 +464,8 @@ label {
   background: transparent;
   color: #c4b5fd;
   font-size: 12px;
+}
+
+.pairing-cancel {
+  color: #fecaca;
 }

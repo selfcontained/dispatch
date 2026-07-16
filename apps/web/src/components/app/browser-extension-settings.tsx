@@ -28,7 +28,13 @@ import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
 import { formatDateTime, formatRelativeTime } from "@/lib/format";
 
-type ApprovalState = "idle" | "approving" | "waiting" | "connected" | "error";
+type ApprovalState =
+  | "idle"
+  | "approving"
+  | "waiting"
+  | "timedOut"
+  | "connected"
+  | "error";
 
 type BrowserExtensionConnection = {
   id: string;
@@ -39,7 +45,7 @@ type BrowserExtensionConnection = {
 };
 
 const connectionsQueryKey = ["browser-extension", "connections"] as const;
-const postApprovalRefreshAttempts = 6;
+const postApprovalRefreshAttempts = 21;
 const postApprovalRefreshDelayMs = 500;
 const initiallyVisibleConnections = 5;
 
@@ -123,6 +129,8 @@ export function BrowserExtensionSettings(): JSX.Element {
           refreshTimer = undefined;
         }
       }
+
+      if (!cancelled) setApprovalState("timedOut");
     };
 
     void refreshUntilConnectionAppears();
@@ -148,6 +156,16 @@ export function BrowserExtensionSettings(): JSX.Element {
     const connectionCount = connectionsQuery.data.length;
     const previousConnectionCount = previousConnectionCountRef.current;
     previousConnectionCountRef.current = connectionCount;
+    const hasPostApprovalConnection = connectionsQuery.data.some(
+      (connection) => !connectionsBeforeApprovalRef.current.has(connection.id)
+    );
+
+    if (
+      (approvalState === "waiting" || approvalState === "timedOut") &&
+      hasPostApprovalConnection
+    ) {
+      setApprovalState("connected");
+    }
 
     if (
       previousConnectionCount !== null &&
@@ -155,7 +173,7 @@ export function BrowserExtensionSettings(): JSX.Element {
     ) {
       setShowInstallGuide(false);
     }
-  }, [connectionsQuery.data]);
+  }, [approvalState, connectionsQuery.data]);
 
   const approvePairing = async () => {
     if (!pairingId || !code) return;
@@ -240,12 +258,16 @@ export function BrowserExtensionSettings(): JSX.Element {
               <CardTitle className="text-base">
                 {approvalState === "connected"
                   ? "Browser connected"
-                  : "Approve this browser"}
+                  : approvalState === "timedOut"
+                    ? "Connection still pending"
+                    : "Approve this browser"}
               </CardTitle>
               <CardDescription>
                 {approvalState === "connected"
                   ? "The extension is ready to send feedback to your agents."
-                  : "Finish the connection request you started in the extension."}
+                  : approvalState === "timedOut"
+                    ? "Dispatch has not seen the browser finish connecting yet."
+                    : "Finish the connection request you started in the extension."}
               </CardDescription>
             </div>
           </CardHeader>
@@ -285,6 +307,26 @@ export function BrowserExtensionSettings(): JSX.Element {
                       will update when the browser appears below.
                     </p>
                   </div>
+                </div>
+              ) : approvalState === "timedOut" ? (
+                <div className="space-y-3" role="alert">
+                  <div>
+                    <p className="text-sm font-medium">
+                      Browser has not finished connecting
+                    </p>
+                    <p className="mt-1 text-sm text-muted-foreground">
+                      Keep the extension open while it finishes the exchange,
+                      then check again. If the request is no longer visible in
+                      the extension, start a new connection there.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="primary"
+                    onClick={() => setApprovalState("waiting")}
+                  >
+                    Check again
+                  </Button>
                 </div>
               ) : (
                 <div className="space-y-4">

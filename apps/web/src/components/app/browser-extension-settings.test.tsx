@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -257,6 +258,176 @@ describe("BrowserExtensionSettings", () => {
     expect(await screen.findByText("New Chrome")).toBeTruthy();
     expect(screen.getByText("Browser extension connected")).toBeTruthy();
     expect(connectionsRequestCount).toBe(3);
+  });
+
+  it("keeps polling beyond one extension exchange interval", async () => {
+    vi.useFakeTimers();
+    let connectionsRequestCount = 0;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      if (String(input).includes("/pairings/")) {
+        return new Response(null, { status: 204 });
+      }
+
+      connectionsRequestCount += 1;
+      return connectionsResponse(
+        connectionsRequestCount >= 8
+          ? [
+              {
+                id: "44444444-4444-4444-8444-444444444444",
+                deviceName: "Delayed Chrome",
+                createdAt: new Date().toISOString(),
+                expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+                lastUsedAt: null,
+              },
+            ]
+          : []
+      );
+    });
+
+    try {
+      renderSettings("?browserExtensionPairing=delayed&code=123456");
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Approve connection" })
+      );
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("Connection approved")).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(3_500);
+      });
+
+      expect(screen.getByText("Delayed Chrome")).toBeTruthy();
+      expect(screen.getByText("Browser extension connected")).toBeTruthy();
+      expect(connectionsRequestCount).toBeGreaterThan(6);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("offers a retry after connection polling times out", async () => {
+    vi.useFakeTimers();
+    let connectionAvailable = false;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      if (String(input).includes("/pairings/")) {
+        return new Response(null, { status: 204 });
+      }
+
+      return connectionsResponse(
+        connectionAvailable
+          ? [
+              {
+                id: "55555555-5555-4555-8555-555555555555",
+                deviceName: "Recovered Chrome",
+                createdAt: new Date().toISOString(),
+                expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+                lastUsedAt: null,
+              },
+            ]
+          : []
+      );
+    });
+
+    try {
+      renderSettings("?browserExtensionPairing=slow&code=654321");
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Approve connection" })
+      );
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("Connection approved")).toBeTruthy();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_500);
+      });
+
+      expect(screen.getByText("Connection still pending")).toBeTruthy();
+      expect(
+        screen.getByText("Browser has not finished connecting")
+      ).toBeTruthy();
+      const retry = screen.getByRole("button", { name: "Check again" });
+
+      connectionAvailable = true;
+      fireEvent.click(retry);
+      await act(async () => {
+        await Promise.resolve();
+      });
+
+      expect(screen.getByText("Recovered Chrome")).toBeTruthy();
+      expect(screen.getByText("Browser extension connected")).toBeTruthy();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("clears a timeout when a refetch finds the connection", async () => {
+    vi.useFakeTimers();
+    let connectionAvailable = false;
+    vi.mocked(globalThis.fetch).mockImplementation(async (input) => {
+      if (String(input).includes("/pairings/")) {
+        return new Response(null, { status: 204 });
+      }
+
+      return connectionsResponse(
+        connectionAvailable
+          ? [
+              {
+                id: "66666666-6666-4666-8666-666666666666",
+                deviceName: "Focus Chrome",
+                createdAt: new Date().toISOString(),
+                expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
+                lastUsedAt: null,
+              },
+            ]
+          : []
+      );
+    });
+
+    try {
+      const { queryClient } = renderSettings(
+        "?browserExtensionPairing=focus&code=112233"
+      );
+      await act(async () => {
+        await Promise.resolve();
+      });
+      fireEvent.click(
+        screen.getByRole("button", { name: "Approve connection" })
+      );
+      await act(async () => {
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(screen.getByText("Connection approved")).toBeTruthy();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(10_500);
+      });
+
+      expect(screen.getByText("Connection still pending")).toBeTruthy();
+
+      connectionAvailable = true;
+      await act(async () => {
+        await queryClient.refetchQueries({
+          queryKey: ["browser-extension", "connections"],
+        });
+        await vi.advanceTimersByTimeAsync(0);
+      });
+
+      expect(screen.getByText("Focus Chrome")).toBeTruthy();
+      expect(screen.getByText("Browser extension connected")).toBeTruthy();
+      expect(screen.queryByText("Connection still pending")).toBe(null);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows a server error and allows the user to retry", async () => {
