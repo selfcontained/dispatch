@@ -145,16 +145,11 @@ describe("registerPersonaInteractionTools", () => {
       agentId,
       listPersonas: vi.fn(),
     };
-    const allowed = new Set([
-      "list_personas",
-      "dispatch_launch_persona",
-      "dispatch_get_feedback",
-    ]);
+    const allowed = new Set(["list_personas", "dispatch_launch_persona"]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
     expect(names).toContain("list_personas");
     expect(names).not.toContain("dispatch_launch_persona");
-    expect(names).not.toContain("dispatch_get_feedback");
   });
 
   it("registers dispatch_launch_persona when allowed and callback provided", () => {
@@ -191,10 +186,6 @@ describe("registerPersonaInteractionTools", () => {
         reviewId: 1,
         reviewStatus: "open",
       })),
-      submitResolution: vi.fn(async () => ({
-        review: { id: 1 },
-        resolution: { roundNumber: 2 },
-      })),
     };
     const allowed = new Set([
       "dispatch_review_list_feedback",
@@ -203,7 +194,6 @@ describe("registerPersonaInteractionTools", () => {
       "dispatch_review_resolve",
       "dispatch_review_reopen",
       "dispatch_review_add_message",
-      "dispatch_submit_resolution",
     ]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
@@ -213,7 +203,6 @@ describe("registerPersonaInteractionTools", () => {
     expect(names).toContain("dispatch_review_resolve");
     expect(names).toContain("dispatch_review_reopen");
     expect(names).toContain("dispatch_review_add_message");
-    expect(names).toContain("dispatch_submit_resolution");
   });
 
   it("caps dispatch_review_add_message input at 600 characters", () => {
@@ -263,48 +252,6 @@ describe("registerPersonaInteractionTools", () => {
       expect((result as any).structuredContent.personas).toEqual(personas);
     });
 
-    it("dispatch_get_feedback returns summary with item counts", async () => {
-      const getFeedback = vi.fn(async () => ({
-        personas: [
-          { slug: "sec", feedback: [{ id: 1 }, { id: 2 }] },
-          { slug: "perf", feedback: [{ id: 3 }] },
-        ],
-      }));
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        getFeedback,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_get_feedback"]),
-        callbacks
-      );
-
-      const result = (await server.tools[0].handler({
-        limit: 100,
-      })) as any;
-      expect(result.content[0].text).toContain("3 feedback item(s)");
-      expect(result.content[0].text).toContain("2 persona(s)");
-    });
-
-    it("dispatch_get_feedback returns 'no feedback' when empty", async () => {
-      const getFeedback = vi.fn(async () => ({ personas: [] }));
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        getFeedback,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_get_feedback"]),
-        callbacks
-      );
-
-      const result = (await server.tools[0].handler({
-        limit: 100,
-      })) as any;
-      expect(result.content[0].text).toContain("No persona feedback found");
-    });
-
     it("dispatch_review_list_feedback returns 'no items' when empty", async () => {
       const listReviewFeedback = vi.fn(async () => []);
       const callbacks: PersonaInteractionCallbacks = {
@@ -321,33 +268,6 @@ describe("registerPersonaInteractionTools", () => {
       expect(result.content[0].text).toContain(
         "No review feedback items found"
       );
-    });
-
-    it("dispatch_resolve_feedback calls resolveFeedback with correct args", async () => {
-      const resolveFeedback = vi.fn(async () => ({
-        id: 5,
-        status: "fixed",
-      }));
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        resolveFeedback,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_resolve_feedback"]),
-        callbacks
-      );
-
-      const result = (await server.tools[0].handler({
-        feedbackId: 5,
-        status: "fixed",
-        reason: "addressed",
-      })) as any;
-
-      expect(resolveFeedback).toHaveBeenCalledWith(agentId, 5, "fixed", {
-        reason: "addressed",
-      });
-      expect(result.content[0].text).toContain("Feedback #5 marked as fixed");
     });
 
     it("dispatch_review_resolve calls resolveReviewFeedback", async () => {
@@ -368,14 +288,14 @@ describe("registerPersonaInteractionTools", () => {
 
       const result = (await server.tools[0].handler({
         itemId: 7,
-        resolution: "wont_fix",
+        resolution: "dismissed",
         note: "by design",
       })) as any;
 
       expect(resolveReviewFeedback).toHaveBeenCalledWith(
         agentId,
         7,
-        "wont_fix",
+        "dismissed",
         { note: "by design" }
       );
       expect(result.content[0].text).toContain("Review feedback #7");
@@ -408,34 +328,6 @@ describe("registerPersonaInteractionTools", () => {
         "Looks good to me"
       );
       expect(result.content[0].text).toContain("message #12");
-    });
-
-    it("dispatch_submit_resolution calls submitResolution", async () => {
-      const submitResolution = vi.fn(async () => ({
-        review: { id: 4 },
-        resolution: { roundNumber: 2 },
-      }));
-      const callbacks: PersonaInteractionCallbacks = {
-        agentId,
-        submitResolution,
-      };
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["dispatch_submit_resolution"]),
-        callbacks
-      );
-
-      const result = (await server.tools[0].handler({
-        personaAgentId: "agt_reviewer",
-        summary: "Fixed all issues",
-      })) as any;
-
-      expect(submitResolution).toHaveBeenCalledWith(agentId, {
-        personaAgentId: "agt_reviewer",
-        summary: "Fixed all issues",
-      });
-      expect(result.content[0].text).toContain("review #4");
-      expect(result.content[0].text).toContain("round 2");
     });
   });
 });

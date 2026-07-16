@@ -2,7 +2,7 @@ Assess the effectiveness of persona-driven code reviews and tune the persona set
 
 ## Important context
 
-Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona runs as an automated code reviewer on PRs, producing structured feedback via `dispatch_feedback`. The primary codebase conventions are documented in `CLAUDE.md`.
+Dispatch is a local-first control plane for running and managing multiple AI coding agents. Persona definitions live in `.dispatch/personas/` as markdown files. Each persona runs as an automated code reviewer on PRs, producing a tracked review via `dispatch_review_submit`. The primary codebase conventions are documented in `CLAUDE.md`.
 
 The goal is to keep the persona set effective: tune prompts that are producing noise, wait for data when a prompt just changed, retire personas that consistently underperform, and add new ones only when there's concrete evidence of a recurring gap.
 
@@ -41,7 +41,7 @@ If the core state object is not found (first run), fall through to the bootstrap
 Do a broad assessment to seed the Brain. The goal is to produce a baseline for future runs, not to fix everything at once.
 
 1. **Inventory personas.** List all files in `.dispatch/personas/`. For each, record the latest commit SHA touching that file (`git log -1 --format=%H -- .dispatch/personas/<file>`).
-2. **Gather recent data.** Call `list_recent_persona_reviews` with `since_days: 14` and `list_recent_feedback` with `since_days: 14` to get a broader initial sample.
+2. **Gather recent data.** Call `get_agent_history` for the last 14 days with feedback and reviews included, paging until the sample is complete. Call `get_feedback_summary` for the same range to get aggregate patterns.
 3. **Baseline each persona.** For each persona, determine:
    - How many reviews were run and completed
    - How many feedback items were produced
@@ -55,7 +55,7 @@ Do a broad assessment to seed the Brain. The goal is to produce a baseline for f
 
 For normal runs, collect the data needed to evaluate the personas in scope:
 
-1. **Call MCP tools.** Use `list_recent_persona_reviews` and `list_recent_feedback` with `since_days: 7`. Link feedback to reviews by matching `agentId`.
+1. **Call MCP tools.** Use `get_agent_history` for the last 7 days with feedback and reviews included. Use `get_feedback_summary` for aggregate patterns.
 2. **Check for prompt changes.** For each persona in scope, compare the current latest commit SHA on the persona file to the `prompt_sha` stored in the core state object. If it changed:
    - Read the commit message and diff to understand what the change was trying to improve
    - Reset that persona's evaluation window — only score reviews produced after the new prompt
@@ -156,7 +156,7 @@ If persona files were changed:
 1. Run `pnpm run format:write` to fix formatting.
 2. Commit on a new branch. The PR should only contain persona prompt changes — Brain state is stored externally, not in git.
 3. Create a PR targeting `main` with a short body: what was assessed, what changed, what post-change evidence justified the adjustment, and what's queued for the next run.
-4. **Launch a reviewer.** Use `dispatch_launch_persona` to launch `architecture-review` with `recheck: true`. Provide context about what persona changes were made and why. If the reviewer requests changes, address them before proceeding.
+4. **Launch a reviewer.** Use `dispatch_launch_persona` to launch `architecture-review`. Provide context about what persona changes were made and why. If the reviewer submits feedback, address each tracked item before proceeding.
 5. **Wait for CI.** Poll `get_pr_status` in a loop (~60s between polls). Do not call `job_complete` while CI is still running.
 6. **Act on the CI result.**
    - **`SUCCESS`** — merge via `gh pr merge <num> --squash --delete-branch`. Verify the PR state is `MERGED` before calling `job_complete`.

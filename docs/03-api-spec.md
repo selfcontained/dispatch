@@ -217,11 +217,10 @@ Live Playwright browser streaming via Chrome DevTools Protocol.
 
 ## Personas
 
-| Method | Path                          | Description                                                                               |
-| ------ | ----------------------------- | ----------------------------------------------------------------------------------------- |
-| GET    | `/personas`                   | List available personas (reads from `.dispatch/personas/` in the repo at `cwd`)           |
-| POST   | `/agents/:id/launch-review`   | Tell a CLI agent (via its tmux session) to call `dispatch_launch_persona` on its own work |
-| POST   | `/agents/:id/persona-reviews` | Directly spawn a persona review agent as a child of `:id` (server-side equivalent)        |
+| Method | Path                        | Description                                                                               |
+| ------ | --------------------------- | ----------------------------------------------------------------------------------------- |
+| GET    | `/personas`                 | List available personas (reads from `.dispatch/personas/` in the repo at `cwd`)           |
+| POST   | `/agents/:id/launch-review` | Tell a CLI agent (via its tmux session) to call `dispatch_launch_persona` on its own work |
 
 ### `GET /personas`
 
@@ -237,31 +236,7 @@ Query params: `cwd=/path/to/repo`. The server tries the worktree root first, the
 }
 ```
 
-Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool with the given options. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`); `persona` must match the slug pattern `[a-zA-Z0-9_-]+`. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. Reviews always include a recheck pass — the reviewer stays alive after its initial verdict and performs a second pass once the parent submits a resolution.
-
-### `POST /agents/:id/persona-reviews`
-
-```json
-{
-  "persona": "backend-security-review",
-  "agentType": "claude",
-  "includeDiff": true,
-  "context": "Review the auth middleware refactor in apps/server/src/auth/."
-}
-```
-
-Spawns the persona review agent directly (without going through the parent agent's tmux). `agentType` is optional; `context` defaults to a short generic briefing if omitted. Returns the new persona agent.
-
-## Feedback
-
-| Method | Path                               | Description                        |
-| ------ | ---------------------------------- | ---------------------------------- |
-| GET    | `/agents/:id/feedback`             | Get feedback findings for an agent |
-| PATCH  | `/agents/:id/feedback/:feedbackId` | Update feedback status             |
-
-### `GET /agents/:id/feedback`
-
-Query params: `scope=children` to include feedback from child persona agents.
+Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool with the given options. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`); `persona` must match the slug pattern `[a-zA-Z0-9_-]+`. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. The launched agent creates its review through `dispatch_review_submit` after completing its initial pass.
 
 ### `PATCH /agents/:id/feedback/:feedbackId`
 

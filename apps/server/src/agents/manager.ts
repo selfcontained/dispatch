@@ -68,14 +68,6 @@ import type {
   WorktreeStatus,
 } from "./types.js";
 import * as telemetry from "./telemetry.js";
-import * as personaReviews from "./persona-reviews.js";
-import type {
-  PersonaReviewRecord,
-  PersonaReviewResolutionItem,
-  PersonaReviewResolutionRecord,
-} from "./persona-reviews.js";
-import * as feedbackQueries from "./feedback.js";
-import type { FeedbackInput, FeedbackRecord } from "./feedback.js";
 
 export { AgentError } from "./errors.js";
 export type {
@@ -87,13 +79,6 @@ export type {
   AgentTerminalAccess,
   WorktreeStatus,
 } from "./types.js";
-export type {
-  PersonaReviewRecord,
-  PersonaReviewResolutionItem,
-  PersonaReviewResolutionRecord,
-} from "./persona-reviews.js";
-export { resolveProgressPingStatus } from "./persona-reviews.js";
-export type { FeedbackInput, FeedbackRecord } from "./feedback.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -1221,41 +1206,6 @@ export class AgentManager {
     }
   }
 
-  // --- Persona Reviews ---
-
-  async createPersonaReview(input: {
-    agentId: string;
-    parentAgentId: string;
-    persona: string;
-    lastReviewedCommit?: string | null;
-  }): Promise<PersonaReviewRecord> {
-    return personaReviews.createPersonaReview(this.pool, input);
-  }
-
-  async updatePersonaReviewStatus(
-    agentId: string,
-    input: { status: string; message?: string }
-  ): Promise<PersonaReviewRecord> {
-    return personaReviews.updatePersonaReviewStatus(this.pool, agentId, input);
-  }
-
-  async completePersonaReview(
-    agentId: string,
-    input: {
-      verdict: string;
-      summary: string;
-      filesReviewed?: string[];
-      message?: string;
-      lastReviewedCommit?: string | null;
-    }
-  ): Promise<PersonaReviewRecord> {
-    return personaReviews.completePersonaReview(this.pool, agentId, input);
-  }
-
-  async getPersonaReview(agentId: string): Promise<PersonaReviewRecord | null> {
-    return personaReviews.getPersonaReview(this.pool, agentId);
-  }
-
   // --- Media ---
 
   async listMedia(agentId: string): Promise<
@@ -1271,92 +1221,6 @@ export class AgentManager {
     return telemetry.listMedia(this.pool, agentId, (id) =>
       this.defaultMediaDir(id)
     );
-  }
-
-  // --- Feedback ---
-
-  async submitFeedback(
-    agentId: string,
-    feedback: FeedbackInput
-  ): Promise<FeedbackRecord> {
-    return feedbackQueries.submitFeedback(this.pool, agentId, feedback);
-  }
-
-  async listFeedbackByParentGrouped(
-    parentAgentId: string,
-    persona?: string,
-    limit = 100
-  ): Promise<{
-    personas: Array<{
-      persona: string;
-      agentId: string;
-      feedback: FeedbackRecord[];
-    }>;
-  }> {
-    return feedbackQueries.listFeedbackByParentGrouped(
-      this.pool,
-      parentAgentId,
-      persona,
-      limit
-    );
-  }
-
-  async updateFeedbackStatusByParent(
-    feedbackId: number,
-    parentAgentId: string,
-    status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored",
-    options: { reason?: string | null; resolutionCommit?: string | null } = {}
-  ): Promise<FeedbackRecord | null> {
-    return feedbackQueries.updateFeedbackStatusByParent(
-      this.pool,
-      feedbackId,
-      parentAgentId,
-      status,
-      options
-    );
-  }
-
-  async countFeedbackForAgent(agentId: string): Promise<number> {
-    return feedbackQueries.countFeedbackForAgent(this.pool, agentId);
-  }
-
-  // --- Review Resolutions / Recheck ---
-
-  async submitReviewResolution(input: {
-    parentAgentId: string;
-    personaAgentId: string;
-    summary: string;
-    resolutionCommit?: string | null;
-  }): Promise<{
-    review: PersonaReviewRecord;
-    resolution: PersonaReviewResolutionRecord;
-  }> {
-    return personaReviews.submitReviewResolution(this.pool, input);
-  }
-
-  async getReviewResolutions(
-    reviewId: number
-  ): Promise<PersonaReviewResolutionRecord[]> {
-    return personaReviews.getReviewResolutions(this.pool, reviewId);
-  }
-
-  async listResolvedFeedbackForRound(
-    personaAgentId: string,
-    roundNumber: number
-  ): Promise<PersonaReviewResolutionItem[]> {
-    return personaReviews.listResolvedFeedbackForRound(
-      this.pool,
-      personaAgentId,
-      roundNumber
-    );
-  }
-
-  async cancelReviewRecheck(input: {
-    parentAgentId: string;
-    personaAgentId: string;
-    reason?: string | null;
-  }): Promise<{ review: PersonaReviewRecord; transitioned: boolean }> {
-    return personaReviews.cancelReviewRecheck(this.pool, input);
   }
 
   private baseAgentSelectSql(): string {
@@ -1412,28 +1276,6 @@ export class AgentManager {
           ORDER BY unified_review.created_at DESC, unified_review.id DESC
           LIMIT 1
         ) AS "submittedReviewId",
-        (SELECT json_build_object(
-           'status', pr.status,
-           'message', pr.message,
-           'verdict', pr.verdict,
-           'summary', pr.summary,
-           'filesReviewed', pr.files_reviewed,
-           'roundNumber', pr.round_number,
-           'updatedAt', pr.updated_at,
-           'resolution', (
-             SELECT json_build_object(
-               'summary', prr.summary,
-               'resolutionCommit', prr.resolution_commit,
-               'submittedAt', prr.submitted_at,
-               'roundNumber', prr.round_number
-             )
-             FROM persona_review_resolutions prr
-             WHERE prr.review_id = pr.id
-             ORDER BY prr.round_number DESC, prr.submitted_at DESC
-             LIMIT 1
-           )
-         ) FROM persona_reviews pr WHERE pr.agent_id = agents.id LIMIT 1
-        ) AS "review",
         created_at AS "createdAt",
         updated_at AS "updatedAt"
       FROM agents

@@ -72,7 +72,7 @@ export function registerAnalyticsTools(
       "get_agent_history",
       {
         description:
-          "Get detailed agent session history — what agents worked on, their event timelines, feedback received, and persona review results. Use for deeper investigation after get_activity_summary or for building narrative summaries.",
+          "Get detailed agent session history — what agents worked on, their event timelines, feedback received, and review results. Use for deeper investigation after get_activity_summary or for building narrative summaries.",
         inputSchema: {
           start: z
             .string()
@@ -167,7 +167,7 @@ export function registerAnalyticsTools(
       "get_feedback_summary",
       {
         description:
-          "Aggregate persona review feedback to surface patterns — recurring issue types, hot spots in the codebase, and severity trends. Use for feedback pattern tracking and coaching check-ins.",
+          "Aggregate review feedback to surface patterns — recurring issue types and hot spots in the codebase. Use for feedback pattern tracking and coaching check-ins.",
         inputSchema: {
           start: z
             .string()

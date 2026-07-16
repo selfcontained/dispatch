@@ -1062,12 +1062,10 @@ html[data-theme="matrix"] [role="button"] {
     --child-agent-chase-angle: 360deg;
   }
 }
-.child-agent-review-active-row,
-.persona-reviewing-row {
+.child-agent-review-active-row {
   position: relative;
 }
-.child-agent-review-active-row::before,
-.persona-reviewing-row::before {
+.child-agent-review-active-row::before {
   content: "";
   position: absolute;
   inset: 0;
@@ -1092,8 +1090,7 @@ html[data-theme="matrix"] [role="button"] {
   animation: child-agent-review-chase-spin 4s linear infinite;
 }
 @media (prefers-reduced-motion: reduce) {
-  .child-agent-review-active-row::before,
-  .persona-reviewing-row::before {
+  .child-agent-review-active-row::before {
     display: none;
   }
 }
@@ -1110,8 +1107,7 @@ html[data-hidden] .dispatch-activity-bar {
 html[data-hidden] .animate-spin {
   animation-play-state: paused;
 }
-html[data-hidden] .child-agent-review-active-row::before,
-html[data-hidden] .persona-reviewing-row::before {
+html[data-hidden] .child-agent-review-active-row::before {
   animation-play-state: paused;
 }
 html[data-hidden] .animate-sidebar-nav-pulse {

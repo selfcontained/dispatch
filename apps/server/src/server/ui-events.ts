@@ -1,4 +1,4 @@
-import type { AgentRecord, FeedbackRecord } from "../agents/manager.js";
+import type { AgentRecord } from "../agents/manager.js";
 import type { ReleaseInfoSnapshot } from "../release-info.js";
 
 import type { DiffStats } from "../shared/git/diff-stats.js";
@@ -28,16 +28,6 @@ export type UiEvent =
   | { type: "message.read"; agentId: string }
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
-  | {
-      type: "feedback.created";
-      agentId: string;
-      feedback: FeedbackRecord;
-    }
-  | {
-      type: "feedback.updated";
-      agentId: string;
-      feedback: FeedbackRecord;
-    }
   | {
       type: "review.created";
       agentId: string;

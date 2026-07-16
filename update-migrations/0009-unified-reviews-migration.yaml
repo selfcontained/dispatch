@@ -22,6 +22,16 @@ instructions:
   - Allow extra startup time if the installation contains substantial legacy
     persona review history; migration 0032 copies those records once into the
     unified review model while retaining the legacy source rows.
+  - >
+    Before applying the update, read DATABASE_URL from the service directory's
+    .env without modifying it and run this read-only query:
+    SELECT a.name, pr.persona, pr.status FROM persona_reviews pr JOIN agents a
+    ON a.id = pr.agent_id WHERE a.deleted_at IS NULL AND pr.status IN
+    ('reviewing', 'awaiting_recheck') ORDER BY pr.updated_at DESC.
+  - If any in-flight legacy reviews are found, report the update as blocked,
+    list the reviewer agent name, persona, and status for the operator, and tell
+    them to finish or cancel those reviews before retrying the update. Do not
+    invoke the managed update endpoint while any such rows remain.
   - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok after startup.
   - Confirm release.json under the install directory reports the target tag.
   - If the healthy target state is already satisfied, do not modify review data

@@ -101,13 +101,12 @@ import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
-import { registerFeedbackRoutes } from "./routes/feedback.js";
 import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerMessagesRoutes } from "./routes/messages.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
-import { registerPersonaReviewRoutes } from "./routes/persona-reviews.js";
+import { registerPersonaRoutes } from "./routes/personas.js";
 import { registerPersonalityRoutes } from "./routes/personalities.js";
 import { registerReviewRoutes } from "./routes/reviews.js";
 import { registerQuickPhraseRoutes } from "./routes/quick-phrases.js";
@@ -477,28 +476,20 @@ async function registerRoutes() {
     mcpRenameSession: mcpHandlers.renameSession,
     mcpShareMedia: mcpHandlers.shareMedia,
     mcpListMedia: mcpHandlers.listMedia,
-    mcpSubmitFeedback: mcpHandlers.submitFeedback,
     mcpListPersonas: mcpHandlers.listPersonas,
     mcpLaunchPersona: mcpHandlers.launchPersona,
     mcpLaunchAgent: mcpHandlers.launchAgent,
-    mcpGetFeedback: mcpHandlers.getFeedback,
-    mcpResolveFeedback: mcpHandlers.resolveFeedback,
     mcpResolveReviewFeedback: mcpHandlers.resolveReviewFeedback,
     mcpReopenReviewFeedback: mcpHandlers.reopenReviewFeedback,
     mcpSubmitReview: mcpHandlers.submitReview,
     mcpAddReviewFeedback: mcpHandlers.addReviewFeedback,
     mcpAddReviewThreadMessage: mcpHandlers.addReviewThreadMessage,
     mcpListReviewFeedback: mcpHandlers.listReviewFeedback,
-    mcpSubmitResolution: mcpHandlers.submitResolution,
-    mcpCancelRecheck: mcpHandlers.cancelRecheck,
     mcpSendMessage: mcpHandlers.sendMessage,
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
     mcpUpsertPin: mcpHandlers.upsertPin,
     mcpDeletePin: mcpHandlers.deletePin,
     mcpGetParentContext: mcpHandlers.getParentContext,
-    mcpGetRecheckContext: mcpHandlers.getRecheckContext,
-    mcpUpdateReviewStatus: mcpHandlers.updateReviewStatus,
-    mcpCompleteReview: mcpHandlers.completeReview,
     mcpJobComplete: mcpHandlers.jobComplete,
     mcpJobFailed: mcpHandlers.jobFailed,
     mcpJobNeedsInput: mcpHandlers.jobNeedsInput,
@@ -629,15 +620,10 @@ async function registerRoutes() {
   });
 
   // --- Personas ---
-  await registerPersonaReviewRoutes(app, {
-    pool,
+  await registerPersonaRoutes(app, {
     agentManager,
-    mcpLaunchPersona: mcpHandlers.launchPersona,
-    mcpCancelRecheck: mcpHandlers.cancelRecheck,
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
-    withStreamFlag,
     handleAgentError,
   });
 
@@ -649,15 +635,6 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
-    handleAgentError,
-  });
-
-  // --- Feedback ---
-
-  await registerFeedbackRoutes(app, {
-    pool,
-    agentManager,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     handleAgentError,
   });
 

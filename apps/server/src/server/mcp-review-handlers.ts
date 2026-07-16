@@ -2,12 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import type { Pool } from "pg";
 
-import type {
-  AgentManager,
-  AgentRecord,
-  PersonaReviewRecord,
-  PersonaReviewResolutionRecord,
-} from "../agents/manager.js";
+import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -20,15 +15,11 @@ import {
 } from "../personas/loader.js";
 import { buildPersonaReviewDiff } from "../personas/review-diff.js";
 import {
-  buildParentRound1FeedbackPrompt,
-  buildParentReviewCompletePrompt,
   buildPersonaKickoffPrompt,
   buildReviewSubmittedPrompt,
   buildReviewFeedbackAddedPrompt,
   buildReviewItemStatePrompt,
   buildReviewThreadUpdatePrompt,
-  buildReviewerRecheckCancelledPrompt,
-  buildReviewerRecheckReadyPrompt,
 } from "../reviews/injection-prompts.js";
 import {
   refreshRemoteBaseRef,
@@ -39,7 +30,6 @@ import {
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
 import { getPrStatus } from "../shared/github/pr.js";
-import { resolveHeadSha } from "../shared/git/worktree.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import {
   createReview,
@@ -51,10 +41,7 @@ import {
   addThreadMessage,
   listFeedbackItemsForAgent,
 } from "../agents/reviews.js";
-import type {
-  ParentContextResult,
-  RecheckContextResult,
-} from "../shared/mcp/server.js";
+import type { ParentContextResult } from "../shared/mcp/server.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
@@ -131,167 +118,6 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
   };
 
   return {
-    async submitResolution(
-      agentId: string,
-      input: { personaAgentId: string; summary: string }
-    ): Promise<{
-      review: PersonaReviewRecord;
-      resolution: PersonaReviewResolutionRecord;
-    }> {
-      const parent = await agentManager.getAgent(agentId);
-      if (!parent) throw new Error("Agent not found.");
-      const resolutionCommit = await resolveHeadSha(parent.cwd);
-      const result = await agentManager.submitReviewResolution({
-        parentAgentId: agentId,
-        personaAgentId: input.personaAgentId,
-        summary: input.summary,
-        resolutionCommit,
-      });
-      const [child, parentAgent] = await Promise.all([
-        agentManager.getAgent(input.personaAgentId),
-        agentManager.getAgent(agentId),
-      ]);
-      if (child) {
-        publishUiEvent({
-          type: "agent.upsert",
-          agent: withStreamFlag(child),
-        });
-      }
-      if (parentAgent) {
-        publishUiEvent({
-          type: "agent.upsert",
-          agent: withStreamFlag(parentAgent),
-        });
-      }
-
-      if (result.review.status === "awaiting_recheck" && child) {
-        await sendAgentPrompt(
-          input.personaAgentId,
-          buildReviewerRecheckReadyPrompt()
-        );
-      }
-
-      return result;
-    },
-
-    async cancelRecheck(
-      agentId: string,
-      input: { personaAgentId: string; reason?: string }
-    ): Promise<void> {
-      const { review, transitioned } = await agentManager.cancelReviewRecheck({
-        parentAgentId: agentId,
-        personaAgentId: input.personaAgentId,
-        reason: input.reason ?? null,
-      });
-      const [child, parent] = await Promise.all([
-        agentManager.getAgent(input.personaAgentId),
-        agentManager.getAgent(review.parentAgentId),
-      ]);
-      if (child) {
-        publishUiEvent({
-          type: "agent.upsert",
-          agent: withStreamFlag(child),
-        });
-      }
-      if (parent) {
-        publishUiEvent({
-          type: "agent.upsert",
-          agent: withStreamFlag(parent),
-        });
-      }
-      if (!transitioned) return;
-
-      await sendAgentPrompt(
-        input.personaAgentId,
-        buildReviewerRecheckCancelledPrompt({
-          reason: input.reason ?? null,
-        })
-      );
-    },
-
-    async updateReviewStatus(
-      agentId: string,
-      input: { status: string; message?: string }
-    ): Promise<void> {
-      const review = await agentManager.updatePersonaReviewStatus(
-        agentId,
-        input
-      );
-      const [child, parent] = await Promise.all([
-        agentManager.getAgent(agentId),
-        agentManager.getAgent(review.parentAgentId),
-      ]);
-      if (child) {
-        publishUiEvent({
-          type: "agent.upsert",
-          agent: withStreamFlag(child),
-        });
-      }
-      if (parent) {
-        publishUiEvent({
-          type: "agent.upsert",
-          agent: withStreamFlag(parent),
-        });
-      }
-    },
-
-    async completeReview(
-      agentId: string,
-      input: {
-        verdict: string;
-        summary: string;
-        filesReviewed?: string[];
-        message?: string;
-      }
-    ): Promise<void> {
-      const personaAgent = await agentManager.getAgent(agentId);
-      const lastReviewedCommit = personaAgent
-        ? await resolveHeadSha(personaAgent.cwd)
-        : null;
-      const review = await agentManager.completePersonaReview(agentId, {
-        ...input,
-        lastReviewedCommit,
-      });
-      const [child, parent] = await Promise.all([
-        agentManager.getAgent(agentId),
-        agentManager.getAgent(review.parentAgentId),
-      ]);
-      if (child) {
-        publishUiEvent({
-          type: "agent.upsert",
-          agent: withStreamFlag(child),
-        });
-      }
-      if (parent) {
-        publishUiEvent({
-          type: "agent.upsert",
-          agent: withStreamFlag(parent),
-        });
-      }
-
-      const feedbackCount = await agentManager.countFeedbackForAgent(agentId);
-      const isMidRoundTrip = review.roundNumber < 2;
-      const cleanApproval =
-        isMidRoundTrip && input.verdict === "approve" && feedbackCount === 0;
-      const parentPrompt =
-        isMidRoundTrip && !cleanApproval
-          ? buildParentRound1FeedbackPrompt({
-              persona: review.persona,
-              personaAgentId: agentId,
-              verdict: input.verdict,
-              feedbackCount,
-            })
-          : buildParentReviewCompletePrompt({
-              persona: review.persona,
-              personaAgentId: agentId,
-              verdict: input.verdict,
-              summary: input.summary,
-              feedbackCount,
-              roundNumber: review.roundNumber,
-            });
-      await sendAgentPrompt(review.parentAgentId, parentPrompt);
-    },
-
     async getParentContext(
       parentAgentId: string
     ): Promise<ParentContextResult> {
@@ -315,61 +141,6 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
           sizeBytes: m.sizeBytes,
           createdAt: m.createdAt,
         })),
-      };
-    },
-
-    async getRecheckContext(
-      agentId: string
-    ): Promise<RecheckContextResult | null> {
-      const review = await agentManager.getPersonaReview(agentId);
-      if (!review) {
-        return null;
-      }
-
-      const resolution = (
-        await agentManager.getReviewResolutions(review.id)
-      ).at(-1);
-      const lastReviewedCommit = review.lastReviewedCommit;
-      const resolutionCommit = resolution?.resolutionCommit ?? null;
-      const resolutions = resolution
-        ? await agentManager.listResolvedFeedbackForRound(
-            agentId,
-            resolution.roundNumber
-          )
-        : [];
-      const availability =
-        review.status === "cancelled"
-          ? "cancelled"
-          : review.status === "awaiting_recheck"
-            ? "ready"
-            : review.status === "complete" && review.roundNumber >= 2
-              ? "complete"
-              : "waiting_for_resolution";
-      const looksLikeSha = (value: string): boolean =>
-        /^[0-9a-f]{4,64}$/i.test(value);
-      const compareRange =
-        availability === "ready" &&
-        lastReviewedCommit &&
-        resolutionCommit &&
-        looksLikeSha(lastReviewedCommit) &&
-        looksLikeSha(resolutionCommit)
-          ? `${lastReviewedCommit}...${resolutionCommit}`
-          : null;
-
-      return {
-        availability,
-        reviewStatus: review.status,
-        persona: review.persona,
-        reviewId: review.id,
-        reviewRoundNumber: review.roundNumber,
-        resolutionRoundNumber: resolution?.roundNumber ?? null,
-        resolutionSummary: resolution?.summary ?? null,
-        lastReviewedCommit,
-        resolutionCommit,
-        compareRange,
-        gitDiffCommand: compareRange ? `git diff ${compareRange}` : null,
-        submittedAt: resolution?.submittedAt ?? null,
-        resolutions,
       };
     },
 

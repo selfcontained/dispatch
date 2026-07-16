@@ -11,8 +11,6 @@ let sessionCookie: string;
 
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agent_token_usage");
-  await ctx.pool.query("DELETE FROM agent_feedback");
-  await ctx.pool.query("DELETE FROM persona_reviews");
   await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM media_seen");
   await ctx.pool.query("DELETE FROM media");
@@ -112,16 +110,6 @@ describe("MCP auth integration", () => {
        ('agt_persona_recheck', 'recheck-reviewer', 'codex', 'review', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false),
        ('agt_persona_round2', 'round2-reviewer', 'codex', 'review', 'running', '/tmp', 'backend-security-review', 'agt_parentreview', false)`
     );
-    await ctx.pool.query(
-      `INSERT INTO persona_reviews (
-          agent_id, parent_agent_id, persona, status, round_number, allow_recheck
-        )
-        VALUES
-        ('agt_persona_plain', 'agt_parentreview', 'backend-security-review', 'reviewing', 1, true),
-        ('agt_persona_recheck', 'agt_parentreview', 'backend-security-review', 'reviewing', 1, true),
-        ('agt_persona_round2', 'agt_parentreview', 'backend-security-review', 'awaiting_recheck', 1, true)`
-    );
-
     const authTokenResult = await ctx.pool.query<{ value: string }>(
       "SELECT value FROM settings WHERE key = 'auth_token'"
     );
@@ -204,130 +192,7 @@ describe("MCP auth integration", () => {
     expect(response.body).not.toContain('"name":"dispatch_review_submit"');
   });
 
-  it("does not expose the legacy recheck context tool", async () => {
-    await ctx.pool.query(
-      `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
-       VALUES
-       ('agt_parent_ctx', 'parent', 'codex', 'running', '/tmp', null, null, false),
-       ('agt_persona_waiting', 'waiting-reviewer', 'codex', 'running', '/tmp', 'architecture-review', 'agt_parent_ctx', false),
-       ('agt_persona_ready', 'ready-reviewer', 'codex', 'running', '/tmp', 'architecture-review', 'agt_parent_ctx', false),
-       ('agt_persona_complete', 'complete-reviewer', 'codex', 'running', '/tmp', 'architecture-review', 'agt_parent_ctx', false)`
-    );
-    const baseWait = "1111111111111111111111111111111111111111";
-    const headWait = "2222222222222222222222222222222222222222";
-    const baseReady = "3333333333333333333333333333333333333333";
-    const headReady = "4444444444444444444444444444444444444444";
-    const baseComplete = "5555555555555555555555555555555555555555";
-    const headComplete = "6666666666666666666666666666666666666666";
-    await ctx.pool.query(
-      `INSERT INTO persona_reviews (
-          id, agent_id, parent_agent_id, persona, status, round_number, allow_recheck, last_reviewed_commit
-        )
-        VALUES
-        (9001, 'agt_persona_waiting', 'agt_parent_ctx', 'architecture-review', 'reviewing', 1, true, $1),
-        (9002, 'agt_persona_ready', 'agt_parent_ctx', 'architecture-review', 'awaiting_recheck', 1, true, $2),
-        (9003, 'agt_persona_complete', 'agt_parent_ctx', 'architecture-review', 'complete', 2, true, $3)`,
-      [baseWait, baseReady, baseComplete]
-    );
-    await ctx.pool.query(
-      `INSERT INTO persona_review_resolutions (
-          review_id, summary, resolution_commit, round_number, submitted_at
-        )
-        VALUES
-        (9001, 'Waiting summary', $1, 1, NOW()),
-        (9002, 'Ready summary', $2, 1, NOW()),
-        (9003, 'Complete summary', $3, 1, NOW())`,
-      [headWait, headReady, headComplete]
-    );
-
-    const authTokenResult = await ctx.pool.query<{ value: string }>(
-      "SELECT value FROM settings WHERE key = 'auth_token'"
-    );
-    const authToken = authTokenResult.rows[0]!.value;
-
-    for (const [agentId, expectedAvailability, compareRange] of [
-      ["agt_persona_waiting", "waiting_for_resolution", null],
-      ["agt_persona_ready", "ready", `${baseReady}...${headReady}`],
-      ["agt_persona_complete", "complete", null],
-    ] as const) {
-      const response = await ctx.app.inject({
-        method: "POST",
-        url: `/api/mcp/${agentId}`,
-        headers: {
-          authorization: `Bearer ${ctx.auth.createAgentMcpToken(authToken, agentId)}`,
-          accept: "application/json, text/event-stream",
-          "content-type": "application/json",
-        },
-        payload: {
-          jsonrpc: "2.0",
-          id: 1,
-          method: "tools/call",
-          params: {
-            name: "dispatch_get_recheck_context",
-            arguments: {},
-          },
-        },
-      });
-
-      expect(response.statusCode).toBe(200);
-      void expectedAvailability;
-      void compareRange;
-      expect(response.body).toContain(
-        "Tool dispatch_get_recheck_context not found"
-      );
-    }
-  });
-
-  it("keeps the legacy recheck tool unavailable for migrated sessions", async () => {
-    await ctx.pool.query(
-      `INSERT INTO agents (id, name, type, status, cwd, persona, parent_agent_id, full_access)
-       VALUES
-       ('agt_parent_bad', 'parent', 'codex', 'running', '/tmp', null, null, false),
-       ('agt_persona_bad', 'reviewer', 'codex', 'running', '/tmp', 'architecture-review', 'agt_parent_bad', false)`
-    );
-    await ctx.pool.query(
-      `INSERT INTO persona_reviews (
-          id, agent_id, parent_agent_id, persona, status, round_number, allow_recheck, last_reviewed_commit
-        )
-        VALUES
-        (9101, 'agt_persona_bad', 'agt_parent_bad', 'architecture-review', 'awaiting_recheck', 1, true, 'not a sha; rm -rf /')`
-    );
-    await ctx.pool.query(
-      `INSERT INTO persona_review_resolutions (
-          review_id, summary, resolution_commit, round_number, submitted_at
-        )
-        VALUES
-        (9101, 'Bad summary', 'also$(evil)', 1, NOW())`
-    );
-
-    const authTokenResult = await ctx.pool.query<{ value: string }>(
-      "SELECT value FROM settings WHERE key = 'auth_token'"
-    );
-    const authToken = authTokenResult.rows[0]!.value;
-
-    const response = await ctx.app.inject({
-      method: "POST",
-      url: "/api/mcp/agt_persona_bad",
-      headers: {
-        authorization: `Bearer ${ctx.auth.createAgentMcpToken(authToken, "agt_persona_bad")}`,
-        accept: "application/json, text/event-stream",
-        "content-type": "application/json",
-      },
-      payload: {
-        jsonrpc: "2.0",
-        id: 1,
-        method: "tools/call",
-        params: { name: "dispatch_get_recheck_context", arguments: {} },
-      },
-    });
-
-    expect(response.statusCode).toBe(200);
-    expect(response.body).toContain(
-      "Tool dispatch_get_recheck_context not found"
-    );
-  });
-
-  it("exposes dispatch_event, rename, and the persona review/recheck flow on the job-scoped MCP route", async () => {
+  it("exposes lifecycle and unified review tools on the job-scoped MCP route", async () => {
     await ctx.pool.query(
       `INSERT INTO agents (id, name, type, status, cwd, full_access)
        VALUES ('agt_jobrename', 'job-rename-test', 'codex', 'running', '/tmp', false)`

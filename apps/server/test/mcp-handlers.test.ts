@@ -38,15 +38,11 @@ vi.mock("../src/personas/review-diff.js", () => ({
 }));
 
 vi.mock("../src/reviews/injection-prompts.js", () => ({
-  buildParentRound1FeedbackPrompt: vi.fn(() => "round1-prompt"),
-  buildParentReviewCompletePrompt: vi.fn(() => "complete-prompt"),
   buildPersonaKickoffPrompt: vi.fn(() => "kickoff-prompt"),
   buildReviewSubmittedPrompt: vi.fn(() => "submitted-prompt"),
   buildReviewFeedbackAddedPrompt: vi.fn(() => "feedback-added-prompt"),
   buildReviewItemStatePrompt: vi.fn(() => "item-state-prompt"),
   buildReviewThreadUpdatePrompt: vi.fn(() => "thread-update-prompt"),
-  buildReviewerRecheckReadyPrompt: vi.fn(() => "recheck-ready-prompt"),
-  buildReviewerRecheckCancelledPrompt: vi.fn(() => "recheck-cancelled-prompt"),
 }));
 
 vi.mock("../src/agent-type-settings.js", () => ({
@@ -124,12 +120,6 @@ import {
 import { resolveRepoRoot } from "../src/shared/git/git-context.js";
 import { isPinType, validatePinValue } from "../src/pins.js";
 import {
-  buildParentRound1FeedbackPrompt,
-  buildParentReviewCompletePrompt,
-  buildReviewerRecheckReadyPrompt,
-  buildReviewerRecheckCancelledPrompt,
-} from "../src/reviews/injection-prompts.js";
-import {
   assemblePersonaPrompt,
   loadPersonaBySlug,
 } from "../src/personas/loader.js";
@@ -177,18 +167,6 @@ function createMockDeps() {
         id,
         name,
       })),
-      submitFeedback: vi.fn(async () => ({
-        id: 1,
-        agentId: "agt_test1",
-        status: "open",
-        message: "test",
-      })),
-      listFeedbackByParentGrouped: vi.fn(async () => []),
-      updateFeedbackStatusByParent: vi.fn(async () => ({
-        id: 1,
-        agentId: "agt_child1",
-        status: "fixed",
-      })),
       upsertPin: vi.fn(async (id: string) => ({
         id,
         name: "test-agent",
@@ -199,40 +177,6 @@ function createMockDeps() {
         name: "test-agent",
         pins: [],
       })),
-      submitReviewResolution: vi.fn(async () => ({
-        review: {
-          id: 1,
-          parentAgentId: "agt_test1",
-          status: "awaiting_recheck",
-          roundNumber: 1,
-        },
-        resolution: { id: 1, roundNumber: 1 },
-      })),
-      cancelReviewRecheck: vi.fn(async () => ({
-        review: {
-          id: 1,
-          parentAgentId: "agt_test1",
-          status: "complete",
-          roundNumber: 1,
-        },
-        transitioned: true,
-      })),
-      updatePersonaReviewStatus: vi.fn(async () => ({
-        id: 1,
-        parentAgentId: "agt_test1",
-      })),
-      completePersonaReview: vi.fn(async () => ({
-        id: 1,
-        parentAgentId: "agt_parent1",
-        persona: "security",
-        roundNumber: 1,
-        status: "complete",
-      })),
-      getPersonaReview: vi.fn(async () => null),
-      getReviewResolutions: vi.fn(async () => []),
-      listResolvedFeedbackForRound: vi.fn(async () => []),
-      countFeedbackForAgent: vi.fn(async () => 3),
-      createPersonaReview: vi.fn(async () => ({})),
       listMedia: vi.fn(async () => []),
     },
     jobService: {
@@ -369,163 +313,6 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("submitFeedback", () => {
-    it("submits feedback and publishes UI event", async () => {
-      const feedback = { message: "fix this", severity: "error" };
-      const result = await handlers.submitFeedback(
-        "agt_test1",
-        feedback as any
-      );
-      expect(result).toHaveProperty("id", 1);
-      expect(deps.agentManager.submitFeedback).toHaveBeenCalledWith(
-        "agt_test1",
-        feedback
-      );
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({
-          type: "feedback.created",
-          agentId: "agt_test1",
-        })
-      );
-    });
-  });
-
-  describe("getFeedback", () => {
-    it("delegates to listFeedbackByParentGrouped", async () => {
-      await handlers.getFeedback("agt_test1", {
-        persona: "security",
-        limit: 10,
-      });
-      expect(
-        deps.agentManager.listFeedbackByParentGrouped
-      ).toHaveBeenCalledWith("agt_test1", "security", 10);
-    });
-  });
-
-  describe("resolveFeedback", () => {
-    it("resolves feedback with commit and publishes event", async () => {
-      const record = await handlers.resolveFeedback("agt_test1", 42, "fixed", {
-        reason: "addressed",
-      });
-      expect(record).toHaveProperty("status", "fixed");
-      expect(
-        deps.agentManager.updateFeedbackStatusByParent
-      ).toHaveBeenCalledWith(42, "agt_test1", "fixed", {
-        reason: "addressed",
-        resolutionCommit: "abc123def456",
-      });
-      expect(deps.publishUiEvent).toHaveBeenCalledWith(
-        expect.objectContaining({ type: "feedback.updated" })
-      );
-    });
-
-    it("throws when feedback not found", async () => {
-      deps.agentManager.updateFeedbackStatusByParent.mockResolvedValue(null);
-      await expect(
-        handlers.resolveFeedback("agt_test1", 99, "ignored")
-      ).rejects.toThrow("Feedback #99 not found");
-    });
-
-    it("defaults reason to null when omitted", async () => {
-      await handlers.resolveFeedback("agt_test1", 42, "fixed");
-      expect(
-        deps.agentManager.updateFeedbackStatusByParent
-      ).toHaveBeenCalledWith(42, "agt_test1", "fixed", {
-        reason: null,
-        resolutionCommit: "abc123def456",
-      });
-    });
-  });
-
-  describe("submitResolution", () => {
-    it("submits resolution and publishes agent events", async () => {
-      const result = await handlers.submitResolution("agt_test1", {
-        personaAgentId: "agt_child1",
-        summary: "fixed all issues",
-      });
-      expect(result).toHaveProperty("review");
-      expect(result).toHaveProperty("resolution");
-      expect(deps.publishUiEvent).toHaveBeenCalled();
-    });
-
-    it("sends recheck prompt when status is awaiting_recheck", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_child1",
-        name: "child",
-      });
-      await handlers.submitResolution("agt_test1", {
-        personaAgentId: "agt_child1",
-        summary: "fixed",
-      });
-      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
-        "agt_child1",
-        "recheck-ready-prompt"
-      );
-    });
-
-    it("does not send recheck prompt when status is not awaiting_recheck", async () => {
-      deps.agentManager.submitReviewResolution.mockResolvedValue({
-        review: { status: "complete", roundNumber: 1 },
-        resolution: { id: 1 },
-      });
-      await handlers.submitResolution("agt_test1", {
-        personaAgentId: "agt_child1",
-        summary: "done",
-      });
-      expect(deps.sendAgentPrompt).not.toHaveBeenCalled();
-    });
-
-    it("throws when parent agent not found", async () => {
-      deps.agentManager.getAgent.mockResolvedValue(null);
-      await expect(
-        handlers.submitResolution("agt_missing", {
-          personaAgentId: "agt_child1",
-          summary: "fix",
-        })
-      ).rejects.toThrow("Agent not found.");
-    });
-  });
-
-  describe("cancelRecheck", () => {
-    it("publishes events and sends cancel prompt when transitioned", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_child1",
-        name: "child",
-      });
-      await handlers.cancelRecheck("agt_test1", {
-        personaAgentId: "agt_child1",
-        reason: "not needed",
-      });
-      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
-        "agt_child1",
-        "recheck-cancelled-prompt"
-      );
-      expect(buildReviewerRecheckCancelledPrompt).toHaveBeenCalledWith({
-        reason: "not needed",
-      });
-    });
-
-    it("does not send prompt when not transitioned", async () => {
-      deps.agentManager.cancelReviewRecheck.mockResolvedValue({
-        review: { parentAgentId: "agt_test1" },
-        transitioned: false,
-      });
-      await handlers.cancelRecheck("agt_test1", {
-        personaAgentId: "agt_child1",
-      });
-      expect(deps.sendAgentPrompt).not.toHaveBeenCalled();
-    });
-
-    it("passes null reason when omitted", async () => {
-      await handlers.cancelRecheck("agt_test1", {
-        personaAgentId: "agt_child1",
-      });
-      expect(buildReviewerRecheckCancelledPrompt).toHaveBeenCalledWith({
-        reason: null,
-      });
-    });
-  });
-
   describe("upsertPin", () => {
     it("validates and creates a pin", async () => {
       await handlers.upsertPin("agt_test1", {
@@ -578,121 +365,6 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("updateReviewStatus", () => {
-    it("updates status and publishes events for child and parent", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_child1",
-        name: "child",
-      });
-      await handlers.updateReviewStatus("agt_child1", {
-        status: "in_progress",
-      });
-      expect(deps.agentManager.updatePersonaReviewStatus).toHaveBeenCalledWith(
-        "agt_child1",
-        { status: "in_progress" }
-      );
-      expect(deps.publishUiEvent).toHaveBeenCalled();
-    });
-  });
-
-  describe("completeReview", () => {
-    it("sends complete prompt on clean approval (round 1, approve, 0 feedback)", async () => {
-      deps.agentManager.completePersonaReview.mockResolvedValue({
-        id: 1,
-        parentAgentId: "agt_parent1",
-        persona: "security",
-        roundNumber: 1,
-        status: "complete",
-      });
-      deps.agentManager.countFeedbackForAgent.mockResolvedValue(0);
-      await handlers.completeReview("agt_child1", {
-        verdict: "approve",
-        summary: "all clear",
-      });
-      expect(buildParentReviewCompletePrompt).toHaveBeenCalledWith({
-        persona: "security",
-        personaAgentId: "agt_child1",
-        verdict: "approve",
-        summary: "all clear",
-        feedbackCount: 0,
-        roundNumber: 1,
-      });
-      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
-        "agt_parent1",
-        "complete-prompt"
-      );
-    });
-
-    it("sends round1 prompt when roundNumber < 2 with feedback", async () => {
-      deps.agentManager.completePersonaReview.mockResolvedValue({
-        id: 1,
-        parentAgentId: "agt_parent1",
-        persona: "security",
-        roundNumber: 1,
-        status: "complete",
-      });
-      await handlers.completeReview("agt_child1", {
-        verdict: "approve",
-        summary: "looks good",
-      });
-      expect(buildParentRound1FeedbackPrompt).toHaveBeenCalledWith({
-        persona: "security",
-        personaAgentId: "agt_child1",
-        verdict: "approve",
-        feedbackCount: 3,
-      });
-      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
-        "agt_parent1",
-        "round1-prompt"
-      );
-    });
-
-    it("sends complete prompt when roundNumber >= 2", async () => {
-      deps.agentManager.completePersonaReview.mockResolvedValue({
-        id: 1,
-        parentAgentId: "agt_parent1",
-        persona: "security",
-        roundNumber: 2,
-        status: "complete",
-      });
-      await handlers.completeReview("agt_child1", {
-        verdict: "approve",
-        summary: "all clear",
-      });
-      expect(buildParentReviewCompletePrompt).toHaveBeenCalledWith({
-        persona: "security",
-        personaAgentId: "agt_child1",
-        verdict: "approve",
-        summary: "all clear",
-        feedbackCount: 3,
-        roundNumber: 2,
-      });
-      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
-        "agt_parent1",
-        "complete-prompt"
-      );
-    });
-
-    it("publishes events for both child and parent agents", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_child1",
-        name: "child",
-      });
-      deps.agentManager.completePersonaReview.mockResolvedValue({
-        id: 1,
-        parentAgentId: "agt_parent1",
-        persona: "security",
-        roundNumber: 1,
-        status: "complete",
-      });
-      await handlers.completeReview("agt_child1", {
-        verdict: "approve",
-        summary: "ok",
-      });
-      expect(deps.publishUiEvent).toHaveBeenCalled();
-    });
-  });
-
   describe("getParentContext", () => {
     it("returns pins and media for parent agent", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
@@ -731,107 +403,6 @@ describe("createMcpHandlers", () => {
       const result = await handlers.getParentContext("agt_parent1");
       expect(result.pins).toEqual([]);
       expect(result.media).toEqual([]);
-    });
-  });
-
-  describe("getRecheckContext", () => {
-    it("returns null when no review exists", async () => {
-      const result = await handlers.getRecheckContext("agt_child1");
-      expect(result).toBeNull();
-    });
-
-    it("returns waiting_for_resolution when review is in round 1 and not awaiting_recheck", async () => {
-      deps.agentManager.getPersonaReview.mockResolvedValue({
-        id: 1,
-        status: "complete",
-        roundNumber: 1,
-        persona: "security",
-        lastReviewedCommit: "aaa111",
-      });
-      const result = await handlers.getRecheckContext("agt_child1");
-      expect(result!.availability).toBe("waiting_for_resolution");
-    });
-
-    it("returns ready when status is awaiting_recheck", async () => {
-      deps.agentManager.getPersonaReview.mockResolvedValue({
-        id: 1,
-        status: "awaiting_recheck",
-        roundNumber: 1,
-        persona: "security",
-        lastReviewedCommit: "aaa111",
-      });
-      deps.agentManager.getReviewResolutions.mockResolvedValue([
-        {
-          id: 1,
-          roundNumber: 1,
-          resolutionCommit: "bbb222",
-          summary: "fixed",
-          submittedAt: "2026-01-01T00:00:00Z",
-        },
-      ]);
-      const result = await handlers.getRecheckContext("agt_child1");
-      expect(result!.availability).toBe("ready");
-      expect(result!.compareRange).toBe("aaa111...bbb222");
-      expect(result!.gitDiffCommand).toBe("git diff aaa111...bbb222");
-    });
-
-    it("returns cancelled when review is cancelled", async () => {
-      deps.agentManager.getPersonaReview.mockResolvedValue({
-        id: 1,
-        status: "cancelled",
-        roundNumber: 1,
-        persona: "security",
-        lastReviewedCommit: "aaa111",
-      });
-      const result = await handlers.getRecheckContext("agt_child1");
-      expect(result!.availability).toBe("cancelled");
-    });
-
-    it("returns complete when round >= 2 and status is complete", async () => {
-      deps.agentManager.getPersonaReview.mockResolvedValue({
-        id: 1,
-        status: "complete",
-        roundNumber: 2,
-        persona: "security",
-        lastReviewedCommit: "aaa111",
-      });
-      const result = await handlers.getRecheckContext("agt_child1");
-      expect(result!.availability).toBe("complete");
-    });
-
-    it("returns null compareRange when not ready", async () => {
-      deps.agentManager.getPersonaReview.mockResolvedValue({
-        id: 1,
-        status: "complete",
-        roundNumber: 1,
-        persona: "security",
-        lastReviewedCommit: "aaa111",
-      });
-      const result = await handlers.getRecheckContext("agt_child1");
-      expect(result!.compareRange).toBeNull();
-      expect(result!.gitDiffCommand).toBeNull();
-    });
-
-    it("returns null compareRange when commits are not SHA-like", async () => {
-      deps.agentManager.getPersonaReview.mockResolvedValue({
-        id: 1,
-        status: "awaiting_recheck",
-        roundNumber: 1,
-        persona: "security",
-        lastReviewedCommit: null,
-      });
-      deps.agentManager.getReviewResolutions.mockResolvedValue([
-        {
-          id: 1,
-          roundNumber: 1,
-          resolutionCommit: "bbb222",
-          summary: "fixed",
-          submittedAt: "2026-01-01T00:00:00Z",
-        },
-      ]);
-      const result = await handlers.getRecheckContext("agt_child1");
-      expect(result!.availability).toBe("ready");
-      expect(result!.compareRange).toBeNull();
     });
   });
 
@@ -926,7 +497,6 @@ describe("createMcpHandlers", () => {
           role: "review",
         })
       );
-      expect(deps.agentManager.createPersonaReview).not.toHaveBeenCalled();
     });
 
     it("passes the Cursor runtime to persona prompt assembly for Cursor review agents", async () => {

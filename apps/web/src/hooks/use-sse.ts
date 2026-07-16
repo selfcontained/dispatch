@@ -35,8 +35,6 @@ type UiEvent =
   | { type: "media.seen"; agentId: string; keys: string[] }
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
-  | { type: "feedback.created"; agentId: string }
-  | { type: "feedback.updated"; agentId: string }
   | {
       type: "review.created";
       agentId: string;
@@ -223,14 +221,6 @@ export function useSSE(authState: AuthState): void {
                   : file
               )
           );
-          return;
-        }
-
-        if (
-          payload.type === "feedback.created" ||
-          payload.type === "feedback.updated"
-        ) {
-          void queryClient.invalidateQueries({ queryKey: ["feedback"] });
           return;
         }
 

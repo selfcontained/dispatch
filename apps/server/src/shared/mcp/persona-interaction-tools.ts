@@ -25,15 +25,12 @@ export type PersonaInteractionCallbacks = {
   repoRoot?: string | null;
   listPersonas?: McpRequestContext["listPersonas"];
   launchPersona?: McpRequestContext["launchPersona"];
-  getFeedback?: McpRequestContext["getFeedback"];
-  resolveFeedback?: McpRequestContext["resolveFeedback"];
   resolveReviewFeedback?: McpRequestContext["resolveReviewFeedback"];
   reopenReviewFeedback?: McpRequestContext["reopenReviewFeedback"];
   submitReview?: McpRequestContext["submitReview"];
   addReviewFeedback?: McpRequestContext["addReviewFeedback"];
   addReviewThreadMessage?: McpRequestContext["addReviewThreadMessage"];
   listReviewFeedback?: McpRequestContext["listReviewFeedback"];
-  submitResolution?: McpRequestContext["submitResolution"];
 };
 
 type PersonaSummary = { slug: string; name: string; description: string };
@@ -229,110 +226,6 @@ export function registerPersonaInteractionTools(
     );
   }
 
-  // ── dispatch_get_feedback ───────────────────────────────────────────
-  if (allowed.has("dispatch_get_feedback") && callbacks.getFeedback) {
-    const getFeedback = callbacks.getFeedback;
-
-    server.registerTool(
-      "dispatch_get_feedback",
-      {
-        description:
-          "Retrieve structured feedback submitted by persona agents you launched. Returns feedback grouped by persona. Only returns feedback from your direct child persona agents.",
-        inputSchema: {
-          persona: z
-            .string()
-            .optional()
-            .describe(
-              "Filter to a specific persona by name. If omitted, returns feedback from all child personas."
-            ),
-          limit: z
-            .number()
-            .int()
-            .positive()
-            .max(100)
-            .default(100)
-            .describe(
-              "Maximum number of feedback items to return. Defaults and caps at 100."
-            ),
-        },
-      },
-      async (args) => {
-        try {
-          const result = await getFeedback(agentId, {
-            persona: args.persona,
-            limit: args.limit,
-          });
-          const totalItems = result.personas.reduce(
-            (sum, p) => sum + p.feedback.length,
-            0
-          );
-          const summary =
-            result.personas.length === 0
-              ? "No persona feedback found."
-              : `Found ${totalItems} feedback item(s) from ${result.personas.length} persona(s).`;
-          return {
-            content: [{ type: "text", text: summary }],
-            structuredContent: result,
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  // ── dispatch_resolve_feedback ───────────────────────────────────────
-  if (allowed.has("dispatch_resolve_feedback") && callbacks.resolveFeedback) {
-    const resolveFeedback = callbacks.resolveFeedback;
-
-    server.registerTool(
-      "dispatch_resolve_feedback",
-      {
-        description:
-          "Mark a feedback item as fixed or ignored. If status is 'ignored', you must include a `reason` explaining why — the reviewer sees the reason in their recheck pass. If status is 'fixed', `reason` is optional but encouraged when the fix is non-obvious. The server records the current HEAD commit at the time of the call as the resolution commit.",
-        inputSchema: {
-          feedbackId: z
-            .number()
-            .int()
-            .positive()
-            .describe("The ID of the feedback item to resolve."),
-          status: z
-            .enum(["fixed", "ignored"])
-            .describe(
-              "Resolution status: 'fixed' if addressed, 'ignored' if not applicable."
-            ),
-          reason: z
-            .string()
-            .max(10_000)
-            .optional()
-            .describe(
-              "Why you chose this resolution. REQUIRED when status is 'ignored'. Optional but encouraged for 'fixed'. Max 10,000 characters."
-            ),
-        },
-      },
-      async (args) => {
-        try {
-          const result = await resolveFeedback(
-            agentId,
-            args.feedbackId,
-            args.status,
-            { reason: args.reason ?? null }
-          );
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Feedback #${result.id} marked as ${result.status}.`,
-              },
-            ],
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
   // ── dispatch_review_list_feedback ────────────────────────────────
   if (
     allowed.has("dispatch_review_list_feedback") &&
@@ -497,52 +390,6 @@ export function registerPersonaInteractionTools(
                 text: `Message added to review feedback #${args.itemId} (message #${result.message.id}).`,
               },
             ],
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  // ── dispatch_submit_resolution ────────────────────────────────────
-  if (allowed.has("dispatch_submit_resolution") && callbacks.submitResolution) {
-    const submitResolution = callbacks.submitResolution;
-
-    server.registerTool(
-      "dispatch_submit_resolution",
-      {
-        description:
-          "Call this after you have resolved every feedback item from a review and are ready for the reviewer to verify your work. `summary` is required — 1–3 sentences explaining what you addressed and what you chose to leave alone. IMPORTANT: commit your fixes before calling this. The server captures the current HEAD as the resolution commit, and the reviewer's round-2 diff is computed from that commit — if you submit with uncommitted changes, the reviewer sees an empty diff and will re-flag the same issues. Submitting the resolution triggers the reviewer's recheck pass. Rejected if any feedback item is still 'open' or if any 'ignored' item is missing a reason.",
-        inputSchema: {
-          personaAgentId: z
-            .string()
-            .describe(
-              "The persona agent ID whose review you are resolving (the agent you launched via dispatch_launch_persona)."
-            ),
-          summary: z
-            .string()
-            .min(1)
-            .max(10_000)
-            .describe(
-              "1–3 sentence narrative summary of what you addressed and what you left alone."
-            ),
-        },
-      },
-      async (args) => {
-        try {
-          const result = await submitResolution(agentId, {
-            personaAgentId: args.personaAgentId,
-            summary: args.summary,
-          });
-          return {
-            content: [
-              {
-                type: "text",
-                text: `Resolution submitted for review #${result.review.id} (round ${result.resolution.roundNumber}).`,
-              },
-            ],
-            structuredContent: result,
           };
         } catch (error) {
           return toToolError(error);

@@ -30,10 +30,6 @@ import {
 } from "@/components/app/agents-view-utils";
 import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
 import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
-import {
-  DesktopFeedbackDetail,
-  MobileFeedbackDetail,
-} from "@/components/app/agents-view-feedback-detail";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import {
   MediaSidebar,
@@ -142,15 +138,7 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
-  const {
-    changesMatch,
-    feedbackDetail,
-    feedbackDetailRendered,
-    handleFeedbackTransitionEnd,
-    closeFeedbackDetail,
-    navigateFeedbackItem,
-    onTabChange,
-  } = useAgentsViewRouting({
+  const { changesMatch, onTabChange } = useAgentsViewRouting({
     routeAgentId,
     agentsLoaded,
     validatedSelectedAgentId,
@@ -220,7 +208,6 @@ export function AgentsView({
     leftOpen,
     deferMediaResize,
     mediaResizeSettleKey,
-    feedbackOpen: !!feedbackDetail,
   });
 
   useEffect(() => {
@@ -671,14 +658,11 @@ export function AgentsView({
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <div
             className={cn(
-              "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
+              "grid h-full min-h-0 min-w-0",
               isMobile
                 ? "grid-rows-[minmax(0,1fr)_auto]"
-                : feedbackDetail
-                  ? "grid-rows-[minmax(0,1fr)_minmax(0,1fr)]"
-                  : "grid-rows-[minmax(0,1fr)_0fr]"
+                : "grid-rows-[minmax(0,1fr)]"
             )}
-            onTransitionEnd={handleFeedbackTransitionEnd}
           >
             <div className="relative flex h-full min-h-0 min-w-0 flex-col">
               <div className="relative z-10 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-background px-3">
@@ -884,26 +868,6 @@ export function AgentsView({
               ) : null}
             </div>
 
-            {!isMobile ? (
-              <div
-                className={cn(
-                  "min-h-0 overflow-hidden transition-opacity duration-300",
-                  feedbackDetail ? "opacity-100" : "opacity-0"
-                )}
-              >
-                {feedbackDetailRendered ? (
-                  <DesktopFeedbackDetail
-                    detail={feedbackDetailRendered}
-                    agents={agents}
-                    connectedAgentId={connectedAgentId}
-                    sendTerminalInput={sendTerminalInput}
-                    onClose={closeFeedbackDetail}
-                    onNavigateItem={navigateFeedbackItem}
-                  />
-                ) : null}
-              </div>
-            ) : null}
-
             {isMobile ? (
               <MobileTerminalToolbar
                 onSendInput={sendTerminalInput}
@@ -948,17 +912,6 @@ export function AgentsView({
           />
         </div>
       </div>
-
-      {isMobile && feedbackDetail ? (
-        <MobileFeedbackDetail
-          detail={feedbackDetail}
-          agents={agents}
-          connectedAgentId={connectedAgentId}
-          sendTerminalInput={sendTerminalInput}
-          onClose={closeFeedbackDetail}
-          onNavigateItem={navigateFeedbackItem}
-        />
-      ) : null}
 
       {isMobile ? (
         <GlassSidebar

@@ -4,8 +4,6 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
-import * as feedbackQueries from "../agents/feedback.js";
-import * as personaReviews from "../agents/persona-reviews.js";
 import * as telemetry from "../agents/telemetry.js";
 import type { BrainStore } from "../brain/store.js";
 import type { AddJobInput, JobService } from "../jobs/service.js";
@@ -49,26 +47,18 @@ type McpRouteDeps = {
   mcpRenameSession: unknown;
   mcpShareMedia: unknown;
   mcpListMedia: unknown;
-  mcpSubmitFeedback: unknown;
   mcpListPersonas: unknown;
   mcpLaunchPersona: unknown;
   mcpLaunchAgent: unknown;
-  mcpGetFeedback: unknown;
-  mcpResolveFeedback: unknown;
   mcpResolveReviewFeedback: unknown;
   mcpReopenReviewFeedback: unknown;
   mcpSubmitReview: unknown;
   mcpAddReviewFeedback: unknown;
   mcpAddReviewThreadMessage: unknown;
   mcpListReviewFeedback: unknown;
-  mcpSubmitResolution: unknown;
-  mcpCancelRecheck: unknown;
   mcpUpsertPin: unknown;
   mcpDeletePin: unknown;
   mcpGetParentContext: unknown;
-  mcpGetRecheckContext: unknown;
-  mcpUpdateReviewStatus: unknown;
-  mcpCompleteReview: unknown;
   mcpJobComplete: unknown;
   mcpJobFailed: unknown;
   mcpJobNeedsInput: unknown;
@@ -179,10 +169,6 @@ export async function registerMcpRoutes(
               cwd: a.cwd,
             }));
           },
-          listRecentPersonaReviews: (sinceDays: number) =>
-            personaReviews.listRecentPersonaReviews(deps.pool, sinceDays),
-          listRecentFeedback: (sinceDays: number) =>
-            feedbackQueries.listRecentFeedback(deps.pool, sinceDays),
           getActivitySummary: (params: Record<string, unknown>) =>
             telemetry.getActivitySummary(deps.pool, params as never),
           getAgentHistory: (params: Record<string, unknown>) =>
@@ -202,7 +188,6 @@ export async function registerMcpRoutes(
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
-        review: null,
       },
       repoRoot,
       worktreeRoot,
@@ -211,22 +196,17 @@ export async function registerMcpRoutes(
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
-      submitFeedback: deps.mcpSubmitFeedback,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
       launchAgent: deps.mcpLaunchAgent,
-      getFeedback: deps.mcpGetFeedback,
-      resolveFeedback: deps.mcpResolveFeedback,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
       reopenReviewFeedback: deps.mcpReopenReviewFeedback,
       submitReview: deps.mcpSubmitReview,
       addReviewFeedback: deps.mcpAddReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
-      submitResolution: deps.mcpSubmitResolution,
-      cancelRecheck: deps.mcpCancelRecheck,
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
@@ -267,9 +247,6 @@ export async function registerMcpRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
 
-    const review = agent.persona
-      ? await personaReviews.getPersonaReview(deps.pool, agentId)
-      : null;
     const activeJobRun = await deps.jobService.getActiveRunForAgent(agentId);
     if (activeJobRun) {
       return reply
@@ -294,7 +271,6 @@ export async function registerMcpRoutes(
         persona: agent.persona,
         parentAgentId: agent.parentAgentId,
         baseBranch: agent.baseBranch,
-        review: review ? { status: review.status } : null,
       },
       repoRoot,
       worktreeRoot,
@@ -303,28 +279,20 @@ export async function registerMcpRoutes(
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
-      submitFeedback: deps.mcpSubmitFeedback,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
       launchAgent: deps.mcpLaunchAgent,
-      getFeedback: deps.mcpGetFeedback,
-      resolveFeedback: deps.mcpResolveFeedback,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
       reopenReviewFeedback: deps.mcpReopenReviewFeedback,
       submitReview: deps.mcpSubmitReview,
       addReviewFeedback: deps.mcpAddReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
-      submitResolution: deps.mcpSubmitResolution,
-      cancelRecheck: deps.mcpCancelRecheck,
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
       getParentContext: deps.mcpGetParentContext,
-      getRecheckContext: deps.mcpGetRecheckContext,
-      updateReviewStatus: deps.mcpUpdateReviewStatus,
-      completeReview: deps.mcpCompleteReview,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
           Record<string, unknown>

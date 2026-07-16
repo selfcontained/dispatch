@@ -103,21 +103,6 @@ export type AgentRecord = {
   personaContext: string | null;
   reviewAgentType: AgentType | null;
   submittedReviewId: number | null;
-  review: {
-    status: string;
-    message: string | null;
-    verdict: string | null;
-    summary: string | null;
-    filesReviewed: string[] | null;
-    roundNumber: number;
-    updatedAt: string;
-    resolution: {
-      summary: string;
-      resolutionCommit: string | null;
-      submittedAt: string;
-      roundNumber: number;
-    } | null;
-  } | null;
   baseBranch: string | null;
   templateId: string | null;
   autoReview: boolean;
