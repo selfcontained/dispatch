@@ -78,6 +78,7 @@ describe("ChildAgentRow", () => {
     const badge = screen.getByText("Review");
     expect(badge.className.split(/\s+/)).toEqual(
       expect.arrayContaining([
+        "ml-auto",
         "border-primary",
         "bg-background",
         "text-foreground",

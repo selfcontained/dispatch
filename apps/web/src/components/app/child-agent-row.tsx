@@ -109,7 +109,7 @@ export function ChildAgentRow({
             {displayName}
           </span>
           {isReviewAgent ? (
-            <Badge className="h-4 shrink-0 border-primary bg-background px-1 text-[8px] font-semibold uppercase tracking-wide text-foreground">
+            <Badge className="ml-auto h-4 shrink-0 border-primary bg-background px-1 text-[8px] font-semibold uppercase tracking-wide text-foreground">
               Review
             </Badge>
           ) : null}
