@@ -294,6 +294,7 @@ export async function seedPersonaRecheckFixtureViaDB(
   round1AgentId: string;
   awaitingRecheckAgentId: string;
   round2AgentId: string;
+  standardChildAgentId: string;
 }> {
   const connectionString = process.env.DATABASE_URL;
   if (!connectionString) {
@@ -306,6 +307,7 @@ export async function seedPersonaRecheckFixtureViaDB(
     round1AgentId: `${parentAgentId}-r1`,
     awaitingRecheckAgentId: `${parentAgentId}-r2p`,
     round2AgentId: `${parentAgentId}-r2`,
+    standardChildAgentId: `${parentAgentId}-task`,
   };
 
   const pool = new Pool({ connectionString, max: 1 });
@@ -342,6 +344,16 @@ export async function seedPersonaRecheckFixtureViaDB(
           [child.id, child.name, child.persona, parentAgentId]
         );
       }
+
+      await client.query(
+        `
+        INSERT INTO agents (
+          id, name, type, role, status, cwd, codex_args, full_access, pins,
+          parent_agent_id, created_at, updated_at
+        ) VALUES ($1,'standard task child','claude','standard','stopped','/tmp','[]'::jsonb,false,'[]'::jsonb,$2,NOW(),NOW())
+        `,
+        [ids.standardChildAgentId, parentAgentId]
+      );
 
       const round1Review = await client.query<{ id: number }>(
         `

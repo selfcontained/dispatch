@@ -330,6 +330,27 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain(
       "the scope of the work under review described in the parent context"
     );
+    expect(result).not.toContain(
+      "Read the diff carefully first to understand exactly what changed"
+    );
+    expect(result).toContain(
+      "Read the parent context and supplied review target carefully first"
+    );
+  });
+
+  it("injects consistent actionable-finding and clean-approval guidance", () => {
+    const result = assemblePersonaPrompt(
+      basePersona,
+      "ctx",
+      makeDiffResult("the-diff")
+    );
+    expect(result).toContain(
+      "include a concrete suggestion for what to change"
+    );
+    expect(result).toContain("approve with an empty feedback array");
+    expect(result).toContain(
+      "an actionable concern or clarifying question that needs a tracked response"
+    );
   });
 
   it("still includes context section when includeDiff is false", () => {

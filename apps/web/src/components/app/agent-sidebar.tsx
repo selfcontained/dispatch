@@ -15,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AGENT_TYPE_LABELS,
+  isNestedReviewAgent,
   type AgentType,
   sortAgentTypes,
 } from "@/lib/agent-types";
@@ -96,7 +97,7 @@ export function AgentListContent({
       : (enabledAgentTypes[0] ?? "codex");
   const showCreateTypePicker = enabledAgentTypes.length > 1;
   const topLevelAgents = useMemo(
-    () => agents.filter((a) => !a.parentAgentId),
+    () => agents.filter((agent) => !isNestedReviewAgent(agent)),
     [agents]
   );
   const topLevelAgentIds = useMemo(
@@ -328,7 +329,9 @@ export function AgentListContent({
                   agent={agent}
                   agents={agents}
                   childAgents={agents.filter(
-                    (a) => a.parentAgentId === agent.id
+                    (candidate) =>
+                      candidate.parentAgentId === agent.id &&
+                      isNestedReviewAgent(candidate)
                   )}
                   selectedAgentId={selectedAgentId}
                   expandedAgentId={expandedAgentId}

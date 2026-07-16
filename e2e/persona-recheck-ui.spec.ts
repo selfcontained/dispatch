@@ -54,6 +54,12 @@ test.describe("Persona recheck UI", () => {
     await expect(
       page.getByTestId(`child-agent-row-${fixture.round2AgentId}`)
     ).toBeVisible();
+    await expect(
+      page.getByTestId(`agent-card-${fixture.standardChildAgentId}`)
+    ).toBeVisible();
+    await expect(
+      page.getByTestId(`child-agent-row-${fixture.standardChildAgentId}`)
+    ).not.toBeVisible();
     await expect(page.getByText("Sub Agents", { exact: true })).toBeVisible();
     await expect(
       page.locator('[data-agent-role="review"]').getByText("Review", {

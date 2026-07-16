@@ -18,7 +18,8 @@ BEGIN
   FOR legacy_review IN
     SELECT pr.*
     FROM persona_reviews pr
-    WHERE NOT EXISTS (
+    WHERE pr.status IN ('complete', 'awaiting_recheck')
+      AND NOT EXISTS (
       SELECT 1
       FROM reviews r
       WHERE r.reviewer_type = 'agent'
@@ -157,4 +158,7 @@ WHERE role = 'standard'
     SELECT reviewer_agent_id
     FROM reviews
     WHERE reviewer_type = 'agent' AND reviewer_agent_id IS NOT NULL
+    UNION
+    SELECT agent_id
+    FROM persona_reviews
   );

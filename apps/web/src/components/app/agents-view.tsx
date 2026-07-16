@@ -60,7 +60,11 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { uploadAgentMedia } from "@/lib/media-upload";
-import { type AgentType, isCliAgentType } from "@/lib/agent-types";
+import {
+  type AgentType,
+  isCliAgentType,
+  isNestedReviewAgent,
+} from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -425,7 +429,9 @@ export function AgentsView({
   const selectedExpansionTarget = useMemo(() => {
     if (!validatedSelectedAgentId) return null;
     const selected = agents.find((a) => a.id === validatedSelectedAgentId);
-    return selected?.parentAgentId ?? validatedSelectedAgentId;
+    return selected && isNestedReviewAgent(selected)
+      ? (selected.parentAgentId ?? validatedSelectedAgentId)
+      : validatedSelectedAgentId;
   }, [agents, validatedSelectedAgentId]);
   const prevSelectedExpansionTargetRef = useRef<string | null>(null);
 

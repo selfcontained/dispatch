@@ -147,6 +147,15 @@ export async function loadPersonaBySlug(
  * the repo-specific persona markdown contains.
  */
 function buildStandardFeedbackGuidance(includeDiff: boolean): string {
+  const inspectionSteps = includeDiff
+    ? [
+        "1. Read the diff carefully first to understand exactly what changed.",
+        "2. Explore surrounding code to understand context and existing patterns.",
+      ]
+    : [
+        "1. Read the parent context and supplied review target carefully first.",
+        "2. Explore supporting material as needed to understand the target in context.",
+      ];
   const scopeLine = includeDiff
     ? "- Only flag issues that are within the scope of the changes (the diff below). Do not flag pre-existing issues unless directly caused or worsened by the new changes."
     : "- Only flag issues that are within the scope of the work under review described in the parent context. Do not flag pre-existing issues unless directly caused or worsened by the work under review.";
@@ -162,6 +171,11 @@ function buildStandardFeedbackGuidance(includeDiff: boolean): string {
   return `
 ## Feedback Guidelines (from Dispatch)
 
+### How to review
+${inspectionSteps.join("\n")}
+3. Perform any domain-specific investigation described in your persona instructions above.
+4. Collect your findings and submit them as described below.
+
 ### How to submit feedback
 - Submit findings through the \`feedback\` array on \`dispatch_review_submit\`. Each item needs a concrete comment and may include a file path and line range.
 ${scopeLine}
@@ -170,7 +184,9 @@ ${scopeLine}
 ${reviewLifecycle}
 
 ### Feedback hygiene
-Submit only actionable concerns or clarifying questions that need a tracked response. Do not create praise-only or informational feedback items. Put the overall assessment and useful positive context in the review summary instead.
+- Submit only actionable concerns or clarifying questions that need a tracked response. Do not create praise-only or informational feedback items. Put the overall assessment and useful positive context in the review summary instead.
+- Make each finding actionable: include a concrete suggestion for what to change. Avoid abstract observations like "this could be cleaner" — specify what the better structure looks like and where to apply it.
+- If everything looks good, say so in the review summary and approve with an empty feedback array. Every feedback item should identify an actionable concern or clarifying question that needs a tracked response.
 `.trim();
 }
 

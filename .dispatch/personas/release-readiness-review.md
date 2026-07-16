@@ -58,9 +58,7 @@ Your review MUST focus exclusively on the code that was changed in the diff. You
 
 ## How to review
 
-1. Read the diff to understand the full scope of changes. Pay special attention to migration files, schema changes, API route changes, and SSE event changes.
-2. Check the migration files against the current schema. Read `apps/server/src/db/migrations/` to understand the migration sequence and verify numbering.
+1. Pay special attention to migration files, schema changes, API route changes, and SSE event changes.
+2. Check migration files against the current schema — read `apps/server/src/db/migrations/` to understand the sequence and verify numbering.
 3. Assess rollback safety: imagine reverting to the commit before this PR. What breaks?
 4. Assess runtime impact: imagine a running server with active agents restarting with this code. What changes?
-5. Collect actionable findings and submit them together in the `feedback` array when you call `dispatch_review_submit` (see the injected Feedback Guidelines below).
-6. **Only submit feedback for actual release risks.** Do not submit code quality observations. Every feedback item should identify a concrete deployment concern.
