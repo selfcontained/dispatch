@@ -17,7 +17,6 @@ tmp-*.mjs
 *.webp
 .media
 artifacts/
-/apps/web/public/dispatch-browser-feedback.zip
 .playwright-mcp/
 test-results/
 playwright-report/
