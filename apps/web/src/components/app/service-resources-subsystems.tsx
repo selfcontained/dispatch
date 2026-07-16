@@ -32,7 +32,7 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
     <div className="border-b border-border last:border-b-0">
       <button
         type="button"
-        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03] md:grid-cols-[minmax(12rem,1.4fr)_minmax(8rem,0.6fr)_minmax(8rem,0.6fr)_auto]"
+        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03] md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
         data-testid={`subsystem-${subsystem.id}`}
@@ -61,7 +61,10 @@ function SubsystemRow({ subsystem }: { subsystem: SubsystemSnapshot }) {
                 ? "Active"
                 : "Waiting"}
         </span>
-        <Badge variant={stateBadgeVariant(subsystem.state)}>
+        <Badge
+          className="justify-self-end"
+          variant={stateBadgeVariant(subsystem.state)}
+        >
           {stateLabel(subsystem.state)}
         </Badge>
       </button>
@@ -110,11 +113,11 @@ export function ServiceResourcesSubsystems({
         </CardDescription>
       </CardHeader>
       <CardContent className="px-0 pb-0">
-        <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(8rem,0.6fr)_minmax(8rem,0.6fr)_auto] gap-3 border-y border-border px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground md:grid">
+        <div className="hidden grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem] gap-3 border-y border-border px-4 py-2 text-[10px] font-medium uppercase tracking-wider text-muted-foreground md:grid">
           <span>Subsystem</span>
           <span>Duration</span>
           <span>Activity</span>
-          <span>State</span>
+          <span className="text-right">State</span>
         </div>
         {subsystems.map((subsystem) => (
           <SubsystemRow key={subsystem.id} subsystem={subsystem} />
