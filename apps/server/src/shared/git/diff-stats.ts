@@ -9,6 +9,12 @@ export type DiffStats = {
   computedAt: number;
 };
 
+export type DiffStatsComputation =
+  | { kind: "success"; stats: DiffStats }
+  | { kind: "no-data"; stats: null }
+  | { kind: "partial"; stats: DiffStats; error: unknown }
+  | { kind: "failure"; stats: null; error: unknown };
+
 const GIT_TIMEOUT_MS = 15_000;
 
 type CommandRunner = (
@@ -48,22 +54,50 @@ export async function getDiffStats(
   baseRef: string | null,
   options: GetDiffStatsOptions = {}
 ): Promise<DiffStats | null> {
+  const result = await getDiffStatsComputation(worktreePath, baseRef, options);
+  return result.stats;
+}
+
+/**
+ * Internal, discriminated form used by observability-aware callers. It keeps
+ * best-effort probe failures distinct from fatal Git failures without changing
+ * the public getDiffStats null/usable-stats contract.
+ */
+export async function getDiffStatsComputation(
+  worktreePath: string,
+  baseRef: string | null,
+  options: GetDiffStatsOptions = {}
+): Promise<DiffStatsComputation> {
   const run = options.runCommand ?? runCommand;
   const includeUncommitted = options.includeUncommitted !== false;
+  const probeErrors: unknown[] = [];
+  const recordError = (error: unknown) => {
+    probeErrors.push(error);
+    options.onError?.(error);
+  };
   try {
     const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
       runCommand: run,
-      onError: options.onError,
+      onError: recordError,
     });
-    if (!resolvedBase) return null;
+    if (!resolvedBase) {
+      return probeErrors.length > 0
+        ? { kind: "failure", stats: null, error: probeErrors[0] }
+        : { kind: "no-data", stats: null };
+    }
 
     const mergeBase = await run(
       "git",
       ["-C", worktreePath, "merge-base", "HEAD", resolvedBase],
       { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
     );
+    if (mergeBase.exitCode === 128) {
+      const error = new Error("Git merge-base failed");
+      recordError(error);
+      return { kind: "failure", stats: null, error };
+    }
     if (mergeBase.exitCode !== 0 || !mergeBase.stdout.trim()) {
-      return null;
+      return { kind: "no-data", stats: null };
     }
     const mergeBaseSha = mergeBase.stdout.trim();
 
@@ -89,7 +123,7 @@ export async function getDiffStats(
       worktreePath,
       trackedPaths,
       run,
-      options.onError
+      recordError
     );
 
     let added = 0;
@@ -121,15 +155,18 @@ export async function getDiffStats(
       added += lines;
     }
 
-    return {
+    const stats = {
       added,
       deleted,
       files: seenFiles.size,
       computedAt: Date.now(),
     };
+    return probeErrors.length > 0
+      ? { kind: "partial", stats, error: probeErrors[0] }
+      : { kind: "success", stats };
   } catch (error) {
-    options.onError?.(error);
-    return null;
+    recordError(error);
+    return { kind: "failure", stats: null, error };
   }
 }
 

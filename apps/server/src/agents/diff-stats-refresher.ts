@@ -1,6 +1,8 @@
 import {
-  getDiffStats as defaultGetDiffStats,
+  getDiffStatsComputation as defaultGetDiffStatsComputation,
   type DiffStats,
+  type DiffStatsComputation,
+  type GetDiffStatsOptions,
 } from "../shared/git/diff-stats.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
 
@@ -35,6 +37,8 @@ export type DiffStatsRefresherOptions = {
   getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   publishEvent: (event: DiffStatsChangedEvent) => void;
   computeDiffStats?: ComputeDiffStats;
+  /** Override Git command execution while retaining the default adapter. */
+  runGitCommand?: GetDiffStatsOptions["runCommand"];
   freshnessMs?: number;
   logger?: WarnLogger;
   tracker?: SubsystemTracker;
@@ -60,7 +64,10 @@ export class DiffStatsRefresher {
 
   private readonly getAgent: (id: string) => Promise<DiffStatsAgent | null>;
   private readonly publishEvent: (event: DiffStatsChangedEvent) => void;
-  private readonly computeDiffStats: ComputeDiffStats;
+  private readonly computeDiffStats: (
+    worktreePath: string,
+    baseRef: string | null
+  ) => Promise<DiffStatsComputation>;
   private readonly freshnessMs: number;
   private readonly logger: WarnLogger | null;
   private readonly tracker: SubsystemTracker | null;
@@ -70,18 +77,18 @@ export class DiffStatsRefresher {
   constructor(options: DiffStatsRefresherOptions) {
     this.getAgent = options.getAgent;
     this.publishEvent = options.publishEvent;
-    this.computeDiffStats =
-      options.computeDiffStats ??
-      (async (worktreePath, baseRef) => {
-        let commandError: unknown = null;
-        const stats = await defaultGetDiffStats(worktreePath, baseRef, {
-          onError: (error) => {
-            commandError = error;
-          },
-        });
-        if (commandError !== null) throw commandError;
-        return stats;
-      });
+    const customComputeDiffStats = options.computeDiffStats;
+    this.computeDiffStats = customComputeDiffStats
+      ? async (worktreePath, baseRef) => {
+          const stats = await customComputeDiffStats(worktreePath, baseRef);
+          return stats
+            ? { kind: "success", stats }
+            : { kind: "no-data", stats: null };
+        }
+      : (worktreePath, baseRef) =>
+          defaultGetDiffStatsComputation(worktreePath, baseRef, {
+            runCommand: options.runGitCommand,
+          });
     this.freshnessMs = options.freshnessMs ?? DEFAULT_FRESHNESS_MS;
     this.logger = options.logger ?? null;
     this.tracker = options.tracker ?? null;
@@ -149,6 +156,7 @@ export class DiffStatsRefresher {
   private async refresh(agentId: string): Promise<void> {
     const trackedRun = this.tracker?.start();
     let nextStats: DiffStats | null = null;
+    let computation: DiffStatsComputation = { kind: "no-data", stats: null };
     try {
       const agent = await this.getAgent(agentId);
       // Prefer the dispatch-managed worktreePath. Older rows can be missing
@@ -172,7 +180,9 @@ export class DiffStatsRefresher {
           (agent?.worktreePath || gitContextWorktreePath
             ? DEFAULT_WORKTREE_BASE_BRANCH
             : null);
-        nextStats = await this.computeDiffStats(path, baseRef);
+        computation = await this.computeDiffStats(path, baseRef);
+        if (computation.kind === "failure") throw computation.error;
+        nextStats = computation.stats;
       }
     } catch (err) {
       trackedRun?.fail(err);
@@ -183,7 +193,15 @@ export class DiffStatsRefresher {
       return;
     }
 
-    trackedRun?.succeed({ files: nextStats?.files ?? 0 });
+    if (computation.kind === "partial") {
+      trackedRun?.fail(computation.error);
+      this.logger?.warn(
+        { err: computation.error, agentId },
+        "Diff stats refreshed with a best-effort Git probe failure"
+      );
+    } else {
+      trackedRun?.succeed({ files: nextStats?.files ?? 0 });
+    }
 
     const previous = this.cache.has(agentId)
       ? this.cache.get(agentId)

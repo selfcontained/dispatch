@@ -63,6 +63,8 @@ export type ServiceResourcesDeps = {
   getWorkloads: () => WorkloadSnapshot;
   subsystemTrackers: SubsystemTracker[];
   processTreeSupported?: boolean;
+  /** Override the platform process probes in focused tests. */
+  runProcessCommand?: typeof runCommand;
 };
 
 type AgentProcessSnapshot = {
@@ -603,15 +605,31 @@ export class ServiceResources {
     processes: AgentProcessSnapshot;
     runningAgentCount: number;
   }> {
+    let agents: Array<{ tmuxSession: string | null }>;
     try {
-      const agents = await this.deps.listAgentSessions();
-      const runningAgentCount = agents.length;
-      if (!this.agentProcesses.supported) {
-        return {
-          processes: { ...this.agentProcesses, error: null },
-          runningAgentCount,
-        };
-      }
+      agents = await this.deps.listAgentSessions();
+    } catch {
+      return {
+        processes: {
+          ...this.agentProcesses,
+          sampledAt: Date.now(),
+          error: "Agent session sampling failed",
+        },
+        runningAgentCount: this.runningAgentCount,
+      };
+    }
+
+    // Session ownership is platform-independent. Commit its fresh value even
+    // when the optional tmux/ps process probe below is unavailable or fails.
+    const runningAgentCount = agents.length;
+    if (!this.agentProcesses.supported) {
+      return {
+        processes: { ...this.agentProcesses, error: null },
+        runningAgentCount,
+      };
+    }
+
+    try {
       const sessions = new Set(
         agents
           .map((agent) => agent.tmuxSession?.trim())
@@ -631,13 +649,14 @@ export class ServiceResources {
         };
       }
 
+      const run = this.deps.runProcessCommand ?? runCommand;
       const [panes, processes] = await Promise.all([
-        runCommand(
+        run(
           "tmux",
           ["list-panes", "-a", "-F", "#{session_name}\t#{pane_pid}"],
           { allowedExitCodes: [0, 1], timeoutMs: 3_000 }
         ),
-        runCommand("ps", ["-axo", "pid=,ppid=,%cpu=,rss="], {
+        run("ps", ["-axo", "pid=,ppid=,%cpu=,rss="], {
           timeoutMs: 3_000,
         }),
       ]);
@@ -695,7 +714,7 @@ export class ServiceResources {
           sampledAt: Date.now(),
           error: "Process sampling failed",
         },
-        runningAgentCount: this.runningAgentCount,
+        runningAgentCount,
       };
     }
   }

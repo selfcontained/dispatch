@@ -97,6 +97,32 @@ describe("ServiceResources", () => {
     resources.stop();
   });
 
+  it("keeps a fresh running-agent count when process probing fails", async () => {
+    const runProcessCommand = vi.fn(async () => {
+      throw new Error("tmux unavailable");
+    });
+    const resources = new ServiceResources({
+      pool: createPool(),
+      listAgentSessions: async () => [
+        { tmuxSession: "agent-one" },
+        { tmuxSession: "agent-two" },
+      ],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: true,
+      runProcessCommand,
+    });
+
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(resources.getSnapshot()).toMatchObject({
+      capabilities: { processTreeMetrics: "error" },
+      current: { workloads: { runningAgents: 2 } },
+    });
+    expect(runProcessCommand).toHaveBeenCalled();
+    resources.stop();
+  });
+
   it("bounds request timing storage and finalizes requests exactly once", () => {
     const resources = new ServiceResources({
       pool: createPool(),
