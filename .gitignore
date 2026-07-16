@@ -10,12 +10,14 @@ data
 tmp-*.mjs
 *.png
 !apps/web/public/icons/**/*.png
+!apps/browser-extension/public/icons/*.png
 *.jpg
 *.jpeg
 *.gif
 *.webp
 .media
 artifacts/
+/apps/web/public/dispatch-browser-feedback.zip
 .playwright-mcp/
 test-results/
 playwright-report/

@@ -37,6 +37,9 @@ describe("migrations", () => {
     expect(tableNames).toContain("simulator_reservations");
     expect(tableNames).toContain("jobs");
     expect(tableNames).toContain("job_runs");
+    expect(tableNames).toContain("browser_extension_pairings");
+    expect(tableNames).toContain("browser_extension_tokens");
+    expect(tableNames).toContain("browser_feedback_submissions");
     expect(tableNames).toContain("pgmigrations");
   });
 

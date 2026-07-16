@@ -1,6 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
+import { BrowserExtensionSettings } from "@/components/app/browser-extension-settings";
 
 type SecuritySettingsProps = {
   onLogout: () => void;
@@ -176,6 +177,8 @@ export function SecuritySettings({
           </Button>
         </form>
       </div>
+
+      <BrowserExtensionSettings />
 
       {passwordSet && (
         <div>

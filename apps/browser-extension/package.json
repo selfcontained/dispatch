@@ -1,0 +1,22 @@
+{
+  "name": "@dispatch/browser-extension",
+  "version": "0.28.4",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build && vite build --config vite.picker.config.ts",
+    "package": "pnpm run build && mkdir -p ../../artifacts && rm -f ../../artifacts/dispatch-browser-feedback.zip && cd dist && zip -qr ../../../artifacts/dispatch-browser-feedback.zip .",
+    "check": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.326",
+    "happy-dom": "^18.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1",
+    "vitest": "^4.1.2"
+  },
+  "dependencies": {
+    "css-selector-generator": "3.9.2"
+  }
+}
