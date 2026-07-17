@@ -88,6 +88,21 @@ describe("TipQueueProvider", () => {
     expect(granted).toBe(true);
   });
 
+  it("denies a second same-tick grant before state commits", () => {
+    const queue = renderQueue();
+
+    let first = false;
+    let second = true;
+    act(() => {
+      // Both calls happen in one tick, before the first grant's state commit.
+      first = queue.current.requestOpen("review-row-open", "instance-a");
+      second = queue.current.requestOpen("review-row-open", "instance-b");
+    });
+
+    expect(first).toBe(true);
+    expect(second).toBe(false);
+  });
+
   it("ignores a release from a non-owning instance", () => {
     const queue = renderQueue();
 
