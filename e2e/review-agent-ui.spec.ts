@@ -58,6 +58,13 @@ test.describe("Review agent UI", () => {
       page.getByTestId(`child-agent-row-${fixture.openReviewAgentId}`)
     ).toHaveAttribute("data-review-active", "false");
 
+    await expect(
+      page.getByTestId(`child-agent-row-${fixture.openReviewAgentId}`)
+    ).toHaveAttribute("data-review-ready", "true");
+    await expect(
+      page.getByTestId(`child-agent-row-${fixture.activeAgentId}`)
+    ).toHaveAttribute("data-review-ready", "false");
+
     await page
       .getByTestId(`child-agent-open-review-${fixture.openReviewAgentId}`)
       .click();

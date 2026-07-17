@@ -7,6 +7,7 @@ import {
 } from "@/components/app/agent-event-utils";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
+import { TipSpot } from "@/components/tips/tip-spot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -62,17 +63,21 @@ export function ChildAgentRow({
         ? latestEventColor(agent.latestEvent.type)
         : "text-muted-foreground";
 
-  return (
+  const row = (
     <div
       data-testid={`child-agent-row-${agent.id}`}
       data-agent-role={agent.role ?? "standard"}
       data-review-active={showReviewActivity ? "true" : "false"}
+      data-review-ready={canOpenSubmittedReview ? "true" : "false"}
       className={cn(
-        "group relative flex min-h-11 min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
+        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
         "transition-colors hover:bg-muted/35",
-        canOpenSubmittedReview && "cursor-pointer",
         isConnected && "border-primary/35 bg-muted/40",
+        // Ready-to-open wins over connected styling: it is the actionable state.
+        canOpenSubmittedReview &&
+          "cursor-pointer border-primary/45 bg-primary/[0.06] hover:bg-primary/10",
         isStopped && "opacity-65",
+        canOpenSubmittedReview && "opacity-100",
         showReviewActivity && "child-agent-review-active-row"
       )}
     >
@@ -109,7 +114,14 @@ export function ChildAgentRow({
             {displayName}
           </span>
           {isReviewAgent ? (
-            <Badge className="ml-auto h-4 shrink-0 border-primary bg-background px-1 text-[8px] font-semibold uppercase tracking-wide text-foreground">
+            <Badge
+              className={cn(
+                "ml-auto h-4 shrink-0 border-primary px-1 text-[8px] font-semibold uppercase tracking-wide",
+                canOpenSubmittedReview
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-foreground"
+              )}
+            >
               Review
             </Badge>
           ) : null}
@@ -185,5 +197,17 @@ export function ChildAgentRow({
         </Tooltip>
       )}
     </div>
+  );
+
+  if (!canOpenSubmittedReview) return row;
+  return (
+    <TipSpot
+      tipId="review-row-open"
+      side="bottom"
+      align="center"
+      triggerClassName="flex w-full"
+    >
+      {row}
+    </TipSpot>
   );
 }
