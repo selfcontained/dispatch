@@ -196,6 +196,14 @@ export const tips: Tip[] = [
     since: "0.27.0",
     surfaces: ["ambient"],
   },
+  {
+    id: "job-webhook-trigger",
+    title: "Job Webhook Triggers",
+    body: "Fire a job from CI or any external system: enable Webhook trigger in the job's Configure tab to get a secret URL that starts a run on HTTP POST.",
+    docsSection: "automations",
+    since: "0.29.0",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {
