@@ -5,6 +5,9 @@ import {
   type Locator,
   type Page,
 } from "@playwright/test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import {
   cleanupE2EAgents,
@@ -84,16 +87,17 @@ async function getWindowScrollY(page: Page): Promise<number> {
 
 async function seedOverflowAgents(
   request: APIRequestContext,
-  count: number
+  count: number,
+  cwd: string
 ): Promise<Array<{ id: string; name: string }>> {
   const created = await Promise.all(
     Array.from({ length: count }, async (_, index) => {
       const agent = await createAgentViaAPI(request, {
         name: `e2e-agent-overflow-${Date.now()}-${index}`,
         // These agents only provide enough rows to exercise sidebar overflow.
-        // Keep them outside the repo so bulk cleanup does not run unrelated
-        // repository lifecycle hooks for each synthetic agent.
-        cwd: "/tmp",
+        // Keep them in an owned directory outside the repo so bulk cleanup does
+        // not discover repository or shared temporary-directory lifecycle hooks.
+        cwd,
       });
       await setAgentLatestEventViaAPI(request, agent.id, {
         type: "working",
@@ -107,15 +111,22 @@ async function seedOverflowAgents(
 }
 
 test.describe("Overflow layout", () => {
+  let overflowCwd: string;
+
+  test.beforeAll(async () => {
+    overflowCwd = await mkdtemp(join(tmpdir(), "dispatch-e2e-overflow-"));
+  });
+
   test.afterAll(async ({ request }) => {
     await cleanupE2EAgents(request);
+    await rm(overflowCwd, { recursive: true, force: true });
   });
 
   test("agents workspace keeps sidebar, media, and terminal overflow isolated", async ({
     page,
     request,
   }) => {
-    const agents = await seedOverflowAgents(request, 24);
+    const agents = await seedOverflowAgents(request, 24, overflowCwd);
     const focusAgent = agents[0]!;
 
     await setAgentPinsViaDB(
