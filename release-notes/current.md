@@ -1,6 +1,8 @@
 ## What's Changed
 * Add boundary-merge tests for working-time-by-project by @selfcontained in https://github.com/selfcontained/dispatch/pull/787
 * Align persona review verification flow by @selfcontained in https://github.com/selfcontained/dispatch/pull/788
+* Fix Automations docs drift: job palette claim, run-time args, Configure tab, history card by @selfcontained in https://github.com/selfcontained/dispatch/pull/790
+* Fix overflow E2E cleanup timeout by @selfcontained in https://github.com/selfcontained/dispatch/pull/789
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.29.0...v0.29.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.29.0...v0.29.2
