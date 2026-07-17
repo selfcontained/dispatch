@@ -75,12 +75,13 @@ async function seedEvent(
   agentId: string,
   eventType: string,
   createdAt: string,
-  message = "test"
+  message = "test",
+  projectDir: string | null = null
 ): Promise<void> {
   await ctx.pool.query(
-    `INSERT INTO agent_events (agent_id, event_type, message, created_at)
-     VALUES ($1, $2, $3, $4)`,
-    [agentId, eventType, message, createdAt]
+    `INSERT INTO agent_events (agent_id, event_type, message, created_at, project_dir)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [agentId, eventType, message, createdAt, projectDir]
   );
 }
 
@@ -349,6 +350,90 @@ describe("GET /api/v1/activity/working-time-by-project", () => {
     expect(res.statusCode).toBe(200);
     const { projects } = res.json();
     expect(projects.length).toBeGreaterThanOrEqual(1);
+  });
+
+  const RANGE = "start=2026-01-10T00:00:00Z&end=2026-01-11T00:00:00Z&tz=UTC";
+
+  it("clamps a working session that began before the range start", async () => {
+    const agentId = await createAgent({ cwd: "/home/user/proj-carry" });
+    await seedEvent(agentId, "working", "2026-01-09T22:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:30:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/working-time-by-project?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // Only the portion inside the range counts: 00:00 → 00:30, not the
+    // two hours before the range start.
+    expect(res.json().projects).toEqual([
+      { project_dir: "/home/user/proj-carry", working_time_ms: 30 * 60_000 },
+    ]);
+  });
+
+  it("carries in the latest pre-range event, not the earliest", async () => {
+    const agentId = await createAgent({ cwd: "/home/user/proj-latest" });
+    await seedEvent(agentId, "working", "2026-01-09T20:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-09T21:00:00Z");
+    await seedEvent(agentId, "working", "2026-01-10T00:10:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:20:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/working-time-by-project?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // The boundary carry-in must be the latest pre-range event ("done"), so
+    // only the 10-minute in-range session counts. If the boundary query
+    // picked the earlier "working" event, this would report 20 minutes.
+    expect(res.json().projects).toEqual([
+      { project_dir: "/home/user/proj-latest", working_time_ms: 10 * 60_000 },
+    ]);
+  });
+
+  it("merges boundary events per agent independently", async () => {
+    const agentA = await createAgent({ cwd: "/home/user/proj-a" });
+    const agentB = await createAgent({ cwd: "/home/user/proj-b" });
+    await seedEvent(agentA, "working", "2026-01-09T23:00:00Z");
+    await seedEvent(agentB, "working", "2026-01-09T23:30:00Z");
+    await seedEvent(agentB, "done", "2026-01-10T00:05:00Z");
+    await seedEvent(agentA, "done", "2026-01-10T00:10:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/working-time-by-project?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // Each agent's carry-in pairs with its own in-range event even though
+    // the events interleave in time, and results sort by duration desc.
+    expect(res.json().projects).toEqual([
+      { project_dir: "/home/user/proj-a", working_time_ms: 10 * 60_000 },
+      { project_dir: "/home/user/proj-b", working_time_ms: 5 * 60_000 },
+    ]);
+  });
+
+  it("prefers the event project_dir over the agent cwd for boundary events", async () => {
+    const agentId = await createAgent({ cwd: "/home/user/proj-cwd" });
+    await seedEvent(
+      agentId,
+      "working",
+      "2026-01-09T23:00:00Z",
+      "test",
+      "/home/user/proj-explicit"
+    );
+    await seedEvent(agentId, "done", "2026-01-10T00:15:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/working-time-by-project?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projects).toEqual([
+      {
+        project_dir: "/home/user/proj-explicit",
+        working_time_ms: 15 * 60_000,
+      },
+    ]);
   });
 });
 
