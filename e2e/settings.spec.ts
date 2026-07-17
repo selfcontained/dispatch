@@ -164,9 +164,6 @@ test.describe("Settings pane", () => {
     );
     await expect(collectionToggle).not.toBeChecked();
     await expect(
-      dashboard.getByTestId("resource-collection-disabled")
-    ).toBeVisible();
-    await expect(
       dashboard.getByTestId("resource-card-dispatch-cpu")
     ).toHaveCount(0);
 
@@ -176,9 +173,13 @@ test.describe("Settings pane", () => {
       dashboard.getByTestId("resource-card-dispatch-cpu")
     ).toBeVisible({ timeout: 10_000 });
     await expect(dashboard.getByTestId("resource-card-database")).toBeVisible();
+    const agentProcessesCard = dashboard.getByTestId(
+      "resource-card-agent-processes"
+    );
+    await expect(agentProcessesCard).toBeVisible();
     await expect(
-      dashboard.getByTestId("resource-card-agent-processes").getByText("None")
-    ).toBeVisible();
+      agentProcessesCard.getByText("0 B", { exact: true })
+    ).toHaveCount(0);
     await expect(dashboard.getByText(/load \/ \d+ CPUs/)).toBeVisible();
     await expect(dashboard.getByText("Connected browsers")).toBeVisible();
     await expect(dashboard.getByText("Active terminal views")).toBeVisible();

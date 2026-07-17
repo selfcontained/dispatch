@@ -1,10 +1,8 @@
 import { useState } from "react";
-import { Activity } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -12,6 +10,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import {
   type ResourceWindow,
   useSetServiceResourcesCollection,
@@ -39,15 +38,9 @@ export function ServiceResourcesSettings(): JSX.Element {
         <div>
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold">Service resources</h1>
-            {data && (
-              <Badge
-                variant={stateBadgeVariant(
-                  collectionEnabled ? data.overall.state : "disabled"
-                )}
-              >
-                {stateLabel(
-                  collectionEnabled ? data.overall.state : "disabled"
-                )}
+            {data && collectionEnabled && (
+              <Badge variant={stateBadgeVariant(data.overall.state)}>
+                {stateLabel(data.overall.state)}
               </Badge>
             )}
           </div>
@@ -57,15 +50,15 @@ export function ServiceResourcesSettings(): JSX.Element {
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
-          {stale && (
-            <span className="text-xs text-status-waiting">Data is stale</span>
-          )}
-          {collectionEnabled && (
-            <span
-              className="text-xs text-muted-foreground"
-              data-testid="resources-updated-at"
-            >
-              {dataUpdatedAt > 0 && (
+          <span
+            className="w-20 text-right text-xs text-muted-foreground"
+            data-testid="resources-updated-at"
+          >
+            {stale ? (
+              <span className="text-status-waiting">Data is stale</span>
+            ) : (
+              collectionEnabled &&
+              dataUpdatedAt > 0 && (
                 <>
                   <span className="hidden sm:inline">Updated </span>
                   {new Date(dataUpdatedAt).toLocaleTimeString([], {
@@ -73,21 +66,9 @@ export function ServiceResourcesSettings(): JSX.Element {
                     minute: "2-digit",
                   })}
                 </>
-              )}
-            </span>
-          )}
-          <label className="flex h-8 items-center gap-2 rounded-md border border-border px-2.5 text-xs">
-            <span>Collect metrics</span>
-            <Checkbox
-              checked={collectionEnabled}
-              onCheckedChange={(checked) =>
-                collectionMutation.mutate(checked === true)
-              }
-              disabled={!data || collectionMutation.isPending}
-              aria-label="Collect service resource metrics"
-              data-testid="resource-collection-toggle"
-            />
-          </label>
+              )
+            )}
+          </span>
           <Select
             value={window}
             onValueChange={(value) => setWindow(value as ResourceWindow)}
@@ -106,6 +87,29 @@ export function ServiceResourcesSettings(): JSX.Element {
           </Select>
         </div>
       </header>
+
+      <div className="flex items-center justify-between gap-4 rounded-md border border-border/70 bg-muted/20 px-4 py-3.5">
+        <label
+          htmlFor="resource-collection-toggle"
+          className="min-w-0 cursor-pointer"
+        >
+          <span className="block text-sm font-medium text-foreground">
+            Collect resource metrics
+          </span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-muted-foreground">
+            Sample service health and resource usage every 5 seconds and retain
+            up to one hour of history in memory.
+          </span>
+        </label>
+        <Switch
+          id="resource-collection-toggle"
+          checked={collectionEnabled}
+          onCheckedChange={(checked) => collectionMutation.mutate(checked)}
+          disabled={!data || collectionMutation.isPending}
+          aria-label="Collect resource metrics"
+          data-testid="resource-collection-toggle"
+        />
+      </div>
 
       {collectionMutation.error && (
         <p role="alert" className="text-sm text-status-blocked">
@@ -128,24 +132,6 @@ export function ServiceResourcesSettings(): JSX.Element {
             <Button className="mt-4" size="sm" onClick={() => void refetch()}>
               Try again
             </Button>
-          </CardContent>
-        </Card>
-      )}
-      {data && !collectionEnabled && (
-        <Card data-testid="resource-collection-disabled">
-          <CardContent className="flex min-h-52 items-center justify-center p-6 text-center">
-            <div className="max-w-md">
-              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground">
-                <Activity className="h-5 w-5" />
-              </div>
-              <div className="mt-4 text-sm font-medium">
-                Metric collection is off
-              </div>
-              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                Turn on Collect metrics to sample service resources every 5
-                seconds and retain up to one hour of in-memory history.
-              </p>
-            </div>
           </CardContent>
         </Card>
       )}
