@@ -91,10 +91,10 @@ feedback.
 
 The project is preconfigured with automatic signing for team `ML8BQ6D727`
 (the same team the Mac release binaries sign with) and bundle IDs
-`com.dispatch.feedback` / `com.dispatch.feedback.extension`.
+`dev.bradharris.dispatch.feedback` / `dev.bradharris.dispatch.feedback.extension`.
 
 One-time setup: create the app record in App Store Connect (My Apps → New
-App → iOS, bundle ID `com.dispatch.feedback`). If this Mac has no Apple
+App → iOS, bundle ID `dev.bradharris.dispatch.feedback`). If this Mac has no Apple
 Distribution certificate yet, Xcode offers to create one during the first
 Distribute App.
 
