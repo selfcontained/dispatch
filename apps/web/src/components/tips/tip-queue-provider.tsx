@@ -2,36 +2,52 @@ import { useCallback, useMemo, useRef, useState } from "react";
 
 import { TipQueueContext } from "@/components/tips/tip-queue-context";
 
+type TipClaim = { tipId: string; instanceId: string };
+
 export function TipQueueProvider({ children }: { children: React.ReactNode }) {
-  const [activeTipId, setActiveTipId] = useState<string | null>(null);
-  const queueRef = useRef<string[]>([]);
+  const [active, setActive] = useState<TipClaim | null>(null);
+  const queueRef = useRef<TipClaim[]>([]);
 
   const requestOpen = useCallback(
-    (tipId: string): boolean => {
-      if (activeTipId === null) {
-        setActiveTipId(tipId);
+    (tipId: string, instanceId: string): boolean => {
+      if (active === null) {
+        setActive({ tipId, instanceId });
         return true;
       }
-      if (activeTipId === tipId) return true;
-      if (!queueRef.current.includes(tipId)) {
-        queueRef.current.push(tipId);
+      if (active.tipId === tipId) {
+        // Only the owning instance holds the grant. Another instance of the
+        // same tip is denied without queueing — after the owner dismisses,
+        // the tip lands in dismissedTips and no other instance should open.
+        return active.instanceId === instanceId;
+      }
+      if (
+        !queueRef.current.some(
+          (claim) => claim.tipId === tipId && claim.instanceId === instanceId
+        )
+      ) {
+        queueRef.current.push({ tipId, instanceId });
       }
       return false;
     },
-    [activeTipId]
+    [active]
   );
 
-  const release = useCallback((tipId: string) => {
-    setActiveTipId((current) => {
-      if (current !== tipId) return current;
-      const next = queueRef.current.shift() ?? null;
-      return next;
+  const release = useCallback((tipId: string, instanceId: string) => {
+    setActive((current) => {
+      if (
+        current === null ||
+        current.tipId !== tipId ||
+        current.instanceId !== instanceId
+      ) {
+        return current;
+      }
+      return queueRef.current.shift() ?? null;
     });
   }, []);
 
   const value = useMemo(
-    () => ({ activeTipId, requestOpen, release }),
-    [activeTipId, requestOpen, release]
+    () => ({ activeTipId: active?.tipId ?? null, requestOpen, release }),
+    [active, requestOpen, release]
   );
 
   return (

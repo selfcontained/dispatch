@@ -130,6 +130,20 @@ describe("ChildAgentRow", () => {
     expect(badge.className).toContain("text-primary-foreground");
   });
 
+  it("keeps the ready treatment when the row is terminal-connected", () => {
+    renderRow(
+      { ...baseAgent, submittedReviewId: 42 },
+      { isConnected: true, isInitialReviewActive: false }
+    );
+
+    const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.className).toContain("border-primary/45");
+    expect(row.className).toContain("bg-primary/[0.06]");
+    expect(row.className).toContain("hover:bg-primary/10");
+    expect(row.className).toContain("cursor-pointer");
+    expect(row.className).not.toContain("border-primary/35");
+  });
+
   it("opens a submitted review from the row without attaching its terminal", () => {
     const submittedAgent = {
       ...baseAgent,

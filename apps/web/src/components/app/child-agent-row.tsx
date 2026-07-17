@@ -72,9 +72,10 @@ export function ChildAgentRow({
       className={cn(
         "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
         "transition-colors hover:bg-muted/35",
+        isConnected && "border-primary/35 bg-muted/40",
+        // Ready-to-open wins over connected styling: it is the actionable state.
         canOpenSubmittedReview &&
           "cursor-pointer border-primary/45 bg-primary/[0.06] hover:bg-primary/10",
-        isConnected && "border-primary/35 bg-muted/40",
         isStopped && "opacity-65",
         canOpenSubmittedReview && "opacity-100",
         showReviewActivity && "child-agent-review-active-row"
