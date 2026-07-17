@@ -6,6 +6,8 @@
   "scripts": {
     "build": "vite build && vite build --config vite.picker.config.ts",
     "package": "pnpm run build && rm -f dist/dispatch-browser-feedback.zip && cd dist/unpacked && zip -qr ../dispatch-browser-feedback.zip .",
+    "sync:manifest-version": "node ../../scripts/sync-browser-extension-manifest-version.mjs",
+    "version": "pnpm run sync:manifest-version",
     "check": "tsc --noEmit",
     "test": "vitest run"
   },
