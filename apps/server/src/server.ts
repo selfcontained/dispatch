@@ -96,7 +96,7 @@ import {
   staticFiles as embeddedStaticFiles,
 } from "./generated/runtime-assets.js";
 import { BrainStore } from "./brain/store.js";
-import { registerActivityRoutes } from "./routes/activity.js";
+import { registerActivityRoutes } from "./routes/activity/index.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
 import { registerBrowserExtensionRoutes } from "./routes/browser-extension.js";
