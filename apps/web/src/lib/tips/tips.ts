@@ -197,6 +197,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "review-row-open",
+    title: "Open Submitted Reviews",
+    body: "A review agent's row lights up once its review is submitted. Click the row to open the review and work through its feedback.",
+    docsSection: "personas",
+    since: "0.29.1",
+    surfaces: ["inline"],
+  },
+  {
     id: "job-webhook-trigger",
     title: "Job Webhook Triggers",
     body: "Fire a job from CI or any external system: enable Webhook trigger in the job's Configure tab to get a secret URL that starts a run on HTTP POST.",

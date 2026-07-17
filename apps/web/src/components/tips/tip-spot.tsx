@@ -13,6 +13,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useTip } from "@/lib/tips/use-tip";
+import { cn } from "@/lib/utils";
 
 import { TipPopoverContent } from "./tip-popover-content";
 import { useTipQueue } from "./tip-queue-context";
@@ -73,6 +74,8 @@ type TipSpotProps = {
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
   sideOffset?: number;
+  /** Extra classes for the trigger wrapper, e.g. "flex w-full" for block-level anchors. */
+  triggerClassName?: string;
   children: React.ReactNode;
 };
 
@@ -81,6 +84,7 @@ export function TipSpot({
   side = "right",
   align = "center",
   sideOffset = 8,
+  triggerClassName,
   children,
 }: TipSpotProps) {
   const navigate = useNavigate();
@@ -181,7 +185,7 @@ export function TipSpot({
   return (
     <Popover open={open && reachable} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <span ref={triggerRef} className="inline-flex">
+        <span ref={triggerRef} className={cn("inline-flex", triggerClassName)}>
           {children}
         </span>
       </PopoverTrigger>

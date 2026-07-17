@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
@@ -42,19 +43,21 @@ function renderRow(
   const startAgent = vi.fn().mockResolvedValue(undefined);
   const openSubmittedReview = vi.fn();
   render(
-    <TooltipProvider>
-      <ChildAgentRow
-        agent={agent}
-        state="idle"
-        isInitialReviewActive={true}
-        isConnected={false}
-        attachToAgent={attachToAgent}
-        detachTerminal={detachTerminal}
-        startAgent={startAgent}
-        openSubmittedReview={openSubmittedReview}
-        {...overrides}
-      />
-    </TooltipProvider>
+    <MemoryRouter>
+      <TooltipProvider>
+        <ChildAgentRow
+          agent={agent}
+          state="idle"
+          isInitialReviewActive={true}
+          isConnected={false}
+          attachToAgent={attachToAgent}
+          detachTerminal={detachTerminal}
+          startAgent={startAgent}
+          openSubmittedReview={openSubmittedReview}
+          {...overrides}
+        />
+      </TooltipProvider>
+    </MemoryRouter>
   );
   return {
     attachToAgent,
@@ -98,6 +101,33 @@ describe("ChildAgentRow", () => {
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewActive).toBe("false");
     expect(row.className).not.toContain("child-agent-review-active-row");
+  });
+
+  it("keeps the row muted until a review has been submitted", () => {
+    renderRow(baseAgent);
+
+    const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.dataset.reviewReady).toBe("false");
+    expect(row.className).not.toContain("cursor-pointer");
+    const badge = screen.getByText("Review");
+    expect(badge.className).toContain("bg-background");
+  });
+
+  it("lights up the row once the review can be opened", () => {
+    renderRow(
+      { ...baseAgent, status: "stopped", submittedReviewId: 42 },
+      { state: "stopped", isInitialReviewActive: false }
+    );
+
+    const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.dataset.reviewReady).toBe("true");
+    expect(row.className).toContain("cursor-pointer");
+    expect(row.className).toContain("border-primary/45");
+    expect(row.className).toContain("opacity-100");
+    expect(row.className).not.toContain("opacity-65");
+    const badge = screen.getByText("Review");
+    expect(badge.className).toContain("bg-primary");
+    expect(badge.className).toContain("text-primary-foreground");
   });
 
   it("opens a submitted review from the row without attaching its terminal", () => {
