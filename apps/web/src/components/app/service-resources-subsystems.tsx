@@ -158,7 +158,7 @@ function SubsystemRow({
     <div className="border-b border-border last:border-b-0">
       <button
         type="button"
-        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-white/[0.03] md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
+        className="grid w-full grid-cols-[1fr_auto] items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/40 md:grid-cols-[minmax(12rem,1.4fr)_minmax(7rem,0.6fr)_minmax(7rem,0.6fr)_5.5rem]"
         onClick={() => setExpanded((value) => !value)}
         aria-expanded={expanded}
         data-testid={`subsystem-${subsystem.id}`}

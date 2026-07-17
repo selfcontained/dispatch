@@ -22,7 +22,7 @@ import { stateBadgeVariant, stateLabel } from "./service-resources-format";
 export function ServiceResourcesSettings(): JSX.Element {
   const [window, setWindow] = useState<ResourceWindow>("1h");
   const { data, error, refetch, dataUpdatedAt } = useServiceResources(window);
-  const collectionMutation = useSetServiceResourcesCollection(window);
+  const collectionMutation = useSetServiceResourcesCollection();
   const collectionEnabled = data?.collectionEnabled ?? false;
   const stale =
     collectionEnabled &&
@@ -51,7 +51,7 @@ export function ServiceResourcesSettings(): JSX.Element {
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           <span
-            className="w-20 text-right text-xs text-muted-foreground"
+            className="w-28 whitespace-nowrap text-right text-xs text-muted-foreground"
             data-testid="resources-updated-at"
           >
             {stale ? (

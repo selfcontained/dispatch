@@ -9,6 +9,8 @@ import {
 } from "@/components/ui/card";
 import {
   ChartContainer,
+  ChartLegend,
+  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
@@ -121,6 +123,11 @@ export function ResourceChart({
                 }
                 labelFormatter={(value) =>
                   new Date(Number(value)).toLocaleTimeString()
+                }
+              />
+              <ChartLegend
+                content={
+                  <ChartLegendContent className="flex-wrap gap-x-4 gap-y-1" />
                 }
               />
               {allKeys.map((key) => (

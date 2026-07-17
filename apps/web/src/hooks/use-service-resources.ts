@@ -122,8 +122,10 @@ export type ServiceResourcesResponse = {
 
 export type ResourceWindow = "15m" | "1h";
 
+const resourceQueryPrefix = ["service-resources"] as const;
+
 function resourceQueryKey(window: ResourceWindow) {
-  return ["service-resources", window] as const;
+  return [...resourceQueryPrefix, window] as const;
 }
 
 export function useServiceResources(window: ResourceWindow) {
@@ -140,9 +142,8 @@ export function useServiceResources(window: ResourceWindow) {
   });
 }
 
-export function useSetServiceResourcesCollection(window: ResourceWindow) {
+export function useSetServiceResourcesCollection() {
   const queryClient = useQueryClient();
-  const queryKey = resourceQueryKey(window);
   return useMutation({
     mutationFn: (enabled: boolean) =>
       api<{ collectionEnabled: boolean }>("/api/v1/system/resources/settings", {
@@ -150,26 +151,30 @@ export function useSetServiceResourcesCollection(window: ResourceWindow) {
         body: JSON.stringify({ enabled }),
       }),
     onMutate: async (enabled) => {
-      await queryClient.cancelQueries({ queryKey });
-      const previous =
-        queryClient.getQueryData<ServiceResourcesResponse>(queryKey);
-      queryClient.setQueryData<ServiceResourcesResponse>(queryKey, (current) =>
-        current
-          ? {
-              ...current,
-              collectionEnabled: enabled,
-              series: enabled ? current.series : [],
-              availableHistoryMs: enabled ? current.availableHistoryMs : 0,
-            }
-          : current
+      await queryClient.cancelQueries({ queryKey: resourceQueryPrefix });
+      const previous = queryClient.getQueriesData<ServiceResourcesResponse>({
+        queryKey: resourceQueryPrefix,
+      });
+      queryClient.setQueriesData<ServiceResourcesResponse>(
+        { queryKey: resourceQueryPrefix },
+        (current) =>
+          current
+            ? {
+                ...current,
+                collectionEnabled: enabled,
+                series: enabled ? current.series : [],
+                availableHistoryMs: enabled ? current.availableHistoryMs : 0,
+              }
+            : current
       );
       return { previous };
     },
     onError: (_error, _enabled, context) => {
-      if (context?.previous) {
-        queryClient.setQueryData(queryKey, context.previous);
+      for (const [queryKey, data] of context?.previous ?? []) {
+        queryClient.setQueryData(queryKey, data);
       }
     },
-    onSettled: () => queryClient.invalidateQueries({ queryKey }),
+    onSettled: () =>
+      queryClient.invalidateQueries({ queryKey: resourceQueryPrefix }),
   });
 }

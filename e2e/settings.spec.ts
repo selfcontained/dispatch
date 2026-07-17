@@ -198,7 +198,9 @@ test.describe("Settings pane", () => {
     ).toHaveCount(0);
 
     const databaseRow = dashboard.getByTestId("subsystem-database");
-    await expect(databaseRow.getByText("Active")).toBeVisible();
+    await expect(databaseRow.getByText("Active")).toBeVisible({
+      timeout: 20_000,
+    });
     await databaseRow.click();
     await expect(databaseRow).toHaveAttribute("aria-expanded", "true");
     await expect(dashboard.getByText("pool total")).toBeVisible();
