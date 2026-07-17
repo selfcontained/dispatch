@@ -312,6 +312,11 @@ export class AgentManager {
 
   /** Harvest token usage for an agent, scoped to its CLI session if known. */
   async harvestAgentTokens(agent: AgentRecord): Promise<void> {
+    // Inert runtimes never launch CLI sessions, so there cannot be new token
+    // usage to collect. Skipping also keeps inert dev/test servers from
+    // scanning session history that belongs to the host environment.
+    if (!this.runtime.tracksSessions()) return;
+
     await harvestTokenUsage(
       this.pool,
       {

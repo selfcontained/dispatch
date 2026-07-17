@@ -91,9 +91,8 @@ async function seedOverflowAgents(
       const agent = await createAgentViaAPI(request, {
         name: `e2e-agent-overflow-${Date.now()}-${index}`,
         // These agents only provide enough rows to exercise sidebar overflow.
-        // Avoid Codex token harvesting and repo lifecycle hooks during bulk
-        // cleanup; neither behavior is relevant to this layout-only fixture.
-        type: "terminal",
+        // Keep them outside the repo so bulk cleanup does not run unrelated
+        // repository lifecycle hooks for each synthetic agent.
         cwd: "/tmp",
       });
       await setAgentLatestEventViaAPI(request, agent.id, {

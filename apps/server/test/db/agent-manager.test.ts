@@ -1789,6 +1789,50 @@ describe("AgentManager", () => {
       await rm(tmpDir, { recursive: true, force: true });
     });
 
+    it("should skip harvesting only when the runtime is inert", async () => {
+      const { cwdToClaudeProjectDir } =
+        await import("../../src/agents/token-harvester.js");
+      const projectDir = cwdToClaudeProjectDir(tmpDir);
+      await mkdir(projectDir, { recursive: true });
+
+      const inertManager = new AgentManager(pool, noopLogger, inertTestConfig);
+      const agent = await inertManager.createAgent({
+        name: "inert-agent",
+        type: "claude",
+        cwd: tmpDir,
+        useWorktree: false,
+      });
+      await writeFile(
+        path.join(projectDir, `${agent.cliSessionId}.jsonl`),
+        `${JSON.stringify({
+          type: "assistant",
+          message: {
+            model: "claude-opus-4-6",
+            usage: { input_tokens: 500, output_tokens: 10 },
+          },
+          timestamp: "2026-04-01T10:00:00.000Z",
+        })}\n`
+      );
+
+      await inertManager.harvestAgentTokens(agent);
+
+      const usage = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM agent_token_usage WHERE agent_id = $1`,
+        [agent.id]
+      );
+      expect(usage.rows[0].count).toBe(0);
+
+      await manager.harvestAgentTokens(agent);
+
+      const trackedRuntimeUsage = await pool.query(
+        `SELECT SUM(input_tokens)::int AS total FROM agent_token_usage WHERE agent_id = $1`,
+        [agent.id]
+      );
+      expect(trackedRuntimeUsage.rows[0].total).toBe(500);
+
+      await rm(projectDir, { recursive: true, force: true });
+    });
+
     it("should harvest only the persona's session for a persona agent", async () => {
       const { cwdToClaudeProjectDir } =
         await import("../../src/agents/token-harvester.js");
