@@ -357,7 +357,7 @@ export function registerPersonaInteractionTools(
       "dispatch_review_resolve",
       {
         description:
-          "Parent-only. Resolve a review feedback item as fixed or dismissed. Review status is automatically derived from the current feedback item states.",
+          "Resolve a review feedback item as fixed or dismissed. For persona reviews, the reviewer uses this only after re-inspecting the assignee's fix; the assignee should request verification with dispatch_review_add_message instead of resolving the item. Review status is automatically derived from the current feedback item states.",
         inputSchema: {
           itemId: z
             .number()
@@ -411,7 +411,7 @@ export function registerPersonaInteractionTools(
     server.registerTool(
       "dispatch_review_add_message",
       {
-        description: `Add a concise message to a review feedback item's thread. Use it only for a necessary clarifying question or essential explanation before resolving. ${AGENT_REVIEW_REPLY_GUIDANCE}`,
+        description: `Add a concise message to a review feedback item's thread. For persona feedback, the assignee uses this after fixing an item to request reviewer verification; the reviewer uses it to give further instructions when a fix is incomplete. ${AGENT_REVIEW_REPLY_GUIDANCE}`,
         inputSchema: {
           itemId: z
             .number()
@@ -460,7 +460,9 @@ export function buildLaunchPersonaResponseText(
 
 The reviewer will inspect the target and create a review only when it calls dispatch_review_submit. Dispatch will inject a structured REVIEW SUBMITTED block here with the review summary and any feedback item IDs.
 
-If the review has feedback, call dispatch_review_list_feedback with its reviewId before acting. Keep all questions and explanations tracked in the corresponding item thread with dispatch_review_add_message. Resolve an item with dispatch_review_resolve when it is fixed or intentionally dismissed, and use dispatch_review_reopen if it needs more work.
+Do not poll, sleep, call list_agents, or schedule a wakeup while waiting for the review. End this turn after the launch; Dispatch will notify you with a new injected REVIEW SUBMITTED block when the reviewer submits.
+
+If the review has feedback, call dispatch_review_list_feedback with its reviewId before acting. Keep all questions and explanations tracked in the corresponding item thread with dispatch_review_add_message. After fixing an item, post a concise message asking the reviewer to verify it; do not call dispatch_review_resolve on persona feedback yourself. The reviewer will re-inspect the fix and resolve it if complete, or leave it open and reply with further instructions.
 
 A clean approval is also recorded: the reviewer submits a required summary with an empty feedback array, creating a resolved review with no items. No legacy round or recheck lifecycle is required.`;
 }

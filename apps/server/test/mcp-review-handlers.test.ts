@@ -200,6 +200,68 @@ describe("createReviewHandlers", () => {
         })
       );
     });
+
+    it("notifies the parent when the reviewer verifies and resolves a fix", async () => {
+      const { getReviewRecord, resolveReviewFeedbackItem } =
+        await import("../src/agents/reviews.js");
+      vi.mocked(resolveReviewFeedbackItem).mockResolvedValueOnce({
+        item: { id: 1, status: "resolved", resolution: "fixed" },
+        reviewId: 10,
+        reviewStatus: "resolved",
+      } as never);
+      vi.mocked(getReviewRecord).mockResolvedValueOnce({
+        id: 10,
+        agentId: "agt_parent",
+        assignedAgentId: "agt_parent",
+        reviewerAgentId: "agt_reviewer",
+      } as never);
+
+      const deps = makeDeps();
+      const handlers = createReviewHandlers(deps as never);
+      await handlers.resolveReviewFeedback("agt_reviewer", 1, "fixed");
+
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "review_feedback.updated",
+        agentId: "agt_parent",
+        feedbackItemId: 1,
+      });
+      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
+        "agt_parent",
+        "item-state-prompt"
+      );
+    });
+
+    it("authorizes review-role callers only as the reviewer", async () => {
+      const { resolveReviewFeedbackItem } =
+        await import("../src/agents/reviews.js");
+      vi.mocked(resolveReviewFeedbackItem).mockResolvedValueOnce({
+        item: { id: 1, status: "resolved", resolution: "fixed" },
+        reviewId: 10,
+        reviewStatus: "resolved",
+      } as never);
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn().mockResolvedValue({
+            id: "agt_reviewer",
+            role: "review",
+            name: "reviewer",
+            cwd: "/repo",
+          }),
+        },
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      await handlers.resolveReviewFeedback("agt_reviewer", 1, "fixed");
+
+      expect(resolveReviewFeedbackItem).toHaveBeenCalledWith(
+        deps.pool,
+        1,
+        "agt_reviewer",
+        "fixed",
+        expect.objectContaining({ resolverRole: "reviewer" })
+      );
+    });
   });
 
   describe("submitReview", () => {

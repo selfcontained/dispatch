@@ -617,6 +617,11 @@ describe("AgentManager", () => {
       expect(setupScript).toContain("dispatch_review_list_feedback");
       expect(setupScript).toContain("structured REVIEW SUBMITTED prompt");
       expect(setupScript).toContain("launch 1 relevant reviewer");
+      expect(setupScript).toContain("do not poll, sleep");
+      expect(setupScript).toContain("ask the reviewer to verify it");
+      expect(setupScript).not.toContain(
+        "set each outcome with dispatch_review_resolve"
+      );
       expect(setupScript).not.toContain("dispatch_get_feedback");
       expect(setupScript).not.toContain("Only launch additional reviewers");
     });

@@ -17,7 +17,7 @@ describe("buildLaunchPersonaResponseText", () => {
     expect(text).toContain("dispatch_review_submit");
     expect(text).toContain("dispatch_review_list_feedback");
     expect(text).toContain("dispatch_review_resolve");
-    expect(text).toContain("dispatch_review_reopen");
+    expect(text).toMatch(/asking the reviewer to verify/i);
   });
 
   it("explains that clean approvals are tracked", () => {
@@ -41,6 +41,14 @@ describe("buildLaunchPersonaResponseText", () => {
     expect(text).not.toContain("dispatch_await_review");
     expect(text).not.toContain("dispatch_await_recheck");
     expect(text).not.toMatch(/pollAgainInSeconds/i);
+    expect(text).toMatch(/do not poll, sleep/i);
+    expect(text).toMatch(/end this turn/i);
+  });
+
+  it("keeps persona feedback open until the reviewer verifies it", () => {
+    const text = buildLaunchPersonaResponseText(persona, agentId);
+    expect(text).toMatch(/do not call dispatch_review_resolve/i);
+    expect(text).toMatch(/reviewer will re-inspect/i);
   });
 
   it("explains that the review signal arrives via structured injection", () => {

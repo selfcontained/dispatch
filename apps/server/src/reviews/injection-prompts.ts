@@ -60,7 +60,9 @@ export function buildReviewSubmittedPrompt(input: {
       lines.push(`- #${item.id} ${location} — ${item.body}`);
     }
     lines.push(
-      "Call dispatch_review_list_feedback with this reviewId before acting. Use dispatch_review_add_message for questions or explanations, dispatch_review_resolve when an item is fixed or dismissed, and dispatch_review_reopen if a resolved item needs more work. Keep all review discussion in its feedback-item thread."
+      input.reviewerAgentId
+        ? "Call dispatch_review_list_feedback with this reviewId before acting. Use dispatch_review_add_message for questions and explanations. After fixing an item, post a concise message asking the reviewer to verify the fix; do not resolve persona-review feedback yourself. The reviewer will re-inspect the fix and resolve the item if complete, or leave it open and reply with further instructions. Keep all review discussion in its feedback-item thread."
+        : "Call dispatch_review_list_feedback with this reviewId before acting. Use dispatch_review_add_message for questions or explanations, dispatch_review_resolve when an item is fixed or dismissed, and dispatch_review_reopen if a resolved item needs more work. Keep all review discussion in its feedback-item thread."
     );
   }
   return buildReviewPromptBlock("REVIEW SUBMITTED", lines);
@@ -86,13 +88,18 @@ export function buildReviewThreadUpdatePrompt(input: {
   itemId: number;
   from: string;
   body: string;
+  recipient: "reviewer" | "assignee";
 }): string {
+  const nextStep =
+    input.recipient === "reviewer"
+      ? "Re-inspect the claimed fix before deciding. If it fully addresses this item, call dispatch_review_resolve with resolution 'fixed'. If it is incomplete, leave the item open and reply with specific instructions using dispatch_review_add_message. Do not resolve based only on the assignee's claim."
+      : "Address any requested work, then use dispatch_review_add_message to ask the reviewer to verify the fix. Do not resolve persona-review feedback yourself.";
   return buildReviewPromptBlock("REVIEW THREAD UPDATE", [
     `Review ID: ${input.reviewId}`,
     `Feedback item ID: ${input.itemId}`,
     `From: ${input.from}`,
     `Message: ${input.body}`,
-    "Call dispatch_event with type 'working' before handling this update, then call dispatch_review_list_feedback with this reviewId for full context. Reply with dispatch_review_add_message only when useful; do not move review discussion to direct agent messages. Finish with dispatch_event type 'done', or 'waiting_user' only after posting a tracked question that needs a reply.",
+    `Call dispatch_event with type 'working' before handling this update, then call dispatch_review_list_feedback with this reviewId for full context. ${nextStep} Do not move review discussion to direct agent messages. Finish with dispatch_event type 'done', or 'waiting_user' only after posting a tracked question that needs a reply.`,
   ]);
 }
 

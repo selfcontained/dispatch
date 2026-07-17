@@ -147,6 +147,7 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_review_add_feedback",
   "dispatch_review_list_feedback",
   "dispatch_review_add_message",
+  "dispatch_review_resolve",
   "get_parent_context",
 ]);
 
