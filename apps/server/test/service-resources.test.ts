@@ -163,6 +163,7 @@ describe("ServiceResources", () => {
       subsystemTrackers: [],
       processTreeSupported: false,
     });
+    resources.start();
 
     for (let index = 0; index < 5_000; index += 1) {
       const token = resources.requestStarted();
@@ -176,6 +177,48 @@ describe("ServiceResources", () => {
       inFlight: 0,
       errorRatePercent: 10,
     });
+    resources.stop();
+  });
+
+  it("disables sampling and clears retained observations at runtime", async () => {
+    const resources = new ServiceResources({
+      pool: createPool(),
+      listAgentSessions: async () => [],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: false,
+    });
+
+    const disabledToken = resources.requestStarted();
+    resources.requestFinished(disabledToken, 200);
+    expect(resources.getSnapshot()).toMatchObject({
+      collectionEnabled: false,
+      series: [],
+    });
+    expect(resources.getHttpObservationStorageSize()).toBe(0);
+
+    resources.setCollectionEnabled(true);
+    await vi.advanceTimersByTimeAsync(0);
+    const enabledToken = resources.requestStarted();
+    resources.requestFinished(enabledToken, 200);
+    expect(resources.getSnapshot().collectionEnabled).toBe(true);
+    expect(resources.getSnapshot().series).toHaveLength(1);
+    expect(resources.getHttpObservationStorageSize()).toBe(1);
+
+    resources.setCollectionEnabled(false);
+    expect(resources.getSnapshot()).toMatchObject({
+      collectionEnabled: false,
+      series: [],
+    });
+    expect(resources.getHttpObservationStorageSize()).toBe(0);
+
+    resources.setCollectionEnabled(true);
+    const staleToken = resources.requestStarted();
+    resources.setCollectionEnabled(false);
+    resources.setCollectionEnabled(true);
+    resources.requestFinished(staleToken, 200);
+    expect(resources.getHttpObservationStorageSize()).toBe(0);
+    resources.setCollectionEnabled(false);
   });
 
   it("degrades owner subsystems when recent writes or polls fail", async () => {

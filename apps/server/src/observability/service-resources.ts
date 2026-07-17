@@ -52,6 +52,7 @@ type HttpSnapshot = {
 export type HttpRequestToken = {
   startedAt: number;
   finished: boolean;
+  generation: number;
 };
 
 export type WorkloadSnapshot = {
@@ -90,6 +91,7 @@ type AgentProcessSnapshot = {
 };
 
 export type ServiceResourcesResponse = {
+  collectionEnabled: boolean;
   generatedAt: number;
   processStartedAt: number;
   availableHistoryMs: number;
@@ -271,14 +273,37 @@ export class ServiceResources {
     this.eventLoopDelay.disable();
   }
 
+  setCollectionEnabled(enabled: boolean): void {
+    if (enabled) {
+      this.start();
+      return;
+    }
+    this.stop();
+    this.samples = [];
+    this.httpBuckets = [];
+    this.httpInFlight = 0;
+  }
+
+  isCollectionEnabled(): boolean {
+    return this.running;
+  }
+
   requestStarted(): HttpRequestToken {
+    if (!this.running) {
+      return { startedAt: 0, finished: true, generation: this.generation };
+    }
     this.httpInFlight += 1;
-    return { startedAt: performance.now(), finished: false };
+    return {
+      startedAt: performance.now(),
+      finished: false,
+      generation: this.generation,
+    };
   }
 
   requestFinished(token: HttpRequestToken, statusCode: number): void {
     if (token.finished) return;
     token.finished = true;
+    if (!this.running || token.generation !== this.generation) return;
     this.httpInFlight = Math.max(0, this.httpInFlight - 1);
     const now = Date.now();
     const bucket = this.getHttpBucket(now);
@@ -348,6 +373,7 @@ export class ServiceResources {
     const series = this.samples.filter((sample) => now - sample.at <= windowMs);
 
     return {
+      collectionEnabled: this.running,
       generatedAt: now,
       processStartedAt: now - process.uptime() * 1000,
       availableHistoryMs:

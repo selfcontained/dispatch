@@ -153,6 +153,7 @@ import {
   ServiceResources,
   type HttpRequestToken,
 } from "./observability/service-resources.js";
+import { readServiceResourcesCollectionEnabled } from "./observability/service-resources-settings.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -623,7 +624,7 @@ async function registerRoutes() {
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
-  await registerResourceRoutes(app, serviceResources);
+  await registerResourceRoutes(app, { pool, resources: serviceResources });
 
   await registerBrainRoutes(app, {
     brainStore,
@@ -792,7 +793,9 @@ export async function initializeApp(options?: {
     await runMigrations();
   }
   config.authToken = await getOrCreateAuthToken(pool);
-  serviceResources.start();
+  serviceResources.setCollectionEnabled(
+    await readServiceResourcesCollectionEnabled(pool)
+  );
   const shouldReconcileState = options?.reconcileState ?? true;
   if (shouldReconcileState) {
     await agentManager.reconcileAgents();

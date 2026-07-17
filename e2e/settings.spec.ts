@@ -23,6 +23,12 @@ test.describe("Settings pane", () => {
       },
       data: { enabled: false },
     });
+    await request.post("/api/v1/system/resources/settings", {
+      headers: {
+        Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+      },
+      data: { enabled: false },
+    });
   });
 
   test("opens and closes the settings pane", async ({ page }) => {
@@ -153,9 +159,22 @@ test.describe("Settings pane", () => {
     const dashboard = page.getByTestId("service-resources-dashboard");
     await expect(dashboard).toBeVisible({ timeout: 10_000 });
     await expect(page).toHaveURL(/\/settings\/resources$/);
+    const collectionToggle = dashboard.getByTestId(
+      "resource-collection-toggle"
+    );
+    await expect(collectionToggle).not.toBeChecked();
+    await expect(
+      dashboard.getByTestId("resource-collection-disabled")
+    ).toBeVisible();
     await expect(
       dashboard.getByTestId("resource-card-dispatch-cpu")
-    ).toBeVisible();
+    ).toHaveCount(0);
+
+    await collectionToggle.click();
+    await expect(collectionToggle).toBeChecked();
+    await expect(
+      dashboard.getByTestId("resource-card-dispatch-cpu")
+    ).toBeVisible({ timeout: 10_000 });
     await expect(dashboard.getByTestId("resource-card-database")).toBeVisible();
     await expect(
       dashboard.getByTestId("resource-card-agent-processes").getByText("None")

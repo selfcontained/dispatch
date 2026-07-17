@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
@@ -49,6 +49,7 @@ export type SubsystemSnapshot = {
 };
 
 export type ServiceResourcesResponse = {
+  collectionEnabled: boolean;
   generatedAt: number;
   processStartedAt: number;
   availableHistoryMs: number;
@@ -121,9 +122,13 @@ export type ServiceResourcesResponse = {
 
 export type ResourceWindow = "15m" | "1h";
 
+function resourceQueryKey(window: ResourceWindow) {
+  return ["service-resources", window] as const;
+}
+
 export function useServiceResources(window: ResourceWindow) {
   return useQuery<ServiceResourcesResponse>({
-    queryKey: ["service-resources", window],
+    queryKey: resourceQueryKey(window),
     queryFn: () =>
       api<ServiceResourcesResponse>(
         `/api/v1/system/resources?window=${encodeURIComponent(window)}`
@@ -132,5 +137,39 @@ export function useServiceResources(window: ResourceWindow) {
       typeof document !== "undefined" && document.hidden ? false : 15_000,
     refetchIntervalInBackground: false,
     placeholderData: (previous) => previous,
+  });
+}
+
+export function useSetServiceResourcesCollection(window: ResourceWindow) {
+  const queryClient = useQueryClient();
+  const queryKey = resourceQueryKey(window);
+  return useMutation({
+    mutationFn: (enabled: boolean) =>
+      api<{ collectionEnabled: boolean }>("/api/v1/system/resources/settings", {
+        method: "POST",
+        body: JSON.stringify({ enabled }),
+      }),
+    onMutate: async (enabled) => {
+      await queryClient.cancelQueries({ queryKey });
+      const previous =
+        queryClient.getQueryData<ServiceResourcesResponse>(queryKey);
+      queryClient.setQueryData<ServiceResourcesResponse>(queryKey, (current) =>
+        current
+          ? {
+              ...current,
+              collectionEnabled: enabled,
+              series: enabled ? current.series : [],
+              availableHistoryMs: enabled ? current.availableHistoryMs : 0,
+            }
+          : current
+      );
+      return { previous };
+    },
+    onError: (_error, _enabled, context) => {
+      if (context?.previous) {
+        queryClient.setQueryData(queryKey, context.previous);
+      }
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey }),
   });
 }

@@ -1,8 +1,10 @@
 import { useState } from "react";
+import { Activity } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   Select,
   SelectContent,
@@ -12,6 +14,7 @@ import {
 } from "@/components/ui/select";
 import {
   type ResourceWindow,
+  useSetServiceResourcesCollection,
   useServiceResources,
 } from "@/hooks/use-service-resources";
 import { ServiceResourcesDashboard } from "./service-resources-dashboard";
@@ -20,7 +23,12 @@ import { stateBadgeVariant, stateLabel } from "./service-resources-format";
 export function ServiceResourcesSettings(): JSX.Element {
   const [window, setWindow] = useState<ResourceWindow>("1h");
   const { data, error, refetch, dataUpdatedAt } = useServiceResources(window);
-  const stale = dataUpdatedAt > 0 && Date.now() - dataUpdatedAt > 45_000;
+  const collectionMutation = useSetServiceResourcesCollection(window);
+  const collectionEnabled = data?.collectionEnabled ?? false;
+  const stale =
+    collectionEnabled &&
+    dataUpdatedAt > 0 &&
+    Date.now() - dataUpdatedAt > 45_000;
 
   return (
     <div
@@ -32,37 +40,58 @@ export function ServiceResourcesSettings(): JSX.Element {
           <div className="flex items-center gap-2">
             <h1 className="text-xl font-semibold">Service resources</h1>
             {data && (
-              <Badge variant={stateBadgeVariant(data.overall.state)}>
-                {stateLabel(data.overall.state)}
+              <Badge
+                variant={stateBadgeVariant(
+                  collectionEnabled ? data.overall.state : "disabled"
+                )}
+              >
+                {stateLabel(
+                  collectionEnabled ? data.overall.state : "disabled"
+                )}
               </Badge>
             )}
           </div>
           <p className="mt-1 text-sm text-muted-foreground">
-            Live health and resource use for Dispatch, its agents, dependencies,
-            and host. History resets when Dispatch restarts.
+            Health and resource insights for Dispatch, its agents, dependencies,
+            and host. Collected history resets when Dispatch restarts.
           </p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-2">
           {stale && (
             <span className="text-xs text-status-waiting">Data is stale</span>
           )}
-          <span
-            className="text-xs text-muted-foreground"
-            data-testid="resources-updated-at"
-          >
-            {dataUpdatedAt > 0 && (
-              <>
-                <span className="hidden sm:inline">Updated </span>
-                {new Date(dataUpdatedAt).toLocaleTimeString([], {
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}
-              </>
-            )}
-          </span>
+          {collectionEnabled && (
+            <span
+              className="text-xs text-muted-foreground"
+              data-testid="resources-updated-at"
+            >
+              {dataUpdatedAt > 0 && (
+                <>
+                  <span className="hidden sm:inline">Updated </span>
+                  {new Date(dataUpdatedAt).toLocaleTimeString([], {
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </>
+              )}
+            </span>
+          )}
+          <label className="flex h-8 items-center gap-2 rounded-md border border-border px-2.5 text-xs">
+            <span>Collect metrics</span>
+            <Checkbox
+              checked={collectionEnabled}
+              onCheckedChange={(checked) =>
+                collectionMutation.mutate(checked === true)
+              }
+              disabled={!data || collectionMutation.isPending}
+              aria-label="Collect service resource metrics"
+              data-testid="resource-collection-toggle"
+            />
+          </label>
           <Select
             value={window}
             onValueChange={(value) => setWindow(value as ResourceWindow)}
+            disabled={!collectionEnabled}
           >
             <SelectTrigger
               className="h-8 w-28 text-xs"
@@ -77,6 +106,12 @@ export function ServiceResourcesSettings(): JSX.Element {
           </Select>
         </div>
       </header>
+
+      {collectionMutation.error && (
+        <p role="alert" className="text-sm text-status-blocked">
+          {collectionMutation.error.message}
+        </p>
+      )}
 
       {!data && !error && (
         <div className="flex min-h-72 items-center justify-center text-sm text-muted-foreground">
@@ -96,7 +131,25 @@ export function ServiceResourcesSettings(): JSX.Element {
           </CardContent>
         </Card>
       )}
-      {data && <ServiceResourcesDashboard data={data} />}
+      {data && !collectionEnabled && (
+        <Card data-testid="resource-collection-disabled">
+          <CardContent className="flex min-h-52 items-center justify-center p-6 text-center">
+            <div className="max-w-md">
+              <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-lg border border-border bg-muted/40 text-muted-foreground">
+                <Activity className="h-5 w-5" />
+              </div>
+              <div className="mt-4 text-sm font-medium">
+                Metric collection is off
+              </div>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                Turn on Collect metrics to sample service resources every 5
+                seconds and retain up to one hour of in-memory history.
+              </p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+      {data && collectionEnabled && <ServiceResourcesDashboard data={data} />}
     </div>
   );
 }
