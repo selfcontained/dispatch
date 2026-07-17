@@ -58,39 +58,57 @@ jobs:
         run: |
           set -euo pipefail
 
-          git fetch origin main --tags --prune
+          git fetch origin main --tags --prune --prune-tags
           git checkout main
           git reset --hard origin/main
 
           mkdir -p release-notes
           PREV_TAG=$(git tag --sort=-version:refname | head -n 1)
           CURRENT_VERSION="v$(node -p 'require("./package.json").version')"
+          VERSION_RELATION=$(node scripts/compare-release-tags.mjs "$CURRENT_VERSION" "$PREV_TAG")
+          RESUMING_RELEASE=false
 
-          if [[ "$CURRENT_VERSION" == "$PREV_TAG" ]]; then
-            NEW_VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
-            pnpm -r exec npm version ${{ inputs.version }} --no-git-tag-version
-          else
-            NEW_VERSION="$CURRENT_VERSION"
-            echo "Resuming incomplete release ${NEW_VERSION} (latest tag: ${PREV_TAG:-none})"
+          case "$VERSION_RELATION" in
+            equal)
+              NEW_VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
+              pnpm -r exec npm version ${{ inputs.version }} --no-git-tag-version
+              ;;
+            initial)
+              NEW_VERSION="$CURRENT_VERSION"
+              echo "Preparing initial release ${NEW_VERSION}"
+              ;;
+            newer)
+              NEW_VERSION="$CURRENT_VERSION"
+              RESUMING_RELEASE=true
+              echo "Resuming incomplete release ${NEW_VERSION} (latest tag: ${PREV_TAG})"
 
-            MISMATCHED_PACKAGES=$(node -e '
-              const fs = require("node:fs");
-              const rootVersion = require("./package.json").version;
-              const packageFiles = fs
-                .readdirSync("apps", { withFileTypes: true })
-                .filter((entry) => entry.isDirectory())
-                .map((entry) => `apps/${entry.name}/package.json`)
-                .filter((file) => fs.existsSync(file));
-              const mismatches = packageFiles.filter(
-                (file) => require(`./${file}`).version !== rootVersion,
-              );
-              process.stdout.write(mismatches.join(" "));
-            ')
-            if [[ -n "$MISMATCHED_PACKAGES" ]]; then
-              echo "error: package versions do not match ${NEW_VERSION}: ${MISMATCHED_PACKAGES}" >&2
+              MISMATCHED_PACKAGES=$(node -e '
+                const fs = require("node:fs");
+                const rootVersion = require("./package.json").version;
+                const packageFiles = fs
+                  .readdirSync("apps", { withFileTypes: true })
+                  .filter((entry) => entry.isDirectory())
+                  .map((entry) => `apps/${entry.name}/package.json`)
+                  .filter((file) => fs.existsSync(file));
+                const mismatches = packageFiles.filter(
+                  (file) => require(`./${file}`).version !== rootVersion,
+                );
+                process.stdout.write(mismatches.join(" "));
+              ')
+              if [[ -n "$MISMATCHED_PACKAGES" ]]; then
+                echo "error: package versions do not match ${NEW_VERSION}: ${MISMATCHED_PACKAGES}" >&2
+                exit 1
+              fi
+              ;;
+            older)
+              echo "error: package version ${CURRENT_VERSION} is older than latest tag ${PREV_TAG}" >&2
               exit 1
-            fi
-          fi
+              ;;
+            *)
+              echo "error: unexpected release version relation: ${VERSION_RELATION}" >&2
+              exit 1
+              ;;
+          esac
 
           pnpm --filter @dispatch/browser-extension sync:manifest-version
 
@@ -99,7 +117,17 @@ jobs:
             exit 1
           fi
 
-          if [ -n "$PREV_TAG" ]; then
+          if [[ "$RESUMING_RELEASE" == "true" ]]; then
+            if [[ ! -s release-notes/current.md ]]; then
+              echo "error: cannot resume ${NEW_VERSION} without prepared release notes" >&2
+              exit 1
+            fi
+            if ! grep -Fq "$NEW_VERSION" release-notes/current.md; then
+              echo "error: prepared release notes do not reference ${NEW_VERSION}" >&2
+              exit 1
+            fi
+            echo "Preserving prepared release notes for ${NEW_VERSION}"
+          elif [ -n "$PREV_TAG" ]; then
             gh api "repos/${{ github.repository }}/releases/generate-notes" \
               -X POST \
               -f tag_name="$NEW_VERSION" \
@@ -508,7 +536,7 @@ jobs:
           TAG="${{ needs.prepare-release.outputs.tag }}"
           RELEASE_COMMIT="${{ needs.prepare-release.outputs.release_commit }}"
 
-          git fetch origin main --tags --prune
+          git fetch origin main --tags --prune --prune-tags
 
           REMOTE_MAIN=$(git rev-parse origin/main)
           if [[ "$REMOTE_MAIN" != "$RELEASE_COMMIT" ]]; then
