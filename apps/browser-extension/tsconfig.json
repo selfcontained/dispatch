@@ -6,5 +6,12 @@
     "moduleResolution": "Bundler",
     "types": ["chrome", "vitest/globals"]
   },
-  "include": ["src/**/*.ts", "vite.config.ts", "vite.picker.config.ts"]
+  "include": [
+    "src/**/*.ts",
+    "vite.config.ts",
+    "vite.picker.config.ts",
+    "vite.safari.config.ts",
+    "vite.safari.background.config.ts",
+    "vite.safari.overlay.config.ts"
+  ]
 }

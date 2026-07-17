@@ -118,7 +118,7 @@ test.describe("Settings pane", () => {
     });
 
     await expect(
-      page.getByText("Chrome is requesting permission to connect")
+      page.getByText("A browser is requesting permission to connect")
     ).toBeVisible();
     await page.getByRole("button", { name: "Approve connection" }).click();
     await expect(page.getByText("Connection approved")).toBeVisible();

@@ -11,6 +11,9 @@ tmp-*.mjs
 *.png
 !apps/web/public/icons/**/*.png
 !apps/browser-extension/public/icons/*.png
+!apps/browser-extension/safari/**/*.png
+apps/browser-extension/safari/**/xcuserdata/
+apps/browser-extension/safari/**/build/
 *.jpg
 *.jpeg
 *.gif
