@@ -12,15 +12,24 @@ const manifestUrl = new URL(
 const packageJson = JSON.parse(await readFile(packageUrl, "utf8"));
 const manifestSource = await readFile(manifestUrl, "utf8");
 const manifest = JSON.parse(manifestSource);
+const versionFields = manifestSource.match(/"version"\s*:/g) ?? [];
+
+if (versionFields.length !== 1) {
+  throw new Error(
+    `Expected one version field in the browser extension manifest; found ${versionFields.length}.`
+  );
+}
+
+if (
+  typeof packageJson.version !== "string" ||
+  !/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(packageJson.version)
+) {
+  throw new Error(
+    `Invalid browser extension package version: ${packageJson.version}`
+  );
+}
 
 if (manifest.version !== packageJson.version) {
-  const versionFields = manifestSource.match(/"version"\s*:/g) ?? [];
-  if (versionFields.length !== 1) {
-    throw new Error(
-      `Expected one version field in the browser extension manifest; found ${versionFields.length}.`
-    );
-  }
-
   const updatedManifest = manifestSource.replace(
     /("version"\s*:\s*")[^"]+("\s*,)/,
     `$1${packageJson.version}$2`
