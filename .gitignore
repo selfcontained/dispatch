@@ -16,7 +16,6 @@ tmp-*.mjs
 *.gif
 *.webp
 .media
-artifacts/
 .playwright-mcp/
 test-results/
 playwright-report/

@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   build: {
-    outDir: "dist",
+    outDir: "dist/unpacked",
     emptyOutDir: false,
     lib: {
       entry: resolve(import.meta.dirname, "src/picker.ts"),

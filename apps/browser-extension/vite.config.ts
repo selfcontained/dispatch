@@ -3,7 +3,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   build: {
-    outDir: "dist",
+    outDir: "dist/unpacked",
     rollupOptions: {
       input: {
         "side-panel": resolve(import.meta.dirname, "side-panel.html"),

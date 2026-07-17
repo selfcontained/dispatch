@@ -20,7 +20,7 @@ To create a zip that can be distributed or uploaded for review, run:
 pnpm --filter @dispatch/browser-extension package
 ```
 
-The archive is written to `artifacts/dispatch-browser-feedback.zip`.
+The archive is written to `apps/browser-extension/dist/dispatch-browser-feedback.zip`.
 
 Click the extension toolbar icon to open its side panel. Enter the URL of your
 Dispatch instance, approve the pairing request in Dispatch, return to the page

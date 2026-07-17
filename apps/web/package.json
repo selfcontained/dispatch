@@ -9,6 +9,7 @@
     "dev": "vite",
     "prebuild": "pnpm run package:browser-extension",
     "build": "vite build",
+    "postbuild": "cp ../browser-extension/dist/dispatch-browser-feedback.zip dist/dispatch-browser-feedback.zip",
     "preview": "vite preview",
     "check": "tsc --noEmit",
     "lint": "eslint src",
