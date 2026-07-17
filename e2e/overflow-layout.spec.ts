@@ -90,7 +90,11 @@ async function seedOverflowAgents(
     Array.from({ length: count }, async (_, index) => {
       const agent = await createAgentViaAPI(request, {
         name: `e2e-agent-overflow-${Date.now()}-${index}`,
-        cwd: process.cwd(),
+        // These agents only provide enough rows to exercise sidebar overflow.
+        // Avoid Codex token harvesting and repo lifecycle hooks during bulk
+        // cleanup; neither behavior is relevant to this layout-only fixture.
+        type: "terminal",
+        cwd: "/tmp",
       });
       await setAgentLatestEventViaAPI(request, agent.id, {
         type: "working",
