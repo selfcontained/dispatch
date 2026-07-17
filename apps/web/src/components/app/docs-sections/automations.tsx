@@ -187,14 +187,18 @@ export function AutomationsContent() {
           </li>
           <li>
             <strong>Prompt</strong> — the instructions sent as the agent's first
-            message. Supports <Code>{"{{D:Arg Name}}"}</Code> placeholders just
-            like templates. Dispatch prepends a short preamble that names the
-            job, includes the run ID, and reminds the agent to drive the run to
-            a terminal state. Required before a run can start.
+            message. Dispatch prepends a short preamble that identifies the job
+            and run and reminds the agent to drive the run to a terminal state.
+            Required before a run can start. Unlike templates, jobs never
+            collect arguments at run time — <Code>{"{{D:Arg Name}}"}</Code>{" "}
+            placeholders are only substituted from default values saved via the
+            API.
           </li>
           <li>
-            <strong>Show in command palette</strong> — when on, the job appears
-            in the <Code>Mod+K</Code> palette for quick launch.
+            <strong>Show in command palette</strong> — marks the job as
+            callable, shown as a badge in the jobs list. Quick launch from the{" "}
+            <Code>Mod+K</Code> palette is currently only available for
+            templates.
           </li>
           <li>
             <strong>Single instance</strong> — when on (the default), only one
@@ -233,10 +237,11 @@ export function AutomationsContent() {
           </li>
         </ul>
         <P>
-          After creating a job, open its <strong>Settings</strong> tab to
-          configure additional options like <strong>Webhook trigger</strong> —
-          enable it to generate a secret URL that fires a run via HTTP POST. No
-          auth header is needed; the secret in the URL is the credential.
+          After creating a job, open its <strong>Configure</strong> tab to
+          adjust these settings and options like{" "}
+          <strong>Webhook trigger</strong> — enable it to generate a secret URL
+          that fires a run via HTTP POST. No auth header is needed; the secret
+          in the URL is the credential.
         </P>
       </Section>
 
@@ -391,10 +396,12 @@ export function AutomationsContent() {
       <Section>
         <H3>History and status</H3>
         <P>
-          Each job card shows the last run's status, when it finished, and the
-          next scheduled fire time. Open the <strong>History</strong> tab on a
-          job to browse past runs with their reports, durations, and trigger
-          source (Manual, Scheduled, or Webhook).
+          Each job in the sidebar list shows its last run's status alongside its
+          schedule and enabled state, and the Jobs overview (shown when no job
+          is selected) lists upcoming scheduled runs. Open the{" "}
+          <strong>History</strong> tab on a job to browse past runs with their
+          start time, duration, trigger source (Manual, Scheduled, or Webhook),
+          and expandable report.
         </P>
       </Section>
 
