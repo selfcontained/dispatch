@@ -63,6 +63,82 @@ test.describe("Settings pane", () => {
     await expect(page.getByText("Release channel")).toBeVisible();
   });
 
+  test("reveals contextual browser extension setup and serves the package", async ({
+    page,
+    request,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("settings-button").click();
+    await page
+      .getByTestId("sidebar-shell")
+      .getByText("Connections", { exact: true })
+      .click();
+
+    await expect(page).toHaveURL(/\/settings\/connections$/);
+    const download = page.getByRole("link", {
+      name: "Download extension ZIP",
+    });
+    await expect(download).toHaveAttribute(
+      "href",
+      "/dispatch-browser-feedback.zip"
+    );
+    await expect(page.getByText("Finish setup in Chrome")).not.toBeVisible();
+
+    await page.getByRole("button", { name: "Already downloaded?" }).click();
+    await expect(page.getByText("Finish setup in Chrome")).toBeVisible();
+    await expect(page.getByText("2. Load the folder")).toBeVisible();
+    await expect(page.getByText("chrome://extensions")).toBeVisible();
+
+    const packageResponse = await request.get("/dispatch-browser-feedback.zip");
+    expect(packageResponse.ok()).toBe(true);
+    expect((await packageResponse.body()).byteLength).toBeGreaterThan(10_000);
+  });
+
+  test("approves a browser extension pairing request", async ({
+    page,
+    request,
+  }) => {
+    const startResponse = await request.post(
+      "/api/v1/auth/browser-extension/pairings",
+      {
+        data: { deviceName: "E2E Chrome" },
+      }
+    );
+    expect(startResponse.ok()).toBe(true);
+    const pairing = (await startResponse.json()) as {
+      pairingId: string;
+      pairingSecret: string;
+      verificationPath: string;
+    };
+
+    await loadApp(page);
+    await page.goto(pairing.verificationPath, {
+      waitUntil: "domcontentloaded",
+    });
+
+    await expect(
+      page.getByText("Chrome is requesting permission to connect")
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Approve connection" }).click();
+    await expect(page.getByText("Connection approved")).toBeVisible();
+
+    const exchangeResponse = await request.post(
+      `/api/v1/auth/browser-extension/pairings/${pairing.pairingId}/exchange`,
+      {
+        data: { pairingSecret: pairing.pairingSecret },
+      }
+    );
+    expect(exchangeResponse.ok()).toBe(true);
+    const exchange = (await exchangeResponse.json()) as {
+      status: string;
+      token?: string;
+    };
+    expect(exchange.status).toBe("approved");
+    expect(exchange.token).toBeTruthy();
+    await expect(page.getByText("Browser extension connected")).toBeVisible();
+  });
+
   test("agent type settings filter the create-agent dialog", async ({
     page,
   }) => {

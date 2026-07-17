@@ -329,6 +329,13 @@ cmd_up() {
   # tests, and other live stacks in the same worktree cannot corrupt it.
   rm -rf "$vite_cache_dir" 2>/dev/null || true
 
+  # Build the downloadable browser extension archive before Vite starts. The
+  # web production build copies the same archive into its dist output.
+  (
+    cd "$cwd"
+    pnpm --filter @dispatch/browser-extension package >> "$(log_dir)/vite.log" 2>&1
+  )
+
   (
     cd "${cwd}/apps/web"
     # Tell Vite's proxy where the API server is

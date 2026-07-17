@@ -1,10 +1,59 @@
 import { defineConfig } from "vite";
+import type { Plugin } from "vite";
 import react from "@vitejs/plugin-react";
 import { VitePWA } from "vite-plugin-pwa";
 import path from "node:path";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 
 const isProd = process.env.NODE_ENV === "production";
+const browserExtensionArchiveName = "dispatch-browser-feedback.zip";
+const browserExtensionArchivePath = path.resolve(
+  __dirname,
+  "../browser-extension/dist",
+  browserExtensionArchiveName
+);
+
+function browserExtensionArchivePlugin(): Plugin {
+  const readArchive = () => {
+    if (!existsSync(browserExtensionArchivePath)) {
+      throw new Error(
+        `Browser extension archive is missing at ${browserExtensionArchivePath}. Run the browser extension package step first.`
+      );
+    }
+    return readFileSync(browserExtensionArchivePath);
+  };
+
+  return {
+    name: "dispatch-browser-extension-archive",
+    apply: "serve",
+    configureServer(server) {
+      server.middlewares.use((request, response, next) => {
+        const pathname = request.url?.split("?", 1)[0];
+        if (pathname !== `/${browserExtensionArchiveName}`) {
+          next();
+          return;
+        }
+
+        if (request.method !== "GET" && request.method !== "HEAD") {
+          response.statusCode = 405;
+          response.setHeader("Allow", "GET, HEAD");
+          response.end("Method Not Allowed");
+          return;
+        }
+
+        const archive = readArchive();
+        response.statusCode = 200;
+        response.setHeader("Content-Type", "application/zip");
+        response.setHeader("Content-Length", archive.byteLength);
+        response.setHeader(
+          "Content-Disposition",
+          `attachment; filename=\"${browserExtensionArchiveName}\"`
+        );
+        response.end(request.method === "HEAD" ? undefined : archive);
+      });
+    },
+  };
+}
 
 // Bake the workspace version into the bundle. The web client compares
 // this against the `X-Dispatch-Version` response header to detect a
@@ -35,6 +84,7 @@ export default defineConfig({
   },
   plugins: [
     react(),
+    browserExtensionArchivePlugin(),
     isProd &&
       VitePWA({
         registerType: "prompt",

@@ -99,6 +99,7 @@ import { BrainStore } from "./brain/store.js";
 import { registerActivityRoutes } from "./routes/activity.js";
 import { registerAgentRoutes } from "./routes/agents/index.js";
 import { registerBrainRoutes } from "./routes/brain.js";
+import { registerBrowserExtensionRoutes } from "./routes/browser-extension.js";
 import { MAX_STARTUP_FILE_COUNT } from "./routes/agent-startup.js";
 import { registerAuthRoutes } from "./routes/auth.js";
 import { registerJobRoutes } from "./routes/jobs.js";
@@ -399,6 +400,11 @@ async function registerRoutes() {
     if (url === "/api/v1/health") return;
     if (url === "/api/v1/app/branding") return;
     if (url.startsWith("/api/v1/jobs/webhook/")) return;
+    // Routes carrying this config enforce their own scoped extension bearer
+    // token in a route-local preHandler. Keep them outside the general API
+    // bearer shortcut so the server auth token is never accepted as an
+    // extension credential.
+    if (request.routeOptions.config.browserExtensionBearer) return;
     if (/^\/api\/v1\/agents\/[^/]+\/terminal\/ws$/.test(url)) return;
     // The assisted-update phase endpoint authenticates via a per-job nonce
     // embedded in the launched agent's prompt — see assisted-update.ts. The
@@ -447,6 +453,13 @@ async function registerRoutes() {
     sessionMaxAgeSeconds: SESSION_MAX_AGE_S,
     isPasswordSetCached: () => authRuntime.isPasswordSetCached(),
     invalidatePasswordSetCache: () => authRuntime.invalidatePasswordSetCache(),
+  });
+
+  await registerBrowserExtensionRoutes(app, {
+    pool,
+    agentManager,
+    sendAgentPrompt: (agentId, prompt) =>
+      injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
   });
 
   await registerJobRoutes(app, {

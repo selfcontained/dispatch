@@ -3,6 +3,7 @@ import {
   ArrowDownToLine,
   Bell,
   BookOpenText,
+  Cable,
   Package,
   Settings,
   Users,
@@ -13,6 +14,7 @@ import { api } from "@/lib/api";
 export type SettingsSection =
   | "general"
   | "agents"
+  | "connections"
   | "notifications"
   | "updates"
   | "help"
@@ -25,6 +27,7 @@ const BASE_SECTIONS: Array<{
 }> = [
   { id: "general", label: "General", icon: Settings },
   { id: "agents", label: "Agents", icon: Users },
+  { id: "connections", label: "Connections", icon: Cable },
   { id: "notifications", label: "Notifications", icon: Bell },
   { id: "updates", label: "Updates", icon: ArrowDownToLine },
 ];
@@ -43,6 +46,7 @@ const HELP_SECTION = {
 const ALL_VALID_SECTIONS: SettingsSection[] = [
   "general",
   "agents",
+  "connections",
   "notifications",
   "updates",
   "help",
