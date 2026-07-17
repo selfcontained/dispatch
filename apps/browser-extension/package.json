@@ -9,7 +9,7 @@
     "sync:manifest-version": "node ../../scripts/sync-browser-extension-manifest-version.mjs",
     "version": "pnpm run sync:manifest-version",
     "check": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run && node --test ../../scripts/sync-browser-extension-manifest-version.test.mjs"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.326",
