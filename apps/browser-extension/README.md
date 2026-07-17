@@ -89,17 +89,28 @@ feedback.
 
 ### Distribute through TestFlight
 
+The project is preconfigured with automatic signing for team `ML8BQ6D727`
+(the same team the Mac release binaries sign with) and bundle IDs
+`com.dispatch.feedback` / `com.dispatch.feedback.extension`.
+
+One-time setup: create the app record in App Store Connect (My Apps → New
+App → iOS, bundle ID `com.dispatch.feedback`). If this Mac has no Apple
+Distribution certificate yet, Xcode offers to create one during the first
+Distribute App.
+
+Per release:
+
 1. `pnpm --filter @dispatch/browser-extension build:safari`
-2. Open the Xcode project and set your Team on both targets (Signing &
-   Capabilities). Bundle IDs default to `com.dispatch.feedback` /
-   `com.dispatch.feedback.extension`; adjust to your team's prefix if needed.
-3. Verify `MARKETING_VERSION` matches `package.json` (a vitest check enforces
-   this) and bump the build number for each upload.
-4. Select "Any iOS Device (arm64)" → Product → Archive → Distribute App →
-   TestFlight & App Store Connect.
-5. In App Store Connect, add yourself as an internal tester and install the
+2. Verify `MARKETING_VERSION` matches `package.json` (a vitest check enforces
+   this) and bump `CURRENT_PROJECT_VERSION` (build number) for each upload.
+3. Select "Any iOS Device (arm64)" → Product → Archive → Distribute App →
+   TestFlight & App Store Connect. (CLI equivalent: `xcodebuild archive` +
+   `xcodebuild -exportArchive` with an App Store Connect API key via
+   `-authenticationKeyPath/-authenticationKeyID/-authenticationKeyIssuerID`;
+   headless export cannot mint distribution profiles without one.)
+4. In App Store Connect, add yourself as an internal tester and install the
    build via TestFlight on the iPad.
-6. On the iPad: Settings → Apps → Safari → Extensions → enable Dispatch
+5. On the iPad: Settings → Apps → Safari → Extensions → enable Dispatch
    Browser Feedback, then allow it on the sites you want to inspect (or
    "Other Websites" for everything). Site access can also be granted in-page
    from the aA / puzzle menu the first time you use the picker.
