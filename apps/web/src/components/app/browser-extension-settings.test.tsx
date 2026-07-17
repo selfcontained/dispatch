@@ -78,6 +78,33 @@ describe("BrowserExtensionSettings", () => {
     ).toBeTruthy();
   });
 
+  it("switches the install guide to Safari on iPad instructions", async () => {
+    renderSettings();
+    expect(await screen.findByText("Try browser feedback")).toBeTruthy();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Already downloaded?" })
+    );
+    expect(await screen.findByText("Finish setup in Chrome")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Safari on iPad" }));
+
+    expect(screen.getByText("Install on iPad via TestFlight")).toBeTruthy();
+    expect(screen.getByText("1. Install from TestFlight")).toBeTruthy();
+    expect(
+      screen.getByText(/Settings → Apps → Safari → Extensions/)
+    ).toBeTruthy();
+    expect(screen.queryByText("Finish setup in Chrome")).toBe(null);
+    expect(screen.queryByText("chrome://extensions")).toBe(null);
+    // The Dispatch URL block is shared across both platform guides.
+    expect(
+      screen.getByRole("button", { name: "Copy Dispatch URL" })
+    ).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Chrome" }));
+    expect(screen.getByText("Finish setup in Chrome")).toBeTruthy();
+  });
+
   it("lists multiple paired browsers and revokes only the selected one", async () => {
     const fetchMock = vi
       .mocked(globalThis.fetch)
@@ -230,7 +257,7 @@ describe("BrowserExtensionSettings", () => {
     renderSettings("?browserExtensionPairing=pairing-123&code=ABCD-1234");
 
     expect(
-      screen.getByText("Chrome is requesting permission to connect")
+      screen.getByText("A browser is requesting permission to connect")
     ).toBeTruthy();
     expect(
       screen.getByText("Confirm this code matches the extension")

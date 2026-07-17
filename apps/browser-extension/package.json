@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "vite build && vite build --config vite.picker.config.ts",
+    "build:safari": "vite build --config vite.safari.config.ts && vite build --config vite.safari.background.config.ts && vite build --config vite.safari.overlay.config.ts",
     "package": "pnpm run build && rm -f dist/dispatch-browser-feedback.zip && cd dist/unpacked && zip -qr ../dispatch-browser-feedback.zip .",
     "check": "tsc --noEmit",
     "test": "vitest run"

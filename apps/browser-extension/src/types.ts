@@ -101,6 +101,62 @@ export function isWorkerRequest(request: unknown): request is WorkerRequest {
   );
 }
 
+/**
+ * Safari-only requests handled by src/safari/background.ts. Kept as a separate
+ * union so the shared worker-core switch over WorkerRequest stays exhaustive.
+ */
+export type SafariRequest =
+  | { type: "pairing:begin"; baseUrl: string }
+  | { type: "pairing:status" }
+  | { type: "pairing:cancel" }
+  | { type: "picker:arm" }
+  | { type: "picker:disarm" }
+  | { type: "overlay:init"; origin: string }
+  | { type: "agent:remember"; origin: string; agentId: string }
+  | {
+      type: "overlay:closed";
+      reason: "submitted" | "cancelled" | "failed";
+    };
+
+const SAFARI_REQUEST_TYPES = {
+  "pairing:begin": true,
+  "pairing:status": true,
+  "pairing:cancel": true,
+  "picker:arm": true,
+  "picker:disarm": true,
+  "overlay:init": true,
+  "agent:remember": true,
+  "overlay:closed": true,
+} satisfies Record<SafariRequest["type"], true>;
+
+export function isSafariRequest(request: unknown): request is SafariRequest {
+  return (
+    typeof request === "object" &&
+    request !== null &&
+    "type" in request &&
+    typeof request.type === "string" &&
+    Object.hasOwn(SAFARI_REQUEST_TYPES, request.type)
+  );
+}
+
+export type PairingSessionState =
+  | { state: "idle" }
+  | { state: "pending"; baseUrl: string; code: string; expiresAt: string }
+  | { state: "approved"; baseUrl: string }
+  | { state: "expired" };
+
+export type ArmFailureCode =
+  | "no-site-access"
+  | "unsupported-page"
+  | "inject-failed";
+
+export interface OverlayInitData {
+  connected: boolean;
+  baseUrl?: string;
+  agents: DispatchAgent[];
+  selectedAgentId: string | null;
+}
+
 export interface ConnectionStatus {
   connected: boolean;
   baseUrl?: string;
@@ -111,4 +167,6 @@ export interface WorkerResponse<T = unknown> {
   data?: T;
   error?: string;
   submissionTerminalFailure?: boolean;
+  /** Set on failed Safari picker:arm responses to select the guidance shown. */
+  code?: ArmFailureCode;
 }

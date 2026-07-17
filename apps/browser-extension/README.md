@@ -60,6 +60,55 @@ page and in HTTP/HTTPS frames, including cross-origin frames where Chrome
 permits extension injection. Frames Chrome refuses to inject into and closed
 shadow roots are not inspected.
 
+## Safari (iPad / iPhone / Mac)
+
+The Safari version reuses the same Dispatch pairing, agents, and submission
+system with a mobile-first flow: the extension popup handles connect and
+"Select element"; picking (tap + parent/child refine), the comment, and Send
+all happen in a transient in-page overlay that removes itself when done. The
+page only ignores taps while you are aiming — scrolling always works, and the
+comment card releases the page entirely.
+
+Build the web extension bundle:
+
+```sh
+pnpm --filter @dispatch/browser-extension build:safari
+```
+
+The output lands in `apps/browser-extension/dist/safari/unpacked`, which the
+checked-in Xcode project references directly — rebuilding the bundle is enough
+for the next Xcode build to pick it up.
+
+### Run on the iPad simulator
+
+Open `apps/browser-extension/safari/Dispatch Feedback/Dispatch Feedback.xcodeproj`,
+select an iPad simulator, and Run. In the simulator: Settings → Apps →
+Safari → Extensions → Dispatch Browser Feedback → enable. Then open Safari,
+tap the extension (puzzle) button in the address bar, and open Dispatch
+feedback.
+
+### Distribute through TestFlight
+
+1. `pnpm --filter @dispatch/browser-extension build:safari`
+2. Open the Xcode project and set your Team on both targets (Signing &
+   Capabilities). Bundle IDs default to `com.dispatch.feedback` /
+   `com.dispatch.feedback.extension`; adjust to your team's prefix if needed.
+3. Verify `MARKETING_VERSION` matches `package.json` (a vitest check enforces
+   this) and bump the build number for each upload.
+4. Select "Any iOS Device (arm64)" → Product → Archive → Distribute App →
+   TestFlight & App Store Connect.
+5. In App Store Connect, add yourself as an internal tester and install the
+   build via TestFlight on the iPad.
+6. On the iPad: Settings → Apps → Safari → Extensions → enable Dispatch
+   Browser Feedback, then allow it on the sites you want to inspect (or
+   "Other Websites" for everything). Site access can also be granted in-page
+   from the aA / puzzle menu the first time you use the picker.
+
+Pairing works the same as Chrome: open the extension popup, enter your
+Dispatch URL, approve the code in Dispatch settings. The popup may close while
+the approval tab is open — pairing continues in the background; reopen the
+popup to see the connected state.
+
 ## Release checks
 
 The manifest and package versions must match; an extension test enforces this.

@@ -5,6 +5,7 @@ import {
   ChevronDown,
   ChevronUp,
   Chrome,
+  Compass,
   Copy,
   Download,
   FolderOpen,
@@ -59,6 +60,9 @@ export function BrowserExtensionSettings(): JSX.Element {
   const [approvalState, setApprovalState] = useState<ApprovalState>("idle");
   const [error, setError] = useState("");
   const [showInstallGuide, setShowInstallGuide] = useState(false);
+  const [installPlatform, setInstallPlatform] = useState<"chrome" | "safari">(
+    "chrome"
+  );
   const [showAllConnections, setShowAllConnections] = useState(false);
   const [copiedUrl, copyText] = useCopyText();
   const connectionsBeforeApprovalRef = useRef<Set<string>>(new Set());
@@ -332,7 +336,7 @@ export function BrowserExtensionSettings(): JSX.Element {
                 <div className="space-y-4">
                   <div>
                     <p className="text-sm font-medium">
-                      Chrome is requesting permission to connect
+                      A browser is requesting permission to connect
                     </p>
                     <p className="mt-1 text-sm text-muted-foreground">
                       Approve only if you started this request. The extension
@@ -452,66 +456,168 @@ export function BrowserExtensionSettings(): JSX.Element {
                   className="space-y-4 rounded-lg border border-border bg-background/40 p-4"
                   data-testid="extension-install-guide"
                 >
-                  <div className="flex flex-wrap items-start justify-between gap-3">
-                    <div className="min-w-0 flex-[1_1_16rem]">
-                      <p className="text-sm font-medium">
-                        Finish setup in Chrome
-                      </p>
-                      <p className="mt-1 text-sm text-muted-foreground">
-                        The extension is a developer preview, so Chrome loads it
-                        from an unzipped folder for now.
-                      </p>
-                    </div>
-                    {hasConnections && (
-                      <Button asChild variant="primary" size="sm">
-                        <a href="/dispatch-browser-feedback.zip" download>
-                          <Download
-                            className="mr-2 h-3.5 w-3.5"
+                  <div
+                    className="inline-flex rounded-lg border border-border p-0.5"
+                    role="group"
+                    aria-label="Browser platform"
+                  >
+                    <Button
+                      type="button"
+                      variant={
+                        installPlatform === "chrome" ? "default" : "ghost"
+                      }
+                      size="sm"
+                      aria-pressed={installPlatform === "chrome"}
+                      onClick={() => setInstallPlatform("chrome")}
+                    >
+                      <Chrome className="mr-2 h-3.5 w-3.5" aria-hidden="true" />
+                      Chrome
+                    </Button>
+                    <Button
+                      type="button"
+                      variant={
+                        installPlatform === "safari" ? "default" : "ghost"
+                      }
+                      size="sm"
+                      aria-pressed={installPlatform === "safari"}
+                      onClick={() => setInstallPlatform("safari")}
+                    >
+                      <Compass
+                        className="mr-2 h-3.5 w-3.5"
+                        aria-hidden="true"
+                      />
+                      Safari on iPad
+                    </Button>
+                  </div>
+                  {installPlatform === "chrome" ? (
+                    <>
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0 flex-[1_1_16rem]">
+                          <p className="text-sm font-medium">
+                            Finish setup in Chrome
+                          </p>
+                          <p className="mt-1 text-sm text-muted-foreground">
+                            The extension is a developer preview, so Chrome
+                            loads it from an unzipped folder for now.
+                          </p>
+                        </div>
+                        {hasConnections && (
+                          <Button asChild variant="primary" size="sm">
+                            <a href="/dispatch-browser-feedback.zip" download>
+                              <Download
+                                className="mr-2 h-3.5 w-3.5"
+                                aria-hidden="true"
+                              />
+                              Download ZIP
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
+                        <div className="min-w-0 rounded-lg border border-border p-3">
+                          <FolderOpen
+                            className="mb-2 h-4 w-4 text-primary"
                             aria-hidden="true"
                           />
-                          Download ZIP
-                        </a>
-                      </Button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
-                    <div className="min-w-0 rounded-lg border border-border p-3">
-                      <FolderOpen
-                        className="mb-2 h-4 w-4 text-primary"
-                        aria-hidden="true"
-                      />
-                      <p className="text-sm font-medium">
-                        1. Unzip the download
-                      </p>
-                      <p className="mt-1 break-words text-xs text-muted-foreground">
-                        Keep the extracted folder somewhere Chrome can continue
-                        to access it.
-                      </p>
-                    </div>
-                    <div className="min-w-0 rounded-lg border border-border p-3">
-                      <Puzzle
-                        className="mb-2 h-4 w-4 text-primary"
-                        aria-hidden="true"
-                      />
-                      <p className="text-sm font-medium">2. Load the folder</p>
-                      <p className="mt-1 break-words text-xs text-muted-foreground">
-                        Open{" "}
-                        <code className="break-all">chrome://extensions</code>,
-                        enable Developer mode, then choose Load unpacked.
-                      </p>
-                    </div>
-                    <div className="min-w-0 rounded-lg border border-border p-3">
-                      <Chrome
-                        className="mb-2 h-4 w-4 text-primary"
-                        aria-hidden="true"
-                      />
-                      <p className="text-sm font-medium">3. Connect Dispatch</p>
-                      <p className="mt-1 break-words text-xs text-muted-foreground">
-                        Open the extension, enter this Dispatch URL, and verify
-                        the pairing code here.
-                      </p>
-                    </div>
-                  </div>
+                          <p className="text-sm font-medium">
+                            1. Unzip the download
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            Keep the extracted folder somewhere Chrome can
+                            continue to access it.
+                          </p>
+                        </div>
+                        <div className="min-w-0 rounded-lg border border-border p-3">
+                          <Puzzle
+                            className="mb-2 h-4 w-4 text-primary"
+                            aria-hidden="true"
+                          />
+                          <p className="text-sm font-medium">
+                            2. Load the folder
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            Open{" "}
+                            <code className="break-all">
+                              chrome://extensions
+                            </code>
+                            , enable Developer mode, then choose Load unpacked.
+                          </p>
+                        </div>
+                        <div className="min-w-0 rounded-lg border border-border p-3">
+                          <Chrome
+                            className="mb-2 h-4 w-4 text-primary"
+                            aria-hidden="true"
+                          />
+                          <p className="text-sm font-medium">
+                            3. Connect Dispatch
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            Open the extension, enter this Dispatch URL, and
+                            verify the pairing code here.
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  ) : (
+                    <>
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">
+                          Install on iPad via TestFlight
+                        </p>
+                        <p className="mt-1 text-sm text-muted-foreground">
+                          Safari extensions ship inside a small companion app.
+                          Ask your Dispatch admin for the TestFlight invite, or
+                          build it from{" "}
+                          <code className="break-all">
+                            apps/browser-extension
+                          </code>{" "}
+                          in the Dispatch repo.
+                        </p>
+                      </div>
+                      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,15rem),1fr))] gap-3">
+                        <div className="min-w-0 rounded-lg border border-border p-3">
+                          <Download
+                            className="mb-2 h-4 w-4 text-primary"
+                            aria-hidden="true"
+                          />
+                          <p className="text-sm font-medium">
+                            1. Install from TestFlight
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            Install the Dispatch Feedback app from your
+                            TestFlight invite on the iPad.
+                          </p>
+                        </div>
+                        <div className="min-w-0 rounded-lg border border-border p-3">
+                          <Puzzle
+                            className="mb-2 h-4 w-4 text-primary"
+                            aria-hidden="true"
+                          />
+                          <p className="text-sm font-medium">
+                            2. Enable the extension
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            Settings → Apps → Safari → Extensions → enable
+                            Dispatch Browser Feedback, then allow it on the
+                            sites you test.
+                          </p>
+                        </div>
+                        <div className="min-w-0 rounded-lg border border-border p-3">
+                          <Compass
+                            className="mb-2 h-4 w-4 text-primary"
+                            aria-hidden="true"
+                          />
+                          <p className="text-sm font-medium">
+                            3. Connect Dispatch
+                          </p>
+                          <p className="mt-1 break-words text-xs text-muted-foreground">
+                            Open the extension from Safari&apos;s toolbar, enter
+                            this Dispatch URL, and verify the pairing code here.
+                          </p>
+                        </div>
+                      </div>
+                    </>
+                  )}
                   <div className="flex items-center gap-2 rounded-md border border-border bg-background px-3 py-2">
                     <code className="min-w-0 flex-1 truncate text-xs">
                       {dispatchUrl}
