@@ -8,7 +8,11 @@
  */
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { addThreadMessage } from "../src/agents/reviews.js";
+import {
+  addThreadMessage,
+  ReviewFeedbackResolutionConflictError,
+  resolveReviewFeedbackItem,
+} from "../src/agents/reviews.js";
 import { AGENT_REVIEW_REPLY_MAX_CHARS } from "../src/shared/review-limits.js";
 import { useInjectApp } from "./helpers/inject-app.js";
 
@@ -231,6 +235,158 @@ describe("PATCH /api/v1/agents/:id/reviews/items/:itemId", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.json().item.resolution).toBe("fixed");
+  });
+
+  it("returns the current item when a stale resolution conflicts", async () => {
+    const review = await createReview(AGENT_ID, [{ comment: "Fix this" }]);
+    const itemId = review.items[0].id;
+
+    const first = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/agents/${AGENT_ID}/reviews/items/${itemId}`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { resolution: "fixed" },
+    });
+    expect(first.statusCode).toBe(200);
+
+    const stale = await ctx.app.inject({
+      method: "PATCH",
+      url: `/api/v1/agents/${AGENT_ID}/reviews/items/${itemId}`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { resolution: "dismissed" },
+    });
+
+    expect(stale.statusCode).toBe(409);
+    expect(stale.json().item).toMatchObject({
+      id: itemId,
+      status: "resolved",
+      resolution: "fixed",
+    });
+  });
+
+  it("allows the persona reviewer to resolve an item after verification", async () => {
+    const review = await createReview(AGENT_ID, [{ comment: "Fix this" }]);
+    const reviewerId = "agt_reviewfb_reviewer";
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, type, role, status, cwd, parent_agent_id, full_access)
+       VALUES ($1, 'persona-reviewer', 'codex', 'review', 'running', '/tmp', $2, false)`,
+      [reviewerId, AGENT_ID]
+    );
+    await ctx.pool.query(
+      "UPDATE reviews SET reviewer_type = 'agent', reviewer_agent_id = $1 WHERE id = $2",
+      [reviewerId, review.id]
+    );
+
+    const result = await resolveReviewFeedbackItem(
+      ctx.pool,
+      review.items[0].id,
+      reviewerId,
+      "fixed",
+      {
+        resolvedBy: reviewerId,
+        authorType: "agent",
+        resolverRole: "reviewer",
+      }
+    );
+
+    expect(result?.item.status).toBe("resolved");
+    expect(result?.item.resolvedBy).toBe(reviewerId);
+    expect(result?.reviewStatus).toBe("resolved");
+  });
+
+  it("allows an assignee agent to resolve persona feedback when needed", async () => {
+    const review = await createReview(AGENT_ID, [{ comment: "Fix this" }]);
+    const reviewerId = "agt_reviewfb_reviewer";
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, type, role, status, cwd, parent_agent_id, full_access)
+       VALUES ($1, 'persona-reviewer', 'codex', 'review', 'running', '/tmp', $2, false)`,
+      [reviewerId, AGENT_ID]
+    );
+    await ctx.pool.query(
+      "UPDATE reviews SET reviewer_type = 'agent', reviewer_agent_id = $1 WHERE id = $2",
+      [reviewerId, review.id]
+    );
+
+    const result = await resolveReviewFeedbackItem(
+      ctx.pool,
+      review.items[0].id,
+      AGENT_ID,
+      "fixed",
+      {
+        resolvedBy: AGENT_ID,
+        authorType: "agent",
+        resolverRole: "assignee",
+      }
+    );
+
+    expect(result?.item.status).toBe("resolved");
+    expect(result?.item.resolvedBy).toBe(AGENT_ID);
+  });
+
+  it("prevents a review-role caller from resolving as an assignee", async () => {
+    const review = await createReview(AGENT_ID, [{ comment: "Fix this" }]);
+
+    const result = await resolveReviewFeedbackItem(
+      ctx.pool,
+      review.items[0].id,
+      AGENT_ID,
+      "fixed",
+      {
+        resolvedBy: AGENT_ID,
+        authorType: "agent",
+        resolverRole: "reviewer",
+      }
+    );
+
+    expect(result).toBeNull();
+  });
+
+  it("rejects a stale second actor without overwriting the resolution", async () => {
+    const review = await createReview(AGENT_ID, [{ comment: "Fix this" }]);
+    const reviewerId = "agt_reviewfb_reviewer";
+    const itemId = review.items[0].id;
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, type, role, status, cwd, parent_agent_id, full_access)
+       VALUES ($1, 'persona-reviewer', 'codex', 'review', 'running', '/tmp', $2, false)`,
+      [reviewerId, AGENT_ID]
+    );
+    await ctx.pool.query(
+      "UPDATE reviews SET reviewer_type = 'agent', reviewer_agent_id = $1 WHERE id = $2",
+      [reviewerId, review.id]
+    );
+
+    await resolveReviewFeedbackItem(ctx.pool, itemId, reviewerId, "fixed", {
+      resolvedBy: reviewerId,
+      authorType: "agent",
+      resolverRole: "reviewer",
+    });
+
+    await expect(
+      resolveReviewFeedbackItem(ctx.pool, itemId, AGENT_ID, "dismissed", {
+        resolvedBy: AGENT_ID,
+        authorType: "human",
+        resolverRole: "human",
+      })
+    ).rejects.toBeInstanceOf(ReviewFeedbackResolutionConflictError);
+
+    const item = await ctx.pool.query<{
+      resolution: string;
+      resolvedBy: string;
+    }>(
+      `SELECT resolution, resolved_by AS "resolvedBy"
+       FROM review_feedback_items WHERE id = $1`,
+      [itemId]
+    );
+    const messages = await ctx.pool.query<{ count: number }>(
+      `SELECT COUNT(*)::int AS count FROM review_thread_messages
+       WHERE feedback_item_id = $1 AND type = 'resolution'`,
+      [itemId]
+    );
+    expect(item.rows[0]).toEqual({
+      resolution: "fixed",
+      resolvedBy: reviewerId,
+    });
+    expect(messages.rows[0]?.count).toBe(1);
   });
 });
 

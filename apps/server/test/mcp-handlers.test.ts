@@ -1606,6 +1606,7 @@ describe("createMcpHandlers", () => {
         {
           authorType: "agent",
           note: "addressed in latest commit",
+          resolverRole: "assignee",
           resolvedBy: "agt_test1",
         }
       );
@@ -1638,7 +1639,12 @@ describe("createMcpHandlers", () => {
         10,
         "agt_test1",
         "ignored",
-        { authorType: "agent", note: null, resolvedBy: "agt_test1" }
+        {
+          authorType: "agent",
+          note: null,
+          resolverRole: "assignee",
+          resolvedBy: "agt_test1",
+        }
       );
     });
   });

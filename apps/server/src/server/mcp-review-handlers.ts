@@ -301,6 +301,8 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
       };
       reviewStatus: string;
     }> {
+      const resolver = await agentManager.getAgent(agentId);
+      if (!resolver) throw new Error("Resolving agent not found.");
       const result = await resolveReviewFeedbackItem(
         pool,
         itemId,
@@ -310,6 +312,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
           note: opts.note ?? null,
           resolvedBy: agentId,
           authorType: "agent",
+          resolverRole: resolver.role === "review" ? "reviewer" : "assignee",
         }
       );
       if (!result) {
@@ -317,20 +320,25 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
           `Review feedback item #${itemId} not found or not owned by this agent.`
         );
       }
+      const review = await getReviewRecord(pool, result.reviewId);
+      const eventAgentId = review?.agentId ?? agentId;
       publishUiEvent({
         type: "review_feedback.updated",
-        agentId,
+        agentId: eventAgentId,
         feedbackItemId: itemId,
       });
       publishUiEvent({
         type: "review.updated",
-        agentId,
+        agentId: eventAgentId,
         reviewId: result.reviewId,
         status: result.reviewStatus,
       });
-      const review = await getReviewRecord(pool, result.reviewId);
+      const targetAgentId =
+        review?.reviewerAgentId === agentId
+          ? (review.assignedAgentId ?? review.agentId)
+          : (review?.reviewerAgentId ?? null);
       await sendPromptBestEffort(
-        review?.reviewerAgentId ?? null,
+        targetAgentId,
         buildReviewItemStatePrompt({
           reviewId: result.reviewId,
           itemId,
@@ -441,6 +449,8 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
           itemId,
           from: actor?.persona ?? actor?.name ?? agentId,
           body,
+          recipient:
+            review?.reviewerAgentId === targetAgentId ? "reviewer" : "assignee",
         })
       );
       return {

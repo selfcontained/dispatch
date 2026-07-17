@@ -32,6 +32,18 @@ export type ReviewFeedbackItemRecord = {
   updatedAt: string;
 };
 
+export type ReviewFeedbackResolverRole = "reviewer" | "assignee" | "human";
+
+export class ReviewFeedbackResolutionConflictError extends Error {
+  constructor(public readonly item: ReviewFeedbackItemRecord) {
+    const resolution = item.resolution ? ` (${item.resolution})` : "";
+    super(
+      `Review feedback item #${item.id} is already ${item.status}${resolution}; refresh the review before acting.`
+    );
+    this.name = "ReviewFeedbackResolutionConflictError";
+  }
+}
+
 export type ReviewThreadMessageRecord = {
   id: number;
   feedbackItemId: number;
@@ -363,7 +375,8 @@ export async function resolveReviewFeedbackItem(
     note?: string | null;
     resolvedBy?: string | null;
     authorType?: "human" | "agent";
-  } = {}
+    resolverRole: ReviewFeedbackResolverRole;
+  }
 ): Promise<{
   item: ReviewFeedbackItemRecord;
   reviewId: number;
@@ -381,7 +394,12 @@ export async function resolveReviewFeedbackItem(
            resolved_by = $3, resolved_at = NOW(), updated_at = NOW()
        FROM reviews r
        WHERE fi.id = $4 AND fi.review_id = r.id
-         AND (r.agent_id = $5 OR r.assigned_agent_id = $5)
+         AND fi.status = 'open'
+         AND (
+           (($6 = 'human' OR $6 = 'assignee')
+               AND (r.agent_id = $5 OR r.assigned_agent_id = $5))
+           OR ($6 = 'reviewer' AND r.reviewer_type = 'agent' AND r.reviewer_agent_id = $5)
+         )
        RETURNING
          fi.id, fi.review_id AS "reviewId", fi.file_path AS "filePath",
          fi.line_start AS "lineStart", fi.line_end AS "lineEnd",
@@ -390,10 +408,38 @@ export async function resolveReviewFeedbackItem(
          fi.resolved_by AS "resolvedBy", fi.resolved_at AS "resolvedAt",
          fi.created_at AS "createdAt", fi.updated_at AS "updatedAt",
          r.agent_id AS "agentId"`,
-      [resolution, opts.note ?? null, opts.resolvedBy ?? null, itemId, agentId]
+      [
+        resolution,
+        opts.note ?? null,
+        opts.resolvedBy ?? null,
+        itemId,
+        agentId,
+        opts.resolverRole,
+      ]
     );
     const item = itemResult.rows[0];
     if (!item) {
+      const currentResult = await client.query<ReviewFeedbackItemRecord>(
+        `SELECT fi.id, fi.review_id AS "reviewId", fi.file_path AS "filePath",
+                fi.line_start AS "lineStart", fi.line_end AS "lineEnd",
+                fi.diff_snapshot AS "diffSnapshot", fi.base_ref AS "baseRef",
+                fi.status, fi.resolution, fi.resolution_note AS "resolutionNote",
+                fi.resolved_by AS "resolvedBy", fi.resolved_at AS "resolvedAt",
+                fi.created_at AS "createdAt", fi.updated_at AS "updatedAt"
+         FROM review_feedback_items fi
+         JOIN reviews r ON r.id = fi.review_id
+         WHERE fi.id = $1
+           AND (
+             (($3 = 'human' OR $3 = 'assignee')
+                 AND (r.agent_id = $2 OR r.assigned_agent_id = $2))
+             OR ($3 = 'reviewer' AND r.reviewer_type = 'agent' AND r.reviewer_agent_id = $2)
+           )`,
+        [itemId, agentId, opts.resolverRole]
+      );
+      const currentItem = currentResult.rows[0];
+      if (currentItem && currentItem.status !== "open") {
+        throw new ReviewFeedbackResolutionConflictError(currentItem);
+      }
       await client.query("ROLLBACK");
       return null;
     }

@@ -39,12 +39,45 @@ describe("unified review prompt blocks", () => {
       itemId: 9,
       from: "Parent",
       body: "Can you clarify?",
+      recipient: "reviewer",
     });
     expect(text).toContain("Review ID: 7");
     expect(text).toContain("Feedback item ID: 9");
     expect(text).toContain("dispatch_review_add_message");
+    expect(text).toContain("dispatch_review_resolve");
+    expect(text).toMatch(/re-inspect/i);
     expect(text).toContain("type 'working'");
     expect(text).toContain("type 'done'");
+  });
+
+  it("tells the assignee to request verification instead of resolving", () => {
+    const text = buildReviewSubmittedPrompt({
+      reviewId: 7,
+      reviewerName: "Security",
+      reviewerAgentId: "agt_reviewer",
+      summary: null,
+      items: [{ id: 9, filePath: null, lineStart: null, body: "Finding" }],
+    });
+
+    expect(text).toMatch(/asking the reviewer to verify/i);
+    expect(text).toMatch(/do not resolve persona-review feedback yourself/i);
+  });
+
+  it("keeps resolution guidance for human reviews", () => {
+    const text = buildReviewSubmittedPrompt({
+      reviewId: 7,
+      reviewerName: "Human reviewer",
+      reviewerAgentId: null,
+      summary: null,
+      items: [{ id: 9, filePath: null, lineStart: null, body: "Finding" }],
+    });
+
+    expect(text).toMatch(/dispatch_review_resolve when an item is fixed/i);
+    expect(text).toContain("dispatch_review_reopen");
+    expect(text).not.toMatch(/asking the reviewer to verify/i);
+    expect(text).not.toMatch(
+      /do not resolve persona-review feedback yourself/i
+    );
   });
 
   it("omits an absent summary when feedback items carry the review", () => {

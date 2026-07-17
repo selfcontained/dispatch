@@ -264,7 +264,7 @@ export async function registerReviewRoutes(
                 itemId,
                 agentId,
                 body.resolution as "fixed" | "dismissed",
-                { note, authorType: "human" }
+                { note, authorType: "human", resolverRole: "human" }
               );
         if (!result) {
           return reply.code(404).send({ error: "Feedback item not found." });
@@ -319,6 +319,14 @@ export async function registerReviewRoutes(
 
         return { item: result.item };
       } catch (error) {
+        if (
+          error instanceof reviewQueries.ReviewFeedbackResolutionConflictError
+        ) {
+          return reply.code(409).send({
+            error: error.message,
+            item: error.item,
+          });
+        }
         return deps.handleAgentError(reply, error);
       }
     }
@@ -387,6 +395,7 @@ export async function registerReviewRoutes(
                 itemId,
                 from: "Human collaborator",
                 body: body.body.trim(),
+                recipient: review?.reviewerAgentId ? "reviewer" : "assignee",
               })
             );
           } catch (error) {

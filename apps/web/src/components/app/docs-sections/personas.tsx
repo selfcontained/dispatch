@@ -98,8 +98,10 @@ issues caused or worsened by this diff.`}</CodeBlock>
           Reviews use the same flexible feedback-item model whether the reviewer
           is a human or an agent. The parent reads the current state with{" "}
           <Code>dispatch_review_list_feedback</Code>, converses through each
-          item's thread, and sets the outcome with{" "}
-          <Code>dispatch_review_resolve</Code>. Use{" "}
+          item's thread, and asks the persona reviewer to verify each fix. The
+          reviewer re-inspects the change, resolves a completed item with{" "}
+          <Code>dispatch_review_resolve</Code>, or replies with further
+          instructions while leaving it open. Use{" "}
           <Code>dispatch_review_reopen</Code> if a resolved concern needs more
           work. Review status is derived automatically: open while any item is
           open, partially resolved when only some are resolved, and resolved
@@ -109,7 +111,8 @@ issues caused or worsened by this diff.`}</CodeBlock>
           Every review action is push-based. Dispatch injects clearly delimited
           blocks when a review is submitted, a thread receives a message, or an
           item is resolved or reopened. This keeps both agents aware without
-          using direct messages or imposing a fixed round/recheck sequence.
+          polling, sleeping, using direct messages, or imposing a fixed
+          round/recheck sequence.
         </P>
       </Section>
     </>
