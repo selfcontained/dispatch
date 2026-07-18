@@ -9,6 +9,7 @@ import {
   Image,
   Keyboard,
   Monitor,
+  MousePointerClick,
   PlugZap,
   Signal,
   Sparkles,
@@ -21,6 +22,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import {
   AgentsContent,
   AutomationsContent,
+  BrowserFeedbackContent,
   EventsContent,
   MediaContent,
   NotificationsContent,
@@ -42,6 +44,7 @@ export type DocsSection =
   | "personas"
   | "events"
   | "media"
+  | "browser-feedback"
   | "notifications"
   | "updates";
 
@@ -123,6 +126,13 @@ const SECTIONS: SectionDef[] = [
     icon: Image,
     title: "Media & Sharing",
     content: <MediaContent />,
+  },
+  {
+    id: "browser-feedback",
+    label: "Browser Feedback",
+    icon: MousePointerClick,
+    title: "Browser Feedback",
+    content: <BrowserFeedbackContent />,
   },
   {
     id: "notifications",
