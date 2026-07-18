@@ -205,6 +205,14 @@ export const tips: Tip[] = [
     surfaces: ["inline"],
   },
   {
+    id: "browser-feedback",
+    title: "Browser Feedback",
+    body: "Select an element on any web page, add a comment, and send it to a running agent. Pair the Chrome extension from Settings → Connections.",
+    docsSection: "browser-feedback",
+    since: "0.29.3",
+    surfaces: ["ambient"],
+  },
+  {
     id: "job-webhook-trigger",
     title: "Job Webhook Triggers",
     body: "Fire a job from CI or any external system: enable Webhook trigger in the job's Configure tab to get a secret URL that starts a run on HTTP POST.",
