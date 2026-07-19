@@ -8,7 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
-import { PanelLeftOpen, PanelRightOpen, Split } from "lucide-react";
+import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { ChangesTab } from "@/components/app/changes-tab";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
@@ -17,6 +17,7 @@ import {
   TAB_DRAG_MIME,
 } from "@/components/app/center-pane-tab-bar";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
+import { CenterPaneSplit } from "@/components/app/center-pane-split";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useSplitPane } from "@/hooks/use-split-pane";
 
@@ -50,11 +51,6 @@ import {
 } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import {
   type AgentType,
@@ -748,85 +744,16 @@ export function AgentsView({
                 onDrop={handleContentDrop}
               >
                 {isSplit ? (
-                  <div className="relative h-full">
-                    <ResizablePanelGroup
-                      orientation="horizontal"
-                      onLayoutChanged={handleSplitLayoutChange}
-                      className="h-full"
-                    >
-                      <ResizablePanel
-                        id="split-left"
-                        defaultSize={splitState.sizes[0]}
-                        minSize={20}
-                      >
-                        <div
-                          ref={splitLeftRef}
-                          className="flex h-full flex-col"
-                        >
-                          <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              {splitState.left === "terminal"
-                                ? "Terminal"
-                                : "Changes"}
-                            </span>
-                            {splitState.left === "changes" && !isMobile ? (
-                              <ChangesSettingsPopover />
-                            ) : null}
-                          </div>
-                          <div className="min-h-0 flex-1">
-                            {splitState.left === "terminal" ? (
-                              <div
-                                ref={splitTerminalSlotRef}
-                                className="h-full"
-                              />
-                            ) : (
-                              changesElement
-                            )}
-                          </div>
-                        </div>
-                      </ResizablePanel>
-                      <ResizableHandle />
-                      <ResizablePanel
-                        id="split-right"
-                        defaultSize={splitState.sizes[1]}
-                        minSize={20}
-                      >
-                        <div className="flex h-full flex-col">
-                          <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              {splitState.right === "terminal"
-                                ? "Terminal"
-                                : "Changes"}
-                            </span>
-                            {splitState.right === "changes" && !isMobile ? (
-                              <ChangesSettingsPopover />
-                            ) : null}
-                          </div>
-                          <div className="min-h-0 flex-1">
-                            {splitState.right === "terminal" ? (
-                              <div
-                                ref={splitTerminalSlotRef}
-                                className="h-full"
-                              />
-                            ) : (
-                              changesElement
-                            )}
-                          </div>
-                        </div>
-                      </ResizablePanel>
-                    </ResizablePanelGroup>
-                    <button
-                      ref={splitButtonRef}
-                      type="button"
-                      onClick={exitSplit}
-                      title="Unsplit panes"
-                      data-testid="unsplit-button"
-                      className="absolute top-0 z-50 flex h-8 -translate-x-1/2 cursor-pointer items-center justify-center rounded-md border bg-background px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      style={{ left: `${splitState.sizes[0]}%` }}
-                    >
-                      <Split className="h-4 w-4 shrink-0" />
-                    </button>
-                  </div>
+                  <CenterPaneSplit
+                    splitState={splitState}
+                    splitLeftRef={splitLeftRef}
+                    splitButtonRef={splitButtonRef}
+                    splitTerminalSlotRef={splitTerminalSlotRef}
+                    changesElement={changesElement}
+                    isMobile={isMobile}
+                    onLayoutChange={handleSplitLayoutChange}
+                    onExitSplit={exitSplit}
+                  />
                 ) : (
                   <>
                     <div
