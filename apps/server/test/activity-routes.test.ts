@@ -229,6 +229,41 @@ describe("GET /api/v1/activity/stats", () => {
     expect(body.busiestDayCount).toBe(3);
     expect(body.stateDurations).toBeDefined();
   });
+
+  // Boundary carry-in coverage for loadScopedActivityEvents
+  // (apps/server/src/server/activity-query.ts). handleStats reuses the same
+  // DISTINCT ON pre-range merge that working-time-by-project guards, but had no
+  // boundary coverage of its own.
+  const RANGE = "start=2026-01-10T00:00:00Z&end=2026-01-11T00:00:00Z&tz=UTC";
+
+  it("clamps a working session that began before the range start", async () => {
+    const agentId = await createAgent();
+    await seedEvent(agentId, "working", "2026-01-09T22:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:30:00Z");
+
+    const res = await authedInject("GET", `/api/v1/activity/stats?${RANGE}`);
+    expect(res.statusCode).toBe(200);
+    // The pre-range "working" event carries in, but its duration is clamped to
+    // the range start: only 00:00 → 00:30 counts, not the two hours before.
+    // Without carry-in this would be 0; without clamping it would be 150 min.
+    expect(res.json().totalWorkingMs).toBe(30 * 60_000);
+  });
+
+  it("carries in the latest pre-range event, not the earliest", async () => {
+    const agentId = await createAgent();
+    await seedEvent(agentId, "working", "2026-01-09T20:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-09T21:00:00Z");
+    await seedEvent(agentId, "working", "2026-01-10T00:10:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:20:00Z");
+
+    const res = await authedInject("GET", `/api/v1/activity/stats?${RANGE}`);
+    expect(res.statusCode).toBe(200);
+    // DISTINCT ON ... ORDER BY created_at DESC carries in the latest pre-range
+    // event ("done"), which contributes no working time, so only the 10-minute
+    // in-range session counts. Picking the earlier "working" event would inflate
+    // this.
+    expect(res.json().totalWorkingMs).toBe(10 * 60_000);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -264,6 +299,48 @@ describe("GET /api/v1/activity/daily-status", () => {
     );
     expect(res.statusCode).toBe(200);
     expect(res.json().granularity).toBe("week");
+  });
+
+  // Boundary carry-in coverage for loadScopedActivityEvents via handleDailyStatus.
+  // Durations are summed across day buckets rather than asserted per bucket:
+  // computeDailyStatus buckets by the *server-local* date, so per-bucket keys
+  // would be time-zone sensitive, but the total clamped duration is not.
+  const RANGE = "start=2026-01-10T00:00:00Z&end=2026-01-11T00:00:00Z&tz=UTC";
+
+  const sumWorking = (days: Array<Record<string, unknown>>): number =>
+    days.reduce((total, day) => total + (Number(day.working) || 0), 0);
+
+  it("clamps a boundary-spanning session to the range start", async () => {
+    const agentId = await createAgent();
+    await seedEvent(agentId, "working", "2026-01-09T22:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:30:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/daily-status?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // Carry-in clamps the pre-range "working" event to the range start, so the
+    // session contributes 30 minutes (00:00 → 00:30), not 2.5 hours. Without
+    // carry-in this would be 0.
+    expect(sumWorking(res.json().days)).toBe(30 * 60_000);
+  });
+
+  it("does not accrue time for a completed pre-range session", async () => {
+    const agentId = await createAgent();
+    await seedEvent(agentId, "working", "2026-01-09T20:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-09T21:00:00Z");
+    await seedEvent(agentId, "working", "2026-01-10T00:10:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:20:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/daily-status?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // The latest pre-range event is a "done", so nothing carries into the range;
+    // only the 10-minute in-range session counts.
+    expect(sumWorking(res.json().days)).toBe(10 * 60_000);
   });
 });
 
