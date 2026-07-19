@@ -26,6 +26,20 @@ export function WorktreesContent() {
       </Section>
 
       <Section>
+        <H3>When creation fails</H3>
+        <P>
+          Because you asked for an isolated worktree, Dispatch won't silently
+          fall back to running in the main checkout. If the worktree can't be
+          created — a name collision, a missing starting branch, or another git
+          error — the agent is marked <Code>stopped</Code> with the underlying
+          git error in its <strong>Last error</strong>, and its card shows an{" "}
+          <strong>Attention</strong> badge. Any partially-created worktree or
+          branch is cleaned up, so fixing the cause and relaunching starts from
+          a clean slate.
+        </P>
+      </Section>
+
+      <Section>
         <H3>Branch options</H3>
         <P>
           Pick a <strong>Starting branch</strong> from the dropdown — that's the
