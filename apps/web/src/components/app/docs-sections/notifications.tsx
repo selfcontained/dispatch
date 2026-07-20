@@ -34,11 +34,13 @@ export function NotificationsContent() {
         <H3>Browser notifications</H3>
         <P>
           Grant the browser permission, then toggle{" "}
-          <strong>Enable browser notifications</strong>. When the app is open in
-          at least one tab, matching events are delivered as native desktop or
-          mobile banners instead of Slack. If no tab is open to acknowledge the
-          notification within a few seconds, Dispatch falls back to Slack
-          automatically.
+          <strong>Enable browser notifications</strong> — the toggle stays
+          disabled until permission is granted. When the app is open in at least
+          one tab, matching events are delivered as native desktop or mobile
+          banners instead of Slack. If no tab acknowledges the notification
+          within about three seconds, Dispatch falls back to Slack
+          automatically. <strong>Send test</strong> fires a sample banner so you
+          can confirm the setup.
         </P>
         <P>
           On iOS and iPadOS, notifications only work after installing Dispatch
@@ -79,14 +81,28 @@ export function NotificationsContent() {
       </Section>
 
       <Section>
+        <H3>Tips &amp; guidance</H3>
+        <P>
+          The same settings pane hosts <strong>Tips &amp; Guidance</strong> —
+          short contextual hints that point out features and link into these
+          docs. They're per-device like sound cues. Untick{" "}
+          <strong>Show tips</strong> to turn them off, or use{" "}
+          <strong>Reset dismissed tips</strong> to bring back everything you've
+          already dismissed.
+        </P>
+      </Section>
+
+      <Section>
         <H3>Focus-aware suppression</H3>
         <P>
           Dispatch suppresses browser and Slack notifications for an agent
-          you're already looking at. Tabs that have an agent selected send
-          periodic focus heartbeats while the tab is visible and focused;
-          notifications for that agent are dropped until the heartbeat lapses (a
-          ~30 second TTL after you switch tabs, change agents, or blur the
-          window). Sound cues are not filtered by focus.
+          you're already looking at. Tabs that have an agent selected send a
+          focus heartbeat every 15 seconds while the tab is visible and focused,
+          and notifications for that agent are dropped while it's live. Blurring
+          the window, hiding the tab, or switching agents clears focus
+          immediately, so notifications resume right away; the heartbeat also
+          expires on its own after 30 seconds if a tab goes away without
+          reporting. Sound cues are not filtered by focus.
         </P>
       </Section>
 
