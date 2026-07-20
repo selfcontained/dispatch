@@ -29,9 +29,7 @@ import {
   readExpandedAgentId,
   readLastUsedAgentType,
 } from "@/components/app/agents-view-utils";
-import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
-import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
-import { MediaLightbox } from "@/components/app/media-lightbox";
+import { AgentsViewDialogs } from "@/components/app/agents-view-dialogs";
 import {
   MediaSidebar,
   MediaSidebarContent,
@@ -39,7 +37,6 @@ import {
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
-import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
 import { QuickPhrasesButton } from "@/components/app/quick-phrases";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import { AmbientTipBar } from "@/components/tips/ambient-tip-bar";
@@ -52,11 +49,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { uploadAgentMedia } from "@/lib/media-upload";
-import {
-  type AgentType,
-  isCliAgentType,
-  isNestedReviewAgent,
-} from "@/lib/agent-types";
+import { type AgentType, isNestedReviewAgent } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -71,8 +64,6 @@ import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
-import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
-import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
 
 type AgentsViewProps = {
@@ -875,53 +866,32 @@ export function AgentsView({
         </GlassSidebar>
       ) : null}
 
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        actions={paletteActions}
-        groups={paletteGroups}
-      />
-
-      {launchTemplate ? (
-        <LaunchTemplateDialog
-          template={launchTemplate}
-          open={!!launchTemplate}
-          onOpenChange={(open) => {
-            if (!open) setLaunchTemplateId(null);
-          }}
-          agentTypes={enabledAgentTypes.filter(isCliAgentType)}
-        />
-      ) : null}
-
-      <CreateAgentDialog
-        open={createOpen}
+      <AgentsViewDialogs
+        paletteOpen={paletteOpen}
+        setPaletteOpen={setPaletteOpen}
+        paletteActions={paletteActions}
+        paletteGroups={paletteGroups}
+        launchTemplate={launchTemplate}
+        setLaunchTemplateId={setLaunchTemplateId}
         enabledAgentTypes={enabledAgentTypes}
+        createOpen={createOpen}
         initialAgentType={requestedCreateType ?? lastUsedAgentType}
-        setOpen={handleCreateOpenChange}
-        resolveDefaultCwd={resolveCreateDefaultCwd}
-        onCreated={handleAgentCreated}
-      />
-
-      <DeleteAgentDialog
-        open={deleteConfirmOpen}
+        onCreateOpenChange={handleCreateOpenChange}
+        resolveCreateDefaultCwd={resolveCreateDefaultCwd}
+        onAgentCreated={handleAgentCreated}
+        deleteConfirmOpen={deleteConfirmOpen}
         deleteTarget={deleteTarget}
-        setOpen={setDeleteConfirmOpen}
+        setDeleteConfirmOpen={setDeleteConfirmOpen}
         setDeleteTarget={setDeleteTarget}
         onDelete={deleteAgent}
-      />
-
-      <StopAgentDialog
-        open={stopConfirmOpen}
+        stopConfirmOpen={stopConfirmOpen}
         stopTarget={stopTarget}
-        setOpen={setStopConfirmOpen}
+        setStopConfirmOpen={setStopConfirmOpen}
         setStopTarget={setStopTarget}
         onStop={stopAgent}
-      />
-
-      <MediaLightbox
-        item={lightboxItem}
-        currentIndex={lightboxIndex}
-        totalItems={mediaFiles.length}
+        lightboxItem={lightboxItem}
+        lightboxIndex={lightboxIndex}
+        mediaFileCount={mediaFiles.length}
         setLightboxIndex={setLightboxIndex}
       />
 
