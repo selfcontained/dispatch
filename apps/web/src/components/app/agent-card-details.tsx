@@ -18,7 +18,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
-import { useCopyText } from "@/hooks/use-copy";
 import { type IdeType } from "@/lib/ide-types";
 import { cn } from "@/lib/utils";
 
@@ -72,6 +71,12 @@ export type AgentCardDetailsProps = {
   fullAccessEnabled: boolean;
   isTerminalAgent: boolean;
   enabledIdes: IdeType[];
+  /**
+   * Copy state is owned by the card itself so the "copied" confirmation
+   * survives collapsing and reopening the details panel.
+   */
+  worktreePathCopied: boolean;
+  copyWorktreePath: (text: string) => void;
 };
 
 /**
@@ -85,8 +90,9 @@ export function AgentCardDetails({
   fullAccessEnabled,
   isTerminalAgent,
   enabledIdes,
+  worktreePathCopied,
+  copyWorktreePath,
 }: AgentCardDetailsProps): JSX.Element {
-  const [worktreePathCopied, copyWorktreePath] = useCopyText();
   const sidebarBaseBranch = agent.baseBranch ?? "main";
 
   return (

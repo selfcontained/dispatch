@@ -10,6 +10,7 @@ import {
 } from "@/components/app/agent-card-status";
 import { ChildAgentRow } from "@/components/app/child-agent-row";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
+import { useCopyText } from "@/hooks/use-copy";
 import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
@@ -105,6 +106,9 @@ export function AgentCard({
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  // Owned here rather than in AgentCardDetails so the copy confirmation is not
+  // lost when the details panel unmounts on collapse.
+  const [worktreePathCopied, copyWorktreePath] = useCopyText();
   const isTerminalAgent = agent.type === "terminal";
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent.id,
@@ -183,6 +187,8 @@ export function AgentCard({
                     fullAccessEnabled={fullAccessEnabled}
                     isTerminalAgent={isTerminalAgent}
                     enabledIdes={enabledIdes}
+                    worktreePathCopied={worktreePathCopied}
+                    copyWorktreePath={copyWorktreePath}
                   />
                 </div>
 
