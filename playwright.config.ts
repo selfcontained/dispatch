@@ -43,9 +43,15 @@ export default defineConfig({
     extraHTTPHeaders: {},
   },
   webServer: {
+    // `start` runs the server without `bun --watch`. Watch mode is actively
+    // harmful here: `prepare:runtime-assets` (run by test/check/build/start)
+    // unconditionally rewrites apps/server/src/generated/runtime-assets.js,
+    // which is inside the watched tree. Any concurrent pnpm task therefore
+    // restarted the server mid-run and surfaced as `socket hang up` on
+    // whatever request was in flight. E2E never needs hot reload.
     command: process.env.E2E_SKIP_WEB_BUILD
-      ? "pnpm run dev"
-      : "pnpm run build:web && pnpm run dev",
+      ? "pnpm run start"
+      : "pnpm run build:web && pnpm run start",
     env: {
       DATABASE_URL: databaseUrl,
       DISPATCH_PORT: devPort,
