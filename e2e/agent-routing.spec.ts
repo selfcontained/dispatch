@@ -62,7 +62,7 @@ test.describe("Agent routing", () => {
     await expect(page.getByTestId("terminal-inert-state")).toBeVisible();
   });
 
-  test("invalid feedback and review routes normalize back to the agent route", async ({
+  test("legacy feedback and review routes normalize back to the agent route", async ({
     page,
     request,
   }) => {
@@ -71,6 +71,12 @@ test.describe("Agent routing", () => {
     });
 
     await page.goto(`/agents/${agent.id}/feedback/not-a-number`, {
+      waitUntil: "domcontentloaded",
+    });
+    await waitForAppShell(page, agent.name);
+    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
+
+    await page.goto(`/agents/${agent.id}/feedback/99999`, {
       waitUntil: "domcontentloaded",
     });
     await waitForAppShell(page, agent.name);
@@ -91,24 +97,5 @@ test.describe("Agent routing", () => {
 
     await expect(page).toHaveURL(/\/agents$/);
     await expect(page.getByTestId("terminal-empty-state")).toBeVisible();
-  });
-
-  test("missing numeric feedback items show an explicit not found state", async ({
-    page,
-    request,
-  }) => {
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-agent-${Date.now()}`,
-    });
-
-    await page.goto(`/agents/${agent.id}/feedback/99999`, {
-      waitUntil: "domcontentloaded",
-    });
-    await waitForAppShell(page, agent.name);
-
-    await expect(page).toHaveURL(
-      new RegExp(`/agents/${agent.id}/feedback/99999$`)
-    );
-    await expect(page.getByTestId("feedback-item-not-found")).toBeVisible();
   });
 });

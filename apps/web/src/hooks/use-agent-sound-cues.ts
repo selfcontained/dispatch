@@ -11,11 +11,11 @@ const INTENT_FOR_EVENT: Record<string, CueIntent | undefined> = {
   waiting_user: "waiting_user",
 };
 
-type Snapshot = { eventKey: string; reviewStatus: string };
+type Snapshot = { eventKey: string; submittedReviewId: number | null };
 
 /**
  * Plays a sound cue when an agent transitions into one of the notable
- * terminal-ish states: done, blocked, waiting_user, or review complete.
+ * terminal-ish states: done, blocked, waiting_user, or review submission.
  *
  * - Subscribes to the React Query ["agents"] cache; never re-renders the host.
  * - Skips the very first observation so a snapshot/reconnect doesn't fire a
@@ -47,14 +47,14 @@ export function useAgentSoundCues(): void {
         const eventKey = agent.latestEvent
           ? `${agent.latestEvent.type}:${agent.latestEvent.updatedAt}`
           : "";
-        const reviewStatus = agent.review?.status ?? "";
-        next.set(agent.id, { eventKey, reviewStatus });
+        const submittedReviewId = agent.submittedReviewId ?? null;
+        next.set(agent.id, { eventKey, submittedReviewId });
 
         if (!seeded) continue;
 
         const prev = lastByAgent.get(agent.id);
 
-        if (prev?.reviewStatus !== "complete" && reviewStatus === "complete") {
+        if (prev?.submittedReviewId == null && submittedReviewId != null) {
           playCueForIntent("review_finished");
           continue;
         }

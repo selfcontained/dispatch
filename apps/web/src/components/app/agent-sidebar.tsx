@@ -3,7 +3,6 @@ import { useAtom } from "jotai";
 
 import { AgentCard } from "@/components/app/agent-card";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
-import { type FeedbackDetailState } from "@/components/app/feedback-panel";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -16,6 +15,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AGENT_TYPE_LABELS,
+  isNestedReviewAgent,
   type AgentType,
   sortAgentTypes,
 } from "@/lib/agent-types";
@@ -48,10 +48,8 @@ export type AgentListContentProps = {
   detachTerminal: () => void;
   attachToAgent: (agent: Agent) => Promise<void>;
   startAgent: (agent: Agent) => Promise<void>;
-  sendTerminalInput?: (data: string) => void;
+  openSubmittedReview: (agent: Agent) => void;
   connectedAgentId?: string | null;
-  onOpenFeedbackDetail?: (state: FeedbackDetailState) => void;
-  feedbackDetailState?: FeedbackDetailState;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
 };
@@ -77,10 +75,8 @@ export function AgentListContent({
   detachTerminal,
   attachToAgent,
   startAgent,
-  sendTerminalInput,
+  openSubmittedReview,
   connectedAgentId,
-  onOpenFeedbackDetail,
-  feedbackDetailState,
   onRequestClose,
   closeOnSessionAction = false,
 }: AgentListContentProps): JSX.Element {
@@ -103,7 +99,7 @@ export function AgentListContent({
       : (enabledAgentTypes[0] ?? "codex");
   const showCreateTypePicker = enabledAgentTypes.length > 1;
   const topLevelAgents = useMemo(
-    () => agents.filter((a) => !a.parentAgentId || !a.persona),
+    () => agents.filter((agent) => !isNestedReviewAgent(agent)),
     [agents]
   );
   const topLevelAgentIds = useMemo(
@@ -335,7 +331,9 @@ export function AgentListContent({
                   agent={agent}
                   agents={agents}
                   childAgents={agents.filter(
-                    (a) => a.parentAgentId === agent.id && !!a.persona
+                    (candidate) =>
+                      candidate.parentAgentId === agent.id &&
+                      isNestedReviewAgent(candidate)
                   )}
                   selectedAgentId={selectedAgentId}
                   expandedAgentId={expandedAgentId}
@@ -346,16 +344,14 @@ export function AgentListContent({
                   detachTerminal={detachTerminal}
                   attachToAgent={attachToAgent}
                   startAgent={startAgent}
+                  openSubmittedReview={openSubmittedReview}
                   setDeleteTarget={setDeleteTarget}
                   setDeleteConfirmOpen={setDeleteConfirmOpen}
                   setStopTarget={setStopTarget}
                   setStopConfirmOpen={setStopConfirmOpen}
-                  sendTerminalInput={sendTerminalInput}
                   enabledAgentTypes={enabledAgentTypes}
                   enabledIdes={enabledIdes}
                   connectedAgentId={connectedAgentId}
-                  onOpenFeedbackDetail={onOpenFeedbackDetail}
-                  feedbackDetailState={feedbackDetailState}
                   onRequestClose={onRequestClose}
                   closeOnSessionAction={closeOnSessionAction}
                   containerProps={{

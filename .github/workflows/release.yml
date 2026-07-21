@@ -48,6 +48,9 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
       - name: Configure git
         run: |
           git config user.name "github-actions[bot]"
@@ -66,6 +69,8 @@ jobs:
           PREV_TAG=$(git tag --sort=-version:refname | head -n 1)
           NEW_VERSION=$(npm version ${{ inputs.version }} --no-git-tag-version)
           pnpm -r exec npm version ${{ inputs.version }} --no-git-tag-version
+
+          pnpm --filter @dispatch/browser-extension sync:manifest-version
 
           if git ls-remote --exit-code --tags origin "refs/tags/${NEW_VERSION}" >/dev/null 2>&1; then
             echo "error: remote tag ${NEW_VERSION} already exists" >&2
@@ -87,7 +92,12 @@ jobs:
               --jq '.body' > release-notes/current.md
           fi
 
-          git add package.json apps/*/package.json pnpm-lock.yaml release-notes/current.md
+          git add \
+            package.json \
+            apps/*/package.json \
+            apps/browser-extension/public/manifest.json \
+            pnpm-lock.yaml \
+            release-notes/current.md
           git commit -m "Release ${NEW_VERSION}"
 
           META="release-notes/next-assisted-update.json"

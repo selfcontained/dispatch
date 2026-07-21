@@ -1,0 +1,24 @@
+{
+  "name": "@dispatch/browser-extension",
+  "version": "0.29.4",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "vite build && vite build --config vite.picker.config.ts",
+    "package": "pnpm run build && rm -f dist/dispatch-browser-feedback.zip && cd dist/unpacked && zip -qr ../dispatch-browser-feedback.zip .",
+    "sync:manifest-version": "node ../../scripts/sync-browser-extension-manifest-version.mjs",
+    "version": "pnpm run sync:manifest-version",
+    "check": "tsc --noEmit",
+    "test": "vitest run && node --test ../../scripts/sync-browser-extension-manifest-version.test.mjs"
+  },
+  "devDependencies": {
+    "@types/chrome": "^0.0.326",
+    "happy-dom": "^18.0.1",
+    "typescript": "^5.9.3",
+    "vite": "^6.4.1",
+    "vitest": "^4.1.2"
+  },
+  "dependencies": {
+    "css-selector-generator": "3.9.2"
+  }
+}

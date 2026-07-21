@@ -185,37 +185,39 @@ type ReleaseRouteDeps = {
   autoCheck: AutoCheckRuntime;
 };
 
-export async function registerReleaseRoutes(
-  app: FastifyInstance,
-  deps: ReleaseRouteDeps
-): Promise<void> {
-  const getReleaseStreamClientId = (request: FastifyRequest): string | null => {
-    const header = request.headers["x-dispatch-release-client-id"];
-    if (typeof header !== "string") return null;
-    const trimmed = header.trim();
-    return trimmed.length > 0 ? trimmed : null;
-  };
+function getReleaseStreamClientId(request: FastifyRequest): string | null {
+  const header = request.headers["x-dispatch-release-client-id"];
+  if (typeof header !== "string") return null;
+  const trimmed = header.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
-  const emitInfoProgress = (
-    clientId: string | null,
-    progress: ReleaseProgress | null
-  ): void => {
-    if (!clientId) return;
-    deps.sendReleaseEventToClient(clientId, {
-      type: "info-progress",
-      progress,
-    });
-  };
-
-  app.get("/api/v1/app/version", async () => {
-    return deps.getAppVersionInfo();
+function emitInfoProgress(
+  deps: ReleaseRouteDeps,
+  clientId: string | null,
+  progress: ReleaseProgress | null
+): void {
+  if (!clientId) return;
+  deps.sendReleaseEventToClient(clientId, {
+    type: "info-progress",
+    progress,
   });
+}
 
-  app.get("/api/v1/release/status", async () => {
-    const record = await readReleaseStore();
-    return { tag: record?.tag ?? null, deployedAt: record?.deployedAt ?? null };
-  });
+async function handleAppVersion(deps: ReleaseRouteDeps) {
+  return deps.getAppVersionInfo();
+}
 
+async function handleReleaseStatus() {
+  const record = await readReleaseStore();
+  return { tag: record?.tag ?? null, deployedAt: record?.deployedAt ?? null };
+}
+
+async function handleReleaseInfo(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
   const computeDeps: ComputeReleaseInfoDeps = {
     pool: deps.pool,
     serverDir: deps.serverDir,
@@ -229,673 +231,751 @@ export async function registerReleaseRoutes(
     fetchLatestReleaseMetadata: deps.fetchLatestReleaseMetadata,
   };
 
-  app.get("/api/v1/release/info", async (request, reply) => {
-    const releaseStreamClientId = getReleaseStreamClientId(request);
-    const result = await computeReleaseInfo(computeDeps, {
-      logger: request.log,
-      onProgress: (progress) =>
-        emitInfoProgress(releaseStreamClientId, progress),
-    });
-    if (!result.ok) {
-      return reply.code(500).send({ error: result.error });
-    }
-    const { snapshot } = result;
-    request.log.info(
-      {
-        currentTag: snapshot.currentTag,
-        latestTag: snapshot.latestTag,
-        updateAvailable: snapshot.updateAvailable,
-        channel: snapshot.channel,
-        releaseStreamClientId,
-      },
-      "release/info: computed release availability"
-    );
-
-    // Write-through into the auto-check cache so the toast/cached-info
-    // endpoint reflects the freshest classification the operator just saw —
-    // EXCEPT when an apply for this exact tag is in flight. In that case
-    // re-populating would broadcast `release.cached_info_changed` to every
-    // connected client and re-advertise the in-flight tag as "available",
-    // undoing the clear-on-apply protection. The requesting client still
-    // gets the fresh data in the response body either way.
-    const activeJob = deps.getActiveReleaseJob();
-    const isApplyingSnapshotTag =
-      activeJob !== null &&
-      (activeJob.jobType === "update" ||
-        activeJob.jobType === "update-assisted") &&
-      activeJob.tag !== null &&
-      activeJob.tag === snapshot.latestTag &&
-      !isTerminalPhase(activeJob.phase as AssistedPhase);
-    if (!isApplyingSnapshotTag) {
-      deps.autoCheck.setSnapshotForWriteThrough(snapshot);
-    }
-
-    const isAdmin = await deps.checkIsAdmin();
-    const extras = await computeAdminExtras({
-      isAdmin,
-      compareTag: snapshot.absoluteLatestTag ?? snapshot.currentTag,
-      serverDir: deps.serverDir,
-    });
-
-    return {
+  const releaseStreamClientId = getReleaseStreamClientId(request);
+  const result = await computeReleaseInfo(computeDeps, {
+    logger: request.log,
+    onProgress: (progress) =>
+      emitInfoProgress(deps, releaseStreamClientId, progress),
+  });
+  if (!result.ok) {
+    return reply.code(500).send({ error: result.error });
+  }
+  const { snapshot } = result;
+  request.log.info(
+    {
       currentTag: snapshot.currentTag,
-      channel: snapshot.channel,
-      isAdmin,
       latestTag: snapshot.latestTag,
       updateAvailable: snapshot.updateAvailable,
-      latestRelease: snapshot.latestRelease,
-      unreleasedCount: extras.unreleasedCount,
-      commits: extras.commits,
-      refMissing: extras.refMissing,
-      assisted: snapshot.assisted,
-      assistedRequired: snapshot.assistedRequired,
-      pendingMigrations: snapshot.pendingMigrations,
-      migrationsError: snapshot.migrationsError,
+      channel: snapshot.channel,
+      releaseStreamClientId,
+    },
+    "release/info: computed release availability"
+  );
+
+  // Write-through into the auto-check cache so the toast/cached-info
+  // endpoint reflects the freshest classification the operator just saw —
+  // EXCEPT when an apply for this exact tag is in flight. In that case
+  // re-populating would broadcast `release.cached_info_changed` to every
+  // connected client and re-advertise the in-flight tag as "available",
+  // undoing the clear-on-apply protection. The requesting client still
+  // gets the fresh data in the response body either way.
+  const activeJob = deps.getActiveReleaseJob();
+  const isApplyingSnapshotTag =
+    activeJob !== null &&
+    (activeJob.jobType === "update" ||
+      activeJob.jobType === "update-assisted") &&
+    activeJob.tag !== null &&
+    activeJob.tag === snapshot.latestTag &&
+    !isTerminalPhase(activeJob.phase as AssistedPhase);
+  if (!isApplyingSnapshotTag) {
+    deps.autoCheck.setSnapshotForWriteThrough(snapshot);
+  }
+
+  const isAdmin = await deps.checkIsAdmin();
+  const extras = await computeAdminExtras({
+    isAdmin,
+    compareTag: snapshot.absoluteLatestTag ?? snapshot.currentTag,
+    serverDir: deps.serverDir,
+  });
+
+  return {
+    currentTag: snapshot.currentTag,
+    channel: snapshot.channel,
+    isAdmin,
+    latestTag: snapshot.latestTag,
+    updateAvailable: snapshot.updateAvailable,
+    latestRelease: snapshot.latestRelease,
+    unreleasedCount: extras.unreleasedCount,
+    commits: extras.commits,
+    refMissing: extras.refMissing,
+    assisted: snapshot.assisted,
+    assistedRequired: snapshot.assistedRequired,
+    pendingMigrations: snapshot.pendingMigrations,
+    migrationsError: snapshot.migrationsError,
+  };
+}
+
+async function handleCachedInfo(deps: ReleaseRouteDeps) {
+  const snapshot = deps.autoCheck.getSnapshot();
+  return { snapshot };
+}
+
+async function handleAutoUpdateModeGet(deps: ReleaseRouteDeps) {
+  const mode = await readAutomaticUpdateMode(deps.pool);
+  return { mode };
+}
+
+async function handleAutoUpdateModeSet(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const body = request.body as { mode?: unknown } | undefined;
+  if (!isValidMode(body?.mode)) {
+    return reply.code(400).send({
+      error: `mode must be one of: ${AUTOMATIC_UPDATE_MODES.join(", ")}`,
+    });
+  }
+  const nextMode = body!.mode as never;
+  await writeAutomaticUpdateMode(deps.pool, nextMode);
+  // Flipping into "check" mode is an explicit "I want to know about
+  // updates" signal — fire a check immediately rather than waiting up
+  // to 6h for the next interval. The auto-check runtime's single
+  // flight handles overlap if a check is already running.
+  if (nextMode === "check") {
+    void deps.autoCheck.runAutoCheckOnce("mode-enabled");
+  }
+  return { mode: body!.mode };
+}
+
+async function handleChannelGet(deps: ReleaseRouteDeps) {
+  const raw = await getSetting(deps.pool, RELEASE_CHANNEL_KEY);
+  const channel: ReleaseChannel = raw === "latest" ? "latest" : "stable";
+  return { channel };
+}
+
+async function handleChannelSet(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const body = request.body as { channel?: unknown } | undefined;
+  if (
+    !body?.channel ||
+    !VALID_CHANNELS.includes(body.channel as ReleaseChannel)
+  ) {
+    return reply.code(400).send({
+      error: `channel must be one of: ${VALID_CHANNELS.join(", ")}`,
+    });
+  }
+  await setSetting(deps.pool, RELEASE_CHANNEL_KEY, body.channel as string);
+  // The cached snapshot was computed for the previous channel; it's
+  // stale the moment the operator switches. Fire an immediate
+  // background check for the new channel so the page (and toast)
+  // pick up the right state without waiting up to 6h for the next
+  // interval. Fire-and-forget — the broadcast on completion drives
+  // the UI, the HTTP response just confirms the setting persisted.
+  void deps.autoCheck.runAutoCheckOnce("channel-change");
+  return { channel: body.channel };
+}
+
+async function handleAdminCheck(deps: ReleaseRouteDeps) {
+  return { isAdmin: await deps.checkIsAdmin() };
+}
+
+async function handlePromote(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const isAdmin = await deps.checkIsAdmin();
+  if (!isAdmin) {
+    return reply.code(403).send({ error: "Admin access required" });
+  }
+  const body = request.body as { tag?: unknown } | undefined;
+  if (
+    !body?.tag ||
+    typeof body.tag !== "string" ||
+    !/^v\d+\.\d+\.\d+$/.test(body.tag)
+  ) {
+    return reply.code(400).send({
+      error: "tag is required and must be a semver tag (e.g. v0.11.18)",
+    });
+  }
+  try {
+    const repo = await deps.getGitHubRepo();
+    await runCommand("gh", [
+      "release",
+      "edit",
+      body.tag,
+      "--repo",
+      repo,
+      "--prerelease=false",
+      "--latest",
+    ]);
+    return { ok: true, tag: body.tag };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return reply.code(500).send({ error: message });
+  }
+}
+
+async function handleListReleases(
+  deps: ReleaseRouteDeps,
+  _request: FastifyRequest,
+  reply: FastifyReply
+) {
+  try {
+    const repo = await deps.getGitHubRepo();
+    const result = await runCommand("gh", [
+      "release",
+      "list",
+      "--repo",
+      repo,
+      "--limit",
+      "10",
+      "--json",
+      "tagName,publishedAt,isPrerelease",
+    ]);
+    const releases = deps.parseGhJson<
+      Array<{ tagName: string; publishedAt: string; isPrerelease: boolean }>
+    >(result.stdout);
+    return {
+      releases: releases.map((r) => ({
+        tag: r.tagName,
+        publishedAt: r.publishedAt,
+        isPrerelease: r.isPrerelease,
+        url: `https://github.com/${repo}/releases/tag/${r.tagName}`,
+      })),
     };
-  });
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    return reply.code(500).send({ error: message });
+  }
+}
 
-  app.get("/api/v1/release/cached-info", async () => {
-    const snapshot = deps.autoCheck.getSnapshot();
-    return { snapshot };
-  });
+async function handleCreateRelease(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const body = request.body as { versionType?: unknown } | undefined;
+  if (
+    !body?.versionType ||
+    !RELEASE_VERSION_TYPES.includes(body.versionType as ReleaseVersionType)
+  ) {
+    return reply.code(400).send({
+      error: `versionType must be one of: ${RELEASE_VERSION_TYPES.join(", ")}`,
+    });
+  }
+  if (
+    deps.getActiveReleaseJob() &&
+    !isTerminalPhase(deps.getActiveReleaseJob()!.phase as AssistedPhase)
+  ) {
+    return reply.code(409).send({ error: "A release is already in progress." });
+  }
+  try {
+    await runCommand("gh", ["--version"]);
+  } catch {
+    return reply.code(422).send({
+      error:
+        "GitHub CLI (gh) is not available. Install it from https://cli.github.com",
+    });
+  }
+  const job: ReleaseJob = {
+    jobType: "create",
+    versionType: body.versionType as ReleaseVersionType,
+    phase: "preflight",
+    startedAt: new Date().toISOString(),
+    log: [],
+    runUrl: null,
+    tag: null,
+    error: null,
+    progress: null,
+  };
+  deps.setActiveReleaseJob(job);
+  void deps.runReleaseJob(job);
+  return reply.code(202).send({ ok: true });
+}
 
-  app.get("/api/v1/release/auto-update-mode", async () => {
-    const mode = await readAutomaticUpdateMode(deps.pool);
-    return { mode };
-  });
+async function handleUpdate(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const body = request.body as { tag?: unknown; force?: unknown } | undefined;
+  const bearerToken = deps.getBearerToken(request);
+  if (
+    !body?.tag ||
+    typeof body.tag !== "string" ||
+    !/^v\d+\.\d+\.\d+$/.test(body.tag)
+  ) {
+    return reply.code(400).send({
+      error: "tag is required and must be a semver tag (e.g. v0.2.31)",
+    });
+  }
+  const tag = body.tag;
+  const force = body.force === true;
+  const releaseUpdateAgentId = bearerToken
+    ? getReleaseUpdateAgentId(deps.config.authToken, bearerToken)
+    : null;
 
-  app.post("/api/v1/release/auto-update-mode", async (request, reply) => {
-    const body = request.body as { mode?: unknown } | undefined;
-    if (!isValidMode(body?.mode)) {
-      return reply.code(400).send({
-        error: `mode must be one of: ${AUTOMATIC_UPDATE_MODES.join(", ")}`,
-      });
-    }
-    const nextMode = body!.mode as never;
-    await writeAutomaticUpdateMode(deps.pool, nextMode);
-    // Flipping into "check" mode is an explicit "I want to know about
-    // updates" signal — fire a check immediately rather than waiting up
-    // to 6h for the next interval. The auto-check runtime's single
-    // flight handles overlap if a check is already running.
-    if (nextMode === "check") {
-      void deps.autoCheck.runAutoCheckOnce("mode-enabled");
-    }
-    return { mode: body!.mode };
-  });
-
-  app.get("/api/v1/release/channel", async () => {
-    const raw = await getSetting(deps.pool, RELEASE_CHANNEL_KEY);
-    const channel: ReleaseChannel = raw === "latest" ? "latest" : "stable";
-    return { channel };
-  });
-
-  app.post("/api/v1/release/channel", async (request, reply) => {
-    const body = request.body as { channel?: unknown } | undefined;
+  if (releaseUpdateAgentId) {
+    const agent = await deps.agentManager.getAgent(releaseUpdateAgentId);
     if (
-      !body?.channel ||
-      !VALID_CHANNELS.includes(body.channel as ReleaseChannel)
+      !agent ||
+      agent.role !== "assisted_update" ||
+      agent.cwd !== deps.serverDir
     ) {
-      return reply.code(400).send({
-        error: `channel must be one of: ${VALID_CHANNELS.join(", ")}`,
-      });
+      return reply.code(403).send({ error: "Invalid assisted update token." });
     }
-    await setSetting(deps.pool, RELEASE_CHANNEL_KEY, body.channel as string);
-    // The cached snapshot was computed for the previous channel; it's
-    // stale the moment the operator switches. Fire an immediate
-    // background check for the new channel so the page (and toast)
-    // pick up the right state without waiting up to 6h for the next
-    // interval. Fire-and-forget — the broadcast on completion drives
-    // the UI, the HTTP response just confirms the setting persisted.
-    void deps.autoCheck.runAutoCheckOnce("channel-change");
-    return { channel: body.channel };
-  });
-
-  app.get("/api/v1/release/admin-check", async () => {
-    return { isAdmin: await deps.checkIsAdmin() };
-  });
-
-  app.post("/api/v1/release/promote", async (request, reply) => {
-    const isAdmin = await deps.checkIsAdmin();
-    if (!isAdmin) {
-      return reply.code(403).send({ error: "Admin access required" });
-    }
-    const body = request.body as { tag?: unknown } | undefined;
-    if (
-      !body?.tag ||
-      typeof body.tag !== "string" ||
-      !/^v\d+\.\d+\.\d+$/.test(body.tag)
-    ) {
-      return reply.code(400).send({
-        error: "tag is required and must be a semver tag (e.g. v0.11.18)",
-      });
-    }
-    try {
-      const repo = await deps.getGitHubRepo();
-      await runCommand("gh", [
-        "release",
-        "edit",
-        body.tag,
-        "--repo",
-        repo,
-        "--prerelease=false",
-        "--latest",
-      ]);
-      return { ok: true, tag: body.tag };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return reply.code(500).send({ error: message });
-    }
-  });
-
-  app.get("/api/v1/releases", async (_, reply) => {
-    try {
-      const repo = await deps.getGitHubRepo();
-      const result = await runCommand("gh", [
-        "release",
-        "list",
-        "--repo",
-        repo,
-        "--limit",
-        "10",
-        "--json",
-        "tagName,publishedAt,isPrerelease",
-      ]);
-      const releases = deps.parseGhJson<
-        Array<{ tagName: string; publishedAt: string; isPrerelease: boolean }>
-      >(result.stdout);
-      return {
-        releases: releases.map((r) => ({
-          tag: r.tagName,
-          publishedAt: r.publishedAt,
-          isPrerelease: r.isPrerelease,
-          url: `https://github.com/${repo}/releases/tag/${r.tagName}`,
-        })),
-      };
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unknown error";
-      return reply.code(500).send({ error: message });
-    }
-  });
-
-  app.post("/api/v1/release", async (request, reply) => {
-    const body = request.body as { versionType?: unknown } | undefined;
-    if (
-      !body?.versionType ||
-      !RELEASE_VERSION_TYPES.includes(body.versionType as ReleaseVersionType)
-    ) {
-      return reply.code(400).send({
-        error: `versionType must be one of: ${RELEASE_VERSION_TYPES.join(", ")}`,
-      });
-    }
-    if (
-      deps.getActiveReleaseJob() &&
-      !isTerminalPhase(deps.getActiveReleaseJob()!.phase as AssistedPhase)
-    ) {
-      return reply
-        .code(409)
-        .send({ error: "A release is already in progress." });
-    }
-    try {
-      await runCommand("gh", ["--version"]);
-    } catch {
-      return reply.code(422).send({
+    const assistedState = await readAssistedUpdateState().catch(() => null);
+    if (assistedState && assistedState.tag !== tag) {
+      return reply.code(403).send({
         error:
-          "GitHub CLI (gh) is not available. Install it from https://cli.github.com",
+          "Assisted update token is bound to a different tag. Launch a fresh assisted update for this tag.",
       });
     }
-    const job: ReleaseJob = {
-      jobType: "create",
-      versionType: body.versionType as ReleaseVersionType,
-      phase: "preflight",
-      startedAt: new Date().toISOString(),
-      log: [],
-      runUrl: null,
-      tag: null,
-      error: null,
-      progress: null,
-    };
-    deps.setActiveReleaseJob(job);
-    void deps.runReleaseJob(job);
-    return reply.code(202).send({ ok: true });
-  });
+  }
 
-  app.post("/api/v1/release/update", async (request, reply) => {
-    const body = request.body as { tag?: unknown; force?: unknown } | undefined;
-    const bearerToken = deps.getBearerToken(request);
-    if (
-      !body?.tag ||
-      typeof body.tag !== "string" ||
-      !/^v\d+\.\d+\.\d+$/.test(body.tag)
-    ) {
-      return reply.code(400).send({
-        error: "tag is required and must be a semver tag (e.g. v0.2.31)",
-      });
-    }
-    const tag = body.tag;
-    const force = body.force === true;
-    const releaseUpdateAgentId = bearerToken
-      ? getReleaseUpdateAgentId(deps.config.authToken, bearerToken)
-      : null;
-
-    if (releaseUpdateAgentId) {
-      const agent = await deps.agentManager.getAgent(releaseUpdateAgentId);
-      if (
-        !agent ||
-        agent.role !== "assisted_update" ||
-        agent.cwd !== deps.serverDir
-      ) {
-        return reply
-          .code(403)
-          .send({ error: "Invalid assisted update token." });
-      }
-      const assistedState = await readAssistedUpdateState().catch(() => null);
-      if (assistedState && assistedState.tag !== tag) {
-        return reply.code(403).send({
-          error:
-            "Assisted update token is bound to a different tag. Launch a fresh assisted update for this tag.",
-        });
-      }
-    }
-
-    const activeReleaseJob = deps.getActiveReleaseJob();
-    if (
-      activeReleaseJob &&
-      !isTerminalPhase(activeReleaseJob.phase as AssistedPhase)
-    ) {
-      const isAssistedTakeover =
-        releaseUpdateAgentId !== null &&
-        activeReleaseJob.jobType === "update-assisted" &&
-        activeReleaseJob.assisted?.agentId === releaseUpdateAgentId &&
-        activeReleaseJob.tag === tag;
-      if (!isAssistedTakeover) {
-        return reply
-          .code(409)
-          .send({ error: "A release or update is already in progress." });
-      }
-    }
-
-    if (!releaseUpdateAgentId) {
-      const installed = await readReleaseStore().catch(() => null);
-      let pendingMigrationsForGate: PendingMigrationSummary[];
-      try {
-        const repo = await deps.getGitHubRepo();
-        const evaluation = await evaluatePendingMigrations(tag, { repo });
-        pendingMigrationsForGate = evaluation.pending.map((m) =>
-          toSummary(m.manifest)
-        );
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        request.log.warn(
-          { err, tag, force },
-          "release/update: migration evaluation failed"
-        );
-        if (!force) {
-          return reply.code(503).send({
-            error: "MIGRATION_EVALUATION_UNAVAILABLE",
-            message: `Could not evaluate update migrations for ${tag}: ${message}. Retry once the underlying issue clears, or pass force=true to skip the check.`,
-          });
-        }
-        pendingMigrationsForGate = [];
-      }
-      if (pendingMigrationsForGate.length > 0 && !force) {
-        return reply.code(409).send({
-          error: "ASSISTED_UPDATE_REQUIRED",
-          message:
-            "This release has unapplied migrations. POST to /api/v1/release/assisted/launch instead, or pass force=true to override.",
-          pendingMigrations: pendingMigrationsForGate,
-        });
-      }
-
-      const targetMeta = await deps.fetchReleaseMetadata(tag);
-      const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
-      if (inspected.state === "invalid") {
-        return reply.code(409).send({
-          error: "ASSISTED_UPDATE_METADATA_INVALID",
-          message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
-        });
-      }
-      const targetAssisted =
-        inspected.state === "valid" ? inspected.metadata : null;
-      if (
-        isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null) &&
-        !force
-      ) {
-        return reply.code(409).send({
-          error: "ASSISTED_UPDATE_REQUIRED",
-          message:
-            "This release requires the assisted update flow. POST to /api/v1/release/assisted/launch instead, or pass force=true to override.",
-          assisted: targetAssisted,
-        });
-      }
-      if (
-        force &&
-        (pendingMigrationsForGate.length > 0 ||
-          isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null))
-      ) {
-        request.log.warn(
-          {
-            tag,
-            pendingMigrationCount: pendingMigrationsForGate.length,
-            assistedMode: targetAssisted?.mode ?? null,
-          },
-          "release/update: force=true bypassing assisted-update gate"
-        );
-      }
-    }
-
-    const job: ReleaseJob = {
-      jobType: "update",
-      versionType: null,
-      phase: "fetching",
-      startedAt: new Date().toISOString(),
-      log: [],
-      runUrl: null,
-      tag,
-      error: null,
-      progress: null,
-    };
-    deps.setActiveReleaseJob(job);
-    void deps.runUpdateJob(job);
-    return reply.code(202).send({ ok: true });
-  });
-
-  app.post("/api/v1/release/assisted/launch", async (request, reply) => {
-    const body = request.body as { tag?: unknown } | undefined;
-    if (
-      !body?.tag ||
-      typeof body.tag !== "string" ||
-      !/^v\d+\.\d+\.\d+$/.test(body.tag)
-    ) {
-      return reply.code(400).send({
-        error: "tag is required and must be a semver tag (e.g. v0.2.31)",
-      });
-    }
-
-    const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
-    const assistedType = enabledAgentTypes.find(isCliAgentType);
-    if (!assistedType) {
-      return reply.code(422).send({
-        error:
-          "No CLI agent types are enabled. Enable Codex, Claude, or OpenCode first.",
-      });
-    }
-
-    const activeReleaseJob = deps.getActiveReleaseJob();
-    if (
-      activeReleaseJob &&
-      !isTerminalPhase(activeReleaseJob.phase as AssistedPhase)
-    ) {
+  const activeReleaseJob = deps.getActiveReleaseJob();
+  if (
+    activeReleaseJob &&
+    !isTerminalPhase(activeReleaseJob.phase as AssistedPhase)
+  ) {
+    const isAssistedTakeover =
+      releaseUpdateAgentId !== null &&
+      activeReleaseJob.jobType === "update-assisted" &&
+      activeReleaseJob.assisted?.agentId === releaseUpdateAgentId &&
+      activeReleaseJob.tag === tag;
+    if (!isAssistedTakeover) {
       return reply
         .code(409)
         .send({ error: "A release or update is already in progress." });
     }
-    if (deps.getActiveAssistedUpdateLaunch()) {
+  }
+
+  if (!releaseUpdateAgentId) {
+    const installed = await readReleaseStore().catch(() => null);
+    let pendingMigrationsForGate: PendingMigrationSummary[];
+    try {
+      const repo = await deps.getGitHubRepo();
+      const evaluation = await evaluatePendingMigrations(tag, { repo });
+      pendingMigrationsForGate = evaluation.pending.map((m) =>
+        toSummary(m.manifest)
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      request.log.warn(
+        { err, tag, force },
+        "release/update: migration evaluation failed"
+      );
+      if (!force) {
+        return reply.code(503).send({
+          error: "MIGRATION_EVALUATION_UNAVAILABLE",
+          message: `Could not evaluate update migrations for ${tag}: ${message}. Retry once the underlying issue clears, or pass force=true to skip the check.`,
+        });
+      }
+      pendingMigrationsForGate = [];
+    }
+    if (pendingMigrationsForGate.length > 0 && !force) {
+      return reply.code(409).send({
+        error: "ASSISTED_UPDATE_REQUIRED",
+        message:
+          "This release has unapplied migrations. POST to /api/v1/release/assisted/launch instead, or pass force=true to override.",
+        pendingMigrations: pendingMigrationsForGate,
+      });
+    }
+
+    const targetMeta = await deps.fetchReleaseMetadata(tag);
+    const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
+    if (inspected.state === "invalid") {
+      return reply.code(409).send({
+        error: "ASSISTED_UPDATE_METADATA_INVALID",
+        message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
+      });
+    }
+    const targetAssisted =
+      inspected.state === "valid" ? inspected.metadata : null;
+    if (
+      isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null) &&
+      !force
+    ) {
+      return reply.code(409).send({
+        error: "ASSISTED_UPDATE_REQUIRED",
+        message:
+          "This release requires the assisted update flow. POST to /api/v1/release/assisted/launch instead, or pass force=true to override.",
+        assisted: targetAssisted,
+      });
+    }
+    if (
+      force &&
+      (pendingMigrationsForGate.length > 0 ||
+        isAssistedUpdateRequired(targetAssisted, installed?.tag ?? null))
+    ) {
+      request.log.warn(
+        {
+          tag,
+          pendingMigrationCount: pendingMigrationsForGate.length,
+          assistedMode: targetAssisted?.mode ?? null,
+        },
+        "release/update: force=true bypassing assisted-update gate"
+      );
+    }
+  }
+
+  const job: ReleaseJob = {
+    jobType: "update",
+    versionType: null,
+    phase: "fetching",
+    startedAt: new Date().toISOString(),
+    log: [],
+    runUrl: null,
+    tag,
+    error: null,
+    progress: null,
+  };
+  deps.setActiveReleaseJob(job);
+  void deps.runUpdateJob(job);
+  return reply.code(202).send({ ok: true });
+}
+
+async function handleAssistedLaunch(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const body = request.body as { tag?: unknown } | undefined;
+  if (
+    !body?.tag ||
+    typeof body.tag !== "string" ||
+    !/^v\d+\.\d+\.\d+$/.test(body.tag)
+  ) {
+    return reply.code(400).send({
+      error: "tag is required and must be a semver tag (e.g. v0.2.31)",
+    });
+  }
+
+  const enabledAgentTypes = await getEnabledAgentTypes(deps.pool);
+  const assistedType = enabledAgentTypes.find(isCliAgentType);
+  if (!assistedType) {
+    return reply.code(422).send({
+      error:
+        "No CLI agent types are enabled. Enable Codex, Claude, or OpenCode first.",
+    });
+  }
+
+  const activeReleaseJob = deps.getActiveReleaseJob();
+  if (
+    activeReleaseJob &&
+    !isTerminalPhase(activeReleaseJob.phase as AssistedPhase)
+  ) {
+    return reply
+      .code(409)
+      .send({ error: "A release or update is already in progress." });
+  }
+  if (deps.getActiveAssistedUpdateLaunch()) {
+    return reply.code(409).send({
+      error:
+        "An assisted update agent is already being created for the production checkout.",
+    });
+  }
+
+  deps.setActiveAssistedUpdateLaunch(true);
+  try {
+    if (await deps.hasActiveAssistedUpdateAgent()) {
       return reply.code(409).send({
         error:
-          "An assisted update agent is already being created for the production checkout.",
+          "An assisted update agent is already active for the production checkout.",
       });
     }
 
-    deps.setActiveAssistedUpdateLaunch(true);
+    const record = await readReleaseStore().catch(() => null);
+    const worktreeLocationRaw = await getSetting(
+      deps.pool,
+      deps.worktreeLocationKey
+    );
+    const worktreeLocation =
+      worktreeLocationRaw &&
+      deps.validWorktreeLocations.includes(worktreeLocationRaw)
+        ? worktreeLocationRaw
+        : "sibling";
+
+    let pendingMigrationManifests: UpdateMigrationManifest[] = [];
     try {
-      if (await deps.hasActiveAssistedUpdateAgent()) {
+      const repo = await deps.getGitHubRepo();
+      const evaluation = await evaluatePendingMigrations(body.tag, { repo });
+      if (evaluation.errors.length > 0) {
         return reply.code(409).send({
-          error:
-            "An assisted update agent is already active for the production checkout.",
+          error: "ASSISTED_UPDATE_MIGRATIONS_INVALID",
+          message: `Target release has malformed migration manifests: ${evaluation.errors
+            .map((e) => `${e.filename}: ${e.error}`)
+            .join("; ")}`,
         });
       }
-
-      const record = await readReleaseStore().catch(() => null);
-      const worktreeLocationRaw = await getSetting(
-        deps.pool,
-        deps.worktreeLocationKey
+      pendingMigrationManifests = evaluation.pending.map((m) => m.manifest);
+    } catch (err) {
+      request.log.warn(
+        { tag: body.tag, err },
+        "Migration evaluation failed, falling back to legacy metadata"
       );
-      const worktreeLocation =
-        worktreeLocationRaw &&
-        deps.validWorktreeLocations.includes(worktreeLocationRaw)
-          ? worktreeLocationRaw
-          : "sibling";
+    }
 
-      let pendingMigrationManifests: UpdateMigrationManifest[] = [];
-      try {
-        const repo = await deps.getGitHubRepo();
-        const evaluation = await evaluatePendingMigrations(body.tag, { repo });
-        if (evaluation.errors.length > 0) {
-          return reply.code(409).send({
-            error: "ASSISTED_UPDATE_MIGRATIONS_INVALID",
-            message: `Target release has malformed migration manifests: ${evaluation.errors
-              .map((e) => `${e.filename}: ${e.error}`)
-              .join("; ")}`,
-          });
-        }
-        pendingMigrationManifests = evaluation.pending.map((m) => m.manifest);
-      } catch (err) {
-        request.log.warn(
-          { tag: body.tag, err },
-          "Migration evaluation failed, falling back to legacy metadata"
-        );
-      }
+    const targetMeta = await deps.fetchReleaseMetadata(body.tag);
+    const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
+    if (
+      pendingMigrationManifests.length === 0 &&
+      inspected.state === "invalid"
+    ) {
+      return reply.code(409).send({
+        error: "ASSISTED_UPDATE_METADATA_INVALID",
+        message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
+      });
+    }
 
-      const targetMeta = await deps.fetchReleaseMetadata(body.tag);
-      const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
-      if (
-        pendingMigrationManifests.length === 0 &&
-        inspected.state === "invalid"
-      ) {
-        return reply.code(409).send({
-          error: "ASSISTED_UPDATE_METADATA_INVALID",
-          message: `Target release has malformed assisted-update metadata: ${inspected.error}`,
-        });
-      }
-
-      const assistedMeta =
-        inspected.state === "valid" ? inspected.metadata : null;
-      let assistedState: AssistedUpdateState | null = null;
-      let assistedToken: string | null = null;
-      let initialPrompt: string;
-      if (pendingMigrationManifests.length > 0 || assistedMeta) {
-        const ctx = await buildAssistedUpdateContext(
-          {
-            tag: body.tag,
-            fromTag: record?.tag ?? null,
-            migrations:
-              pendingMigrationManifests.length > 0
-                ? pendingMigrationManifests
-                : undefined,
-            metadata:
-              pendingMigrationManifests.length === 0 && assistedMeta
-                ? assistedMeta
-                : undefined,
-            serverDir: deps.serverDir,
-            recovery: {
-              serviceCommand: deps.defaultServiceRestartCommand(),
-              healthEndpoint: deps.dispatchHealthUrl(),
-              serviceLogPath: "~/.dispatch/logs/dispatch.log",
-              failureLogPath: "~/.dispatch/logs/last-release-failure.log",
-            },
+    const assistedMeta =
+      inspected.state === "valid" ? inspected.metadata : null;
+    let assistedState: AssistedUpdateState | null = null;
+    let assistedToken: string | null = null;
+    let initialPrompt: string;
+    if (pendingMigrationManifests.length > 0 || assistedMeta) {
+      const ctx = await buildAssistedUpdateContext(
+        {
+          tag: body.tag,
+          fromTag: record?.tag ?? null,
+          migrations:
+            pendingMigrationManifests.length > 0
+              ? pendingMigrationManifests
+              : undefined,
+          metadata:
+            pendingMigrationManifests.length === 0 && assistedMeta
+              ? assistedMeta
+              : undefined,
+          serverDir: deps.serverDir,
+          recovery: {
+            serviceCommand: deps.defaultServiceRestartCommand(),
+            healthEndpoint: deps.dispatchHealthUrl(),
+            serviceLogPath: "~/.dispatch/logs/dispatch.log",
+            failureLogPath: "~/.dispatch/logs/last-release-failure.log",
           },
-          deps.dispatchBaseUrl()
+        },
+        deps.dispatchBaseUrl()
+      );
+      assistedState = ctx.state;
+      assistedToken = ctx.state.token;
+      initialPrompt = ctx.prompt;
+    } else {
+      initialPrompt = deps.buildAssistedUpdatePrompt({
+        tag: body.tag,
+        currentTag: record?.tag ?? null,
+      });
+    }
+
+    const agent = await deps.agentManager.createAgent({
+      name: `update-${body.tag}`,
+      type: assistedType,
+      role: "assisted_update",
+      cwd: deps.serverDir,
+      fullAccess: true,
+      useWorktree: false,
+      worktreeLocation: worktreeLocation as "sibling" | "nested",
+      initialPrompt,
+    });
+
+    if (assistedState && assistedToken) {
+      await attachAssistedAgent(assistedState, agent.id);
+      const launchLog = [
+        `==> assisted update launched for ${body.tag}`,
+        `==> agent: ${agent.id}`,
+      ];
+      if (pendingMigrationManifests.length > 0) {
+        launchLog.push(
+          `==> migrations: ${pendingMigrationManifests
+            .map((m) => m.id)
+            .join(", ")}`
         );
-        assistedState = ctx.state;
-        assistedToken = ctx.state.token;
-        initialPrompt = ctx.prompt;
-      } else {
-        initialPrompt = deps.buildAssistedUpdatePrompt({
-          tag: body.tag,
-          currentTag: record?.tag ?? null,
-        });
+      } else if (assistedMeta) {
+        launchLog.push(`==> mode: ${assistedMeta.mode}`);
       }
-
-      const agent = await deps.agentManager.createAgent({
-        name: `update-${body.tag}`,
-        type: assistedType,
-        role: "assisted_update",
-        cwd: deps.serverDir,
-        fullAccess: true,
-        useWorktree: false,
-        worktreeLocation: worktreeLocation as "sibling" | "nested",
-        initialPrompt,
+      deps.setActiveReleaseJob({
+        jobType: "update-assisted",
+        versionType: null,
+        phase: "inspect",
+        startedAt: new Date().toISOString(),
+        log: launchLog,
+        runUrl: null,
+        tag: body.tag,
+        error: null,
+        progress: null,
+        assisted: { ...assistedState, agentId: agent.id },
       });
-
-      if (assistedState && assistedToken) {
-        await attachAssistedAgent(assistedState, agent.id);
-        const launchLog = [
-          `==> assisted update launched for ${body.tag}`,
-          `==> agent: ${agent.id}`,
-        ];
-        if (pendingMigrationManifests.length > 0) {
-          launchLog.push(
-            `==> migrations: ${pendingMigrationManifests
-              .map((m) => m.id)
-              .join(", ")}`
-          );
-        } else if (assistedMeta) {
-          launchLog.push(`==> mode: ${assistedMeta.mode}`);
-        }
-        deps.setActiveReleaseJob({
-          jobType: "update-assisted",
-          versionType: null,
-          phase: "inspect",
-          startedAt: new Date().toISOString(),
-          log: launchLog,
-          runUrl: null,
-          tag: body.tag,
-          error: null,
-          progress: null,
-          assisted: { ...assistedState, agentId: agent.id },
-        });
-        deps.broadcastReleaseEvent({
-          type: "assisted",
-          state: { ...assistedState, agentId: agent.id },
-        });
-      }
-
-      deps.publishUiEvent({
-        type: "agent.upsert",
-        agent: deps.withStreamFlag(agent),
-      });
-      return reply
-        .code(201)
-        .send({ agent: deps.withStreamFlag(agent), assisted: assistedState });
-    } catch (error) {
-      return deps.handleAgentError(reply, error);
-    } finally {
-      deps.setActiveAssistedUpdateLaunch(false);
-    }
-  });
-
-  app.post("/api/v1/release/assisted/phase", async (request, reply) => {
-    const body = request.body as
-      | { token?: unknown; phase?: unknown; note?: unknown; error?: unknown }
-      | undefined;
-    if (!body?.token || typeof body.token !== "string") {
-      return reply.code(400).send({ error: "token is required" });
-    }
-    if (!body.phase || typeof body.phase !== "string") {
-      return reply.code(400).send({ error: "phase is required" });
-    }
-    const result = await applyAssistedPhase({
-      token: body.token,
-      phase: body.phase as AssistedPhase,
-      note: typeof body.note === "string" ? body.note : undefined,
-      error: typeof body.error === "string" ? body.error : undefined,
-    });
-    if (!result.ok) {
-      return reply.code(409).send({ error: result.reason });
-    }
-
-    const activeReleaseJob = deps.getActiveReleaseJob();
-    if (activeReleaseJob && activeReleaseJob.jobType === "update-assisted") {
-      activeReleaseJob.phase = result.state.phase;
-      activeReleaseJob.assisted = result.state;
-      if (result.state.error) activeReleaseJob.error = result.state.error;
-      const persistedNote = result.state.notes[result.state.phase];
-      const summary = persistedNote
-        ? `==> phase ${result.state.phase}: ${persistedNote}`
-        : `==> phase ${result.state.phase}`;
-      deps.appendReleaseLog(activeReleaseJob, summary);
       deps.broadcastReleaseEvent({
-        type: "phase",
-        phase: activeReleaseJob.phase,
+        type: "assisted",
+        state: { ...assistedState, agentId: agent.id },
       });
-      deps.broadcastReleaseEvent({ type: "assisted", state: result.state });
     }
 
-    if (result.state.phase === "validate") {
-      const post = await runAndRecordChecks(result.state, {
-        serverDir: deps.serverDir,
-        targetTag: result.state.tag,
-        healthUrl: deps.dispatchHealthUrl(),
-      });
-      const activeJob = deps.getActiveReleaseJob();
-      if (activeJob && activeJob.jobType === "update-assisted") {
-        activeJob.phase = post.phase;
-        activeJob.assisted = post;
-        if (post.error) activeJob.error = post.error;
-        for (const check of post.checks) {
-          deps.appendReleaseLog(
-            activeJob,
-            `  - ${check.ok ? "✓" : "✗"} ${check.name}: ${check.message}`
-          );
-        }
-        deps.broadcastReleaseEvent({ type: "phase", phase: activeJob.phase });
-        deps.broadcastReleaseEvent({ type: "assisted", state: post });
-      }
-    }
-
-    return reply.code(200).send({ ok: true, state: result.state });
-  });
-
-  app.get("/api/v1/release/assisted/state", async () => {
-    return { state: await readAssistedUpdateState() };
-  });
-
-  app.delete("/api/v1/release/assisted/state", async () => {
-    await clearAssistedUpdateState();
-    const activeReleaseJob = deps.getActiveReleaseJob();
-    if (activeReleaseJob?.jobType === "update-assisted") {
-      deps.setActiveReleaseJob(null);
-    }
-    return { ok: true };
-  });
-
-  app.get("/api/v1/release/stream", async (request, reply) => {
-    const clientId =
-      typeof request.query === "object" &&
-      request.query !== null &&
-      "clientId" in request.query &&
-      typeof request.query.clientId === "string" &&
-      request.query.clientId.trim().length > 0
-        ? request.query.clientId.trim()
-        : "default";
-    reply.raw.setHeader("Content-Type", "text/event-stream");
-    reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
-    reply.raw.setHeader("Connection", "keep-alive");
-    reply.raw.setHeader("X-Accel-Buffering", "no");
-    reply.hijack();
-
-    const stream = reply.raw;
-    const client = { clientId, stream };
-    deps.releaseStreamClients.add(client);
-    const heartbeat = setInterval(() => {
-      stream.write(": keepalive\n\n");
-    }, 20_000);
-
-    await deps.rehydrateActiveAssistedJob();
-
-    let snapshotJob = deps.getActiveReleaseJob();
-    if (snapshotJob && snapshotJob.jobType === "update-assisted") {
-      const persisted = await readAssistedUpdateState();
-      if (persisted) {
-        snapshotJob = { ...snapshotJob, assisted: persisted };
-      }
-    }
-    const snapshot: ReleaseStreamEvent = { type: "snapshot", job: snapshotJob };
-    stream.write(`data: ${JSON.stringify(snapshot)}\n\n`);
-
-    stream.on("close", () => {
-      clearInterval(heartbeat);
-      deps.releaseStreamClients.delete(client);
+    deps.publishUiEvent({
+      type: "agent.upsert",
+      agent: deps.withStreamFlag(agent),
     });
+    return reply
+      .code(201)
+      .send({ agent: deps.withStreamFlag(agent), assisted: assistedState });
+  } catch (error) {
+    return deps.handleAgentError(reply, error);
+  } finally {
+    deps.setActiveAssistedUpdateLaunch(false);
+  }
+}
+
+async function handleAssistedPhase(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const body = request.body as
+    | { token?: unknown; phase?: unknown; note?: unknown; error?: unknown }
+    | undefined;
+  if (!body?.token || typeof body.token !== "string") {
+    return reply.code(400).send({ error: "token is required" });
+  }
+  if (!body.phase || typeof body.phase !== "string") {
+    return reply.code(400).send({ error: "phase is required" });
+  }
+  const result = await applyAssistedPhase({
+    token: body.token,
+    phase: body.phase as AssistedPhase,
+    note: typeof body.note === "string" ? body.note : undefined,
+    error: typeof body.error === "string" ? body.error : undefined,
   });
+  if (!result.ok) {
+    return reply.code(409).send({ error: result.reason });
+  }
+
+  const activeReleaseJob = deps.getActiveReleaseJob();
+  if (activeReleaseJob && activeReleaseJob.jobType === "update-assisted") {
+    activeReleaseJob.phase = result.state.phase;
+    activeReleaseJob.assisted = result.state;
+    if (result.state.error) activeReleaseJob.error = result.state.error;
+    const persistedNote = result.state.notes[result.state.phase];
+    const summary = persistedNote
+      ? `==> phase ${result.state.phase}: ${persistedNote}`
+      : `==> phase ${result.state.phase}`;
+    deps.appendReleaseLog(activeReleaseJob, summary);
+    deps.broadcastReleaseEvent({
+      type: "phase",
+      phase: activeReleaseJob.phase,
+    });
+    deps.broadcastReleaseEvent({ type: "assisted", state: result.state });
+  }
+
+  if (result.state.phase === "validate") {
+    const post = await runAndRecordChecks(result.state, {
+      serverDir: deps.serverDir,
+      targetTag: result.state.tag,
+      healthUrl: deps.dispatchHealthUrl(),
+    });
+    const activeJob = deps.getActiveReleaseJob();
+    if (activeJob && activeJob.jobType === "update-assisted") {
+      activeJob.phase = post.phase;
+      activeJob.assisted = post;
+      if (post.error) activeJob.error = post.error;
+      for (const check of post.checks) {
+        deps.appendReleaseLog(
+          activeJob,
+          `  - ${check.ok ? "✓" : "✗"} ${check.name}: ${check.message}`
+        );
+      }
+      deps.broadcastReleaseEvent({ type: "phase", phase: activeJob.phase });
+      deps.broadcastReleaseEvent({ type: "assisted", state: post });
+    }
+  }
+
+  return reply.code(200).send({ ok: true, state: result.state });
+}
+
+async function handleAssistedStateGet() {
+  return { state: await readAssistedUpdateState() };
+}
+
+async function handleAssistedStateClear(deps: ReleaseRouteDeps) {
+  await clearAssistedUpdateState();
+  const activeReleaseJob = deps.getActiveReleaseJob();
+  if (activeReleaseJob?.jobType === "update-assisted") {
+    deps.setActiveReleaseJob(null);
+  }
+  return { ok: true };
+}
+
+async function handleReleaseStream(
+  deps: ReleaseRouteDeps,
+  request: FastifyRequest,
+  reply: FastifyReply
+) {
+  const clientId =
+    typeof request.query === "object" &&
+    request.query !== null &&
+    "clientId" in request.query &&
+    typeof request.query.clientId === "string" &&
+    request.query.clientId.trim().length > 0
+      ? request.query.clientId.trim()
+      : "default";
+  reply.raw.setHeader("Content-Type", "text/event-stream");
+  reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
+  reply.raw.setHeader("Connection", "keep-alive");
+  reply.raw.setHeader("X-Accel-Buffering", "no");
+  reply.hijack();
+
+  const stream = reply.raw;
+  const client = { clientId, stream };
+  deps.releaseStreamClients.add(client);
+  const heartbeat = setInterval(() => {
+    stream.write(": keepalive\n\n");
+  }, 20_000);
+
+  await deps.rehydrateActiveAssistedJob();
+
+  let snapshotJob = deps.getActiveReleaseJob();
+  if (snapshotJob && snapshotJob.jobType === "update-assisted") {
+    const persisted = await readAssistedUpdateState();
+    if (persisted) {
+      snapshotJob = { ...snapshotJob, assisted: persisted };
+    }
+  }
+  const snapshot: ReleaseStreamEvent = { type: "snapshot", job: snapshotJob };
+  stream.write(`data: ${JSON.stringify(snapshot)}\n\n`);
+
+  stream.on("close", () => {
+    clearInterval(heartbeat);
+    deps.releaseStreamClients.delete(client);
+  });
+}
+
+export async function registerReleaseRoutes(
+  app: FastifyInstance,
+  deps: ReleaseRouteDeps
+): Promise<void> {
+  app.get("/api/v1/app/version", () => handleAppVersion(deps));
+  app.get("/api/v1/release/status", () => handleReleaseStatus());
+  app.get("/api/v1/release/info", (req, reply) =>
+    handleReleaseInfo(deps, req, reply)
+  );
+  app.get("/api/v1/release/cached-info", () => handleCachedInfo(deps));
+  app.get("/api/v1/release/auto-update-mode", () =>
+    handleAutoUpdateModeGet(deps)
+  );
+  app.post("/api/v1/release/auto-update-mode", (req, reply) =>
+    handleAutoUpdateModeSet(deps, req, reply)
+  );
+  app.get("/api/v1/release/channel", () => handleChannelGet(deps));
+  app.post("/api/v1/release/channel", (req, reply) =>
+    handleChannelSet(deps, req, reply)
+  );
+  app.get("/api/v1/release/admin-check", () => handleAdminCheck(deps));
+  app.post("/api/v1/release/promote", (req, reply) =>
+    handlePromote(deps, req, reply)
+  );
+  app.get("/api/v1/releases", (req, reply) =>
+    handleListReleases(deps, req, reply)
+  );
+  app.post("/api/v1/release", (req, reply) =>
+    handleCreateRelease(deps, req, reply)
+  );
+  app.post("/api/v1/release/update", (req, reply) =>
+    handleUpdate(deps, req, reply)
+  );
+  app.post("/api/v1/release/assisted/launch", (req, reply) =>
+    handleAssistedLaunch(deps, req, reply)
+  );
+  app.post("/api/v1/release/assisted/phase", (req, reply) =>
+    handleAssistedPhase(deps, req, reply)
+  );
+  app.get("/api/v1/release/assisted/state", () => handleAssistedStateGet());
+  app.delete("/api/v1/release/assisted/state", () =>
+    handleAssistedStateClear(deps)
+  );
+  app.get("/api/v1/release/stream", (req, reply) =>
+    handleReleaseStream(deps, req, reply)
+  );
 }

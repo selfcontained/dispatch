@@ -1,416 +1,39 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-import { useAtom, useSetAtom } from "jotai";
-import { Play, RotateCcw } from "lucide-react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Input } from "@/components/ui/input";
-import { api } from "@/lib/api";
-import { soundCuesEnabledAtom } from "@/lib/store";
+import { BrowserNotificationsSection } from "@/components/app/browser-notifications-section";
 import {
-  dismissedTipsAtom,
-  lastSeenVersionAtom,
-  tipsEnabledAtom,
-} from "@/lib/tips/tips-state";
-import { CUE_INTENTS, playCueForIntent, playTapCue } from "@/lib/sound-cues";
-import {
-  getNotificationPermission,
-  requestNotificationPermission,
-} from "@/lib/web-notifications";
-
-type NotifyEventType = "done" | "waiting_user" | "blocked";
-
-type NotificationSettingsResponse = {
-  webhookUrl: string;
-  notifyEvents: NotifyEventType[];
-  webNotifyEnabled: boolean;
-  webNotifyEvents: NotifyEventType[];
-};
-
-const EVENT_OPTIONS: Array<{
-  id: NotifyEventType;
-  label: string;
-  description: string;
-}> = [
-  { id: "done", label: "Done", description: "Agent finished its task" },
-  {
-    id: "waiting_user",
-    label: "Waiting for input",
-    description: "Agent needs your response",
-  },
-  {
-    id: "blocked",
-    label: "Blocked",
-    description: "Agent hit an error or obstacle",
-  },
-];
-
-function SoundCuesSection(): JSX.Element {
-  const [enabled, setEnabled] = useAtom(soundCuesEnabledAtom);
-  return (
-    <div>
-      <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Sound Cues
-      </h3>
-      <p className="mb-3 text-sm text-muted-foreground">
-        Soft tones for agent status changes and mobile toolbar taps. This device
-        only.
-      </p>
-      <div className="max-w-lg space-y-3">
-        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
-          <Checkbox
-            checked={enabled}
-            onCheckedChange={(checked) => setEnabled(checked === true)}
-            data-testid="sound-cues-enabled"
-          />
-          <div className="text-sm font-medium text-foreground">Enable</div>
-        </label>
-        {enabled && (
-          <div className="grid grid-cols-2 gap-2 pl-1">
-            {CUE_INTENTS.map(({ intent, label }) => (
-              <Button
-                key={intent}
-                variant="default"
-                size="sm"
-                onClick={() => playCueForIntent(intent)}
-                data-testid={`sound-preview-${intent}`}
-                className="gap-1.5"
-              >
-                <Play className="h-3 w-3" />
-                {label}
-              </Button>
-            ))}
-            <Button
-              variant="default"
-              size="sm"
-              onClick={() => playTapCue()}
-              data-testid="sound-preview-tap"
-              className="gap-1.5"
-            >
-              <Play className="h-3 w-3" />
-              Mobile tap
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function TipsSection(): JSX.Element {
-  const [enabled, setEnabled] = useAtom(tipsEnabledAtom);
-  const setDismissed = useSetAtom(dismissedTipsAtom);
-  const setLastSeenVersion = useSetAtom(lastSeenVersionAtom);
-
-  return (
-    <div>
-      <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Tips & Guidance
-      </h3>
-      <p className="mb-3 text-sm text-muted-foreground">
-        Contextual tips that highlight features and link to docs. This device
-        only.
-      </p>
-      <div className="max-w-lg space-y-3">
-        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
-          <Checkbox
-            checked={enabled}
-            onCheckedChange={(checked) => setEnabled(checked === true)}
-            data-testid="tips-enabled"
-          />
-          <div className="text-sm font-medium text-foreground">Show tips</div>
-        </label>
-        <Button
-          variant="default"
-          size="sm"
-          onClick={() => {
-            setDismissed([]);
-            setLastSeenVersion("0.0.0");
-            toast.success(
-              "Tips reset — you'll see them again as you use the app."
-            );
-          }}
-          data-testid="reset-dismissed-tips"
-          className="gap-1.5"
-        >
-          <RotateCcw className="h-3 w-3" />
-          Reset dismissed tips
-        </Button>
-      </div>
-    </div>
-  );
-}
+  SoundCuesSection,
+  TipsSection,
+} from "@/components/app/notification-device-sections";
+import { SlackNotificationsSection } from "@/components/app/slack-notifications-section";
+import { useNotificationSettings } from "@/components/app/use-notification-settings";
 
 export function NotificationSettings(): JSX.Element {
-  // Slack settings
-  const [webhookUrl, setWebhookUrl] = useState("");
-  const [savedUrl, setSavedUrl] = useState("");
-  const [notifyEvents, setNotifyEvents] = useState<NotifyEventType[]>([
-    "done",
-    "waiting_user",
-    "blocked",
-  ]);
-  const [savedEvents, setSavedEvents] = useState<NotifyEventType[]>([]);
-
-  // Web notification settings
-  const [webNotifyEnabled, setWebNotifyEnabled] = useState(false);
-  const [savedWebEnabled, setSavedWebEnabled] = useState(false);
-  const [webNotifyEvents, setWebNotifyEvents] = useState<NotifyEventType[]>([
-    "done",
-    "waiting_user",
-    "blocked",
-  ]);
-  const [savedWebEvents, setSavedWebEvents] = useState<NotifyEventType[]>([]);
-  const [browserPermission, setBrowserPermission] =
-    useState<NotificationPermission>(getNotificationPermission());
-
-  // Re-check permission when the user returns to this page (e.g. after
-  // changing settings in iOS Settings or browser site settings).
-  useEffect(() => {
-    const onVisibilityChange = () => {
-      if (!document.hidden) {
-        setBrowserPermission(getNotificationPermission());
-      }
-    };
-    document.addEventListener("visibilitychange", onVisibilityChange);
-    return () =>
-      document.removeEventListener("visibilitychange", onVisibilityChange);
-  }, []);
-
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
-  const [message, setMessage] = useState("");
-  const [error, setError] = useState("");
-  const [webMessage, setWebMessage] = useState("");
-  const [webError, setWebError] = useState("");
-  const webNotifyEnabledRef = useRef(webNotifyEnabled);
-  const webNotifyEventsRef = useRef(webNotifyEvents);
-  const savedWebEnabledRef = useRef(savedWebEnabled);
-  const savedWebEventsRef = useRef(savedWebEvents);
-  const webSaveRequestIdRef = useRef(0);
-
-  useEffect(() => {
-    let cancelled = false;
-    void (async () => {
-      try {
-        const data = await api<NotificationSettingsResponse>(
-          "/api/v1/notifications/settings"
-        );
-        if (cancelled) return;
-        setWebhookUrl(data.webhookUrl);
-        setSavedUrl(data.webhookUrl);
-        setNotifyEvents(data.notifyEvents);
-        setSavedEvents(data.notifyEvents);
-        setWebNotifyEnabled(data.webNotifyEnabled);
-        setSavedWebEnabled(data.webNotifyEnabled);
-        setWebNotifyEvents(data.webNotifyEvents);
-        setSavedWebEvents(data.webNotifyEvents);
-      } catch {
-        // ignore — first load may fail if server is starting
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    webNotifyEnabledRef.current = webNotifyEnabled;
-    webNotifyEventsRef.current = webNotifyEvents;
-    savedWebEnabledRef.current = savedWebEnabled;
-    savedWebEventsRef.current = savedWebEvents;
-  }, [savedWebEnabled, savedWebEvents, webNotifyEnabled, webNotifyEvents]);
-
-  const hasChanges =
-    webhookUrl !== savedUrl ||
-    JSON.stringify([...notifyEvents].sort()) !==
-      JSON.stringify([...savedEvents].sort()) ||
-    webNotifyEnabled !== savedWebEnabled ||
-    JSON.stringify([...webNotifyEvents].sort()) !==
-      JSON.stringify([...savedWebEvents].sort());
-
-  const handleSave = useCallback(async () => {
-    setError("");
-    setMessage("");
-    setSaving(true);
-    try {
-      const data = await api<NotificationSettingsResponse>(
-        "/api/v1/notifications/settings",
-        {
-          method: "POST",
-          body: JSON.stringify({
-            webhookUrl,
-            notifyEvents,
-            webNotifyEnabled,
-            webNotifyEvents,
-          }),
-        }
-      );
-      setSavedUrl(data.webhookUrl);
-      setSavedEvents(data.notifyEvents);
-      setWebhookUrl(data.webhookUrl);
-      setNotifyEvents(data.notifyEvents);
-      setSavedWebEnabled(data.webNotifyEnabled);
-      setSavedWebEvents(data.webNotifyEvents);
-      setWebNotifyEnabled(data.webNotifyEnabled);
-      setWebNotifyEvents(data.webNotifyEvents);
-      setMessage("Settings saved.");
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save.");
-    } finally {
-      setSaving(false);
-    }
-  }, [webhookUrl, notifyEvents, webNotifyEnabled, webNotifyEvents]);
-
-  const persistWebNotificationSettings = useCallback(
-    async (
-      nextEnabled: boolean,
-      nextEvents: NotifyEventType[]
-    ): Promise<boolean> => {
-      const requestId = webSaveRequestIdRef.current + 1;
-      webSaveRequestIdRef.current = requestId;
-      setWebError("");
-      setWebMessage("");
-      setSaving(true);
-      try {
-        const data = await api<NotificationSettingsResponse>(
-          "/api/v1/notifications/settings",
-          {
-            method: "POST",
-            body: JSON.stringify({
-              webNotifyEnabled: nextEnabled,
-              webNotifyEvents: nextEvents,
-            }),
-          }
-        );
-        if (webSaveRequestIdRef.current !== requestId) {
-          return true;
-        }
-        setSavedWebEnabled(data.webNotifyEnabled);
-        setSavedWebEvents(data.webNotifyEvents);
-        setWebNotifyEnabled(data.webNotifyEnabled);
-        setWebNotifyEvents(data.webNotifyEvents);
-        setWebMessage("Browser notification settings saved.");
-        return true;
-      } catch (err) {
-        if (webSaveRequestIdRef.current !== requestId) {
-          return true;
-        }
-        setWebError(
-          err instanceof Error
-            ? err.message
-            : "Failed to save browser notifications."
-        );
-        return false;
-      } finally {
-        if (webSaveRequestIdRef.current === requestId) {
-          setSaving(false);
-        }
-      }
-    },
-    []
-  );
-
-  const handleTest = useCallback(async () => {
-    setError("");
-    setMessage("");
-    setTesting(true);
-    try {
-      const result = await api<{ ok: boolean; error?: string }>(
-        "/api/v1/notifications/test",
-        {
-          method: "POST",
-          body: JSON.stringify({ webhookUrl: webhookUrl || undefined }),
-        }
-      );
-      if (result.ok) {
-        setMessage("Test message sent — check your Slack channel!");
-      } else {
-        setError(result.error ?? "Test failed.");
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to send test.");
-    } finally {
-      setTesting(false);
-    }
-  }, [webhookUrl]);
-
-  const toggleEvent = useCallback((eventType: NotifyEventType) => {
-    setNotifyEvents((prev) =>
-      prev.includes(eventType)
-        ? prev.filter((e) => e !== eventType)
-        : [...prev, eventType]
-    );
-  }, []);
-
-  const toggleWebEvent = useCallback(
-    async (eventType: NotifyEventType) => {
-      const previousEnabled = webNotifyEnabledRef.current;
-      const previousEvents = webNotifyEventsRef.current;
-      const nextEvents = previousEvents.includes(eventType)
-        ? previousEvents.filter((e) => e !== eventType)
-        : [...previousEvents, eventType];
-
-      setWebNotifyEvents(nextEvents);
-      const saved = await persistWebNotificationSettings(
-        previousEnabled,
-        nextEvents
-      );
-      if (!saved) {
-        setWebNotifyEnabled(savedWebEnabledRef.current);
-        setWebNotifyEvents(savedWebEventsRef.current);
-      }
-    },
-    [persistWebNotificationSettings]
-  );
-
-  const toggleWebNotifyEnabled = useCallback(
-    async (checked: boolean) => {
-      const previousEvents = webNotifyEventsRef.current;
-      const nextEnabled = checked;
-
-      setWebNotifyEnabled(nextEnabled);
-      const saved = await persistWebNotificationSettings(
-        nextEnabled,
-        previousEvents
-      );
-      if (!saved) {
-        setWebNotifyEnabled(savedWebEnabledRef.current);
-        setWebNotifyEvents(savedWebEventsRef.current);
-      }
-    },
-    [persistWebNotificationSettings]
-  );
-
-  const handleRequestPermission = useCallback(async () => {
-    const result = await requestNotificationPermission();
-    setBrowserPermission(result);
-  }, []);
-
-  const handleTestWebNotification = useCallback(() => {
-    if (Notification.permission !== "granted") return;
-    new Notification("Dispatch test notification", {
-      body: "Browser notifications are working!",
-      tag: "dispatch-test",
-    });
-    setMessage("Test notification sent — check your browser!");
-  }, []);
+  const {
+    loading,
+    webhookUrl,
+    handleWebhookUrlChange,
+    notifyEvents,
+    toggleEvent,
+    webNotifyEnabled,
+    webNotifyEvents,
+    browserPermission,
+    toggleWebEvent,
+    toggleWebNotifyEnabled,
+    handleRequestPermission,
+    handleTestWebNotification,
+    saving,
+    testing,
+    message,
+    error,
+    webMessage,
+    webError,
+    hasChanges,
+    handleSave,
+    handleTest,
+  } = useNotificationSettings();
 
   if (loading) {
     return <div className="p-6 text-sm text-muted-foreground">Loading...</div>;
   }
-
-  const notificationsSupported = typeof Notification !== "undefined";
-  const isStandalone =
-    window.matchMedia("(display-mode: standalone)").matches ||
-    ("standalone" in navigator &&
-      (navigator as { standalone?: boolean }).standalone === true);
-  const isIOS =
-    /iPad|iPhone|iPod/.test(navigator.userAgent) ||
-    (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
   return (
     <div className="flex flex-col gap-8 overflow-y-auto p-6">
@@ -420,227 +43,33 @@ export function NotificationSettings(): JSX.Element {
         <TipsSection />
       </div>
 
-      {/* Browser Notifications */}
-      <div className="border-t border-border pt-8">
-        <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Browser Notifications
-        </h3>
-        <p className="mb-3 text-sm text-muted-foreground">
-          Get native desktop or mobile notifications when agents need attention.
-          When enabled and the app is open, browser notifications are used
-          instead of Slack.
-        </p>
+      <BrowserNotificationsSection
+        webNotifyEnabled={webNotifyEnabled}
+        webNotifyEvents={webNotifyEvents}
+        browserPermission={browserPermission}
+        saving={saving}
+        webError={webError}
+        webMessage={webMessage}
+        onRequestPermission={handleRequestPermission}
+        onToggleWebNotifyEnabled={toggleWebNotifyEnabled}
+        onToggleWebEvent={toggleWebEvent}
+        onTestWebNotification={handleTestWebNotification}
+      />
 
-        {!notificationsSupported ? (
-          <p className="text-sm text-muted-foreground/70">
-            Browser notifications are not supported in this browser.
-            {isIOS && !isStandalone
-              ? " On iOS/iPadOS, install Dispatch as a PWA (Add to Home Screen) to enable notifications."
-              : ""}
-          </p>
-        ) : (
-          <div className="max-w-lg space-y-4">
-            {/* Permission status + grant button */}
-            {browserPermission !== "granted" ? (
-              <div className="flex items-center gap-3 rounded border border-border px-3 py-2.5">
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm text-foreground">
-                    {browserPermission === "denied"
-                      ? "Notifications blocked"
-                      : "Permission required"}
-                  </div>
-                  <div className="text-xs text-muted-foreground">
-                    {browserPermission === "denied"
-                      ? isIOS
-                        ? "Open device Settings > Notifications > Dispatch to enable, or tap Allow to re-request"
-                        : "Update the notification permission in your browser settings, or tap Allow to re-request"
-                      : isIOS
-                        ? "Tap Allow, then confirm in the system prompt"
-                        : "Your browser needs permission to show notifications"}
-                  </div>
-                </div>
-                <Button
-                  variant="primary"
-                  size="sm"
-                  onClick={() => void handleRequestPermission()}
-                >
-                  Allow
-                </Button>
-              </div>
-            ) : null}
-
-            {/* Enable toggle */}
-            <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
-              <Checkbox
-                checked={webNotifyEnabled}
-                disabled={browserPermission !== "granted" || saving}
-                onCheckedChange={(checked) =>
-                  void toggleWebNotifyEnabled(checked === true)
-                }
-                data-testid="web-notify-enabled"
-              />
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">
-                  Enable browser notifications
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {browserPermission === "granted"
-                    ? "Show notifications when agents change status"
-                    : "Grant permission above to enable"}
-                </div>
-              </div>
-            </label>
-
-            {/* Web event toggles */}
-            {webNotifyEnabled && browserPermission === "granted" && (
-              <div className="space-y-2 pl-1">
-                <div className="text-xs text-muted-foreground">Notify on:</div>
-                {EVENT_OPTIONS.map(({ id, label, description }) => (
-                  <label
-                    key={id}
-                    className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
-                  >
-                    <Checkbox
-                      checked={webNotifyEvents.includes(id)}
-                      disabled={saving}
-                      onCheckedChange={() => void toggleWebEvent(id)}
-                      data-testid={`web-notify-event-${id}`}
-                    />
-                    <div className="min-w-0">
-                      <div className="text-sm font-medium text-foreground">
-                        {label}
-                      </div>
-                      <div className="text-xs text-muted-foreground">
-                        {description}
-                      </div>
-                    </div>
-                  </label>
-                ))}
-                <div className="pt-1">
-                  <Button
-                    variant="default"
-                    size="sm"
-                    onClick={handleTestWebNotification}
-                    data-testid="test-web-notification"
-                  >
-                    Send test
-                  </Button>
-                </div>
-              </div>
-            )}
-            {webError ? (
-              <p className="text-sm text-destructive">{webError}</p>
-            ) : null}
-            {webMessage ? (
-              <p className="text-sm text-status-working">{webMessage}</p>
-            ) : null}
-          </div>
-        )}
-      </div>
-
-      {/* Slack Webhook */}
-      <div className="border-t border-border pt-8">
-        <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Slack Webhook
-        </h3>
-        <p className="mb-3 text-sm text-muted-foreground">
-          Receive notifications in Slack when agents finish, need input, or get
-          blocked.
-          {webNotifyEnabled && (
-            <>
-              {" "}
-              When browser notifications are active, Slack is used as a fallback
-              for when the app is closed.
-            </>
-          )}
-          {!webNotifyEnabled && (
-            <>
-              {" "}
-              Create an{" "}
-              <a
-                href="https://api.slack.com/messaging/webhooks"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-blue-400 hover:underline"
-              >
-                Incoming Webhook
-              </a>{" "}
-              in your Slack workspace and paste the URL below.
-            </>
-          )}
-        </p>
-        <div className="max-w-lg space-y-3">
-          <Input
-            type="url"
-            placeholder="https://hooks.slack.com/services/..."
-            value={webhookUrl}
-            onChange={(e) => {
-              setWebhookUrl(e.target.value);
-              setMessage("");
-              setError("");
-            }}
-            data-testid="slack-webhook-url"
-          />
-        </div>
-      </div>
-
-      {/* Slack Event toggles */}
-      <div>
-        <h3 className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-          Slack notify on
-        </h3>
-        <p className="mb-3 text-sm text-muted-foreground">
-          Choose which agent status changes trigger a Slack notification.
-        </p>
-        <div className="max-w-lg space-y-2">
-          {EVENT_OPTIONS.map(({ id, label, description }) => (
-            <label
-              key={id}
-              className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50"
-            >
-              <Checkbox
-                checked={notifyEvents.includes(id)}
-                onCheckedChange={() => toggleEvent(id)}
-                data-testid={`notify-event-${id}`}
-              />
-              <div className="min-w-0">
-                <div className="text-sm font-medium text-foreground">
-                  {label}
-                </div>
-                <div className="text-xs text-muted-foreground">
-                  {description}
-                </div>
-              </div>
-            </label>
-          ))}
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div className="max-w-lg">
-        {error && <p className="mb-3 text-sm text-destructive">{error}</p>}
-        {message && (
-          <p className="mb-3 text-sm text-status-working">{message}</p>
-        )}
-        <div className="flex gap-2">
-          <Button
-            variant="primary"
-            disabled={saving || !hasChanges}
-            onClick={() => void handleSave()}
-            data-testid="save-notification-settings"
-          >
-            {saving ? "Saving..." : "Save"}
-          </Button>
-          <Button
-            variant="default"
-            disabled={testing || !webhookUrl}
-            onClick={() => void handleTest()}
-            data-testid="test-slack-webhook"
-          >
-            {testing ? "Sending..." : "Send Slack test"}
-          </Button>
-        </div>
-      </div>
+      <SlackNotificationsSection
+        webhookUrl={webhookUrl}
+        webNotifyEnabled={webNotifyEnabled}
+        notifyEvents={notifyEvents}
+        saving={saving}
+        testing={testing}
+        hasChanges={hasChanges}
+        message={message}
+        error={error}
+        onWebhookUrlChange={handleWebhookUrlChange}
+        onToggleEvent={toggleEvent}
+        onSave={handleSave}
+        onTest={handleTest}
+      />
     </div>
   );
 }

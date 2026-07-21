@@ -243,8 +243,8 @@ export function PersonaLauncher({
               <DialogTitle>Launch Review</DialogTitle>
               <DialogDescription>
                 Pick a reviewer persona and review agent type. The reviewer will
-                automatically do a follow-up verification pass after you resolve
-                its feedback.
+                submit one tracked review, with follow-up discussion kept in its
+                feedback item threads.
               </DialogDescription>
             </DialogHeader>
 

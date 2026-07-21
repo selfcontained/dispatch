@@ -22,10 +22,10 @@ export function PersonasContent() {
           what they are seeing. Small diffs are also included inline; large
           diffs (over ~15 KB) are replaced with a file-level summary plus those
           commands so the reviewer can inspect specific files in the worktree.
-          The child reviews the work, pings progress with{" "}
-          <Code>review_status</Code>, submits findings via{" "}
-          <Code>dispatch_feedback</Code>, and finishes with{" "}
-          <Code>dispatch_complete_review</Code>. Pass{" "}
+          The child reviews the work and calls{" "}
+          <Code>dispatch_review_submit</Code> once with every initial finding.
+          The summary is optional when feedback items carry the review, and
+          required for a clean approval with no items. Pass{" "}
           <Code>includeDiff: false</Code> for non-code reviews (PRDs, docs,
           media) where the git diff is not the review target.
         </P>
@@ -77,88 +77,42 @@ issues caused or worsened by this diff.`}</CodeBlock>
       <Section>
         <H3>Submitting findings</H3>
         <P>
-          Persona agents submit findings with the <Code>dispatch_feedback</Code>{" "}
-          tool. Each finding includes a severity (<Code>critical</Code>,{" "}
-          <Code>high</Code>, <Code>medium</Code>, <Code>low</Code>,{" "}
-          <Code>info</Code>), a description, and optionally a file path, line
-          number, and suggested fix. Findings appear in the Feedback panel where
-          you can review and resolve them.
+          <Code>dispatch_review_submit</Code> creates the review record only
+          after the reviewer has completed its initial pass. Each optional
+          feedback item contains a concrete comment and may include a file path
+          and line range. A reviewer that finds no issues submits an empty
+          feedback array; Dispatch still records its summary as a resolved
+          approval.
         </P>
         <P>
-          Each finding can be marked <strong>Fixed</strong>,{" "}
-          <strong>Ignored</strong> (requires a reason), or forwarded to the
-          agent. Resolved items show a status badge and — when resolved via the
-          round-trip flow — display the resolution reason and the commit SHA
-          that was submitted. Items marked Ignored include the reason inline so
-          the reviewer sees it during recheck.
+          After submission, <Code>dispatch_review_add_feedback</Code> adds only
+          a genuinely new concern. Clarifying questions and replies belong in
+          the existing item's tracked thread via{" "}
+          <Code>dispatch_review_add_message</Code>.
         </P>
       </Section>
 
       <Section>
         <H3>Review lifecycle</H3>
         <P>
-          Persona agents ping progress with the <Code>review_status</Code> tool
-          — a short <Code>message</Code> each time the reviewer shifts to a
-          distinct phase (e.g. "Reading diff", "Running tests"). To finish, they
-          call <Code>dispatch_complete_review</Code> with a <Code>verdict</Code>{" "}
-          of <Code>approve</Code> or <Code>request_changes</Code>, a{" "}
-          <Code>summary</Code>, and optionally a list of{" "}
-          <Code>filesReviewed</Code>. The verdict and summary show up on the
-          review agent's card in the UI.
-        </P>
-      </Section>
-
-      <Section>
-        <H3>Round-trip reviews</H3>
-        <P>
-          When a reviewer finishes round 1 with <Code>request_changes</Code> (or{" "}
-          <Code>approve</Code> with feedback), the review enters a recheck pass.
-          The reviewer stays alive, waiting for the parent to resolve feedback
-          and submit a resolution — then performs a second pass and emits a
-          final verdict. If the reviewer approves with no feedback, the recheck
-          is skipped and the review completes immediately.
+          Reviews use the same flexible feedback-item model whether the reviewer
+          is a human or an agent. The parent reads the current state with{" "}
+          <Code>dispatch_review_list_feedback</Code>, converses through each
+          item's thread, and asks the persona reviewer to verify each fix. The
+          reviewer re-inspects the change, resolves a completed item with{" "}
+          <Code>dispatch_review_resolve</Code>, or replies with further
+          instructions while leaving it open. Use{" "}
+          <Code>dispatch_review_reopen</Code> if a resolved concern needs more
+          work. Review status is derived automatically: open while any item is
+          open, partially resolved when only some are resolved, and resolved
+          when every item is resolved.
         </P>
         <P>
-          The handoff is push-based: when each round transitions, the server
-          injects a fresh prompt into the receiving agent's terminal. There is
-          no tool to poll. The parent uses these tools to act on each prompt as
-          it arrives:
-        </P>
-        <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
-          <li>
-            <Code>dispatch_get_feedback</Code> — read the findings for a
-            specific review when the round-1 prompt arrives.
-          </li>
-          <li>
-            <Code>dispatch_resolve_feedback</Code> — mark each item{" "}
-            <Code>fixed</Code> or <Code>ignored</Code>. Ignored items require a{" "}
-            <Code>reason</Code>; the reviewer sees it on round 2.
-          </li>
-          <li>
-            <Code>dispatch_submit_resolution</Code> — commit your fixes first,
-            then submit a 1–3 sentence <Code>summary</Code>. The server captures
-            the current HEAD as the resolution commit, and the reviewer's
-            round-2 diff is computed from there. Submitting with uncommitted
-            changes gives the reviewer an empty diff, and it will re-flag the
-            same issues.
-          </li>
-          <li>
-            <Code>dispatch_cancel_recheck</Code> — abort the loop so the
-            reviewer exits cleanly.
-          </li>
-        </ul>
-        <P>
-          For round 2, the server pushes a prompt into the reviewer's terminal
-          telling it to call <Code>dispatch_get_recheck_context</Code> — that
-          tool returns the parent's resolution summary, per-item resolutions,
-          and the exact commit range to inspect with <Code>git diff</Code>{" "}
-          locally. The reviewer re-checks each original finding (linking any new
-          feedback back to the original via <Code>respondsToFeedbackId</Code>)
-          and calls <Code>dispatch_complete_review</Code> a second time with a
-          final verdict — at which point the server pushes a final prompt into
-          the parent's terminal. Round number, the parent's resolution, and the
-          round-2 verdict are stacked on the reviewer's card in the UI; the row
-          also highlights while a review is in progress.
+          Every review action is push-based. Dispatch injects clearly delimited
+          blocks when a review is submitted, a thread receives a message, or an
+          item is resolved or reopened. This keeps both agents aware without
+          polling, sleeping, using direct messages, or imposing a fixed
+          round/recheck sequence.
         </P>
       </Section>
     </>

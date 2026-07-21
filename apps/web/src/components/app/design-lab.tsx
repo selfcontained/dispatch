@@ -18,73 +18,23 @@ const refractorAdapter = {
   },
 };
 
-const SAMPLE_DIFF = `diff --git a/apps/web/src/components/app/agents-view.tsx b/apps/web/src/components/app/agents-view.tsx
---- a/apps/web/src/components/app/agents-view.tsx
-+++ b/apps/web/src/components/app/agents-view.tsx
-@@ -1,11 +1,5 @@
- import { useCallback, useEffect, useMemo, useRef, useState } from "react";
--import {
--  Routes,
--  Route,
--  useMatch,
--  useNavigate,
--  useParams,
--} from "react-router-dom";
-+import { Routes, Route, useParams } from "react-router-dom";
- import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
-
- import { ChangesTab } from "@/components/app/changes-tab";
-@@ -23,12 +17,9 @@
- import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
- import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
- import {
--  type FeedbackDetailState,
--  FeedbackDetailPanel,
--  MobileFeedbackSheet,
--  MobileReviewSummarySheet,
--  ReviewSummaryPanel,
--} from "@/components/app/feedback-panel";
-+  DesktopFeedbackDetail,
-+  MobileFeedbackDetail,
-+} from "@/components/app/agents-view-feedback-detail";
- import { MediaLightbox } from "@/components/app/media-lightbox";
- import { cn } from "@/lib/utils";
- import { useAgentActions } from "@/hooks/use-agent-actions";
-@@ -52,13 +43,7 @@
- }: AgentsViewProps): JSX.Element {
--  const navigate = useNavigate();
-   const { agentId: routeAgentId } = useParams();
--  const feedbackMatch = useMatch("/agents/:agentId/feedback/:itemId");
--  const reviewMatch = useMatch("/agents/:agentId/review/:summaryAgentId");
--  const changesMatch = useMatch("/agents/:agentId/changes");
--  const itemId = feedbackMatch?.params.itemId;
--  const summaryAgentId = reviewMatch?.params.summaryAgentId;
-
-   const [sharedConnectedAgentId, setSharedConnectedAgentId] = useState<
-     string | null
-@@ -80,6 +65,22 @@
-     routeAgentId ?? null
-   );
-
-+  const {
-+    changesMatch,
-+    feedbackDetail,
-+    feedbackDetailRendered,
-+    handleFeedbackTransitionEnd,
-+    closeFeedbackDetail,
-+    openFeedbackDetail,
-+    navigateFeedbackItem,
-+    onTabChange,
-+  } = useAgentsViewRouting({
-+    routeAgentId,
-+    agents,
-+    agentsLoaded,
-+    validatedSelectedAgentId,
-+  });
+const SAMPLE_DIFF = `diff --git a/apps/web/src/components/app/child-agent-row.tsx b/apps/web/src/components/app/child-agent-row.tsx
+--- a/apps/web/src/components/app/child-agent-row.tsx
++++ b/apps/web/src/components/app/child-agent-row.tsx
+@@ -38,8 +38,13 @@ export function ChildAgentRow({
+   const isStopped = state === "stopped";
+   const isReviewAgent = agent.role === "review";
++  const canOpenSubmittedReview =
++    isReviewAgent && agent.submittedReviewId != null;
++  const showReviewActivity =
++    isReviewAgent && agent.status === "running" && isInitialReviewActive;
+   const displayName = agent.persona ?? agent.name;
+-  const showReviewActivity = agent.status === "running";
 +
-   const [createOpen, setCreateOpen] = useState(false);
-   const [requestedCreateType, setRequestedCreateType] =
-     useState<AgentType | null>(null);
++  // A submitted review becomes the durable source of review completion.
+   const statusLabel = isStopped
+     ? "Stopped"
+     : agent.status === "error"
 `;
 
 function DiffPreview() {
@@ -112,10 +62,10 @@ function DiffPreview() {
     <div className="changes-diff-view rounded-lg border border-border overflow-hidden text-xs">
       <div className="flex items-center gap-2 px-3 py-2 bg-card border-b border-border">
         <span className="font-mono text-muted-foreground">
-          src/components/app/agents-view.tsx
+          src/components/app/child-agent-row.tsx
         </span>
-        <span className="text-green-500 text-xs">+22</span>
-        <span className="text-red-500 text-xs">-18</span>
+        <span className="text-status-done text-xs">+6</span>
+        <span className="text-status-blocked text-xs">-1</span>
       </div>
       <Diff
         viewType="unified"

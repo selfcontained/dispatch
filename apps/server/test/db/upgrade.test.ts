@@ -10,7 +10,7 @@
  * When there's only one migration (the baseline), the test is skipped
  * since there's no upgrade path to test yet.
  */
-import { readdirSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
@@ -27,7 +27,10 @@ const migrationFiles = readdirSync(migrationsDir)
   .filter((f) => f.endsWith(".sql") || f.endsWith(".ts") || f.endsWith(".js"))
   .sort();
 
-const hasMigrationsToTest = migrationFiles.length > 1;
+const reviewMigrationStart = migrationFiles.indexOf(
+  "0032_migrate-persona-reviews.sql"
+);
+const hasMigrationsToTest = reviewMigrationStart > 0;
 
 let pool: Pool;
 
@@ -40,27 +43,23 @@ afterAll(async () => {
 });
 
 describe.skipIf(!hasMigrationsToTest)(
-  "upgrade: applying latest migration preserves existing data",
+  "upgrade: applying unified review migrations preserves existing data",
   () => {
-    it("should apply all migrations except the last", async () => {
-      const countBeforeLast = migrationFiles.length - 1;
-
+    it("should apply all migrations before the unified review migration", async () => {
       await runMigrations({
         databaseUrl: getTestDatabaseUrl(),
-        count: countBeforeLast,
+        count: reviewMigrationStart,
       });
 
-      // Verify the last migration has NOT been applied
+      // Verify the unified review migration chain has NOT been applied.
       const applied = await pool.query(
         `SELECT name FROM pgmigrations ORDER BY run_on`
       );
       const appliedNames = applied.rows.map((r: { name: string }) => r.name);
-      expect(appliedNames).toHaveLength(countBeforeLast);
-
-      const lastMigrationName = migrationFiles[
-        migrationFiles.length - 1
-      ].replace(/\.[^.]+$/, "");
-      expect(appliedNames).not.toContain(lastMigrationName);
+      expect(appliedNames).toHaveLength(reviewMigrationStart);
+      expect(appliedNames).not.toContain("0032_migrate-persona-reviews");
+      expect(appliedNames).not.toContain("0033_review-agent-role");
+      expect(appliedNames).not.toContain("0034_unique-agent-review");
     });
 
     it("should seed representative data", async () => {
@@ -70,7 +69,46 @@ describe.skipIf(!hasMigrationsToTest)(
         ('agent-1', 'My Agent', 'claude-code', 'running', '/home/user/project', true,
          '["--model", "opus"]'::jsonb,
          '[{"label":"API","value":"http://localhost:3000","type":"url"}]'::jsonb),
-        ('agent-2', 'Helper', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb)
+        ('agent-2', 'Helper', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb),
+        ('agent-3', 'Security Reviewer', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb),
+        ('agent-4', 'Clean Reviewer', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb),
+        ('agent-5', 'Resolved Reviewer', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb),
+        ('agent-6', 'Already Migrated Reviewer', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb),
+        ('agent-7', 'Active Reviewer', 'codex', 'running', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb),
+        ('agent-8', 'Cancelled Reviewer', 'codex', 'stopped', '/tmp/work', false, '[]'::jsonb, '[]'::jsonb)
+    `);
+
+      await pool.query(`
+      UPDATE agents
+      SET persona = CASE id
+            WHEN 'agent-3' THEN 'security-review'
+            WHEN 'agent-4' THEN 'architecture-review'
+            WHEN 'agent-5' THEN 'infra-review'
+            WHEN 'agent-6' THEN 'product-review'
+            WHEN 'agent-7' THEN 'frontend-ux-review'
+            WHEN 'agent-8' THEN 'release-readiness-review'
+          END,
+          parent_agent_id = 'agent-1'
+      WHERE id IN ('agent-3', 'agent-4', 'agent-5', 'agent-6', 'agent-7', 'agent-8')
+    `);
+
+      await pool.query(`
+      INSERT INTO persona_reviews
+        (agent_id, parent_agent_id, persona, status, verdict, summary)
+      VALUES
+        ('agent-3', 'agent-1', 'security-review', 'complete', 'request_changes', 'One security concern.'),
+        ('agent-4', 'agent-1', 'architecture-review', 'complete', 'approve', 'Architecture is sound.'),
+        ('agent-5', 'agent-1', 'infra-review', 'awaiting_recheck', 'request_changes', '   '),
+        ('agent-6', 'agent-1', 'product-review', 'complete', 'request_changes', 'Legacy duplicate must be skipped.'),
+        ('agent-7', 'agent-1', 'frontend-ux-review', 'reviewing', NULL, NULL),
+        ('agent-8', 'agent-1', 'release-readiness-review', 'cancelled', NULL, NULL)
+    `);
+
+      await pool.query(`
+      INSERT INTO reviews
+        (agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, summary, status)
+      VALUES
+        ('agent-1', 'agent-1', 'agent', 'agent-6', 'Existing unified review.', 'open')
     `);
 
       await pool.query(`
@@ -108,8 +146,22 @@ describe.skipIf(!hasMigrationsToTest)(
     `);
 
       await pool.query(`
-      INSERT INTO agent_feedback (agent_id, severity, file_path, line_number, description, suggestion, status)
-      VALUES ('agent-1', 'warning', 'src/index.ts', 42, 'Unused import', 'Remove the import', 'open')
+      INSERT INTO agent_feedback (
+        agent_id, severity, file_path, line_number, description, suggestion,
+        status, resolution_reason, resolved_at
+      )
+      VALUES
+        ('agent-1', 'warning', 'src/index.ts', 42, 'Unused import', 'Remove the import', 'open', NULL, NULL),
+        ('agent-3', 'high', 'src/auth.ts', 12, 'Missing authorization check', 'Validate ownership', 'open', NULL, NULL),
+        ('agent-3', 'medium', 'src/session.ts', 18, 'Forwarded concern', NULL, 'forwarded', NULL, NULL),
+        ('agent-3', 'low', 'src/cache.ts', 24, 'Fixed concern', 'Use the shared cache.', 'fixed', 'Implemented shared cache.', NOW() - INTERVAL '3 minutes'),
+        ('agent-3', 'info', 'src/log.ts', 30, 'Ignored concern', '   ', 'ignored', 'Not applicable here.', NOW() - INTERVAL '2 minutes'),
+        ('agent-3', 'info', 'src/old.ts', 36, 'Dismissed concern', NULL, 'dismissed', NULL, NOW() - INTERVAL '1 minute'),
+        ('agent-5', 'high', 'infra/deploy.ts', 5, 'Resolved deploy concern', NULL, 'fixed', NULL, NOW() - INTERVAL '3 minutes'),
+        ('agent-5', 'medium', NULL, NULL, 'Resolved general concern', NULL, 'ignored', 'Accepted risk.', NOW() - INTERVAL '2 minutes'),
+        ('agent-5', 'low', 'infra/old.ts', 9, 'Dismissed deploy concern', NULL, 'dismissed', 'Obsolete path.', NOW() - INTERVAL '1 minute'),
+        ('agent-6', 'medium', 'src/duplicate.ts', 7, 'Must not duplicate', NULL, 'open', NULL, NULL),
+        ('agent-7', 'medium', 'src/in-progress.ts', 11, 'Still being reviewed', NULL, 'open', NULL, NULL)
     `);
 
       await pool.query(`
@@ -118,8 +170,8 @@ describe.skipIf(!hasMigrationsToTest)(
     `);
     });
 
-    it("should apply the latest migration without errors", async () => {
-      // Run remaining migrations (just the last one)
+    it("should apply the unified review migrations without errors", async () => {
+      // Run the persona migration, role backfill, and unique-index migration.
       await runMigrations(getTestDatabaseUrl());
 
       // All migrations should now be applied
@@ -131,7 +183,7 @@ describe.skipIf(!hasMigrationsToTest)(
 
     it("should preserve agents with all fields intact", async () => {
       const agents = await pool.query(`SELECT * FROM agents ORDER BY id`);
-      expect(agents.rowCount).toBe(2);
+      expect(agents.rowCount).toBe(8);
 
       const agent1 = agents.rows[0];
       expect(agent1.id).toBe("agent-1");
@@ -148,6 +200,200 @@ describe.skipIf(!hasMigrationsToTest)(
       expect(agent2.id).toBe("agent-2");
       expect(agent2.type).toBe("codex");
       expect(agent2.status).toBe("stopped");
+
+      expect(
+        agents.rows.slice(2).map((agent: { role: string }) => agent.role)
+      ).toEqual(Array(6).fill("review"));
+    });
+
+    it("should migrate legacy review states, summaries, and clean approvals", async () => {
+      const reviews = await pool.query(
+        `SELECT reviewer_agent_id, summary, status
+         FROM reviews
+         WHERE reviewer_agent_id IN ('agent-3', 'agent-4', 'agent-5', 'agent-6', 'agent-7', 'agent-8')
+         ORDER BY reviewer_agent_id`
+      );
+      expect(reviews.rows).toEqual([
+        {
+          reviewer_agent_id: "agent-3",
+          summary: "One security concern.",
+          status: "partially_resolved",
+        },
+        {
+          reviewer_agent_id: "agent-4",
+          summary: "Architecture is sound.",
+          status: "resolved",
+        },
+        {
+          reviewer_agent_id: "agent-5",
+          summary: "Legacy persona review by infra-review",
+          status: "resolved",
+        },
+        {
+          reviewer_agent_id: "agent-6",
+          summary: "Existing unified review.",
+          status: "open",
+        },
+      ]);
+    });
+
+    it("should migrate every legacy feedback state and its thread history", async () => {
+      const feedback = await pool.query(
+        `SELECT fi.file_path, fi.line_start, fi.line_end, fi.status,
+                fi.resolution, fi.resolution_note, fi.resolved_by,
+                fi.resolved_at, m.content->>'body' AS body
+         FROM review_feedback_items fi
+         JOIN reviews r ON r.id = fi.review_id
+         JOIN review_thread_messages m ON m.feedback_item_id = fi.id
+         WHERE r.reviewer_agent_id = 'agent-3' AND m.type = 'text'
+         ORDER BY fi.id`
+      );
+      expect(feedback.rows).toHaveLength(5);
+      expect(
+        feedback.rows.map(
+          ({ resolved_at: _resolvedAt, ...item }: { resolved_at: Date }) => item
+        )
+      ).toEqual([
+        {
+          file_path: "src/auth.ts",
+          line_start: 12,
+          line_end: null,
+          status: "open",
+          resolution: null,
+          resolution_note: null,
+          resolved_by: null,
+          body: "Missing authorization check\n\nSuggestion: Validate ownership",
+        },
+        {
+          file_path: "src/session.ts",
+          line_start: 18,
+          line_end: null,
+          status: "open",
+          resolution: null,
+          resolution_note: null,
+          resolved_by: null,
+          body: "Forwarded concern",
+        },
+        {
+          file_path: "src/cache.ts",
+          line_start: 24,
+          line_end: null,
+          status: "resolved",
+          resolution: "fixed",
+          resolution_note: "Implemented shared cache.",
+          resolved_by: "agent-1",
+          body: "Fixed concern\n\nSuggestion: Use the shared cache.",
+        },
+        {
+          file_path: "src/log.ts",
+          line_start: 30,
+          line_end: null,
+          status: "resolved",
+          resolution: "dismissed",
+          resolution_note: "Not applicable here.",
+          resolved_by: "agent-1",
+          body: "Ignored concern",
+        },
+        {
+          file_path: "src/old.ts",
+          line_start: 36,
+          line_end: null,
+          status: "resolved",
+          resolution: "dismissed",
+          resolution_note: null,
+          resolved_by: "agent-1",
+          body: "Dismissed concern",
+        },
+      ]);
+      expect(feedback.rows.slice(0, 2).every((item) => !item.resolved_at)).toBe(
+        true
+      );
+      expect(feedback.rows.slice(2).every((item) => item.resolved_at)).toBe(
+        true
+      );
+
+      const messages = await pool.query(
+        `SELECT m.type, m.author_agent_id, m.content->>'resolution' AS resolution
+         FROM review_thread_messages m
+         JOIN review_feedback_items fi ON fi.id = m.feedback_item_id
+         JOIN reviews r ON r.id = fi.review_id
+         WHERE r.reviewer_agent_id = 'agent-3'
+         ORDER BY m.id`
+      );
+      expect(
+        messages.rows.filter((message) => message.type === "text")
+      ).toHaveLength(5);
+      expect(
+        messages.rows
+          .filter((message) => message.type === "resolution")
+          .map((message) => ({
+            author_agent_id: message.author_agent_id,
+            resolution: message.resolution,
+          }))
+      ).toEqual([
+        { author_agent_id: "agent-1", resolution: "fixed" },
+        { author_agent_id: "agent-1", resolution: "dismissed" },
+        { author_agent_id: "agent-1", resolution: "dismissed" },
+      ]);
+    });
+
+    it("should skip active, cancelled, and already-migrated legacy reviews", async () => {
+      const reviewCounts = await pool.query(
+        `SELECT reviewer_agent_id, COUNT(*)::int AS count
+         FROM reviews
+         WHERE reviewer_agent_id IN ('agent-6', 'agent-7', 'agent-8')
+         GROUP BY reviewer_agent_id
+         ORDER BY reviewer_agent_id`
+      );
+      expect(reviewCounts.rows).toEqual([
+        { reviewer_agent_id: "agent-6", count: 1 },
+      ]);
+
+      const existingItems = await pool.query(
+        `SELECT COUNT(*)::int AS count
+         FROM review_feedback_items fi
+         JOIN reviews r ON r.id = fi.review_id
+         WHERE r.reviewer_agent_id = 'agent-6'`
+      );
+      expect(existingItems.rows[0].count).toBe(0);
+    });
+
+    it("should enforce one unified review per reviewer agent", async () => {
+      await expect(
+        pool.query(`
+          INSERT INTO reviews
+            (agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, summary, status)
+          VALUES
+            ('agent-1', 'agent-1', 'agent', 'agent-6', 'Concurrent duplicate.', 'resolved')
+        `)
+      ).rejects.toMatchObject({
+        code: "23505",
+        constraint: "idx_reviews_unique_agent_reviewer",
+      });
+    });
+
+    it("should remain idempotent when the migration SQL is executed again", async () => {
+      const before = await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM reviews) AS reviews,
+           (SELECT COUNT(*)::int FROM review_feedback_items) AS items,
+           (SELECT COUNT(*)::int FROM review_thread_messages) AS messages`
+      );
+      for (const migrationFile of migrationFiles.slice(reviewMigrationStart)) {
+        const migrationSql = readFileSync(
+          path.join(migrationsDir, migrationFile),
+          "utf8"
+        );
+        await pool.query(migrationSql);
+      }
+
+      const after = await pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM reviews) AS reviews,
+           (SELECT COUNT(*)::int FROM review_feedback_items) AS items,
+           (SELECT COUNT(*)::int FROM review_thread_messages) AS messages`
+      );
+      expect(after.rows[0]).toEqual(before.rows[0]);
     });
 
     it("should preserve media with descriptions", async () => {

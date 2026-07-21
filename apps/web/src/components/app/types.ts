@@ -17,7 +17,7 @@ export type Agent = {
   id: string;
   name: string;
   type?: string;
-  role?: "standard" | "assisted_update";
+  role?: "standard" | "review" | "assisted_update";
   status: AgentStatus;
   cwd: string;
   worktreePath: string | null;
@@ -53,45 +53,13 @@ export type Agent = {
   parentAgentId?: string | null;
   personaContext?: string | null;
   reviewAgentType?: "codex" | "claude" | "opencode" | "cursor" | null;
-  review?: {
-    status: string;
-    message: string | null;
-    verdict: string | null;
-    summary: string | null;
-    filesReviewed: string[] | null;
-    roundNumber: number;
-    updatedAt: string;
-    resolution: {
-      summary: string;
-      resolutionCommit: string | null;
-      submittedAt: string;
-      roundNumber: number;
-    } | null;
-  } | null;
+  submittedReviewId?: number | null;
   baseBranch?: string | null;
   templateId?: string | null;
   autoReview?: boolean;
   hasStream?: boolean;
   createdAt: string;
   updatedAt: string;
-};
-
-export type FeedbackItem = {
-  id: number;
-  agentId: string;
-  severity: "critical" | "high" | "medium" | "low" | "info";
-  filePath: string | null;
-  lineNumber: number | null;
-  description: string;
-  suggestion: string | null;
-  mediaRef: string | null;
-  status: "open" | "dismissed" | "forwarded" | "fixed" | "ignored";
-  resolutionReason: string | null;
-  resolutionCommit: string | null;
-  roundNumber: number;
-  respondsToFeedbackId: number | null;
-  resolvedAt: string | null;
-  createdAt: string;
 };
 
 export type MediaFile = {

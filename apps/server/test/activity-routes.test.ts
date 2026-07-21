@@ -75,12 +75,13 @@ async function seedEvent(
   agentId: string,
   eventType: string,
   createdAt: string,
-  message = "test"
+  message = "test",
+  projectDir: string | null = null
 ): Promise<void> {
   await ctx.pool.query(
-    `INSERT INTO agent_events (agent_id, event_type, message, created_at)
-     VALUES ($1, $2, $3, $4)`,
-    [agentId, eventType, message, createdAt]
+    `INSERT INTO agent_events (agent_id, event_type, message, created_at, project_dir)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [agentId, eventType, message, createdAt, projectDir]
   );
 }
 
@@ -138,7 +139,9 @@ async function seedTokenUsage(
 }
 
 beforeEach(async () => {
-  await ctx.pool.query("DELETE FROM agent_feedback");
+  await ctx.pool.query("DELETE FROM review_thread_messages");
+  await ctx.pool.query("DELETE FROM review_feedback_items");
+  await ctx.pool.query("DELETE FROM reviews");
   await ctx.pool.query("DELETE FROM media");
   await ctx.pool.query("DELETE FROM agent_token_usage");
   await ctx.pool.query("DELETE FROM agent_events");
@@ -226,6 +229,41 @@ describe("GET /api/v1/activity/stats", () => {
     expect(body.busiestDayCount).toBe(3);
     expect(body.stateDurations).toBeDefined();
   });
+
+  // Boundary carry-in coverage for loadScopedActivityEvents
+  // (apps/server/src/server/activity-query.ts). handleStats reuses the same
+  // DISTINCT ON pre-range merge that working-time-by-project guards, but had no
+  // boundary coverage of its own.
+  const RANGE = "start=2026-01-10T00:00:00Z&end=2026-01-11T00:00:00Z&tz=UTC";
+
+  it("clamps a working session that began before the range start", async () => {
+    const agentId = await createAgent();
+    await seedEvent(agentId, "working", "2026-01-09T22:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:30:00Z");
+
+    const res = await authedInject("GET", `/api/v1/activity/stats?${RANGE}`);
+    expect(res.statusCode).toBe(200);
+    // The pre-range "working" event carries in, but its duration is clamped to
+    // the range start: only 00:00 → 00:30 counts, not the two hours before.
+    // Without carry-in this would be 0; without clamping it would be 150 min.
+    expect(res.json().totalWorkingMs).toBe(30 * 60_000);
+  });
+
+  it("carries in the latest pre-range event, not the earliest", async () => {
+    const agentId = await createAgent();
+    await seedEvent(agentId, "working", "2026-01-09T20:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-09T21:00:00Z");
+    await seedEvent(agentId, "working", "2026-01-10T00:10:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:20:00Z");
+
+    const res = await authedInject("GET", `/api/v1/activity/stats?${RANGE}`);
+    expect(res.statusCode).toBe(200);
+    // DISTINCT ON ... ORDER BY created_at DESC carries in the latest pre-range
+    // event ("done"), which contributes no working time, so only the 10-minute
+    // in-range session counts. Picking the earlier "working" event would inflate
+    // this.
+    expect(res.json().totalWorkingMs).toBe(10 * 60_000);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -261,6 +299,48 @@ describe("GET /api/v1/activity/daily-status", () => {
     );
     expect(res.statusCode).toBe(200);
     expect(res.json().granularity).toBe("week");
+  });
+
+  // Boundary carry-in coverage for loadScopedActivityEvents via handleDailyStatus.
+  // Durations are summed across day buckets rather than asserted per bucket:
+  // computeDailyStatus buckets by the *server-local* date, so per-bucket keys
+  // would be time-zone sensitive, but the total clamped duration is not.
+  const RANGE = "start=2026-01-10T00:00:00Z&end=2026-01-11T00:00:00Z&tz=UTC";
+
+  const sumWorking = (days: Array<Record<string, unknown>>): number =>
+    days.reduce((total, day) => total + (Number(day.working) || 0), 0);
+
+  it("clamps a boundary-spanning session to the range start", async () => {
+    const agentId = await createAgent();
+    await seedEvent(agentId, "working", "2026-01-09T22:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:30:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/daily-status?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // Carry-in clamps the pre-range "working" event to the range start, so the
+    // session contributes 30 minutes (00:00 → 00:30), not 2.5 hours. Without
+    // carry-in this would be 0.
+    expect(sumWorking(res.json().days)).toBe(30 * 60_000);
+  });
+
+  it("does not accrue time for a completed pre-range session", async () => {
+    const agentId = await createAgent();
+    await seedEvent(agentId, "working", "2026-01-09T20:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-09T21:00:00Z");
+    await seedEvent(agentId, "working", "2026-01-10T00:10:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:20:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/daily-status?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // The latest pre-range event is a "done", so nothing carries into the range;
+    // only the 10-minute in-range session counts.
+    expect(sumWorking(res.json().days)).toBe(10 * 60_000);
   });
 });
 
@@ -347,6 +427,90 @@ describe("GET /api/v1/activity/working-time-by-project", () => {
     expect(res.statusCode).toBe(200);
     const { projects } = res.json();
     expect(projects.length).toBeGreaterThanOrEqual(1);
+  });
+
+  const RANGE = "start=2026-01-10T00:00:00Z&end=2026-01-11T00:00:00Z&tz=UTC";
+
+  it("clamps a working session that began before the range start", async () => {
+    const agentId = await createAgent({ cwd: "/home/user/proj-carry" });
+    await seedEvent(agentId, "working", "2026-01-09T22:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:30:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/working-time-by-project?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // Only the portion inside the range counts: 00:00 → 00:30, not the
+    // two hours before the range start.
+    expect(res.json().projects).toEqual([
+      { project_dir: "/home/user/proj-carry", working_time_ms: 30 * 60_000 },
+    ]);
+  });
+
+  it("carries in the latest pre-range event, not the earliest", async () => {
+    const agentId = await createAgent({ cwd: "/home/user/proj-latest" });
+    await seedEvent(agentId, "working", "2026-01-09T20:00:00Z");
+    await seedEvent(agentId, "done", "2026-01-09T21:00:00Z");
+    await seedEvent(agentId, "working", "2026-01-10T00:10:00Z");
+    await seedEvent(agentId, "done", "2026-01-10T00:20:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/working-time-by-project?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // The boundary carry-in must be the latest pre-range event ("done"), so
+    // only the 10-minute in-range session counts. If the boundary query
+    // picked the earlier "working" event, this would report 20 minutes.
+    expect(res.json().projects).toEqual([
+      { project_dir: "/home/user/proj-latest", working_time_ms: 10 * 60_000 },
+    ]);
+  });
+
+  it("merges boundary events per agent independently", async () => {
+    const agentA = await createAgent({ cwd: "/home/user/proj-a" });
+    const agentB = await createAgent({ cwd: "/home/user/proj-b" });
+    await seedEvent(agentA, "working", "2026-01-09T23:00:00Z");
+    await seedEvent(agentB, "working", "2026-01-09T23:30:00Z");
+    await seedEvent(agentB, "done", "2026-01-10T00:05:00Z");
+    await seedEvent(agentA, "done", "2026-01-10T00:10:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/working-time-by-project?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    // Each agent's carry-in pairs with its own in-range event even though
+    // the events interleave in time, and results sort by duration desc.
+    expect(res.json().projects).toEqual([
+      { project_dir: "/home/user/proj-a", working_time_ms: 10 * 60_000 },
+      { project_dir: "/home/user/proj-b", working_time_ms: 5 * 60_000 },
+    ]);
+  });
+
+  it("prefers the event project_dir over the agent cwd for boundary events", async () => {
+    const agentId = await createAgent({ cwd: "/home/user/proj-cwd" });
+    await seedEvent(
+      agentId,
+      "working",
+      "2026-01-09T23:00:00Z",
+      "test",
+      "/home/user/proj-explicit"
+    );
+    await seedEvent(agentId, "done", "2026-01-10T00:15:00Z");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/activity/working-time-by-project?${RANGE}`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json().projects).toEqual([
+      {
+        project_dir: "/home/user/proj-explicit",
+        working_time_ms: 15 * 60_000,
+      },
+    ]);
   });
 });
 
@@ -1026,17 +1190,30 @@ describe("GET /api/v1/history/agents/:id", () => {
       `UPDATE agents SET persona = 'security-review' WHERE id = $1`,
       [childId]
     );
+    const review = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO reviews (
+         agent_id, assigned_agent_id, reviewer_type, reviewer_agent_id, status
+       ) VALUES ($1, $1, 'agent', $2, 'open')
+       RETURNING id`,
+      [parentId, childId]
+    );
+    const item = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO review_feedback_items (review_id, status)
+       VALUES ($1, 'open') RETURNING id`,
+      [review.rows[0]!.id]
+    );
     await ctx.pool.query(
-      `INSERT INTO agent_feedback (agent_id, severity, description, status)
-       VALUES ($1, 'warning', 'potential XSS', 'open')`,
-      [childId]
+      `INSERT INTO review_thread_messages (
+         feedback_item_id, author_type, author_agent_id, content
+       ) VALUES ($1, 'agent', $2, $3)`,
+      [item.rows[0]!.id, childId, JSON.stringify({ body: "potential XSS" })]
     );
 
     const res = await authedInject("GET", `/api/v1/history/agents/${parentId}`);
     expect(res.statusCode).toBe(200);
     const { feedback } = res.json();
     expect(feedback.length).toBe(1);
-    expect(feedback[0].severity).toBe("warning");
+    expect(feedback[0].severity).toBe("info");
     expect(feedback[0].description).toBe("potential XSS");
     expect(feedback[0].persona).toBe("security-review");
   });

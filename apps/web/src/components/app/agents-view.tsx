@@ -8,7 +8,7 @@ import {
 } from "react";
 import { createPortal } from "react-dom";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
-import { PanelLeftOpen, PanelRightOpen, Split } from "lucide-react";
+import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 
 import { ChangesTab } from "@/components/app/changes-tab";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
@@ -17,6 +17,7 @@ import {
   TAB_DRAG_MIME,
 } from "@/components/app/center-pane-tab-bar";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
+import { CenterPaneSplit } from "@/components/app/center-pane-split";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useSplitPane } from "@/hooks/use-split-pane";
 
@@ -28,13 +29,7 @@ import {
   readExpandedAgentId,
   readLastUsedAgentType,
 } from "@/components/app/agents-view-utils";
-import { CreateAgentDialog } from "@/components/app/create-agent-dialog";
-import { DeleteAgentDialog } from "@/components/app/delete-agent-dialog";
-import {
-  DesktopFeedbackDetail,
-  MobileFeedbackDetail,
-} from "@/components/app/agents-view-feedback-detail";
-import { MediaLightbox } from "@/components/app/media-lightbox";
+import { AgentsViewDialogs } from "@/components/app/agents-view-dialogs";
 import {
   MediaSidebar,
   MediaSidebarContent,
@@ -42,7 +37,6 @@ import {
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
-import { StopAgentDialog } from "@/components/app/stop-agent-dialog";
 import { QuickPhrasesButton } from "@/components/app/quick-phrases";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import { AmbientTipBar } from "@/components/tips/ambient-tip-bar";
@@ -54,13 +48,8 @@ import {
 } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
-import {
-  ResizableHandle,
-  ResizablePanel,
-  ResizablePanelGroup,
-} from "@/components/ui/resizable";
 import { uploadAgentMedia } from "@/lib/media-upload";
-import { type AgentType, isCliAgentType } from "@/lib/agent-types";
+import { type AgentType, isNestedReviewAgent } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -75,8 +64,6 @@ import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
-import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
-import { CommandPalette } from "@/components/app/command-palette";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
 
 type AgentsViewProps = {
@@ -138,18 +125,8 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
-  const {
-    changesMatch,
-    feedbackDetail,
-    feedbackDetailRendered,
-    handleFeedbackTransitionEnd,
-    closeFeedbackDetail,
-    openFeedbackDetail,
-    navigateFeedbackItem,
-    onTabChange,
-  } = useAgentsViewRouting({
+  const { changesMatch, onTabChange } = useAgentsViewRouting({
     routeAgentId,
-    agents,
     agentsLoaded,
     validatedSelectedAgentId,
   });
@@ -218,7 +195,6 @@ export function AgentsView({
     leftOpen,
     deferMediaResize,
     mediaResizeSettleKey,
-    feedbackOpen: !!feedbackDetail,
   });
 
   useEffect(() => {
@@ -411,6 +387,20 @@ export function AgentsView({
     [focusedAgentId, navTo, setMediaOpen, setMediaActiveTab]
   );
 
+  const handleOpenSubmittedReview = useCallback(
+    (reviewer: Agent) => {
+      if (!reviewer.parentAgentId || reviewer.submittedReviewId == null) return;
+      navTo(
+        `/agents/${reviewer.parentAgentId}?expandReview=${reviewer.submittedReviewId}`
+      );
+      setExpandedAgentId(reviewer.parentAgentId);
+      setMediaOpen(true);
+      setMediaActiveTab("reviews");
+      if (isMobile) setMobileLeftOpen(false);
+    },
+    [isMobile, navTo, setMediaActiveTab, setMediaOpen, setMobileLeftOpen]
+  );
+
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!expandedAgentId) {
@@ -427,10 +417,9 @@ export function AgentsView({
   const selectedExpansionTarget = useMemo(() => {
     if (!validatedSelectedAgentId) return null;
     const selected = agents.find((a) => a.id === validatedSelectedAgentId);
-    return (
-      (selected?.persona ? selected.parentAgentId : null) ??
-      validatedSelectedAgentId
-    );
+    return selected && isNestedReviewAgent(selected)
+      ? (selected.parentAgentId ?? validatedSelectedAgentId)
+      : validatedSelectedAgentId;
   }, [agents, validatedSelectedAgentId]);
   const prevSelectedExpansionTargetRef = useRef<string | null>(null);
 
@@ -643,10 +632,8 @@ export function AgentsView({
               detachTerminal={detachAndClearSelection}
               attachToAgent={attachToAgent}
               startAgent={startAgent}
-              sendTerminalInput={sendTerminalInput}
+              openSubmittedReview={handleOpenSubmittedReview}
               connectedAgentId={connectedAgentId}
-              onOpenFeedbackDetail={openFeedbackDetail}
-              feedbackDetailState={isMobile ? null : feedbackDetail}
               onRequestClose={
                 isMobile ? () => setMobileLeftOpen(false) : undefined
               }
@@ -658,14 +645,11 @@ export function AgentsView({
         <main className="min-h-0 min-w-0 flex-1 overflow-hidden">
           <div
             className={cn(
-              "grid h-full min-h-0 min-w-0 transition-[grid-template-rows] duration-300 ease-in-out",
+              "grid h-full min-h-0 min-w-0",
               isMobile
                 ? "grid-rows-[minmax(0,1fr)_auto]"
-                : feedbackDetail
-                  ? "grid-rows-[minmax(0,1fr)_minmax(0,1fr)]"
-                  : "grid-rows-[minmax(0,1fr)_0fr]"
+                : "grid-rows-[minmax(0,1fr)]"
             )}
-            onTransitionEnd={handleFeedbackTransitionEnd}
           >
             <div className="relative flex h-full min-h-0 min-w-0 flex-col">
               <div className="relative z-10 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-background px-3">
@@ -751,85 +735,16 @@ export function AgentsView({
                 onDrop={handleContentDrop}
               >
                 {isSplit ? (
-                  <div className="relative h-full">
-                    <ResizablePanelGroup
-                      orientation="horizontal"
-                      onLayoutChanged={handleSplitLayoutChange}
-                      className="h-full"
-                    >
-                      <ResizablePanel
-                        id="split-left"
-                        defaultSize={splitState.sizes[0]}
-                        minSize={20}
-                      >
-                        <div
-                          ref={splitLeftRef}
-                          className="flex h-full flex-col"
-                        >
-                          <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              {splitState.left === "terminal"
-                                ? "Terminal"
-                                : "Changes"}
-                            </span>
-                            {splitState.left === "changes" && !isMobile ? (
-                              <ChangesSettingsPopover />
-                            ) : null}
-                          </div>
-                          <div className="min-h-0 flex-1">
-                            {splitState.left === "terminal" ? (
-                              <div
-                                ref={splitTerminalSlotRef}
-                                className="h-full"
-                              />
-                            ) : (
-                              changesElement
-                            )}
-                          </div>
-                        </div>
-                      </ResizablePanel>
-                      <ResizableHandle />
-                      <ResizablePanel
-                        id="split-right"
-                        defaultSize={splitState.sizes[1]}
-                        minSize={20}
-                      >
-                        <div className="flex h-full flex-col">
-                          <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
-                            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                              {splitState.right === "terminal"
-                                ? "Terminal"
-                                : "Changes"}
-                            </span>
-                            {splitState.right === "changes" && !isMobile ? (
-                              <ChangesSettingsPopover />
-                            ) : null}
-                          </div>
-                          <div className="min-h-0 flex-1">
-                            {splitState.right === "terminal" ? (
-                              <div
-                                ref={splitTerminalSlotRef}
-                                className="h-full"
-                              />
-                            ) : (
-                              changesElement
-                            )}
-                          </div>
-                        </div>
-                      </ResizablePanel>
-                    </ResizablePanelGroup>
-                    <button
-                      ref={splitButtonRef}
-                      type="button"
-                      onClick={exitSplit}
-                      title="Unsplit panes"
-                      data-testid="unsplit-button"
-                      className="absolute top-0 z-50 flex h-8 -translate-x-1/2 cursor-pointer items-center justify-center rounded-md border bg-background px-1.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-                      style={{ left: `${splitState.sizes[0]}%` }}
-                    >
-                      <Split className="h-4 w-4 shrink-0" />
-                    </button>
-                  </div>
+                  <CenterPaneSplit
+                    splitState={splitState}
+                    splitLeftRef={splitLeftRef}
+                    splitButtonRef={splitButtonRef}
+                    splitTerminalSlotRef={splitTerminalSlotRef}
+                    changesElement={changesElement}
+                    isMobile={isMobile}
+                    onLayoutChange={handleSplitLayoutChange}
+                    onExitSplit={exitSplit}
+                  />
                 ) : (
                   <>
                     <div
@@ -870,26 +785,6 @@ export function AgentsView({
                 </div>
               ) : null}
             </div>
-
-            {!isMobile ? (
-              <div
-                className={cn(
-                  "min-h-0 overflow-hidden transition-opacity duration-300",
-                  feedbackDetail ? "opacity-100" : "opacity-0"
-                )}
-              >
-                {feedbackDetailRendered ? (
-                  <DesktopFeedbackDetail
-                    detail={feedbackDetailRendered}
-                    agents={agents}
-                    connectedAgentId={connectedAgentId}
-                    sendTerminalInput={sendTerminalInput}
-                    onClose={closeFeedbackDetail}
-                    onNavigateItem={navigateFeedbackItem}
-                  />
-                ) : null}
-              </div>
-            ) : null}
 
             {isMobile ? (
               <MobileTerminalToolbar
@@ -936,17 +831,6 @@ export function AgentsView({
         </div>
       </div>
 
-      {isMobile && feedbackDetail ? (
-        <MobileFeedbackDetail
-          detail={feedbackDetail}
-          agents={agents}
-          connectedAgentId={connectedAgentId}
-          sendTerminalInput={sendTerminalInput}
-          onClose={closeFeedbackDetail}
-          onNavigateItem={navigateFeedbackItem}
-        />
-      ) : null}
-
       {isMobile ? (
         <GlassSidebar
           open={mobileMediaOpen}
@@ -982,53 +866,32 @@ export function AgentsView({
         </GlassSidebar>
       ) : null}
 
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        actions={paletteActions}
-        groups={paletteGroups}
-      />
-
-      {launchTemplate ? (
-        <LaunchTemplateDialog
-          template={launchTemplate}
-          open={!!launchTemplate}
-          onOpenChange={(open) => {
-            if (!open) setLaunchTemplateId(null);
-          }}
-          agentTypes={enabledAgentTypes.filter(isCliAgentType)}
-        />
-      ) : null}
-
-      <CreateAgentDialog
-        open={createOpen}
+      <AgentsViewDialogs
+        paletteOpen={paletteOpen}
+        setPaletteOpen={setPaletteOpen}
+        paletteActions={paletteActions}
+        paletteGroups={paletteGroups}
+        launchTemplate={launchTemplate}
+        setLaunchTemplateId={setLaunchTemplateId}
         enabledAgentTypes={enabledAgentTypes}
+        createOpen={createOpen}
         initialAgentType={requestedCreateType ?? lastUsedAgentType}
-        setOpen={handleCreateOpenChange}
-        resolveDefaultCwd={resolveCreateDefaultCwd}
-        onCreated={handleAgentCreated}
-      />
-
-      <DeleteAgentDialog
-        open={deleteConfirmOpen}
+        onCreateOpenChange={handleCreateOpenChange}
+        resolveCreateDefaultCwd={resolveCreateDefaultCwd}
+        onAgentCreated={handleAgentCreated}
+        deleteConfirmOpen={deleteConfirmOpen}
         deleteTarget={deleteTarget}
-        setOpen={setDeleteConfirmOpen}
+        setDeleteConfirmOpen={setDeleteConfirmOpen}
         setDeleteTarget={setDeleteTarget}
         onDelete={deleteAgent}
-      />
-
-      <StopAgentDialog
-        open={stopConfirmOpen}
+        stopConfirmOpen={stopConfirmOpen}
         stopTarget={stopTarget}
-        setOpen={setStopConfirmOpen}
+        setStopConfirmOpen={setStopConfirmOpen}
         setStopTarget={setStopTarget}
         onStop={stopAgent}
-      />
-
-      <MediaLightbox
-        item={lightboxItem}
-        currentIndex={lightboxIndex}
-        totalItems={mediaFiles.length}
+        lightboxItem={lightboxItem}
+        lightboxIndex={lightboxIndex}
+        mediaFileCount={mediaFiles.length}
         setLightboxIndex={setLightboxIndex}
       />
 

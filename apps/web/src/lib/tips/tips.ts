@@ -196,6 +196,30 @@ export const tips: Tip[] = [
     since: "0.27.0",
     surfaces: ["ambient"],
   },
+  {
+    id: "review-row-open",
+    title: "Open Submitted Reviews",
+    body: "A review agent's row lights up once its review is submitted. Click the row to open the review and work through its feedback.",
+    docsSection: "personas",
+    since: "0.29.1",
+    surfaces: ["inline"],
+  },
+  {
+    id: "browser-feedback",
+    title: "Browser Feedback",
+    body: "Select an element on any web page, add a comment, and send it to a running agent. Pair the Chrome extension from Settings → Connections.",
+    docsSection: "browser-feedback",
+    since: "0.29.3",
+    surfaces: ["ambient"],
+  },
+  {
+    id: "job-webhook-trigger",
+    title: "Job Webhook Triggers",
+    body: "Fire a job from CI or any external system: enable Webhook trigger in the job's Configure tab to get a secret URL that starts a run on HTTP POST.",
+    docsSection: "automations",
+    since: "0.29.0",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {

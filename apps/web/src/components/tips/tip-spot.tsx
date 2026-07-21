@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useId,
   useLayoutEffect,
   useRef,
   useState,
@@ -13,6 +14,7 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { useTip } from "@/lib/tips/use-tip";
+import { cn } from "@/lib/utils";
 
 import { TipPopoverContent } from "./tip-popover-content";
 import { useTipQueue } from "./tip-queue-context";
@@ -73,6 +75,8 @@ type TipSpotProps = {
   side?: "top" | "bottom" | "left" | "right";
   align?: "start" | "center" | "end";
   sideOffset?: number;
+  /** Extra classes for the trigger wrapper, e.g. "flex w-full" for block-level anchors. */
+  triggerClassName?: string;
   children: React.ReactNode;
 };
 
@@ -81,11 +85,13 @@ export function TipSpot({
   side = "right",
   align = "center",
   sideOffset = 8,
+  triggerClassName,
   children,
 }: TipSpotProps) {
   const navigate = useNavigate();
   const { tip, shouldShowInline, dismiss, disableAll } = useTip(tipId);
   const { requestOpen, release } = useTipQueue();
+  const instanceId = useId();
   const [open, setOpen] = useState(false);
   const eligibleRef = useRef(false);
   const triggerRef = useRef<HTMLSpanElement>(null);
@@ -100,10 +106,10 @@ export function TipSpot({
   useEffect(() => {
     if (!shouldShowInline || open) return;
     const timer = setTimeout(() => {
-      if (requestOpen(tipId)) setOpen(true);
+      if (requestOpen(tipId, instanceId)) setOpen(true);
     }, 500);
     return () => clearTimeout(timer);
-  }, [shouldShowInline, open, tipId, requestOpen]);
+  }, [shouldShowInline, open, tipId, instanceId, requestOpen]);
 
   // Post-commit reachability: checked in useLayoutEffect so we read
   // the actual committed DOM (not the stale previous-commit snapshot
@@ -139,14 +145,14 @@ export function TipSpot({
   const handleDismiss = useCallback(() => {
     setOpen(false);
     dismiss();
-    release(tipId);
-  }, [dismiss, release, tipId]);
+    release(tipId, instanceId);
+  }, [dismiss, release, tipId, instanceId]);
 
   const handleDisableAll = useCallback(() => {
     setOpen(false);
     disableAll();
-    release(tipId);
-  }, [disableAll, release, tipId]);
+    release(tipId, instanceId);
+  }, [disableAll, release, tipId, instanceId]);
 
   const handleOpenChange = useCallback(
     (nextOpen: boolean) => {
@@ -181,7 +187,7 @@ export function TipSpot({
   return (
     <Popover open={open && reachable} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
-        <span ref={triggerRef} className="inline-flex">
+        <span ref={triggerRef} className={cn("inline-flex", triggerClassName)}>
           {children}
         </span>
       </PopoverTrigger>

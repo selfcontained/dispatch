@@ -187,13 +187,18 @@ export function AutomationsContent() {
           </li>
           <li>
             <strong>Prompt</strong> — the instructions sent as the agent's first
-            message. Dispatch prepends a short preamble that names the job,
-            includes the run ID, and reminds the agent to drive the run to a
-            terminal state. Required before a run can start.
+            message. Dispatch prepends a short preamble that identifies the job
+            and run and reminds the agent to drive the run to a terminal state.
+            Required before a run can start. Unlike templates, jobs never
+            collect arguments at run time — <Code>{"{{D:Arg Name}}"}</Code>{" "}
+            placeholders are only substituted from default values saved via the
+            API.
           </li>
           <li>
-            <strong>Show in command palette</strong> — when on, the job appears
-            in the <Code>Mod+K</Code> palette for quick launch.
+            <strong>Show in command palette</strong> — marks the job as
+            callable, shown as a badge in the jobs list. Quick launch from the{" "}
+            <Code>Mod+K</Code> palette is currently only available for
+            templates.
           </li>
           <li>
             <strong>Single instance</strong> — when on (the default), only one
@@ -232,10 +237,11 @@ export function AutomationsContent() {
           </li>
         </ul>
         <P>
-          After creating a job, open its <strong>Settings</strong> tab to
-          configure additional options like <strong>Webhook trigger</strong> —
-          enable it to generate a secret URL that fires a run via HTTP POST. No
-          auth header is needed; the secret in the URL is the credential.
+          After creating a job, open its <strong>Configure</strong> tab to
+          adjust these settings and options like{" "}
+          <strong>Webhook trigger</strong> — enable it to generate a secret URL
+          that fires a run via HTTP POST. No auth header is needed; the secret
+          in the URL is the credential.
         </P>
       </Section>
 
@@ -315,19 +321,17 @@ export function AutomationsContent() {
             <strong>Discovery &amp; messaging</strong> —{" "}
             <Code>list_agents</Code>, <Code>dispatch_send_message</Code>,{" "}
             <Code>dispatch_launch_agent</Code>, <Code>list_personas</Code>,{" "}
-            <Code>list_recent_persona_reviews</Code>,{" "}
-            <Code>list_recent_feedback</Code>, <Code>get_activity_summary</Code>
-            , <Code>get_agent_history</Code>, and{" "}
-            <Code>get_feedback_summary</Code> let a job sweep over recent
+            <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,
+            and <Code>get_feedback_summary</Code> let a job sweep over recent
             activity, coordinate with other agents, or post a summary.
           </li>
           <li>
-            <strong>Round-trip review</strong> —{" "}
+            <strong>Tracked reviews</strong> —{" "}
             <Code>dispatch_launch_persona</Code>,{" "}
-            <Code>dispatch_get_feedback</Code>,{" "}
-            <Code>dispatch_resolve_feedback</Code>,{" "}
-            <Code>dispatch_submit_resolution</Code>, and{" "}
-            <Code>dispatch_cancel_recheck</Code>. See below.
+            <Code>dispatch_review_list_feedback</Code>,{" "}
+            <Code>dispatch_review_add_message</Code>,{" "}
+            <Code>dispatch_review_resolve</Code>, and{" "}
+            <Code>dispatch_review_reopen</Code>. See below.
           </li>
           <li>
             <strong>Human review</strong> —{" "}
@@ -363,12 +367,10 @@ export function AutomationsContent() {
           Because job agents can launch personas and act on their findings, a
           recurring job can self-review its own work without a human in the
           loop: open a PR with <Code>create_pr</Code>, launch a persona with{" "}
-          <Code>dispatch_launch_persona</Code>, read findings with{" "}
-          <Code>dispatch_get_feedback</Code>, fix and commit them, then{" "}
-          <Code>dispatch_submit_resolution</Code> — the reviewer rechecks
-          against the new HEAD and emits a final verdict. The mechanics are
-          documented under <strong>Reviewers → Round-trip reviews</strong> and
-          apply unchanged to job agents.
+          <Code>dispatch_launch_persona</Code>, read any findings with{" "}
+          <Code>dispatch_review_list_feedback</Code>, converse in item threads,
+          and set each outcome with <Code>dispatch_review_resolve</Code>. A
+          clean approval is recorded with its summary and requires no follow-up.
         </P>
       </Section>
 
@@ -401,10 +403,12 @@ export function AutomationsContent() {
       <Section>
         <H3>History and status</H3>
         <P>
-          Each job card shows the last run's status, when it finished, and the
-          next scheduled fire time. Open the <strong>History</strong> tab on a
-          job to browse past runs with their reports, durations, and trigger
-          source (Manual, Scheduled, or Webhook).
+          Each job in the sidebar list shows its last run's status alongside its
+          schedule and enabled state, and the Jobs overview (shown when no job
+          is selected) lists upcoming scheduled runs. Open the{" "}
+          <strong>History</strong> tab on a job to browse past runs with their
+          start time, duration, trigger source (Manual, Scheduled, or Webhook),
+          and expandable report.
         </P>
       </Section>
 

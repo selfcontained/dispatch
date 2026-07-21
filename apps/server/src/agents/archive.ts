@@ -9,7 +9,6 @@ import {
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { AgentError } from "./errors.js";
 import type { AgentRuntime } from "./runtime.js";
-import { getReviewChildAgentIds } from "./persona-reviews.js";
 import type {
   AgentRecord,
   AgentStatus,
@@ -34,6 +33,21 @@ export type ArchiveDeps = {
   ) => Promise<void>;
   setArchivePhase: (id: string, phase: ArchivePhase) => Promise<void>;
 };
+
+async function getReviewChildAgentIds(
+  pool: Pool,
+  parentAgentId: string
+): Promise<string[]> {
+  const result = await pool.query<{ id: string }>(
+    `SELECT id
+     FROM agents
+     WHERE parent_agent_id = $1
+       AND role = 'review'
+       AND deleted_at IS NULL`,
+    [parentAgentId]
+  );
+  return result.rows.map((row) => row.id);
+}
 
 export async function beginArchive(
   deps: ArchiveDeps,

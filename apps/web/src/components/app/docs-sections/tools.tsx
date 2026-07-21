@@ -105,7 +105,7 @@ export function ToolsContent() {
           Dispatch also provides built-in tools that are always available,
           regardless of repo configuration. Standard agents see the set below.
           Persona reviewers and scheduled jobs get tailored subsets — for
-          example, persona agents get <Code>review_status</Code> and{" "}
+          example, review agents get <Code>dispatch_review_submit</Code> and{" "}
           <Code>get_parent_context</Code>, and jobs get{" "}
           <Code>job_complete</Code>, <Code>job_failed</Code>,{" "}
           <Code>job_needs_input</Code>, and <Code>job_log</Code>.
@@ -142,10 +142,6 @@ export function ToolsContent() {
             current agent
           </li>
           <li>
-            <Code>dispatch_feedback</Code> — submit a structured finding with
-            severity, file reference, and suggestion
-          </li>
-          <li>
             <Code>list_personas</Code> — list persona reviewers defined for the
             current repo
           </li>
@@ -154,34 +150,26 @@ export function ToolsContent() {
             child of the current session
           </li>
           <li>
-            <Code>dispatch_get_feedback</Code> — retrieve feedback submitted by
-            child persona agents
+            <Code>dispatch_review_submit</Code> and{" "}
+            <Code>dispatch_review_add_feedback</Code> — reviewer-agent tools to
+            create a summarized review and add a genuinely new concern
           </li>
           <li>
-            <Code>dispatch_resolve_feedback</Code> — mark a feedback item as
-            fixed or ignored
-          </li>
-          <li>
-            <Code>dispatch_submit_resolution</Code> — close out round 1 of a
-            persona review with a summary; the reviewer's round-2 diff is taken
-            from the current HEAD
-          </li>
-          <li>
-            <Code>dispatch_cancel_recheck</Code> — abort a pending recheck so
-            the reviewer exits cleanly
-          </li>
-          <li>
-            <Code>dispatch_review_list_feedback</Code> — list human review
-            feedback items for this agent, including file paths, statuses, and
-            thread messages
+            <Code>dispatch_review_list_feedback</Code> — list review feedback
+            items and their tracked thread messages
           </li>
           <li>
             <Code>dispatch_review_resolve</Code> — resolve a review feedback
-            item as fixed or dismissed
+            item as fixed or dismissed; persona reviewers use it after verifying
+            the parent's fix
           </li>
           <li>
             <Code>dispatch_review_add_message</Code> — reply to a review
             feedback thread (ask a clarifying question or explain an approach)
+          </li>
+          <li>
+            <Code>dispatch_review_reopen</Code> — reopen a resolved item that
+            needs more work
           </li>
           <li>
             <Code>dispatch_launch_agent</Code> — launch a new agent as a child

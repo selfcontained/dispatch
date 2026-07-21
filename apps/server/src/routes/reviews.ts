@@ -6,7 +6,11 @@ import type { UiEvent } from "../server/ui-events.js";
 import * as reviewQueries from "../agents/reviews.js";
 import { getAgentFileDiff } from "../shared/git/agent-diff.js";
 import { extractHunkAroundLines } from "../shared/lib/extract-hunk.js";
-import { AGENT_REVIEW_REPLY_GUIDANCE } from "../shared/review-limits.js";
+import {
+  buildReviewItemStatePrompt,
+  buildReviewSubmittedPrompt,
+  buildReviewThreadUpdatePrompt,
+} from "../reviews/injection-prompts.js";
 
 type ReviewRouteDeps = {
   pool: Pool;
@@ -177,53 +181,27 @@ export async function registerReviewRoutes(
         reviewId: review.id,
       });
 
-      // Send tmux notification to the agent
       const assignedId = review.assignedAgentId ?? agentId;
-      const notifLines = [
-        "--- DISPATCH: Review Submitted ---",
-        "Reviewer: human",
-      ];
-      if (review.summary) {
-        notifLines.push(`Summary: ${review.summary}`);
-      }
-      notifLines.push(`Feedback items (${review.items.length}):`);
-      notifLines.push("");
-      for (let i = 0; i < review.items.length; i++) {
-        const it = review.items[i]!;
-        const msg = it.messages[0]?.content?.body ?? "";
-        if (it.filePath && it.lineStart) {
-          const lineRef =
-            it.lineEnd && it.lineEnd !== it.lineStart
-              ? `${it.lineStart}-${it.lineEnd}`
-              : `${it.lineStart}`;
-          notifLines.push(`${i + 1}. ${it.filePath}:${lineRef} — ${msg}`);
-        } else {
-          notifLines.push(`${i + 1}. General — ${msg}`);
-        }
-      }
-      notifLines.push("");
-      notifLines.push("How to handle this review:");
-      notifLines.push(
-        "1. Call dispatch_review_list_feedback to see all feedback items and their IDs."
-      );
-      notifLines.push(
-        "2. Read each feedback item. For each one, decide whether to fix it, push back, or dismiss it."
-      );
-      notifLines.push(
-        `3. If a reply is useful, use dispatch_review_add_message on that item's thread. ${AGENT_REVIEW_REPLY_GUIDANCE}`
-      );
-      notifLines.push(
-        "4. After addressing an item (or deciding not to), call dispatch_review_resolve to mark it as fixed or dismissed. Include a brief note when dismissing so the reviewer understands why."
-      );
-      notifLines.push(
-        "5. Work through all items — the review status updates automatically as you resolve each one."
-      );
-      notifLines.push("--- END ---");
-
       try {
-        await deps.sendAgentPrompt(assignedId, notifLines.join("\n"));
-      } catch {
-        // tmux delivery is best-effort
+        await deps.sendAgentPrompt(
+          assignedId,
+          buildReviewSubmittedPrompt({
+            reviewId: review.id,
+            reviewerName: "Human reviewer",
+            summary: review.summary ?? "Feedback submitted for review.",
+            items: review.items.map((item) => ({
+              id: item.id,
+              filePath: item.filePath,
+              lineStart: item.lineStart,
+              body: item.messages[0]?.content.body ?? "",
+            })),
+          })
+        );
+      } catch (error) {
+        app.log.warn(
+          { err: error, agentId: assignedId, reviewId: review.id },
+          "Review prompt injection failed after the review mutation was saved"
+        );
       }
 
       return { review };
@@ -278,14 +256,15 @@ export async function registerReviewRoutes(
             ? await reviewQueries.reopenReviewFeedbackItem(
                 deps.pool,
                 itemId,
-                agentId
+                agentId,
+                { note, authorType: "human" }
               )
             : await reviewQueries.resolveReviewFeedbackItem(
                 deps.pool,
                 itemId,
                 agentId,
                 body.resolution as "fixed" | "dismissed",
-                { note }
+                { note, authorType: "human", resolverRole: "human" }
               );
         if (!result) {
           return reply.code(404).send({ error: "Feedback item not found." });
@@ -303,8 +282,51 @@ export async function registerReviewRoutes(
           status: result.reviewStatus,
         });
 
+        const review = await reviewQueries.getReviewRecord(
+          deps.pool,
+          result.reviewId
+        );
+        const counterpartId = review?.reviewerAgentId
+          ? review.reviewerAgentId
+          : (review?.assignedAgentId ?? review?.agentId);
+        if (counterpartId) {
+          try {
+            await deps.sendAgentPrompt(
+              counterpartId,
+              buildReviewItemStatePrompt({
+                reviewId: result.reviewId,
+                itemId,
+                action: body.resolution === null ? "reopened" : "resolved",
+                resolution:
+                  body.resolution === null
+                    ? null
+                    : (body.resolution as "fixed" | "dismissed"),
+                note,
+              })
+            );
+          } catch (error) {
+            app.log.warn(
+              {
+                err: error,
+                agentId: counterpartId,
+                reviewId: result.reviewId,
+                feedbackItemId: itemId,
+              },
+              "Review prompt injection failed after the review mutation was saved"
+            );
+          }
+        }
+
         return { item: result.item };
       } catch (error) {
+        if (
+          error instanceof reviewQueries.ReviewFeedbackResolutionConflictError
+        ) {
+          return reply.code(409).send({
+            error: error.message,
+            item: error.item,
+          });
+        }
         return deps.handleAgentError(reply, error);
       }
     }
@@ -357,18 +379,36 @@ export async function registerReviewRoutes(
           feedbackItemId: itemId,
         });
 
-        try {
-          await deps.sendAgentPrompt(
-            agentId,
-            [
-              "--- DISPATCH: Review Thread Reply ---",
-              `Feedback item #${itemId}: ${body.body.trim()}`,
-              `Reply only if useful. ${AGENT_REVIEW_REPLY_GUIDANCE}`,
-              "--- END ---",
-            ].join("\n")
-          );
-        } catch {
-          // tmux delivery is best-effort
+        const review = await reviewQueries.getReviewRecord(
+          deps.pool,
+          result.reviewId
+        );
+        const counterpartId = review?.reviewerAgentId
+          ? review.reviewerAgentId
+          : (review?.assignedAgentId ?? review?.agentId);
+        if (counterpartId) {
+          try {
+            await deps.sendAgentPrompt(
+              counterpartId,
+              buildReviewThreadUpdatePrompt({
+                reviewId: result.reviewId,
+                itemId,
+                from: "Human collaborator",
+                body: body.body.trim(),
+                recipient: review?.reviewerAgentId ? "reviewer" : "assignee",
+              })
+            );
+          } catch (error) {
+            app.log.warn(
+              {
+                err: error,
+                agentId: counterpartId,
+                reviewId: result.reviewId,
+                feedbackItemId: itemId,
+              },
+              "Review prompt injection failed after the review mutation was saved"
+            );
+          }
         }
 
         return { message: result.message };

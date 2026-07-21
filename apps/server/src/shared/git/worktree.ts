@@ -165,18 +165,33 @@ export async function createGitWorktree(
   if (createNewBranch) {
     await ensureBranchDoesNotExist(repoRoot, branchName, commandRunner);
 
+    // Pass --no-track so `git worktree add` does NOT write branch tracking
+    // config. When the start-point is a remote-tracking ref (origin/main) git
+    // would otherwise auto-write `branch.<name>.{remote,merge}` into
+    // .git/config, and that write takes the repo-wide .git/config lock. Two
+    // worktree creations against the same repo at the same instant then collide
+    // ("error: could not lock config file .git/config: File exists"), which git
+    // treats as fatal and fails the whole `worktree add` (exit 255). We set the
+    // exact same upstream explicitly below, so the auto-write is redundant and
+    // safe to drop.
     await commandRunner("git", [
       "-C",
       repoRoot,
       "worktree",
       "add",
+      "--no-track",
       "-b",
       branchName,
       worktreePath,
       baseRef,
     ]);
 
-    // Set upstream tracking so archival checks know which branch to compare against
+    // Set upstream tracking so archival checks know which branch to compare
+    // against. This is now the only .git/config writer in the creation path.
+    // Tolerate exit 1/128: git returns exit 1 (not a hard failure) when the
+    // config lock is momentarily held by a concurrent worktree creation. A
+    // missing upstream is harmless here — worktree-status and base-ref both
+    // fall back to origin/<baseBranch>, which is exactly what we'd have tracked.
     await commandRunner(
       "git",
       ["-C", worktreePath, "branch", "--set-upstream-to", baseRef, branchName],

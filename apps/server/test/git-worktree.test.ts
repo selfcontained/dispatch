@@ -48,7 +48,7 @@ describe("git worktree services", () => {
         case `-C ${repoRoot} show-ref --verify --quiet refs/heads/feature-auth-flow`:
         case `-C ${repoRoot} show-ref --verify --quiet refs/remotes/origin/feature-auth-flow`:
           return { exitCode: 1, stdout: "", stderr: "" };
-        case `-C ${repoRoot} worktree add -b feature-auth-flow ${expectedWorktreePath} origin/main`:
+        case `-C ${repoRoot} worktree add --no-track -b feature-auth-flow ${expectedWorktreePath} origin/main`:
         case `-C ${expectedWorktreePath} branch --set-upstream-to origin/main feature-auth-flow`:
           return { exitCode: 0, stdout: "", stderr: "" };
         default:
@@ -71,6 +71,118 @@ describe("git worktree services", () => {
       baseRef: "origin/main",
       baseSha: "abc123",
     });
+  });
+
+  it("creates the worktree with --no-track and sets upstream explicitly", async () => {
+    // Regression: `git worktree add -b <branch> <path> origin/main` used to let
+    // git auto-write branch tracking config, which takes the .git/config lock
+    // and fails ("could not lock config file") when two worktrees are created
+    // against the same repo concurrently. --no-track keeps that racy write out
+    // of `worktree add`; upstream is set by the explicit follow-up command.
+    const repoRoot = path.join(tempRoot, "repo");
+    const expectedWorktreePath = path.join(tempRoot, "repo-feature-auth-flow");
+    const calls: string[] = [];
+
+    vi.mocked(runCommand).mockImplementation(async (_command, args) => {
+      const key = args.join(" ");
+      calls.push(key);
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} remote get-url origin`:
+          return {
+            exitCode: 0,
+            stdout: "git@github.com:test/repo.git",
+            stderr: "",
+          };
+        case `-C ${repoRoot} fetch origin main --quiet`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        case `-C ${repoRoot} rev-parse --verify origin/main`:
+          return { exitCode: 0, stdout: "abc123", stderr: "" };
+        case `-C ${repoRoot} show-ref --verify --quiet refs/heads/feature-auth-flow`:
+        case `-C ${repoRoot} show-ref --verify --quiet refs/remotes/origin/feature-auth-flow`:
+          return { exitCode: 1, stdout: "", stderr: "" };
+        case `-C ${repoRoot} worktree add --no-track -b feature-auth-flow ${expectedWorktreePath} origin/main`:
+        case `-C ${expectedWorktreePath} branch --set-upstream-to origin/main feature-auth-flow`:
+          return { exitCode: 0, stdout: "", stderr: "" };
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    await createGitWorktree({
+      cwd: repoRoot,
+      name: "Feature Auth Flow",
+      createNewBranch: true,
+    });
+
+    const addCall = calls.find((c) => c.includes("worktree add"));
+    expect(addCall).toContain("worktree add --no-track -b feature-auth-flow");
+    expect(
+      calls.some((c) =>
+        c.includes("branch --set-upstream-to origin/main feature-auth-flow")
+      )
+    ).toBe(true);
+  });
+
+  it("succeeds when a contended .git/config lock blocks the upstream write", async () => {
+    // Regression for the concurrency bug: `git worktree add --no-track` no
+    // longer writes config, so it can't lose the lock race. The follow-up
+    // `git branch --set-upstream-to` still writes config, and real git exits 1
+    // ("could not lock config file .git/config: File exists") when a concurrent
+    // creation holds the lock. Exit 1 is tolerated, so creation must still
+    // succeed — a missing upstream degrades to origin/<base>, which is correct.
+    const repoRoot = path.join(tempRoot, "repo");
+    const expectedWorktreePath = path.join(tempRoot, "repo-feature-auth-flow");
+    let upstreamCalls = 0;
+
+    vi.mocked(runCommand).mockImplementation(
+      async (_command, args, options) => {
+        const key = args.join(" ");
+        switch (key) {
+          case `-C ${repoRoot} rev-parse --show-toplevel`:
+            return { exitCode: 0, stdout: repoRoot, stderr: "" };
+          case `-C ${repoRoot} remote get-url origin`:
+            return {
+              exitCode: 0,
+              stdout: "git@github.com:test/repo.git",
+              stderr: "",
+            };
+          case `-C ${repoRoot} fetch origin main --quiet`:
+            return { exitCode: 0, stdout: "", stderr: "" };
+          case `-C ${repoRoot} rev-parse --verify origin/main`:
+            return { exitCode: 0, stdout: "abc123", stderr: "" };
+          case `-C ${repoRoot} show-ref --verify --quiet refs/heads/feature-auth-flow`:
+          case `-C ${repoRoot} show-ref --verify --quiet refs/remotes/origin/feature-auth-flow`:
+            return { exitCode: 1, stdout: "", stderr: "" };
+          case `-C ${repoRoot} worktree add --no-track -b feature-auth-flow ${expectedWorktreePath} origin/main`:
+            return { exitCode: 0, stdout: "", stderr: "" };
+          case `-C ${expectedWorktreePath} branch --set-upstream-to origin/main feature-auth-flow`:
+            upstreamCalls += 1;
+            // The caller must tolerate exit 1 (must not throw); assert it does.
+            expect(options?.allowedExitCodes).toContain(1);
+            return {
+              exitCode: 1,
+              stdout: "",
+              stderr:
+                "error: could not lock config file .git/config: File exists",
+            };
+          default:
+            throw new Error(`Unexpected command: ${key}`);
+        }
+      }
+    );
+
+    const result = await createGitWorktree({
+      cwd: repoRoot,
+      name: "Feature Auth Flow",
+      createNewBranch: true,
+    });
+
+    // Attempted exactly once (no retry loop) and creation still succeeded.
+    expect(upstreamCalls).toBe(1);
+    expect(result.branchName).toBe("feature-auth-flow");
+    expect(result.baseRef).toBe("origin/main");
   });
 
   it("derives a hashed worktree-path slug when createNewBranch is false (review #1161)", async () => {
@@ -243,7 +355,7 @@ describe("git worktree services", () => {
         case `-C ${repoRoot} show-ref --verify --quiet refs/heads/feature-local`:
         case `-C ${repoRoot} show-ref --verify --quiet refs/remotes/origin/feature-local`:
           return { exitCode: 1, stdout: "", stderr: "" };
-        case `-C ${repoRoot} worktree add -b feature-local ${expectedWorktreePath} main`:
+        case `-C ${repoRoot} worktree add --no-track -b feature-local ${expectedWorktreePath} main`:
         case `-C ${expectedWorktreePath} branch --set-upstream-to main feature-local`:
           return { exitCode: 0, stdout: "", stderr: "" };
         default:
