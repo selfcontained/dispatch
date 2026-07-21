@@ -38,7 +38,7 @@ export type AgentLifecycleContext = {
   listPins?: (
     agentId: string
   ) => Promise<
-    Array<{ id?: string; label: string; value: string; type: string }>
+    Array<{ id: string; label: string; value: string; type: string }>
   >;
 };
 

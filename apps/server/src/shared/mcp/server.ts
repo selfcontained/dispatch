@@ -231,7 +231,9 @@ export type McpRequestContext = {
   deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
   listPins?: (
     agentId: string
-  ) => Promise<Array<{ label: string; value: string; type: string }>>;
+  ) => Promise<
+    Array<{ id: string; label: string; value: string; type: string }>
+  >;
   listPersonas?: (
     agentCwd: string
   ) => Promise<Array<{ slug: string; name: string; description: string }>>;

@@ -207,10 +207,13 @@ async function handleDeletePinByLabel(
 async function handleListPins(
   deps: CreateMcpHandlersDeps,
   agentId: string
-): Promise<Array<{ label: string; value: string; type: string }>> {
+): Promise<Array<{ id: string; label: string; value: string; type: string }>> {
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
-  return agent.pins ?? [];
+  return (agent.pins ?? []).map((pin) => {
+    if (!pin.id) throw new Error("Pin is missing its stable ID.");
+    return { id: pin.id, label: pin.label, value: pin.value, type: pin.type };
+  });
 }
 
 async function handleRenameSession(
@@ -700,10 +703,6 @@ async function handleDeleteMedia(
   await deps.pool.query(
     "DELETE FROM media WHERE agent_id = $1 AND file_name = $2",
     [agentId, storedFileName]
-  );
-  await deps.pool.query(
-    "DELETE FROM media_seen WHERE agent_id = $1 AND media_key LIKE $2",
-    [agentId, `${storedFileName}:%`]
   );
   deps.publishUiEvent({ type: "media.changed", agentId });
 }

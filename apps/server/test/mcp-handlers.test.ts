@@ -171,7 +171,14 @@ function createMockDeps() {
       upsertPin: vi.fn(async (id: string) => ({
         id,
         name: "test-agent",
-        pins: [{ label: "URL", value: "http://localhost", type: "url" }],
+        pins: [
+          {
+            id: "pin_url",
+            label: "URL",
+            value: "http://localhost",
+            type: "url",
+          },
+        ],
       })),
       deletePinById: vi.fn(async (id: string) => ({
         id,
@@ -370,11 +377,23 @@ describe("createMcpHandlers", () => {
     it("returns the current agent pins", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_test1",
-        pins: [{ label: "URL", value: "http://localhost", type: "url" }],
+        pins: [
+          {
+            id: "pin_url",
+            label: "URL",
+            value: "http://localhost",
+            type: "url",
+          },
+        ],
       });
 
       await expect(handlers.listPins("agt_test1")).resolves.toEqual([
-        { label: "URL", value: "http://localhost", type: "url" },
+        {
+          id: "pin_url",
+          label: "URL",
+          value: "http://localhost",
+          type: "url",
+        },
       ]);
     });
   });
@@ -392,11 +411,6 @@ describe("createMcpHandlers", () => {
         2,
         "DELETE FROM media WHERE agent_id = $1 AND file_name = $2",
         ["agt_test1", "shot.png"]
-      );
-      expect(deps.pool.query).toHaveBeenNthCalledWith(
-        3,
-        "DELETE FROM media_seen WHERE agent_id = $1 AND media_key LIKE $2",
-        ["agt_test1", "shot.png:%"]
       );
       expect(deps.publishUiEvent).toHaveBeenCalledWith({
         type: "media.changed",
