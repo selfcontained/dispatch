@@ -56,12 +56,6 @@ export type BrainEvent = {
   agentId: string;
 };
 
-export type BrainAgentActivity = {
-  objects: BrainObject[];
-  lists: BrainList[];
-  events: BrainEvent[];
-};
-
 export function useBrainProjects(enabled = true) {
   return useQuery<BrainProject[]>({
     queryKey: ["brain", "projects"],
@@ -99,24 +93,6 @@ export function useBrainObjects(
       return api<BrainObject[]>(`/api/v1/brain/objects?${params.toString()}`);
     },
     enabled: !!repoRoot,
-    refetchOnWindowFocus: false,
-  });
-}
-
-export function useBrainObject(
-  repoRoot: string | null,
-  collection: string | null,
-  name: string | null
-) {
-  return useQuery<BrainObject>({
-    queryKey: ["brain", "object", repoRoot, collection, name],
-    queryFn: () => {
-      const params = new URLSearchParams({ repoRoot: repoRoot! });
-      return api<BrainObject>(
-        `/api/v1/brain/objects/${encodeURIComponent(collection!)}/${encodeURIComponent(name!)}?${params.toString()}`
-      );
-    },
-    enabled: !!repoRoot && !!collection && !!name,
     refetchOnWindowFocus: false,
   });
 }
@@ -190,23 +166,6 @@ export function useBrainEvents(
       return api<BrainEvent[]>(`/api/v1/brain/events?${params.toString()}`);
     },
     enabled: !!repoRoot,
-    refetchOnWindowFocus: false,
-  });
-}
-
-export function useAgentBrainActivity(
-  agentId: string | null,
-  repoRoot: string | null
-) {
-  return useQuery<BrainAgentActivity>({
-    queryKey: ["brain", "agent-activity", agentId, repoRoot],
-    queryFn: () => {
-      const params = new URLSearchParams({ repoRoot: repoRoot! });
-      return api<BrainAgentActivity>(
-        `/api/v1/brain/agent-activity/${agentId}?${params.toString()}`
-      );
-    },
-    enabled: !!agentId && !!repoRoot,
     refetchOnWindowFocus: false,
   });
 }

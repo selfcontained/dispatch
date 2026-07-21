@@ -158,13 +158,6 @@ const TOOL_SETS: Record<AgentCapabilityType, Set<string>> = {
   review: REVIEW_AGENT_TOOLS,
 };
 
-export type PinInput = {
-  label: string;
-  value?: string;
-  type?: "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
-  delete?: boolean;
-};
-
 export type ParentContextResult = {
   pins: Array<{ label: string; value: string; type: string }>;
   media: Array<{

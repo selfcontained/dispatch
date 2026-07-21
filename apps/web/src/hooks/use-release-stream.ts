@@ -33,8 +33,6 @@ export type AssistedReleasePhase =
 // `ReleaseJob` below.
 export type ReleasePhase = CreatePhase | UpdatePhase | AssistedReleasePhase;
 
-export type ReleaseJobType = "create" | "update" | "update-assisted";
-
 export type ReleaseChannel = "stable" | "latest";
 
 export type AssistedUpdateMode = "normal" | "recommended" | "required";

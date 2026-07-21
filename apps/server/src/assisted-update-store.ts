@@ -78,10 +78,6 @@ function assistedStorePath(): string {
   );
 }
 
-// Backwards-compatible alias for callers that imported the constant. The
-// runtime value is now resolved per call via `assistedStorePath()`.
-export const ASSISTED_UPDATE_STORE_PATH = assistedStorePath();
-
 export async function readAssistedUpdateState(): Promise<AssistedUpdateState | null> {
   try {
     const raw = await readFile(assistedStorePath(), "utf-8");

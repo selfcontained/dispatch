@@ -1,6 +1,5 @@
 import { useEffect, useRef, useState } from "react";
 import { useLocation } from "react-router-dom";
-import * as DialogPrimitive from "@radix-ui/react-dialog";
 import {
   ArrowDownToLine,
   Bell,
@@ -14,7 +13,6 @@ import {
   Signal,
   Sparkles,
   Users,
-  X,
 } from "lucide-react";
 
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -47,13 +45,6 @@ export type DocsSection =
   | "browser-feedback"
   | "notifications"
   | "updates";
-
-type DocsPaneProps = {
-  open: boolean;
-  onClose: () => void;
-  initialSection?: string;
-  onSectionChange?: (section: string | null) => void;
-};
 
 type SectionDef = {
   id: DocsSection;
@@ -222,49 +213,5 @@ export function DocsContent({
         </ScrollArea>
       </div>
     </div>
-  );
-}
-
-export function DocsPane({
-  open,
-  onClose,
-  initialSection,
-  onSectionChange,
-}: DocsPaneProps): JSX.Element {
-  return (
-    <DialogPrimitive.Root
-      open={open}
-      onOpenChange={(value) => {
-        if (!value) onClose();
-      }}
-    >
-      <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-[70] bg-black/50 backdrop-blur-md data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0" />
-        <DialogPrimitive.Content
-          data-testid="docs-pane"
-          className="fixed inset-0 z-[70] flex flex-col overflow-hidden border border-white/[0.2] bg-[hsl(var(--card))] backdrop-blur-2xl text-foreground shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] duration-200 data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:zoom-out-95 data-[state=open]:zoom-in-95 md:inset-4 md:rounded-sm"
-        >
-          <DialogPrimitive.Title className="sr-only">
-            Dispatch Docs
-          </DialogPrimitive.Title>
-          <DialogPrimitive.Description className="sr-only">
-            Product documentation for core Dispatch functionality
-          </DialogPrimitive.Description>
-          <div className="flex h-12 shrink-0 items-center border-b border-border px-5">
-            <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-              Docs
-            </span>
-            <DialogPrimitive.Close className="ml-auto rounded-sm p-1 opacity-70 transition-opacity hover:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring">
-              <X className="h-4 w-4" />
-              <span className="sr-only">Close</span>
-            </DialogPrimitive.Close>
-          </div>
-          <DocsContent
-            initialSection={initialSection}
-            onSectionChange={onSectionChange}
-          />
-        </DialogPrimitive.Content>
-      </DialogPrimitive.Portal>
-    </DialogPrimitive.Root>
   );
 }

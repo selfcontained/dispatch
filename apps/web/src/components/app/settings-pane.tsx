@@ -23,29 +23,6 @@ import { type IdeType } from "@/lib/ide-types";
 import { type SettingsSection } from "@/components/app/settings-state";
 import { cn } from "@/lib/utils";
 
-export type SettingsPaneProps = {
-  open: boolean;
-  onLogout: () => void;
-  theme: ThemeId;
-  setTheme: (id: ThemeId) => void;
-  iconColor: IconColorId;
-  setIconColor: (id: IconColorId) => void;
-  isIconColorSaving: boolean;
-  iconColorError: string | null;
-  clearIconColorError: () => void;
-  enabledAgentTypes: AgentType[];
-  onEnabledAgentTypesChange: (agentTypes: AgentType[]) => void;
-  enabledIdes: IdeType[];
-  onEnabledIdesChange: (ides: IdeType[]) => void;
-  apiState: ServiceState;
-  dbState: ServiceState;
-  serviceDotClass: (state: ServiceState) => string;
-  initialSection?: string;
-  initialSubsection?: string;
-  onSectionChange?: (section: string | null) => void;
-  onSubsectionChange?: (subsection: string | null) => void;
-};
-
 /** Settings nav for the sidebar. */
 export function SettingsNavContent({
   activeSection,
