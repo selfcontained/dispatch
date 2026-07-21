@@ -52,8 +52,11 @@ const AGENT_TOOLS = new Set([
   "dispatch_rename_session",
   "dispatch_notify",
   "dispatch_pin",
+  "dispatch_delete_pin",
   "dispatch_share",
   "dispatch_list_media",
+  "dispatch_delete_media",
+  "dispatch_list_pins",
   "list_personas",
   "dispatch_launch_persona",
   "dispatch_review_list_feedback",
@@ -97,8 +100,11 @@ const JOB_TOOLS = new Set([
   "dispatch_rename_session",
   "dispatch_notify",
   "dispatch_pin",
+  "dispatch_delete_pin",
   "dispatch_share",
   "dispatch_list_media",
+  "dispatch_delete_media",
+  "dispatch_list_pins",
   "dispatch_launch_persona",
   "dispatch_review_list_feedback",
   "dispatch_review_resolve",
@@ -142,7 +148,11 @@ const JOB_TOOLS = new Set([
 const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_event",
   "dispatch_pin",
+  "dispatch_delete_pin",
   "dispatch_share",
+  "dispatch_list_media",
+  "dispatch_delete_media",
+  "dispatch_list_pins",
   "dispatch_review_submit",
   "dispatch_review_add_feedback",
   "dispatch_review_list_feedback",
@@ -159,7 +169,7 @@ const TOOL_SETS: Record<AgentCapabilityType, Set<string>> = {
 };
 
 export type ParentContextResult = {
-  pins: Array<{ label: string; value: string; type: string }>;
+  pins: Array<{ id?: string; label: string; value: string; type: string }>;
   media: Array<{
     fileName: string;
     filePath: string;
@@ -217,6 +227,12 @@ export type McpRequestContext = {
       sizeBytes: number;
       createdAt: string;
     }>
+  >;
+  deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
+  listPins?: (
+    agentId: string
+  ) => Promise<
+    Array<{ id: string; label: string; value: string; type: string }>
   >;
   listPersonas?: (
     agentCwd: string
@@ -334,7 +350,8 @@ export type McpRequestContext = {
     agentId: string,
     pin: { label: string; value: string; type: string }
   ) => Promise<void>;
-  deletePin?: (agentId: string, label: string) => Promise<void>;
+  deletePin?: (agentId: string, pinId: string) => Promise<void>;
+  deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
   getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
   sendMessage?: (
     agentId: string,
@@ -437,10 +454,14 @@ async function createDispatchMcpServer(
       renameSession: context.renameSession,
       sendNotify: context.sendNotify,
       listMedia: context.listMedia,
+      deleteMedia: context.deleteMedia,
+      listPins: context.listPins,
     });
   }
 
   if (allowed.has("dispatch_pin")) registerPinTool(server, context);
+  if (allowed.has("dispatch_delete_pin"))
+    registerDeletePinTool(server, context);
   if (allowed.has("dispatch_share")) registerShareTool(server, context);
   // ── Persona launch and unified review tools ───────────────────────
   if (context.agent) {
@@ -558,16 +579,16 @@ async function createDispatchMcpServer(
 // ── Shared tool registrations (used by both persona and standard agents) ──
 
 function registerPinTool(server: McpServer, context: McpRequestContext): void {
-  if (!context.agent || !context.upsertPin || !context.deletePin) return;
+  if (!context.agent || !context.upsertPin) return;
   const agentId = context.agent.id;
   const upsertPin = context.upsertPin;
-  const deletePin = context.deletePin;
+  const deletePinByLabel = context.deletePinByLabel;
 
   server.registerTool(
     "dispatch_pin",
     {
       description:
-        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, pass delete: true. " +
+        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
         "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string).",
       inputSchema: {
         label: z
@@ -580,7 +601,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           .string()
           .max(2000)
           .optional()
-          .describe("The value to display. Required unless delete is true."),
+          .describe("The value to display."),
         type: z
           .enum(["string", "url", "port", "code", "pr", "filename", "markdown"])
           .default("string")
@@ -589,21 +610,26 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           ),
         delete: z
           .boolean()
-          .default(false)
-          .describe("Set to true to remove the pin with this label."),
+          .optional()
+          .describe("Deprecated compatibility option for deleting by label."),
       },
     },
     async (args) => {
       try {
         if (args.delete) {
-          await deletePin(agentId, args.label);
+          if (!deletePinByLabel) {
+            return toToolError(
+              new Error("Legacy pin deletion is unavailable.")
+            );
+          }
+          await deletePinByLabel(agentId, args.label);
           return {
-            content: [{ type: "text", text: `Removed pin "${args.label}".` }],
+            content: [{ type: "text", text: `Removed pin \"${args.label}\".` }],
           };
         }
-        if (!args.value) {
+        if (args.value === undefined) {
           return toToolError(
-            new Error("value is required when not deleting a pin.")
+            new Error("value is required when creating or updating a pin.")
           );
         }
         await upsertPin(agentId, {
@@ -616,6 +642,36 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
             { type: "text", text: `Pinned "${args.label}": ${args.value}` },
           ],
         };
+      } catch (error) {
+        return toToolError(error);
+      }
+    }
+  );
+}
+
+function registerDeletePinTool(
+  server: McpServer,
+  context: McpRequestContext
+): void {
+  if (!context.agent || !context.deletePin) return;
+  const agentId = context.agent.id;
+  const deletePin = context.deletePin;
+  server.registerTool(
+    "dispatch_delete_pin",
+    {
+      description:
+        "Permanently remove one current sidebar pin by its stable ID. Call dispatch_list_pins first and pass the exact returned id.",
+      inputSchema: {
+        id: z
+          .string()
+          .min(1)
+          .describe("Exact pin id returned by dispatch_list_pins."),
+      },
+    },
+    async (args) => {
+      try {
+        await deletePin(agentId, args.id);
+        return { content: [{ type: "text", text: `Removed pin ${args.id}.` }] };
       } catch (error) {
         return toToolError(error);
       }

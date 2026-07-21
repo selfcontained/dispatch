@@ -47,6 +47,8 @@ type McpRouteDeps = {
   mcpRenameSession: unknown;
   mcpShareMedia: unknown;
   mcpListMedia: unknown;
+  mcpDeleteMedia: unknown;
+  mcpListPins: unknown;
   mcpListPersonas: unknown;
   mcpLaunchPersona: unknown;
   mcpLaunchAgent: unknown;
@@ -58,6 +60,7 @@ type McpRouteDeps = {
   mcpListReviewFeedback: unknown;
   mcpUpsertPin: unknown;
   mcpDeletePin: unknown;
+  mcpDeletePinByLabel: unknown;
   mcpGetParentContext: unknown;
   mcpJobComplete: unknown;
   mcpJobFailed: unknown;
@@ -196,8 +199,11 @@ export async function registerMcpRoutes(
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
+      deleteMedia: deps.mcpDeleteMedia,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
+      deletePinByLabel: deps.mcpDeletePinByLabel,
+      listPins: deps.mcpListPins,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
       launchAgent: deps.mcpLaunchAgent,
@@ -279,6 +285,7 @@ export async function registerMcpRoutes(
       renameSession: deps.mcpRenameSession,
       shareMedia: deps.mcpShareMedia,
       listMedia: deps.mcpListMedia,
+      deleteMedia: deps.mcpDeleteMedia,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
       launchAgent: deps.mcpLaunchAgent,
@@ -292,6 +299,8 @@ export async function registerMcpRoutes(
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       upsertPin: deps.mcpUpsertPin,
       deletePin: deps.mcpDeletePin,
+      deletePinByLabel: deps.mcpDeletePinByLabel,
+      listPins: deps.mcpListPins,
       getParentContext: deps.mcpGetParentContext,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<

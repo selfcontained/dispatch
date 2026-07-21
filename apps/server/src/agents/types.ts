@@ -37,6 +37,7 @@ export type PinType =
   | "markdown";
 
 export type AgentPin = {
+  id?: string;
   label: string;
   value: string;
   type: PinType;

@@ -164,6 +164,9 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `dispatch_pin`                  | Surface key info in the sidebar (URLs, ports, PRs, files)                  |
 | `dispatch_share`                | Upload screenshots and media to the agent's media pane                     |
 | `dispatch_list_media`           | List media files shared with or by this agent                              |
+| `dispatch_delete_media`         | Permanently remove a shared media file                                     |
+| `dispatch_list_pins`            | List current sidebar pins for this agent                                   |
+| `dispatch_delete_pin`           | Permanently remove a pin by its listed stable ID                           |
 | `list_personas`                 | List available persona reviewers for this project                          |
 | `dispatch_launch_persona`       | Launch a persona child agent for automated review                          |
 | `dispatch_review_list_feedback` | List human review feedback items with statuses and threads                 |

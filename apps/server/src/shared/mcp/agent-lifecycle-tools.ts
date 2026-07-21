@@ -34,6 +34,12 @@ export type AgentLifecycleContext = {
       createdAt: string;
     }>
   >;
+  deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
+  listPins?: (
+    agentId: string
+  ) => Promise<
+    Array<{ id: string; label: string; value: string; type: string }>
+  >;
 };
 
 export function registerAgentLifecycleTools(
@@ -209,6 +215,58 @@ export function registerAgentLifecycleTools(
           return {
             content: [
               { type: "text" as const, text: JSON.stringify(items, null, 2) },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("dispatch_delete_media") && context.deleteMedia) {
+    const deleteMedia = context.deleteMedia;
+    server.registerTool(
+      "dispatch_delete_media",
+      {
+        description:
+          "Permanently remove one of this agent's shared media files. Call dispatch_list_media first to identify the exact fileName. This removes both the stored file and its Dispatch media record.",
+        inputSchema: {
+          fileName: z
+            .string()
+            .describe("Exact fileName returned by dispatch_list_media."),
+        },
+      },
+      async (args) => {
+        try {
+          await deleteMedia(agentId, args.fileName);
+          return {
+            content: [
+              { type: "text", text: `Deleted media \"${args.fileName}\".` },
+            ],
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("dispatch_list_pins") && context.listPins) {
+    const listPins = context.listPins;
+    server.registerTool(
+      "dispatch_list_pins",
+      {
+        description:
+          "List this agent's current Dispatch sidebar pins. Use dispatch_delete_pin with a returned id to remove a stale pin.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const pins = await listPins(agentId);
+          return {
+            content: [
+              { type: "text" as const, text: JSON.stringify(pins, null, 2) },
             ],
           };
         } catch (error) {

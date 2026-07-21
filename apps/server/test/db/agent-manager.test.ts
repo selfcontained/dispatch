@@ -2371,8 +2371,8 @@ describe("AgentManager", () => {
     });
   });
 
-  describe("deletePin", () => {
-    it("should remove a pin by label (case-insensitive)", async () => {
+  describe("deletePinById", () => {
+    it("should remove a pin by stable ID", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
@@ -2384,11 +2384,12 @@ describe("AgentManager", () => {
         value: "https://example.com",
       });
 
-      const updated = await manager.deletePin(agent.id, "url");
+      const pinId = (await manager.getAgent(agent.id))!.pins[0]!.id!;
+      const updated = await manager.deletePinById(agent.id, pinId);
       expect(updated.pins).toHaveLength(0);
     });
 
-    it("should be a no-op when the label does not exist", async () => {
+    it("should throw when the pin ID does not exist", async () => {
       const agent = await manager.createAgent({
         cwd: "/tmp",
         useWorktree: false,
@@ -2400,13 +2401,13 @@ describe("AgentManager", () => {
         value: "v",
       });
 
-      const updated = await manager.deletePin(agent.id, "nope");
-      expect(updated.pins).toHaveLength(1);
-      expect(updated.pins![0]!.label).toBe("Keep");
+      await expect(manager.deletePinById(agent.id, "nope")).rejects.toThrow(
+        /pin not found/i
+      );
     });
 
     it("should throw 404 for non-existent agent", async () => {
-      await expect(manager.deletePin("agt_nope", "X")).rejects.toThrow(
+      await expect(manager.deletePinById("agt_nope", "X")).rejects.toThrow(
         /not found/i
       );
     });

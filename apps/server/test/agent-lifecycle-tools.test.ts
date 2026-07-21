@@ -36,6 +36,8 @@ function baseContext(): AgentLifecycleContext {
     renameSession: vi.fn(async () => ({ id: AGENT_ID, name: "New Name" })),
     sendNotify: vi.fn(async () => ({ sent: true })),
     listMedia: vi.fn(async () => []),
+    deleteMedia: vi.fn(async () => {}),
+    listPins: vi.fn(async () => []),
   };
 }
 
@@ -49,12 +51,14 @@ describe("registerAgentLifecycleTools", () => {
   // ── Conditional registration ────────────────────────────────────
 
   describe("conditional registration", () => {
-    it("registers all four tools when all are allowed and context is complete", () => {
+    it("registers all lifecycle tools when all are allowed and context is complete", () => {
       const allowed = new Set([
         "dispatch_event",
         "dispatch_rename_session",
         "dispatch_notify",
         "dispatch_list_media",
+        "dispatch_delete_media",
+        "dispatch_list_pins",
       ]);
       registerAgentLifecycleTools(server as never, allowed, baseContext());
 
@@ -64,6 +68,8 @@ describe("registerAgentLifecycleTools", () => {
         "dispatch_rename_session",
         "dispatch_notify",
         "dispatch_list_media",
+        "dispatch_delete_media",
+        "dispatch_list_pins",
       ]);
     });
 
@@ -111,6 +117,28 @@ describe("registerAgentLifecycleTools", () => {
       registerAgentLifecycleTools(
         server as never,
         new Set(["dispatch_list_media"]),
+        ctx
+      );
+      expect(server.tools).toHaveLength(0);
+    });
+
+    it("skips dispatch_delete_media when deleteMedia is missing", () => {
+      const ctx = baseContext();
+      delete ctx.deleteMedia;
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["dispatch_delete_media"]),
+        ctx
+      );
+      expect(server.tools).toHaveLength(0);
+    });
+
+    it("skips dispatch_list_pins when listPins is missing", () => {
+      const ctx = baseContext();
+      delete ctx.listPins;
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["dispatch_list_pins"]),
         ctx
       );
       expect(server.tools).toHaveLength(0);
@@ -386,6 +414,49 @@ describe("registerAgentLifecycleTools", () => {
       expect(result).toEqual({
         content: [{ type: "text", text: "Storage unavailable" }],
         isError: true,
+      });
+    });
+  });
+
+  describe("dispatch_delete_media handler", () => {
+    it("deletes the named media file", async () => {
+      const ctx = baseContext();
+      ctx.deleteMedia = vi.fn(async () => {});
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["dispatch_delete_media"]),
+        ctx
+      );
+
+      const result = await server.tools[0]!.handler({
+        fileName: "screenshot.png",
+      });
+
+      expect(ctx.deleteMedia).toHaveBeenCalledWith(AGENT_ID, "screenshot.png");
+      expect(result).toEqual({
+        content: [{ type: "text", text: 'Deleted media "screenshot.png".' }],
+      });
+    });
+  });
+
+  describe("dispatch_list_pins handler", () => {
+    it("returns the current pins", async () => {
+      const pins = [
+        { label: "Dev", value: "http://localhost:5173", type: "url" },
+      ];
+      const ctx = baseContext();
+      ctx.listPins = vi.fn(async () => pins);
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["dispatch_list_pins"]),
+        ctx
+      );
+
+      const result = await server.tools[0]!.handler({});
+
+      expect(ctx.listPins).toHaveBeenCalledWith(AGENT_ID);
+      expect(result).toEqual({
+        content: [{ type: "text", text: JSON.stringify(pins, null, 2) }],
       });
     });
   });

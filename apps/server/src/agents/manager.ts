@@ -101,7 +101,10 @@ const MAX_PINS = 50;
 function normalizeInitialPins(pins: AgentPin[]): AgentPin[] {
   const byLabel = new Map<string, AgentPin>();
   for (const pin of pins) {
-    byLabel.set(pin.label.toLowerCase(), pin);
+    byLabel.set(pin.label.toLowerCase(), {
+      ...pin,
+      id: pin.id ?? randomUUID(),
+    });
   }
   const deduped = Array.from(byLabel.values());
   if (deduped.length > MAX_PINS) {
@@ -1078,40 +1081,74 @@ export class AgentManager {
   }
 
   async upsertPin(id: string, pin: AgentPin): Promise<AgentRecord> {
-    const current = await this.getAgent(id);
-    if (!current) throw new AgentError("Agent not found.", 404);
-
-    const pins = (current.pins ?? []).filter(
-      (p) => p.label.toLowerCase() !== pin.label.toLowerCase()
-    );
-    if (pins.length >= MAX_PINS) {
-      throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
-    }
-    pins.push(pin);
-
-    await this.pool.query(
-      `UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1`,
-      [id, JSON.stringify(pins)]
-    );
+    await this.mutatePins(id, (currentPins) => {
+      const existing = currentPins.find(
+        (p) => p.label.toLowerCase() === pin.label.toLowerCase()
+      );
+      const pins = currentPins.filter(
+        (p) => p.label.toLowerCase() !== pin.label.toLowerCase()
+      );
+      if (pins.length >= MAX_PINS) {
+        throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
+      }
+      pins.push({ ...pin, id: existing?.id ?? pin.id ?? randomUUID() });
+      return pins;
+    });
 
     return (await this.getAgent(id)) as AgentRecord;
   }
 
-  async deletePin(id: string, label: string): Promise<AgentRecord> {
-    const current = await this.getAgent(id);
-    if (!current) throw new AgentError("Agent not found.", 404);
-
-    const lowerLabel = label.toLowerCase();
-    const pins = (current.pins ?? []).filter(
-      (p) => p.label.toLowerCase() !== lowerLabel
-    );
-
-    await this.pool.query(
-      `UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1`,
-      [id, JSON.stringify(pins)]
-    );
+  async deletePinById(id: string, pinId: string): Promise<AgentRecord> {
+    await this.mutatePins(id, (currentPins) => {
+      const pins = currentPins.filter((p) => p.id !== pinId);
+      if (pins.length === currentPins.length) {
+        throw new AgentError("Pin not found.", 404);
+      }
+      return pins;
+    });
 
     return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  async deletePinByLabel(id: string, label: string): Promise<AgentRecord> {
+    await this.mutatePins(id, (currentPins) => {
+      const pins = currentPins.filter(
+        (pin) => pin.label.toLowerCase() !== label.toLowerCase()
+      );
+      if (pins.length === currentPins.length) {
+        throw new AgentError("Pin not found.", 404);
+      }
+      return pins;
+    });
+
+    return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  private async mutatePins(
+    id: string,
+    mutate: (pins: AgentPin[]) => AgentPin[]
+  ): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query<{ pins: AgentPin[] }>(
+        "SELECT pins FROM agents WHERE id = $1 FOR UPDATE",
+        [id]
+      );
+      if (result.rows.length === 0)
+        throw new AgentError("Agent not found.", 404);
+      const pins = mutate(result.rows[0]!.pins ?? []);
+      await client.query(
+        "UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1",
+        [id, JSON.stringify(pins)]
+      );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async reconcileAgents(): Promise<void> {
