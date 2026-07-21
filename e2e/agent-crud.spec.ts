@@ -229,15 +229,16 @@ test.describe("Agent CRUD", () => {
     const { agent } = (await res.json()) as {
       agent: {
         id: string;
-        pins: Array<{ label: string; value: string; type: string }>;
+        pins: Array<{ id: string; label: string; value: string; type: string }>;
       };
     };
     expect(agent.pins).toEqual([
-      {
+      expect.objectContaining({
+        id: expect.any(String),
         label: "example.com",
         value: "https://example.com/task",
         type: "url",
-      },
+      }),
     ]);
   });
 
