@@ -503,6 +503,7 @@ async function registerRoutes() {
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
     mcpUpsertPin: mcpHandlers.upsertPin,
     mcpDeletePin: mcpHandlers.deletePin,
+    mcpDeletePinByLabel: mcpHandlers.deletePinByLabel,
     mcpListPins: mcpHandlers.listPins,
     mcpGetParentContext: mcpHandlers.getParentContext,
     mcpJobComplete: mcpHandlers.jobComplete,

@@ -192,6 +192,18 @@ async function handleDeletePin(
   });
 }
 
+async function handleDeletePinByLabel(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  label: string
+): Promise<void> {
+  const agent = await deps.agentManager.deletePinByLabel(agentId, label);
+  deps.publishUiEvent({
+    type: "agent.upsert",
+    agent: deps.withStreamFlag(agent),
+  });
+}
+
 async function handleListPins(
   deps: CreateMcpHandlersDeps,
   agentId: string
@@ -732,6 +744,9 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     deletePin: (agentId: string, pinId: string) =>
       handleDeletePin(deps, agentId, pinId),
+
+    deletePinByLabel: (agentId: string, label: string) =>
+      handleDeletePinByLabel(deps, agentId, label),
 
     listPins: (agentId: string) => handleListPins(deps, agentId),
 

@@ -36,7 +36,7 @@ describe("0036_pin-ids upgrade", () => {
     await pool.query(`
       INSERT INTO agents (id, name, status, cwd, pins) VALUES
         ('pin-valid', 'valid', 'stopped', '/tmp',
-          '[{"label":"URL","value":"https://example.com","type":"url"}]'),
+          '[{"label":"URL","value":"https://example.com","type":"url"}, {"label":"","value":"legacy-empty-label","type":"string"}]'),
         ('pin-malformed', 'malformed', 'stopped', '/tmp', '{"label":"not-an-array"}'),
         ('pin-mixed', 'mixed', 'stopped', '/tmp',
           '[null, "bad", {"label":"Missing value","type":"url"}, {"label":"Good","value":"v","type":"string"}]'),
@@ -53,6 +53,15 @@ describe("0036_pin-ids upgrade", () => {
     const byId = new Map(rows.rows.map((row) => [row.id, row.pins]));
 
     expect(byId.get("pin-malformed")).toEqual([]);
+    expect(byId.get("pin-valid")).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          label: "",
+          value: "legacy-empty-label",
+          id: expect.any(String),
+        }),
+      ])
+    );
     expect(byId.get("pin-mixed")).toEqual([
       expect.objectContaining({
         label: "Good",

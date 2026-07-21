@@ -349,6 +349,7 @@ export type McpRequestContext = {
     pin: { label: string; value: string; type: string }
   ) => Promise<void>;
   deletePin?: (agentId: string, pinId: string) => Promise<void>;
+  deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
   getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
   sendMessage?: (
     agentId: string,
@@ -579,12 +580,13 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
   if (!context.agent || !context.upsertPin) return;
   const agentId = context.agent.id;
   const upsertPin = context.upsertPin;
+  const deletePinByLabel = context.deletePinByLabel;
 
   server.registerTool(
     "dispatch_pin",
     {
       description:
-        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. " +
+        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
         "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string).",
       inputSchema: {
         label: z
@@ -593,17 +595,41 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           .describe(
             "Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port')."
           ),
-        value: z.string().max(2000).describe("The value to display."),
+        value: z
+          .string()
+          .max(2000)
+          .optional()
+          .describe("The value to display."),
         type: z
           .enum(["string", "url", "port", "code", "pr", "filename", "markdown"])
           .default("string")
           .describe(
             "Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."
           ),
+        delete: z
+          .boolean()
+          .optional()
+          .describe("Deprecated compatibility option for deleting by label."),
       },
     },
     async (args) => {
       try {
+        if (args.delete) {
+          if (!deletePinByLabel) {
+            return toToolError(
+              new Error("Legacy pin deletion is unavailable.")
+            );
+          }
+          await deletePinByLabel(agentId, args.label);
+          return {
+            content: [{ type: "text", text: `Removed pin \"${args.label}\".` }],
+          };
+        }
+        if (args.value === undefined) {
+          return toToolError(
+            new Error("value is required when creating or updating a pin.")
+          );
+        }
         await upsertPin(agentId, {
           label: args.label,
           value: args.value,

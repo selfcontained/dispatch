@@ -15,7 +15,7 @@ SET pins = CASE
              COUNT(*) OVER (PARTITION BY COALESCE(jsonb_extract_path_text(pin, 'id'), '')) AS id_count
       FROM jsonb_array_elements(pins) WITH ORDINALITY AS items(pin, ordinal)
       WHERE jsonb_typeof(pin) = 'object'
-        AND COALESCE(jsonb_extract_path_text(pin, 'label'), '') <> ''
+        AND jsonb_extract_path_text(pin, 'label') IS NOT NULL
         AND COALESCE(jsonb_extract_path_text(pin, 'value'), '') <> ''
         AND jsonb_extract_path_text(pin, 'type') IN ('string', 'url', 'port', 'code', 'pr', 'filename', 'markdown')
     ) AS valid_pins

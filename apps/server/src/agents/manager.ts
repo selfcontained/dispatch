@@ -1110,6 +1110,20 @@ export class AgentManager {
     return (await this.getAgent(id)) as AgentRecord;
   }
 
+  async deletePinByLabel(id: string, label: string): Promise<AgentRecord> {
+    await this.mutatePins(id, (currentPins) => {
+      const pins = currentPins.filter(
+        (pin) => pin.label.toLowerCase() !== label.toLowerCase()
+      );
+      if (pins.length === currentPins.length) {
+        throw new AgentError("Pin not found.", 404);
+      }
+      return pins;
+    });
+
+    return (await this.getAgent(id)) as AgentRecord;
+  }
+
   private async mutatePins(
     id: string,
     mutate: (pins: AgentPin[]) => AgentPin[]
