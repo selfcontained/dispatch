@@ -193,7 +193,12 @@ describe.skipIf(!hasMigrationsToTest)(
       expect(agent1.full_access).toBe(true);
       expect(agent1.codex_args).toEqual(["--model", "opus"]);
       expect(agent1.pins).toEqual([
-        { label: "API", value: "http://localhost:3000", type: "url" },
+        expect.objectContaining({
+          id: expect.any(String),
+          label: "API",
+          value: "http://localhost:3000",
+          type: "url",
+        }),
       ]);
 
       const agent2 = agents.rows[1];

@@ -142,6 +142,18 @@ export function ToolsContent() {
             current agent
           </li>
           <li>
+            <Code>dispatch_delete_media</Code> — permanently remove a shared
+            media file by its listed file name
+          </li>
+          <li>
+            <Code>dispatch_list_pins</Code> — list the current sidebar pins so
+            stale pins can be removed by ID
+          </li>
+          <li>
+            <Code>dispatch_delete_pin</Code> — permanently remove a pin using
+            its stable ID from <Code>dispatch_list_pins</Code>
+          </li>
+          <li>
             <Code>list_personas</Code> — list persona reviewers defined for the
             current repo
           </li>

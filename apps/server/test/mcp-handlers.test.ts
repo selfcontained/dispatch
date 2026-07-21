@@ -111,6 +111,7 @@ vi.mock("node:fs/promises", () => ({
   readFile: vi.fn(async () => Buffer.from("file-content")),
   writeFile: vi.fn(async () => {}),
   mkdir: vi.fn(async () => {}),
+  unlink: vi.fn(async () => {}),
 }));
 
 import {
@@ -172,7 +173,7 @@ function createMockDeps() {
         name: "test-agent",
         pins: [{ label: "URL", value: "http://localhost", type: "url" }],
       })),
-      deletePin: vi.fn(async (id: string) => ({
+      deletePinById: vi.fn(async (id: string) => ({
         id,
         name: "test-agent",
         pins: [],
@@ -354,14 +355,53 @@ describe("createMcpHandlers", () => {
 
   describe("deletePin", () => {
     it("deletes pin and publishes event", async () => {
-      await handlers.deletePin("agt_test1", "URL");
-      expect(deps.agentManager.deletePin).toHaveBeenCalledWith(
+      await handlers.deletePin("agt_test1", "pin_123");
+      expect(deps.agentManager.deletePinById).toHaveBeenCalledWith(
         "agt_test1",
-        "URL"
+        "pin_123"
       );
       expect(deps.publishUiEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: "agent.upsert" })
       );
+    });
+  });
+
+  describe("listPins", () => {
+    it("returns the current agent pins", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        pins: [{ label: "URL", value: "http://localhost", type: "url" }],
+      });
+
+      await expect(handlers.listPins("agt_test1")).resolves.toEqual([
+        { label: "URL", value: "http://localhost", type: "url" },
+      ]);
+    });
+  });
+
+  describe("deleteMedia", () => {
+    it("removes the file, media record, seen records, and publishes an update", async () => {
+      deps.pool.query.mockResolvedValueOnce({
+        rows: [{ file_name: "shot.png" }],
+      });
+      await handlers.deleteMedia("agt_test1", "shot.png");
+
+      const { unlink } = await import("node:fs/promises");
+      expect(unlink).toHaveBeenCalledWith("/tmp/media/agt_test1/shot.png");
+      expect(deps.pool.query).toHaveBeenNthCalledWith(
+        2,
+        "DELETE FROM media WHERE agent_id = $1 AND file_name = $2",
+        ["agt_test1", "shot.png"]
+      );
+      expect(deps.pool.query).toHaveBeenNthCalledWith(
+        3,
+        "DELETE FROM media_seen WHERE agent_id = $1 AND media_key LIKE $2",
+        ["agt_test1", "shot.png:%"]
+      );
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "media.changed",
+        agentId: "agt_test1",
+      });
     });
   });
 

@@ -1,6 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -183,13 +183,22 @@ async function handleUpsertPin(
 async function handleDeletePin(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  label: string
+  pinId: string
 ): Promise<void> {
-  const agent = await deps.agentManager.deletePin(agentId, label);
+  const agent = await deps.agentManager.deletePinById(agentId, pinId);
   deps.publishUiEvent({
     type: "agent.upsert",
     agent: deps.withStreamFlag(agent),
   });
+}
+
+async function handleListPins(
+  deps: CreateMcpHandlersDeps,
+  agentId: string
+): Promise<Array<{ label: string; value: string; type: string }>> {
+  const agent = await deps.agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+  return agent.pins ?? [];
 }
 
 async function handleRenameSession(
@@ -635,6 +644,58 @@ async function handleListMedia(
   }));
 }
 
+async function handleDeleteMedia(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  fileName: string
+): Promise<void> {
+  const agent = await deps.agentManager.getAgent(agentId);
+  if (!agent) throw new Error("Agent not found.");
+
+  const result = await deps.pool.query<{ file_name: string }>(
+    "SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2",
+    [agentId, fileName]
+  );
+  if (result.rows.length === 0) {
+    throw new Error(
+      "No media file found with the given fileName for this agent."
+    );
+  }
+
+  const storedFileName = result.rows[0].file_name;
+  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
+  const filePath = path.join(mediaDir, storedFileName);
+  const resolvedMediaDir = path.resolve(mediaDir);
+  if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
+    throw new Error("Invalid media file path.");
+  }
+
+  try {
+    await unlink(filePath);
+  } catch (error: unknown) {
+    if (
+      !(
+        error &&
+        typeof error === "object" &&
+        "code" in error &&
+        error.code === "ENOENT"
+      )
+    ) {
+      throw error;
+    }
+  }
+
+  await deps.pool.query(
+    "DELETE FROM media WHERE agent_id = $1 AND file_name = $2",
+    [agentId, storedFileName]
+  );
+  await deps.pool.query(
+    "DELETE FROM media_seen WHERE agent_id = $1 AND media_key LIKE $2",
+    [agentId, `${storedFileName}:%`]
+  );
+  deps.publishUiEvent({ type: "media.changed", agentId });
+}
+
 // ---------------------------------------------------------------------------
 // Thin delegation layer
 // ---------------------------------------------------------------------------
@@ -669,8 +730,10 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
       pin: { label: string; value: string; type: string }
     ) => handleUpsertPin(deps, agentId, pin),
 
-    deletePin: (agentId: string, label: string) =>
-      handleDeletePin(deps, agentId, label),
+    deletePin: (agentId: string, pinId: string) =>
+      handleDeletePin(deps, agentId, pinId),
+
+    listPins: (agentId: string) => handleListPins(deps, agentId),
 
     renameSession: (agentId: string, name: string) =>
       handleRenameSession(deps, agentId, name),
@@ -730,5 +793,8 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     listMedia: (agentId: string, opts: { source?: string }) =>
       handleListMedia(deps, agentId, opts),
+
+    deleteMedia: (agentId: string, fileName: string) =>
+      handleDeleteMedia(deps, agentId, fileName),
   };
 }

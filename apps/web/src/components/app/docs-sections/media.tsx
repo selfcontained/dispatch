@@ -71,6 +71,12 @@ export function MediaContent() {
           <Code>"user"</Code>, <Code>"screenshot"</Code>, <Code>"text"</Code>,{" "}
           <Code>"simulator"</Code>, or <Code>"stream"</Code>.
         </P>
+        <P>
+          To remove an item that is no longer relevant, call{" "}
+          <Code>dispatch_delete_media</Code> with its exact{" "}
+          <Code>fileName</Code> from the listing. This permanently removes the
+          file and its media entry.
+        </P>
       </Section>
 
       <Section>
