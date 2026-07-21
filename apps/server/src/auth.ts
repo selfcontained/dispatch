@@ -153,10 +153,6 @@ export async function getOrCreateAuthToken(pool: Pool): Promise<string> {
   return token;
 }
 
-export function isMcpRoute(url: string): boolean {
-  return url === "/api/mcp" || url.startsWith("/api/mcp/");
-}
-
 export function isScopedMcpRoute(url: string): boolean {
   return (
     /^\/api\/mcp\/[^/]+$/.test(url) ||
