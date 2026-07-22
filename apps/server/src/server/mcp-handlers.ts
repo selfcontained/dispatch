@@ -17,11 +17,11 @@ import type {
   NotifyResult,
   SlackNotifier,
 } from "../notifications/slack.js";
-import { isPinType, validatePinValue } from "../pins.js";
 import {
   AGENT_LATEST_EVENT_TYPES,
   isAgentLatestEventType,
-} from "../routes/agents/shared.js";
+} from "../agents/latest-event.js";
+import { isPinType, validatePinValue } from "../pins.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";

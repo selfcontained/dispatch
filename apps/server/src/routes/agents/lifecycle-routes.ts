@@ -4,15 +4,15 @@ import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../../agent-type-settings.js";
+import {
+  AGENT_LATEST_EVENT_TYPES,
+  isAgentLatestEventType,
+} from "../../agents/latest-event.js";
 import { RENAME_PROMPT } from "../../agents/auto-rename-prompter.js";
 import { shouldSuggestSessionRename } from "../../agents/tmux/session-name.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
 import { getDiffStats } from "../../shared/git/diff-stats.js";
-import {
-  AGENT_LATEST_EVENT_TYPES,
-  isAgentLatestEventType,
-  type AgentRouteDeps,
-} from "./shared.js";
+import type { AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentLifecycleRoutes(
   app: FastifyInstance,
