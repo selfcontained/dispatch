@@ -109,6 +109,11 @@ export const diffIncludeUncommittedAtom = atomWithLocalStorage<boolean>(
   true
 );
 
+export const diffHideTestFilesAtom = atomWithLocalStorage<boolean>(
+  "dispatch:diffHideTestFiles",
+  false
+);
+
 export const diffFileTreeOpenAtom = atomWithLocalStorage<boolean>(
   "dispatch:diffFileTreeOpen",
   true
