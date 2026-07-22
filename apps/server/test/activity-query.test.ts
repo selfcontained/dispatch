@@ -4,8 +4,8 @@ import {
   parseActivityQuery,
   timeRangeClause,
   dateTruncTz,
-  escapeLike,
 } from "../src/server/activity-query.js";
+import { escapeLike } from "../src/shared/lib/escape-like.js";
 
 describe("parseActivityQuery", () => {
   it("returns defaults for empty input", () => {

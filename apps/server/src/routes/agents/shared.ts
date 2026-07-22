@@ -11,17 +11,9 @@ import type {
 import type { CopyModeAssistManager } from "../../terminal/copy-mode-assist-manager.js";
 
 export const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
-export const AGENT_LATEST_EVENT_TYPES = [
-  "working",
-  "blocked",
-  "waiting_user",
-  "done",
-  "idle",
-] as const;
 export const CODEX_FULL_ACCESS_ARG =
   "--dangerously-bypass-approvals-and-sandbox";
 export const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
-export type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
 
 export type AgentRouteDeps = {
   pool: Pool;
@@ -106,13 +98,4 @@ export function decodeClientMessage(
   } catch {
     return null;
   }
-}
-
-export function isAgentLatestEventType(
-  value: unknown
-): value is AgentLatestEventType {
-  return (
-    typeof value === "string" &&
-    AGENT_LATEST_EVENT_TYPES.includes(value as AgentLatestEventType)
-  );
 }

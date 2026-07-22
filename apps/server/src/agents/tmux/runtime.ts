@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import type { FastifyBaseLogger } from "fastify";
 
 import { runCommand } from "../../shared/lib/run-command.js";
+import { sleep } from "../../shared/lib/sleep.js";
 import type { AgentRuntime, LaunchInput } from "../runtime.js";
 
 /** TTL for the per-session current-cwd cache. */
@@ -380,8 +381,4 @@ async function readSetupLogTailFromDisk(idOrSession: string): Promise<string> {
     /* no log file */
   }
   return "";
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }

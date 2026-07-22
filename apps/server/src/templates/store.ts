@@ -4,6 +4,7 @@ import path from "node:path";
 import type { Pool } from "pg";
 
 import type { AgentType } from "../agent-type-settings.js";
+import { isUniqueViolation } from "../shared/lib/pg-errors.js";
 import {
   parseTemplateArgs,
   substituteArgs,
@@ -250,13 +251,4 @@ export class TemplateStore {
 
 function mapTemplate(row: Record<string, unknown>): TemplateRecord {
   return row as TemplateRecord;
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505"
-  );
 }

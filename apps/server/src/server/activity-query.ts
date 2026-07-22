@@ -79,10 +79,6 @@ export function dateTruncTz(
   return `${trunc}::date::text`;
 }
 
-export function escapeLike(s: string): string {
-  return s.replace(/[\\%_]/g, "\\$&");
-}
-
 export async function loadScopedActivityEvents(
   pool: Pool,
   aq: ActivityQuery
