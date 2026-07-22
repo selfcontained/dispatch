@@ -120,6 +120,7 @@ export function AgentsRoute(): JSX.Element {
       enabledAgentTypes={context.enabledAgentTypes}
       enabledIdes={context.enabledIdes}
       isMobile={context.isMobile}
+      theme={context.theme}
       leftOpen={context.leftOpen}
       leftPanelOpen={context.leftPanelOpen}
       mobileLeftOpen={context.mobileLeftOpen}
