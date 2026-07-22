@@ -102,26 +102,31 @@ export function MediaContent() {
       <Section>
         <H3>Media sidebar</H3>
         <P>
-          Click any agent's media count badge (or press{" "}
-          <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The sidebar has four
-          tabs: <strong>Pins</strong>, <strong>Media</strong>,{" "}
-          <strong>Reviews</strong>, and <strong>Messages</strong>.
+          Click the media sidebar button at the right of the terminal's top bar
+          (or press <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The button
+          shows a count badge when there are unseen media items or unread
+          messages. The sidebar has four tabs: <strong>Pins</strong>,{" "}
+          <strong>Media</strong>, <strong>Reviews</strong>, and{" "}
+          <strong>Messages</strong>.
         </P>
         <P>
           The <strong>Pins</strong> tab shows values the agent has surfaced via{" "}
           <Code>dispatch_pin</Code> — URLs, ports, branch names, file paths, and
-          other key info. The <strong>Media</strong> tab shows shared files in
-          reverse chronological order (most recent 50); click an item to open
-          the full-screen lightbox. New items since your last visit are marked
-          with a badge. The <strong>Reviews</strong> tab shows human review
-          feedback submitted from the Changes tab — each review has a status
-          badge (open, partially resolved, or resolved), and you can expand it
-          to see individual items, threaded messages, diff snapshots, and
-          resolutions. Click a file path to jump to that location in the Changes
-          tab. The <strong>Messages</strong> tab shows inter-agent messages
-          grouped by conversation partner — sent and received messages appear in
-          chat-style bubbles with timestamps and delivery status. Unread
-          messages show a badge count on the tab.
+          other key info. Setting a pin again with the same label updates it in
+          place, and agents can remove stale pins with{" "}
+          <Code>dispatch_list_pins</Code> + <Code>dispatch_delete_pin</Code>.
+          The <strong>Media</strong> tab shows shared files in reverse
+          chronological order (most recent 50); click an item to open the
+          full-screen lightbox. Items you haven't seen yet are highlighted, and
+          the tab shows an unseen count. The <strong>Reviews</strong> tab shows
+          human review feedback submitted from the Changes tab — each review has
+          a status badge (open, partially resolved, or resolved), and you can
+          expand it to see individual items, threaded messages, diff snapshots,
+          and resolutions. Click a file path to jump to that location in the
+          Changes tab. The <strong>Messages</strong> tab shows inter-agent
+          messages grouped by conversation partner — sent and received messages
+          appear in chat-style bubbles with timestamps and delivery status.
+          Unread messages show a badge count on the tab.
         </P>
         <P>
           The sidebar opens in <strong>drawer</strong> mode by default —
@@ -132,11 +137,11 @@ export function MediaContent() {
           full-screen overlay.
         </P>
         <P>
-          The <strong>Share file</strong> button at the top of the sidebar lets
-          you upload a file directly to the agent's media store (stored with{" "}
-          <Code>source: "user"</Code>). These uploads are not injected into the
-          terminal — see <em>Uploading files to agents</em> above for methods
-          that inject automatically.
+          The <strong>Share file</strong> button at the top of the Media tab
+          lets you upload a file directly to the agent's media store (stored
+          with <Code>source: "user"</Code>). These uploads are not injected into
+          the terminal — see <em>Uploading files to agents</em> above for
+          methods that inject automatically.
         </P>
       </Section>
     </>
