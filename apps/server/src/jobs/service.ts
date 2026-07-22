@@ -9,6 +9,7 @@ import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { runCommand } from "../shared/lib/run-command.js";
+import { sleep } from "../shared/lib/sleep.js";
 import {
   JobStore,
   type JobAgentType,
@@ -908,10 +909,6 @@ function buildJobPrompt(job: JobRecord, runId: string): string {
     "\nJob prompt:",
     job.prompt!,
   ].join("\n");
-}
-
-function sleep(ms: number): Promise<void> {
-  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function normalizeOptionalString(

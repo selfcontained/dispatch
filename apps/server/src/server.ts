@@ -117,11 +117,11 @@ import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import {
   dateTruncTz,
-  escapeLike,
   loadScopedActivityEvents,
   parseActivityQuery,
   timeRangeClause,
 } from "./server/activity-query.js";
+import { escapeLike } from "./shared/lib/escape-like.js";
 import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";

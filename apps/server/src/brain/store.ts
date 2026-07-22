@@ -2,6 +2,9 @@ import { randomUUID } from "node:crypto";
 
 import type { Pool, PoolClient } from "pg";
 
+import { escapeLike } from "../shared/lib/escape-like.js";
+import { isUniqueViolation } from "../shared/lib/pg-errors.js";
+
 // ── Types ────────────────────────────────────────────────────────────
 
 export type BrainObject = {
@@ -1160,17 +1163,4 @@ function listItemColumns(): string {
 
 function mapListItem(row: Record<string, unknown>): BrainListItem {
   return row as BrainListItem;
-}
-
-function escapeLike(value: string): string {
-  return value.replace(/[%_\\]/g, "\\$&");
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505"
-  );
 }

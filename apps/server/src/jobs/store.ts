@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
+import { isUniqueViolation } from "../shared/lib/pg-errors.js";
 import {
   appendJobLog,
   validateJobReport,
@@ -741,13 +742,4 @@ function mapRun(row: Record<string, unknown>): JobRunRecord {
 
 function mapJobWithLatestRun(row: Record<string, unknown>): JobWithLatestRun {
   return row as JobWithLatestRun;
-}
-
-function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    error.code === "23505"
-  );
 }

@@ -18,19 +18,15 @@ import type {
   SlackNotifier,
 } from "../notifications/slack.js";
 import { isPinType, validatePinValue } from "../pins.js";
+import {
+  AGENT_LATEST_EVENT_TYPES,
+  isAgentLatestEventType,
+} from "../routes/agents/shared.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 import { MessageStore } from "../messages/store.js";
-
-const AGENT_LATEST_EVENT_TYPES = [
-  "working",
-  "blocked",
-  "waiting_user",
-  "done",
-  "idle",
-] as const;
 
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
@@ -43,8 +39,6 @@ function buildChildAgentInitialPrompt(
     prompt,
   ].join("\n");
 }
-
-type AgentLatestEventType = (typeof AGENT_LATEST_EVENT_TYPES)[number];
 
 type CreateMcpHandlersDeps = {
   pool: Pool;
@@ -59,13 +53,6 @@ type CreateMcpHandlersDeps = {
   sendAgentPrompt: SendAgentPrompt;
   appLog: FastifyBaseLogger;
 };
-
-function isAgentLatestEventType(value: unknown): value is AgentLatestEventType {
-  return (
-    typeof value === "string" &&
-    AGENT_LATEST_EVENT_TYPES.includes(value as AgentLatestEventType)
-  );
-}
 
 export function mcpMethodNotAllowed(): {
   jsonrpc: "2.0";
