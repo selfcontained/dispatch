@@ -14,6 +14,7 @@ import {
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
   diffIncludeUncommittedAtom,
+  diffHideTestFilesAtom,
 } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -37,6 +38,7 @@ export function ChangesSettingsPopover({
   const [includeUncommitted, setIncludeUncommitted] = useAtom(
     diffIncludeUncommittedAtom
   );
+  const [hideTestFiles, setHideTestFiles] = useAtom(diffHideTestFilesAtom);
 
   return (
     <TipSpot tipId="uncommitted-diff" side="bottom" align="end" sideOffset={4}>
@@ -124,6 +126,21 @@ export function ChangesSettingsPopover({
                 />
                 <span className="whitespace-nowrap text-xs text-foreground">
                   Hide whitespace changes
+                </span>
+              </label>
+            </div>
+            <div className="space-y-1.5">
+              <span className="text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+                Files
+              </span>
+              <label className="flex cursor-pointer items-center gap-2">
+                <Checkbox
+                  checked={hideTestFiles}
+                  onCheckedChange={(v) => setHideTestFiles(v === true)}
+                  data-testid="changes-hide-test-files"
+                />
+                <span className="whitespace-nowrap text-xs text-foreground">
+                  Hide test files
                 </span>
               </label>
             </div>

@@ -8,10 +8,12 @@ import { useAgentDiff } from "@/hooks/use-agent-diff";
 import {
   diffViewTypeAtom,
   diffIgnoreWhitespaceAtom,
+  diffHideTestFilesAtom,
   diffFileTreeOpenAtom,
   diffViewStateAtomFamily,
   reviewDraftAtomFamily,
 } from "@/lib/store";
+import { excludeTestFiles } from "@/lib/test-files";
 import { ReviewModeBar } from "@/components/app/review-mode";
 import { useAllReviewFeedbackItems } from "@/hooks/use-agent-reviews";
 import {
@@ -37,6 +39,7 @@ export const ChangesTab = memo(function ChangesTab({
   const storedViewType = useAtomValue(diffViewTypeAtom);
   const viewType = isMobile ? "unified" : storedViewType;
   const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
+  const hideTestFiles = useAtomValue(diffHideTestFilesAtom);
   const { data, isLoading } = useAgentDiff(agentId, active, ignoreWhitespace);
   const feedbackItems = useAllReviewFeedbackItems(agentId, active);
   const [viewState, setViewState] = useAtom(
@@ -163,9 +166,18 @@ export const ChangesTab = memo(function ChangesTab({
     setCommentOpen(false);
   }, []);
 
+  const [searchParams, setSearchParams] = useSearchParams();
+  const navFileTarget = searchParams.get("file");
+  const navLineTarget = searchParams.get("line");
+  const navFeedbackTarget = searchParams.get("feedback");
+
   const files = useMemo(
-    () => [...(data?.files ?? [])].sort((a, b) => a.path.localeCompare(b.path)),
-    [data?.files]
+    () =>
+      (hideTestFiles
+        ? excludeTestFiles(data?.files ?? [], navFileTarget)
+        : [...(data?.files ?? [])]
+      ).sort((a, b) => a.path.localeCompare(b.path)),
+    [data?.files, hideTestFiles, navFileTarget]
   );
 
   const scrollToFile = useCallback(
@@ -184,11 +196,6 @@ export const ChangesTab = memo(function ChangesTab({
     },
     [setViewState]
   );
-
-  const [searchParams, setSearchParams] = useSearchParams();
-  const navFileTarget = searchParams.get("file");
-  const navLineTarget = searchParams.get("line");
-  const navFeedbackTarget = searchParams.get("feedback");
 
   useEffect(() => {
     if (!navFileTarget || files.length === 0) return;
@@ -297,7 +304,11 @@ export const ChangesTab = memo(function ChangesTab({
     return (
       <div className="flex h-full flex-col items-center justify-center gap-2 text-muted-foreground">
         <FileDiff className="h-8 w-8" />
-        <p className="text-sm">No changes yet</p>
+        <p className="text-sm">
+          {hideTestFiles && data?.files.length
+            ? "No non-test changes"
+            : "No changes yet"}
+        </p>
       </div>
     );
   }
