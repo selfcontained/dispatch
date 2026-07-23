@@ -1,5 +1,7 @@
 import cronstrue from "cronstrue";
+import { CheckCircle2, XCircle } from "lucide-react";
 
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { type JobRun, type JobRunStatus } from "@/hooks/use-jobs";
 import { formatDateTime } from "@/lib/format";
 
@@ -19,6 +21,15 @@ export function statusClasses(status: JobRunStatus | null): string {
   if (status === "started" || status === "running")
     return "border-status-working/45 bg-status-working/15 text-status-working";
   return "border-border bg-muted/35 text-muted-foreground";
+}
+
+export function statusIcon(status: JobRunStatus | null): JSX.Element | null {
+  if (status === "completed") return <CheckCircle2 className="h-3.5 w-3.5" />;
+  if (status === "failed" || status === "timed_out" || status === "crashed")
+    return <XCircle className="h-3.5 w-3.5" />;
+  if (status === "started" || status === "running" || status === "needs_input")
+    return <ActivityBars size={14} className="shrink-0" />;
+  return null;
 }
 
 export function statusTextColor(status: JobRunStatus | null): string {
