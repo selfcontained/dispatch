@@ -73,6 +73,12 @@ describe("compareSemver", () => {
     expect(compareSemver("1.2", "1.2.0")).toBe(0);
     expect(compareSemver("1.2.1", "1.2")).toBeGreaterThan(0);
   });
+
+  it("strips prerelease suffixes instead of producing NaN", () => {
+    expect(compareSemver("v1.2.3-rc1", "v1.2.3")).toBe(0);
+    expect(compareSemver("v1.2.4-rc1", "v1.2.3")).toBeGreaterThan(0);
+    expect(compareSemver("v1.2.3-rc1", "v1.2.4")).toBeLessThan(0);
+  });
 });
 
 describe("currentReleaseBinaryGlob", () => {
