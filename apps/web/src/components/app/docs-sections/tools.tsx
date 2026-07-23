@@ -15,7 +15,9 @@ export function ToolsContent() {
           automatically prefixes tool names with <Code>repo_</Code> when
           exposing them to agents (any dots in the configured name are sanitized
           to underscores, since MCP clients don't support dots in tool names).
-          The command executes in the repo root when called.
+          The command executes at the root of the agent's checkout — the
+          worktree root for worktree agents, otherwise the repo root — and the
+          manifest is read from that same tree.
         </P>
         <CodeBlock>{`
 // .dispatch/tools.json
@@ -287,8 +289,10 @@ export function ToolsContent() {
         <P>
           Repos can define lifecycle hooks in <Code>.dispatch/tools.json</Code>{" "}
           that run automatically at key moments. Currently the <Code>stop</Code>{" "}
-          hook is supported — it runs when an agent is stopped or terminated,
-          useful for teardown tasks like shutting down dev servers.
+          hook is supported — it runs when an agent is paused or archived,
+          useful for teardown tasks like shutting down dev servers. Hooks run at
+          the root of the agent's checkout with a 15-second timeout, and they
+          are best-effort: a failing hook is logged but never blocks shutdown.
         </P>
         <CodeBlock>{`
 {
