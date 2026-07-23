@@ -140,6 +140,50 @@ export async function cleanExpiredSessions(pool: Pool): Promise<void> {
   await pool.query("DELETE FROM sessions WHERE expires_at <= NOW()");
 }
 
+export const LOGIN_LINK_TTL_MS = 60_000;
+
+/**
+ * In-memory store for one-time login-link tokens (see the
+ * /api/v1/auth/login-links routes). Mirrors TerminalTokenStore: short TTL,
+ * consumed on first use, never persisted. Lets an external orchestrator that
+ * already holds the password (e.g. a provisioning control plane) hand a
+ * browser a single-use URL that logs it in without exposing the password.
+ */
+export class LoginLinkStore {
+  private readonly ttlMs: number;
+  private readonly expiries = new Map<string, number>();
+
+  constructor(ttlMs = LOGIN_LINK_TTL_MS) {
+    this.ttlMs = ttlMs;
+  }
+
+  issue(): string {
+    this.cleanupExpired();
+    const token = crypto.randomUUID().replaceAll("-", "");
+    this.expiries.set(token, Date.now() + this.ttlMs);
+    return token;
+  }
+
+  consume(token: string): boolean {
+    this.cleanupExpired();
+    const expiresAtMs = this.expiries.get(token);
+    if (expiresAtMs === undefined) {
+      return false;
+    }
+    this.expiries.delete(token);
+    return expiresAtMs >= Date.now();
+  }
+
+  private cleanupExpired(): void {
+    const now = Date.now();
+    for (const [token, expiresAtMs] of this.expiries.entries()) {
+      if (expiresAtMs < now) {
+        this.expiries.delete(token);
+      }
+    }
+  }
+}
+
 /**
  * Returns a stable auth token for agent-to-server communication, persisted in the settings table.
  * Generated automatically on first run and reused across restarts.

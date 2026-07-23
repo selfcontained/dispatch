@@ -25,6 +25,7 @@ import {
   getOrCreateCookieSecret,
   getReleaseUpdateAgentId,
   isScopedMcpRoute,
+  LoginLinkStore,
   shouldAcceptApiBearerToken,
   validateAgentMcpToken,
   validateJobMcpToken,
@@ -173,6 +174,7 @@ const diffStatsRefresher = new DiffStatsRefresher({
 });
 agentManager.attachDiffStatsRefresher(diffStatsRefresher);
 const terminalTokenStore = new TerminalTokenStore(60_000);
+const loginLinkStore = new LoginLinkStore();
 const copyModeObserverManager = new CopyModeObserverManager((event) =>
   uiEventBroker.publish(event as UiEvent)
 );
@@ -453,6 +455,7 @@ async function registerRoutes() {
     sessionMaxAgeSeconds: SESSION_MAX_AGE_S,
     isPasswordSetCached: () => authRuntime.isPasswordSetCached(),
     invalidatePasswordSetCache: () => authRuntime.invalidatePasswordSetCache(),
+    loginLinkStore,
   });
 
   await registerBrowserExtensionRoutes(app, {
