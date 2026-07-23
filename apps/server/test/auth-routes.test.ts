@@ -133,14 +133,14 @@ describe("POST /api/v1/auth/login-links", () => {
     expect(res.statusCode).toBe(200);
     const body = res.json();
     expect(body.token).toMatch(/^[0-9a-f]{32}$/);
-    expect(body.path).toBe(`/api/v1/auth/login-links/${body.token}`);
+    expect(body.path).toBe(`/login#login-link=${body.token}`);
     expect(body.expiresInSeconds).toBeGreaterThan(0);
     // Minting must not set a session cookie itself.
     expect(res.headers["set-cookie"]).toBeUndefined();
   });
 });
 
-describe("GET /api/v1/auth/login-links/:token", () => {
+describe("POST /api/v1/auth/login-links/exchange", () => {
   async function mintLink(): Promise<string> {
     const res = await ctx.app.inject({
       method: "POST",
@@ -148,15 +148,19 @@ describe("GET /api/v1/auth/login-links/:token", () => {
       payload: { password: "hunter2hunter2" },
     });
     expect(res.statusCode).toBe(200);
-    return res.json().path as string;
+    return res.json().token as string;
   }
 
-  it("logs the browser in and redirects to / on first use", async () => {
-    const path = await mintLink();
+  it("logs the browser in on first use", async () => {
+    const token = await mintLink();
 
-    const res = await ctx.app.inject({ method: "GET", url: path });
-    expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe("/");
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login-links/exchange",
+      payload: { token },
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ ok: true });
     const cookie = res.headers["set-cookie"] as string;
     expect(cookie).toMatch(/dispatch_session=/);
 
@@ -168,26 +172,32 @@ describe("GET /api/v1/auth/login-links/:token", () => {
     expect(statusRes.json().authenticated).toBe(true);
   });
 
-  it("is single-use: second redemption redirects to /login without a cookie", async () => {
-    const path = await mintLink();
+  it("is single-use: second exchange is rejected without a cookie", async () => {
+    const token = await mintLink();
 
-    const first = await ctx.app.inject({ method: "GET", url: path });
-    expect(first.statusCode).toBe(302);
-    expect(first.headers.location).toBe("/");
+    const first = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login-links/exchange",
+      payload: { token },
+    });
+    expect(first.statusCode).toBe(200);
 
-    const second = await ctx.app.inject({ method: "GET", url: path });
-    expect(second.statusCode).toBe(302);
-    expect(second.headers.location).toBe("/login");
+    const second = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/auth/login-links/exchange",
+      payload: { token },
+    });
+    expect(second.statusCode).toBe(401);
     expect(second.headers["set-cookie"]).toBeUndefined();
   });
 
-  it("redirects unknown tokens to /login without a cookie", async () => {
+  it("rejects unknown tokens without a cookie", async () => {
     const res = await ctx.app.inject({
-      method: "GET",
-      url: "/api/v1/auth/login-links/00000000000000000000000000000000",
+      method: "POST",
+      url: "/api/v1/auth/login-links/exchange",
+      payload: { token: "00000000000000000000000000000000" },
     });
-    expect(res.statusCode).toBe(302);
-    expect(res.headers.location).toBe("/login");
+    expect(res.statusCode).toBe(401);
     expect(res.headers["set-cookie"]).toBeUndefined();
   });
 });

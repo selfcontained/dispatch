@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import {
   Card,
@@ -19,6 +19,45 @@ export function LoginPage({ onAuthenticated }: LoginPageProps): JSX.Element {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const hasExchangedLoginLink = useRef(false);
+
+  useEffect(() => {
+    const token = new URLSearchParams(window.location.hash.slice(1)).get(
+      "login-link"
+    );
+    if (!token || hasExchangedLoginLink.current) return;
+
+    hasExchangedLoginLink.current = true;
+    // URL fragments are not sent to the server, but remove this bearer token
+    // from the address bar and browser history before making the exchange.
+    window.history.replaceState(
+      null,
+      "",
+      `${window.location.pathname}${window.location.search}`
+    );
+
+    setLoading(true);
+    void (async () => {
+      try {
+        const res = await fetch("/api/v1/auth/login-links/exchange", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({ token }),
+        });
+        if (!res.ok) {
+          setError("This login link is invalid or has expired.");
+          setLoading(false);
+          return;
+        }
+        setLoading(false);
+        onAuthenticated();
+      } catch {
+        setError("Unable to reach the server.");
+        setLoading(false);
+      }
+    })();
+  }, [onAuthenticated]);
 
   const handleSubmit = async (e: FormEvent) => {
     e.preventDefault();

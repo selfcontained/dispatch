@@ -25,6 +25,9 @@ const LoginBodySchema = z.object({
 const LoginLinkBodySchema = z.object({
   password: z.string().min(1, "Password is required."),
 });
+const LoginLinkExchangeBodySchema = z.object({
+  token: z.string().min(1, "Login link token is required."),
+});
 const ChangePasswordBodySchema = z.object({
   currentPassword: z.string().min(1, "Current password is required."),
   newPassword: z.string().min(8, "New password must be at least 8 characters."),
@@ -108,11 +111,11 @@ export async function registerAuthRoutes(
   );
 
   // One-time login links: exchange the password for a short-lived single-use
-  // URL that logs the browser in via top-level navigation. Lets an external
-  // orchestrator that already holds the password (e.g. a provisioning control
-  // plane) hand its user a seamless login without the password ever reaching
-  // the browser. Privilege-equivalent to POST /login, so it shares that
-  // endpoint's rate limit profile.
+  // URL that logs the browser in without the password ever reaching it. The
+  // token is placed in the URL fragment so it never reaches server or proxy
+  // access logs. The login page reads the fragment and posts it to the
+  // exchange endpoint below. Privilege-equivalent to POST /login, so it shares
+  // that endpoint's rate limit profile.
   app.post(
     "/api/v1/auth/login-links",
     { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
@@ -126,25 +129,31 @@ export async function registerAuthRoutes(
       const token = deps.loginLinkStore.issue();
       return {
         token,
-        path: `/api/v1/auth/login-links/${token}`,
+        path: `/login#login-link=${token}`,
         expiresInSeconds: Math.floor(LOGIN_LINK_TTL_MS / 1000),
       };
     }
   );
 
-  app.get(
-    "/api/v1/auth/login-links/:token",
+  app.post(
+    "/api/v1/auth/login-links/exchange",
     { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
     async (request, reply) => {
-      const { token } = request.params as { token: string };
-      if (!deps.loginLinkStore.consume(token)) {
-        // Expired, already used, or unknown — fall back to the login page.
-        return reply.redirect("/login", 302);
+      const parsed = parseInput(
+        LoginLinkExchangeBodySchema,
+        request.body,
+        reply
+      );
+      if (!parsed) return;
+      if (!deps.loginLinkStore.consume(parsed.token)) {
+        return reply
+          .code(401)
+          .send({ error: "Invalid or expired login link." });
       }
 
       const sessionToken = await createSession(deps.pool);
       setSessionCookie(reply, sessionToken);
-      return reply.redirect("/", 302);
+      return { ok: true };
     }
   );
 
