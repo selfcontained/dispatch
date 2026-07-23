@@ -9,9 +9,19 @@ import type {
 import { usesInsecureHttp } from "./lib/dispatch-url";
 import { canSubmitFeedback } from "./lib/feedback-form";
 import { classifyPickerPage } from "./lib/picker-access";
+import {
+  captureElementScreenshot,
+  type CaptureResult,
+  type CapturedScreenshot,
+} from "./lib/screenshot";
 
 const SELECTIONS_KEY = "dispatchAgentSelections";
-const PAGE_ACCESS_ORIGINS = ["http://*/*", "https://*/*"];
+const INCLUDE_SCREENSHOT_KEY = "dispatchIncludeScreenshot";
+const CAPTURE_TIMEOUT_MS = 4_000;
+// captureVisibleTab (used for the element screenshot) requires all-URLs access,
+// not per-host patterns, so page access is requested as a single <all_urls> grant
+// that also covers the picker's content-script injection.
+const PAGE_ACCESS_ORIGINS = ["<all_urls>"];
 const SUCCESS_NOTICE_DURATION_MS = 4_000;
 const PICKER_CLEANUP_ATTEMPTS = 3;
 const PICKER_CLEANUP_RETRY_MS = 100;
@@ -46,6 +56,15 @@ let connection: ConnectionStatus = { connected: false };
 let agents: DispatchAgent[] = [];
 let selectedAgentId = "";
 let selection: BrowserSelection | null = null;
+let includeScreenshot = true;
+let screenshot: CapturedScreenshot | null = null;
+type ScreenshotStatus = "idle" | "capturing" | "ready" | "unavailable";
+let screenshotStatus: ScreenshotStatus = "idle";
+let screenshotFailureReason: string | null = null;
+// Bumped whenever an in-flight capture becomes stale (new selection, opt-out,
+// manual removal, submit). A capture only commits its result if its generation
+// still matches, so a slow capture can never resurrect an opted-out image.
+let captureGeneration = 0;
 let comment = "";
 let notice: Notice | null = null;
 let busy = false;
@@ -70,6 +89,7 @@ let pendingSubmission: {
   agentId: string;
   comment: string;
   selection: BrowserSelection;
+  screenshot: string | null;
 } | null = null;
 
 function cleanupInjectedPicker(): void {
@@ -182,6 +202,121 @@ function currentOrigin(): string | null {
 
 function agentSelectionKey(baseUrl: string, origin: string): string {
   return `${baseUrl}|${origin}`;
+}
+
+// Invalidate any in-flight capture and drop the current image/status. Used when
+// the user opts out, removes the image, or moves on to a new selection.
+function resetCaptureState(): void {
+  captureGeneration += 1;
+  screenshot = null;
+  screenshotStatus = "idle";
+  screenshotFailureReason = null;
+}
+
+function applyCaptureResult(
+  result: CaptureResult,
+  generation: number,
+  forSelection: BrowserSelection
+): void {
+  // Discard if a newer action superseded this capture (opt-out, removal, or a
+  // new selection all bump the generation).
+  if (generation !== captureGeneration || selection !== forSelection) return;
+  if (result.ok) {
+    screenshot = result.screenshot;
+    screenshotStatus = "ready";
+    screenshotFailureReason = null;
+  } else {
+    screenshot = null;
+    screenshotStatus = "unavailable";
+    screenshotFailureReason = result.reason;
+    console.warn("[dispatch] screenshot capture failed:", result.reason);
+  }
+  render();
+}
+
+async function runCapture(
+  forSelection: BrowserSelection,
+  windowId: number
+): Promise<void> {
+  const generation = ++captureGeneration;
+  screenshot = null;
+  screenshotStatus = "capturing";
+  screenshotFailureReason = null;
+  render();
+
+  // Bound the wait so a hung captureVisibleTab can't leave Send disabled forever.
+  const result = await Promise.race([
+    captureElementScreenshot(
+      windowId,
+      forSelection.element.rect,
+      forSelection.page.devicePixelRatio
+    ).catch(
+      (error: unknown): CaptureResult => ({
+        ok: false,
+        reason: `capture threw: ${error instanceof Error ? error.message : String(error)}`,
+      })
+    ),
+    new Promise<CaptureResult>((resolve) =>
+      window.setTimeout(
+        () => resolve({ ok: false, reason: "capture timed out" }),
+        CAPTURE_TIMEOUT_MS
+      )
+    ),
+  ]);
+
+  applyCaptureResult(result, generation, forSelection);
+}
+
+async function recaptureForCurrentSelection(): Promise<void> {
+  const forSelection = selection;
+  if (!forSelection) return;
+  const generation = ++captureGeneration;
+  screenshot = null;
+  screenshotStatus = "capturing";
+  screenshotFailureReason = null;
+  render();
+
+  const tab = await getActiveTab().catch(() => null);
+  if (generation !== captureGeneration || selection !== forSelection) return;
+
+  let windowId: number | null = null;
+  try {
+    if (
+      typeof tab?.windowId === "number" &&
+      tab.url &&
+      new URL(tab.url).origin === new URL(forSelection.page.url).origin
+    ) {
+      windowId = tab.windowId;
+    }
+  } catch {
+    windowId = null;
+  }
+
+  if (windowId === null) {
+    // The active tab no longer matches the inspected page, so we can't recapture.
+    if (generation !== captureGeneration || selection !== forSelection) return;
+    screenshotStatus = "unavailable";
+    screenshotFailureReason =
+      "active tab no longer matches the inspected page — switch back to it and try again";
+    render();
+    return;
+  }
+  await runCapture(forSelection, windowId);
+}
+
+function setIncludeScreenshot(next: boolean): void {
+  includeScreenshot = next;
+  void chrome.storage.local.set({ [INCLUDE_SCREENSHOT_KEY]: next });
+  if (!next) {
+    resetCaptureState();
+    render();
+    return;
+  }
+  render();
+  // Re-enabling after a selection already exists still gives the user an image.
+  if (selection && screenshotStatus !== "ready") {
+    void recaptureForCurrentSelection();
+  }
 }
 
 async function loadRememberedAgent(): Promise<void> {
@@ -343,12 +478,17 @@ function renderFeedback(shell: HTMLElement): void {
   controls.className = "stack";
   const send = document.createElement("button");
   const syncSendState = (): void => {
-    send.disabled = !canSubmitFeedback({
-      busy,
-      hasSelection: Boolean(selection),
-      selectedAgentId,
-      comment,
-    });
+    // Hold Send while a capture is in flight so a fast submit can't drop the
+    // screenshot the user asked for; failure/skip settles to a non-capturing
+    // status and re-enables Send.
+    send.disabled =
+      screenshotStatus === "capturing" ||
+      !canSubmitFeedback({
+        busy,
+        hasSelection: Boolean(selection),
+        selectedAgentId,
+        comment,
+      });
   };
   const agentField = document.createElement("div");
   agentField.className = "agent-field";
@@ -463,6 +603,7 @@ function renderFeedback(shell: HTMLElement): void {
   }
   pickerControl.append(selectButton, pickerHelpSlot);
   controls.append(pickerControl);
+  controls.append(createScreenshotToggle());
   if (pageAccessDisclosureVisible && !pageAccessGranted) {
     controls.append(createPageAccessDisclosure());
   }
@@ -494,10 +635,28 @@ function renderFeedback(shell: HTMLElement): void {
   send.className = "primary";
   send.type = "button";
   syncSendState();
-  send.textContent = busy ? "Sending…" : "Send to agent";
+  send.textContent = busy
+    ? "Sending…"
+    : screenshotStatus === "capturing"
+      ? "Preparing screenshot…"
+      : "Send to agent";
   send.addEventListener("click", () => void submitFeedback());
   controls.append(send);
   shell.append(connectionSummary, controls);
+}
+
+function createScreenshotToggle(): HTMLElement {
+  const wrapper = document.createElement("label");
+  wrapper.className = "screenshot-toggle";
+  const input = document.createElement("input");
+  input.type = "checkbox";
+  input.checked = includeScreenshot;
+  input.disabled = busy;
+  input.addEventListener("change", () => setIncludeScreenshot(input.checked));
+  const text = document.createElement("span");
+  text.textContent = "Include screenshot of selected element";
+  wrapper.append(input, text);
+  return wrapper;
 }
 
 function createPreview(): HTMLElement {
@@ -516,6 +675,7 @@ function createPreview(): HTMLElement {
   clear.disabled = busy;
   clear.addEventListener("click", () => {
     selection = null;
+    resetCaptureState();
     render();
   });
   header.append(page, clear);
@@ -547,8 +707,70 @@ function createPreview(): HTMLElement {
       )
     : "";
   surroundingDetails.append(surroundingSummary, surroundingContext);
-  preview.append(header, selector, text, details, surroundingDetails);
+  preview.append(header, selector, text);
+  if (screenshot) preview.append(createScreenshotFigure(screenshot));
+  else if (screenshotStatus === "capturing")
+    preview.append(createScreenshotStatus("capturing"));
+  else if (screenshotStatus === "unavailable")
+    preview.append(createScreenshotStatus("unavailable"));
+  preview.append(details, surroundingDetails);
   return preview;
+}
+
+function createScreenshotStatus(
+  kind: "capturing" | "unavailable"
+): HTMLElement {
+  const status = document.createElement("div");
+  status.className = `screenshot-status ${kind}`;
+  status.setAttribute("aria-live", "polite");
+  const message = document.createElement("p");
+  message.className = "screenshot-status-message";
+  if (kind === "capturing") {
+    message.textContent = "Capturing screenshot…";
+    status.append(message);
+    return status;
+  }
+  message.textContent =
+    "Screenshot couldn’t be captured; this feedback will be sent without one.";
+  status.append(message);
+  if (screenshotFailureReason) {
+    const reason = document.createElement("p");
+    reason.className = "screenshot-status-reason";
+    reason.textContent = screenshotFailureReason;
+    status.append(reason);
+  }
+  const retry = document.createElement("button");
+  retry.type = "button";
+  retry.className = "screenshot-retry";
+  retry.textContent = "Try again";
+  retry.setAttribute("aria-label", "Try capturing the screenshot again");
+  retry.disabled = busy;
+  retry.addEventListener("click", () => void recaptureForCurrentSelection());
+  status.append(retry);
+  return status;
+}
+
+function createScreenshotFigure(shot: CapturedScreenshot): HTMLElement {
+  const figure = document.createElement("figure");
+  figure.className = "screenshot-figure";
+  const image = document.createElement("img");
+  image.className = "screenshot-image";
+  image.src = shot.dataUrl;
+  image.alt = "Screenshot of the selected element";
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "screenshot-remove";
+  remove.textContent = "Remove screenshot";
+  remove.setAttribute("aria-label", "Remove screenshot from this submission");
+  remove.disabled = busy;
+  remove.addEventListener("click", () => {
+    // Explicit removal: drop the image and don't show the "couldn't capture"
+    // status, and cancel any capture that might still be resolving.
+    resetCaptureState();
+    render();
+  });
+  figure.append(image, remove);
+  return figure;
 }
 
 function createPageAccessDisclosure(): HTMLElement {
@@ -562,7 +784,7 @@ function createPageAccessDisclosure(): HTMLElement {
   const explanation = document.createElement("p");
   explanation.textContent = pageAccessDenied
     ? "Chrome did not grant access. Try again to reopen its permission prompt, or dismiss this request."
-    : "Element selection needs permission to read and change page content, including embedded frames, on all HTTP and HTTPS websites. While the selector is on, Dispatch reads hovered elements locally to draw the highlight. It sends the selected element and surrounding page context only after you click it; Chrome lets you revoke access later.";
+    : "Element selection needs permission to read and change page content, including embedded frames, on the websites you visit — the screenshot capture requires all-sites access. While the selector is on, Dispatch reads hovered elements locally to draw the highlight. It sends the selected element, surrounding page context, and — when the screenshot option is on — an image of that element only after you click it; Chrome lets you revoke access later.";
   const actions = document.createElement("div");
   actions.className = "page-access-actions";
   const allow = document.createElement("button");
@@ -753,6 +975,7 @@ async function disconnectFromDispatch(): Promise<void> {
   agents = [];
   selectedAgentId = "";
   selection = null;
+  resetCaptureState();
   comment = "";
   pendingSubmission = null;
   notice = result.revokedRemotely
@@ -1008,17 +1231,20 @@ async function submitFeedback(): Promise<void> {
   if (!selection || !selectedAgentId || !comment.trim()) return;
   const submittedSelection = selection;
   const submittedComment = comment.trim();
+  const submittedScreenshot = screenshot?.base64 ?? null;
   if (
     !pendingSubmission ||
     pendingSubmission.agentId !== selectedAgentId ||
     pendingSubmission.comment !== submittedComment ||
-    pendingSubmission.selection !== submittedSelection
+    pendingSubmission.selection !== submittedSelection ||
+    pendingSubmission.screenshot !== submittedScreenshot
   ) {
     pendingSubmission = {
       id: crypto.randomUUID(),
       agentId: selectedAgentId,
       comment: submittedComment,
       selection: submittedSelection,
+      screenshot: submittedScreenshot,
     };
   }
   busy = true;
@@ -1031,10 +1257,12 @@ async function submitFeedback(): Promise<void> {
       agentId: pendingSubmission.agentId,
       comment: pendingSubmission.comment,
       selection: pendingSubmission.selection,
+      screenshot: pendingSubmission.screenshot ?? undefined,
     });
     pendingSubmission = null;
     comment = "";
     selection = null;
+    resetCaptureState();
     setNotice("success", "Feedback delivered to the selected agent.");
   } catch (error) {
     if (
@@ -1075,10 +1303,24 @@ chrome.runtime.onMessage.addListener((message: unknown, sender) => {
   if (message.type === "picker:selected" && "selection" in message) {
     handled = true;
     beginPickerTransition();
-    selection = message.selection as BrowserSelection;
+    const nextSelection = message.selection as BrowserSelection;
+    resetCaptureState();
+    selection = nextSelection;
     disarmPicker();
     notice = null;
     void rememberAgent();
+    if (includeScreenshot) {
+      // captureVisibleTab only sees the top document, so element rects from
+      // nested frames can't be cropped reliably — mark those unavailable so the
+      // user learns no screenshot will be attached.
+      if (sender.frameId === 0 && typeof sender.tab?.windowId === "number") {
+        void runCapture(nextSelection, sender.tab.windowId);
+      } else {
+        screenshotStatus = "unavailable";
+        screenshotFailureReason =
+          "element is inside a nested frame — capture only supports the top-level page";
+      }
+    }
     render();
   } else if (message.type === "picker:cancelled") {
     handled = true;
@@ -1154,6 +1396,10 @@ async function initialize(): Promise<void> {
     pageAccessGranted = await chrome.permissions.contains({
       origins: PAGE_ACCESS_ORIGINS,
     });
+    const storedToggle = await chrome.storage.local.get(INCLUDE_SCREENSHOT_KEY);
+    if (typeof storedToggle[INCLUDE_SCREENSHOT_KEY] === "boolean") {
+      includeScreenshot = storedToggle[INCLUDE_SCREENSHOT_KEY];
+    }
     connection = await sendWorker<ConnectionStatus>({
       type: "connection:status",
     });

@@ -214,12 +214,14 @@ async function handleRequest(request: WorkerRequest): Promise<WorkerResponse> {
         comment: string;
         page: BrowserSelection["page"];
         element: BrowserSelection["element"];
+        screenshot?: string;
       } = {
         clientSubmissionId: request.clientSubmissionId,
         agentId: request.agentId,
         comment: request.comment,
         page: request.selection.page,
         element: request.selection.element,
+        ...(request.screenshot ? { screenshot: request.screenshot } : {}),
       };
       const result = await authenticatedFetch<unknown>(
         "/api/v1/browser-extension/submissions",

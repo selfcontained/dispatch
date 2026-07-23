@@ -460,6 +460,8 @@ async function registerRoutes() {
     agentManager,
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
+    mediaRoot: config.mediaRoot,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 
   await registerJobRoutes(app, {
