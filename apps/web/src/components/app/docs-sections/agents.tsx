@@ -181,11 +181,14 @@ export function AgentsContent() {
           Click the <strong>gear icon</strong> in the tab bar to open diff
           settings. Toggle between <strong>Unified</strong> and{" "}
           <strong>Split</strong> view, choose whether to{" "}
-          <strong>Include uncommitted changes</strong>, and check{" "}
+          <strong>Include uncommitted changes</strong>, check{" "}
           <strong>Hide whitespace changes</strong> to filter out whitespace-only
-          edits. Excluding uncommitted changes limits the diff and its stats to
-          committed work. These settings persist across sessions. On mobile, the
-          diff always renders in unified mode.
+          edits, and check <strong>Hide test files</strong> to filter
+          conventional test files out of the diff and file tree (a file you
+          navigate to directly stays visible even if it's a test). Excluding
+          uncommitted changes limits the diff and its stats to committed work.
+          These settings persist across sessions. On mobile, the diff always
+          renders in unified mode.
         </P>
         <P>
           On desktop, drag the <strong>Terminal</strong> or{" "}
