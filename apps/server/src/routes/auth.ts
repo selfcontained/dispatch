@@ -12,12 +12,17 @@ import {
   setPassword,
   validateSession,
   verifyPassword,
+  LOGIN_LINK_TTL_MS,
+  type LoginLinkStore,
 } from "../auth.js";
 
 const SetupBodySchema = z.object({
   password: z.string().min(8, "Password must be at least 8 characters."),
 });
 const LoginBodySchema = z.object({
+  password: z.string().min(1, "Password is required."),
+});
+const LoginLinkBodySchema = z.object({
   password: z.string().min(1, "Password is required."),
 });
 const ChangePasswordBodySchema = z.object({
@@ -32,6 +37,7 @@ type AuthRouteDeps = {
   sessionMaxAgeSeconds: number;
   isPasswordSetCached: () => Promise<boolean>;
   invalidatePasswordSetCache: () => void;
+  loginLinkStore: LoginLinkStore;
 };
 
 export async function registerAuthRoutes(
@@ -98,6 +104,47 @@ export async function registerAuthRoutes(
       const token = await createSession(deps.pool);
       setSessionCookie(reply, token);
       return { ok: true };
+    }
+  );
+
+  // One-time login links: exchange the password for a short-lived single-use
+  // URL that logs the browser in via top-level navigation. Lets an external
+  // orchestrator that already holds the password (e.g. a provisioning control
+  // plane) hand its user a seamless login without the password ever reaching
+  // the browser. Privilege-equivalent to POST /login, so it shares that
+  // endpoint's rate limit profile.
+  app.post(
+    "/api/v1/auth/login-links",
+    { config: { rateLimit: { max: 5, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const parsed = parseInput(LoginLinkBodySchema, request.body, reply);
+      if (!parsed) return;
+      if (!(await verifyPassword(deps.pool, parsed.password))) {
+        return reply.code(401).send({ error: "Invalid password." });
+      }
+
+      const token = deps.loginLinkStore.issue();
+      return {
+        token,
+        path: `/api/v1/auth/login-links/${token}`,
+        expiresInSeconds: Math.floor(LOGIN_LINK_TTL_MS / 1000),
+      };
+    }
+  );
+
+  app.get(
+    "/api/v1/auth/login-links/:token",
+    { config: { rateLimit: { max: 10, timeWindow: "1 minute" } } },
+    async (request, reply) => {
+      const { token } = request.params as { token: string };
+      if (!deps.loginLinkStore.consume(token)) {
+        // Expired, already used, or unknown — fall back to the login page.
+        return reply.redirect("/login", 302);
+      }
+
+      const sessionToken = await createSession(deps.pool);
+      setSessionCookie(reply, sessionToken);
+      return reply.redirect("/", 302);
     }
   );
 

@@ -23,6 +23,7 @@ import {
   createJobMcpToken,
   validateJobMcpToken,
   validateReleaseUpdateToken,
+  LoginLinkStore,
 } from "../src/auth.js";
 
 let pool: Pool;
@@ -243,5 +244,31 @@ describe("auth token and cookie secret", () => {
     expect(shouldAcceptApiBearerToken("/api/v1/agents", secret, secret)).toBe(
       true
     );
+  });
+});
+
+describe("login link store", () => {
+  it("issues 32-char hex tokens that consume exactly once", () => {
+    const store = new LoginLinkStore();
+    const token = store.issue();
+    expect(token).toMatch(/^[0-9a-f]{32}$/);
+    expect(store.consume(token)).toBe(true);
+    expect(store.consume(token)).toBe(false);
+  });
+
+  it("rejects unknown tokens", () => {
+    const store = new LoginLinkStore();
+    expect(store.consume("deadbeefdeadbeefdeadbeefdeadbeef")).toBe(false);
+  });
+
+  it("rejects expired tokens", () => {
+    const store = new LoginLinkStore(-1);
+    const token = store.issue();
+    expect(store.consume(token)).toBe(false);
+  });
+
+  it("issues unique tokens", () => {
+    const store = new LoginLinkStore();
+    expect(store.issue()).not.toBe(store.issue());
   });
 });
