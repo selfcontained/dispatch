@@ -51,6 +51,7 @@ import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType, isNestedReviewAgent } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
+import { type ThemeId } from "@/hooks/use-theme";
 import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
@@ -70,6 +71,7 @@ type AgentsViewProps = {
   enabledAgentTypes: AgentType[];
   enabledIdes: IdeType[];
   isMobile: boolean;
+  theme: ThemeId;
   leftOpen: boolean;
   leftPanelOpen: boolean;
   mobileLeftOpen: boolean;
@@ -87,6 +89,7 @@ export function AgentsView({
   enabledAgentTypes,
   enabledIdes,
   isMobile,
+  theme,
   leftOpen,
   leftPanelOpen,
   mobileLeftOpen,
@@ -190,7 +193,7 @@ export function AgentsView({
     authState: "authenticated",
     agents,
     selectedAgentId: validatedSelectedAgentId,
-    theme: "dark" as never,
+    theme,
     isMobile,
     leftOpen,
     deferMediaResize,
