@@ -334,6 +334,13 @@ export function AutomationsContent() {
             <Code>dispatch_review_reopen</Code>. See below.
           </li>
           <li>
+            <strong>Human review</strong> —{" "}
+            <Code>dispatch_review_list_feedback</Code>,{" "}
+            <Code>dispatch_review_resolve</Code>, and{" "}
+            <Code>dispatch_review_add_message</Code>. Read, resolve, and reply
+            to review feedback left on the Changes tab.
+          </li>
+          <li>
             <strong>Brain (shared memory)</strong> —{" "}
             <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}
             <Code>brain_list_objects</Code>, <Code>brain_delete_object</Code>,{" "}
