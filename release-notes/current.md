@@ -5,6 +5,7 @@
 * Fix compareSemver prerelease handling and dedupe the private copy by @selfcontained in https://github.com/selfcontained/dispatch/pull/818
 * Fix diff syntax highlighting across hunks by @selfcontained in https://github.com/selfcontained/dispatch/pull/820
 * Add one-time login links for seamless external auth handoff by @selfcontained in https://github.com/selfcontained/dispatch/pull/821
+* Fix Automations docs drift: job prompt args and missing review tools by @selfcontained in https://github.com/selfcontained/dispatch/pull/779
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.29.6...v0.29.7
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.29.6...v0.29.8
