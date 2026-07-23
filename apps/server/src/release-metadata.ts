@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { compareSemver } from "./server/release-helpers.js";
+
 export const ASSISTED_UPDATE_MODES = [
   "normal",
   "recommended",
@@ -186,18 +188,6 @@ export function normalizeRequiredChecks(
   return metadata.requiredChecks.map((c) =>
     typeof c === "string" ? c : c.name
   );
-}
-
-function compareSemver(a: string, b: string): number {
-  const parse = (v: string) =>
-    v.replace(/^v/, "").split("-")[0]!.split(".").map(Number);
-  const pa = parse(a);
-  const pb = parse(b);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 function findFenceBreakerField(

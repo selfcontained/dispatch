@@ -27,7 +27,8 @@ export function parseGhJson<T>(stdout: string): T {
 }
 
 export function compareSemver(a: string, b: string): number {
-  const parse = (v: string) => v.replace(/^v/, "").split(".").map(Number);
+  const parse = (v: string) =>
+    v.replace(/^v/, "").split("-")[0]!.split(".").map(Number);
   const pa = parse(a);
   const pb = parse(b);
   for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
