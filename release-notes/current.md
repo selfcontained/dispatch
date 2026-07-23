@@ -1,8 +1,8 @@
 ## What's Changed
-* Cover useNotificationSettings, including its out-of-order-save guard by @selfcontained in https://github.com/selfcontained/dispatch/pull/805
-* Correct the Status Events docs and document automatic status correction by @selfcontained in https://github.com/selfcontained/dispatch/pull/806
-* Remove dead code: unreferenced files and unused exports by @selfcontained in https://github.com/selfcontained/dispatch/pull/807
-* Add full agent pin and media management by @selfcontained in https://github.com/selfcontained/dispatch/pull/808
+* Cover NotificationSettings component wiring, incl. status-slot cross-wiring by @selfcontained in https://github.com/selfcontained/dispatch/pull/810
+* Docs: fix Media & Sharing section drift after pin/media management by @selfcontained in https://github.com/selfcontained/dispatch/pull/811
+* Consolidate duplicated server helpers into shared/lib by @selfcontained in https://github.com/selfcontained/dispatch/pull/812
+* Add test-file filtering to Changes by @selfcontained in https://github.com/selfcontained/dispatch/pull/814
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.29.4...v0.29.5
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.29.5...v0.29.6
