@@ -31,7 +31,7 @@ import {
   validateJobMcpToken,
 } from "./auth.js";
 import { loadConfig } from "./config.js";
-import { createPool } from "./db/client.js";
+import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
@@ -161,6 +161,7 @@ const app = Fastify({
   ...(config.tls && { https: { cert: config.tls.cert, key: config.tls.key } }),
 });
 const pool = createPool(config);
+const serviceResourcesProbePool = createServiceResourcesProbePool(config);
 const agentManager = new AgentManager(pool, app.log, config);
 const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
@@ -325,6 +326,7 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
 });
 const serviceResources = new ServiceResources({
   pool,
+  probePool: serviceResourcesProbePool,
   listAgentSessions: async () => {
     const agents = await agentManager.listAgents();
     return agents
@@ -862,7 +864,7 @@ async function cleanupAppResources(): Promise<void> {
   agentLifecycleRuntime.stopReconcileLoop();
   authRuntime.stopSessionCleanupTimer();
   autoCheckRuntime.stopScheduler();
-  serviceResources.stop();
+  await serviceResources.shutdown();
 
   notificationRuntime.clearPendingWebNotifications();
 

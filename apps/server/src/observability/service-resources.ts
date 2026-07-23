@@ -1,7 +1,7 @@
 import os from "node:os";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
-import type { Pool } from "pg";
+import type { Pool, PoolClient } from "pg";
 
 import { runCommand } from "../shared/lib/run-command.js";
 import type {
@@ -73,6 +73,7 @@ export type WorkloadSnapshot = {
 
 export type ServiceResourcesDeps = {
   pool: Pool;
+  probePool: Pool;
   listAgentSessions: () => Promise<Array<{ tmuxSession: string | null }>>;
   getWorkloads: () => WorkloadSnapshot;
   subsystemTrackers: SubsystemTracker[];
@@ -214,6 +215,8 @@ export class ServiceResources {
   private databaseProbe: Promise<
     ServiceResourcesResponse["current"]["database"]
   > | null = null;
+  private cancelDatabaseProbe: (() => void) | null = null;
+  private shutdownPromise: Promise<void> | null = null;
   private httpInFlight = 0;
   private httpBuckets: HttpBucket[] = [];
   private runningAgentCount = 0;
@@ -271,6 +274,15 @@ export class ServiceResources {
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     this.eventLoopDelay.disable();
+    this.cancelDatabaseProbe?.();
+  }
+
+  shutdown(): Promise<void> {
+    if (!this.shutdownPromise) {
+      this.stop();
+      this.shutdownPromise = this.deps.probePool.end().catch(() => undefined);
+    }
+    return this.shutdownPromise;
   }
 
   setCollectionEnabled(enabled: boolean): void {
@@ -627,43 +639,109 @@ export class ServiceResources {
     ServiceResourcesResponse["current"]["database"]
   > {
     if (!this.databaseProbe) {
-      const started = performance.now();
-      const probe = this.deps.pool
-        .query("SELECT 1")
-        .then(() => ({
-          state: "healthy" as const,
-          latencyMs: round(performance.now() - started, 1),
-          sampledAt: Date.now(),
-          pool: this.poolSnapshot(),
-        }))
-        .catch(() => ({
-          state: "unavailable" as const,
-          latencyMs: null,
-          sampledAt: Date.now(),
-          pool: this.poolSnapshot(),
-        }));
+      const { probe, cancel } = this.createDatabaseProbe();
       this.databaseProbe = probe;
+      this.cancelDatabaseProbe = cancel;
       void probe.finally(() => {
-        if (this.databaseProbe === probe) this.databaseProbe = null;
+        if (this.databaseProbe === probe) {
+          this.databaseProbe = null;
+          this.cancelDatabaseProbe = null;
+        }
       });
     }
 
-    const probe = this.databaseProbe;
-    return new Promise((resolve) => {
-      const timeout = setTimeout(() => {
-        resolve({
-          state: "unavailable",
-          latencyMs: null,
-          sampledAt: Date.now(),
-          pool: this.poolSnapshot(),
-        });
-      }, DATABASE_PROBE_TIMEOUT_MS);
-      timeout.unref?.();
-      void probe.then((snapshot) => {
-        clearTimeout(timeout);
-        resolve(snapshot);
-      });
+    return this.databaseProbe;
+  }
+
+  private createDatabaseProbe(): {
+    probe: Promise<ServiceResourcesResponse["current"]["database"]>;
+    cancel: () => void;
+  } {
+    const started = performance.now();
+    let client: PoolClient | null = null;
+    let released = false;
+    let settled = false;
+    let terminalError: Error | undefined;
+    let timeout: NodeJS.Timeout | null = null;
+    let resolveProbe!: (
+      snapshot: ServiceResourcesResponse["current"]["database"]
+    ) => void;
+
+    const probe = new Promise<ServiceResourcesResponse["current"]["database"]>(
+      (resolve) => {
+        resolveProbe = resolve;
+      }
+    );
+    const unavailable = () => ({
+      state: "unavailable" as const,
+      latencyMs: null,
+      sampledAt: Date.now(),
+      pool: this.poolSnapshot(),
     });
+    const release = (error?: Error) => {
+      if (!client || released) return;
+      released = true;
+      client.release(error);
+    };
+    const finish = (
+      snapshot: ServiceResourcesResponse["current"]["database"],
+      error?: Error
+    ) => {
+      if (settled) return;
+      settled = true;
+      terminalError = error;
+      if (timeout) clearTimeout(timeout);
+      timeout = null;
+      release(error);
+      resolveProbe(snapshot);
+    };
+    const cancel = () =>
+      finish(unavailable(), new Error("Database probe cancelled"));
+
+    timeout = setTimeout(() => {
+      finish(unavailable(), new Error("Database probe timed out"));
+    }, DATABASE_PROBE_TIMEOUT_MS);
+    timeout.unref?.();
+
+    void this.deps.probePool.connect().then(
+      (acquiredClient) => {
+        if (settled) {
+          acquiredClient.release(
+            terminalError ?? new Error("Database probe no longer active")
+          );
+          return;
+        }
+        client = acquiredClient;
+        void acquiredClient.query("SELECT 1").then(
+          () => {
+            finish({
+              state: "healthy",
+              latencyMs: round(performance.now() - started, 1),
+              sampledAt: Date.now(),
+              pool: this.poolSnapshot(),
+            });
+          },
+          (error: unknown) => {
+            finish(
+              unavailable(),
+              error instanceof Error
+                ? error
+                : new Error("Database probe failed")
+            );
+          }
+        );
+      },
+      (error: unknown) => {
+        finish(
+          unavailable(),
+          error instanceof Error
+            ? error
+            : new Error("Database probe connection failed")
+        );
+      }
+    );
+
+    return { probe, cancel };
   }
 
   private poolSnapshot() {

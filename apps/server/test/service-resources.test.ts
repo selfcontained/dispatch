@@ -6,13 +6,29 @@ import {
   type WorkloadSnapshot,
 } from "../src/observability/service-resources.js";
 
-function createPool(query = vi.fn(async () => ({ rows: [{ ok: 1 }] }))): Pool {
+function createPool(): Pool {
   return {
-    query,
     totalCount: 1,
     idleCount: 1,
     waitingCount: 0,
     options: { max: 10 },
+  } as unknown as Pool;
+}
+
+function createProbePool(
+  query = vi.fn(async () => ({ rows: [{ ok: 1 }] })),
+  end = vi.fn(async () => undefined)
+): Pool {
+  return {
+    connect: vi.fn(async () => ({
+      query,
+      release: vi.fn(),
+    })),
+    end,
+    totalCount: 0,
+    idleCount: 0,
+    waitingCount: 0,
+    options: { max: 1 },
   } as unknown as Pool;
 }
 
@@ -53,7 +69,8 @@ describe("ServiceResources", () => {
         })
     );
     const resources = new ServiceResources({
-      pool: createPool(query),
+      pool: createPool(),
+      probePool: createProbePool(query),
       listAgentSessions: async () => [],
       getWorkloads: workloads,
       subsystemTrackers: [],
@@ -65,7 +82,7 @@ describe("ServiceResources", () => {
     await Promise.resolve();
     expect(query).toHaveBeenCalledTimes(1);
 
-    await vi.advanceTimersByTimeAsync(13_500);
+    await vi.advanceTimersByTimeAsync(2_500);
     expect(query).toHaveBeenCalledTimes(1);
 
     const samplesBeforeStop = resources.getSnapshot().series.length;
@@ -76,9 +93,70 @@ describe("ServiceResources", () => {
     expect(resources.getSnapshot().series).toHaveLength(samplesBeforeStop);
   });
 
+  it("retires timed-out database probes, retries, and shuts down", async () => {
+    let activeClients = 0;
+    const releases: Array<Error | undefined> = [];
+    const connect = vi.fn(async () => {
+      const attempt = connect.mock.calls.length;
+      activeClients += 1;
+      let released = false;
+      return {
+        query: vi.fn(() =>
+          attempt === 2
+            ? Promise.resolve({ rows: [{ ok: 1 }] })
+            : new Promise<{ rows: never[] }>(() => {})
+        ),
+        release: vi.fn((error?: Error) => {
+          if (released) throw new Error("client released twice");
+          released = true;
+          activeClients -= 1;
+          releases.push(error);
+        }),
+      };
+    });
+    const end = vi.fn(async () => {
+      expect(activeClients).toBe(0);
+    });
+    const probePool = {
+      connect,
+      end,
+      totalCount: 0,
+      idleCount: 0,
+      waitingCount: 0,
+      options: { max: 1 },
+    } as unknown as Pool;
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool,
+      listAgentSessions: async () => [],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: false,
+    });
+
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(connect).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(13_000);
+    expect(connect).toHaveBeenCalledTimes(2);
+    expect(resources.getSnapshot().current.database.state).toBe("healthy");
+    expect(releases[0]).toBeInstanceOf(Error);
+    expect(releases[1]).toBeUndefined();
+
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(connect).toHaveBeenCalledTimes(3);
+    expect(activeClients).toBe(1);
+
+    await expect(resources.shutdown()).resolves.toBeUndefined();
+    expect(releases[2]).toBeInstanceOf(Error);
+    expect(end).toHaveBeenCalledOnce();
+  });
+
   it("counts running agents when process-tree metrics are unsupported", async () => {
     const resources = new ServiceResources({
       pool: createPool(),
+      probePool: createProbePool(),
       listAgentSessions: async () => [
         { tmuxSession: "agent-one" },
         { tmuxSession: "agent-two" },
@@ -102,6 +180,7 @@ describe("ServiceResources", () => {
     current.scheduledJobs = 1;
     const resources = new ServiceResources({
       pool: createPool(),
+      probePool: createProbePool(),
       listAgentSessions: async () => [],
       getWorkloads: () => ({ ...current }),
       subsystemTrackers: [],
@@ -135,6 +214,7 @@ describe("ServiceResources", () => {
     });
     const resources = new ServiceResources({
       pool: createPool(),
+      probePool: createProbePool(),
       listAgentSessions: async () => [
         { tmuxSession: "agent-one" },
         { tmuxSession: "agent-two" },
@@ -158,6 +238,7 @@ describe("ServiceResources", () => {
   it("bounds request timing storage and finalizes requests exactly once", () => {
     const resources = new ServiceResources({
       pool: createPool(),
+      probePool: createProbePool(),
       listAgentSessions: async () => [],
       getWorkloads: workloads,
       subsystemTrackers: [],
@@ -183,6 +264,7 @@ describe("ServiceResources", () => {
   it("disables sampling and clears retained observations at runtime", async () => {
     const resources = new ServiceResources({
       pool: createPool(),
+      probePool: createProbePool(),
       listAgentSessions: async () => [],
       getWorkloads: workloads,
       subsystemTrackers: [],
@@ -227,6 +309,7 @@ describe("ServiceResources", () => {
     current.terminalObservers = 1;
     const resources = new ServiceResources({
       pool: createPool(),
+      probePool: createProbePool(),
       listAgentSessions: async () => [],
       getWorkloads: () => ({ ...current }),
       subsystemTrackers: [],
