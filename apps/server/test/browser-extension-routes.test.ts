@@ -1,4 +1,7 @@
 import crypto from "node:crypto";
+import { mkdir, mkdtemp, stat, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import Fastify from "fastify";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -84,7 +87,11 @@ function submissionPayload(clientSubmissionId = crypto.randomUUID()) {
 }
 
 async function createSubmissionTestApp(
-  sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>
+  sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>,
+  opts: {
+    mediaRoot?: string;
+    publishUiEvent?: (event: { type: string; agentId: string }) => void;
+  } = {}
 ) {
   const app = Fastify({ logger: false });
   const runningAgent = {
@@ -99,9 +106,15 @@ async function createSubmissionTestApp(
       listAgents: async () => [runningAgent],
     },
     sendAgentPrompt,
+    mediaRoot: opts.mediaRoot,
+    publishUiEvent: opts.publishUiEvent,
   });
   return app;
 }
+
+// Smallest valid 1x1 PNG; its bytes start with the PNG signature the route checks.
+const ONE_PIXEL_PNG_BASE64 =
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
 
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM browser_feedback_submissions");
@@ -430,13 +443,16 @@ describe("browser extension scoped API", () => {
   it("lists only sanitized running agents and rejects the master token", async () => {
     await ctx.pool.query(
       `INSERT INTO agents
-         (id, name, type, status, cwd, worktree_branch, latest_event_type,
+         (id, name, type, role, status, cwd, worktree_branch, latest_event_type,
           latest_event_message, latest_event_updated_at)
        VALUES
-         ('agt_running', 'Running agent', 'codex', 'running', '/secret/repo',
-          'feature/browser', 'working', 'Building extension', now()),
-         ('agt_stopped', 'Stopped agent', 'codex', 'stopped', '/other/repo',
-          null, null, null, null)`
+         ('agt_running', 'Running agent', 'codex', 'standard', 'running',
+          '/secret/repo', 'feature/browser', 'working', 'Building extension',
+          now()),
+         ('agt_stopped', 'Stopped agent', 'codex', 'standard', 'stopped',
+          '/other/repo', null, null, null, null),
+         ('agt_review', 'Review agent', 'codex', 'review', 'running',
+          '/secret/repo', 'feature/browser', 'working', 'Reviewing', now())`
     );
     const { token } = await approveAndExchange();
 
@@ -457,7 +473,10 @@ describe("browser extension scoped API", () => {
     });
     expect(response.statusCode).toBe(200);
     const body = response.json<{ agents: Array<Record<string, unknown>> }>();
+    // Only the running standard agent — the stopped one and the running review
+    // agent are both excluded.
     expect(body.agents).toHaveLength(1);
+    expect(body.agents.map((agent) => agent.id)).toEqual(["agt_running"]);
     expect(body.agents[0]).toMatchObject({
       id: "agt_running",
       name: "Running agent",
@@ -653,6 +672,189 @@ describe("browser extension scoped API", () => {
       releaseDelivery();
       await app.close();
     }
+  });
+
+  it("stores an attached screenshot as media and links it in the prompt", async () => {
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd)
+       VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
+    );
+    const { token } = await approveAndExchange();
+    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const prompts: string[] = [];
+    const events: Array<{ type: string; agentId: string }> = [];
+    const app = await createSubmissionTestApp(
+      async (_agentId, prompt) => {
+        prompts.push(prompt);
+      },
+      { mediaRoot, publishUiEvent: (event) => events.push(event) }
+    );
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { ...submissionPayload(), screenshot: ONE_PIXEL_PNG_BASE64 },
+      });
+      expect(response.statusCode).toBe(200);
+
+      const media = await ctx.pool.query<{
+        file_name: string;
+        source: string;
+        size_bytes: number;
+      }>(
+        `SELECT file_name, source, size_bytes FROM media WHERE agent_id = $1`,
+        ["agt_running"]
+      );
+      expect(media.rows).toHaveLength(1);
+      expect(media.rows[0].source).toBe("screenshot");
+      expect(media.rows[0].file_name).toMatch(/^browser-selection-.*\.png$/);
+      expect(media.rows[0].size_bytes).toBeGreaterThan(0);
+
+      const savedPath = path.join(
+        mediaRoot,
+        "agt_running",
+        media.rows[0].file_name
+      );
+      await expect(stat(savedPath)).resolves.toBeDefined();
+
+      expect(prompts).toHaveLength(1);
+      expect(prompts[0]).toContain(savedPath);
+      expect(events).toContainEqual({
+        type: "media.changed",
+        agentId: "agt_running",
+      });
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("ignores an attached screenshot that is not a PNG", async () => {
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd)
+       VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
+    );
+    const { token } = await approveAndExchange();
+    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const prompts: string[] = [];
+    const app = await createSubmissionTestApp(
+      async (_agentId, prompt) => {
+        prompts.push(prompt);
+      },
+      { mediaRoot }
+    );
+
+    try {
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/v1/browser-extension/submissions",
+        headers: { authorization: `Bearer ${token}` },
+        payload: {
+          ...submissionPayload(),
+          screenshot: Buffer.from("not a png").toString("base64"),
+        },
+      });
+      expect(response.statusCode).toBe(200);
+      const media = await ctx.pool.query(
+        `SELECT 1 FROM media WHERE agent_id = $1`,
+        ["agt_running"]
+      );
+      expect(media.rows).toHaveLength(0);
+      expect(prompts[0]).not.toContain("is saved at:");
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("gives concurrent screenshots distinct filenames and files", async () => {
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd)
+       VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
+    );
+    const { token } = await approveAndExchange();
+    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const prompts: string[] = [];
+    const app = await createSubmissionTestApp(
+      async (_agentId, prompt) => {
+        prompts.push(prompt);
+      },
+      { mediaRoot }
+    );
+
+    try {
+      const [first, second] = await Promise.all([
+        app.inject({
+          method: "POST",
+          url: "/api/v1/browser-extension/submissions",
+          headers: { authorization: `Bearer ${token}` },
+          payload: { ...submissionPayload(), screenshot: ONE_PIXEL_PNG_BASE64 },
+        }),
+        app.inject({
+          method: "POST",
+          url: "/api/v1/browser-extension/submissions",
+          headers: { authorization: `Bearer ${token}` },
+          payload: { ...submissionPayload(), screenshot: ONE_PIXEL_PNG_BASE64 },
+        }),
+      ]);
+      expect(first.statusCode).toBe(200);
+      expect(second.statusCode).toBe(200);
+
+      const media = await ctx.pool.query<{ file_name: string }>(
+        `SELECT file_name FROM media WHERE agent_id = $1 ORDER BY id`,
+        ["agt_running"]
+      );
+      const fileNames = media.rows.map((row) => row.file_name);
+      expect(fileNames).toHaveLength(2);
+      expect(new Set(fileNames).size).toBe(2);
+      for (const fileName of fileNames) {
+        await expect(
+          stat(path.join(mediaRoot, "agt_running", fileName))
+        ).resolves.toBeDefined();
+        expect(prompts.some((p) => p.includes(fileName))).toBe(true);
+      }
+    } finally {
+      await app.close();
+    }
+  });
+
+  it("prunes expired browser-feedback screenshots but keeps fresh/other media", async () => {
+    await ctx.pool.query(
+      `INSERT INTO agents (id, name, type, status, cwd)
+       VALUES ('agt_running', 'Running agent', 'codex', 'running', '/tmp/repo')`
+    );
+    const mediaRoot = await mkdtemp(path.join(os.tmpdir(), "dispatch-media-"));
+    const agentDir = path.join(mediaRoot, "agt_running");
+    await mkdir(agentDir, { recursive: true });
+
+    const staleName = `browser-selection-old-${crypto.randomUUID()}.png`;
+    const freshName = `browser-selection-new-${crypto.randomUUID()}.png`;
+    const uploadName = "user-upload.png"; // not a browser-feedback screenshot
+    for (const name of [staleName, freshName, uploadName]) {
+      await writeFile(path.join(agentDir, name), Buffer.from("x"));
+    }
+    await ctx.pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+       VALUES
+         ('agt_running', $1, 'screenshot', 1, now() - interval '91 days'),
+         ('agt_running', $2, 'screenshot', 1, now()),
+         ('agt_running', $3, 'screenshot', 1, now() - interval '91 days')`,
+      [staleName, freshName, uploadName]
+    );
+
+    await cleanupBrowserExtensionData(ctx.pool, mediaRoot);
+
+    const remaining = await ctx.pool.query<{ file_name: string }>(
+      `SELECT file_name FROM media WHERE agent_id = $1 ORDER BY file_name`,
+      ["agt_running"]
+    );
+    const names = remaining.rows.map((row) => row.file_name);
+    expect(names).toContain(freshName);
+    expect(names).toContain(uploadName);
+    expect(names).not.toContain(staleName);
+
+    await expect(stat(path.join(agentDir, staleName))).rejects.toThrow();
+    await expect(stat(path.join(agentDir, freshName))).resolves.toBeDefined();
   });
 
   it("requires a UUID client submission id", async () => {

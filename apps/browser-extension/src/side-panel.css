@@ -469,3 +469,97 @@ label {
 .pairing-cancel {
   color: #fecaca;
 }
+
+.screenshot-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 2px 2px 0;
+  color: #d6d3d1;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.screenshot-toggle input {
+  width: 15px;
+  height: 15px;
+  flex: none;
+  accent-color: #7c3aed;
+  cursor: pointer;
+}
+
+.screenshot-figure {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  justify-items: start;
+}
+
+.screenshot-image {
+  max-width: 100%;
+  max-height: 220px;
+  border: 1px solid #44403c;
+  border-radius: 6px;
+  background: #0c0a09;
+}
+
+.screenshot-remove {
+  min-height: 32px;
+  padding: 5px 10px;
+  border-color: #57534e;
+  color: #c4b5fd;
+  background: #262626;
+  font-size: 12px;
+}
+
+.screenshot-remove:focus-visible {
+  outline: 2px solid #c4b5fd;
+  outline-offset: 2px;
+}
+
+.screenshot-status {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 10px;
+  border: 1px dashed #57534e;
+  border-radius: 7px;
+  color: #a8a29e;
+  font-size: 12px;
+}
+
+.screenshot-status-message {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.screenshot-status-reason {
+  flex: 1 1 100%;
+  margin: 0;
+  color: #a8a29e;
+  font:
+    11px/1.4 ui-monospace,
+    SFMono-Regular,
+    Menlo,
+    Monaco,
+    Consolas,
+    monospace;
+  overflow-wrap: anywhere;
+}
+
+.screenshot-retry {
+  flex: none;
+  min-height: 30px;
+  padding: 5px 10px;
+  border-color: #57534e;
+  color: #c4b5fd;
+  background: #262626;
+  font-size: 12px;
+}
+
+.screenshot-retry:focus-visible {
+  outline: 2px solid #c4b5fd;
+  outline-offset: 2px;
+}

@@ -80,6 +80,8 @@ export type WorkerRequest =
       agentId: string;
       comment: string;
       selection: BrowserSelection;
+      /** Bare base64 PNG of the selected element, when the user included one. */
+      screenshot?: string;
     };
 
 const WORKER_REQUEST_TYPES = {

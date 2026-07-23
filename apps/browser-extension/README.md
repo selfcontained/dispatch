@@ -29,17 +29,34 @@ you want to inspect, and select a running agent.
 ## Permissions and privacy
 
 The configured Dispatch origin is only the feedback destination. The extension
-can inspect an unrelated HTTP or HTTPS site after the user explicitly invokes
-the picker there. On first use, Chrome prompts the user to grant the extension
-access to HTTP and HTTPS pages. This optional grant makes the picker reliable as
-the side panel follows the user between projects and can be revoked at any time
-from Chrome's extension settings. The inspected page never needs to share an
-origin with Dispatch. Access to the configured Dispatch origin is requested
-separately at pairing time.
+can inspect an unrelated site after the user explicitly invokes the picker
+there. On first use, Chrome prompts the user to grant the extension access to
+all sites (`<all_urls>`). This broad grant is required because the element
+screenshot uses `chrome.tabs.captureVisibleTab`, which only accepts all-URLs (or
+`activeTab`) access rather than per-host patterns; it also makes the picker
+reliable as the side panel follows the user between projects. It can be revoked
+at any time from Chrome's extension settings. The inspected page never needs to
+share an origin with Dispatch. Access to the configured Dispatch origin is
+requested separately at pairing time.
 
 Before showing or sending the context preview, the extension removes form
 values, editable content, scripts, inline event handlers, `srcdoc`, and likely
 secret URL parameters.
+
+## Screenshot of the selected element
+
+When the **Include screenshot of selected element** toggle is on (the default,
+remembered per browser profile), selecting an element also captures a cropped
+PNG of it using Chrome's `captureVisibleTab` and the element's bounding box. The
+image is shown in the side panel preview and sent with the submission, where
+Dispatch stores it as an agent media entry and points the agent at its path.
+
+The screenshot is a pixel capture of the rendered viewport, so — unlike the DOM
+context — it is not sanitized and shows whatever is on screen. Use the **Remove
+screenshot** button to drop the image from a single submission, or turn the
+toggle off to stop capturing. Capture is best-effort: it only covers the visible
+top-level document, so elements inside nested frames or scrolled out of view are
+skipped rather than sent partially.
 
 Each Chrome profile receives a separate 90-day, revocable token. The token is
 stored only in extension-local storage and is restricted to trusted extension

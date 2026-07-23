@@ -13,9 +13,8 @@ describe("extension manifest", () => {
     expect(manifest.background.service_worker).toBe("service-worker.js");
     expect(manifest.side_panel.default_path).toBe("side-panel.html");
     expect(manifest.permissions).toEqual(["scripting", "storage", "sidePanel"]);
-    expect(manifest.optional_host_permissions).toEqual([
-      "http://*/*",
-      "https://*/*",
-    ]);
+    // captureVisibleTab (element screenshot) requires all-URLs access, so page
+    // access is a single <all_urls> optional grant rather than per-scheme hosts.
+    expect(manifest.optional_host_permissions).toEqual(["<all_urls>"]);
   });
 });
