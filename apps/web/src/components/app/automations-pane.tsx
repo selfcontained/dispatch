@@ -3,11 +3,9 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import { AlarmClock, Brain, FormInput, Play } from "lucide-react";
 import { motion } from "framer-motion";
 
-import {
-  JobsProvider,
-  JobListContent,
-  JobDetailPane,
-} from "@/components/app/jobs-pane";
+import { JobsProvider } from "@/components/app/jobs-context";
+import { JobListContent } from "@/components/app/jobs-list-content";
+import { JobDetailPane } from "@/components/app/jobs-detail-pane";
 import {
   BrainsListContent,
   BrainsDetailPane,
