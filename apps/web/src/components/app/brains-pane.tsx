@@ -16,6 +16,7 @@ import {
   EventCard,
 } from "@/components/app/brain-cards";
 import { decodeRepoRoot, encodeRepoRoot } from "@/lib/brain-encoding";
+import { shortPath } from "@/lib/format";
 import {
   Select,
   SelectContent,
@@ -28,12 +29,6 @@ import { cn } from "@/lib/utils";
 
 function repoBasename(repoRoot: string): string {
   return repoRoot.split("/").filter(Boolean).pop() ?? repoRoot;
-}
-
-function shortPath(value: string): string {
-  const parts = value.split("/").filter(Boolean);
-  if (parts.length <= 3) return value;
-  return `.../${parts.slice(-3).join("/")}`;
 }
 
 // ── Sidebar ─────────────────────────────────────────────────────

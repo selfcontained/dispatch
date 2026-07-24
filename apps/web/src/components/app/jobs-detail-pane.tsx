@@ -16,10 +16,10 @@ import { SettingsTab } from "@/components/app/jobs-settings-tab";
 import {
   errorMessage,
   formatDate,
-  shortPath,
   statusClasses,
   statusIcon,
 } from "@/components/app/jobs-helpers";
+import { shortPath } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
