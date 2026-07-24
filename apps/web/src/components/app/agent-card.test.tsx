@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import type { ReactElement, ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -24,7 +26,8 @@ vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 // Animations are replaced with plain elements so collapse/expand is synchronous;
 // otherwise AnimatePresence's exit animation leaves the old subtree mounted for
 // an indeterminate number of frames and assertions race it.
-vi.mock("framer-motion", async () => {
+vi.mock("framer-motion", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("framer-motion")>();
   const React = await import("react");
   const MOTION_ONLY_PROPS = new Set([
     "layout",
@@ -48,6 +51,7 @@ vi.mock("framer-motion", async () => {
     }
   );
   return {
+    ...actual,
     motion,
     AnimatePresence: ({ children }: { children?: ReactNode }) => children,
   };
@@ -57,6 +61,8 @@ const { api } = await import("@/lib/api");
 const apiMock = vi.mocked(api);
 
 const AGENT_ID = "agt_parent";
+
+let writeText: ReturnType<typeof vi.fn>;
 
 function makeAgent(overrides: Partial<Agent> = {}): Agent {
   return {
@@ -106,7 +112,12 @@ function baseProps(agent: Agent): AgentCardProps {
     childAgents: [],
     selectedAgentId: null,
     expandedAgentId: null,
-    agentVisualState: (a) => (a.status === "stopped" ? "stopped" : "active"),
+    // Mirrors the real mapper in hooks/use-agents.ts: anything that is not
+    // running or creating reads as stopped — archiving included. A looser stub
+    // here would let the `status !== "archiving"` half of the resume guards go
+    // untested.
+    agentVisualState: (a) =>
+      a.status !== "running" && a.status !== "creating" ? "stopped" : "active",
     borderForAgentState: (state) => `border-state-${state}`,
     toggleAgentDetails: vi.fn(),
     isFullAccessEnabled: (a) => a.fullAccess,
@@ -146,6 +157,10 @@ function card(agentId = AGENT_ID): HTMLElement {
 }
 
 beforeEach(() => {
+  // Two source-defined windows (the 1.5s rename re-arm, the 2s copy
+  // confirmation) are asserted inside, so time is driven explicitly rather than
+  // by the wall clock. shouldAdvanceTime keeps React's own scheduling alive.
+  vi.useFakeTimers({ shouldAdvanceTime: true });
   apiMock.mockReset();
   apiMock.mockImplementation(async (url: string) => {
     if (url.startsWith("/api/v1/personas")) return { personas: [] };
@@ -154,25 +169,44 @@ beforeEach(() => {
   });
   // jsdom implements none of these: DiffStatBadge reads matchMedia, the persona
   // launcher's cmdk list observes its own size and scrolls the active option
-  // into view, and useCopyText prefers the Clipboard API.
-  window.matchMedia = vi.fn().mockReturnValue({
-    matches: false,
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-  });
+  // into view, and useCopyText prefers the Clipboard API. Stubbed through vi so
+  // they are restored even if the config ever drops per-file isolation.
+  vi.stubGlobal(
+    "matchMedia",
+    vi.fn().mockReturnValue({
+      matches: false,
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    })
+  );
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe(): void {}
+      unobserve(): void {}
+      disconnect(): void {}
+    }
+  );
+  // jsdom does not define scrollIntoView at all, so there is nothing to spy on
+  // — it has to be added, then removed again below.
   Element.prototype.scrollIntoView = vi.fn();
-  globalThis.ResizeObserver = class {
-    observe(): void {}
-    unobserve(): void {}
-    disconnect(): void {}
-  };
+  // Defined rather than stubbed wholesale: navigator's properties live on the
+  // prototype, so replacing the object would drop userAgent and friends.
+  writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", {
     configurable: true,
-    value: { writeText: vi.fn().mockResolvedValue(undefined) },
+    value: { writeText },
   });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+  vi.unstubAllGlobals();
+  vi.restoreAllMocks();
+  Reflect.deleteProperty(navigator, "clipboard");
+  Reflect.deleteProperty(Element.prototype, "scrollIntoView");
+});
 
 describe("AgentCard state and selection", () => {
   it("neutralizes the parent's visual state and selection while a child is connected", () => {
@@ -203,7 +237,7 @@ describe("AgentCard state and selection", () => {
     fireEvent.click(screen.getByTestId(`agent-session-name-${AGENT_ID}`));
     expect(props.attachToAgent).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByRole("button", { name: /resume/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Resume session" }));
     expect(props.startAgent).toHaveBeenCalledWith(props.agent);
   });
 });
@@ -251,16 +285,24 @@ describe("AgentCardHeader wiring", () => {
     renderCard({ agent: makeAgent({ name: "agent-parent" }) });
 
     const button = screen.getByTestId(`agent-prompt-rename-${AGENT_ID}`);
-    fireEvent.click(button);
+    // Flush the POST's promise chain without letting any timer run.
+    await act(async () => {
+      fireEvent.click(button);
+    });
 
-    await waitFor(() =>
-      expect(apiMock).toHaveBeenCalledWith(
-        `/api/v1/agents/${AGENT_ID}/prompt-rename`,
-        { method: "POST" }
-      )
+    expect(apiMock).toHaveBeenCalledWith(
+      `/api/v1/agents/${AGENT_ID}/prompt-rename`,
+      { method: "POST" }
     );
-    // Re-arming is delayed so a double click can't fire the prompt twice.
+    // Re-arming is delayed, so the button stays disabled after the request has
+    // already settled — that is what stops a double click firing twice.
     expect(button).toHaveProperty("disabled", true);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1500);
+    });
+    expect(button).toHaveProperty("disabled", false);
+    expect(apiMock).toHaveBeenCalledTimes(1);
   });
 
   // The `startsWith("job-")` guard in hasDefaultSessionName is unreachable — a
@@ -305,9 +347,11 @@ describe("AgentCardStatus wiring", () => {
     });
     expect(screen.getByText("Installing dependencies…")).toBeTruthy();
 
-    // Unknown/absent phase still gets a generic line rather than nothing.
+    // A creating agent with no phase yet reports nothing at all — the generic
+    // "Setting up…" fallback is unreachable through the current setupPhase type.
     rerender({ agent: makeAgent({ status: "creating", setupPhase: null }) });
     expect(screen.queryByText("Installing dependencies…")).toBeNull();
+    expect(screen.queryByText("Setting up…")).toBeNull();
 
     rerender({
       agent: makeAgent({
@@ -316,6 +360,10 @@ describe("AgentCardStatus wiring", () => {
       }),
     });
     expect(screen.getByText("Removing worktree…")).toBeTruthy();
+
+    // Archiving without a phase does fall back, unlike setup.
+    rerender({ agent: makeAgent({ status: "archiving" }) });
+    expect(screen.getByText("Archiving…")).toBeTruthy();
 
     rerender({ agent: makeAgent({ status: "running" }) });
     expect(screen.queryByText("Removing worktree…")).toBeNull();
@@ -448,8 +496,11 @@ describe("AgentCardActions and child agents", () => {
       "disabled",
       true
     );
+    // Archiving reads as stopped, so only the explicit archiving checks keep the
+    // resume affordances off the card while teardown runs.
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Resume" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Resume session" })).toBeNull();
 
     rerender({ agent: makeAgent({ status: "stopped" }) });
     expect(screen.getByTestId(`agent-archive-${AGENT_ID}`)).toHaveProperty(
@@ -457,14 +508,13 @@ describe("AgentCardActions and child agents", () => {
       false
     );
     expect(screen.queryByRole("button", { name: "Pause" })).toBeNull();
-    expect(screen.getAllByRole("button", { name: "Resume" }).length).toBe(2);
+    expect(screen.getByRole("button", { name: "Resume session" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Resume" })).toBeTruthy();
   });
 
   it("hides lifecycle actions on persona cards and credits the launching parent", () => {
-    const parent = makeAgent({ name: "worker-1" });
-    const persona = makeChild({ id: AGENT_ID, parentAgentId: parent.id });
     const { rerender } = renderCard({
-      agent: persona,
+      agent: makeChild({ id: AGENT_ID, parentAgentId: "agt_launcher" }),
       agents: [makeAgent({ id: "agt_launcher", name: "worker-1" })],
       expandedAgentId: AGENT_ID,
     });
@@ -474,9 +524,6 @@ describe("AgentCardActions and child agents", () => {
     expect(screen.getByText("security-review")).toBeTruthy();
 
     // Parent resolved by id when it is in the list...
-    rerender({
-      agent: makeChild({ id: AGENT_ID, parentAgentId: "agt_launcher" }),
-    });
     expect(screen.getByText("from worker-1")).toBeTruthy();
 
     // ...and falls back to the id suffix when it is not.
@@ -496,8 +543,10 @@ describe("AgentCardActions and child agents", () => {
       expandedAgentId: AGENT_ID,
     });
 
-    expect(screen.getByText("Sub Agents")).toBeTruthy();
-    expect(screen.getByText("2")).toBeTruthy();
+    const heading = screen.getByText("Sub Agents");
+    expect(
+      within(heading.parentElement as HTMLElement).getByText("2")
+    ).toBeTruthy();
     expect(screen.getByTestId("child-agent-row-agt_c1")).toBeTruthy();
     expect(screen.getByTestId("child-agent-row-agt_c2")).toBeTruthy();
     expect(screen.getByText("ux-review")).toBeTruthy();

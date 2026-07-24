@@ -201,7 +201,7 @@ export function AgentCardHeader({
               size="icon"
               variant="ghost-primary"
               data-agent-control="true"
-              aria-label="Resume"
+              aria-label="Resume session"
               className="ml-auto"
               onClick={() => {
                 if (closeOnSessionAction) onRequestClose?.();
