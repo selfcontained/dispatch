@@ -180,6 +180,34 @@ const SOLARIZED_LIGHT: TerminalPalette = {
   brightWhite: "#fdf6e3",
 };
 
+/** Primer Light — GitHub-inspired accents on the light theme's soft paper bg */
+const PRIMER_LIGHT: TerminalPalette = {
+  minimumContrastRatio: 4.5,
+  // Match the "light" theme's --background so the terminal blends into its pane.
+  foreground: "#1f2328",
+  background: "#e6eaef",
+  cursor: "#1f2328",
+  cursorAccent: "#e6eaef",
+  selectionBackground: "#c8d6e5",
+  selectionInactiveBackground: "#d1d9e0",
+  black: "#24292f",
+  red: "#cf222e",
+  green: "#116329",
+  yellow: "#4d2d00",
+  blue: "#0969da",
+  magenta: "#8250df",
+  cyan: "#1b7c83",
+  white: "#6e7781",
+  brightBlack: "#57606a",
+  brightRed: "#a40e26",
+  brightGreen: "#1a7f37",
+  brightYellow: "#633c01",
+  brightBlue: "#218bff",
+  brightMagenta: "#a475f9",
+  brightCyan: "#3192aa",
+  brightWhite: "#8c959f",
+};
+
 /** Catppuccin Mocha — muted pastel palette on a soft dark base */
 const CATPPUCCIN_MOCHA: TerminalPalette = {
   foreground: "#cdd6f4",
@@ -296,7 +324,7 @@ export const THEMES: ThemeDefinition[] = [
     description: "Primer-inspired IDE light theme",
     mode: "light",
     swatches: ["#e6eaef", "#0d7d4d", "#1f2328", "#d1d9e0"],
-    terminal: MONOKAI,
+    terminal: PRIMER_LIGHT,
   },
   {
     id: "matrix",
