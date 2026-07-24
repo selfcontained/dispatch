@@ -58,7 +58,10 @@ export default defineConfig({
       MEDIA_ROOT: mediaRoot,
       DISPATCH_AGENT_RUNTIME: agentRuntime,
     },
-    url: `${baseURL}/api/v1/health`,
+    // The server now binds before its database is ready, so use the
+    // DB-independent liveness endpoint here. Individual tests still assert
+    // the database health contract once initialization completes.
+    url: `${baseURL}/ping`,
     reuseExistingServer: false,
     timeout: 60_000,
   },

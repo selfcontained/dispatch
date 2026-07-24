@@ -8,6 +8,20 @@ import { noteServerVersion } from "@/lib/version";
  */
 export const authEvents = new EventTarget();
 
+/**
+ * Emitted when the server is reachable but cannot use its database. Keeping
+ * this separate from generic request failures lets the app replace any open
+ * route with the recovery UI immediately.
+ */
+export const availabilityEvents = new EventTarget();
+
+export class DatabaseUnavailableError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "DatabaseUnavailableError";
+  }
+}
+
 export class UnauthenticatedError extends Error {
   constructor() {
     super("Authentication required.");
@@ -42,6 +56,25 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
   if (res.status === 401) {
     authEvents.dispatchEvent(new Event("unauthenticated"));
     throw new UnauthenticatedError();
+  }
+
+  if (res.status === 503) {
+    let message = "Dispatch is waiting for its database.";
+    try {
+      const payload = (await res.clone().json()) as {
+        error?: string;
+        message?: string;
+        detail?: string;
+      };
+      // `error` is a stable machine-readable API code. Prefer the human
+      // message for the outage UI, then include a server detail only when no
+      // message was supplied.
+      message = payload.message ?? payload.detail ?? payload.error ?? message;
+    } catch {}
+    availabilityEvents.dispatchEvent(
+      new CustomEvent("database-unavailable", { detail: { message } })
+    );
+    throw new DatabaseUnavailableError(message);
   }
 
   if (!res.ok) {

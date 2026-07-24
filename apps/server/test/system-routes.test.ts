@@ -37,6 +37,30 @@ describe("GET /api/v1/health", () => {
   });
 });
 
+describe("database-unavailable API guard", () => {
+  it("returns a structured 503 for non-health APIs until recovery", async () => {
+    // Import after useInjectApp has initialized the shared server module, so
+    // this is the same in-memory lifecycle state that guards its routes.
+    const { startupState } = await import("../src/server.js");
+    startupState.setDatabaseUnavailable("connection refused");
+    try {
+      const res = await ctx.app.inject({
+        method: "GET",
+        url: "/api/v1/system/defaults",
+        headers: { cookie: sessionCookie },
+      });
+      expect(res.statusCode).toBe(503);
+      expect(res.json()).toMatchObject({
+        error: "DATABASE_UNAVAILABLE",
+        detail: "connection refused",
+        retryable: true,
+      });
+    } finally {
+      startupState.setReady();
+    }
+  });
+});
+
 describe("GET /api/v1/app/branding", () => {
   it("returns current icon color", async () => {
     const res = await ctx.app.inject({

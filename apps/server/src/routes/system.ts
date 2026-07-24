@@ -24,6 +24,7 @@ import {
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
+import type { StartupStateStore } from "../server/startup-state.js";
 
 const WORKTREE_LOCATION_KEY = "worktree_location";
 const INSTANCE_NAME_KEY = "instance_name";
@@ -38,6 +39,7 @@ type SystemRouteDeps = {
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
   publishUiEvent: (event: unknown) => void;
+  startupState: StartupStateStore;
 };
 
 export async function registerSystemRoutes(
@@ -48,7 +50,17 @@ export async function registerSystemRoutes(
     return { iconColor: deps.getCachedIconColor() };
   });
 
-  app.get("/api/v1/health", async () => {
+  app.get("/api/v1/health", async (_request, reply) => {
+    const startup = deps.startupState.snapshot();
+    if (startup.state !== "ready") {
+      return reply.code(503).send({
+        status: startup.state,
+        error: "DATABASE_UNAVAILABLE",
+        message: "Dispatch is waiting for its database connection to recover.",
+        detail: startup.error,
+        retryable: true,
+      });
+    }
     const result = await deps.pool.query("SELECT NOW() AS now");
     return {
       status: "ok",

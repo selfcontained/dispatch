@@ -10,7 +10,7 @@ import {
 } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 
-import fastifyCookie from "@fastify/cookie";
+import fastifyCookie, { Signer } from "@fastify/cookie";
 import fastifyMultipart from "@fastify/multipart";
 import fastifyRateLimit from "@fastify/rate-limit";
 import fastifyWebsocket from "@fastify/websocket";
@@ -145,6 +145,7 @@ import {
   VALID_ICON_COLORS,
 } from "./server/static-theme.js";
 import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
+import { StartupStateStore } from "./server/startup-state.js";
 import { createActivityMonitor } from "./agents/activity-monitor.js";
 import { createAutoRenamePrompter } from "./agents/auto-rename-prompter.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
@@ -248,6 +249,58 @@ const AGENT_STATUS_RECONCILE_INTERVAL_MS = 30_000;
 
 const ICON_COLOR_KEY = "icon_color";
 const staticTheme = createStaticThemeRuntime(embeddedStaticFiles);
+export const startupState = new StartupStateStore();
+
+// Cookie signing is registered before the database is available so Fastify can
+// bind and serve the React shell during an outage.  The signer is populated
+// with the persisted secret as part of database initialization; until then no
+// signed cookie is accepted or issued.
+let activeCookieSigner: Signer | null = null;
+const deferredCookieSigner = {
+  sign(value: string) {
+    if (!activeCookieSigner) return value;
+    return activeCookieSigner.sign(value);
+  },
+  unsign(value: string): ReturnType<Signer["unsign"]> {
+    if (!activeCookieSigner) {
+      return { valid: false, renew: false, value: null } as const;
+    }
+    return activeCookieSigner.unsign(value);
+  },
+};
+
+function databaseUnavailableResponse() {
+  const { error } = startupState.snapshot();
+  return {
+    error: "DATABASE_UNAVAILABLE",
+    message: "Dispatch is waiting for its database connection to recover.",
+    detail: error,
+    retryable: true,
+  };
+}
+
+function isDatabaseConnectionError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const candidate = error as { code?: string; cause?: unknown };
+  if (
+    [
+      "ECONNREFUSED",
+      "ECONNRESET",
+      "ECONNABORTED",
+      "ETIMEDOUT",
+      "08000",
+      "08003",
+      "08006",
+      "57P01",
+      "57P02",
+      "57P03",
+      "28P01",
+    ].includes(candidate.code ?? "")
+  ) {
+    return true;
+  }
+  return isDatabaseConnectionError(candidate.cause);
+}
 
 function withStreamFlag<T extends AgentRecord>(
   agent: T
@@ -429,8 +482,7 @@ type WorktreeLocation = "sibling" | "nested";
 const VALID_WORKTREE_LOCATIONS: WorktreeLocation[] = ["sibling", "nested"];
 
 async function registerRoutes() {
-  const cookieSecret = await getOrCreateCookieSecret(pool);
-  await app.register(fastifyCookie, { secret: cookieSecret });
+  await app.register(fastifyCookie, { secret: deferredCookieSigner });
   await app.register(fastifyMultipart, {
     limits: {
       fileSize: 20 * 1024 * 1024,
@@ -442,14 +494,16 @@ async function registerRoutes() {
   await app.register(fastifyWebsocket);
   await app.register(fastifyRateLimit, { global: false });
 
-  // Initialize icon color from DB before serving any requests
-  const storedIconColor = await getSetting(pool, ICON_COLOR_KEY);
-  if (
-    storedIconColor &&
-    (VALID_ICON_COLORS as readonly string[]).includes(storedIconColor)
-  ) {
-    staticTheme.rewriteForColor(storedIconColor as IconColor);
-  }
+  app.setErrorHandler((error, _request, reply) => {
+    if (isDatabaseConnectionError(error)) {
+      startupState.setDatabaseUnavailable(
+        error instanceof Error ? error.message : "Database connection failed"
+      );
+      void startDatabaseRecovery();
+      return reply.code(503).send(databaseUnavailableResponse());
+    }
+    return reply.send(error);
+  });
 
   await registerStaticRoutes(app, {
     getCachedIndexHtml: staticTheme.getCachedIndexHtml,
@@ -470,6 +524,16 @@ async function registerRoutes() {
   app.addHook("onRequest", async (request) => {
     if (!request.url.startsWith("/api/")) return;
     resourceRequestStarts.set(request, serviceResources.requestStarted());
+  });
+
+  // Keep the HTTP service available when Postgres is down. Static requests
+  // still load the existing React application; all data APIs receive one
+  // consistent, retryable response until the recovery loop reconnects.
+  app.addHook("onRequest", async (request, reply) => {
+    if (!request.url.startsWith("/api/")) return;
+    if (request.url.split("?")[0] === "/api/v1/health") return;
+    if (startupState.isReady()) return;
+    return reply.code(503).send(databaseUnavailableResponse());
   });
   const finishResourceRequest = (request: object, statusCode: number) => {
     const token = resourceRequestStarts.get(request);
@@ -625,6 +689,7 @@ async function registerRoutes() {
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    startupState,
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
@@ -767,32 +832,47 @@ async function registerRoutes() {
   await registerQuickPhraseRoutes(app, { pool });
 }
 
-async function waitForDatabase(maxAttempts = 15, delayMs = 2000) {
-  for (let i = 1; i <= maxAttempts; i++) {
-    try {
-      await pool.query("SELECT 1");
-      return;
-    } catch {
-      app.log.info(`Waiting for database (attempt ${i}/${maxAttempts})...`);
-      await new Promise((r) => setTimeout(r, delayMs));
-    }
-  }
-  throw new Error("Database not available after retries");
+let routesRegistered = false;
+let databaseInitialized = false;
+let recoveryPromise: Promise<void> | null = null;
+
+async function ensureRoutesRegistered(): Promise<void> {
+  if (routesRegistered) return;
+  await registerRoutes();
+  routesRegistered = true;
 }
 
-let routesRegistered = false;
-
-export async function initializeApp(options?: {
+async function initializeDatabase(options?: {
   runMigrations?: boolean;
   reconcileState?: boolean;
-}): Promise<typeof app> {
-  await waitForDatabase();
+}): Promise<void> {
+  await pool.query("SELECT 1");
+
+  // A connection which returns after a transient outage only needs to flip the
+  // request gate back to ready. The one-time setup below must not restart
+  // schedulers or reconciliation loops on every reconnect.
+  if (databaseInitialized) {
+    startupState.setReady();
+    app.log.info("Database connection recovered");
+    return;
+  }
+
   const shouldRunMigrations =
     options?.runMigrations ?? process.env.SKIP_MIGRATIONS !== "1";
   if (!shouldRunMigrations) {
     app.log.warn("SKIP_MIGRATIONS=1 — skipping database migrations");
   } else {
     await runMigrations();
+  }
+
+  const cookieSecret = await getOrCreateCookieSecret(pool);
+  activeCookieSigner = new Signer(cookieSecret);
+  const storedIconColor = await getSetting(pool, ICON_COLOR_KEY);
+  if (
+    storedIconColor &&
+    (VALID_ICON_COLORS as readonly string[]).includes(storedIconColor)
+  ) {
+    staticTheme.rewriteForColor(storedIconColor as IconColor);
   }
   config.authToken = await getOrCreateAuthToken(pool);
   serviceResources.setCollectionEnabled(
@@ -803,14 +883,7 @@ export async function initializeApp(options?: {
     await agentManager.reconcileAgents();
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
-    // If we crashed/restarted mid-assisted-update, repopulate the
-    // in-memory job from the on-disk state file so the operator UI
-    // surfaces the in-flight phase right away.
     await releaseRuntime.rehydrateActiveAssistedJob();
-    // Warm the diff-stats cache so the first sidebar expand doesn't get a
-    // cold-cache `null`. Fire-and-forget per agent — the refresher's 3s
-    // freshness window dedupes any overlap with SSE-driven signals from
-    // agent activity that lands while warmup is still in flight.
     const agents = await agentManager.listAgents();
     for (const agent of agents) {
       void diffStatsRefresher.signal(agent.id);
@@ -819,10 +892,52 @@ export async function initializeApp(options?: {
     authRuntime.startSessionCleanupTimer();
     autoCheckRuntime.startScheduler();
   }
-  if (!routesRegistered) {
-    await registerRoutes();
-    routesRegistered = true;
-  }
+  databaseInitialized = true;
+  startupState.setReady();
+  app.log.info("Database initialization complete");
+}
+
+/**
+ * Retry database initialization without dropping the HTTP listener. This is
+ * deliberately a small capped backoff: the normal request gate owns degraded
+ * behavior, so there is no second server or alternate UI lifecycle to keep in
+ * sync.
+ */
+function startDatabaseRecovery(options?: {
+  runMigrations?: boolean;
+  reconcileState?: boolean;
+}): Promise<void> {
+  if (recoveryPromise) return recoveryPromise;
+  recoveryPromise = (async () => {
+    let attempt = 0;
+    while (!shuttingDown && !startupState.isReady()) {
+      attempt += 1;
+      try {
+        await initializeDatabase(options);
+        return;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        startupState.setDatabaseUnavailable(message);
+        const delayMs = Math.min(1_000 * 2 ** Math.min(attempt - 1, 5), 30_000);
+        app.log.error(
+          { err: error, attempt, retryInMs: delayMs },
+          "Database unavailable; Dispatch will retry without restarting"
+        );
+        await new Promise((resolve) => setTimeout(resolve, delayMs));
+      }
+    }
+  })().finally(() => {
+    recoveryPromise = null;
+  });
+  return recoveryPromise;
+}
+
+export async function initializeApp(options?: {
+  runMigrations?: boolean;
+  reconcileState?: boolean;
+}): Promise<typeof app> {
+  await ensureRoutesRegistered();
+  await initializeDatabase(options);
   await app.ready();
   return app;
 }
@@ -832,7 +947,8 @@ export async function closeApp(): Promise<void> {
 }
 
 export async function start() {
-  await initializeApp();
+  await ensureRoutesRegistered();
+  await app.ready();
 
   const protocol = config.tls ? "https" : "http";
   await app.listen({
@@ -842,6 +958,10 @@ export async function start() {
   app.log.info(
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
+
+  // Do not await this: a missing or misconfigured database is a degraded
+  // service state, not a reason to relinquish the port and crash-loop.
+  void startDatabaseRecovery();
 
   const removed = pruneReleaseBinaries(serverDir, `v${packageVersion}`);
   if (removed > 0) {
