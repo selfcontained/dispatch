@@ -31,7 +31,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 - Personalities — short system-prompt blocks appended to every agent for voice or standing preferences.
 - Keyboard shortcuts and a command palette (`Mod+K`) for fast navigation and actions.
 - GitHub integration — PR creation and CI status checks via MCP tools.
-- Browser Feedback — a Chrome extension to select an element on any web page, comment, and send it with bounded DOM context to a running agent (paired under Settings → Connections).
+- Browser Feedback — a Chrome extension to select an element on any web page, comment, and send it with bounded DOM context and a cropped element screenshot to a running agent (paired under Settings → Connections).
 - Slack notifications with focus-aware suppression.
 - Activity analytics — heatmaps, daily status charts, working time by project.
 - Token usage tracking by day, project, and model.

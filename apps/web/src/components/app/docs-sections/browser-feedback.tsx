@@ -50,17 +50,28 @@ export function BrowserFeedbackContent() {
           selectable; use <strong>Refresh running agents</strong> if the list is
           stale.
         </P>
+        <P>
+          By default the panel also captures a cropped screenshot of the
+          selected element and previews it alongside the context. Turn off{" "}
+          <strong>Include screenshot of selected element</strong> to send
+          text-only (the choice is remembered), or use{" "}
+          <strong>Remove screenshot</strong> to drop the image from a single
+          submission. If a capture can't be taken, the feedback is still sent
+          without one. The screenshot is stored as agent media and referenced in
+          the prompt as untrusted observational evidence.
+        </P>
       </Section>
 
       <Section>
         <H3>Privacy and page access</H3>
         <P>
           The inspected page never has to share an origin with Dispatch. On
-          first use Chrome asks you to grant the extension access to HTTP and
-          HTTPS pages; this optional grant keeps the picker reliable as you move
-          between projects and can be revoked from Chrome at any time.
-          Browser-owned pages such as <Code>chrome://</Code> and the Chrome Web
-          Store can't be inspected.
+          first use Chrome asks you to grant the extension access to all pages —
+          a single all-URLs grant, since Chrome's tab-capture API used for the
+          element screenshot can't be scoped to individual hosts. This optional
+          grant also keeps the picker reliable as you move between projects and
+          can be revoked from Chrome at any time. Browser-owned pages such as{" "}
+          <Code>chrome://</Code> and the Chrome Web Store can't be inspected.
         </P>
         <P>
           Before previewing or sending, the extension strips form values,
