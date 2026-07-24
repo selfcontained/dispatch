@@ -1,42 +1,32 @@
-# Database outage self-healing handoff
+# Database outage self-healing — resolved
 
 ## Implemented
 
 - `StartupStateStore` models `initializing`, `database_unavailable`, and `ready`.
-- Server startup now binds HTTP before database initialization and retries database setup in-process instead of exiting.
-- `/api/v1/health` returns structured `503` status while the database is unavailable.
-- Other API routes return a structured, retryable `503` response while unavailable; runtime Postgres connection failures also transition into recovery.
-- The existing React app globally renders `StartupOutage` for health/API unavailability, including deep links. It returns to the original route once health is ready again.
-- Tests cover state transitions, system health/API 503 handling, and React API availability handling.
+- Server startup binds HTTP before database initialization and retries database
+  setup in-process (capped exponential backoff) instead of exiting.
+- `/api/v1/health` returns a structured `503` while the database is unavailable;
+  all other `/api/` routes return one consistent, retryable `503`. Runtime
+  Postgres connection failures also transition back into recovery.
+- The React app renders `StartupOutage` while the API reports the database
+  unavailable and returns to the original route once health is ready again. The
+  outage screen only renders on a confirmed outage, never during the initial
+  health check.
+- Cookie signing uses a deferred signer so the HTTP shell can register before
+  the persisted cookie secret is readable; the secret is loaded during database
+  initialization, preserving session signing across restarts.
 
-## Important unresolved issue
+## Resolution of the earlier E2E blocker
 
-The E2E server exits before binding. The blocker is the attempt to register
-`@fastify/cookie` before the database-derived cookie secret is available:
-`deferredCookieSigner` is an object, but Fastify expects its `secret` option to
-be a string or string array. Do not replace it with a generated placeholder:
-that would invalidate persisted session signing across restarts.
+A previous handoff blamed `@fastify/cookie` rejecting the deferred signer
+object. That diagnosis was wrong — `@fastify/cookie` v11 supports signer
+objects. The actual failure: `registerBrowserExtensionRoutes()` awaited
+`cleanupBrowserExtensionData()` (a DB sweep) at route-registration time, which
+now runs before the database is available. With the DB down the rejection
+propagated out of `registerRoutes()` and the process exited before binding.
+Fixed by making the initial sweep fire-and-forget with a logged warning — the
+recurring cleanup interval already retries.
 
-Resolve this by separating the DB-independent HTTP shell from the cookie/auth
-route registration, or by adding a supported lazy cookie-secret integration.
-The service must keep serving the existing React index while DB-backed APIs
-remain gated with 503 responses.
-
-## Validation completed
-
-- `pnpm run check` passed.
-- `pnpm run finalize:web` passed.
-- `pnpm run test` passed.
-- Focused server outage tests passed (69 tests).
-- `pnpm run test:e2e` currently fails at web-server startup for the cookie
-  registration issue above.
-
-## Relevant files
-
-- `apps/server/src/server.ts`
-- `apps/server/src/server/startup-state.ts`
-- `apps/server/src/routes/system.ts`
-- `apps/web/src/router-layouts.tsx`
-- `apps/web/src/hooks/use-health.ts`
-- `apps/web/src/lib/api.ts`
-- `apps/web/src/components/app/startup-outage.tsx`
+`playwright.config.ts` keeps `webServer.url` at `/api/v1/health`: Playwright
+requires a 2xx/3xx for readiness and health 503s until migrations finish, so it
+doubles as a full-readiness gate for the test run.

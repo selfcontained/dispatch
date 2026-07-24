@@ -58,10 +58,11 @@ export default defineConfig({
       MEDIA_ROOT: mediaRoot,
       DISPATCH_AGENT_RUNTIME: agentRuntime,
     },
-    // The server now binds before its database is ready, so use the
-    // DB-independent liveness endpoint here. Individual tests still assert
-    // the database health contract once initialization completes.
-    url: `${baseURL}/ping`,
+    // The server binds before its database is ready and /api/v1/health
+    // returns 503 until initialization (including migrations) completes.
+    // Playwright treats non-2xx/3xx as not-ready, so this doubles as a
+    // full-readiness gate — tests never race the schema setup.
+    url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
     timeout: 60_000,
   },

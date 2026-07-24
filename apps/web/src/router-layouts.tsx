@@ -34,7 +34,10 @@ export function RootLayout(): JSX.Element {
     if (startupState === "ready") setRequestError(null);
   }, [startupState]);
 
-  if (requestError || startupState !== "ready") {
+  // Gate only on a confirmed outage. Before the first health response the
+  // client-side state is "initializing", and rendering the outage screen for
+  // that window would flash it on every normal page load.
+  if (requestError || startupState === "database_unavailable") {
     return <StartupOutage error={requestError ?? startupError} />;
   }
 

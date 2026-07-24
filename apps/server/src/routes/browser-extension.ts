@@ -434,7 +434,13 @@ export async function registerBrowserExtensionRoutes(
   app: FastifyInstance,
   deps: BrowserExtensionRouteDeps
 ): Promise<void> {
-  await cleanupBrowserExtensionData(deps.pool, deps.mediaRoot);
+  // Routes are registered before the database may be available; the interval
+  // below retries, so a failed initial sweep must not abort startup.
+  void cleanupBrowserExtensionData(deps.pool, deps.mediaRoot).catch(
+    (error: unknown) => {
+      app.log.warn({ err: error }, "Browser extension data cleanup failed");
+    }
+  );
   const cleanupTimer = setInterval(() => {
     void cleanupBrowserExtensionData(deps.pool, deps.mediaRoot).catch(
       (error: unknown) => {
