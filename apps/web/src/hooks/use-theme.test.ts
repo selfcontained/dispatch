@@ -36,3 +36,68 @@ describe("terminal palettes track their theme mode", () => {
     expect(luminance(palette.foreground)).toBeLessThan(0.5);
   });
 });
+
+/** Gamma-linearized sRGB channel, per the WCAG relative-luminance definition. */
+function srgbChannel(c: number): number {
+  const s = c / 255;
+  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+}
+
+/** WCAG relative luminance (0 = black, 1 = white) of a #rrggbb hex. */
+function wcagLuminance(hex: string): number {
+  const value = hex.replace("#", "");
+  return (
+    0.2126 * srgbChannel(parseInt(value.slice(0, 2), 16)) +
+    0.7152 * srgbChannel(parseInt(value.slice(2, 4), 16)) +
+    0.0722 * srgbChannel(parseInt(value.slice(4, 6), 16))
+  );
+}
+
+/** WCAG contrast ratio between two #rrggbb hex colors (1:1 … 21:1). */
+function contrastRatio(a: string, b: string): number {
+  const la = wcagLuminance(a);
+  const lb = wcagLuminance(b);
+  const [hi, lo] = la > lb ? [la, lb] : [lb, la];
+  return (hi + 0.05) / (lo + 0.05);
+}
+
+describe("PRIMER_LIGHT renders legibly without leaning on the contrast clamp", () => {
+  const palette = getTerminalPalette("light");
+  const bg = palette.background;
+  const ansi = [
+    "foreground",
+    "black",
+    "red",
+    "green",
+    "yellow",
+    "blue",
+    "magenta",
+    "cyan",
+    "white",
+    "brightBlack",
+    "brightRed",
+    "brightGreen",
+    "brightYellow",
+    "brightBlue",
+    "brightMagenta",
+    "brightCyan",
+    "brightWhite",
+  ] as const;
+
+  // Regression guard for review #827 (item #161): every ANSI color must natively
+  // clear 4.5:1 on the light bg, so xterm's minimumContrastRatio clamp never has
+  // to silently remap Primer's values (which also collapsed the brights together).
+  for (const key of ansi) {
+    it(`${key} clears 4.5:1 against the background`, () => {
+      expect(contrastRatio(palette[key], bg)).toBeGreaterThanOrEqual(4.5);
+    });
+  }
+
+  // Regression guard for review #827 (item #162): on a light bg, "bright" white
+  // must read stronger than normal white — i.e. darker / higher contrast.
+  it("brightWhite is higher-contrast than white", () => {
+    expect(contrastRatio(palette.brightWhite, bg)).toBeGreaterThan(
+      contrastRatio(palette.white, bg)
+    );
+  });
+});

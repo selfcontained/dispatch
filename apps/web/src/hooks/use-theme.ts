@@ -180,7 +180,14 @@ const SOLARIZED_LIGHT: TerminalPalette = {
   brightWhite: "#fdf6e3",
 };
 
-/** Primer Light — GitHub-inspired accents on the light theme's soft paper bg */
+/**
+ * Primer Light — GitHub-inspired accents hand-tuned for the light theme's soft
+ * paper bg. Every ANSI color natively clears 4.5:1 against #e6eaef (rather than
+ * leaning on xterm's minimumContrastRatio clamp, which would remap Primer's
+ * white-tuned values and collapse the brights together). Following the
+ * light-theme convention, each bright* is darker/higher-contrast than its base
+ * so bold text reads stronger; brightBlack stays the conventional dim gray.
+ */
 const PRIMER_LIGHT: TerminalPalette = {
   minimumContrastRatio: 4.5,
   // Match the "light" theme's --background so the terminal blends into its pane.
@@ -190,22 +197,22 @@ const PRIMER_LIGHT: TerminalPalette = {
   cursorAccent: "#e6eaef",
   selectionBackground: "#c8d6e5",
   selectionInactiveBackground: "#d1d9e0",
-  black: "#24292f",
-  red: "#cf222e",
+  black: "#1f2428",
+  red: "#c11c28",
   green: "#116329",
-  yellow: "#4d2d00",
-  blue: "#0969da",
-  magenta: "#8250df",
-  cyan: "#1b7c83",
-  white: "#6e7781",
-  brightBlack: "#57606a",
-  brightRed: "#a40e26",
-  brightGreen: "#1a7f37",
-  brightYellow: "#633c01",
-  brightBlue: "#218bff",
-  brightMagenta: "#a475f9",
-  brightCyan: "#3192aa",
-  brightWhite: "#8c959f",
+  yellow: "#8a5a00",
+  blue: "#0860c8",
+  magenta: "#7b3ad0",
+  cyan: "#12666c",
+  white: "#616a74",
+  brightBlack: "#4a525c",
+  brightRed: "#9e0b22",
+  brightGreen: "#0d5926",
+  brightYellow: "#5a3600",
+  brightBlue: "#08479f",
+  brightMagenta: "#5f2ba6",
+  brightCyan: "#0f5257",
+  brightWhite: "#33393f",
 };
 
 /** Catppuccin Mocha — muted pastel palette on a soft dark base */
