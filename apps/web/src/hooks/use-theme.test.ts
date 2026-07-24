@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 
 import { THEMES, getTerminalPalette } from "@/hooks/use-theme";
 
-/** Relative luminance (0 = black, 1 = white) of a #rrggbb hex color. */
+/**
+ * Rough perceived brightness (0 = black, 1 = white) of a #rrggbb hex — a
+ * direct sRGB-channel weighting, not gamma-linearized WCAG relative luminance.
+ * Good enough to classify a palette as light vs dark.
+ */
 function luminance(hex: string): number {
   const value = hex.replace("#", "");
   const r = parseInt(value.slice(0, 2), 16) / 255;
