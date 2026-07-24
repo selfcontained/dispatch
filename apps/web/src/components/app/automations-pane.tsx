@@ -18,6 +18,7 @@ import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { useTemplates, type Template } from "@/hooks/use-templates";
 import { agentRoute } from "@/lib/agent-routes";
+import { shortPath } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type AutomationsTab = "templates" | "jobs" | "brains";
@@ -271,14 +272,6 @@ function TemplateListItem({
 
 // ---------------------------------------------------------------------------
 // Helpers
-// ---------------------------------------------------------------------------
-
-function shortPath(value: string): string {
-  const parts = value.split("/").filter(Boolean);
-  if (parts.length <= 3) return value;
-  return `.../${parts.slice(-3).join("/")}`;
-}
-
 // ---------------------------------------------------------------------------
 // Main automations pane (exported)
 // ---------------------------------------------------------------------------

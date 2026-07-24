@@ -7,6 +7,7 @@ import { TemplateConfigFields } from "@/components/app/automations-form-fields";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import type { AgentType } from "@/lib/agent-types";
+import { shortPath } from "@/lib/format";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,12 +23,6 @@ import {
   parseTemplateArgs,
   type Template,
 } from "@/hooks/use-templates";
-
-function shortPath(value: string): string {
-  const parts = value.split("/").filter(Boolean);
-  if (parts.length <= 3) return value;
-  return `.../${parts.slice(-3).join("/")}`;
-}
 
 export function TemplateDetailPane({
   enabledAgentTypes,

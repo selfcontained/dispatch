@@ -1,11 +1,8 @@
 import { Activity, AlarmClock, Clock } from "lucide-react";
 
 import { useJobsContext } from "@/components/app/jobs-context";
-import {
-  shortPath,
-  statusClasses,
-  statusIcon,
-} from "@/components/app/jobs-helpers";
+import { statusClasses, statusIcon } from "@/components/app/jobs-helpers";
+import { shortPath } from "@/lib/format";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

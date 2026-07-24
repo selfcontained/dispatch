@@ -24,6 +24,12 @@ export function shortProjectName(project: string): string {
   return parts.length <= 2 ? project : parts.slice(-2).join("/");
 }
 
+export function shortPath(value: string): string {
+  const parts = value.split("/").filter(Boolean);
+  if (parts.length <= 3) return value;
+  return `.../${parts.slice(-3).join("/")}`;
+}
+
 export function formatDateTime(iso: string): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
