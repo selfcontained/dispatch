@@ -9,6 +9,12 @@ export type DiffStats = {
   computedAt: number;
 };
 
+export type DiffStatsComputation =
+  | { kind: "success"; stats: DiffStats }
+  | { kind: "no-data"; stats: null }
+  | { kind: "partial"; stats: DiffStats; error: unknown }
+  | { kind: "failure"; stats: null; error: unknown };
+
 const GIT_TIMEOUT_MS = 15_000;
 
 type CommandRunner = (
@@ -22,6 +28,8 @@ export type GetDiffStatsOptions = {
   runCommand?: CommandRunner;
   /** Include staged, unstaged, and untracked working-tree changes. */
   includeUncommitted?: boolean;
+  /** Receives command/probe failures while the public result remains null. */
+  onError?: (error: unknown) => void;
 };
 
 /**
@@ -46,21 +54,50 @@ export async function getDiffStats(
   baseRef: string | null,
   options: GetDiffStatsOptions = {}
 ): Promise<DiffStats | null> {
+  const result = await getDiffStatsComputation(worktreePath, baseRef, options);
+  return result.stats;
+}
+
+/**
+ * Internal, discriminated form used by observability-aware callers. It keeps
+ * best-effort probe failures distinct from fatal Git failures without changing
+ * the public getDiffStats null/usable-stats contract.
+ */
+export async function getDiffStatsComputation(
+  worktreePath: string,
+  baseRef: string | null,
+  options: GetDiffStatsOptions = {}
+): Promise<DiffStatsComputation> {
   const run = options.runCommand ?? runCommand;
   const includeUncommitted = options.includeUncommitted !== false;
+  const probeErrors: unknown[] = [];
+  const recordError = (error: unknown) => {
+    probeErrors.push(error);
+    options.onError?.(error);
+  };
   try {
     const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
       runCommand: run,
+      onError: recordError,
     });
-    if (!resolvedBase) return null;
+    if (!resolvedBase) {
+      return probeErrors.length > 0
+        ? { kind: "failure", stats: null, error: probeErrors[0] }
+        : { kind: "no-data", stats: null };
+    }
 
     const mergeBase = await run(
       "git",
       ["-C", worktreePath, "merge-base", "HEAD", resolvedBase],
       { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
     );
+    if (mergeBase.exitCode === 128) {
+      const error = new Error("Git merge-base failed");
+      recordError(error);
+      return { kind: "failure", stats: null, error };
+    }
     if (mergeBase.exitCode !== 0 || !mergeBase.stdout.trim()) {
-      return null;
+      return { kind: "no-data", stats: null };
     }
     const mergeBaseSha = mergeBase.stdout.trim();
 
@@ -85,7 +122,8 @@ export async function getDiffStats(
     const ignoredPaths = await getGitIgnoredPaths(
       worktreePath,
       trackedPaths,
-      run
+      run,
+      recordError
     );
 
     let added = 0;
@@ -117,14 +155,18 @@ export async function getDiffStats(
       added += lines;
     }
 
-    return {
+    const stats = {
       added,
       deleted,
       files: seenFiles.size,
       computedAt: Date.now(),
     };
-  } catch {
-    return null;
+    return probeErrors.length > 0
+      ? { kind: "partial", stats, error: probeErrors[0] }
+      : { kind: "success", stats };
+  } catch (error) {
+    recordError(error);
+    return { kind: "failure", stats: null, error };
   }
 }
 
@@ -145,7 +187,8 @@ const CHECK_IGNORE_BATCH_SIZE = 500;
 async function getGitIgnoredPaths(
   worktreePath: string,
   paths: string[],
-  run: CommandRunner
+  run: CommandRunner,
+  onError?: (error: unknown) => void
 ): Promise<Set<string>> {
   if (paths.length === 0) return new Set();
   const ignored = new Set<string>();
@@ -164,7 +207,8 @@ async function getGitIgnoredPaths(
       }
     }
     return ignored;
-  } catch {
+  } catch (error) {
+    onError?.(error);
     return ignored;
   }
 }

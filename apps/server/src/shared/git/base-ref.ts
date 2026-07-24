@@ -11,6 +11,8 @@ export type ResolveBaseRefOptions = {
   runCommand?: CommandRunner;
   /** When false, do not infer the target branch from @{upstream}. */
   allowUpstreamFallback?: boolean;
+  /** Receives command execution errors while resolution keeps its null fallback. */
+  onError?: (error: unknown) => void;
 };
 
 function normalizeBranchName(ref: string | null | undefined): string | null {
@@ -51,7 +53,8 @@ async function resolveTargetBranch(
           }
         }
       }
-    } catch {
+    } catch (error) {
+      options.onError?.(error);
       // No upstream configured — fall through to origin/main.
     }
   }
@@ -120,13 +123,13 @@ export async function resolveBaseRef(
     options
   );
   for (const ref of candidateRefsForBranch(branchName)) {
-    const found = await refExists(run, worktreePath, ref);
+    const found = await refExists(run, worktreePath, ref, options.onError);
     if (found) return found;
   }
 
   return (
-    (await refExists(run, worktreePath, "origin/main")) ??
-    (await refExists(run, worktreePath, "main"))
+    (await refExists(run, worktreePath, "origin/main", options.onError)) ??
+    (await refExists(run, worktreePath, "main", options.onError))
   );
 }
 
@@ -142,7 +145,8 @@ function isSafeRef(ref: string): boolean {
 async function refExists(
   run: CommandRunner,
   worktreePath: string,
-  ref: string
+  ref: string,
+  onError?: (error: unknown) => void
 ): Promise<string | null> {
   // The `isSafeRef` guard at every entry point keeps `-`-prefixed values
   // from reaching git as flags. We tried adding a `--` end-of-options
@@ -157,7 +161,8 @@ async function refExists(
       { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
     );
     return result.exitCode === 0 && result.stdout.trim() ? ref : null;
-  } catch {
+  } catch (error) {
+    onError?.(error);
     return null;
   }
 }

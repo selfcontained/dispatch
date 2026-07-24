@@ -6,8 +6,18 @@ import {
   type DiffStatsChangedEvent,
 } from "../src/agents/diff-stats-refresher.js";
 import type { DiffStats } from "../src/shared/git/diff-stats.js";
+import type { RunCommandResult } from "../src/shared/lib/run-command.js";
+import { SubsystemTracker } from "../src/observability/subsystem-tracker.js";
 
 type AgentMap = Map<string, DiffStatsAgent>;
+
+function gitResult(
+  exitCode: number,
+  stdout = "",
+  stderr = ""
+): RunCommandResult {
+  return { exitCode, stdout, stderr };
+}
 
 function setupAgents(entries: Array<[string, DiffStatsAgent]>): AgentMap {
   return new Map(entries);
@@ -398,12 +408,18 @@ describe("DiffStatsRefresher", () => {
       throw new Error("git exploded");
     });
     const warn = vi.fn();
+    const tracker = new SubsystemTracker({
+      id: "git",
+      label: "Git",
+      description: "Refreshes diffs",
+    });
     const refresher = new DiffStatsRefresher({
       getAgent: async (id) => agents.get(id) ?? null,
       publishEvent: (event) => events.push(event),
       computeDiffStats: compute,
       freshnessMs: 1_000,
       logger: { warn },
+      tracker,
     });
 
     await refresher.signal("a1");
@@ -415,5 +431,105 @@ describe("DiffStatsRefresher", () => {
     expect(refresher.getStats("a1")).toMatchObject({ added: 5 });
     expect(events).toHaveLength(1);
     expect(warn).toHaveBeenCalled();
+    expect(tracker.snapshot()).toMatchObject({
+      state: "degraded",
+      failures: 1,
+      lastError: "Operation failed",
+    });
+  });
+
+  it("marks merge-base exit 128 as a default-adapter failure", async () => {
+    const agents = setupAgents([
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
+    ]);
+    const events: DiffStatsChangedEvent[] = [];
+    const tracker = new SubsystemTracker({
+      id: "git",
+      label: "Git",
+      description: "Refreshes diffs",
+    });
+    const runGitCommand = vi.fn(
+      async (_command: string, args: string[]): Promise<RunCommandResult> => {
+        const key = args.join(" ");
+        if (key === "-C /tmp/wt rev-parse --verify --quiet origin/main") {
+          return gitResult(0, "origin/main\n");
+        }
+        if (key === "-C /tmp/wt merge-base HEAD origin/main") {
+          return gitResult(128, "", "fatal: bad revision");
+        }
+        throw new Error(`Unexpected command: ${key}`);
+      }
+    );
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: (event) => events.push(event),
+      runGitCommand,
+      tracker,
+    });
+
+    await refresher.signal("a1");
+
+    expect(events).toHaveLength(0);
+    expect(tracker.snapshot()).toMatchObject({
+      state: "degraded",
+      failures: 1,
+      lastError: "Operation failed",
+    });
+  });
+
+  it("publishes usable default-adapter stats after check-ignore fails", async () => {
+    const agents = setupAgents([
+      ["a1", { worktreePath: "/tmp/wt", cwd: null, baseBranch: "main" }],
+    ]);
+    const events: DiffStatsChangedEvent[] = [];
+    const warn = vi.fn();
+    const tracker = new SubsystemTracker({
+      id: "git",
+      label: "Git",
+      description: "Refreshes diffs",
+    });
+    const runGitCommand = vi.fn(
+      async (_command: string, args: string[]): Promise<RunCommandResult> => {
+        const key = args.join(" ");
+        if (key === "-C /tmp/wt rev-parse --verify --quiet origin/main") {
+          return gitResult(0, "origin/main\n");
+        }
+        if (key === "-C /tmp/wt merge-base HEAD origin/main") {
+          return gitResult(0, "abcd1234\n");
+        }
+        if (key === "-C /tmp/wt diff abcd1234 --numstat") {
+          return gitResult(0, "3\t1\tsrc/foo.ts\n");
+        }
+        if (key === "-C /tmp/wt ls-files --others --exclude-standard") {
+          return gitResult(0);
+        }
+        if (args.includes("check-ignore")) {
+          throw new Error("check-ignore unavailable");
+        }
+        throw new Error(`Unexpected command: ${key}`);
+      }
+    );
+    const refresher = new DiffStatsRefresher({
+      getAgent: async (id) => agents.get(id) ?? null,
+      publishEvent: (event) => events.push(event),
+      runGitCommand,
+      logger: { warn },
+      tracker,
+    });
+
+    await refresher.signal("a1");
+
+    expect(refresher.getStats("a1")).toMatchObject({
+      added: 3,
+      deleted: 1,
+      files: 1,
+    });
+    expect(events).toHaveLength(1);
+    expect(warn).toHaveBeenCalled();
+    expect(tracker.snapshot()).toMatchObject({
+      state: "degraded",
+      failures: 1,
+      lastError: "Operation failed",
+    });
   });
 });

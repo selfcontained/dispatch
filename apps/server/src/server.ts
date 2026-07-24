@@ -31,7 +31,7 @@ import {
   validateJobMcpToken,
 } from "./auth.js";
 import { loadConfig } from "./config.js";
-import { createPool } from "./db/client.js";
+import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
@@ -116,6 +116,7 @@ import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
+import { registerResourceRoutes } from "./routes/resources.js";
 import {
   dateTruncTz,
   loadScopedActivityEvents,
@@ -147,6 +148,12 @@ import { UiEventBroker, type UiEvent } from "./server/ui-events.js";
 import { createActivityMonitor } from "./agents/activity-monitor.js";
 import { createAutoRenamePrompter } from "./agents/auto-rename-prompter.js";
 import { DiffStatsRefresher } from "./agents/diff-stats-refresher.js";
+import { SubsystemTracker } from "./observability/subsystem-tracker.js";
+import {
+  ServiceResources,
+  type HttpRequestToken,
+} from "./observability/service-resources.js";
+import { readServiceResourcesCollectionEnabled } from "./observability/service-resources-settings.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -154,11 +161,37 @@ const app = Fastify({
   ...(config.tls && { https: { cert: config.tls.cert, key: config.tls.key } }),
 });
 const pool = createPool(config);
+const serviceResourcesProbePool = createServiceResourcesProbePool(config);
 const agentManager = new AgentManager(pool, app.log, config);
 const focusTracker = new FocusTracker();
 const slackNotifier = new SlackNotifier(pool, app.log);
 slackNotifier.setFocusCheck((agentId) => focusTracker.isFocused(agentId));
 const uiEventBroker = new UiEventBroker();
+const reconciliationTracker = new SubsystemTracker({
+  id: "agent-reconciliation",
+  label: "Agent reconciliation",
+  description:
+    "Checks running agent sessions and corrects stale lifecycle state.",
+  expectedCadenceMs: 30_000,
+});
+const activityTracker = new SubsystemTracker({
+  id: "activity-monitor",
+  label: "Activity monitor",
+  description: "Compares agent-reported state with recent terminal activity.",
+  expectedCadenceMs: 30_000,
+});
+const gitRefreshTracker = new SubsystemTracker({
+  id: "git-diff-refreshes",
+  label: "Git diff refreshes",
+  description:
+    "Computes cached diff statistics when agent activity requests a refresh.",
+});
+const updateCheckTracker = new SubsystemTracker({
+  id: "update-checker",
+  label: "Update checker",
+  description: "Checks the configured release channel for Dispatch updates.",
+  expectedCadenceMs: 6 * 60 * 60 * 1000,
+});
 const diffStatsRefresher = new DiffStatsRefresher({
   getAgent: async (id) => {
     const agent = await agentManager.getAgent(id);
@@ -171,6 +204,7 @@ const diffStatsRefresher = new DiffStatsRefresher({
   },
   publishEvent: (event) => uiEventBroker.publish(event),
   logger: app.log,
+  tracker: gitRefreshTracker,
 });
 agentManager.attachDiffStatsRefresher(diffStatsRefresher);
 const terminalTokenStore = new TerminalTokenStore(60_000);
@@ -261,6 +295,7 @@ const autoCheckRuntime = createAutoCheckRuntime({
     });
   },
   logger: app.log,
+  tracker: updateCheckTracker,
 });
 
 const activityMonitor = createActivityMonitor({
@@ -286,7 +321,50 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
   activityMonitor,
   withStreamFlag,
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  reconciliationTracker,
+  activityTracker,
 });
+const serviceResources = new ServiceResources({
+  pool,
+  probePool: serviceResourcesProbePool,
+  listAgentSessions: async () => {
+    const agents = await agentManager.listAgents();
+    return agents
+      .filter((agent) =>
+        ["creating", "running", "stopping"].includes(agent.status)
+      )
+      .map((agent) => ({ tmuxSession: agent.tmuxSession }));
+  },
+  getWorkloads: () => {
+    const streamMetrics = streamManager.getMetrics();
+    const observerMetrics = copyModeObserverManager.getMetrics();
+    const jobMetrics = jobService.getRuntimeMetrics();
+    const gitMetrics = diffStatsRefresher.getMetrics();
+    const uiMetrics = uiEventBroker.getMetrics();
+    return {
+      runningAgents: 0,
+      sseClients: uiMetrics.clients,
+      streams: streamMetrics.streams,
+      streamViewers: streamMetrics.viewers,
+      terminalObservers: observerMetrics.observers,
+      terminalViewers: observerMetrics.viewers,
+      scheduledJobs: jobMetrics.scheduledJobs,
+      jobMonitors: jobMetrics.activeMonitors,
+      gitRefreshesInFlight: gitMetrics.inFlight,
+      uiEventsPublished: uiMetrics.eventsPublished,
+      uiWriteFailures: uiMetrics.writeFailures,
+      terminalPolls: observerMetrics.pollCount,
+      terminalPollFailures: observerMetrics.pollFailures,
+    };
+  },
+  subsystemTrackers: [
+    reconciliationTracker,
+    activityTracker,
+    gitRefreshTracker,
+    updateCheckTracker,
+  ],
+});
+const resourceRequestStarts = new WeakMap<object, HttpRequestToken>();
 const notificationRuntime = createNotificationRuntime({
   agentManager,
   jobService,
@@ -387,6 +465,26 @@ async function registerRoutes() {
       reply.header("X-Dispatch-Version", packageVersion);
     }
     return payload;
+  });
+
+  app.addHook("onRequest", async (request) => {
+    if (!request.url.startsWith("/api/")) return;
+    resourceRequestStarts.set(request, serviceResources.requestStarted());
+  });
+  const finishResourceRequest = (request: object, statusCode: number) => {
+    const token = resourceRequestStarts.get(request);
+    if (!token) return;
+    serviceResources.requestFinished(token, statusCode);
+    resourceRequestStarts.delete(request);
+  };
+  app.addHook("onResponse", async (request, reply) => {
+    finishResourceRequest(request, reply.statusCode);
+  });
+  app.addHook("onRequestAbort", async (request) => {
+    finishResourceRequest(request, 499);
+  });
+  app.addHook("onTimeout", async (request) => {
+    finishResourceRequest(request, 504);
   });
 
   // ---------------------------------------------------------------------------
@@ -528,6 +626,7 @@ async function registerRoutes() {
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
+  await registerResourceRoutes(app, { pool, resources: serviceResources });
 
   await registerBrainRoutes(app, {
     brainStore,
@@ -696,6 +795,9 @@ export async function initializeApp(options?: {
     await runMigrations();
   }
   config.authToken = await getOrCreateAuthToken(pool);
+  serviceResources.setCollectionEnabled(
+    await readServiceResourcesCollectionEnabled(pool)
+  );
   const shouldReconcileState = options?.reconcileState ?? true;
   if (shouldReconcileState) {
     await agentManager.reconcileAgents();
@@ -762,6 +864,7 @@ async function cleanupAppResources(): Promise<void> {
   agentLifecycleRuntime.stopReconcileLoop();
   authRuntime.stopSessionCleanupTimer();
   autoCheckRuntime.stopScheduler();
+  await serviceResources.shutdown();
 
   notificationRuntime.clearPendingWebNotifications();
 

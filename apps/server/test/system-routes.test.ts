@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { readServiceResourcesCollectionEnabled } from "../src/observability/service-resources-settings.js";
 import { useInjectApp } from "./helpers/inject-app.js";
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
@@ -60,6 +61,102 @@ describe("GET /api/v1/system/defaults", () => {
     const body = res.json();
     expect(typeof body.homeDir).toBe("string");
     expect(body.homeDir.length).toBeGreaterThan(0);
+  });
+});
+
+describe("GET /api/v1/system/resources", () => {
+  it("returns a bounded operational snapshot", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/system/resources?window=15m",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.collectionEnabled).toBe(false);
+    expect(body.sampleIntervalMs).toBe(5_000);
+    expect(body.current.server.rssBytes).toBeGreaterThan(0);
+    expect(body.current.database.pool.max).toBeGreaterThan(0);
+    expect(Array.isArray(body.series)).toBe(true);
+    expect(body.series.length).toBeLessThanOrEqual(720);
+    if (body.series.length > 0) {
+      expect(body.series[0]?.subsystems?.database?.metadata).toEqual(
+        expect.objectContaining({
+          poolTotal: expect.any(Number),
+          poolIdle: expect.any(Number),
+          poolWaiting: expect.any(Number),
+        })
+      );
+    }
+    expect(body.subsystems.map((item: { id: string }) => item.id)).toEqual(
+      expect.arrayContaining([
+        "api-server",
+        "database",
+        "agent-reconciliation",
+        "activity-monitor",
+        "git-diff-refreshes",
+      ])
+    );
+  });
+
+  it("rejects unsupported history windows", async () => {
+    const res = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/system/resources?window=24h",
+      headers: { cookie: sessionCookie },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/window/);
+  });
+
+  it("toggles resource collection at runtime and persists the setting", async () => {
+    const enable = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/system/resources/settings",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: true },
+    });
+    expect(enable.statusCode).toBe(200);
+    expect(enable.json()).toEqual({ collectionEnabled: true });
+    expect(await readServiceResourcesCollectionEnabled(ctx.pool)).toBe(true);
+
+    const enabledSnapshot = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/system/resources",
+      headers: { cookie: sessionCookie },
+    });
+    expect(enabledSnapshot.json().collectionEnabled).toBe(true);
+
+    const disable = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/system/resources/settings",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: false },
+    });
+    expect(disable.statusCode).toBe(200);
+    expect(disable.json()).toEqual({ collectionEnabled: false });
+    expect(await readServiceResourcesCollectionEnabled(ctx.pool)).toBe(false);
+
+    const disabledSnapshot = await ctx.app.inject({
+      method: "GET",
+      url: "/api/v1/system/resources",
+      headers: { cookie: sessionCookie },
+    });
+    expect(disabledSnapshot.json()).toMatchObject({
+      collectionEnabled: false,
+      series: [],
+    });
+  });
+
+  it("rejects invalid resource collection settings", async () => {
+    const res = await ctx.app.inject({
+      method: "POST",
+      url: "/api/v1/system/resources/settings",
+      headers: { cookie: sessionCookie },
+      payload: { enabled: "yes" },
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/enabled/);
   });
 });
 

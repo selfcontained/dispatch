@@ -109,6 +109,13 @@ export class JobService {
     this.onRunStateChangeCallbacks.push(cb);
   }
 
+  getRuntimeMetrics(): { scheduledJobs: number; activeMonitors: number } {
+    return {
+      scheduledJobs: this.schedulers.size,
+      activeMonitors: this.monitors.size,
+    };
+  }
+
   private emitRunStateChange(run: JobRunRecord): void {
     for (const cb of this.onRunStateChangeCallbacks) {
       try {

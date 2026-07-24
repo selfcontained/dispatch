@@ -23,6 +23,12 @@ test.describe("Settings pane", () => {
       },
       data: { enabled: false },
     });
+    await request.post("/api/v1/system/resources/settings", {
+      headers: {
+        Authorization: `Bearer ${process.env.AUTH_TOKEN ?? "dev-token"}`,
+      },
+      data: { enabled: false },
+    });
   });
 
   test("opens and closes the settings pane", async ({ page }) => {
@@ -137,6 +143,73 @@ test.describe("Settings pane", () => {
     expect(exchange.status).toBe("approved");
     expect(exchange.token).toBeTruthy();
     await expect(page.getByText("Browser extension connected")).toBeVisible();
+  });
+
+  test("shows live service resources and expands subsystem details", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await page.getByTestId("settings-button").click();
+    await page
+      .getByTestId("sidebar-shell")
+      .getByText("Resources", { exact: true })
+      .click();
+
+    const dashboard = page.getByTestId("service-resources-dashboard");
+    await expect(dashboard).toBeVisible({ timeout: 10_000 });
+    await expect(page).toHaveURL(/\/settings\/resources$/);
+    const collectionToggle = dashboard.getByTestId(
+      "resource-collection-toggle"
+    );
+    await expect(collectionToggle).not.toBeChecked();
+    await expect(
+      dashboard.getByTestId("resource-card-dispatch-cpu")
+    ).toHaveCount(0);
+
+    await collectionToggle.click();
+    await expect(collectionToggle).toBeChecked();
+    await expect(
+      dashboard.getByTestId("resource-card-dispatch-cpu")
+    ).toBeVisible({ timeout: 10_000 });
+    await expect(dashboard.getByTestId("resource-card-database")).toBeVisible();
+    const agentProcessesCard = dashboard.getByTestId(
+      "resource-card-agent-processes"
+    );
+    await expect(agentProcessesCard).toBeVisible();
+    await expect(
+      agentProcessesCard.getByText("0 B", { exact: true })
+    ).toHaveCount(0);
+    await expect(dashboard.getByText(/load \/ \d+ CPUs/)).toBeVisible();
+    await expect(dashboard.getByText("Connected browsers")).toBeVisible();
+    await expect(dashboard.getByText("Active terminal views")).toBeVisible();
+    await expect(dashboard.getByText("Git refreshes active")).toBeVisible();
+    await expect(
+      dashboard.getByText(/host load uses the right load axis/i)
+    ).toBeVisible();
+    await expect(
+      dashboard.getByText(/History resets when Dispatch restarts/i)
+    ).toBeVisible();
+    await expect(
+      dashboard.getByTestId("refresh-service-resources")
+    ).toHaveCount(0);
+    await expect(
+      dashboard.getByText("Browser streams", { exact: true })
+    ).toHaveCount(0);
+
+    const databaseRow = dashboard.getByTestId("subsystem-database");
+    await expect(databaseRow.getByText("Active")).toBeVisible({
+      timeout: 20_000,
+    });
+    await databaseRow.click();
+    await expect(databaseRow).toHaveAttribute("aria-expanded", "true");
+    await expect(dashboard.getByText("pool total")).toBeVisible();
+    await expect(
+      dashboard.getByTestId("subsystem-stat-trend-database-poolTotal")
+    ).toBeVisible();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await expect(dashboard.getByTestId("resources-updated-at")).toBeVisible();
   });
 
   test("agent type settings filter the create-agent dialog", async ({

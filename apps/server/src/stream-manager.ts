@@ -20,6 +20,8 @@ export class StreamManager {
   private sessions = new Map<string, StreamSession>();
   private onStateChange: OnStateChange;
   private onStreamEnd?: OnStreamEnd;
+  private framesSent = 0;
+  private bytesSent = 0;
 
   constructor(onStateChange: OnStateChange, onStreamEnd?: OnStreamEnd) {
     this.onStateChange = onStateChange;
@@ -200,6 +202,24 @@ export class StreamManager {
     return session !== undefined && session.status === "live";
   }
 
+  getMetrics(): {
+    streams: number;
+    viewers: number;
+    framesSent: number;
+    bytesSent: number;
+  } {
+    let viewers = 0;
+    for (const session of this.sessions.values()) {
+      viewers += session.viewers.size;
+    }
+    return {
+      streams: this.sessions.size,
+      viewers,
+      framesSent: this.framesSent,
+      bytesSent: this.bytesSent,
+    };
+  }
+
   stopAll(): void {
     for (const agentId of [...this.sessions.keys()]) {
       this.stopStream(agentId);
@@ -237,6 +257,8 @@ export class StreamManager {
         };
         if (v.writable !== false) {
           v.write(frameChunk);
+          this.framesSent += 1;
+          this.bytesSent += frameChunk.length;
           if (typeof v.flush === "function") {
             v.flush();
           }

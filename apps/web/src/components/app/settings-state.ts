@@ -5,6 +5,7 @@ import {
   BookOpenText,
   Cable,
   Package,
+  Gauge,
   Settings,
   Users,
 } from "lucide-react";
@@ -17,6 +18,7 @@ export type SettingsSection =
   | "connections"
   | "notifications"
   | "updates"
+  | "resources"
   | "help"
   | "releases";
 
@@ -29,6 +31,7 @@ const BASE_SECTIONS: Array<{
   { id: "agents", label: "Agents", icon: Users },
   { id: "connections", label: "Connections", icon: Cable },
   { id: "notifications", label: "Notifications", icon: Bell },
+  { id: "resources", label: "Resources", icon: Gauge },
   { id: "updates", label: "Updates", icon: ArrowDownToLine },
 ];
 
@@ -49,6 +52,7 @@ const ALL_VALID_SECTIONS: SettingsSection[] = [
   "connections",
   "notifications",
   "updates",
+  "resources",
   "help",
   "releases",
 ];

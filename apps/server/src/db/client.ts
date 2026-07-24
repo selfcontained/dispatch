@@ -25,3 +25,21 @@ export function createPool(config: AppConfig): Pool {
   pool.on("error", () => {});
   return pool;
 }
+
+/**
+ * Keep observability probes isolated from the application pool. Both acquiring
+ * the single probe connection and reading a result are bounded by the driver;
+ * ServiceResources adds its own watchdog and retires the client on timeout.
+ */
+export function createServiceResourcesProbePool(config: AppConfig): Pool {
+  const pool = new Pool({
+    connectionString: config.databaseUrl,
+    max: 1,
+    idleTimeoutMillis: 30_000,
+    connectionTimeoutMillis: 2_500,
+    query_timeout: 2_500,
+    allowExitOnIdle: true,
+  });
+  pool.on("error", () => {});
+  return pool;
+}

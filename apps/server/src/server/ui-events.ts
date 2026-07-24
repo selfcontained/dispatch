@@ -64,6 +64,8 @@ export type UiEvent =
 export class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
   private nextId = 1;
+  private eventsPublished = 0;
+  private writeFailures = 0;
 
   subscribe(stream: NodeJS.WritableStream): () => void {
     this.clients.add(stream);
@@ -77,7 +79,20 @@ export class UiEventBroker {
   }
 
   publish(event: UiEvent): void {
+    this.eventsPublished += 1;
     this.write(event);
+  }
+
+  getMetrics(): {
+    clients: number;
+    eventsPublished: number;
+    writeFailures: number;
+  } {
+    return {
+      clients: this.clients.size,
+      eventsPublished: this.eventsPublished,
+      writeFailures: this.writeFailures,
+    };
   }
 
   sendSnapshot(stream: NodeJS.WritableStream, agents: AgentRecord[]): void {
@@ -95,6 +110,7 @@ export class UiEventBroker {
       try {
         client.write(payload);
       } catch {
+        this.writeFailures += 1;
         this.clients.delete(client);
       }
     }
