@@ -1,7 +1,9 @@
 ## What's Changed
-* Avoid logging one-time login link tokens by @selfcontained in https://github.com/selfcontained/dispatch/pull/822
-* Add element screenshot capture to the browser feedback extension by @selfcontained in https://github.com/selfcontained/dispatch/pull/819
-* Fix: terminal pane now follows the app theme by @niiyeboah in https://github.com/selfcontained/dispatch/pull/813
+* Cover the agent-card split: header, status, details, and actions by @selfcontained in https://github.com/selfcontained/dispatch/pull/824
+* Docs: document browser-feedback element screenshots, fix page-access claim by @selfcontained in https://github.com/selfcontained/dispatch/pull/825
+* Dedupe shortPath into lib/format by @selfcontained in https://github.com/selfcontained/dispatch/pull/826
+* Add service resources dashboard by @selfcontained in https://github.com/selfcontained/dispatch/pull/823
+* Improve sticky review sidebar headers by @selfcontained in https://github.com/selfcontained/dispatch/pull/828
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.29.8...v0.29.9
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.29.9...v0.30.0
