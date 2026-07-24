@@ -166,12 +166,10 @@ vi.mock("@/hooks/use-agent-diff", () => ({
 
 afterEach(cleanup);
 
-function reviewRowFor(text: string): HTMLElement {
-  const row = screen
-    .getByText(text)
-    .closest("[data-review-id]") as HTMLElement | null;
-  if (!row) throw new Error(`Could not find review row for ${text}`);
-  return row;
+function reviewRowById(id: number): HTMLElement {
+  const row = document.querySelector(`[data-review-id="${id}"]`);
+  if (!row) throw new Error(`Could not find review row ${id}`);
+  return row as HTMLElement;
 }
 
 function LocationSearch(): JSX.Element {
@@ -179,22 +177,22 @@ function LocationSearch(): JSX.Element {
 }
 
 describe("ReviewsSidebarContent", () => {
-  it("uses status rails and labels a review without a summary", () => {
+  it("uses status rails and labels review headers", () => {
     render(
       <MemoryRouter>
         <ReviewsSidebarContent agentId="agent-1" />
       </MemoryRouter>
     );
 
-    expect(reviewRowFor("Review feedback").className).toContain(
-      "border-l-status-waiting/60"
-    );
-    expect(reviewRowFor("Partially resolved review").className).toContain(
-      "border-l-status-waiting/60"
-    );
-    expect(reviewRowFor("Resolved review").className).toContain(
-      "border-l-status-working/60"
-    );
+    expect(
+      reviewRowById(1).querySelector("[class*='border-l-status-waiting']")
+    ).toBeTruthy();
+    expect(
+      reviewRowById(3).querySelector("[class*='border-l-status-waiting']")
+    ).toBeTruthy();
+    expect(
+      reviewRowById(2).querySelector("[class*='border-l-status-working']")
+    ).toBeTruthy();
   });
 
   it("shows reviewer attribution and expands a tracked clean approval", () => {
@@ -204,7 +202,11 @@ describe("ReviewsSidebarContent", () => {
       </MemoryRouter>
     );
 
-    expect(screen.getByText("Security Review")).toBeTruthy();
+    expect(
+      screen.getByRole("button", {
+        name: "Expand review from Security Review",
+      })
+    ).toBeTruthy();
     expect(screen.getByText("Approved · no feedback")).toBeTruthy();
     fireEvent.click(
       screen.getByRole("button", {
@@ -222,8 +224,7 @@ describe("ReviewsSidebarContent", () => {
       </MemoryRouter>
     );
 
-    const summary = screen.getByTestId("review-summary-5");
-    expect(summary.className).not.toContain("max-h-[1.45em]");
+    expect(screen.getByTestId("review-description-5")).toBeTruthy();
     expect(screen.getByTestId("location-search").textContent).toBe(
       "?expandReview=5"
     );
@@ -258,39 +259,42 @@ describe("ReviewsSidebarContent", () => {
     expect(screen.getAllByText(/Implementation verified/)).toHaveLength(2);
   });
 
-  it("clips collapsed feedback and renders its full body as markdown", () => {
+  it("keeps descriptions out of the toggle and renders them as markdown", () => {
     render(
       <MemoryRouter>
         <ReviewsSidebarContent agentId="agent-1" />
       </MemoryRouter>
     );
 
-    const reviewSummary = screen.getByTestId("review-summary-5");
-    expect(reviewSummary.querySelector("strong")?.textContent).toBe(
-      "reviewer feedback"
-    );
+    expect(screen.queryByTestId("review-description-5")).toBeNull();
     fireEvent.click(
       screen.getByRole("button", {
         name: "Expand review from Product Review",
       })
     );
-    const body = screen.getByTestId("feedback-body-51");
-    expect(body.className).toContain("max-h-[4.35em]");
-    expect(body.querySelector("strong")?.textContent).toBe("review state");
-    expect(screen.getByText("Preserve the tracked thread")).toBeTruthy();
-
-    fireEvent.click(
-      screen.getByRole("button", { name: "Expand feedback description" })
+    const reviewDescription = screen.getByTestId("review-description-5");
+    expect(reviewDescription.querySelector("strong")?.textContent).toBe(
+      "reviewer feedback"
     );
-    expect(body.className).not.toContain("max-h-[4.35em]");
+    expect(reviewDescription.closest("button")).toBeNull();
+    expect(screen.queryByTestId("feedback-description-51")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand feedback" }));
+    const feedbackDescription = screen.getByTestId("feedback-description-51");
+    expect(feedbackDescription.querySelector("strong")?.textContent).toBe(
+      "review state"
+    );
+    expect(feedbackDescription.closest("button")).toBeNull();
     expect(
       screen.getByText("Keep the full explanation visible when expanded")
     ).toBeTruthy();
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Collapse feedback description" })
-    );
-    expect(body.className).toContain("max-h-[4.35em]");
+    fireEvent.click(screen.getByRole("button", { name: "Collapse feedback" }));
+    expect(
+      screen
+        .getByRole("button", { name: "Expand feedback" })
+        .getAttribute("aria-expanded")
+    ).toBe("false");
   });
 
   it("keeps Markdown links outside review and feedback toggle buttons", () => {
@@ -301,25 +305,28 @@ describe("ReviewsSidebarContent", () => {
       </MemoryRouter>
     );
 
-    const reviewLink = screen.getByRole("link", { name: "details" });
-    expect(reviewLink.closest("button")).toBeNull();
-    reviewLink.addEventListener("click", (event) => event.preventDefault());
-    fireEvent.click(reviewLink);
-    expect(screen.getByTestId("location-search").textContent).toBe("");
-
     fireEvent.click(
       screen.getByRole("button", {
         name: "Expand review from Product Review",
       })
     );
+    const reviewLink = screen.getByRole("link", { name: "details" });
+    expect(reviewLink.closest("button")).toBeNull();
+    reviewLink.addEventListener("click", (event) => event.preventDefault());
+    fireEvent.click(reviewLink);
+    expect(screen.getByTestId("location-search").textContent).toBe(
+      "?expandReview=5"
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand feedback" }));
     const feedbackLink = screen.getByRole("link", { name: "Read guidance" });
     expect(feedbackLink.closest("button")).toBeNull();
     feedbackLink.addEventListener("click", (event) => event.preventDefault());
     fireEvent.click(feedbackLink);
     expect(
       screen
-        .getByRole("button", { name: "Expand feedback description" })
+        .getByRole("button", { name: "Collapse feedback" })
         .getAttribute("aria-expanded")
-    ).toBe("false");
+    ).toBe("true");
   });
 });

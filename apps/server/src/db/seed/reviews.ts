@@ -31,7 +31,7 @@ type ReviewSeed = {
 const REVIEWS: ReviewSeed[] = [
   {
     summary:
-      "Several issues with the heatmap rendering — timezone handling, color scale, and an accessibility gap on the legend toggle.",
+      "Several issues with the heatmap rendering need attention before this can ship. The current implementation produces different hour buckets for the same activity depending on the viewer's local timezone, which makes the visual misleading when a team spans regions. The palette also assumes a light background, and the legend control is not yet usable with a keyboard or assistive technology.\n\nNone of these concerns requires changing the product direction, but they do need to be handled together so the heatmap has a consistent meaning, remains readable in both themes, and is usable without a pointer device. I left file-level notes with the suggested fixes and the reasoning behind each one.",
     status: "partially_resolved",
     minutesAgo: 90,
     items: [
@@ -54,7 +54,7 @@ const REVIEWS: ReviewSeed[] = [
         messages: [
           {
             authorType: "human",
-            body: "The hour array is recreated every render. Also, the bucketing uses local time instead of UTC — so the heatmap shifts depending on the viewer's timezone.",
+            body: "The hour array is recreated every render, so the memoized cells downstream still receive a new input on every update. More importantly, the bucketing uses local time instead of UTC, which means the same event moves to a different column depending on who opens the page.\n\nPlease build the hour list once and normalize the bucket calculation to UTC before passing it into the grid. The tooltip can still show a localized label, but the grid itself needs a stable shared reference point. This is especially noticeable around midnight and during daylight-saving transitions.",
             minutesAgo: 88,
           },
           {
@@ -82,7 +82,7 @@ const REVIEWS: ReviewSeed[] = [
         messages: [
           {
             authorType: "human",
-            body: "Hard-coded hex colors won't work in dark mode. Use CSS custom properties so the palette flips with the theme.",
+            body: "Hard-coded hex colors won't work in dark mode. On the dark surface, the low-activity cells nearly disappear while the high-activity cells are much more saturated than the rest of the interface. Use CSS custom properties so the palette flips with the theme and so future visualizations can share the same scale.\n\nPlease include an empty, mid-range, and full value token rather than only two endpoints. That will keep the interpolation readable when there is a small amount of activity and gives us one place to tune contrast after we see it alongside the rest of the dashboard. The legend swatches should consume the same variables rather than carrying their own duplicate colors.",
             minutesAgo: 87,
           },
           {
@@ -119,7 +119,7 @@ const REVIEWS: ReviewSeed[] = [
         messages: [
           {
             authorType: "human",
-            body: "The legend toggle has no aria-label and can't be activated with the keyboard. This will fail an a11y audit.",
+            body: "The legend toggle has no accessible name and cannot be reached or activated with the keyboard, so a screen-reader user has no way to discover what it controls. This will fail an accessibility audit even though the visual affordance is clear to a mouse user.\n\nPlease use a semantic button with a concise aria-label, expose the expanded state, and verify that Enter and Space both activate it. The visible label can stay compact; the accessible name should make the relationship to the heatmap legend explicit.",
             minutesAgo: 86,
           },
           {
