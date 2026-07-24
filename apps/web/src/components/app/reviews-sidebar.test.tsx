@@ -184,9 +184,15 @@ describe("ReviewsSidebarContent", () => {
       </MemoryRouter>
     );
 
-    expect(reviewRowById(1).className).toContain("border-l-status-waiting/60");
-    expect(reviewRowById(3).className).toContain("border-l-status-waiting/60");
-    expect(reviewRowById(2).className).toContain("border-l-status-working/60");
+    expect(
+      reviewRowById(1).querySelector("[class*='border-l-status-waiting']")
+    ).toBeTruthy();
+    expect(
+      reviewRowById(3).querySelector("[class*='border-l-status-waiting']")
+    ).toBeTruthy();
+    expect(
+      reviewRowById(2).querySelector("[class*='border-l-status-working']")
+    ).toBeTruthy();
   });
 
   it("shows reviewer attribution and expands a tracked clean approval", () => {
