@@ -4,6 +4,13 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -21,6 +28,9 @@ import { stateBadgeVariant, stateLabel } from "./service-resources-format";
 
 export function ServiceResourcesSettings(): JSX.Element {
   const [window, setWindow] = useState<ResourceWindow>("1h");
+  const [pendingCollectionEnabled, setPendingCollectionEnabled] = useState<
+    boolean | null
+  >(null);
   const { data, error, refetch, dataUpdatedAt } = useServiceResources(window);
   const collectionMutation = useSetServiceResourcesCollection();
   const collectionEnabled = data?.collectionEnabled ?? false;
@@ -28,6 +38,24 @@ export function ServiceResourcesSettings(): JSX.Element {
     collectionEnabled &&
     dataUpdatedAt > 0 &&
     Date.now() - dataUpdatedAt > 45_000;
+  const confirmationOpen = pendingCollectionEnabled !== null;
+  const confirmingEnable = pendingCollectionEnabled === true;
+
+  const closeConfirmation = () => {
+    collectionMutation.reset();
+    setPendingCollectionEnabled(null);
+  };
+  const requestCollectionChange = (enabled: boolean) => {
+    collectionMutation.reset();
+    setPendingCollectionEnabled(enabled);
+  };
+  const confirmCollectionChange = () => {
+    if (pendingCollectionEnabled === null) return;
+
+    collectionMutation.mutate(pendingCollectionEnabled, {
+      onSuccess: closeConfirmation,
+    });
+  };
 
   return (
     <div
@@ -104,18 +132,12 @@ export function ServiceResourcesSettings(): JSX.Element {
         <Switch
           id="resource-collection-toggle"
           checked={collectionEnabled}
-          onCheckedChange={(checked) => collectionMutation.mutate(checked)}
+          onCheckedChange={requestCollectionChange}
           disabled={!data || collectionMutation.isPending}
           aria-label="Collect resource metrics"
           data-testid="resource-collection-toggle"
         />
       </div>
-
-      {collectionMutation.error && (
-        <p role="alert" className="text-sm text-status-blocked">
-          {collectionMutation.error.message}
-        </p>
-      )}
 
       {!data && !error && (
         <div className="flex min-h-72 items-center justify-center text-sm text-muted-foreground">
@@ -136,6 +158,59 @@ export function ServiceResourcesSettings(): JSX.Element {
         </Card>
       )}
       {data && collectionEnabled && <ServiceResourcesDashboard data={data} />}
+
+      <Dialog
+        open={confirmationOpen}
+        onOpenChange={(open) => {
+          if (!open && !collectionMutation.isPending) closeConfirmation();
+        }}
+      >
+        <DialogContent data-testid="resource-collection-confirmation">
+          <DialogHeader>
+            <DialogTitle>
+              {confirmingEnable
+                ? "Start collecting resource metrics?"
+                : "Stop collecting resource metrics?"}
+            </DialogTitle>
+            <DialogDescription>
+              {confirmingEnable
+                ? "Dispatch will sample service health and resource usage every 5 seconds and retain up to one hour of history in memory."
+                : "Resource history currently held in memory will be cleared, and no new service metrics will be collected until you turn this back on."}
+            </DialogDescription>
+          </DialogHeader>
+          {collectionMutation.error && (
+            <p
+              role="alert"
+              className="text-sm text-status-blocked"
+              data-testid="resource-collection-error"
+            >
+              {collectionMutation.error.message}
+            </p>
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="ghost"
+              onClick={closeConfirmation}
+              disabled={collectionMutation.isPending}
+              data-testid="resource-collection-cancel"
+            >
+              Cancel
+            </Button>
+            <Button
+              variant={confirmingEnable ? "primary" : "destructive"}
+              onClick={confirmCollectionChange}
+              disabled={collectionMutation.isPending}
+              data-testid="resource-collection-confirm"
+            >
+              {collectionMutation.isPending
+                ? "Saving…"
+                : confirmingEnable
+                  ? "Start collecting"
+                  : "Stop collecting"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -168,6 +168,41 @@ test.describe("Settings pane", () => {
     ).toHaveCount(0);
 
     await collectionToggle.click();
+    const confirmation = page.getByTestId("resource-collection-confirmation");
+    await expect(confirmation).toBeVisible();
+    await expect(
+      confirmation.getByText("Start collecting resource metrics?")
+    ).toBeVisible();
+    await expect(
+      confirmation.getByText(/sample service health and resource usage/i)
+    ).toBeVisible();
+    await confirmation.getByTestId("resource-collection-cancel").click();
+    await expect(confirmation).not.toBeVisible();
+    await expect(collectionToggle).not.toBeChecked();
+
+    await page.route("/api/v1/system/resources/settings", async (route) => {
+      await route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ error: "Unable to update resource collection" }),
+      });
+    });
+    await collectionToggle.click();
+    await confirmation.getByTestId("resource-collection-confirm").click();
+    await expect(confirmation.getByRole("alert")).toHaveText(
+      "Unable to update resource collection"
+    );
+    await expect(
+      confirmation.getByTestId("resource-collection-cancel")
+    ).toBeEnabled();
+    await expect(
+      confirmation.getByTestId("resource-collection-confirm")
+    ).toBeEnabled();
+    await page.unroute("/api/v1/system/resources/settings");
+    await confirmation.getByTestId("resource-collection-cancel").click();
+
+    await collectionToggle.click();
+    await confirmation.getByTestId("resource-collection-confirm").click();
     await expect(collectionToggle).toBeChecked();
     await expect(
       dashboard.getByTestId("resource-card-dispatch-cpu")
@@ -210,6 +245,21 @@ test.describe("Settings pane", () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await expect(dashboard.getByTestId("resources-updated-at")).toBeVisible();
+
+    await collectionToggle.click();
+    await expect(
+      confirmation.getByText("Stop collecting resource metrics?")
+    ).toBeVisible();
+    await expect(
+      confirmation.getByText(
+        /history currently held in memory will be cleared/i
+      )
+    ).toBeVisible();
+    await confirmation.getByTestId("resource-collection-confirm").click();
+    await expect(collectionToggle).not.toBeChecked();
+    await expect(
+      dashboard.getByTestId("resource-card-dispatch-cpu")
+    ).toHaveCount(0);
   });
 
   test("agent type settings filter the create-agent dialog", async ({
