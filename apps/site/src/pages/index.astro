@@ -3,7 +3,7 @@ import Base from "../layouts/Base.astro";
 ---
 <Base title="Composable tools for building software together">
   <section class="hero">
-    <p class="eyebrow">Dispatch / an engineering environment</p>
+    <img class="hero-logo" src="/brand-full-logo.svg" alt="Dispatch" />
     <h1>Build capabilities. Let workflows emerge.</h1>
     <p class="summary">Dispatch is a local-first environment for people and coding agents working on the same software. It is built around a simple observation: collaboration improves when the useful parts of work are reusable, visible, and available to everyone involved.</p>
     <div class="actions">
@@ -12,8 +12,13 @@ import Base from "../layouts/Base.astro";
     </div>
   </section>
 
+  <section class="product-artifact" aria-labelledby="artifact-title">
+    <img src="/dispatch-dashboard.png" alt="Dispatch dashboard showing agent sessions, terminal, messages, pins, and media" />
+    <div><p class="eyebrow">A concrete artifact</p><h2 id="artifact-title">One environment for agents, branches, terminals, context, and human direction.</h2><p>Dispatch keeps the surface of collaboration visible. The point is not to replace engineering judgment; it is to give that judgment something durable to work with.</p></div>
+  </section>
+
   <section class="content-section two-column">
-    <div><p class="eyebrow">An observation</p><h2>Most AI tooling begins with a workflow.</h2></div>
+    <div><p class="eyebrow">An observation</p><h2>Where fixed workflows break down.</h2></div>
     <div class="prose">
       <p>That usually means a large prompt, a prescribed sequence of steps, and a hidden state machine. It works until the work changes shape—when the task needs a second opinion, a screenshot, a different branch, time to run, or a person to take over.</p>
       <p>Software work is not one workflow. It is a changing collection of investigations, decisions, tools, and context. The environment should acknowledge that.</p>
@@ -37,10 +42,10 @@ Together, they let a team invent the next step.</pre>
   </section>
 
   <section class="content-section two-column">
-    <div><p class="eyebrow">After five minutes</p><h2>Software can be a place where people and agents learn together.</h2></div>
+    <div><p class="eyebrow">How it started</p><h2>The useful pieces of collaboration should not be trapped in a session.</h2></div>
     <div class="prose">
-      <p>That requires less magic, not more. It means leaving a trail of decisions. Giving work time to develop. Making tools composable enough that an unexpected problem does not reset the collaboration.</p>
-      <p>Dispatch is one attempt to build an environment with those properties. Its features are interesting only insofar as they make the idea concrete.</p>
+      <p>Dispatch grew out of using coding agents on real software projects and repeatedly encountering the same constraint: the useful pieces of collaboration were trapped inside individual sessions and prescribed workflows.</p>
+      <p>The project became an attempt to make those pieces durable, shared, and composable. Its features are interesting only insofar as they make that observation concrete.</p>
     </div>
   </section>
 
@@ -56,7 +61,7 @@ Together, they let a team invent the next step.</pre>
   </section>
 
   <section class="content-section two-column">
-    <div><p class="eyebrow">Continue reading</p><h2>The ideas are still under construction.</h2></div>
-    <div class="prose"><p>Read the <a href="/principles">principles</a> that guide the experiment, explore the <a href="/architecture">architecture</a> as evidence, or follow the <a href="/blog">laboratory notes</a> as Dispatch changes our understanding of the problem.</p></div>
+    <div><p class="eyebrow">Continue reading</p><h2>Follow the idea into the code.</h2></div>
+    <div class="prose"><p>Read the <a href="/principles">principles</a> that guide the experiment, inspect the <a href="/architecture">architecture</a> as evidence, or <a href="/docs">run Dispatch locally</a> if the idea is useful enough to test in your own work.</p></div>
   </section>
 </Base>

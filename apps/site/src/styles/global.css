@@ -78,15 +78,13 @@ pre {
   padding: 0 3.5vw;
 }
 .wordmark {
-  color: var(--text);
-  font-weight: 700;
-  letter-spacing: -0.04em;
   text-decoration: none;
   white-space: nowrap;
 }
-.wordmark span {
-  color: var(--accent);
-  font-size: 0.8em;
+.wordmark img {
+  display: block;
+  height: 25px;
+  width: auto;
 }
 nav {
   display: flex;
@@ -106,6 +104,9 @@ nav a[aria-current="page"] {
 .github-link {
   color: var(--text);
 }
+.mobile-nav {
+  display: none;
+}
 
 main {
   min-height: calc(100vh - 130px);
@@ -122,6 +123,12 @@ main {
 .hero {
   padding-bottom: 7rem;
   padding-top: clamp(5rem, 14vh, 11rem);
+}
+.hero-logo {
+  display: block;
+  height: auto;
+  margin-bottom: 2.25rem;
+  max-width: min(330px, 72vw);
 }
 .eyebrow {
   color: var(--accent-bright);
@@ -163,6 +170,26 @@ main {
 .button.primary:hover {
   background: var(--accent-bright);
   color: #071b12;
+}
+.product-artifact {
+  margin: 0 auto;
+  max-width: 1180px;
+  padding: 0 3.5vw 6rem;
+}
+.product-artifact img {
+  border: 1px solid var(--border);
+  display: block;
+  max-width: 100%;
+}
+.product-artifact div {
+  color: var(--muted);
+  margin-left: auto;
+  max-width: 38rem;
+  padding-top: 1.5rem;
+}
+.product-artifact h2 {
+  color: var(--text);
+  font-size: clamp(1.4rem, 3vw, 2.1rem);
 }
 
 .content-section {
@@ -307,12 +334,46 @@ footer {
   nav {
     display: none;
   }
+  .mobile-nav {
+    display: block;
+    margin-left: auto;
+    position: relative;
+  }
+  .mobile-nav summary {
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 0.82rem;
+    list-style: none;
+  }
+  .mobile-nav summary::-webkit-details-marker {
+    display: none;
+  }
+  .mobile-nav div {
+    background: var(--surface-raised);
+    border: 1px solid var(--border);
+    display: grid;
+    gap: 0.8rem;
+    padding: 1rem;
+    position: absolute;
+    right: 0;
+    top: 1.8rem;
+    width: 11rem;
+    z-index: 2;
+  }
+  .mobile-nav a {
+    color: var(--text);
+    font-size: 0.9rem;
+    text-decoration: none;
+  }
   .hero,
   .page-intro,
   .content-section,
   .reading {
     padding-left: 1.25rem;
     padding-right: 1.25rem;
+  }
+  .product-artifact {
+    padding: 0 1.25rem 4rem;
   }
   .two-column,
   .roadmap {
