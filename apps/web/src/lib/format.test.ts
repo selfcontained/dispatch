@@ -4,11 +4,32 @@ import {
   formatDuration,
   formatTokenCount,
   shortProjectName,
+  shortPath,
   formatRelativeTime,
   formatDateTime,
   formatShortDateTime,
   formatShortDate,
 } from "./format";
+
+describe("shortPath", () => {
+  it("returns paths with three or fewer segments unchanged", () => {
+    expect(shortPath("/a/b/c")).toBe("/a/b/c");
+    expect(shortPath("a/b")).toBe("a/b");
+    expect(shortPath("")).toBe("");
+  });
+
+  it("keeps only the last three segments of longer paths", () => {
+    expect(shortPath("/Users/brad/dev/apps/dispatch")).toBe(
+      ".../dev/apps/dispatch"
+    );
+    expect(shortPath("a/b/c/d")).toBe(".../b/c/d");
+  });
+
+  it("counts segments ignoring empty ones, returning short originals verbatim", () => {
+    expect(shortPath("/a//b/c/")).toBe("/a//b/c/");
+    expect(shortPath("/a/b/c/d//")).toBe(".../b/c/d");
+  });
+});
 
 describe("formatDuration", () => {
   it("returns n/a for null or undefined", () => {
