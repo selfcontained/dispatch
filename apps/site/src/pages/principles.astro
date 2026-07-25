@@ -1,0 +1,19 @@
+---
+import Base from "../layouts/Base.astro";
+import PageIntro from "../components/PageIntro.astro";
+const principles = [
+  ["Build capabilities, not workflows.", "A useful primitive survives more situations than a prescribed automation path."],
+  ["Humans and agents deserve the same tools.", "Shared tools make collaboration inspectable and remove a category of handoff problems."],
+  ["Prefer composition over orchestration.", "Let small operations combine at the edge of the work rather than centralizing every decision."],
+  ["Transparency beats magic.", "State, context, and progress should be visible enough to debug and question."],
+  ["Long-running work is first-class.", "A meaningful change should be able to outlive a chat window, browser session, or an afternoon."],
+  ["Context is an asset.", "Decisions, links, and artifacts have value after the immediate task is done."],
+  ["Optimize for learning, not automation.", "The system should make a team more capable of understanding its own work."],
+];
+---
+<Base title="Principles">
+  <PageIntro eyebrow="Principles" title="Engineering convictions, held provisionally.">These are not product claims. They are the ideas Dispatch is being built to test. They should change when experience gives us better ones.</PageIntro>
+  <article class="reading">
+    {principles.map(([title, explanation], index) => <section class="principle"><span class="number">{String(index + 1).padStart(2, "0")}</span><div><h2>{title}</h2><p>{explanation}</p></div></section>)}
+  </article>
+</Base>

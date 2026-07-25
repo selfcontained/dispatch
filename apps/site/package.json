@@ -1,0 +1,20 @@
+{
+  "name": "@dispatch/site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro build",
+    "preview": "astro preview",
+    "preview:network": "astro preview --host 0.0.0.0",
+    "check": "astro check",
+    "deploy": "pnpm run build && wrangler deploy"
+  },
+  "devDependencies": {
+    "@astrojs/check": "^0.9.9",
+    "astro": "^6.0.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.0.0"
+  }
+}

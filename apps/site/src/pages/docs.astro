@@ -1,0 +1,9 @@
+---
+import Base from "../layouts/Base.astro";
+import PageIntro from "../components/PageIntro.astro";
+const sections = ["Getting started", "Core concepts", "Capabilities", "Configuration", "Worktrees", "Agents", "Messaging", "Scheduling", "MCP", "CLI", "Reference", "Architecture", "Tutorials", "FAQ"];
+---
+<Base title="Documentation">
+  <PageIntro eyebrow="Documentation" title="Concepts first. Reference close at hand.">The documentation will explain how Dispatch works as a system before asking anyone to memorize configuration or commands.</PageIntro>
+  <section class="content-section" style="padding-top: 0; border-top: 0"><div class="card-grid">{sections.map((section) => <article><h3>{section}</h3><p>Planned documentation section.</p></article>)}</div></section>
+</Base>

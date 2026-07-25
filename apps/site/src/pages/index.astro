@@ -1,0 +1,62 @@
+---
+import Base from "../layouts/Base.astro";
+---
+<Base title="Composable tools for building software together">
+  <section class="hero">
+    <p class="eyebrow">Dispatch / an engineering environment</p>
+    <h1>Build capabilities. Let workflows emerge.</h1>
+    <p class="summary">Dispatch is a local-first environment for people and coding agents working on the same software. It is built around a simple observation: collaboration improves when the useful parts of work are reusable, visible, and available to everyone involved.</p>
+    <div class="actions">
+      <a class="button primary" href="/philosophy">Read the philosophy</a>
+      <a class="button" href="https://github.com/selfcontained/dispatch">Browse GitHub ↗</a>
+    </div>
+  </section>
+
+  <section class="content-section two-column">
+    <div><p class="eyebrow">An observation</p><h2>Most AI tooling begins with a workflow.</h2></div>
+    <div class="prose">
+      <p>That usually means a large prompt, a prescribed sequence of steps, and a hidden state machine. It works until the work changes shape—when the task needs a second opinion, a screenshot, a different branch, time to run, or a person to take over.</p>
+      <p>Software work is not one workflow. It is a changing collection of investigations, decisions, tools, and context. The environment should acknowledge that.</p>
+    </div>
+  </section>
+
+  <section class="content-section">
+    <p class="eyebrow">A different starting point</p>
+    <h2>Do not encode every collaboration pattern up front.</h2>
+    <div class="two-column" style="margin-top: 2.5rem">
+      <div class="prose"><p>Instead, give humans and agents the same dependable primitives. A terminal can stay alive. A worktree can isolate a change. A message can carry a decision. A pin can preserve the one URL that matters.</p></div>
+      <div class="prose"><p><strong>Capabilities compose. Workflows emerge from the work itself.</strong> This is less magical than orchestration, but more useful when a real system and a real team are involved.</p></div>
+    </div>
+    <pre class="diagram">a decision ─────────────┐
+an investigation ───────┼── shared, durable context
+a running process ──────┤
+a change in progress ───┘
+
+The pieces stay useful on their own.
+Together, they let a team invent the next step.</pre>
+  </section>
+
+  <section class="content-section two-column">
+    <div><p class="eyebrow">After five minutes</p><h2>Software can be a place where people and agents learn together.</h2></div>
+    <div class="prose">
+      <p>That requires less magic, not more. It means leaving a trail of decisions. Giving work time to develop. Making tools composable enough that an unexpected problem does not reset the collaboration.</p>
+      <p>Dispatch is one attempt to build an environment with those properties. Its features are interesting only insofar as they make the idea concrete.</p>
+    </div>
+  </section>
+
+  <section class="content-section two-column">
+    <div><p class="eyebrow">Field notes</p><h2>Stories, not toy demos.</h2></div>
+    <div><p class="prose">The useful question is not whether an agent can complete a benchmark. It is what the collaboration teaches us when a change has real constraints.</p>
+      <ul class="example-list">
+        <li><span>01</span><a href="/examples">Building this website with Dispatch</a></li>
+        <li><span>02</span><a href="/examples">Shipping an overnight pull request</a></li>
+        <li><span>03</span><a href="/examples">A multi-agent architecture review</a></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="content-section two-column">
+    <div><p class="eyebrow">Continue reading</p><h2>The ideas are still under construction.</h2></div>
+    <div class="prose"><p>Read the <a href="/principles">principles</a> that guide the experiment, explore the <a href="/architecture">architecture</a> as evidence, or follow the <a href="/blog">laboratory notes</a> as Dispatch changes our understanding of the problem.</p></div>
+  </section>
+</Base>

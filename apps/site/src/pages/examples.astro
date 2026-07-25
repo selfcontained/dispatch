@@ -1,0 +1,14 @@
+---
+import Base from "../layouts/Base.astro";
+import PageIntro from "../components/PageIntro.astro";
+const examples = [
+  ["Building the Dispatch website", "A product-design task becomes a shared thread of research, screenshots, writing, and implementation—not one enormous prompt."],
+  ["Shipping an overnight pull request", "An agent works in an isolated tree; progress, URLs, and questions stay available when someone returns the next morning."],
+  ["Multi-agent architecture review", "Parallel reviewers explore different failure modes, then leave structured feedback against the same proposed change."],
+  ["A large refactor", "Several small, verifiable changes move independently while a human retains the ability to inspect, redirect, and merge."],
+];
+---
+<Base title="Examples">
+  <PageIntro eyebrow="Examples" title="What collaboration looks like in the work itself.">Each case study will document the problem, the capabilities used, a timeline, the artifacts produced, and the lessons that held up afterward.</PageIntro>
+  <section class="content-section" style="padding-top: 0; border-top: 0"><div class="card-grid">{examples.map(([title, description], index) => <article><p class="status">IN DEVELOPMENT / {String(index + 1).padStart(2, "0")}</p><h2>{title}</h2><p>{description}</p></article>)}</div></section>
+</Base>

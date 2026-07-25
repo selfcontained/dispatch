@@ -1,0 +1,25 @@
+---
+import Base from "../layouts/Base.astro";
+import PageIntro from "../components/PageIntro.astro";
+---
+<Base title="Architecture">
+  <PageIntro eyebrow="Architecture" title="A visible control plane around durable work.">Dispatch coordinates local agent processes and the artifacts around them. It does not attempt to replace the tools that make a repository useful.</PageIntro>
+  <article class="reading">
+    <pre class="diagram">Browser UI ──────────────────────┐
+                                   │  SSE / WebSocket / HTTP
+Dispatch server ───────────────────┼───────────────────────┐
+  agent lifecycle                  │                       │
+  messages / media / pins          │                       │
+  jobs / reviews / MCP             │                       │
+                                   ▼                       ▼
+                              tmux sessions            PostgreSQL
+                                   │
+                         agent CLIs + project worktrees</pre>
+    <h2>Agent lifecycle</h2>
+    <p>Agents run as ordinary local processes inside durable tmux sessions. Their browser presence is a view into the work, not the process that keeps it alive. Each agent can have a worktree and branch, so parallel changes remain isolated until they are intentionally combined.</p>
+    <h2>Shared state</h2>
+    <p>Messages, reviews, pins, media, jobs, and activity are persisted independently from terminal output. They are the parts of a collaboration that should still be useful after an agent exits or a page refreshes.</p>
+    <h2>Extensibility</h2>
+    <p>MCP exposes project-aware capabilities to agents as narrow tools. The aim is not to manufacture a universal workflow language, but to make useful operations discoverable and composable.</p>
+  </article>
+</Base>

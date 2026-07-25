@@ -13,7 +13,9 @@
     "build": "pnpm -r build",
     "build:bun": "bun scripts/build-bun-binaries.mjs",
     "build:web": "pnpm --filter @dispatch/web build",
+    "build:site": "pnpm --filter @dispatch/site build",
     "check:web": "pnpm --filter @dispatch/web check",
+    "check:site": "pnpm --filter @dispatch/site check",
     "lint:web": "pnpm --filter @dispatch/web lint",
     "finalize:web": "pnpm run check:web && pnpm run build:web",
     "format": "prettier --check .",
@@ -21,7 +23,7 @@
     "start": "pnpm --filter @dispatch/server start",
     "release": "bin/dispatch-server update",
     "db:migrate": "pnpm --filter @dispatch/server db:migrate",
-    "check": "pnpm --filter @dispatch/server check && pnpm run check:web && pnpm --filter @dispatch/browser-extension check && tsc -p tsconfig.scripts.json --noEmit",
+    "check": "pnpm --filter @dispatch/server check && pnpm run check:web && pnpm run check:site && pnpm --filter @dispatch/browser-extension check && tsc -p tsconfig.scripts.json --noEmit",
     "ci": "pnpm run format && pnpm run check && pnpm run lint:web && pnpm run build && pnpm run test && pnpm run test:e2e",
     "coverage": "pnpm --filter @dispatch/server test:coverage && pnpm --filter @dispatch/web test:coverage",
     "test": "pnpm --filter @dispatch/server test && pnpm --filter @dispatch/web test && pnpm --filter @dispatch/browser-extension test",
@@ -32,7 +34,8 @@
   "pnpm": {
     "onlyBuiltDependencies": [
       "esbuild",
-      "sharp"
+      "sharp",
+      "workerd"
     ]
   },
   "lint-staged": {
