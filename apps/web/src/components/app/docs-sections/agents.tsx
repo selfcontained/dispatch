@@ -145,11 +145,14 @@ export function AgentsContent() {
           base branch and working branch (indented below the base); non-worktree
           agents show the working directory and current branch. A{" "}
           <strong>diff-stats badge</strong> in the top-right summarizes
-          uncommitted changes against the base branch. CLI agents also show
-          whether they're running in full access or sandboxed mode, plus a
-          feedback panel and persona launcher; terminal agents skip those since
-          they have no CLI. Persona agents show their role and link to their
-          parent agent.
+          uncommitted changes against the base branch. The details card also has
+          a button to open the working directory in your IDE and, for worktree
+          agents, a pill that copies the worktree path. CLI agents additionally
+          show whether they're running in full access or sandboxed mode, plus a{" "}
+          <strong>Review</strong> button that launches a reviewer agent (see the
+          Reviewers section — review feedback lives in the Changes tab's
+          threads, not on the card); terminal agents skip those since they have
+          no CLI. Persona agents show their role and link to their parent agent.
         </P>
       </Section>
 

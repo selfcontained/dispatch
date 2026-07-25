@@ -4,6 +4,7 @@ import {
   ArrowDownToLine,
   Bell,
   Briefcase,
+  Gauge,
   GitBranch,
   Image,
   Keyboard,
@@ -26,6 +27,7 @@ import {
   NotificationsContent,
   PersonalitiesContent,
   PersonasContent,
+  ResourcesContent,
   ShortcutsContent,
   ToolsContent,
   UpdatesContent,
@@ -44,6 +46,7 @@ export type DocsSection =
   | "media"
   | "browser-feedback"
   | "notifications"
+  | "resources"
   | "updates";
 
 type SectionDef = {
@@ -131,6 +134,13 @@ const SECTIONS: SectionDef[] = [
     icon: Bell,
     title: "Notifications",
     content: <NotificationsContent />,
+  },
+  {
+    id: "resources",
+    label: "Service Resources",
+    icon: Gauge,
+    title: "Service Resources",
+    content: <ResourcesContent />,
   },
   {
     id: "updates",

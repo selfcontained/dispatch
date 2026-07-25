@@ -213,6 +213,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "service-resources",
+    title: "Service Resources",
+    body: "Wondering how Dispatch is holding up? Settings → Resources charts live CPU, memory, subsystem health, and workload for the server, agents, and host.",
+    docsSection: "resources",
+    since: "0.30.0",
+    surfaces: ["ambient"],
+  },
+  {
     id: "job-webhook-trigger",
     title: "Job Webhook Triggers",
     body: "Fire a job from CI or any external system: enable Webhook trigger in the job's Configure tab to get a secret URL that starts a run on HTTP POST.",
