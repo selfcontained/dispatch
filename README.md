@@ -14,7 +14,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 > 4. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
 > 5. Register as a system service:
 >    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
->    - **Linux**: Create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs the compiled `dist/bun/dispatch-<version>-bun-linux-x64` or `dist/bun/dispatch-<version>-bun-linux-arm64` binary with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
+>    - **Linux**: Download and extract the latest `dispatch-release.tar.gz` into `~/.dispatch/server`, then create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs the included `dist/bun/dispatch-<version>-bun-linux-x64` or `dist/bun/dispatch-<version>-bun-linux-arm64` binary with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
 > 6. Verify: `curl http://127.0.0.1:6767/api/v1/health`
 > 7. Check which agent CLIs are installed (`claude --version`, `codex --version`, `agent --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
 
@@ -59,7 +59,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 | **tmux**                   | Agent session management | `brew install tmux`          | `apt install tmux`       |
 | **At least one agent CLI** | The agents Dispatch runs | See below                    | See below                |
 
-Dispatch currently uses an artifact-first deploy path, and production installs run the compiled Bun binary from `dist/bun/`; the host does not need Node just to run Dispatch.
+Production installs run the released, compiled Bun binary from `dist/bun/`; the host does not need Node just to run Dispatch.
 
 ### Optional
 

@@ -6,12 +6,23 @@ import PageIntro from "../components/PageIntro.astro";
   <PageIntro eyebrow="Documentation" title="Enough to try the idea in real work.">Dispatch runs locally, keeps agent processes alive in tmux, and uses the tools already present in a repository. Installation retrieves a released Bun binary; a production host does not need Node or pnpm to run Dispatch.</PageIntro>
   <article class="reading">
     <h2>Install</h2>
-    <p>Dispatch needs PostgreSQL, tmux, GitHub CLI, and at least one supported coding-agent CLI. Start from a checkout, run the preflight check, then install the launchd service.</p>
-    <pre class="diagram">git clone git@github.com:selfcontained/dispatch.git
-cd dispatch
-bin/preflight
-bin/install-launchd</pre>
-    <p>The installer clones its managed checkout to <code>~/.dispatch/server</code>, downloads the latest released <code>dispatch-release.tar.gz</code>, extracts the platform-matching compiled Bun binary, and registers it as a launchd service. Building from source is only a fallback when a release artifact is unavailable.</p>
+    <p>The quickest path is to give the setup work to a coding agent. Copy this prompt into Claude, Codex, or another agent on the machine that will run Dispatch:</p>
+    <pre class="diagram">Clone https://github.com/selfcontained/dispatch.git and install its released binary as a persistent service on this machine.
+
+1. Clone the repo to ~/.dispatch/server.
+2. Install PostgreSQL 14+, tmux, and the agent CLI binaries to use with Dispatch.
+3. Create the dispatch database and copy .env.example to .env.
+4. Register Dispatch as a system service:
+   - macOS: run bin/install-launchd. It downloads and installs the latest release.
+   - Linux: download and extract the latest dispatch-release.tar.gz into
+     ~/.dispatch/server, then create Xvfb and Dispatch systemd user services.
+     The Dispatch service runs the matching dist/bun/dispatch-*-bun-linux-* binary;
+     add DISPATCH_COPY_DISPLAY=:99 to .env for clipboard image support.
+5. Verify: curl http://127.0.0.1:6767/api/v1/health</pre>
+    <p>Dispatch runs the platform-matching Bun binary inside <code>dispatch-release.tar.gz</code>. On macOS, <code>bin/install-launchd</code> downloads, extracts, and registers it. On Linux, the same artifact belongs in <code>~/.dispatch/server</code>; the systemd user service invokes the matching binary from <code>dist/bun</code>.</p>
+    <h2>Agent CLI support</h2>
+    <p><strong>Codex and Claude are the recommended paths today.</strong> They are the CLIs Dispatch is most often exercised against and the best choice for a first installation.</p>
+    <p>Cursor and OpenCode are supported as agent types, but they still have integration gaps. They can be useful when they match an existing setup; expect the experience to be less complete than Codex or Claude. A plain terminal is also available when the work does not need a coding-agent CLI.</p>
     <h2>Three concepts to begin with</h2>
     <section class="principle"><span class="number">01</span><div><h3>Durable sessions</h3><p>Agents run in tmux so their work can survive a browser tab, a network interruption, or the time between two decisions.</p></div></section>
     <section class="principle"><span class="number">02</span><div><h3>Isolated changes</h3><p>Worktrees let an agent investigate or implement a change without borrowing the working directory another person is using.</p></div></section>
