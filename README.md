@@ -34,6 +34,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 - Browser Feedback — a Chrome extension to select an element on any web page, comment, and send it with bounded DOM context and a cropped element screenshot to a running agent (paired under Settings → Connections).
 - Slack notifications with focus-aware suppression.
 - Activity analytics — heatmaps, daily status charts, working time by project.
+- Service resources dashboard — live CPU, memory, subsystem health, and workload metrics for the Dispatch server, agents, and host (Settings → Resources, opt-in collection).
 - Token usage tracking by day, project, and model.
 - Agent history with soft-delete preservation, filtering, and per-agent detail views.
 - Release management — cut releases, deploy tags, and self-update from the UI.
