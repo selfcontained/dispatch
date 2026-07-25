@@ -5,7 +5,7 @@
   "workers_dev": false,
   "routes": [
     {
-      "pattern": "dispatch.bradharris.dev",
+      "pattern": "dispatch.berad.dev",
       "custom_domain": true
     }
   ],
