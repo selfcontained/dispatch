@@ -10,7 +10,6 @@ const { title, description = "Composable tools for humans and AI agents to build
 const currentPath = Astro.url.pathname;
 const navigation = [
   ["Ideas", "/philosophy"],
-  ["Examples", "/examples"],
   ["Architecture", "/architecture"],
   ["Docs", "/docs"],
 ] as const;
@@ -38,8 +37,6 @@ const navigation = [
         <div>
           {navigation.map(([label, href]) => <a href={href}>{label}</a>)}
           <a href="/principles">Principles</a>
-          <a href="/blog">Notes</a>
-          <a href="/roadmap">Roadmap</a>
         </div>
       </details>
       <a class="github-link" href="https://github.com/selfcontained/dispatch">GitHub ↗</a>

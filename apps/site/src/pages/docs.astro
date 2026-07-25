@@ -3,16 +3,15 @@ import Base from "../layouts/Base.astro";
 import PageIntro from "../components/PageIntro.astro";
 ---
 <Base title="Documentation">
-  <PageIntro eyebrow="Documentation" title="Enough to try the idea in real work.">Dispatch runs locally, keeps agent processes alive in tmux, and uses the tools already present in a repository. Start there; the reference grows from the work that follows.</PageIntro>
+  <PageIntro eyebrow="Documentation" title="Enough to try the idea in real work.">Dispatch runs locally, keeps agent processes alive in tmux, and uses the tools already present in a repository. Installation retrieves a released Bun binary; a production host does not need Node or pnpm to run Dispatch.</PageIntro>
   <article class="reading">
     <h2>Install</h2>
-    <p>Dispatch needs PostgreSQL, tmux, and at least one supported coding-agent CLI. Clone the repository, install dependencies, then start an isolated development environment.</p>
+    <p>Dispatch needs PostgreSQL, tmux, GitHub CLI, and at least one supported coding-agent CLI. Start from a checkout, run the preflight check, then install the launchd service.</p>
     <pre class="diagram">git clone git@github.com:selfcontained/dispatch.git
 cd dispatch
-pnpm install
-cp .env.example .env
-bin/dispatch-dev up --live</pre>
-    <p>The command starts an isolated database, the API, and the web dashboard. The printed URL is the shared control plane for the project.</p>
+bin/preflight
+bin/install-launchd</pre>
+    <p>The installer clones its managed checkout to <code>~/.dispatch/server</code>, downloads the latest released <code>dispatch-release.tar.gz</code>, extracts the platform-matching compiled Bun binary, and registers it as a launchd service. Building from source is only a fallback when a release artifact is unavailable.</p>
     <h2>Three concepts to begin with</h2>
     <section class="principle"><span class="number">01</span><div><h3>Durable sessions</h3><p>Agents run in tmux so their work can survive a browser tab, a network interruption, or the time between two decisions.</p></div></section>
     <section class="principle"><span class="number">02</span><div><h3>Isolated changes</h3><p>Worktrees let an agent investigate or implement a change without borrowing the working directory another person is using.</p></div></section>
