@@ -350,17 +350,34 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## System
 
-| Method | Path                       | Description                                       |
-| ------ | -------------------------- | ------------------------------------------------- |
-| GET    | `/health`                  | Database connectivity check                       |
-| GET    | `/app/version`             | Current app version                               |
-| GET    | `/app/branding`            | App branding info (icon color)                    |
-| GET    | `/system/defaults`         | System defaults (home directory)                  |
-| GET    | `/system/path-info`        | Path validation (exists, isDirectory, isGitRepo)  |
-| GET    | `/system/path-completions` | Directory path autocomplete                       |
-| GET    | `/git/branches`            | List remote branches for a repo                   |
-| POST   | `/clipboard/image`         | Write browser clipboard image to macOS pasteboard |
-| POST   | `/energy-report`           | Report PWA energy metrics                         |
+| Method | Path                         | Description                                                                     |
+| ------ | ---------------------------- | ------------------------------------------------------------------------------- |
+| GET    | `/health`                    | Database connectivity check                                                     |
+| GET    | `/app/version`               | Current app version                                                             |
+| GET    | `/app/branding`              | App branding info (icon color)                                                  |
+| GET    | `/system/defaults`           | System defaults (home directory)                                                |
+| GET    | `/system/path-info`          | Path validation (exists, isDirectory, isGitRepo)                                |
+| GET    | `/system/path-completions`   | Directory path autocomplete                                                     |
+| GET    | `/system/resources`          | Service resource metrics snapshot (`window` query: `15m` or `1h`, default `1h`) |
+| POST   | `/system/resources/settings` | Enable or disable resource metrics collection (`{ "enabled": boolean }`)        |
+| GET    | `/git/branches`              | List remote branches for a repo                                                 |
+| POST   | `/clipboard/image`           | Write browser clipboard image to macOS pasteboard                               |
+| POST   | `/energy-report`             | Report PWA energy metrics                                                       |
+
+## Browser Extension
+
+The Chrome extension (developer preview) pairs with Dispatch and submits page feedback to running agents. Pairing endpoints are unauthenticated but rate-limited; the extension data endpoints authenticate with the bearer token issued at pairing exchange rather than the browser session cookie.
+
+| Method | Path                                            | Description                                                                                               |
+| ------ | ----------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
+| POST   | `/auth/browser-extension/pairings`              | Start a pairing — returns `pairingId`, a one-time `pairingSecret`, and a short verification `code`        |
+| POST   | `/auth/browser-extension/pairings/:id/exchange` | Exchange an approved pairing for a bearer token                                                           |
+| POST   | `/browser-extension/pairings/:id/approve`       | Approve a pending pairing by verification code (called from the Dispatch UI)                              |
+| GET    | `/browser-extension/connections`                | List active extension connections (device name, created/expires/last-used)                                |
+| DELETE | `/browser-extension/connections/:id`            | Revoke an extension connection                                                                            |
+| GET    | `/browser-extension/agents`                     | List running agents eligible to receive feedback (bearer, scope `agents:read`; excludes reviewer agents)  |
+| POST   | `/browser-extension/submissions`                | Submit page feedback to an agent (bearer, scope `submissions:write`; idempotent via `clientSubmissionId`) |
+| DELETE | `/browser-extension/token`                      | Revoke the caller's own bearer token                                                                      |
 
 ## Release Management
 
