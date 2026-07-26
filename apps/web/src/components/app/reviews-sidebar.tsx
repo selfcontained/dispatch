@@ -2,15 +2,11 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Bot,
-  Check,
   CheckCircle2,
   ChevronRight,
   Circle,
   Clock,
-  Loader2,
   MessageCircle,
-  RotateCcw,
-  Send,
   User,
   XCircle,
 } from "lucide-react";
@@ -34,10 +30,13 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
 import { Markdown } from "@/components/ui/markdown";
 import { ReviewDiffSnapshot } from "@/components/app/review-diff-snapshot";
+import {
+  FeedbackReplyForm,
+  FeedbackResolutionFooter,
+  type FeedbackState,
+} from "@/components/app/feedback-card-parts";
 
 const REVIEW_STATUS_STYLES: Record<
   string,
@@ -61,8 +60,6 @@ const REVIEW_STATUS_STYLES: Record<
 };
 
 const DEFAULT_REVIEW_STYLE = REVIEW_STATUS_STYLES.open!;
-
-type FeedbackState = "open" | "fixed" | "dismissed";
 
 function feedbackState(item: ReviewFeedbackItem): FeedbackState {
   if (item.status !== "resolved") return "open";
@@ -599,175 +596,28 @@ function FeedbackItemRow({
                   }
                 />
               ))}
-              <AnimatePresence initial={false}>
-                {replying ? (
-                  <motion.form
-                    key="reply-form"
-                    initial={{ height: 0, marginTop: 0, opacity: 0 }}
-                    animate={{ height: "auto", marginTop: 12, opacity: 1 }}
-                    exit={{ height: 0, marginTop: 0, opacity: 0 }}
-                    transition={{ duration: 0.18, ease: "easeInOut" }}
-                    className="-mx-0.5 space-y-2 overflow-hidden p-0.5"
-                    onSubmit={submitReply}
-                  >
-                    <Textarea
-                      aria-label="Reply to feedback"
-                      className="min-h-0 h-16 resize-none px-2 py-1.5 text-xs"
-                      placeholder="Reply to agent…"
-                      value={reply}
-                      onChange={(event) => setReply(event.target.value)}
-                      onKeyDown={(event) => {
-                        if (
-                          event.key === "Enter" &&
-                          (event.metaKey || event.ctrlKey)
-                        ) {
-                          event.preventDefault();
-                          event.currentTarget.form?.requestSubmit();
-                        } else if (event.key === "Escape") {
-                          event.preventDefault();
-                          cancelReply();
-                        }
-                      }}
-                      disabled={addMessage.isPending}
-                      autoFocus
-                    />
-                    <div className="grid grid-cols-2 gap-2">
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="default"
-                        className="w-full"
-                        onClick={cancelReply}
-                        disabled={addMessage.isPending}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        size="sm"
-                        variant="primary"
-                        className="w-full"
-                        aria-label="Send reply"
-                        disabled={!reply.trim() || addMessage.isPending}
-                      >
-                        {addMessage.isPending ? (
-                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                        ) : (
-                          <Send className="h-3.5 w-3.5" />
-                        )}
-                        <span className="ml-1">Send reply</span>
-                      </Button>
-                    </div>
-                  </motion.form>
-                ) : (
-                  <motion.div
-                    key="reply-trigger"
-                    initial={{ height: 0, marginTop: 0, opacity: 0 }}
-                    animate={{ height: "auto", marginTop: 12, opacity: 1 }}
-                    exit={{ height: 0, marginTop: 0, opacity: 0 }}
-                    transition={{ duration: 0.18, ease: "easeInOut" }}
-                    className="flex justify-end overflow-hidden"
-                  >
-                    <Button
-                      type="button"
-                      size="sm"
-                      variant="default"
-                      onClick={() => setReplying(true)}
-                    >
-                      <MessageCircle className="mr-1.5 h-3.5 w-3.5" />
-                      Reply
-                    </Button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
+              <FeedbackReplyForm
+                replying={replying}
+                reply={reply}
+                isPending={addMessage.isPending}
+                variant="sidebar"
+                onReplyChange={setReply}
+                onStartReply={() => setReplying(true)}
+                onCancelReply={cancelReply}
+                onSubmit={submitReply}
+              />
             </div>
-            <footer className="ml-5 border-l border-border/70 bg-muted/[0.06] px-3 pb-3 pt-3">
-              {item.resolution && (
-                <div
-                  className={cn(
-                    "mb-3 rounded border px-2.5 py-1.5",
-                    item.resolution === "fixed"
-                      ? "border-status-working/25 bg-status-working/[0.06]"
-                      : "border-muted-foreground/25 bg-muted/30"
-                  )}
-                >
-                  <span
-                    className={cn(
-                      "flex items-center gap-1 text-[10px] font-medium",
-                      item.resolution === "fixed"
-                        ? "text-status-working"
-                        : "text-muted-foreground"
-                    )}
-                  >
-                    {item.resolution === "fixed" ? (
-                      <CheckCircle2 className="h-3 w-3" />
-                    ) : (
-                      <XCircle className="h-3 w-3" />
-                    )}
-                    Resolution: {item.resolution}
-                  </span>
-                  {item.resolutionNote && (
-                    <p className="mt-0.5 whitespace-pre-wrap break-words text-xs text-foreground/80">
-                      {item.resolutionNote}
-                    </p>
-                  )}
-                </div>
-              )}
-              <p className="mb-2 text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70">
-                Feedback state
-              </p>
-              {state !== "open" ? (
-                <Button
-                  type="button"
-                  size="sm"
-                  variant="default"
-                  className="w-full"
-                  disabled={setResolution.isPending}
-                  onClick={() => void updateResolution(null)}
-                >
-                  {setResolution.isPending &&
-                  setResolution.variables?.resolution === null ? (
-                    <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <RotateCcw className="mr-1.5 h-3.5 w-3.5" />
-                  )}
-                  Reopen feedback
-                </Button>
-              ) : (
-                <div className="grid grid-cols-2 gap-2">
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="default"
-                    disabled={setResolution.isPending}
-                    onClick={() => void updateResolution("dismissed")}
-                  >
-                    {setResolution.isPending &&
-                    setResolution.variables?.resolution === "dismissed" ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <XCircle className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    Dismiss
-                  </Button>
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="success"
-                    disabled={setResolution.isPending}
-                    onClick={() => void updateResolution("fixed")}
-                  >
-                    {setResolution.isPending &&
-                    setResolution.variables?.resolution === "fixed" ? (
-                      <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
-                    ) : (
-                      <Check className="mr-1.5 h-3.5 w-3.5" />
-                    )}
-                    Mark fixed
-                  </Button>
-                </div>
-              )}
-            </footer>
+            <FeedbackResolutionFooter
+              state={state}
+              resolution={item.resolution}
+              resolutionNote={item.resolutionNote}
+              isPending={setResolution.isPending}
+              pendingResolution={setResolution.variables?.resolution}
+              variant="sidebar"
+              onUpdateResolution={(resolution) =>
+                void updateResolution(resolution)
+              }
+            />
           </motion.div>
         )}
       </AnimatePresence>
