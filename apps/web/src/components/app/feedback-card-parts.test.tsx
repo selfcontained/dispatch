@@ -4,9 +4,12 @@ import type { ReactNode } from "react";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import type { ReviewThreadMessage } from "@/hooks/use-agent-reviews";
+
 import {
   FeedbackReplyForm,
   FeedbackResolutionFooter,
+  FeedbackThreadMessage,
 } from "./feedback-card-parts";
 
 vi.mock("framer-motion", async (importOriginal) => {
@@ -286,5 +289,77 @@ describe("FeedbackResolutionFooter", () => {
   it("renders no banner while the feedback is unresolved", () => {
     renderFooter();
     expect(screen.queryByText(/Resolution:/)).toBeNull();
+  });
+});
+
+function threadMessage(
+  overrides: Partial<ReviewThreadMessage> = {}
+): ReviewThreadMessage {
+  return {
+    id: 1,
+    feedbackItemId: 10,
+    authorType: "agent",
+    authorAgentId: "agt_1",
+    type: "comment",
+    content: { body: "On it" },
+    createdAt: "2026-07-27T10:00:00.000Z",
+    ...overrides,
+  };
+}
+
+describe("FeedbackThreadMessage", () => {
+  it("renders a plain comment with the author label", () => {
+    render(<FeedbackThreadMessage message={threadMessage()} grouped={false} />);
+
+    expect(screen.getByText("Agent")).toBeTruthy();
+    expect(screen.getByText("On it")).toBeTruthy();
+  });
+
+  it("labels a body-less resolution as a state change instead of an empty bubble", () => {
+    render(
+      <FeedbackThreadMessage
+        message={threadMessage({
+          type: "resolution",
+          content: { body: "", resolution: "fixed" },
+        })}
+        grouped={false}
+      />
+    );
+
+    expect(screen.getByText("State change")).toBeTruthy();
+    expect(screen.getByText("Marked fixed")).toBeTruthy();
+  });
+
+  it("prefixes the state-change label when a resolution has a note body", () => {
+    render(
+      <FeedbackThreadMessage
+        message={threadMessage({
+          type: "resolution",
+          content: { body: "Verified in CI", resolution: "dismissed" },
+        })}
+        grouped={false}
+      />
+    );
+
+    expect(screen.getByText("Marked dismissed")).toBeTruthy();
+    expect(screen.getByText("Verified in CI")).toBeTruthy();
+  });
+
+  it("labels a reopen message", () => {
+    render(
+      <FeedbackThreadMessage
+        message={threadMessage({ type: "reopen", content: { body: "" } })}
+        grouped={false}
+      />
+    );
+
+    expect(screen.getByText("Reopened feedback")).toBeTruthy();
+  });
+
+  it("hides the author header when grouped with the previous message", () => {
+    render(<FeedbackThreadMessage message={threadMessage()} grouped />);
+
+    expect(screen.queryByText("Agent")).toBeNull();
+    expect(screen.getByText("On it")).toBeTruthy();
   });
 });

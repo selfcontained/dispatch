@@ -12,6 +12,8 @@ import {
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { Markdown } from "@/components/ui/markdown";
+import type { ReviewThreadMessage } from "@/hooks/use-agent-reviews";
 
 export type FeedbackState = "open" | "fixed" | "dismissed";
 
@@ -23,6 +25,65 @@ const ACTION_ROW_CLASSES: Record<FeedbackCardVariant, string> = {
   inline: "ml-auto grid w-full max-w-sm grid-cols-2 gap-2",
   sidebar: "grid grid-cols-2 gap-2",
 };
+
+export function FeedbackThreadMessage({
+  message,
+  grouped,
+}: {
+  message: ReviewThreadMessage;
+  grouped: boolean;
+}): JSX.Element {
+  const isAgent = message.authorType !== "human";
+  const isStateChange =
+    message.type === "resolution" || message.type === "reopen";
+  const stateChangeLabel =
+    message.type === "reopen"
+      ? "Reopened feedback"
+      : message.content?.resolution
+        ? `Marked ${message.content.resolution}`
+        : "Updated feedback state";
+  const body = isStateChange
+    ? message.content?.body
+      ? `${stateChangeLabel}\n\n${message.content.body}`
+      : stateChangeLabel
+    : message.content?.body || "Updated feedback";
+  return (
+    <div className={cn(grouped ? "mt-1" : "mt-2.5", isAgent ? "pr-6" : "pl-6")}>
+      {!grouped && (
+        <div
+          className={cn(
+            "flex items-center gap-1.5 text-[10px] text-muted-foreground/75",
+            !isAgent && "justify-end"
+          )}
+        >
+          <span className="font-medium">
+            {isStateChange ? "State change" : isAgent ? "Agent" : "You"}
+          </span>
+          <span>·</span>
+          <span>
+            {new Date(message.createdAt).toLocaleTimeString(undefined, {
+              hour: "2-digit",
+              minute: "2-digit",
+            })}
+          </span>
+        </div>
+      )}
+      <div
+        className={cn(
+          !grouped && "mt-0.5",
+          "rounded-xl px-2.5 py-1.5",
+          isStateChange
+            ? "rounded-md border border-border/70 bg-muted/30 text-muted-foreground"
+            : isAgent
+              ? "rounded-bl-sm bg-muted text-foreground"
+              : "rounded-br-sm bg-primary/10 text-foreground ring-1 ring-inset ring-primary/20"
+        )}
+      >
+        <Markdown className="text-xs text-foreground">{body}</Markdown>
+      </div>
+    </div>
+  );
+}
 
 export function FeedbackReplyForm({
   replying,
