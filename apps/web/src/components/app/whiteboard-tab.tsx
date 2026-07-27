@@ -260,19 +260,32 @@ function WhiteboardCanvas({
         );
       }
       versionRef.current = remote.version;
-      sceneVersionRef.current = getSceneVersion(
-        merged as readonly ExcalidrawElement[]
-      );
       excalidrawAPI.updateScene({ elements: merged });
       setBoardEmpty(merged.length === 0);
-      if (snapshotTimerRef.current !== undefined) {
-        window.clearTimeout(snapshotTimerRef.current);
+      if (hasPendingSave) {
+        // Don't update sceneVersionRef — the pending save must still see a
+        // diff so it persists the merged (local + remote) scene. Cancel the
+        // existing timer and reschedule so the merged scene is saved promptly.
+        if (saveTimerRef.current !== undefined) {
+          window.clearTimeout(saveTimerRef.current);
+        }
+        saveTimerRef.current = window.setTimeout(() => {
+          saveTimerRef.current = undefined;
+          void persistScene();
+        }, SAVE_DEBOUNCE_MS);
+      } else {
+        sceneVersionRef.current = getSceneVersion(
+          merged as readonly ExcalidrawElement[]
+        );
+        if (snapshotTimerRef.current !== undefined) {
+          window.clearTimeout(snapshotTimerRef.current);
+        }
+        snapshotTimerRef.current = window.setTimeout(() => {
+          void persistSnapshot();
+        }, SNAPSHOT_DEBOUNCE_MS);
       }
-      snapshotTimerRef.current = window.setTimeout(() => {
-        void persistSnapshot();
-      }, SNAPSHOT_DEBOUNCE_MS);
     },
-    [excalidrawAPI, persistSnapshot]
+    [excalidrawAPI, persistScene, persistSnapshot]
   );
 
   useEffect(() => {
