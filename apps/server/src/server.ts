@@ -636,7 +636,8 @@ async function registerRoutes() {
     pool,
     agentManager,
     parseActivityQuery,
-    loadScopedActivityEvents: (aq) => loadScopedActivityEvents(pool, aq),
+    loadScopedActivityEvents: (aq, opts) =>
+      loadScopedActivityEvents(pool, aq, opts),
     timeRangeClause,
     dateTruncTz,
     escapeLike,

@@ -13,7 +13,8 @@ export type ActivityRouteDeps = {
     granularity: "hour" | "day" | "week" | "month";
   };
   loadScopedActivityEvents: (
-    aq: ReturnType<ActivityRouteDeps["parseActivityQuery"]>
+    aq: ReturnType<ActivityRouteDeps["parseActivityQuery"]>,
+    opts?: { includeProjectDir?: boolean }
   ) => Promise<{ rows: ActivityEventRow[]; rangeStart: Date | null }>;
   timeRangeClause: (
     aq: ReturnType<ActivityRouteDeps["parseActivityQuery"]>,

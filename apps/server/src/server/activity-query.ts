@@ -81,16 +81,26 @@ export function dateTruncTz(
 
 export async function loadScopedActivityEvents(
   pool: Pool,
-  aq: ActivityQuery
+  aq: ActivityQuery,
+  opts: { includeProjectDir?: boolean } = {}
 ): Promise<{ rows: ActivityEventRow[]; rangeStart: Date | null }> {
   const rangeStart = aq.start;
-  const eventFilter = timeRangeClause(aq, "created_at");
+  const alias = opts.includeProjectDir ? "ae." : "";
+  const columns = opts.includeProjectDir
+    ? `ae.agent_id, ae.event_type, ae.created_at,
+       COALESCE(ae.project_dir, a.cwd) AS project_dir`
+    : "agent_id, event_type, created_at";
+  const from = opts.includeProjectDir
+    ? `FROM agent_events ae
+       LEFT JOIN agents a ON a.id = ae.agent_id`
+    : "FROM agent_events";
+  const eventFilter = timeRangeClause(aq, `${alias}created_at`);
 
   const inRangeResult = await pool.query<ActivityEventRow>(
-    `SELECT agent_id, event_type, created_at
-     FROM agent_events
+    `SELECT ${columns}
+     ${from}
      ${eventFilter.clause}
-     ORDER BY agent_id, created_at`,
+     ORDER BY ${alias}agent_id, ${alias}created_at`,
     eventFilter.params
   );
 
@@ -99,10 +109,10 @@ export async function loadScopedActivityEvents(
   }
 
   const boundaryResult = await pool.query<ActivityEventRow>(
-    `SELECT DISTINCT ON (agent_id) agent_id, event_type, created_at
-     FROM agent_events
-     WHERE created_at < $1
-     ORDER BY agent_id, created_at DESC`,
+    `SELECT DISTINCT ON (${alias}agent_id) ${columns}
+     ${from}
+     WHERE ${alias}created_at < $1
+     ORDER BY ${alias}agent_id, ${alias}created_at DESC`,
     [rangeStart]
   );
 
