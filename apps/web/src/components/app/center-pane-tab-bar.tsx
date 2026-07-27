@@ -78,7 +78,9 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             role="tab"
             aria-selected={activeTab === tab.id}
             data-testid={`center-tab-${tab.id}`}
-            draggable={!isMobile && activeTab !== tab.id}
+            draggable={
+              !isMobile && activeTab !== tab.id && tab.id !== "whiteboard"
+            }
             onDragStart={(e) => handleDragStart(e, tab.id)}
             className={cn(
               "relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",

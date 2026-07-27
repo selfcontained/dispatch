@@ -31,6 +31,20 @@ window.EXCALIDRAW_ASSET_PATH = "/excalidraw/";
 const SAVE_DEBOUNCE_MS = 1000;
 const SNAPSHOT_DEBOUNCE_MS = 4000;
 
+function mergeElements(
+  local: ExcalidrawElement[],
+  remote: ExcalidrawElement[]
+): ExcalidrawElement[] {
+  const localById = new Map(local.map((el) => [el.id, el]));
+  const merged: ExcalidrawElement[] = [...local];
+  for (const el of remote) {
+    if (!localById.has(el.id)) {
+      merged.push(el);
+    }
+  }
+  return merged;
+}
+
 type WhiteboardTabProps = {
   agentId: string;
   visible: boolean;
@@ -136,29 +150,68 @@ function WhiteboardCanvas({
     if (sceneVersion === sceneVersionRef.current) return;
     savingRef.current = true;
     try {
-      const res = await api<{ version: number }>(
-        `/api/v1/agents/${agentId}/whiteboard`,
-        {
-          method: "PUT",
-          body: JSON.stringify({
-            scene: { elements },
-            baseVersion: versionRef.current,
-          }),
-        }
-      );
-      versionRef.current = res.version;
-      sceneVersionRef.current = sceneVersion;
-      queryClient.setQueryData<WhiteboardData>(
-        whiteboardQueryKey(agentId),
-        (old) =>
-          old
-            ? {
-                ...old,
-                scene: { elements: [...elements] },
-                version: res.version,
-              }
-            : old
-      );
+      const res = await fetch(`/api/v1/agents/${agentId}/whiteboard`, {
+        method: "PUT",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          scene: { elements },
+          baseVersion: versionRef.current,
+        }),
+      });
+      if (res.ok) {
+        const body = (await res.json()) as { version: number };
+        versionRef.current = body.version;
+        sceneVersionRef.current = sceneVersion;
+        queryClient.setQueryData<WhiteboardData>(
+          whiteboardQueryKey(agentId),
+          (old) =>
+            old
+              ? {
+                  ...old,
+                  scene: { elements: [...elements] },
+                  version: body.version,
+                }
+              : old
+        );
+      } else if (res.status === 409) {
+        const conflict = (await res.json()) as {
+          scene: { elements: ExcalidrawElement[] };
+          version: number;
+        };
+        const merged = mergeElements(
+          elements as ExcalidrawElement[],
+          conflict.scene.elements
+        );
+        const retryRes = await api<{ version: number }>(
+          `/api/v1/agents/${agentId}/whiteboard`,
+          {
+            method: "PUT",
+            body: JSON.stringify({
+              scene: { elements: merged },
+              baseVersion: conflict.version,
+            }),
+          }
+        );
+        versionRef.current = retryRes.version;
+        sceneVersionRef.current = getSceneVersion(
+          merged as readonly ExcalidrawElement[]
+        );
+        excalidrawAPI.updateScene({ elements: merged });
+        queryClient.setQueryData<WhiteboardData>(
+          whiteboardQueryKey(agentId),
+          (old) =>
+            old
+              ? {
+                  ...old,
+                  scene: { elements: merged },
+                  version: retryRes.version,
+                }
+              : old
+        );
+      } else {
+        throw new Error(`Save failed: ${res.status}`);
+      }
       if (snapshotTimerRef.current !== undefined) {
         window.clearTimeout(snapshotTimerRef.current);
       }
@@ -191,15 +244,27 @@ function WhiteboardCanvas({
   const applyRemote = useCallback(
     (remote: WhiteboardData) => {
       if (!excalidrawAPI) return;
-      const hydrated = restoreElements(
-        remote.scene.elements as ExcalidrawElement[],
-        excalidrawAPI.getSceneElements(),
-        { repairBindings: true }
-      );
+      const localElements = excalidrawAPI.getSceneElements();
+      const hasPendingSave = saveTimerRef.current !== undefined;
+      let merged: ExcalidrawElement[];
+      if (hasPendingSave) {
+        merged = mergeElements(
+          localElements as ExcalidrawElement[],
+          remote.scene.elements as ExcalidrawElement[]
+        );
+      } else {
+        merged = restoreElements(
+          remote.scene.elements as ExcalidrawElement[],
+          localElements,
+          { repairBindings: true }
+        );
+      }
       versionRef.current = remote.version;
-      sceneVersionRef.current = getSceneVersion(hydrated);
-      excalidrawAPI.updateScene({ elements: hydrated });
-      setBoardEmpty(hydrated.length === 0);
+      sceneVersionRef.current = getSceneVersion(
+        merged as readonly ExcalidrawElement[]
+      );
+      excalidrawAPI.updateScene({ elements: merged });
+      setBoardEmpty(merged.length === 0);
       if (snapshotTimerRef.current !== undefined) {
         window.clearTimeout(snapshotTimerRef.current);
       }

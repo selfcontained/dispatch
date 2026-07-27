@@ -221,11 +221,11 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "whiteboard.changed") {
+          void queryClient.invalidateQueries({
+            queryKey: ["whiteboard", payload.agentId],
+            exact: true,
+          });
           if (payload.source === "agent") {
-            void queryClient.invalidateQueries({
-              queryKey: ["whiteboard", payload.agentId],
-              exact: true,
-            });
             jotaiStore.set(
               whiteboardAgentDrewAtomFamily(payload.agentId),
               true
