@@ -32,8 +32,9 @@ export function PersonalitiesContent() {
         </ul>
         <P>
           Existing entries expose <strong>Edit</strong> and{" "}
-          <strong>Delete</strong> actions inline. Edits don't affect agents that
-          have already started — the prompt is captured at launch time.
+          <strong>Delete</strong> actions inline. A running agent keeps the
+          prompt it was launched with — edits are picked up the next time an
+          agent launches, or when a paused agent resumes.
         </P>
       </Section>
 
@@ -52,11 +53,14 @@ export function PersonalitiesContent() {
       <Section>
         <H3>What it applies to</H3>
         <P>
-          The active personality is appended at launch and on resume for every
-          standard agent regardless of CLI: it goes into Claude's{" "}
+          The active personality is looked up fresh each time a standard agent
+          launches or resumes: it goes into Claude's{" "}
           <Code>--append-system-prompt</Code> flag and into the launch prompt
-          for Codex, Cursor, and OpenCode. Terminal agents have no CLI to inject
-          into, so the personality is silently skipped.
+          for Codex, Cursor, and OpenCode. The one exception is Codex on resume
+          — <Code>codex resume</Code> continues the existing session without a
+          new prompt, so a resumed Codex agent keeps whatever personality it
+          launched with. Terminal agents have no CLI to inject into, so the
+          personality is silently skipped.
         </P>
         <P>
           Three flows intentionally <em>don't</em> get the personality, since
