@@ -4,7 +4,6 @@ import {
   computeActivityStats,
   computeDailyStatus,
   computeWorkingTimeByProject,
-  type ActivityEventRow,
 } from "../../activity-metrics.js";
 import type { ActivityRouteDeps } from "./shared.js";
 
@@ -108,36 +107,9 @@ async function handleWorkingTimeByProject(
   request: FastifyRequest
 ) {
   const aq = deps.parseActivityQuery(request.query as Record<string, unknown>);
-  const rangeStart = aq.start;
-  const eventFilter = deps.timeRangeClause(aq, "ae.created_at");
-  const inRangeResult = await deps.pool.query<ActivityEventRow>(
-    `SELECT ae.agent_id, ae.event_type, ae.created_at,
-              COALESCE(ae.project_dir, a.cwd) AS project_dir
-       FROM agent_events ae
-       LEFT JOIN agents a ON a.id = ae.agent_id
-       ${eventFilter.clause}
-       ORDER BY ae.agent_id, ae.created_at`,
-    eventFilter.params
-  );
-
-  let rows = inRangeResult.rows;
-  if (rangeStart) {
-    const boundaryResult = await deps.pool.query<ActivityEventRow>(
-      `SELECT DISTINCT ON (ae.agent_id) ae.agent_id, ae.event_type, ae.created_at,
-                COALESCE(ae.project_dir, a.cwd) AS project_dir
-         FROM agent_events ae
-         LEFT JOIN agents a ON a.id = ae.agent_id
-         WHERE ae.created_at < $1
-         ORDER BY ae.agent_id, ae.created_at DESC`,
-      [rangeStart]
-    );
-    rows = [...boundaryResult.rows, ...inRangeResult.rows].sort((a, b) => {
-      const agentCompare = a.agent_id.localeCompare(b.agent_id);
-      if (agentCompare !== 0) return agentCompare;
-      return a.created_at.getTime() - b.created_at.getTime();
-    });
-  }
-
+  const { rows, rangeStart } = await deps.loadScopedActivityEvents(aq, {
+    includeProjectDir: true,
+  });
   return { projects: computeWorkingTimeByProject(rows, rangeStart) };
 }
 
