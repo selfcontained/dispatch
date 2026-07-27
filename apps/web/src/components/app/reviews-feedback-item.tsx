@@ -7,7 +7,6 @@ import {
   useAddReviewThreadMessage,
   useSetReviewFeedbackResolution,
   type ReviewFeedbackItem,
-  type ReviewThreadMessage,
 } from "@/hooks/use-agent-reviews";
 import {
   Tooltip,
@@ -20,6 +19,7 @@ import { ReviewDiffSnapshot } from "@/components/app/review-diff-snapshot";
 import {
   FeedbackReplyForm,
   FeedbackResolutionFooter,
+  FeedbackThreadMessage,
   type FeedbackState,
 } from "@/components/app/feedback-card-parts";
 
@@ -227,7 +227,7 @@ export function FeedbackItemRow({
                 <ReviewDiffSnapshot diff={item.diffSnapshot} className="mt-0" />
               )}
               {item.messages.slice(1).map((message, index, messages) => (
-                <ThreadMessage
+                <FeedbackThreadMessage
                   key={message.id}
                   message={message}
                   grouped={
@@ -262,65 +262,6 @@ export function FeedbackItemRow({
           </motion.div>
         )}
       </AnimatePresence>
-    </div>
-  );
-}
-
-function ThreadMessage({
-  message,
-  grouped,
-}: {
-  message: ReviewThreadMessage;
-  grouped: boolean;
-}): JSX.Element {
-  const isAgent = message.authorType !== "human";
-  const isStateChange =
-    message.type === "resolution" || message.type === "reopen";
-  const stateChangeLabel =
-    message.type === "reopen"
-      ? "Reopened feedback"
-      : message.content?.resolution
-        ? `Marked ${message.content.resolution}`
-        : "Updated feedback state";
-  const body = isStateChange
-    ? message.content?.body
-      ? `${stateChangeLabel}\n\n${message.content.body}`
-      : stateChangeLabel
-    : message.content?.body || "Updated feedback";
-  return (
-    <div className={cn(grouped ? "mt-1" : "mt-2.5", isAgent ? "pr-6" : "pl-6")}>
-      {!grouped && (
-        <div
-          className={cn(
-            "flex items-center gap-1.5 text-[10px] text-muted-foreground/75",
-            !isAgent && "justify-end"
-          )}
-        >
-          <span className="font-medium">
-            {isStateChange ? "State change" : isAgent ? "Agent" : "You"}
-          </span>
-          <span>·</span>
-          <span>
-            {new Date(message.createdAt).toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </span>
-        </div>
-      )}
-      <div
-        className={cn(
-          !grouped && "mt-0.5",
-          "rounded-xl px-2.5 py-1.5",
-          isStateChange
-            ? "rounded-md border border-border/70 bg-muted/30 text-muted-foreground"
-            : isAgent
-              ? "rounded-bl-sm bg-muted text-foreground"
-              : "rounded-br-sm bg-primary/10 text-foreground ring-1 ring-inset ring-primary/20"
-        )}
-      >
-        <Markdown className="text-xs text-foreground">{body}</Markdown>
-      </div>
     </div>
   );
 }

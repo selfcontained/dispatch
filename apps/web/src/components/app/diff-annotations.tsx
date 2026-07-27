@@ -20,7 +20,6 @@ import { type ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
 import {
   useAddReviewThreadMessage,
   useSetReviewFeedbackResolution,
-  type ReviewThreadMessage,
 } from "@/hooks/use-agent-reviews";
 import type { PersistedDraftComment } from "@/lib/store";
 import { agentRoute } from "@/lib/agent-routes";
@@ -30,6 +29,7 @@ import { Markdown } from "@/components/ui/markdown";
 import {
   FeedbackReplyForm,
   FeedbackResolutionFooter,
+  FeedbackThreadMessage,
 } from "@/components/app/feedback-card-parts";
 import {
   Tooltip,
@@ -377,12 +377,14 @@ export function InlineFeedbackAnnotation({
                 {feedbackItem.messages
                   .slice(1)
                   .map((message, index, messages) => (
-                    <InlineThreadMessage
+                    <FeedbackThreadMessage
                       key={message.id}
                       message={message}
                       grouped={
                         index > 0 &&
-                        messages[index - 1]?.authorType === message.authorType
+                        messages[index - 1]?.authorType ===
+                          message.authorType &&
+                        messages[index - 1]?.type === message.type
                       }
                     />
                   ))}
@@ -413,50 +415,6 @@ export function InlineFeedbackAnnotation({
         </AnimatePresence>
       </div>
     </TooltipProvider>
-  );
-}
-
-function InlineThreadMessage({
-  message,
-  grouped,
-}: {
-  message: ReviewThreadMessage;
-  grouped: boolean;
-}): JSX.Element {
-  const isAgent = message.authorType !== "human";
-  return (
-    <div className={cn(grouped ? "mt-1" : "mt-2.5", isAgent ? "pr-6" : "pl-6")}>
-      {!grouped && (
-        <div
-          className={cn(
-            "flex items-center gap-1.5 text-[10px] text-muted-foreground/75",
-            !isAgent && "justify-end"
-          )}
-        >
-          <span className="font-medium">{isAgent ? "Agent" : "You"}</span>
-          <span>·</span>
-          <span>
-            {new Date(message.createdAt).toLocaleTimeString(undefined, {
-              hour: "2-digit",
-              minute: "2-digit",
-            })}
-          </span>
-        </div>
-      )}
-      <div
-        className={cn(
-          !grouped && "mt-0.5",
-          "rounded-xl px-2.5 py-1.5",
-          isAgent
-            ? "rounded-bl-sm bg-muted text-foreground"
-            : "rounded-br-sm bg-primary/10 text-foreground ring-1 ring-inset ring-primary/20"
-        )}
-      >
-        <Markdown className="text-xs text-foreground">
-          {message.content?.body ?? ""}
-        </Markdown>
-      </div>
-    </div>
   );
 }
 
