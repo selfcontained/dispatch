@@ -29,12 +29,6 @@
     "test:e2e": "bash scripts/e2e-isolated.sh",
     "prepare": "husky"
   },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "esbuild",
-      "sharp"
-    ]
-  },
   "lint-staged": {
     "**/*.{ts,tsx,js,jsx,json,css,md,yaml,yml}": [
       "prettier --write"
