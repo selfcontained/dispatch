@@ -10,6 +10,10 @@ import {
   sanitizeUploadedFileName,
   toMediaKey,
 } from "../src/shared/media.js";
+import {
+  MEDIA_UPLOAD_ACCEPT,
+  TEXT_EXTENSIONS,
+} from "../src/shared/media-file-types.js";
 
 describe("sanitizeUploadedFileName", () => {
   it("passes through a clean filename unchanged", () => {
@@ -79,6 +83,34 @@ describe("isTextFile", () => {
     expect(isTextFile("video.mp4")).toBe(false);
     expect(isTextFile("archive.zip")).toBe(false);
     expect(isTextFile("doc.pdf")).toBe(false);
+  });
+
+  it("recognizes extensions merged from the former web and server tables", () => {
+    expect(isTextFile("config.env")).toBe(true);
+    expect(isTextFile("script.mjs")).toBe(true);
+    expect(isTextFile("script.cjs")).toBe(true);
+    expect(isTextFile("setup.bash")).toBe(true);
+    expect(isTextFile("rc.zsh")).toBe(true);
+  });
+
+  it("treats a bare dotfile name as its own extension", () => {
+    expect(isTextFile(".env")).toBe(true);
+    expect(isTextFile(".gitignore")).toBe(false);
+  });
+});
+
+describe("MEDIA_UPLOAD_ACCEPT", () => {
+  it("lists every accepted text extension", () => {
+    const entries = MEDIA_UPLOAD_ACCEPT.split(",");
+    for (const ext of TEXT_EXTENSIONS) {
+      expect(entries).toContain(ext);
+    }
+  });
+
+  it("only lists extensions the upload endpoint accepts", () => {
+    for (const ext of MEDIA_UPLOAD_ACCEPT.split(",")) {
+      expect(isMediaFile(`file${ext}`)).toBe(true);
+    }
   });
 });
 
@@ -210,6 +242,9 @@ describe("extensionForMime", () => {
   });
   it("returns .mp4 for video/mp4", () => {
     expect(extensionForMime("video/mp4")).toBe(".mp4");
+  });
+  it("returns .pdf for application/pdf", () => {
+    expect(extensionForMime("application/pdf")).toBe(".pdf");
   });
   it("returns .bin for non-media MIME types", () => {
     expect(extensionForMime("application/octet-stream")).toBe(".bin");
