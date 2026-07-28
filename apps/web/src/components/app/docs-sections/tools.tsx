@@ -204,6 +204,11 @@ export function ToolsContent() {
             Dispatch activity
           </li>
           <li>
+            <Code>whiteboard_get</Code>, <Code>whiteboard_update</Code>,{" "}
+            <Code>whiteboard_clear</Code> — read, draw on, and clear the agent's
+            shared whiteboard (see the Agents section)
+          </li>
+          <li>
             <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}
             <Code>brain_list_objects</Code>, <Code>brain_delete_object</Code> —
             read and write shared objects in the repo-scoped Brain (see below)

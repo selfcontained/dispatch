@@ -41,7 +41,10 @@ export function PersonasContent() {
           and shared media (for example, a dev server URL to test against). Each
           media item also includes an absolute <Code>filePath</Code> and{" "}
           <Code>sizeBytes</Code> so reviewers can open or inspect the artifact
-          directly — useful for doc-centric review flows.
+          directly — useful for doc-centric review flows. Reviewers also have{" "}
+          <Code>whiteboard_get</Code> to read their own whiteboard tab — sketch
+          on it to hand the reviewer a diagram — though unlike standard agents
+          they cannot draw back.
         </P>
       </Section>
 
