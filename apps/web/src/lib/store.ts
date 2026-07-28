@@ -92,6 +92,10 @@ export const dismissedReleaseToastAtomFamily = atomFamily((tag: string) =>
   atomWithLocalStorage<boolean>(`dispatch:dismissedReleaseToast:${tag}`, false)
 );
 
+export const whiteboardAgentDrewAtomFamily = atomFamily((_agentId: string) =>
+  atom(false)
+);
+
 export type DiffViewType = "unified" | "split";
 
 export const diffViewTypeAtom = atomWithLocalStorage<DiffViewType>(
@@ -289,7 +293,7 @@ export function reconcileDiffViewStateStorage(
 // Split pane state — per-agent split/single mode and pane sizes
 // ---------------------------------------------------------------------------
 
-export type CenterTab = "terminal" | "changes";
+export type CenterTab = "terminal" | "changes" | "whiteboard";
 
 export type SplitPaneState = {
   mode: "single" | "split";

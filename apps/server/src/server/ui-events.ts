@@ -19,6 +19,12 @@ export type UiEvent =
     }
   | { type: "agent.deleted"; agentId: string }
   | { type: "media.changed"; agentId: string }
+  | {
+      type: "whiteboard.changed";
+      agentId: string;
+      version: number;
+      source: "user" | "agent";
+    }
   | { type: "media.seen"; agentId: string; keys: string[] }
   | {
       type: "message.created";

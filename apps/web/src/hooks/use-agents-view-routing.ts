@@ -1,7 +1,11 @@
 import { useCallback, useEffect } from "react";
 import { useMatch, useNavigate } from "react-router-dom";
 
-import { agentChangesRoute, agentRoute } from "@/lib/agent-routes";
+import {
+  agentChangesRoute,
+  agentRoute,
+  agentWhiteboardRoute,
+} from "@/lib/agent-routes";
 
 type UseAgentsViewRoutingOptions = {
   routeAgentId: string | undefined;
@@ -18,6 +22,7 @@ export function useAgentsViewRouting({
   const feedbackMatch = useMatch("/agents/:agentId/feedback/:itemId");
   const reviewMatch = useMatch("/agents/:agentId/review/:summaryAgentId");
   const changesMatch = useMatch("/agents/:agentId/changes");
+  const whiteboardMatch = useMatch("/agents/:agentId/whiteboard");
 
   useEffect(() => {
     if (!routeAgentId) return;
@@ -35,12 +40,14 @@ export function useAgentsViewRouting({
   }, [agentsLoaded, feedbackMatch, navigate, reviewMatch, routeAgentId]);
 
   const onTabChange = useCallback(
-    (tab: "terminal" | "changes") => {
+    (tab: "terminal" | "changes" | "whiteboard") => {
       if (!routeAgentId) return;
       navigate(
         tab === "changes"
           ? agentChangesRoute(routeAgentId)
-          : agentRoute(routeAgentId),
+          : tab === "whiteboard"
+            ? agentWhiteboardRoute(routeAgentId)
+            : agentRoute(routeAgentId),
         { replace: true }
       );
     },
@@ -49,6 +56,7 @@ export function useAgentsViewRouting({
 
   return {
     changesMatch: !!changesMatch,
+    whiteboardMatch: !!whiteboardMatch,
     onTabChange,
   };
 }

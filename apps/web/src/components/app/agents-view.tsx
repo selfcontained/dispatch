@@ -9,12 +9,17 @@ import {
 import { createPortal } from "react-dom";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
+import { useAtomValue } from "jotai";
+
+import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
 
 import { ChangesTab } from "@/components/app/changes-tab";
+import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
 import {
   CenterPaneTabBar,
   TAB_DRAG_MIME,
+  formatDiffCount,
 } from "@/components/app/center-pane-tab-bar";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { CenterPaneSplit } from "@/components/app/center-pane-split";
@@ -128,7 +133,7 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
-  const { changesMatch, onTabChange } = useAgentsViewRouting({
+  const { changesMatch, whiteboardMatch, onTabChange } = useAgentsViewRouting({
     routeAgentId,
     agentsLoaded,
     validatedSelectedAgentId,
@@ -220,6 +225,10 @@ export function AgentsView({
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
+
+  const whiteboardAgentDrew = useAtomValue(
+    whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
+  );
 
   const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
     useSplitPane(focusedAgentId, isMobile);
@@ -572,6 +581,15 @@ export function AgentsView({
     />
   ) : null;
 
+  const whiteboardVisible =
+    (isSplit &&
+      (splitState.left === "whiteboard" ||
+        splitState.right === "whiteboard")) ||
+    (!isSplit && whiteboardMatch);
+  const whiteboardElement = whiteboardVisible ? (
+    <WhiteboardPane agentId={focusedAgentId} active={true} />
+  ) : null;
+
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
@@ -677,6 +695,23 @@ export function AgentsView({
                       focusTerminal={focusTerminal}
                     />
                   </TipSpot>
+                  {focusedDiffStats &&
+                  (focusedDiffStats.added > 0 ||
+                    focusedDiffStats.deleted > 0) ? (
+                    <span
+                      aria-label={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
+                      title={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
+                      className="hidden items-center gap-1 whitespace-nowrap rounded-full border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] tracking-normal sm:inline-flex"
+                    >
+                      <span className="text-status-working">
+                        +{formatDiffCount(focusedDiffStats.added)}
+                      </span>
+                      <span className="text-status-blocked">
+                        {"−"}
+                        {formatDiffCount(focusedDiffStats.deleted)}
+                      </span>
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex items-center justify-center">
                   {focusedAgent?.name ? (
@@ -688,14 +723,20 @@ export function AgentsView({
                         {focusedAgent.name}
                       </span>
                       <CenterPaneTabBar
-                        activeTab={changesMatch ? "changes" : "terminal"}
+                        activeTab={
+                          changesMatch
+                            ? "changes"
+                            : whiteboardMatch
+                              ? "whiteboard"
+                              : "terminal"
+                        }
                         onTabChange={(tab) => {
                           if (isSplit) {
                             exitSplit();
                           }
                           onTabChange(tab);
                         }}
-                        diffStats={focusedDiffStats}
+                        whiteboardAgentDrew={whiteboardAgentDrew}
                         isSplit={isSplit}
                         splitState={splitState}
                         isMobile={isMobile}
@@ -744,6 +785,7 @@ export function AgentsView({
                     splitButtonRef={splitButtonRef}
                     splitTerminalSlotRef={splitTerminalSlotRef}
                     changesElement={changesElement}
+                    whiteboardElement={whiteboardElement}
                     isMobile={isMobile}
                     onLayoutChange={handleSplitLayoutChange}
                     onExitSplit={exitSplit}
@@ -752,11 +794,15 @@ export function AgentsView({
                   <>
                     <div
                       ref={defaultTerminalSlotRef}
-                      className={cn("h-full", changesMatch && "hidden")}
+                      className={cn(
+                        "h-full",
+                        (changesMatch || whiteboardMatch) && "hidden"
+                      )}
                     />
                     <Routes>
                       <Route path="changes" element={changesElement} />
                     </Routes>
+                    {whiteboardElement}
                   </>
                 )}
                 {stableTerminalContainerRef.current

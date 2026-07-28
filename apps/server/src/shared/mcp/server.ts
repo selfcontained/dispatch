@@ -16,6 +16,11 @@ import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
 import { registerMessagingTools } from "./messaging-tools.js";
+import { registerWhiteboardTools } from "./whiteboard-tools.js";
+import type {
+  WhiteboardGetResult,
+  WhiteboardUpdateResult,
+} from "../whiteboard.js";
 import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
@@ -69,6 +74,9 @@ const AGENT_TOOLS = new Set([
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
+  "whiteboard_get",
+  "whiteboard_update",
+  "whiteboard_clear",
   "brain_get_object",
   "brain_store_object",
   "brain_list_objects",
@@ -159,6 +167,7 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_review_add_message",
   "dispatch_review_resolve",
   "get_parent_context",
+  "whiteboard_get",
 ]);
 
 type AgentCapabilityType = "agent" | "job" | "review";
@@ -352,6 +361,13 @@ export type McpRequestContext = {
   ) => Promise<void>;
   deletePin?: (agentId: string, pinId: string) => Promise<void>;
   deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
+  getWhiteboard?: (agentId: string) => Promise<WhiteboardGetResult>;
+  updateWhiteboard?: (
+    agentId: string,
+    elements: unknown[],
+    deleteIds: string[]
+  ) => Promise<WhiteboardUpdateResult>;
+  clearWhiteboard?: (agentId: string) => Promise<void>;
   getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
   sendMessage?: (
     agentId: string,
@@ -479,6 +495,16 @@ async function createDispatchMcpServer(
       addReviewThreadMessage: context.addReviewThreadMessage,
       listReviewFeedback: context.listReviewFeedback,
       getParentContext: context.getParentContext,
+    });
+  }
+
+  // ── Whiteboard tools ──────────────────────────────────────────────
+  if (context.agent) {
+    registerWhiteboardTools(server, allowed, {
+      agentId: context.agent.id,
+      getWhiteboard: context.getWhiteboard,
+      updateWhiteboard: context.updateWhiteboard,
+      clearWhiteboard: context.clearWhiteboard,
     });
   }
 

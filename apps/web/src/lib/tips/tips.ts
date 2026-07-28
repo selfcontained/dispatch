@@ -221,6 +221,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "whiteboard",
+    title: "Whiteboard",
+    body: "Agents and users share a live whiteboard. Draw diagrams, sketch ideas, or annotate what an agent has started.",
+    docsSection: "agents",
+    since: "0.30.1",
+    surfaces: ["inline", "ambient"],
+  },
+  {
     id: "job-webhook-trigger",
     title: "Job Webhook Triggers",
     body: "Fire a job from CI or any external system: enable Webhook trigger in the job's Configure tab to get a secret URL that starts a run on HTTP POST.",
