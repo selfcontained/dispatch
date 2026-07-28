@@ -948,7 +948,11 @@ export class AgentManager {
       );
     }
 
-    return { mode: "tmux", sessionName: agent.tmuxSession };
+    return {
+      mode: "tmux",
+      sessionName: agent.tmuxSession,
+      agentType: agent.type,
+    };
   }
 
   async stopAgent(

@@ -67,7 +67,7 @@ export type WorktreeCleanupMode = "auto" | "keep" | "force";
 export type { WorktreeStatus } from "../shared/git/worktree-status.js";
 
 export type AgentTerminalAccess =
-  | { mode: "tmux"; sessionName: string }
+  | { mode: "tmux"; sessionName: string; agentType: AgentType }
   | { mode: "inert"; message: string };
 
 export type AgentLatestEventInput = {

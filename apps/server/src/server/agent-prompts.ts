@@ -28,7 +28,14 @@ export function createPromptInjector(
         return;
       }
       const terminal = new TmuxTerminal(access.sessionName);
-      await terminal.sendCommand(prompt);
+      // OpenCode renders large pastes as a "[Pasted text …]" placeholder.
+      // That is a UI representation, not a pending tmux paste; retrying Enter
+      // against it can trigger OpenCode's keymap resolver error. Keep the
+      // legacy retry for Codex/Claude, where it was added to recover queued
+      // large-paste submissions.
+      await terminal.sendCommand(prompt, {
+        retryLargePaste: access.agentType !== "opencode",
+      });
     } catch (error) {
       if (opts.swallowFailure === false) {
         throw error;

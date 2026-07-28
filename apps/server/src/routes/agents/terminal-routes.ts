@@ -189,7 +189,9 @@ export async function registerAgentTerminalRoutes(
 
         const terminal = new TmuxTerminal(access.sessionName);
         if (submit) {
-          await terminal.sendCommand(text);
+          await terminal.sendCommand(text, {
+            retryLargePaste: access.agentType !== "opencode",
+          });
         } else {
           await terminal.pasteText(text);
         }

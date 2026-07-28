@@ -163,10 +163,14 @@ export class TmuxTerminal {
   // Codex, etc.) treat the burst as one paste event instead of as live typing —
   // without it, Codex's input handler keeps the input in multi-line mode and
   // the trailing Enter fails to submit.
-  async sendCommand(commandLine: string): Promise<void> {
+  async sendCommand(
+    commandLine: string,
+    options: { retryLargePaste?: boolean } = {}
+  ): Promise<void> {
     const shouldRetryLargePaste =
+      options.retryLargePaste !== false &&
       Buffer.byteLength(commandLine, "utf-8") >=
-      TmuxTerminal.RETRY_SUBMIT_BYTES;
+        TmuxTerminal.RETRY_SUBMIT_BYTES;
     const prePasteSnapshot = shouldRetryLargePaste
       ? await this.captureRecentLines(40).catch(() => "")
       : "";
