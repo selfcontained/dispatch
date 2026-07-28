@@ -26,7 +26,7 @@ domain; Cloudflare creates the DNS record and certificate on first deployment.
 Deploy manually with:
 
 ```bash
-pnpm --filter @dispatch/site deploy
+pnpm --filter @dispatch/site run deploy
 ```
 
 Pushes to `main` that affect the site run the same deployment through GitHub
