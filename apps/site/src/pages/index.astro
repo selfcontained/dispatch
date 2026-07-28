@@ -6,6 +6,7 @@ import Base from "../layouts/Base.astro";
     <img class="hero-logo" src="/brand-full-logo.svg" alt="Dispatch" />
     <h1>Build capabilities. Let workflows emerge.</h1>
     <p class="summary">Dispatch is a local-first environment for people and coding agents working on the same software. It is an ongoing experiment in making the useful parts of work reusable, visible, and available to everyone involved.</p>
+    <p class="product-definition">Run persistent coding agents on your own machine, supervise them from a browser, and give people and agents shared access to terminals, worktrees, messages, media, and tools.</p>
     <div class="actions">
       <a class="button primary" href="/philosophy">Read the philosophy</a>
       <a class="button" href="https://github.com/selfcontained/dispatch">Browse GitHub ↗</a>
@@ -14,42 +15,61 @@ import Base from "../layouts/Base.astro";
 
   <section class="product-artifact" aria-labelledby="artifact-title">
     <img src="/dispatch-dashboard.png" alt="Dispatch dashboard showing agent sessions, terminal, messages, pins, and media" />
-    <div><p class="eyebrow">A concrete artifact</p><h2 id="artifact-title">One environment for agents, branches, terminals, context, and human direction.</h2><p>Dispatch keeps the surface of collaboration visible. The point is not to replace engineering judgment; it is to give that judgment something durable to work with.</p></div>
-  </section>
-
-  <section class="content-section two-column accent-yellow">
-    <div><p class="eyebrow">An observation</p><h2>Workflows are useful. Work does not always stay predictable.</h2></div>
-    <div class="prose">
-      <p>That usually means a large prompt, a prescribed sequence of steps, and a hidden state machine. It works until the work changes shape—when the task needs a second opinion, a screenshot, a different branch, time to run, or a person to take over.</p>
-      <p>Workflows are useful when they clarify repeatable work. Software work also changes shape: investigations, decisions, tools, and context need room to adapt around them.</p>
+    <div>
+      <p class="eyebrow">The working loop</p>
+      <h2 id="artifact-title">Start an agent in an isolated worktree, watch its terminal, share context, step in when needed, and return later without losing the session.</h2>
+      <ol class="working-loop"><li>Launch</li><li>Observe</li><li>Collaborate</li><li>Intervene</li><li>Resume</li></ol>
+      <p>Dispatch keeps the surface of collaboration visible while the process continues in tmux on the machine that owns the work.</p>
     </div>
   </section>
 
   <section class="content-section accent-violet">
-    <p class="eyebrow">A different starting point</p>
-    <h2>Keep the useful pieces close at hand.</h2>
-    <div class="two-column" style="margin-top: 2.5rem">
-      <div class="prose"><p>Instead, give humans and agents the same dependable primitives. A terminal can stay alive. A worktree can isolate a change. A message can carry a decision. A pin can preserve the one URL that matters.</p></div>
-      <div class="prose"><p><strong>Capabilities compose. Workflows can grow around them.</strong> That leaves room for repeatable patterns without requiring every useful collaboration to start with a predefined path.</p></div>
+    <div class="two-column">
+      <div><p class="eyebrow">The product shape</p><h2>A shared operating surface for agent work.</h2></div>
+      <div class="prose"><p>Dispatch brings the pieces around a persistent coding-agent session into one place. Each group is useful on its own; together they make it easier to understand, guide, and revisit real work.</p></div>
     </div>
-    <figure class="capability-map" aria-labelledby="capability-map-caption">
-      <div class="capability-sources">
-        <span class="map-node yellow">A decision</span>
-        <span class="map-node violet">An investigation</span>
-        <span class="map-node green">A running process</span>
-        <span class="map-node pink">A change in progress</span>
-      </div>
-      <div class="map-flow" aria-hidden="true"><span></span><span></span><span></span></div>
-      <div class="map-node context">Shared, durable context</div>
-      <figcaption id="capability-map-caption">Useful pieces remain useful on their own. Together, they give a team more ways to choose the next step.</figcaption>
-    </figure>
+    <div class="capability-groups">
+      <article class="cyan"><h3>Execution</h3><p>Persistent terminals and long-running agent sessions keep work alive beyond a browser tab.</p></article>
+      <article class="green"><h3>Isolation</h3><p>Git worktrees and separate branches let an agent work without borrowing another working directory.</p></article>
+      <article class="yellow"><h3>Shared context</h3><p>Messages, screenshots, media, pins, whiteboards, and Brain state keep useful information close to the work.</p></article>
+      <article class="pink"><h3>Coordination</h3><p>Human intervention, agent messaging, personas, jobs, notifications, and repo-specific tools provide ways to guide work as it changes.</p></article>
+    </div>
   </section>
 
   <section class="content-section two-column accent-green">
-    <div><p class="eyebrow">How it started</p><h2>The useful pieces of collaboration should not be trapped in a session.</h2></div>
+    <div><p class="eyebrow">Local-first</p><h2>The browser is a control surface over your own environment.</h2></div>
     <div class="prose">
-      <p>Dispatch grew out of using coding agents on real software projects and repeatedly encountering the same constraint: the useful pieces of collaboration were trapped inside individual sessions and rigid workflow boundaries.</p>
-      <p>The project became an attempt to make those pieces durable, shared, and composable. Its features are interesting only insofar as they make that observation concrete.</p>
+      <p>Dispatch runs against the repositories, credentials, coding-agent CLIs, and compute already available on your macOS or Linux machine. It does not replace that environment; it makes its ongoing work easier to see and direct from a browser.</p>
+      <div class="local-environment"><span>repositories</span><span>credentials</span><span>agent CLIs</span><span>local compute</span></div>
+    </div>
+  </section>
+
+  <section class="content-section two-column accent-yellow">
+    <div><p class="eyebrow">Workflows, with room to adapt</p><h2>Repeatable work deserves repeatable patterns.</h2></div>
+    <div class="prose">
+      <p>Dispatch is not opposed to workflows. It avoids making a predefined workflow the only way work can happen when an investigation, a review, or a human decision changes the shape of the task.</p>
+      <p><strong>Dispatch supports repeatable workflows, but treats shared capabilities as the underlying substrate.</strong></p>
+    </div>
+  </section>
+
+  <section class="content-section two-column accent-pink">
+    <div><p class="eyebrow">A grounded session</p><h2>One change, with a human still in the loop.</h2></div>
+    <div class="prose">
+      <ol class="usage-path">
+        <li>Launch Codex or Claude in a new worktree.</li>
+        <li>Follow its terminal from the browser and share a screenshot or other context.</li>
+        <li>Let the agent open a PR and pin the useful URLs.</li>
+        <li>Launch a review persona, then answer a question when human judgment is needed.</li>
+        <li>Close the browser while the tmux session continues; return when the work is ready for the next decision.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="content-section two-column accent-violet">
+    <div><p class="eyebrow">How it started</p><h2>Useful context should not disappear between sessions.</h2></div>
+    <div class="prose">
+      <p>Dispatch grew out of using coding agents on real software projects and watching useful context get trapped in terminal sessions, browser tabs, temporary screenshots, and isolated agent conversations.</p>
+      <p>The project became an attempt to make those artifacts durable, shared, and composable. Its features are interesting only insofar as they make that observation concrete.</p>
     </div>
   </section>
 
