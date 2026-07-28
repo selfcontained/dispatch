@@ -194,11 +194,10 @@ export function AgentsContent() {
           renders in unified mode.
         </P>
         <P>
-          On desktop, drag the <strong>Terminal</strong> or{" "}
-          <strong>Changes</strong> tab onto the left or right side of the center
-          pane to split the workspace. Split panes let you keep the terminal and
-          diff visible together, resize them with the center handle, and return
-          to a single pane with the unsplit control.
+          On desktop, drag any center-pane tab onto the left or right side of
+          the pane to split the workspace. Split panes let you keep the terminal
+          and diff visible together, resize them with the center handle, and
+          return to a single pane with the unsplit control.
         </P>
         <P>
           Select one or more lines in a diff, then click the comment icon to
@@ -226,14 +225,42 @@ export function AgentsContent() {
       </Section>
 
       <Section>
+        <H3 id="whiteboard">Whiteboard</H3>
+        <P>
+          The <strong>Whiteboard</strong> tab in the center pane is a shared
+          Excalidraw canvas, one per agent. Sketch an architecture, flow, or
+          idea and ask the agent to &ldquo;look at the whiteboard&rdquo; — or
+          ask it to draw something for you. Edits sync live in both directions:
+          your changes save automatically as you draw, and if both sides edit at
+          once the scenes are merged element by element. The board persists with
+          the agent, so it survives detaching, stopping, and resuming.
+        </P>
+        <P>
+          Agents work the board through three MCP tools:{" "}
+          <Code>whiteboard_get</Code> returns the element list plus the path to
+          a PNG snapshot of the board the agent can open to actually see the
+          drawing, <Code>whiteboard_update</Code> adds or replaces elements by
+          id, and <Code>whiteboard_clear</Code> wipes the board. The snapshot is
+          rendered by your browser shortly after edits settle, so a board that
+          has never been opened in the UI has no image yet — the agent falls
+          back to the element list.
+        </P>
+        <P>
+          When the agent draws while you're on another tab, a violet dot appears
+          on the <strong>Whiteboard</strong> tab until you open it.
+        </P>
+      </Section>
+
+      <Section>
         <H3>Split pane</H3>
         <P>
-          Drag an inactive tab (<strong>Terminal</strong> or{" "}
-          <strong>Changes</strong>) onto the left or right drop zone to show
-          both side by side. A resize handle between the panes lets you adjust
-          the ratio. Click the <strong>unsplit</strong> button on the divider to
-          return to single-tab view. The split layout persists per agent. Split
-          pane is not available on mobile.
+          Drag an inactive tab (<strong>Terminal</strong>,{" "}
+          <strong>Changes</strong>, or <strong>Whiteboard</strong>) onto the
+          left or right drop zone to show two side by side. A resize handle
+          between the panes lets you adjust the ratio. Click the{" "}
+          <strong>unsplit</strong> button on the divider to return to single-tab
+          view. The split layout persists per agent. Split pane is not available
+          on mobile.
         </P>
       </Section>
 

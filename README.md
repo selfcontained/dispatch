@@ -32,6 +32,7 @@ Give this prompt to a coding agent to get Dispatch installed as a persistent ser
 - Keyboard shortcuts and a command palette (`Mod+K`) for fast navigation and actions.
 - GitHub integration — PR creation and CI status checks via MCP tools.
 - Browser Feedback — a Chrome extension to select an element on any web page, comment, and send it with bounded DOM context and a cropped element screenshot to a running agent (paired under Settings → Connections).
+- Per-agent whiteboard — a shared Excalidraw canvas in the center pane that both you and the agent can draw on, synced live in both directions via MCP tools.
 - Slack notifications with focus-aware suppression.
 - Activity analytics — heatmaps, daily status charts, working time by project.
 - Service resources dashboard — live CPU, memory, subsystem health, and workload metrics for the Dispatch server, agents, and host (Settings → Resources, opt-in collection).
@@ -180,6 +181,9 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `get_activity_summary`          | Summarize agent activity over a time range                                 |
 | `get_agent_history`             | Get detailed agent session history                                         |
 | `get_feedback_summary`          | Aggregate persona review feedback for pattern detection                    |
+| `whiteboard_get`                | Read the agent's shared whiteboard (elements + PNG snapshot path)          |
+| `whiteboard_update`             | Draw on the shared whiteboard (upsert Excalidraw elements by id)           |
+| `whiteboard_clear`              | Clear the shared whiteboard                                                |
 | `brain_get_object`              | Read a shared object from the repo-scoped Brain                            |
 | `brain_store_object`            | Create or update a shared Brain object (optimistic concurrency)            |
 | `brain_list_objects`            | List Brain objects, optionally filtered by collection or prefix            |
@@ -205,7 +209,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 ### Persona agents
 
-Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_share`, and `get_parent_context`. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
+Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_delete_pin`, `dispatch_list_pins`, `dispatch_share`, `dispatch_list_media`, `dispatch_delete_media`, `get_parent_context`, and `whiteboard_get`. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
 
 ### Job agents
 

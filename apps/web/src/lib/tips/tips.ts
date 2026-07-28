@@ -224,7 +224,7 @@ export const tips: Tip[] = [
     id: "whiteboard",
     title: "Whiteboard",
     body: "Agents and users share a live whiteboard. Draw diagrams, sketch ideas, or annotate what an agent has started.",
-    docsSection: "agents",
+    docsSection: "agents#whiteboard",
     since: "0.30.1",
     surfaces: ["inline", "ambient"],
   },
