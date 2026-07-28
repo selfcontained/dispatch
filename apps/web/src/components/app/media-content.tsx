@@ -21,9 +21,7 @@ import {
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-
-const ACCEPTED_EXTENSIONS =
-  ".png,.jpg,.jpeg,.gif,.webp,.mp4,.pdf,.txt,.md,.json,.yaml,.yml,.toml,.csv,.log,.xml,.html,.css,.js,.jsx,.ts,.tsx,.py,.go,.rs,.sh,.sql,.diff,.patch,.env,.ini,.cfg,.conf,.swift,.kt,.java,.c,.cpp,.h,.hpp,.rb,.php,.lua,.zig,.nim,.r,.m,.ex,.exs,.erl,.hs";
+import { STARTUP_FILE_ACCEPT } from "@/lib/media-accept";
 
 export type MediaContentProps = {
   mediaFiles: MediaFile[];
@@ -258,7 +256,7 @@ export function MediaContent({
               ref={fileInputRef}
               type="file"
               className="hidden"
-              accept={ACCEPTED_EXTENSIONS}
+              accept={STARTUP_FILE_ACCEPT}
               onChange={handleFileChange}
             />
             <Button

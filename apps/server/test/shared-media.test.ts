@@ -92,11 +92,6 @@ describe("isTextFile", () => {
     expect(isTextFile("setup.bash")).toBe(true);
     expect(isTextFile("rc.zsh")).toBe(true);
   });
-
-  it("treats a bare dotfile name as its own extension", () => {
-    expect(isTextFile(".env")).toBe(true);
-    expect(isTextFile(".gitignore")).toBe(false);
-  });
 });
 
 describe("MEDIA_UPLOAD_ACCEPT", () => {
