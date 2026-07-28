@@ -1,6 +1,5 @@
 import { memo, useCallback } from "react";
 
-import type { DiffStats } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -30,7 +29,6 @@ export function formatDiffCount(count: number): string {
 type CenterPaneTabBarProps = {
   activeTab: CenterTab;
   onTabChange: (tab: CenterTab) => void;
-  diffStats: DiffStats | null | undefined;
   whiteboardAgentDrew?: boolean;
   isSplit: boolean;
   splitState: SplitPaneState;
@@ -40,18 +38,11 @@ type CenterPaneTabBarProps = {
 export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   activeTab,
   onTabChange,
-  diffStats,
   whiteboardAgentDrew = false,
   isSplit,
   splitState,
   isMobile,
 }: CenterPaneTabBarProps): JSX.Element {
-  const hasChanges =
-    diffStats && (diffStats.added > 0 || diffStats.deleted > 0);
-  const diffStatsLabel = diffStats
-    ? `${diffStats.added.toLocaleString("en-US")} additions, ${diffStats.deleted.toLocaleString("en-US")} deletions`
-    : undefined;
-
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
     : new Set<CenterTab>();
@@ -78,13 +69,10 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             role="tab"
             aria-selected={activeTab === tab.id}
             data-testid={`center-tab-${tab.id}`}
-            draggable={
-              !isMobile && activeTab !== tab.id && tab.id !== "whiteboard"
-            }
+            draggable={!isMobile && activeTab !== tab.id}
             onDragStart={(e) => handleDragStart(e, tab.id)}
             className={cn(
               "relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
-              tab.id === "changes" && "sm:w-36",
               activeTab === tab.id
                 ? "text-foreground"
                 : "cursor-grab text-muted-foreground hover:text-foreground/80 active:cursor-grabbing"
@@ -110,33 +98,45 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
               {activeTab === tab.id && !isSplit ? (
                 <span className="absolute bottom-0 left-0 right-0 h-0.5 rounded-full bg-foreground" />
               ) : null}
-              {tab.id === "changes" && hasChanges ? (
-                <span
-                  aria-label={diffStatsLabel}
-                  title={diffStatsLabel}
-                  className="absolute left-full top-0 ml-1.5 hidden items-center gap-1 whitespace-nowrap rounded-full border border-border/50 bg-muted/30 px-1.5 py-0 font-mono text-[10px] font-normal normal-case tracking-normal sm:inline-flex"
-                >
-                  <span aria-hidden="true" className="text-status-working">
-                    +{formatDiffCount(diffStats.added)}
-                  </span>
-                  <span aria-hidden="true" className="text-status-blocked">
-                    {"−"}
-                    {formatDiffCount(diffStats.deleted)}
-                  </span>
-                </span>
-              ) : null}
             </span>
           </button>
         );
 
-        if (tab.id !== "changes" || activeTab === tab.id || isMobile || isSplit)
-          return button;
+        if (
+          tab.id === "changes" &&
+          activeTab !== tab.id &&
+          !isMobile &&
+          !isSplit
+        )
+          return (
+            <TipSpot
+              key={tab.id}
+              tipId="split-tabs"
+              side="bottom"
+              align="center"
+            >
+              {button}
+            </TipSpot>
+          );
 
-        return (
-          <TipSpot key={tab.id} tipId="split-tabs" side="bottom" align="center">
-            {button}
-          </TipSpot>
-        );
+        if (
+          tab.id === "whiteboard" &&
+          activeTab !== tab.id &&
+          !isMobile &&
+          !isSplit
+        )
+          return (
+            <TipSpot
+              key={tab.id}
+              tipId="whiteboard"
+              side="bottom"
+              align="center"
+            >
+              {button}
+            </TipSpot>
+          );
+
+        return button;
       })}
     </div>
   );

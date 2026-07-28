@@ -19,6 +19,7 @@ import { ChangesSettingsPopover } from "@/components/app/changes-settings-popove
 import {
   CenterPaneTabBar,
   TAB_DRAG_MIME,
+  formatDiffCount,
 } from "@/components/app/center-pane-tab-bar";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { CenterPaneSplit } from "@/components/app/center-pane-split";
@@ -580,6 +581,15 @@ export function AgentsView({
     />
   ) : null;
 
+  const whiteboardVisible =
+    (isSplit &&
+      (splitState.left === "whiteboard" ||
+        splitState.right === "whiteboard")) ||
+    (!isSplit && whiteboardMatch);
+  const whiteboardElement = whiteboardVisible ? (
+    <WhiteboardPane agentId={focusedAgentId} active={true} />
+  ) : null;
+
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
@@ -685,6 +695,23 @@ export function AgentsView({
                       focusTerminal={focusTerminal}
                     />
                   </TipSpot>
+                  {focusedDiffStats &&
+                  (focusedDiffStats.added > 0 ||
+                    focusedDiffStats.deleted > 0) ? (
+                    <span
+                      aria-label={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
+                      title={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
+                      className="hidden items-center gap-1 whitespace-nowrap rounded-full border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] tracking-normal sm:inline-flex"
+                    >
+                      <span className="text-status-working">
+                        +{formatDiffCount(focusedDiffStats.added)}
+                      </span>
+                      <span className="text-status-blocked">
+                        {"−"}
+                        {formatDiffCount(focusedDiffStats.deleted)}
+                      </span>
+                    </span>
+                  ) : null}
                 </div>
                 <div className="flex items-center justify-center">
                   {focusedAgent?.name ? (
@@ -709,7 +736,6 @@ export function AgentsView({
                           }
                           onTabChange(tab);
                         }}
-                        diffStats={focusedDiffStats}
                         whiteboardAgentDrew={whiteboardAgentDrew}
                         isSplit={isSplit}
                         splitState={splitState}
@@ -759,6 +785,7 @@ export function AgentsView({
                     splitButtonRef={splitButtonRef}
                     splitTerminalSlotRef={splitTerminalSlotRef}
                     changesElement={changesElement}
+                    whiteboardElement={whiteboardElement}
                     isMobile={isMobile}
                     onLayoutChange={handleSplitLayoutChange}
                     onExitSplit={exitSplit}
@@ -775,10 +802,7 @@ export function AgentsView({
                     <Routes>
                       <Route path="changes" element={changesElement} />
                     </Routes>
-                    <WhiteboardPane
-                      agentId={focusedAgentId}
-                      active={!!whiteboardMatch}
-                    />
+                    {whiteboardElement}
                   </>
                 )}
                 {stableTerminalContainerRef.current

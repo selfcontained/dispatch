@@ -341,7 +341,7 @@ function WhiteboardCanvas({
 
   return (
     <div
-      className="relative h-full"
+      className="dispatch-whiteboard relative h-full"
       data-testid="whiteboard-canvas"
       onPointerDownCapture={() => {
         pointerDownRef.current = true;

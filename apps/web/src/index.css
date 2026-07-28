@@ -1382,3 +1382,15 @@ html[data-hidden] .animate-sidebar-nav-pulse {
   .token.interpolation {
   color: #cf222e;
 }
+
+/* Excalidraw overrides — hide library, help button, and toolbar hints */
+.dispatch-whiteboard .default-sidebar-trigger,
+.dispatch-whiteboard .layer-ui__library {
+  display: none !important;
+}
+.dispatch-whiteboard .HintViewer {
+  display: none !important;
+}
+.dispatch-whiteboard .help-icon {
+  display: none !important;
+}

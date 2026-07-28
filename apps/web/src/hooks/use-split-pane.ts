@@ -24,7 +24,6 @@ export function useSplitPane(agentId: string | null, isMobile: boolean) {
     (draggedTab: CenterTab, side: "left" | "right", activeTab: CenterTab) => {
       if (isMobile || !agentId) return;
       if (draggedTab === activeTab) return;
-      if (draggedTab === "whiteboard" || activeTab === "whiteboard") return;
 
       const left = side === "left" ? draggedTab : activeTab;
       const right = side === "right" ? draggedTab : activeTab;
@@ -63,7 +62,6 @@ export function useSplitPane(agentId: string | null, isMobile: boolean) {
   const handleTabDrop = useCallback(
     (draggedTab: CenterTab, side: "left" | "right", activeTab: CenterTab) => {
       if (isMobile || !agentId) return;
-      if (draggedTab === "whiteboard" || activeTab === "whiteboard") return;
 
       if (splitState.mode === "split") {
         const otherSide = side === "left" ? "right" : "left";

@@ -6,7 +6,13 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { type SplitPaneState } from "@/lib/store";
+import { type CenterTab, type SplitPaneState } from "@/lib/store";
+
+const TAB_LABELS: Record<CenterTab, string> = {
+  terminal: "Terminal",
+  changes: "Changes",
+  whiteboard: "Whiteboard",
+};
 
 type CenterPaneSplitProps = {
   splitState: SplitPaneState;
@@ -14,6 +20,7 @@ type CenterPaneSplitProps = {
   splitButtonRef: React.RefObject<HTMLButtonElement>;
   splitTerminalSlotRef: React.RefObject<HTMLDivElement>;
   changesElement: React.ReactNode;
+  whiteboardElement: React.ReactNode;
   isMobile: boolean;
   onLayoutChange: (layout: Record<string, number>) => void;
   onExitSplit: () => void;
@@ -31,6 +38,7 @@ export function CenterPaneSplit({
   splitButtonRef,
   splitTerminalSlotRef,
   changesElement,
+  whiteboardElement,
   isMobile,
   onLayoutChange,
   onExitSplit,
@@ -50,7 +58,7 @@ export function CenterPaneSplit({
           <div ref={splitLeftRef} className="flex h-full flex-col">
             <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {splitState.left === "terminal" ? "Terminal" : "Changes"}
+                {TAB_LABELS[splitState.left]}
               </span>
               {splitState.left === "changes" && !isMobile ? (
                 <ChangesSettingsPopover />
@@ -59,6 +67,8 @@ export function CenterPaneSplit({
             <div className="min-h-0 flex-1">
               {splitState.left === "terminal" ? (
                 <div ref={splitTerminalSlotRef} className="h-full" />
+              ) : splitState.left === "whiteboard" ? (
+                whiteboardElement
               ) : (
                 changesElement
               )}
@@ -74,7 +84,7 @@ export function CenterPaneSplit({
           <div className="flex h-full flex-col">
             <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {splitState.right === "terminal" ? "Terminal" : "Changes"}
+                {TAB_LABELS[splitState.right]}
               </span>
               {splitState.right === "changes" && !isMobile ? (
                 <ChangesSettingsPopover />
@@ -83,6 +93,8 @@ export function CenterPaneSplit({
             <div className="min-h-0 flex-1">
               {splitState.right === "terminal" ? (
                 <div ref={splitTerminalSlotRef} className="h-full" />
+              ) : splitState.right === "whiteboard" ? (
+                whiteboardElement
               ) : (
                 changesElement
               )}
