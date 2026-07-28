@@ -73,14 +73,4 @@ export async function uploadAgentMedia(
   return res.media;
 }
 
-const MIME_TO_EXT: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-};
-
-/** Map a MIME type to a file extension (with leading dot). Falls back to `.png`. */
-export function extensionForMime(mime: string): string {
-  return MIME_TO_EXT[mime] ?? ".png";
-}
+export { extensionForMime } from "../../../server/src/shared/media-file-types";

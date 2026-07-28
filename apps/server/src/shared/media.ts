@@ -1,5 +1,14 @@
 import path from "node:path";
 
+import {
+  extensionForMime,
+  isDocumentFile,
+  isMediaFile,
+  isTextFile,
+} from "./media-file-types.js";
+
+export { extensionForMime, isDocumentFile, isMediaFile, isTextFile };
+
 export function sanitizeUploadedFileName(name: string): string {
   const ext = path.extname(name).toLowerCase();
   const baseName = path.basename(name, path.extname(name)).normalize("NFKD");
@@ -11,76 +20,6 @@ export function sanitizeUploadedFileName(name: string): string {
     .replace(/-+/g, "-")
     .replace(/^[-.]+|[-.]+$/g, "");
   return `${collapsed || "file"}${ext}`;
-}
-
-const TEXT_EXTENSIONS = new Set([
-  ".txt",
-  ".md",
-  ".json",
-  ".yaml",
-  ".yml",
-  ".log",
-  ".csv",
-  ".xml",
-  ".html",
-  ".css",
-  ".ts",
-  ".tsx",
-  ".js",
-  ".jsx",
-  ".mjs",
-  ".cjs",
-  ".py",
-  ".go",
-  ".rs",
-  ".sh",
-  ".bash",
-  ".zsh",
-  ".sql",
-  ".diff",
-  ".patch",
-  ".toml",
-  ".ini",
-  ".cfg",
-  ".conf",
-  ".swift",
-  ".kt",
-  ".java",
-  ".c",
-  ".cpp",
-  ".h",
-  ".hpp",
-  ".rb",
-  ".php",
-  ".lua",
-  ".zig",
-  ".nim",
-  ".r",
-  ".m",
-  ".ex",
-  ".exs",
-  ".erl",
-  ".hs",
-]);
-
-export function isTextFile(name: string): boolean {
-  const ext = path.extname(name).toLowerCase();
-  return TEXT_EXTENSIONS.has(ext);
-}
-
-const DOCUMENT_EXTENSIONS = new Set([".pdf"]);
-
-export function isDocumentFile(name: string): boolean {
-  const ext = path.extname(name).toLowerCase();
-  return DOCUMENT_EXTENSIONS.has(ext);
-}
-
-export function isMediaFile(name: string): boolean {
-  return (
-    /\.(png|jpg|jpeg|gif|webp|mp4)$/i.test(name) ||
-    isTextFile(name) ||
-    isDocumentFile(name)
-  );
 }
 
 export function mimeType(name: string): string {
@@ -112,21 +51,6 @@ export function resolveMediaDir(
 
 export function toMediaKey(file: { name: string; updatedAt: string }): string {
   return `${file.name}:${file.updatedAt}`;
-}
-
-const MIME_TO_EXT: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-  "video/mp4": ".mp4",
-  "application/pdf": ".pdf",
-};
-
-export function extensionForMime(mime: string): string {
-  if (MIME_TO_EXT[mime]) return MIME_TO_EXT[mime];
-  if (mime.startsWith("image/")) return ".png";
-  return ".bin";
 }
 
 export function isValidMediaKey(key: string): boolean {
