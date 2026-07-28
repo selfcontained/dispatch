@@ -10,6 +10,10 @@
   --border: #202225;
   --accent: #57b8ff;
   --accent-bright: #82ccff;
+  --accent-green: #5fcf8a;
+  --accent-yellow: #f5eb4f;
+  --accent-pink: #ff5cad;
+  --accent-violet: #bd88f5;
   --code: #82e5fa;
 }
 
@@ -241,6 +245,21 @@ main {
   padding: 1.5rem;
   white-space: pre;
 }
+.diagram .cyan {
+  color: var(--accent-bright);
+}
+.diagram .green {
+  color: var(--accent-green);
+}
+.diagram .yellow {
+  color: var(--accent-yellow);
+}
+.diagram .pink {
+  color: var(--accent-pink);
+}
+.diagram .violet {
+  color: var(--accent-violet);
+}
 .example-list {
   border-top: 1px solid var(--border);
   list-style: none;
@@ -295,6 +314,15 @@ main {
   font:
     0.8rem "JetBrains Mono",
     monospace;
+}
+.principle:nth-of-type(4n + 2) .number {
+  color: var(--accent-green);
+}
+.principle:nth-of-type(4n + 3) .number {
+  color: var(--accent-yellow);
+}
+.principle:nth-of-type(4n + 4) .number {
+  color: var(--accent-violet);
 }
 .principle p {
   margin-bottom: 0;

@@ -5,14 +5,14 @@ import PageIntro from "../components/PageIntro.astro";
 <Base title="Architecture">
   <PageIntro eyebrow="Architecture" title="A visible control plane around durable work.">Dispatch coordinates local agent processes and the artifacts around them. It does not attempt to replace the tools that make a repository useful.</PageIntro>
   <article class="reading">
-    <pre class="diagram">Browser UI ──────────────────────┐
+    <pre class="diagram"><span class="cyan">Browser UI</span> ──────────────────────┐
                                    │  SSE / WebSocket / HTTP
-Dispatch server ───────────────────┼───────────────────────┐
-  agent lifecycle                  │                       │
-  messages / media / pins          │                       │
-  jobs / reviews / MCP             │                       │
+<span class="violet">Dispatch server</span> ───────────────────┼───────────────────────┐
+  <span class="green">agent lifecycle</span>                  │                       │
+  <span class="yellow">messages / media / pins</span>          │                       │
+  <span class="pink">jobs / reviews / MCP</span>             │                       │
                                    ▼                       ▼
-                              tmux sessions            PostgreSQL
+                              <span class="green">tmux sessions</span>            <span class="yellow">PostgreSQL</span>
                                    │
                          agent CLIs + project worktrees</pre>
     <h2>Agent lifecycle</h2>
