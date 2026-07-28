@@ -17,7 +17,7 @@ import Base from "../layouts/Base.astro";
     <div><p class="eyebrow">A concrete artifact</p><h2 id="artifact-title">One environment for agents, branches, terminals, context, and human direction.</h2><p>Dispatch keeps the surface of collaboration visible. The point is not to replace engineering judgment; it is to give that judgment something durable to work with.</p></div>
   </section>
 
-  <section class="content-section two-column">
+  <section class="content-section two-column accent-yellow">
     <div><p class="eyebrow">An observation</p><h2>Workflows are useful. Work does not always stay predictable.</h2></div>
     <div class="prose">
       <p>That usually means a large prompt, a prescribed sequence of steps, and a hidden state machine. It works until the work changes shape—when the task needs a second opinion, a screenshot, a different branch, time to run, or a person to take over.</p>
@@ -25,23 +25,27 @@ import Base from "../layouts/Base.astro";
     </div>
   </section>
 
-  <section class="content-section">
+  <section class="content-section accent-violet">
     <p class="eyebrow">A different starting point</p>
     <h2>Keep the useful pieces close at hand.</h2>
     <div class="two-column" style="margin-top: 2.5rem">
       <div class="prose"><p>Instead, give humans and agents the same dependable primitives. A terminal can stay alive. A worktree can isolate a change. A message can carry a decision. A pin can preserve the one URL that matters.</p></div>
       <div class="prose"><p><strong>Capabilities compose. Workflows can grow around them.</strong> That leaves room for repeatable patterns without requiring every useful collaboration to start with a predefined path.</p></div>
     </div>
-    <pre class="diagram"><span class="yellow">a decision</span> ─────────────┐
-<span class="violet">an investigation</span> ───────┼── <span class="cyan">shared, durable context</span>
-<span class="green">a running process</span> ──────┤
-<span class="pink">a change in progress</span> ───┘
-
-The pieces stay useful on their own.
-Together, they let a team invent the next step.</pre>
+    <figure class="capability-map" aria-labelledby="capability-map-caption">
+      <div class="capability-sources">
+        <span class="map-node yellow">A decision</span>
+        <span class="map-node violet">An investigation</span>
+        <span class="map-node green">A running process</span>
+        <span class="map-node pink">A change in progress</span>
+      </div>
+      <div class="map-flow" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="map-node context">Shared, durable context</div>
+      <figcaption id="capability-map-caption">Useful pieces remain useful on their own. Together, they give a team more ways to choose the next step.</figcaption>
+    </figure>
   </section>
 
-  <section class="content-section two-column">
+  <section class="content-section two-column accent-green">
     <div><p class="eyebrow">How it started</p><h2>The useful pieces of collaboration should not be trapped in a session.</h2></div>
     <div class="prose">
       <p>Dispatch grew out of using coding agents on real software projects and repeatedly encountering the same constraint: the useful pieces of collaboration were trapped inside individual sessions and rigid workflow boundaries.</p>
@@ -49,7 +53,7 @@ Together, they let a team invent the next step.</pre>
     </div>
   </section>
 
-  <section class="content-section two-column">
+  <section class="content-section two-column accent-pink">
     <div><p class="eyebrow">Continue reading</p><h2>Follow the experiment into the code.</h2></div>
     <div class="prose"><p>Read the <a href="/principles">principles</a> that guide the experiment, inspect the <a href="/architecture">architecture</a> as evidence, or <a href="/docs">run Dispatch locally</a> if the idea is useful enough to test in your own work.</p></div>
   </section>

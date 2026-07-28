@@ -5,16 +5,24 @@ import PageIntro from "../components/PageIntro.astro";
 <Base title="Architecture">
   <PageIntro eyebrow="Architecture" title="A visible control plane around durable work.">Dispatch coordinates local agent processes and the artifacts around them. It does not attempt to replace the tools that make a repository useful.</PageIntro>
   <article class="reading">
-    <pre class="diagram"><span class="cyan">Browser UI</span> ──────────────────────┐
-                                   │  SSE / WebSocket / HTTP
-<span class="violet">Dispatch server</span> ───────────────────┼───────────────────────┐
-  <span class="green">agent lifecycle</span>                  │                       │
-  <span class="yellow">messages / media / pins</span>          │                       │
-  <span class="pink">jobs / reviews / MCP</span>             │                       │
-                                   ▼                       ▼
-                              <span class="green">tmux sessions</span>            <span class="yellow">PostgreSQL</span>
-                                   │
-                         agent CLIs + project worktrees</pre>
+    <figure class="system-map" aria-labelledby="system-map-caption">
+      <div class="system-top map-node cyan">Browser UI <small>SSE · WebSocket · HTTP</small></div>
+      <div class="system-link down" aria-hidden="true"></div>
+      <div class="system-server map-node violet">
+        Dispatch server
+        <div class="system-capabilities">
+          <span class="green">Agent lifecycle</span>
+          <span class="yellow">Messages, media, pins</span>
+          <span class="pink">Jobs, reviews, MCP</span>
+        </div>
+      </div>
+      <div class="system-link split" aria-hidden="true"><i></i><i></i></div>
+      <div class="system-services">
+        <div class="map-node green">tmux sessions <small>Agent CLIs + project worktrees</small></div>
+        <div class="map-node yellow">PostgreSQL <small>Shared, durable state</small></div>
+      </div>
+      <figcaption id="system-map-caption">The browser is a view into durable local work. Processes and shared state continue independently of a tab.</figcaption>
+    </figure>
     <h2>Agent lifecycle</h2>
     <p>Agents run as ordinary local processes inside durable tmux sessions. Their browser presence is a view into the work, not the process that keeps it alive. Each agent can have a worktree and branch, so parallel changes remain isolated until they are intentionally combined.</p>
     <h2>Shared state</h2>

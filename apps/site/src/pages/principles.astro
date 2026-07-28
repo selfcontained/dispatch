@@ -13,7 +13,7 @@ const principles = [
 ---
 <Base title="Principles">
   <PageIntro eyebrow="Principles" title="Engineering convictions, held provisionally.">These are not product claims. They are the ideas Dispatch is being built to test. They should change when experience gives us better ones.</PageIntro>
-  <article class="reading">
+  <article class="reading accent-green">
     {principles.map(([title, explanation], index) => <section class="principle"><span class="number">{String(index + 1).padStart(2, "0")}</span><div><h2>{title}</h2><p>{explanation}</p></div></section>)}
   </article>
 </Base>
