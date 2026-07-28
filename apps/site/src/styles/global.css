@@ -1,15 +1,16 @@
 :root {
   color-scheme: dark;
-  --bg: #10100e;
-  --surface: #161613;
-  --surface-raised: #1d1d19;
-  --text: #f4f2e8;
-  --muted: #aaa79b;
-  --faint: #716f66;
-  --border: #32312b;
-  --accent: #26a876;
-  --accent-bright: #61d6a3;
-  --code: #d2d9bd;
+  /* Dispatch Midnight: true black, blue-gray surfaces, vivid cyan. */
+  --bg: #000;
+  --surface: #080a0c;
+  --surface-raised: #121416;
+  --text: #f0f1f4;
+  --muted: #91949f;
+  --faint: #5e626b;
+  --border: #202225;
+  --accent: #57b8ff;
+  --accent-bright: #82ccff;
+  --code: #82e5fa;
 }
 
 * {
@@ -33,7 +34,7 @@ body {
 }
 a {
   color: inherit;
-  text-decoration-color: #5a5a50;
+  text-decoration-color: #3a3d44;
   text-underline-offset: 3px;
 }
 a:hover {
@@ -160,7 +161,7 @@ main {
 .button.primary {
   background: var(--accent);
   border-color: var(--accent);
-  color: #071b12;
+  color: #000;
   font-weight: 700;
 }
 .button:hover {
@@ -169,7 +170,7 @@ main {
 }
 .button.primary:hover {
   background: var(--accent-bright);
-  color: #071b12;
+  color: #000;
 }
 .product-artifact {
   margin: 0 auto;
