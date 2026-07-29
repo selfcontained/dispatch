@@ -37,6 +37,10 @@ function isMarkdownFile(name: string): boolean {
   return fileExtension(name) === ".md";
 }
 
+function isHtmlFile(name: string): boolean {
+  return fileExtension(name) === ".html";
+}
+
 export { MediaActions } from "@/components/app/media-lightbox-actions";
 
 export function MediaLightbox({
@@ -92,6 +96,7 @@ export function MediaLightbox({
 
   const isText = item.file.source === "text" || isTextFile(item.file.name);
   const isMarkdown = isMarkdownFile(item.file.name);
+  const isHtml = isHtmlFile(item.file.name);
   const isDocument = /\.pdf$/i.test(item.file.name);
   const isVideo = /\.mp4/i.test(item.src);
   const isImage = !isDocument && !isText && !isVideo;
@@ -134,6 +139,7 @@ export function MediaLightbox({
             fileName={item.file.name}
             isText={isText}
             isMarkdown={isMarkdown}
+            isHtml={isHtml}
           />
           <div className="mx-0.5 h-5 w-px bg-border" />
           <Button
@@ -192,7 +198,7 @@ export function MediaLightbox({
           isImage
             ? "absolute inset-0"
             : "mx-auto min-h-0 w-full max-w-4xl overflow-auto border-x border-border",
-          isDocument
+          isDocument || isHtml
             ? "bg-white"
             : isMarkdown
               ? "bg-background"
@@ -206,6 +212,16 @@ export function MediaLightbox({
             src={item.src}
             title={displayName}
             className="h-full w-full"
+          />
+        ) : isHtml ? (
+          <iframe
+            src={item.src}
+            title={displayName}
+            // No allow-same-origin: the document gets an opaque origin and
+            // cannot reach the Dispatch API or storage.
+            sandbox="allow-scripts allow-popups"
+            className="h-full min-h-[60vh] w-full"
+            data-testid="media-lightbox-html"
           />
         ) : isText ? (
           isMarkdown ? (

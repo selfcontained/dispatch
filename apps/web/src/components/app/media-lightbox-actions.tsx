@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Check, Copy, Download } from "lucide-react";
+import { Check, Copy, Download, ExternalLink } from "lucide-react";
 
 import { stripTimestamp } from "@/components/app/media-file-utils";
 import { Button } from "@/components/ui/button";
@@ -13,11 +13,13 @@ export function MediaActions({
   fileName,
   isText,
   isMarkdown,
+  isHtml,
 }: {
   src: string;
   fileName: string;
   isText?: boolean;
   isMarkdown?: boolean;
+  isHtml?: boolean;
 }): JSX.Element {
   const [copied, copyText] = useCopyText();
   const [imageCopied, setImageCopied] = useState(false);
@@ -72,13 +74,26 @@ export function MediaActions({
 
   const showCopied = isText ? copied : imageCopied;
   const showCopy = isText || HAS_CLIPBOARD_WRITE;
-  const copyLabel = isMarkdown ? "Copy source" : "Copy";
+  const copyLabel = isMarkdown || isHtml ? "Copy source" : "Copy";
 
   return (
     <div
       className="flex flex-none items-center gap-1"
       onClick={(event) => event.stopPropagation()}
     >
+      {isHtml && (
+        <a
+          href={src}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="inline-flex h-7 items-center gap-1.5 rounded-md px-2 text-xs font-medium text-muted-foreground transition-colors hover:bg-muted/70 hover:text-foreground"
+          title="Open in new tab"
+          data-testid="media-lightbox-open-tab"
+        >
+          <ExternalLink className="h-3.5 w-3.5" />
+          <span className="hidden sm:inline">Open in tab</span>
+        </a>
+      )}
       <a
         href={src}
         download={displayName}
