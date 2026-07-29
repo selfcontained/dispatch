@@ -1,18 +1,18 @@
-export const IDE_TYPES = ["vscode", "cursor"] as const;
-export type IdeType = (typeof IDE_TYPES)[number];
+/**
+ * IDE-type table and predicates, re-exported from the shared server module
+ * so the web client always matches what the server accepts (see
+ * apps/server/src/shared/ide-types.ts). Display labels live here.
+ */
+import type { IdeType } from "../../../server/src/shared/ide-types";
+
+export {
+  IDE_TYPES,
+  isIdeType,
+  sanitizeEnabledIdes,
+  type IdeType,
+} from "../../../server/src/shared/ide-types";
 
 export const IDE_LABELS: Record<IdeType, string> = {
   vscode: "VS Code",
   cursor: "Cursor",
 };
-
-export function isIdeType(value: unknown): value is IdeType {
-  return typeof value === "string" && IDE_TYPES.includes(value as IdeType);
-}
-
-export function sanitizeEnabledIdes(value: unknown): IdeType[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter(isIdeType)
-    .filter((type, index, types) => types.indexOf(type) === index);
-}
