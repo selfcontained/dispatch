@@ -1,0 +1,17 @@
+---
+import Base from "../layouts/Base.astro";
+import PageIntro from "../components/PageIntro.astro";
+---
+<Base title="Philosophy">
+  <PageIntro eyebrow="Philosophy" title="Notes from an ongoing engineering experiment.">Dispatch starts from an observation: software work often benefits when the people, agents, and artifacts involved can share a flexible set of tools.</PageIntro>
+  <article class="reading accent-violet">
+    <h2>Where workflows benefit from flexibility</h2>
+    <p>Workflows are useful because they make a complicated process legible: give an agent a task, run a series of steps, return a result. Repeatable work deserves repeatable patterns.</p>
+    <p>But engineering work is also full of useful interruptions. A test fails for an unrelated reason. A reviewer wants a diagram. The best next step is to inspect production, wait for CI, ask a question, or split the work. When those moments cannot be expressed with the tools available, the workflow becomes a constraint. The workaround is usually a bigger prompt, more hidden state, or an even larger orchestrator.</p>
+    <h2>Capabilities compound</h2>
+    <p>A capability is a durable thing that can be used in many situations: creating an isolated worktree, sharing a screenshot, leaving a message, running a terminal session, waking an agent later. None of these decides what the work should be. Each makes a larger set of good decisions possible.</p>
+    <p>Dispatch explores what happens when small, inspectable primitives are available alongside workflows. They can support repeatable patterns where that helps, or adapt when the work needs a different shape.</p>
+    <h2>The same tools for people and agents</h2>
+    <p>Shared state, concrete tools, and an honest record of what happened can make handoffs clearer for people and agents alike. Dispatch explores how practical that shared environment can be.</p>
+  </article>
+</Base>

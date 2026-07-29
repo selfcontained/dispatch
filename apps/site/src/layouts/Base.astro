@@ -1,0 +1,50 @@
+---
+import "../styles/global.css";
+
+interface Props {
+  title: string;
+  description?: string;
+}
+
+const { title, description = "Composable tools for humans and AI agents to build software together." } = Astro.props;
+const currentPath = Astro.url.pathname;
+const navigation = [
+  ["Ideas", "/philosophy"],
+  ["Architecture", "/architecture"],
+  ["Docs", "/docs"],
+] as const;
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content={description} />
+    <link rel="icon" href="/brand-icon.svg" type="image/svg+xml" />
+    <title>{title} · Dispatch</title>
+  </head>
+  <body>
+    <header class="site-header">
+      <a class="wordmark" href="/" aria-label="Dispatch home"><img src="/brand-full-logo.svg" alt="Dispatch" /></a>
+      <nav aria-label="Primary navigation">
+        {navigation.map(([label, href]) => (
+          <a href={href} aria-current={currentPath === href ? "page" : undefined}>{label}</a>
+        ))}
+      </nav>
+      <details class="mobile-nav">
+        <summary>Menu</summary>
+        <div>
+          {navigation.map(([label, href]) => <a href={href}>{label}</a>)}
+          <a href="/principles">Principles</a>
+        </div>
+      </details>
+      <a class="github-link" href="https://github.com/selfcontained/dispatch">GitHub ↗</a>
+    </header>
+    <main><slot /></main>
+    <footer>
+      <span>Dispatch is an ongoing engineering project.</span>
+      <a href="https://github.com/selfcontained/dispatch">Read the source ↗</a>
+    </footer>
+  </body>
+</html>
