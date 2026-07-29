@@ -8,6 +8,7 @@
 dispatch/
 ├── pnpm-workspace.yaml       # workspace config
 ├── apps/
+│   ├── browser-extension/     # Chrome extension for browser feedback (dev preview)
 │   ├── server/                # Fastify API server (@dispatch/server)
 │   │   ├── src/               # backend source
 │   │   │   ├── agents/        # agent manager, lifecycle, token harvesting
@@ -15,7 +16,9 @@ dispatch/
 │   │   │   ├── db/            # PostgreSQL migrations and queries
 │   │   │   ├── jobs/          # job scheduler, runner, reporting
 │   │   │   ├── media/         # media file storage
+│   │   │   ├── messages/      # cross-agent message store
 │   │   │   ├── notifications/ # Slack + job notifiers
+│   │   │   ├── observability/ # service resources sampling, subsystem tracker
 │   │   │   ├── personas/      # persona loader, review-diff builder
 │   │   │   ├── reviews/       # review injection prompts
 │   │   │   ├── routes/        # HTTP route handlers
@@ -24,6 +27,7 @@ dispatch/
 │   │   │   ├── templates/     # template service and storage
 │   │   │   └── terminal/      # tmux terminal bridge
 │   │   └── test/              # unit tests (vitest)
+│   ├── site/                  # public website (Astro, deployed to Cloudflare)
 │   └── web/                   # Vite React frontend (@dispatch/web)
 │       └── src/
 ├── e2e/                       # Playwright E2E tests
