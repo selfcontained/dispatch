@@ -241,7 +241,8 @@ export function AutomationsContent() {
           adjust these settings and options like{" "}
           <strong>Webhook trigger</strong> — enable it to generate a secret URL
           that fires a run via HTTP POST. No auth header is needed; the secret
-          in the URL is the credential.
+          in the URL is the credential. The prompt itself is edited on the job's{" "}
+          <strong>Prompt</strong> tab.
         </P>
       </Section>
 
@@ -304,9 +305,10 @@ export function AutomationsContent() {
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
             <strong>Status &amp; comms</strong> — <Code>dispatch_event</Code>,{" "}
-            <Code>dispatch_pin</Code>, <Code>dispatch_share</Code>,{" "}
-            <Code>dispatch_list_media</Code>,{" "}
-            <Code>dispatch_rename_session</Code>, and{" "}
+            <Code>dispatch_pin</Code>, <Code>dispatch_list_pins</Code>,{" "}
+            <Code>dispatch_delete_pin</Code>, <Code>dispatch_share</Code>,{" "}
+            <Code>dispatch_list_media</Code>, <Code>dispatch_delete_media</Code>
+            , <Code>dispatch_rename_session</Code>, and{" "}
             <Code>dispatch_notify</Code> all behave the same as for standard
             agents. Renaming the session is handy when the job's prompt is
             generic but each run has a more specific topic.
