@@ -236,11 +236,12 @@ describe("assemblePersonaPrompt", () => {
     expect(result).toContain("git diff HEAD");
   });
 
-  it("guides reviewers to submit one summarized review", () => {
+  it("guides reviewers to keep summaries short and non-duplicative", () => {
     const result = assemblePersonaPrompt(basePersona, "", null);
     expect(result).toContain("dispatch_review_submit");
-    expect(result).toContain("concise summary");
-    expect(result).toContain("empty array for a clean approval");
+    expect(result).toContain("280 characters or fewer");
+    expect(result).toContain("never repeat feedback-item details");
+    expect(result).toContain("empty array and a concise nonblank summary");
   });
 
   it("keeps review discussion in tracked item threads", () => {
