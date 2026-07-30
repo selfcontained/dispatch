@@ -162,7 +162,7 @@ function buildStandardFeedbackGuidance(includeDiff: boolean): string {
   const reviewLifecycle = [
     "- Before inspecting the target, call `dispatch_event` with type `working` and a short phase description. Refresh it at distinct review phases so the parent sees accurate progress.",
     "- Inspect the complete review target before submitting. Collect findings during the pass instead of sending direct messages to the parent.",
-    "- Call `dispatch_review_submit` exactly once when the initial pass is complete. Always include a concise summary explaining the result. Submit all actionable concerns in the `feedback` array; use an empty array for a clean approval.",
+    "- Call `dispatch_review_submit` exactly once when the initial pass is complete. Put actionable concerns in the `feedback` array. When findings are submitted, omit the summary unless one short (280 characters or fewer), non-duplicative overall takeaway is useful; never repeat feedback-item details there. Use an empty array and a concise nonblank summary for a clean approval.",
     "- After submission, use `dispatch_review_add_message` for a clarifying question or reply on an existing item. Use `dispatch_review_add_feedback` only for a genuinely new concern.",
     "- Keep all review discussion in feedback-item threads. Do not use direct agent messages for review content.",
     "- Immediately after submitting, call `dispatch_event` with type `done`, or `waiting_user` only if a tracked feedback thread needs a reply. Never leave the agent `working` while waiting. Later thread updates will arrive as structured injected prompts and may start a new turn.",

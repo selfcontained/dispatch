@@ -376,6 +376,28 @@ describe("createReviewHandlers", () => {
       ).rejects.toThrow("summary is required for a clean approval");
     });
 
+    it("rejects summaries longer than 280 characters", async () => {
+      const deps = makeDeps({
+        agentManager: {
+          ...makeDeps().agentManager,
+          getAgent: vi.fn().mockResolvedValue({
+            id: "agt_reviewer",
+            role: "review",
+            persona: "security",
+            parentAgentId: "agt_parent",
+          }),
+        },
+      });
+      const handlers = createReviewHandlers(deps as never);
+
+      await expect(
+        handlers.submitReview("agt_reviewer", {
+          summary: "x".repeat(281),
+          feedback: [{ comment: "Actionable issue" }],
+        })
+      ).rejects.toThrow("Review summary must be 280 characters or fewer.");
+    });
+
     it("records and notifies the parent about a clean approval", async () => {
       const { createReview, getReviewByReviewerAgent } =
         await import("../src/agents/reviews.js");

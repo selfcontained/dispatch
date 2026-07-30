@@ -44,6 +44,7 @@ import {
 } from "../agents/reviews.js";
 import type { ParentContextResult } from "../shared/mcp/server.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
+import { AGENT_REVIEW_SUMMARY_MAX_CHARS } from "../shared/review-limits.js";
 
 const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
@@ -169,6 +170,11 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         );
       }
       const summary = input.summary?.trim() || null;
+      if (summary && summary.length > AGENT_REVIEW_SUMMARY_MAX_CHARS) {
+        throw new Error(
+          `Review summary must be ${AGENT_REVIEW_SUMMARY_MAX_CHARS} characters or fewer.`
+        );
+      }
       if (input.feedback.length === 0 && !summary) {
         throw new Error(
           "summary is required for a clean approval with no feedback items."

@@ -6,6 +6,7 @@ import {
   registerPersonaInteractionTools,
   resolvePersonaList,
 } from "../src/shared/mcp/persona-interaction-tools.js";
+import { AGENT_REVIEW_SUMMARY_MAX_CHARS } from "../src/shared/review-limits.js";
 
 // ─── resolvePersonaList ───────────────────────────────────────────────────────
 
@@ -209,7 +210,7 @@ describe("registerPersonaInteractionTools", () => {
     expect(names).toContain("get_parent_context");
   });
 
-  it("makes summary optional in the schema and documents the clean-approval requirement", () => {
+  it("normalizes summary whitespace before enforcing its length", () => {
     const callbacks: PersonaInteractionCallbacks = {
       agentId,
       submitReview: vi.fn(),
@@ -222,9 +223,26 @@ describe("registerPersonaInteractionTools", () => {
 
     const tool = server.tools[0];
     const inputSchema = tool.config.inputSchema as {
-      summary: { safeParse: (value: unknown) => { success: boolean } };
+      summary: {
+        safeParse: (value: unknown) => {
+          success: boolean;
+          data?: string;
+        };
+      };
     };
     expect(inputSchema.summary.safeParse(undefined).success).toBe(true);
+    const padded = inputSchema.summary.safeParse(
+      `  ${"a".repeat(AGENT_REVIEW_SUMMARY_MAX_CHARS)}  `
+    );
+    expect(padded).toMatchObject({
+      success: true,
+      data: "a".repeat(AGENT_REVIEW_SUMMARY_MAX_CHARS),
+    });
+    expect(
+      inputSchema.summary.safeParse(
+        ` ${"a".repeat(AGENT_REVIEW_SUMMARY_MAX_CHARS + 1)} `
+      ).success
+    ).toBe(false);
     expect(tool.config.description).toContain("required for a clean approval");
   });
 

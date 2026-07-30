@@ -4,6 +4,7 @@ import * as z from "zod/v4";
 import {
   AGENT_REVIEW_REPLY_GUIDANCE,
   AGENT_REVIEW_REPLY_MAX_CHARS,
+  AGENT_REVIEW_SUMMARY_MAX_CHARS,
 } from "../review-limits.js";
 
 import { mergePersonasWithWorktreePrecedence } from "../../personas/loader.js";
@@ -75,10 +76,13 @@ export function registerPersonaInteractionTools(
     server.registerTool(
       "dispatch_review_submit",
       {
-        description:
-          "Submit this reviewer's completed initial pass. Creates one agent-authored review assigned to the parent agent. `summary` is optional when `feedback` has items, but a nonblank summary is required for a clean approval with no feedback.",
+        description: `Submit this reviewer's completed initial pass. Creates one agent-authored review assigned to the parent agent. When feedback items capture the findings, omit \`summary\` unless there is one non-duplicative overall takeaway. A summary is limited to ${AGENT_REVIEW_SUMMARY_MAX_CHARS} characters; a nonblank summary is required for a clean approval with no feedback.`,
         inputSchema: {
-          summary: z.string().max(10_000).optional(),
+          summary: z
+            .string()
+            .trim()
+            .max(AGENT_REVIEW_SUMMARY_MAX_CHARS)
+            .optional(),
           feedback: z.array(z.object(feedbackItemSchema)).max(100).default([]),
         },
       },
