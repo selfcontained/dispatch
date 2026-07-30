@@ -204,6 +204,56 @@ describe("GET /api/v1/agents/:id/media/:file (serve)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-type"]).toContain("application/json");
   });
+
+  it("serves HTML sandboxed so it cannot run same-origin", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    await writeFile(path.join(agentMediaDir, "report.html"), "<h1>hello</h1>");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/report.html`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("text/html");
+    expect(res.headers["content-security-policy"]).toBe(
+      "sandbox allow-scripts allow-popups"
+    );
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("sandboxes XML too — browsers render it actively (XHTML/XSLT)", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    await writeFile(
+      path.join(agentMediaDir, "evil.xml"),
+      '<html xmlns="http://www.w3.org/1999/xhtml"><script>fetch("/api")</script></html>'
+    );
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/evil.xml`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toContain("application/xml");
+    expect(res.headers["content-security-policy"]).toBe(
+      "sandbox allow-scripts allow-popups"
+    );
+  });
+
+  it("omits the CSP sandbox header for passive types", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    await writeFile(path.join(agentMediaDir, "shot.png"), "fake-png");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/shot.png`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-security-policy"]).toBeUndefined();
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
 });
 
 // ---------------------------------------------------------------------------

@@ -105,7 +105,23 @@ export async function registerMediaRoutes(
       return reply.code(404).send({ error: "Media file not found." });
     }
 
-    return reply.type(mimeType(file)).send(await readFile(filePath));
+    const contentType = mimeType(file);
+    reply.header("X-Content-Type-Options", "nosniff");
+    // Agent-authored files render in the browser (lightbox iframe or new
+    // tab) but must never run same-origin against the Dispatch API. Only
+    // passive types are exempt; anything a browser might render as a
+    // document (html, xml/xhtml, …) gets an opaque origin.
+    const isPassive =
+      contentType.startsWith("image/") ||
+      contentType === "video/mp4" ||
+      contentType === "application/pdf";
+    if (!isPassive) {
+      reply.header(
+        "Content-Security-Policy",
+        "sandbox allow-scripts allow-popups"
+      );
+    }
+    return reply.type(contentType).send(await readFile(filePath));
   });
 
   app.post("/api/v1/agents/:id/media", async (request, reply) => {

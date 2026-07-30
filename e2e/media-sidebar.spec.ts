@@ -256,6 +256,53 @@ test.describe("Media sidebar", () => {
     await expect(page.getByTestId("copy-mermaid-svg")).toBeVisible();
   });
 
+  test("renders shared HTML in a sandboxed lightbox preview", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-html-${Date.now()}`,
+    });
+
+    await uploadTextMediaViaAPI(
+      request,
+      agent.id,
+      "Prototype page",
+      "<h1>Hello from HTML</h1><script>document.title='ran'</script>",
+      "prototype.html"
+    );
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, agent);
+
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    await mediaSidebar
+      .getByRole("button", { name: /prototype\.html/i })
+      .click();
+
+    const lightbox = page.getByTestId("media-lightbox");
+    await expect(lightbox).toBeVisible();
+
+    const frame = lightbox.getByTestId("media-lightbox-html");
+    await expect(frame).toBeVisible();
+    await expect(frame).toHaveAttribute(
+      "sandbox",
+      "allow-scripts allow-popups"
+    );
+    await expect(
+      frame.contentFrame().getByRole("heading", { name: "Hello from HTML" })
+    ).toBeVisible();
+
+    const openTab = page.getByTestId("media-lightbox-open-tab");
+    await expect(openTab).toBeVisible();
+    await expect(openTab).toHaveAttribute("target", "_blank");
+    await expect(openTab).toHaveAttribute(
+      "href",
+      /\/media\/prototype-.*\.html/
+    );
+  });
+
   test("copies Mermaid source and SVG from diagram actions", async ({
     page,
     request,
