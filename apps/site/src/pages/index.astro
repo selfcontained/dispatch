@@ -1,80 +1,111 @@
 ---
 import Base from "../layouts/Base.astro";
 ---
-<Base title="Composable tools for building software together">
+<Base title="A shared workspace for humans and coding agents" description="Dispatch is a local-first shared workspace where humans and coding agents collaborate using persistent terminals, worktrees, shared context, and reusable capabilities.">
   <section class="hero">
     <img class="hero-logo" src="/brand-full-logo.svg" alt="Dispatch" />
-    <h1>Build capabilities. Let workflows emerge.</h1>
-    <p class="summary">Dispatch is a local-first environment for people and coding agents working on the same software. It is an ongoing experiment in making the useful parts of work reusable, visible, and available to everyone involved.</p>
-    <p class="product-definition">Run persistent coding agents on your own machine, supervise them from a browser, and give people and agents shared access to terminals, worktrees, messages, media, and tools.</p>
+    <p class="eyebrow">Durable collaboration for software teams</p>
+    <h1>Software engineering is collaborative. AI should be, too.</h1>
+    <p class="summary">Developers share context, ask questions, investigate problems, review work, leave notes, and hand work to one another. Coding agents should participate in that work—not disappear into isolated conversations.</p>
+    <p class="product-definition">Dispatch is a local-first shared workspace where humans and coding agents collaborate using persistent terminals, worktrees, shared context, and reusable capabilities.</p>
     <div class="actions">
-      <a class="button primary" href="/philosophy">Read the philosophy</a>
+      <a class="button primary" href="/collaboration">See how it works</a>
       <a class="button" href="https://github.com/selfcontained/dispatch">Browse GitHub ↗</a>
     </div>
   </section>
 
-  <section class="product-artifact" aria-labelledby="artifact-title">
-    <img src="/dispatch-dashboard.png" alt="Dispatch dashboard showing agent sessions, terminal, messages, pins, and media" />
-    <div>
-      <p class="eyebrow">The working loop</p>
-      <h2 id="artifact-title">Start an agent in an isolated worktree, watch its terminal, share context, step in when needed, and return later without losing the session.</h2>
-      <ol class="working-loop"><li>Launch</li><li>Observe</li><li>Collaborate</li><li>Intervene</li><li>Resume</li></ol>
-      <p>Dispatch keeps the surface of collaboration visible while the process continues in tmux on the machine that owns the work.</p>
+  <section class="content-section accent-green" aria-labelledby="collaboration-scenes-title">
+    <div class="two-column">
+      <div><p class="eyebrow">A working environment</p><h2 id="collaboration-scenes-title">The useful parts of working together can be visible.</h2></div>
+      <div class="prose"><p>These are small moments in a piece of engineering work: seeing what is underway, keeping the useful context close, and getting another set of eyes on the same change.</p></div>
+    </div>
+    <div class="collaboration-scenes">
+      <article class="scene scene-cyan">
+        <img src="/agent-conversation.png" alt="A Dispatch message thread between a developer and a frontend UX review agent" />
+        <div>
+          <p class="eyebrow">A question, in context</p>
+          <h3>Collaboration does not have to leave the work.</h3>
+          <p>People and agents need a place to ask for a check, answer it, and keep moving. Those exchanges are most useful when they remain connected to the work that prompted them.</p>
+        </div>
+      </article>
+      <article class="scene scene-yellow">
+        <img src="/shared-pinned-context.png" alt="Dispatch Pins panel showing a staging preview, changed file, and review focus beside the active work" />
+        <div>
+          <p class="eyebrow">Context that remains usable</p>
+          <h3>The starting point should be there when someone joins.</h3>
+          <p>Links, files, and decisions need to be easy to find at the moment they become relevant. Keeping them with the work avoids making every handoff a reconstruction.</p>
+        </div>
+      </article>
+      <article class="scene scene-pink">
+        <img src="/reviewer-in-progress.png" alt="Dispatch showing a frontend UX reviewer actively working beneath the parent agent" />
+        <div>
+          <p class="eyebrow">A reviewer is working</p>
+          <h3>Review is a teammate activity, not a terminal state.</h3>
+          <p>A reviewer can join an agent’s work while it is still unfolding. The person directing the work can see that a second perspective is active without turning review into a separate workflow.</p>
+        </div>
+      </article>
+      <article class="scene scene-green">
+        <img src="/review-feedback-items.png" alt="Dispatch review panel showing one open and two fixed feedback items with their affected files" />
+        <div>
+          <p class="eyebrow">The reviewer found something</p>
+          <h3>Feedback should stay close enough to be acted on.</h3>
+          <p>Review is useful when concerns retain their location and status. The developer and agent can work from the same concrete record rather than translate a verdict back into tasks.</p>
+        </div>
+      </article>
     </div>
   </section>
 
   <section class="content-section accent-violet">
     <div class="two-column">
-      <div><p class="eyebrow">The product shape</p><h2>A shared operating surface for agent work.</h2></div>
-      <div class="prose"><p>Dispatch brings the pieces around a persistent coding-agent session into one place. Each group is useful on its own; together they make it easier to understand, guide, and revisit real work.</p></div>
+      <div><p class="eyebrow">The shared workspace</p><h2>Humans and agents work with the same durable objects.</h2></div>
+      <div class="prose"><p>Dispatch is the space around an agent session where people can see what is happening, contribute context, and return to the work. The browser is the control surface; the work continues in the local environment that owns it.</p></div>
     </div>
     <div class="capability-groups">
-      <article class="cyan"><h3>Execution</h3><p>Persistent terminals and long-running agent sessions keep work alive beyond a browser tab.</p></article>
-      <article class="green"><h3>Isolation</h3><p>Git worktrees and separate branches let an agent work without borrowing another working directory.</p></article>
-      <article class="yellow"><h3>Shared context</h3><p>Messages, screenshots, media, pins, whiteboards, and Brain state keep useful information close to the work.</p></article>
-      <article class="pink"><h3>Coordination</h3><p>Human intervention, agent messaging, personas, jobs, notifications, and repo-specific tools provide ways to guide work as it changes.</p></article>
+      <article class="cyan"><h3>Persistent terminals</h3><p>Agents keep working in terminals that survive a browser session, a disconnect, and the time between decisions.</p></article>
+      <article class="green"><h3>Independent worktrees</h3><p>Humans and agents can change the same repository without borrowing or disturbing each other’s directory.</p></article>
+      <article class="yellow"><h3>Shared context</h3><p>Messages, screenshots, media, pins, whiteboards, and Brain preserve the evidence behind a decision.</p></article>
+      <article class="pink"><h3>Reusable practices</h3><p>Review personas, jobs, notifications, and repo-aware tools make a good way of working available again.</p></article>
+    </div>
+  </section>
+
+  <section class="content-section two-column accent-pink">
+    <div><p class="eyebrow">A realistic handoff</p><h2>Leave at six. Pick up the same investigation at nine.</h2></div>
+    <div class="prose">
+      <ol class="usage-path">
+        <li>A developer launches an agent to investigate a bug in an isolated worktree.</li>
+        <li>The agent finds a staging URL, shares a screenshot, and pins both where the team can find them.</li>
+        <li>A reviewer launches a persona, reads the same artifacts, and leaves feedback in the shared workspace.</li>
+        <li>Later, the developer joins from another device. The terminal is still running; the worktree, conversation, evidence, and feedback are all still available.</li>
+      </ol>
     </div>
   </section>
 
   <section class="content-section two-column accent-green">
-    <div><p class="eyebrow">Local-first</p><h2>The browser is a control surface over your own environment.</h2></div>
+    <div><p class="eyebrow">Local-first</p><h2>The browser is a control surface over your environment.</h2></div>
     <div class="prose">
-      <p>Dispatch runs against the repositories, credentials, coding-agent CLIs, and compute already available on your macOS or Linux machine. It does not replace that environment; it makes its ongoing work easier to see and direct from a browser.</p>
+      <p>Dispatch runs against the repositories, credentials, coding-agent CLIs, and compute already available on your macOS or Linux machine. It does not replace that environment; it makes its ongoing work easier to see, share, and direct from a browser.</p>
       <div class="local-environment"><span>repositories</span><span>credentials</span><span>agent CLIs</span><span>local compute</span></div>
     </div>
   </section>
 
   <section class="content-section two-column accent-yellow">
-    <div><p class="eyebrow">Workflows, with room to adapt</p><h2>Repeatable work deserves repeatable patterns.</h2></div>
+    <div><p class="eyebrow">Why capabilities?</p><h2>Collaboration needs room for the work to change shape.</h2></div>
     <div class="prose">
-      <p>Dispatch is not opposed to workflows. It avoids making a predefined workflow the only way work can happen when an investigation, a review, or a human decision changes the shape of the task.</p>
-      <p><strong>Dispatch supports repeatable workflows, but treats shared capabilities as the underlying substrate.</strong></p>
-    </div>
-  </section>
-
-  <section class="content-section two-column accent-pink">
-    <div><p class="eyebrow">A grounded session</p><h2>One change, with a human still in the loop.</h2></div>
-    <div class="prose">
-      <ol class="usage-path">
-        <li>Launch Codex or Claude in a new worktree.</li>
-        <li>Follow its terminal from the browser and share a screenshot or other context.</li>
-        <li>Let the agent open a PR and pin the useful URLs.</li>
-        <li>Launch a review persona, then answer a question when human judgment is needed.</li>
-        <li>Close the browser while the tmux session continues; return when the work is ready for the next decision.</li>
-      </ol>
+      <p>Capabilities are useful independently: start an isolated worktree, share a screenshot, leave a message, ask for a review, store a decision in Brain, or schedule recurring work. They also compose naturally when an investigation takes an unexpected turn.</p>
+      <p>That is why Dispatch is built from capabilities rather than a rigid workflow engine. <strong>Workflows can be repeatable without becoming the only way collaboration is allowed to happen.</strong></p>
     </div>
   </section>
 
   <section class="content-section two-column accent-violet">
-    <div><p class="eyebrow">How it started</p><h2>Useful context should not disappear between sessions.</h2></div>
+    <div><p class="eyebrow">An ongoing experiment</p><h2>Useful context should not disappear between sessions.</h2></div>
     <div class="prose">
-      <p>Dispatch grew out of using coding agents on real software projects and watching useful context get trapped in terminal sessions, browser tabs, temporary screenshots, and isolated agent conversations.</p>
-      <p>The project became an attempt to make those artifacts durable, shared, and composable. Its features are interesting only insofar as they make that observation concrete.</p>
+      <p>Dispatch grew out of using coding agents on real software projects and watching useful context get trapped in terminal sessions, browser tabs, temporary screenshots, and isolated conversations.</p>
+      <p>It is an ongoing experiment in making collaboration with AI feel more like collaboration with another engineer: durable, visible, and grounded in shared work. It is not an attempt to replace developers; it is an attempt to give them a better place to work alongside agents.</p>
     </div>
   </section>
 
   <section class="content-section two-column accent-pink">
-    <div><p class="eyebrow">Continue reading</p><h2>Follow the experiment into the code.</h2></div>
-    <div class="prose"><p>Read the <a href="/principles">principles</a> that guide the experiment, inspect the <a href="/architecture">architecture</a> as evidence, or <a href="/docs">run Dispatch locally</a> if the idea is useful enough to test in your own work.</p></div>
+    <div><p class="eyebrow">Continue reading</p><h2>See how the workspace is built.</h2></div>
+    <div class="prose"><p>Read the <a href="/principles">principles</a> behind the experiment, see why its pieces exist in the <a href="/architecture">architecture</a>, or <a href="/docs">run Dispatch locally</a> with your own team.</p></div>
   </section>
 </Base>

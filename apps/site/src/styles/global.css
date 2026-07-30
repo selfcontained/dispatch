@@ -227,6 +227,76 @@ main {
   margin: 0 0.65rem;
 }
 
+.collaboration-scenes {
+  display: grid;
+  gap: 3rem;
+  margin-top: 3.5rem;
+}
+.scene {
+  align-items: center;
+  border: 1px solid var(--border);
+  display: grid;
+  gap: clamp(1.5rem, 4vw, 4rem);
+  grid-template-columns: minmax(0, 1.45fr) minmax(15rem, 0.55fr);
+  padding: clamp(0.75rem, 2vw, 1.25rem);
+}
+.scene:nth-child(even) {
+  grid-template-columns: minmax(15rem, 0.55fr) minmax(0, 1.45fr);
+}
+.scene:nth-child(even) img {
+  grid-column: 2;
+  grid-row: 1;
+}
+.scene:nth-child(even) div {
+  grid-column: 1;
+  grid-row: 1;
+}
+.scene img {
+  border: 1px solid var(--border);
+  display: block;
+  margin: 0 auto;
+  max-height: 32rem;
+  max-width: 100%;
+  width: auto;
+}
+.scene div {
+  padding: 0.75rem;
+}
+.scene h3 {
+  color: var(--text);
+  font-size: clamp(1.3rem, 2.2vw, 1.8rem);
+  max-width: 13ch;
+}
+.scene p:not(.eyebrow) {
+  color: var(--muted);
+  font-size: 0.95rem;
+  margin-bottom: 0;
+}
+.scene-cyan .eyebrow {
+  color: var(--accent-bright);
+}
+.scene-yellow .eyebrow {
+  color: var(--accent-yellow);
+}
+.scene-pink .eyebrow {
+  color: var(--accent-pink);
+}
+.scene-green .eyebrow {
+  color: var(--accent-green);
+}
+
+@media (max-width: 1100px) {
+  .scene,
+  .scene:nth-child(even) {
+    grid-template-columns: 1fr;
+  }
+  .scene:nth-child(even) img,
+  .scene:nth-child(even) div {
+    grid-column: auto;
+    grid-row: auto;
+  }
+}
+
 .content-section {
   border-top: 1px solid var(--border);
   padding-bottom: 6rem;
