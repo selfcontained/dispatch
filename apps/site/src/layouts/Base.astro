@@ -6,9 +6,10 @@ interface Props {
   description?: string;
 }
 
-const { title, description = "Composable tools for humans and AI agents to build software together." } = Astro.props;
+const { title, description = "A local-first shared workspace for humans and coding agents to collaborate on software." } = Astro.props;
 const currentPath = Astro.url.pathname;
 const navigation = [
+  ["How it works", "/collaboration"],
   ["Ideas", "/philosophy"],
   ["Architecture", "/architecture"],
   ["Docs", "/docs"],

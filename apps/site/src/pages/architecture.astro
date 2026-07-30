@@ -2,8 +2,8 @@
 import Base from "../layouts/Base.astro";
 import PageIntro from "../components/PageIntro.astro";
 ---
-<Base title="Architecture">
-  <PageIntro eyebrow="Architecture" title="A visible control plane around durable work.">Dispatch coordinates local agent processes and the artifacts around them. It does not attempt to replace the tools that make a repository useful.</PageIntro>
+<Base title="Architecture: collaboration that survives disconnects">
+  <PageIntro eyebrow="Architecture" title="The infrastructure of durable collaboration.">Dispatch coordinates local agent processes and the shared artifacts around them so people and agents can return to the same work without starting the context over.</PageIntro>
   <article class="reading">
     <figure class="system-map" aria-labelledby="system-map-caption">
       <div class="system-top map-node cyan">Browser UI <small>SSE · WebSocket · HTTP</small></div>
@@ -21,15 +21,17 @@ import PageIntro from "../components/PageIntro.astro";
         <div class="map-node green">tmux sessions <small>Agent CLIs + project worktrees</small></div>
         <div class="map-node yellow">PostgreSQL <small>Shared, durable state</small></div>
       </div>
-      <figcaption id="system-map-caption">The browser is a view into durable local work. Processes and shared state continue independently of a tab.</figcaption>
+      <figcaption id="system-map-caption">The browser is the shared control surface for durable local work. Processes and context continue independently of a tab or one person’s connection.</figcaption>
     </figure>
-    <h2>Durable execution</h2>
-    <p>Agents run as ordinary local processes inside tmux sessions. That means work survives the browser session: the browser is a view into the terminal, not the process that keeps it alive.</p>
-    <h2>Safer parallel work</h2>
-    <p>Worktrees give each agent an isolated directory and branch. They make parallel agent work safer because one change does not need to borrow the working directory another person or agent is already using.</p>
-    <h2>Shared state that outlasts a terminal</h2>
-    <p>Messages, reviews, pins, media, whiteboards, Brain state, jobs, and activity are persisted independently from terminal output. They keep the context of a collaboration available after an agent exits, a page refreshes, or someone returns later.</p>
-    <h2>Reusable tools in the existing environment</h2>
-    <p>MCP exposes reusable, project-aware capabilities to agents as narrow tools. Agent-scoped tools can carry the relevant repository context and permissions. Local CLI execution preserves the repositories, credentials, coding-agent CLIs, and compute already available on the user’s macOS or Linux machine.</p>
+    <h2>tmux: collaboration survives disconnects</h2>
+    <p>Agents run as ordinary local processes inside tmux sessions. Work keeps moving when a browser closes or a connection drops, because the browser is a view into the terminal—not the thing keeping it alive.</p>
+    <h2>Git worktrees: collaborate without interfering</h2>
+    <p>Worktrees give each agent an isolated directory and branch. A developer can keep working while an agent investigates a bug or prepares a change, without either borrowing the other’s working directory.</p>
+    <h2>PostgreSQL: shared context outlasts a terminal</h2>
+    <p>Messages, reviews, pins, media, whiteboards, Brain state, jobs, and activity are persisted independently from terminal output. They preserve the record of a collaboration after an agent exits, a page refreshes, or someone returns later.</p>
+    <h2>MCP: reusable capabilities in a shared environment</h2>
+    <p>MCP exposes reusable, project-aware capabilities to agents as narrow tools. Agent-scoped tools carry the relevant repository context and permissions, allowing useful practices to be shared rather than hidden inside a single prompt or chat.</p>
+    <h2>Local execution: keep the environment people already use</h2>
+    <p>Dispatch uses the repositories, credentials, coding-agent CLIs, and compute already available on a macOS or Linux machine. It adds a durable workspace around the environment; it does not try to replace it.</p>
   </article>
 </Base>

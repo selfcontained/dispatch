@@ -1,0 +1,40 @@
+---
+import Base from "../layouts/Base.astro";
+import PageIntro from "../components/PageIntro.astro";
+---
+<Base title="How Dispatch makes collaboration durable" description="Dispatch gives humans and coding agents one durable workspace for terminals, worktrees, context, and reusable ways of working.">
+  <PageIntro eyebrow="How it works" title="A shared workspace, not another agent chat.">Dispatch gives humans and coding agents the same place to work with persistent terminals, isolated changes, shared artifacts, and reusable collaboration practices.</PageIntro>
+
+  <article class="reading accent-violet">
+    <h2>Software work already has a shared surface</h2>
+    <p>A real engineering task is more than a prompt and a response. It has a repository, a terminal, a branch, a staging URL, screenshots, questions, review feedback, and decisions someone will need to find again. Dispatch brings that surface into view instead of leaving it scattered across tabs and one-off conversations.</p>
+
+    <figure class="capability-map" aria-labelledby="shared-workspace-caption">
+      <div class="capability-sources">
+        <div class="map-node cyan">Human <small>asks, guides, decides</small></div>
+        <div class="map-node green">Coding agent <small>investigates, changes, reports</small></div>
+        <div class="map-node yellow">Reviewer <small>inspects, questions, approves</small></div>
+        <div class="map-node pink">Future teammate <small>returns, understands, continues</small></div>
+      </div>
+      <div class="map-flow" aria-hidden="true"><span></span><span></span><span></span></div>
+      <div class="map-node context">Dispatch shared workspace<br /><small>terminals · worktrees · messages · media · pins · whiteboards · Brain · personas · jobs</small></div>
+      <figcaption id="shared-workspace-caption">Everyone meets the same durable work and context. They do not need to reconstruct it from a private chat history.</figcaption>
+    </figure>
+
+    <h2>What persists</h2>
+    <p><strong>Execution:</strong> a terminal and the agent inside it keep running in tmux when a browser tab closes. <strong>Changes:</strong> a worktree and branch remain separate from the work already in progress. <strong>Context:</strong> messages, screenshots, media, pins, whiteboards, and Brain keep the useful record close at hand. <strong>Practice:</strong> personas and jobs preserve a review style or recurring task without reducing every situation to a predefined pipeline.</p>
+
+    <h2>A bug investigation, without losing the thread</h2>
+    <ol class="usage-path">
+      <li>A developer launches an agent to investigate an intermittent production bug. Dispatch creates an isolated worktree so the investigation does not interrupt anyone’s current changes.</li>
+      <li>The agent runs the app, watches logs, and discovers a staging URL. It pins the URL and shares a screenshot of the failure rather than burying both in terminal output.</li>
+      <li>The developer adds a message with a hunch. A review persona opens the diff, sees the same screenshot and pinned URL, and leaves structured feedback.</li>
+      <li>The developer closes the browser. The agent continues in its terminal, the artifacts remain shared, and the state is not held hostage by a live chat window.</li>
+      <li>That evening, the developer returns from another device. They can see the terminal, the worktree, the feedback, the staging link, and the decision trail—then decide what should happen next.</li>
+    </ol>
+
+    <h2>Why this is not a workflow engine</h2>
+    <p>The point is not to make every task follow a fixed sequence. An investigation can become a design conversation. A review can reveal a new bug. A human can decide the next step is to wait, split the work, inspect production, or stop. Dispatch makes the underlying collaboration capabilities available in each of those moments.</p>
+    <p>Those capabilities can support a repeatable workflow when one is useful. But the workflow sits on top of a shared workspace, rather than replacing it.</p>
+  </article>
+</Base>
