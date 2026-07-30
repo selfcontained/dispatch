@@ -12,6 +12,7 @@ import { runCommand } from "../shared/lib/run-command.js";
 import { sleep } from "../shared/lib/sleep.js";
 import {
   JobStore,
+  type AddJobInput,
   type JobAgentType,
   type JobRecord,
   type JobRunConfig,
@@ -38,26 +39,7 @@ type RunJobInput = {
   triggerSource?: "manual" | "scheduled" | "webhook";
 };
 
-export type AddJobInput = {
-  name: string;
-  directory: string;
-  displayName?: string;
-  prompt?: string | null;
-  schedule?: string | null;
-  timeoutMs?: number;
-  needsInputTimeoutMs?: number;
-  agentType?: JobAgentType;
-  useWorktree?: boolean;
-  baseBranch?: string | null;
-  branchName?: string | null;
-  fullAccess?: boolean;
-  autoArchive?: boolean;
-  callable?: boolean;
-  singleton?: boolean;
-  webhookEnabled?: boolean;
-  defaultArgs?: Record<string, string>;
-  enabled?: boolean;
-};
+export type { AddJobInput } from "./store.js";
 
 export type RunJobResult = {
   jobId: string;

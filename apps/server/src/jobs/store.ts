@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
+import type { CliAgentType } from "../shared/agent-types.js";
 import { isUniqueViolation } from "../shared/lib/pg-errors.js";
 import {
   appendJobLog,
@@ -11,6 +12,10 @@ import {
   type JobReport,
 } from "./report.js";
 
+// The job wire types below (JobNotifyConfig, JobRunStatus, JobAgentType,
+// JobRecord, JobRunRecord, JobWithLatestRun, AddJobInput) are imported
+// type-only by the web client (apps/web/src/hooks/use-jobs.ts) so both sides
+// of the API agree on one definition.
 export type JobNotifyConfig = {
   onComplete: string[];
   onError: string[];
@@ -25,7 +30,7 @@ export type JobRunStatus =
   | "needs_input"
   | "timed_out"
   | "crashed";
-export type JobAgentType = "claude" | "codex" | "opencode" | "cursor";
+export type JobAgentType = CliAgentType;
 
 export type JobRecord = {
   id: string;
@@ -92,6 +97,27 @@ export type JobRunConfig = {
   notify: JobNotifyConfig;
   triggerSource?: "manual" | "scheduled" | "webhook";
   autoArchive?: boolean;
+};
+
+export type AddJobInput = {
+  name: string;
+  directory: string;
+  displayName?: string;
+  prompt?: string | null;
+  schedule?: string | null;
+  timeoutMs?: number;
+  needsInputTimeoutMs?: number;
+  agentType?: JobAgentType;
+  useWorktree?: boolean;
+  baseBranch?: string | null;
+  branchName?: string | null;
+  fullAccess?: boolean;
+  autoArchive?: boolean;
+  callable?: boolean;
+  singleton?: boolean;
+  webhookEnabled?: boolean;
+  defaultArgs?: Record<string, string>;
+  enabled?: boolean;
 };
 
 export type JobConfigUpdate = {
