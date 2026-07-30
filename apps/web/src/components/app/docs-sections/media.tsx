@@ -14,8 +14,8 @@ export function MediaContent() {
           Agents call the <Code>dispatch_share</Code> tool with a{" "}
           <Code>filePath</Code> and a <Code>description</Code> to publish an
           existing file. Supported formats are PNG, JPG, GIF, WebP, MP4, PDF,
-          and a wide range of text file extensions (txt, md, json, yaml, ts, py,
-          go, rs, sh, sql, and many others).
+          and a wide range of text file extensions (txt, md, html, json, yaml,
+          ts, py, go, rs, sh, sql, and many others).
         </P>
       </Section>
 
@@ -96,6 +96,20 @@ export function MediaContent() {
           in the media sidebar. Sidebar uploads are <em>not</em> injected into
           the terminal — tell the agent about the file afterward so it knows to
           look.
+        </P>
+      </Section>
+
+      <Section>
+        <H3>Lightbox previews</H3>
+        <P>
+          Clicking a media item opens a full-screen lightbox that renders each
+          file by type: images zoom and pan, videos play inline, PDFs embed,
+          markdown renders formatted, and other text files display with syntax
+          highlighting. Shared <Code>.html</Code> files render as a live page
+          preview in a sandboxed frame — scripts run, but the page is isolated
+          from Dispatch itself — with an <strong>Open in tab</strong> action to
+          view it full-size. For markdown and HTML, the copy button copies the
+          source.
         </P>
       </Section>
 
