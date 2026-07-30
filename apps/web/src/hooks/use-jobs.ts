@@ -1,115 +1,27 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
+import type { JobReport } from "../../../server/src/jobs/report";
+import type {
+  AddJobInput,
+  JobAgentType,
+  JobNotifyConfig,
+  JobRunRecord,
+  JobRunStatus,
+  JobWithLatestRun,
+} from "../../../server/src/jobs/store";
 
-export type JobRunStatus =
-  | "started"
-  | "running"
-  | "completed"
-  | "failed"
-  | "needs_input"
-  | "timed_out"
-  | "crashed";
-export type JobAgentType = "claude" | "codex" | "opencode" | "cursor";
-export type JobRunTriggerSource = "manual" | "scheduled" | "webhook";
+export type { JobAgentType, JobNotifyConfig, JobReport, JobRunStatus };
 
-export type JobNotifyConfig = {
-  onComplete: string[];
-  onError: string[];
-  onNeedsInput: string[];
-};
+export type JobRunTriggerSource = NonNullable<
+  JobRunRecord["config"]["triggerSource"]
+>;
 
-export type JobReport = {
-  status: "completed" | "failed" | "running";
-  summary: string;
-  tasks: Array<{
-    name: string;
-    status: "success" | "skipped" | "error";
-    summary?: string;
-    errors?: Array<{ message: string; recoverable?: boolean; action?: string }>;
-    logs?: Array<{
-      level: "debug" | "info" | "warn" | "error";
-      message: string;
-      timestamp: string;
-    }>;
-  }>;
-};
+export type Job = JobWithLatestRun & { nextRun: string | null };
 
-export type Job = {
-  id: string;
-  directory: string;
-  name: string;
-  schedule: string | null;
-  timeoutMs: number | null;
-  needsInputTimeoutMs: number | null;
-  notify: JobNotifyConfig | null;
-  prompt: string | null;
-  enabled: boolean;
-  agentType: JobAgentType;
-  useWorktree: boolean;
-  baseBranch: string | null;
-  branchName: string | null;
-  fullAccess: boolean;
-  autoArchive: boolean;
-  callable: boolean;
-  singleton: boolean;
-  webhookEnabled: boolean;
-  webhookSecret: string | null;
-  templateId: string | null;
-  defaultArgs: Record<string, string>;
-  createdAt: string;
-  updatedAt: string;
-  lastRunId: string | null;
-  lastRunStatus: JobRunStatus | null;
-  lastRunStartedAt: string | null;
-  lastRunCompletedAt: string | null;
-  lastRunDurationMs: number | null;
-  lastRunReport: JobReport | null;
-  nextRun: string | null;
-};
+export type JobRun = JobRunRecord;
 
-export type JobRun = {
-  id: string;
-  jobId: string;
-  agentId: string | null;
-  status: JobRunStatus;
-  report: JobReport | null;
-  config: {
-    directory: string;
-    name: string;
-    schedule: string | null;
-    timeoutMs: number;
-    needsInputTimeoutMs: number;
-    notify: JobNotifyConfig;
-    triggerSource?: JobRunTriggerSource;
-  };
-  pendingQuestion: string | null;
-  startedAt: string;
-  statusUpdatedAt: string;
-  completedAt: string | null;
-  durationMs: number | null;
-  createdAt: string;
-};
-
-export type AddJobConfig = {
-  name: string;
-  directory: string;
-  displayName?: string;
-  prompt?: string | null;
-  schedule?: string | null;
-  timeoutMs?: number;
-  needsInputTimeoutMs?: number;
-  agentType?: JobAgentType;
-  useWorktree?: boolean;
-  baseBranch?: string | null;
-  branchName?: string | null;
-  fullAccess?: boolean;
-  autoArchive?: boolean;
-  callable?: boolean;
-  singleton?: boolean;
-  webhookEnabled?: boolean;
-  enabled?: boolean;
-};
+export type AddJobConfig = AddJobInput;
 
 export type RunJobResult = {
   jobId: string;
