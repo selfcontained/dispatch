@@ -38,11 +38,9 @@ import { MessageSquare } from "lucide-react";
 import { type DiffViewType } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { type DraftComment } from "@/components/app/review-mode";
-import {
-  InlineCommentForm,
-  InlineDraftAnnotation,
-  InlineFeedbackAnnotation,
-} from "@/components/app/diff-annotations";
+import { InlineCommentForm } from "@/components/app/diff-comment-form";
+import { InlineDraftAnnotation } from "@/components/app/diff-draft-annotation";
+import { InlineFeedbackAnnotation } from "@/components/app/diff-feedback-annotation";
 import { type ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
 
 baseRefractor.register(jsx);
