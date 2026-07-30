@@ -35,6 +35,64 @@ export type WhiteboardUpdateResult = {
   elements: SimplifiedElement[];
 };
 
+// Excalidraw's restoreElements() calls isInvisiblySmallElement() — which reads
+// `element.points.length` unguarded — before restoreElement() applies its own
+// defaults. A points-less arrow therefore throws and takes down the whole view,
+// so we normalize these fields before the data ever reaches the editor.
+const POINTS_REQUIRED_TYPES = new Set(["arrow", "line", "draw", "freedraw"]);
+
+function finite(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function isPoint(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length >= 2 &&
+    Number.isFinite(value[0]) &&
+    Number.isFinite(value[1])
+  );
+}
+
+export function sanitizeElement(raw: unknown): RawElement | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const el = raw as RawElement;
+  if (typeof el.id !== "string" || typeof el.type !== "string") return null;
+
+  const width = finite(el.width);
+  const height = finite(el.height);
+  const out: RawElement = {
+    ...el,
+    x: finite(el.x),
+    y: finite(el.y),
+    width,
+    height,
+  };
+
+  if (POINTS_REQUIRED_TYPES.has(el.type)) {
+    const points = Array.isArray(el.points) ? el.points.filter(isPoint) : [];
+    // Same fallback restoreElement() would apply, just early enough to matter.
+    out.points =
+      points.length >= 2
+        ? points
+        : [
+            [0, 0],
+            [width, height],
+          ];
+  }
+
+  return out;
+}
+
+export function sanitizeElements(elements: unknown[]): unknown[] {
+  const out: RawElement[] = [];
+  for (const raw of elements) {
+    const el = sanitizeElement(raw);
+    if (el) out.push(el);
+  }
+  return out;
+}
+
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.round(value)

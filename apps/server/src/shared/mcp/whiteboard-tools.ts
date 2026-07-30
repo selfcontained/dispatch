@@ -145,7 +145,7 @@ Text font families: 1=Virgil (handwritten), 3=Cascadia (monospace), 5=Excalifont
 }
 \`\`\`
 
-**Points:** Array of [x, y] offsets relative to the element's x, y. First point is always [0, 0]. Add intermediate points for bends.
+**Points (required):** Array of at least two [x, y] offsets relative to the element's x, y. First point is always [0, 0]. Add intermediate points for bends. Arrows, lines, and freedraw elements must always carry a \`points\` array — omit it and the element cannot be rendered.
 
 **Arrowheads:** \`startArrowhead\` and \`endArrowhead\` can be: null, "arrow", "bar", "dot", "triangle", "diamond".
 
@@ -191,8 +191,9 @@ Children are assigned to frames by setting their \`frameId\` to the frame's id.
 
 ### Important notes
 
-- The editor auto-heals many issues (null fields, missing indices). Don't over-validate.
+- The editor auto-heals many cosmetic issues (null fields, missing indices). Don't over-validate those.
 - Always provide \`id\`, \`type\`, \`x\`, \`y\` at minimum. Width and height default to 0 if omitted.
+- For \`arrow\`, \`line\`, and \`freedraw\`, \`points\` is mandatory — it is not auto-healed.
 - Use readable, descriptive ids — you'll reference them in bindings and future updates.
 - Elements are merged by id: sending an element with an existing id replaces it entirely.
 `;

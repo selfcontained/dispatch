@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { simplifyElements } from "../src/shared/whiteboard.js";
+import {
+  sanitizeElements,
+  simplifyElements,
+} from "../src/shared/whiteboard.js";
 import { isValidScene, MAX_ELEMENTS } from "../src/shared/whiteboard-store.js";
 
 // ── mergeElements is not exported, so we test it indirectly through
@@ -131,6 +134,122 @@ describe("simplifyElements", () => {
     const el = { ...rect("filled"), backgroundColor: "#a5d8ff" };
     const result = simplifyElements([el]);
     expect(result[0].backgroundColor).toBe("#a5d8ff");
+  });
+});
+
+// ── sanitizeElements ──
+
+describe("sanitizeElements", () => {
+  type El = Record<string, unknown>;
+
+  it("gives a points-less arrow points derived from width/height", () => {
+    // Regression: Excalidraw's isInvisiblySmallElement() reads
+    // `element.points.length` before restoreElement() supplies a default.
+    const [el] = sanitizeElements([
+      {
+        id: "s1-s2-arrow",
+        type: "arrow",
+        x: -20,
+        y: 875,
+        width: 50,
+        height: 2,
+      },
+    ]) as El[];
+    expect(el.points).toEqual([
+      [0, 0],
+      [50, 2],
+    ]);
+  });
+
+  it("supplies points for line and freedraw too", () => {
+    for (const type of ["line", "freedraw"]) {
+      const [el] = sanitizeElements([
+        { id: `x-${type}`, type, x: 0, y: 0, width: 10, height: 20 },
+      ]) as El[];
+      expect(el.points).toEqual([
+        [0, 0],
+        [10, 20],
+      ]);
+    }
+  });
+
+  it("preserves valid points", () => {
+    const points = [
+      [0, 0],
+      [30, 10],
+      [60, 0],
+    ];
+    const [el] = sanitizeElements([
+      { id: "a", type: "arrow", x: 0, y: 0, width: 60, height: 0, points },
+    ]) as El[];
+    expect(el.points).toEqual(points);
+  });
+
+  it("replaces malformed or too-short points arrays", () => {
+    const [short] = sanitizeElements([
+      {
+        id: "a",
+        type: "arrow",
+        x: 0,
+        y: 0,
+        width: 5,
+        height: 5,
+        points: [[0, 0]],
+      },
+    ]) as El[];
+    expect(short.points).toEqual([
+      [0, 0],
+      [5, 5],
+    ]);
+
+    const [junk] = sanitizeElements([
+      {
+        id: "b",
+        type: "arrow",
+        x: 0,
+        y: 0,
+        width: 5,
+        height: 5,
+        points: ["nope", null, [1]],
+      },
+    ]) as El[];
+    expect(junk.points).toEqual([
+      [0, 0],
+      [5, 5],
+    ]);
+  });
+
+  it("does not add points to shape elements", () => {
+    const [el] = sanitizeElements([rect("a")]) as El[];
+    expect(el.points).toBeUndefined();
+  });
+
+  it("coerces non-finite geometry to 0", () => {
+    const [el] = sanitizeElements([
+      { id: "a", type: "rectangle", x: "10", y: null, width: NaN, height: 5 },
+    ]) as El[];
+    expect(el).toMatchObject({ x: 0, y: 0, width: 0, height: 5 });
+  });
+
+  it("drops non-objects and elements missing id or type", () => {
+    const result = sanitizeElements([
+      null,
+      42,
+      "str",
+      { type: "rectangle" },
+      { id: "no-type" },
+      rect("ok"),
+    ]);
+    expect(result).toHaveLength(1);
+    expect((result[0] as El).id).toBe("ok");
+  });
+
+  it("keeps unrelated fields untouched", () => {
+    const [el] = sanitizeElements([
+      { ...rect("a"), strokeColor: "#e03131", boundElements: [{ id: "t" }] },
+    ]) as El[];
+    expect(el.strokeColor).toBe("#e03131");
+    expect(el.boundElements).toEqual([{ id: "t" }]);
   });
 });
 
@@ -361,6 +480,61 @@ describe("createWhiteboardHandlers", () => {
       await expect(
         handlers.updateWhiteboard("agt_test", [rect("new-one")], [])
       ).rejects.toThrow("full");
+    });
+
+    it("persists arrows with points even when the agent omits them", async () => {
+      const deps = createMockDeps();
+      const handlers = createWhiteboardHandlers(deps);
+      const pool = deps.pool as unknown as { query: ReturnType<typeof vi.fn> };
+
+      mockEmptyLoad(pool);
+      mockSaveReturn(pool, 1);
+
+      await handlers.updateWhiteboard(
+        "agt_test",
+        [{ id: "a1", type: "arrow", x: 0, y: 0, width: 50, height: 2 }],
+        []
+      );
+
+      const saveCall = pool.query.mock.calls[1];
+      const scene = JSON.parse(saveCall[1][1] as string);
+      expect(scene.elements[0].points).toEqual([
+        [0, 0],
+        [50, 2],
+      ]);
+    });
+
+    it("heals malformed elements already stored on the board", async () => {
+      const deps = createMockDeps();
+      const handlers = createWhiteboardHandlers(deps);
+      const pool = deps.pool as unknown as { query: ReturnType<typeof vi.fn> };
+
+      mockLoadReturn(
+        pool,
+        {
+          elements: [
+            { id: "old", type: "arrow", x: 0, y: 0, width: 9, height: 0 },
+          ],
+        },
+        1
+      );
+      mockSaveReturn(pool, 2);
+
+      const result = await handlers.updateWhiteboard(
+        "agt_test",
+        [rect("b")],
+        []
+      );
+      expect(result.elementCount).toBe(2);
+
+      const scene = JSON.parse(pool.query.mock.calls[1][1][1] as string);
+      const healed = scene.elements.find(
+        (e: Record<string, unknown>) => e.id === "old"
+      );
+      expect(healed.points).toEqual([
+        [0, 0],
+        [9, 0],
+      ]);
     });
 
     it("ignores incoming elements without required fields", async () => {
