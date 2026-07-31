@@ -9,25 +9,11 @@ import {
   substituteArgs as substituteSharedArgs,
   type TemplatePromptArg as TemplateArg,
 } from "../../../server/src/templates/arg-parser";
+import type { TemplateRecord } from "../../../server/src/templates/store";
 
 export type { TemplateArg };
 
-export type Template = {
-  id: string;
-  directory: string;
-  name: string;
-  description: string | null;
-  prompt: string | null;
-  agentType: AgentType;
-  useWorktree: boolean;
-  baseBranch: string | null;
-  branchName: string | null;
-  fullAccess: boolean;
-  callable: boolean;
-  allowMedia: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
+export type Template = TemplateRecord;
 
 export type AddTemplateConfig = {
   name: string;
