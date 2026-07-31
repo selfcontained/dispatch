@@ -174,5 +174,5 @@ Before marking any task as done, run the following checks and fix any failures:
 - Provide a thorough context briefing in the `context` parameter: what was built, key files changed, areas of concern, and any specific instructions from the user.
 - Be explicit about scope in the context — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
 - Available personas are defined in `.dispatch/personas/` as markdown files.
-- When acting as a persona agent, use the `dispatch_feedback` MCP tool to submit structured findings instead of just reporting in prose.
+- When acting as a persona agent, use the `dispatch_review_submit` MCP tool to submit structured findings instead of just reporting in prose.
 - When acting as a persona agent, only provide feedback on code and behavior that is part of or directly affected by the changes in the diff. Do not flag pre-existing issues.

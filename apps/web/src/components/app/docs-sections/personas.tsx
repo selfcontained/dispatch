@@ -24,8 +24,9 @@ export function PersonasContent() {
           commands so the reviewer can inspect specific files in the worktree.
           The child reviews the work and calls{" "}
           <Code>dispatch_review_submit</Code> once with every initial finding.
-          The summary is optional when feedback items carry the review, and
-          required for a clean approval with no items. Pass{" "}
+          When feedback items carry the review, the summary is optional — a
+          short overall takeaway capped at 280 characters — and a nonblank
+          summary is required for a clean approval with no items. Pass{" "}
           <Code>includeDiff: false</Code> for non-code reviews (PRDs, docs,
           media) where the git diff is not the review target.
         </P>
