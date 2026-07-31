@@ -75,6 +75,27 @@ async function waitForTerminalConnected(
   });
 }
 
+// The app focuses the terminal on socket open with a triple tap: immediately,
+// on the next animation frame, and in a setTimeout(0) after that frame
+// (focusTerminalSurface). Tests that move focus to another element right
+// after attach must wait those taps out first, or the late taps race with
+// (and undo) their focus change. Waiting for the first tap to land and then
+// running a strictly longer rAF → rAF → setTimeout chain guarantees the
+// app's remaining taps have fired.
+async function waitForTerminalFocusSettled(page: Page): Promise<void> {
+  await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+  await page.evaluate(
+    () =>
+      new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            setTimeout(resolve, 0);
+          });
+        });
+      })
+  );
+}
+
 async function waitForAgentCardRunning(
   page: Page,
   agentId: string,
@@ -158,14 +179,17 @@ async function simulateVisibleWithFocus(page: Page): Promise<void> {
 }
 
 test.describe("Terminal live connection", () => {
-  test.skip(!IS_LIVE, "Requires --live agent runtime");
+  test.skip(!IS_LIVE, "Requires tmux runtime — run via pnpm run test:e2e:live");
 
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request, "all");
   });
 
   test("connects to terminal within 3 seconds", async ({ page, request }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     await loadApp(page);
@@ -182,7 +206,10 @@ test.describe("Terminal live connection", () => {
     page,
     request,
   }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     await loadApp(page);
@@ -214,7 +241,10 @@ test.describe("Terminal live connection", () => {
   });
 
   test("reconnects after agent restart", async ({ page, request }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     await loadApp(page);
@@ -245,7 +275,10 @@ test.describe("Terminal live connection", () => {
   });
 
   test("rapid agent switching stays stable", async ({ page, request }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agentA = await createAndStartAgent(
       request,
@@ -278,7 +311,10 @@ test.describe("Terminal live connection", () => {
     page,
     request,
   }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     let tokenRequests = 0;
@@ -313,7 +349,10 @@ test.describe("Terminal live connection", () => {
     page,
     request,
   }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     await loadApp(page);
@@ -322,7 +361,7 @@ test.describe("Terminal live connection", () => {
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
     await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
-    await expect(page.locator(".xterm-helper-textarea")).toBeFocused();
+    await waitForTerminalFocusSettled(page);
 
     // Move focus away from the terminal, mimicking what the browser often
     // does when the app loses focus and is later re-foregrounded.
@@ -343,7 +382,10 @@ test.describe("Terminal live connection", () => {
     page,
     request,
   }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     await loadApp(page);
@@ -352,6 +394,7 @@ test.describe("Terminal live connection", () => {
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
     await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
+    await waitForTerminalFocusSettled(page);
 
     const pinsButton = page.getByRole("button", { name: "Pins" });
     await pinsButton.focus();
@@ -368,7 +411,10 @@ test.describe("Terminal live connection", () => {
     page,
     request,
   }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     await loadApp(page);
@@ -377,6 +423,7 @@ test.describe("Terminal live connection", () => {
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
     await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
+    await waitForTerminalFocusSettled(page);
 
     // Plant a focused text input outside the terminal host.
     await page.evaluate(() => {
@@ -399,7 +446,10 @@ test.describe("Terminal live connection", () => {
     page,
     request,
   }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     await loadApp(page);
@@ -408,6 +458,7 @@ test.describe("Terminal live connection", () => {
     await agentCard.waitFor({ state: "visible", timeout: 5_000 });
     await clickAgentRow(page, agent.id);
     await waitForTerminalConnected(page, agent.name, 5_000);
+    await waitForTerminalFocusSettled(page);
 
     // Open the real create-agent dialog (portal-backed via Radix). This
     // exercises the same focus-trap structure a user would hit if Cmd-Tab
@@ -429,7 +480,10 @@ test.describe("Terminal live connection", () => {
     page,
     request,
   }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
     expect(agent.tmuxSession).toBeTruthy();
@@ -511,14 +565,21 @@ test.describe("Terminal live connection", () => {
 
     await page.locator(".xterm-screen").click();
     await page.keyboard.press("Escape");
-    await expect(banner).toBeHidden({ timeout: 1_000 });
+    // tmux 3.5+ holds a bare ESC for ~500ms to disambiguate it from an
+    // escape sequence (a hard floor — `escape-time` below 500 is ignored),
+    // so wait for the tmux-side exit first. The banner assertion after it
+    // then only measures the observer poll + SSE + exit animation.
     await waitForTmuxCopyMode(tmuxSession, false);
+    await expect(banner).toBeHidden({ timeout: 1_000 });
   });
 
   test("terminal-features not duplicated across attaches", async ({
     request,
   }) => {
-    test.skip(!IS_LIVE, "Requires --live agent runtime");
+    test.skip(
+      !IS_LIVE,
+      "Requires tmux runtime — run via pnpm run test:e2e:live"
+    );
 
     const agent = await createAndStartAgent(request, `e2e-agent-${Date.now()}`);
 
