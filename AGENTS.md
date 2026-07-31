@@ -32,10 +32,12 @@ If you were started in a git worktree (check: does your working directory contai
 
 ## UI Validation
 
-- For any UI/layout/style interaction change, validate behavior in Playwright before marking the task complete.
+- For any UI/layout/style/feature change, validate behavior in Playwright before marking the task complete.
 - Include at least one Playwright interaction that covers the changed UI path (for example: open/close panes, modal flow, or action button state changes).
+- Capture at least one screenshot per validation flow and publish it with the `dispatch_share` MCP tool. Never leave screenshots local-only.
 - For pages with SSE/WebSocket activity, do not use Playwright `waitUntil: "networkidle"` for readiness checks.
 - Use `waitUntil: "domcontentloaded"` (or `"load"`) and wait for concrete UI-ready signals (visible control/text/state) instead.
+- **Browser cleanup**: When you are done with Playwright validation, call `browser_close` to shut down the browser. Do this before your final `dispatch_event` call. Leaving browsers open wastes resources on headless VMs.
 
 ## Component Preference
 
@@ -79,7 +81,7 @@ Before marking any task as done, run the following checks and fix any failures:
 ## Web Finalization
 
 - If any files under `apps/web/` changed, run `pnpm run finalize:web` before marking the task complete.
-- After running `pnpm run finalize:web`, verify the served app via an explicitly started local dev stack when the task affects UI/theme/rendering behavior.
+- After running `pnpm run finalize:web`, verify the served app via the repo MCP dev tools when the task affects UI/theme/rendering behavior.
 - After UI/theme/rendering validation on an isolated dev stack, leave that stack running for the user to inspect unless they explicitly ask you to tear it down.
 - In the final response, include the exact local URLs/ports for the running validation stack and the cleanup command(s) needed to stop it later.
 
@@ -93,7 +95,8 @@ Before marking any task as done, run the following checks and fix any failures:
 
 - **NEVER run `pnpm run dev` directly** in your terminal — it will block your session and killing it can kill your agent process.
 - **NEVER use `pkill`, `killall`, or `lsof | xargs kill`** to manage dev servers — these can kill your own agent process.
-- Use the repo MCP tools to manage dev environments: `repo_dev_up`, `repo_dev_restart`, `repo_dev_down`, `repo_dev_status`, and `repo_dev_logs`. They spin up an isolated DB, API server, and Vite frontend on auto-selected free ports.
+- Use the repo MCP dev tools to manage dev environments: `repo_dev_up`, `repo_dev_restart`, `repo_dev_down`, `repo_dev_status`, and `repo_dev_logs`. They spin up an isolated DB, API server, and Vite frontend on auto-selected free ports.
+- **Prefer `repo_dev_restart` over `repo_dev_down` + `repo_dev_up`** when you need to pick up code changes. Restart reuses the same ports and DB — no wasted time recreating containers. Only use `repo_dev_down` when the user asks or you're done for good.
 - If you start a validation stack for user review, do not tear it down automatically at the end of the turn unless the user explicitly asks.
 - `repo_dev_up` auto-selects free ports and prints the URLs — just use the printed URLs.
 
@@ -109,6 +112,10 @@ Before marking any task as done, run the following checks and fix any failures:
 - `repo_dev_up` creates an isolated Postgres container with its own port — no manual `DATABASE_URL` setup needed.
 - Migrations run automatically on API server start.
 
+## Agent Pins
+
+- Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.
+
 ## Assisted Update Release Notes
 
 - When the user indicates that a release should require or recommend assisted update handling, create or update `release-notes/next-assisted-update.json`.
@@ -117,3 +124,12 @@ Before marking any task as done, run the following checks and fix any failures:
 - Validate the file before finishing with:
 
   `pnpm tsx bin/embed-assisted-update.ts --check-only --metadata release-notes/next-assisted-update.json`
+
+## Personas
+
+- When asked to launch a persona (e.g., "run security review", "test this as an end user"), use the `dispatch_launch_persona` MCP tool.
+- Provide a thorough context briefing in the `context` parameter: what was built, key files changed, areas of concern, and any specific instructions from the user.
+- Be explicit about scope in the context — tell the persona what the changes are and what is NOT in scope. This helps them avoid flagging pre-existing issues.
+- Available personas are defined in `.dispatch/personas/` as markdown files.
+- When acting as a persona agent, use the `dispatch_review_submit` MCP tool to submit structured findings instead of just reporting in prose.
+- When acting as a persona agent, only provide feedback on code and behavior that is part of or directly affected by the changes in the diff. Do not flag pre-existing issues.
