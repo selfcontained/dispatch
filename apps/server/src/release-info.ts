@@ -14,7 +14,7 @@ import {
   type PendingMigrationSummary,
 } from "./update-migrations-evaluator.js";
 import { runCommand } from "./shared/lib/run-command.js";
-import type { ReleaseProgress } from "./server/release-runtime.js";
+import type { ReleaseProgress } from "./server/release-wire.js";
 
 const RELEASE_CHANNEL_KEY = "release_channel";
 

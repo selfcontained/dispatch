@@ -25,58 +25,29 @@ import {
   fetchReleaseMetadata as fetchReleaseMetadataImpl,
 } from "./release-helpers.js";
 
-export const RELEASE_VERSION_TYPES = ["patch", "minor", "major"] as const;
-export type ReleaseVersionType = (typeof RELEASE_VERSION_TYPES)[number];
-type CreatePhase = "preflight" | "triggering" | "watching" | "done" | "failed";
-type UpdatePhase = "fetching" | "deploying" | "restarting" | "done" | "failed";
-type AssistedReleasePhase = AssistedPhase;
-type ReleasePhase = CreatePhase | UpdatePhase | AssistedReleasePhase;
-export type ReleaseProgress = {
-  step: string;
-  label: string;
-  detail?: string | null;
-  bytesReceived?: number | null;
-  totalBytes?: number | null;
-};
+// Wire types (job, phases, stream events) live in release-wire.ts so the
+// web client can import them without pulling in this module's runtime
+// dependency graph. Re-exported here for server-side importers.
+import {
+  RELEASE_VERSION_TYPES,
+  type ReleasePhase,
+  type ReleaseProgress,
+  type ReleaseJob,
+  type ReleaseStreamEvent,
+  type ReleaseVersionType,
+} from "./release-wire.js";
 
-type CommonReleaseJobFields = {
-  startedAt: string;
-  log: string[];
-  runUrl: string | null;
-  tag: string | null;
-  error: string | null;
-  progress: ReleaseProgress | null;
-};
-
-export type ReleaseJob =
-  | (CommonReleaseJobFields & {
-      jobType: "create";
-      versionType: ReleaseVersionType;
-      phase: CreatePhase;
-    })
-  | (CommonReleaseJobFields & {
-      jobType: "update";
-      versionType: null;
-      phase: UpdatePhase;
-    })
-  | (CommonReleaseJobFields & {
-      jobType: "update-assisted";
-      versionType: null;
-      phase: AssistedReleasePhase;
-      assisted: AssistedUpdateState;
-    });
-
-export type ReleaseStreamEvent =
-  | { type: "snapshot"; job: ReleaseJob | null }
-  | { type: "log"; line: string }
-  | { type: "log.replace"; line: string }
-  | { type: "log.rewind"; count: number }
-  | { type: "progress"; progress: ReleaseProgress | null }
-  | { type: "info-progress"; progress: ReleaseProgress | null }
-  | { type: "phase"; phase: ReleasePhase; error?: string }
-  | { type: "runUrl"; url: string }
-  | { type: "tag"; tag: string }
-  | { type: "assisted"; state: AssistedUpdateState };
+export { RELEASE_VERSION_TYPES };
+export type {
+  CreatePhase,
+  UpdatePhase,
+  AssistedReleasePhase,
+  ReleasePhase,
+  ReleaseProgress,
+  ReleaseJob,
+  ReleaseStreamEvent,
+  ReleaseVersionType,
+} from "./release-wire.js";
 
 export type ReleaseStreamClient = {
   clientId: string;
