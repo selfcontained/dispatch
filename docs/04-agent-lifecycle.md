@@ -16,7 +16,8 @@
 
 `AgentRole` (column added in migration `0018_agents-role.sql`):
 
-- `standard` — every agent created via the normal Create dialog or job/persona launch.
+- `standard` — every agent created via the normal Create dialog or a job launch.
+- `review` — persona review agents launched via `dispatch_launch_persona` (see [Review Agent Lifecycle](#review-agent-lifecycle)).
 - `assisted_update` — created exclusively by `POST /api/v1/release/assisted/launch`. Runs the assisted-update prompt and is wired to the assisted-update phase machine (see [Assisted-Update Phase Axis](#assisted-update-phase-axis)).
 
 Role is orthogonal to `AgentType` (`claude` / `codex` / `opencode` / `cursor` / `terminal`).
@@ -68,7 +69,7 @@ Worktree cleanup mode is one of `auto` | `keep` | `force`, passed as the `cleanu
 - Concurrent delete on an already-archiving agent returns `409`.
 - `archiving → error` if cleanup throws.
 
-5. **Reconciliation (on startup or scheduled tick)**
+5. **Reconciliation (on startup, then every 30s)**
 
 For each agent with status in (`running`, `stopping`, `creating`, `archiving`):
 
@@ -79,12 +80,24 @@ For each agent with status in (`running`, `stopping`, `creating`, `archiving`):
 - **status `stopping`** for >60s: → `running` (revert; user can retry stop). Surfaces an "agent reverted" latest_event.
 - **status `archiving`** for >30s: archive is resumed.
 
-Cleanup of orphaned tmux sessions (sessions with the `<prefix>_agt_` prefix whose matching agent row is in a terminal state — `stopped` or `error`) runs alongside reconciliation when `agentRuntime === "tmux"`. Sessions with no matching DB record are left alone — they may belong to another server instance sharing the tmux namespace.
+Missing-session transitions also write a system-tagged latest_event (`metadata.source: "system"`): `blocked` with the setup-log tail on launch failure, `idle` ("Session ended normally.") on a clean exit.
+
+Cleanup of orphaned tmux sessions (sessions with the `<prefix>_agt_` prefix whose matching agent row is in a terminal state — `stopped` or `error`) runs only in the startup pass (`reconcileAgents()`), not on the periodic tick — the tick calls the status-only `reconcileAgentStatuses()`. Cleanup is a no-op when the runtime doesn't track sessions (inert mode). Sessions with no matching DB record are left alone — they may belong to another server instance sharing the tmux namespace.
+
+## Activity Monitor
+
+`apps/server/src/agents/activity-monitor.ts` runs at the end of each reconcile tick (wired in `server/agent-lifecycle-runtime.ts`) but is a separate concern: the reconciler handles session lifecycle, the activity monitor handles status accuracy — it compares each running agent's self-reported status against observed tmux pane activity.
+
+Each pass it captures the last 100 pane lines of every `running` agent with a tmux session and digests them. Comparing digests across passes yields "pane changed" / "pane silent", which drives two corrections:
+
+- **Pane active + latest event is anything but `working`** → rewrite to `working` with the message "Activity detected".
+- **Pane silent for ≥3 minutes + latest event is `working`** → rewrite to `idle` with the message "No recent activity detected". The window is deliberately conservative — agent CLIs can think for a while without visible output.
+
+Corrections are conditional writes: `upsertLatestEventIfCurrent` only applies if the agent's latest event still has the `updated_at` the monitor read, so a concurrent agent-reported event always wins over the monitor's stale snapshot. Corrected events carry `metadata.source: "activity-monitor"`; these are the sidebar events users see as "Activity detected" / "No recent activity detected". Per-agent digest state is held in memory and pruned when an agent leaves `running`.
 
 ## tmux Session Contract
 
-- Session name: `<prefix>_<agentId>_<sanitizedName>` where `prefix` defaults to `dispatch` (configurable via `DISPATCH_SESSION_PREFIX`), `agentId` already starts with `agt_`, and `sanitizedName` is the lowercased agent name with non-alphanumeric chars collapsed to hyphens and truncated to 30 chars.
-- Window name: `main`
+- Session name: `<prefix>_<agentId>_<sanitizedName>` where `prefix` defaults to `dispatch` (configurable via `DISPATCH_SESSION_PREFIX`), `agentId` already starts with `agt_`, and `sanitizedName` is the lowercased agent name with non-alphanumeric chars collapsed to hyphens, edge hyphens trimmed, truncated to 30 chars (omitted entirely if sanitization strips everything).
 - Agent process starts in the agent's `cwd` (or worktree path once setup completes).
 - Closing a browser terminal must only detach the WebSocket bridge, not terminate tmux.
 
@@ -93,8 +106,11 @@ Cleanup of orphaned tmux sessions (sessions with the `<prefix>_agt_` prefix whos
 ## Launch Contract
 
 ```bash
-tmux new-session -d -s <sessionName> -c "<cwd>" "bash <setupScriptPath>"
+tmux new-session -d -s <sessionName> -c "<cwd>" \
+  "bash -c 'exec 2> >(tee <setupLogPath> >&2); bash <setupScriptPath>; echo \"EXIT:$?\" > <exitFilePath>'"
 ```
+
+The wrapper tees stderr to `/tmp/dispatch_setup_<agentId>.log` and captures the exit code to `/tmp/dispatch_<sessionName>.exit` — these are what the reconciler reads via `readSetupLogTail` / `readExitInfo` when a session disappears. After `new-session`, the launcher sets `status off`, `mouse on`, `allow-passthrough on`, and the `sync` terminal feature on the session, then verifies the session survived launch (a fast-fail launch throws with the setup-log tail).
 
 The generated setup script (`/tmp/dispatch_setup_<agentId>.sh`) does, in order:
 
