@@ -3,112 +3,48 @@ import { recordReleaseManagerPollFire } from "@/lib/energy-metrics";
 import { reloadApp } from "@/lib/pwa-update";
 import { noteServerVersion } from "@/lib/version";
 
-export type ReleaseVersionType = "patch" | "minor" | "major";
+// Wire types are defined once on the server and imported type-only — esbuild
+// erases these imports, so nothing from the server reaches the web bundle.
+import type {
+  AssistedReleasePhase,
+  CreatePhase,
+  ReleaseJob,
+  ReleasePhase,
+  ReleaseProgress,
+  ReleaseStreamEvent,
+  ReleaseVersionType,
+  UpdatePhase,
+} from "../../../server/src/server/release-wire";
+import type { AssistedUpdateState } from "../../../server/src/assisted-update-store";
+import type {
+  AssistedUpdateMetadata,
+  AssistedUpdateMode,
+  RequiredCheckName,
+} from "../../../server/src/release-metadata";
+import type { CheckResult } from "../../../server/src/release-checks";
+import type { UpdateMigrationManifest } from "../../../server/src/update-migrations";
+import type { PendingMigrationSummary } from "../../../server/src/update-migrations-evaluator";
+import type { ReleaseChannel } from "../../../server/src/release-info";
 
-export type CreatePhase =
-  | "preflight"
-  | "triggering"
-  | "watching"
-  | "done"
-  | "failed";
-export type UpdatePhase =
-  | "fetching"
-  | "deploying"
-  | "restarting"
-  | "done"
-  | "failed";
-export type AssistedReleasePhase =
-  | "inspect"
-  | "prepare"
-  | "apply"
-  | "restarting"
-  | "validate"
-  | "done"
-  | "rollback"
-  | "blocked"
-  | "failed";
-
-// Broad union for stream `phase` events whose source variant is opaque
-// to the receiver. Per-variant phase narrowing happens through
-// `ReleaseJob` below.
-export type ReleasePhase = CreatePhase | UpdatePhase | AssistedReleasePhase;
-
-export type ReleaseChannel = "stable" | "latest";
-
-export type AssistedUpdateMode = "normal" | "recommended" | "required";
-
-export type AssistedRequiredCheck =
-  | "expected_runtime_artifact"
-  | "service_entrypoint"
-  | "service_restarted"
-  | "health_endpoint"
-  | "version_converged";
-
-export type AssistedUpdateMetadata = {
-  mode: AssistedUpdateMode;
-  title: string;
-  summary: string;
-  instructions?: string;
-  requiredChecks: Array<
-    | AssistedRequiredCheck
-    | { name: AssistedRequiredCheck; description?: string }
-  >;
-  rollbackGuidance?: string;
-  appliesFrom?: string;
+export type {
+  AssistedReleasePhase,
+  AssistedUpdateMetadata,
+  AssistedUpdateMode,
+  AssistedUpdateState,
+  CreatePhase,
+  ReleaseChannel,
+  ReleaseJob,
+  ReleasePhase,
+  ReleaseProgress,
+  ReleaseVersionType,
+  UpdateMigrationManifest,
+  UpdatePhase,
 };
 
-/**
- * Persistent install-update migration manifest snapshotted into an
- * in-flight assisted run. Mirrors UpdateMigrationManifest on the server.
- */
-export type UpdateMigrationManifest = {
-  id: string;
-  title: string;
-  summary: string;
-  alreadySatisfied: { description: string };
-  instructions: string[];
-  validation: { requiredChecks: AssistedRequiredCheck[] };
-  rollback: string[];
-};
-
-/** Compact summary returned by /api/v1/release/info for pending migrations. */
-export type PendingMigration = {
-  id: string;
-  title: string;
-  summary: string;
-};
-
-export type AssistedCheckResult = {
-  name: AssistedRequiredCheck;
-  ok: boolean;
-  message: string;
-};
-
-export type AssistedUpdateState = {
-  tag: string;
-  fromTag: string | null;
-  /**
-   * Legacy release-scoped metadata, present on runs gated by the
-   * `dispatch-update` block in the release body. Mutually exclusive with
-   * `migrations` — exactly one drives the run on the server.
-   */
-  metadata: AssistedUpdateMetadata | null;
-  /**
-   * Ordered pending migrations snapshotted into the run at launch time.
-   * Preferred path (CRU-146); when populated the UI renders per-migration
-   * sections instead of the single legacy block.
-   */
-  migrations: UpdateMigrationManifest[] | null;
-  requiredChecks: AssistedRequiredCheck[];
-  phase: ReleasePhase;
-  agentId: string | null;
-  startedAt: string;
-  updatedAt: string;
-  completedAt: string | null;
-  error: string | null;
-  checks: AssistedCheckResult[];
-  notes: Partial<Record<ReleasePhase, string>>;
-};
+// These server types carry different names; keep the names web code uses.
+export type AssistedRequiredCheck = RequiredCheckName;
+export type AssistedCheckResult = CheckResult;
+export type PendingMigration = PendingMigrationSummary;
 
 export type ReleaseInfo = {
   currentTag: string | null;
@@ -136,58 +72,6 @@ export type ReleaseStatus = {
   tag: string | null;
   deployedAt: string | null;
 };
-
-export type ReleaseProgress = {
-  step: string;
-  label: string;
-  detail?: string | null;
-  bytesReceived?: number | null;
-  totalBytes?: number | null;
-};
-
-type CommonReleaseJobFields = {
-  startedAt: string;
-  log: string[];
-  runUrl: string | null;
-  tag: string | null;
-  error: string | null;
-  progress: ReleaseProgress | null;
-};
-
-export type ReleaseJob =
-  | (CommonReleaseJobFields & {
-      jobType: "create";
-      versionType: ReleaseVersionType;
-      phase: CreatePhase;
-    })
-  | (CommonReleaseJobFields & {
-      jobType: "update";
-      versionType: null;
-      phase: UpdatePhase;
-    })
-  | (CommonReleaseJobFields & {
-      jobType: "update-assisted";
-      versionType: null;
-      phase: AssistedReleasePhase;
-      /**
-       * Required on the assisted variant — the gate flow always
-       * populates it before the job is published, and the takeover
-       * unconditionally renders against it.
-       */
-      assisted: AssistedUpdateState;
-    });
-
-type ReleaseStreamEvent =
-  | { type: "snapshot"; job: ReleaseJob | null }
-  | { type: "log"; line: string }
-  | { type: "log.replace"; line: string }
-  | { type: "log.rewind"; count: number }
-  | { type: "progress"; progress: ReleaseProgress | null }
-  | { type: "info-progress"; progress: ReleaseProgress | null }
-  | { type: "phase"; phase: ReleasePhase; error?: string }
-  | { type: "runUrl"; url: string }
-  | { type: "tag"; tag: string }
-  | { type: "assisted"; state: AssistedUpdateState };
 
 /**
  * Apply a non-snapshot stream event to the previous job state. The
