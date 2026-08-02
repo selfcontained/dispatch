@@ -4,7 +4,7 @@ import {
   readUntrackedFile,
   shouldExcludePath,
 } from "./diff-file-rules.js";
-import { runCommand, type RunCommandResult } from "../lib/run-command.js";
+import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 export type DiffFileStatus = "modified" | "added" | "deleted" | "renamed";
 
@@ -37,12 +37,6 @@ const GIT_TIMEOUT_MS = 15_000;
 const DIFF_TRUNCATION_BYTES = 100_000;
 const DIFF_TRUNCATION_LINES = 2_000;
 const MAX_FILES = 1_000;
-
-type CommandRunner = (
-  command: string,
-  args: string[],
-  options?: { cwd?: string; allowedExitCodes?: number[]; timeoutMs?: number }
-) => Promise<RunCommandResult>;
 
 function parseStatusLetter(letter: string): DiffFileStatus {
   switch (letter) {

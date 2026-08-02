@@ -1,6 +1,6 @@
 import { resolveBaseRef } from "./base-ref.js";
 import { readUntrackedFile, shouldExcludePath } from "./diff-file-rules.js";
-import { runCommand, type RunCommandResult } from "../lib/run-command.js";
+import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 export type DiffStats = {
   added: number;
@@ -16,12 +16,6 @@ export type DiffStatsComputation =
   | { kind: "failure"; stats: null; error: unknown };
 
 const GIT_TIMEOUT_MS = 15_000;
-
-type CommandRunner = (
-  command: string,
-  args: string[],
-  options?: { cwd?: string; allowedExitCodes?: number[]; timeoutMs?: number }
-) => Promise<RunCommandResult>;
 
 export type GetDiffStatsOptions = {
   /** Override for tests. */

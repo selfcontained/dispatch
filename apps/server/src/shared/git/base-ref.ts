@@ -1,10 +1,4 @@
-import { runCommand, type RunCommandResult } from "../lib/run-command.js";
-
-type CommandRunner = (
-  command: string,
-  args: string[],
-  options?: { cwd?: string; allowedExitCodes?: number[]; timeoutMs?: number }
-) => Promise<RunCommandResult>;
+import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 export type ResolveBaseRefOptions = {
   /** Override for tests. */
