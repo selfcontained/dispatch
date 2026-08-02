@@ -98,12 +98,11 @@ curl -X POST http://127.0.0.1:6767/api/v1/release \
 
 The **release workflow** (GitHub Actions):
 
-- Runs `pnpm run ci` (format, type-check, lint, build, unit tests, e2e) against an ephemeral Postgres container
-- Bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), and the lockfile
-- Generates `release-notes/current.md` from GitHub's auto-generated notes
-- Commits the version bump and notes, creates a git tag, and pushes
-- Builds Bun binaries for each host platform/arch and packs them into `dispatch-release.tar.gz` via `bin/pack-release`
-- Publishes a **pre-release** GitHub Release with the tarball attached. Releases are promoted to non-prerelease (the "stable" channel) via `POST /api/v1/release/promote` once they soak.
+- **Prepare**: bumps the version in the root `package.json`, every workspace package (`apps/*/package.json`), the browser-extension manifest, and the lockfile; generates `release-notes/current.md` from GitHub's auto-generated notes (embedding `release-notes/next-assisted-update.json` if present); commits and pushes to `main`. No tag is created yet.
+- **Verify**: runs type check, web lint, and unit tests against an ephemeral Postgres container (the full `pnpm run ci` — format, build, e2e — runs on the PRs that feed `main`, not here)
+- **Build**: builds Bun binaries for each host platform/arch (macOS binaries are Developer ID signed and notarized) and packs them into `dispatch-release.tar.gz` via `bin/pack-release`
+- **Smoke test**: boots the packed binary on both Linux and macOS runners against an ephemeral Postgres (macOS also verifies the code signature)
+- **Publish**: confirms `main` hasn't advanced past the release commit and the tag doesn't already exist, then runs `gh release create` — this is what creates the git tag — publishing a **pre-release** GitHub Release with the tarball attached. Releases are promoted to non-prerelease (the "stable" channel) via `POST /api/v1/release/promote` once they soak.
 
 ## Update To A Tag
 
@@ -116,9 +115,9 @@ curl -X POST http://127.0.0.1:6767/api/v1/release/update \
 
 The server update flow operates on `~/.dispatch/server/` and:
 
-1. **Gates the request.** If the target release has pending update-migrations (CRU-146) or its body declares `mode: required` in a `dispatch-update` block (and the install isn't already past `appliesFrom`), responds `409` with `ASSISTED_UPDATE_REQUIRED` — caller must use `/release/assisted/launch` instead, or pass `force: true` to override. Returns `503` `MIGRATION_EVALUATION_UNAVAILABLE` if the migration evaluator can't reach the tarball (transient — retry).
+1. **Gates the request.** If the target release has pending update-migrations (CRU-146) or its body declares `mode: required` in a `dispatch-update` block (and the install isn't already past `appliesFrom`), responds `409` with `ASSISTED_UPDATE_REQUIRED` — caller must use `/release/assisted/launch` instead, or pass `force: true` to override. Returns `503` `MIGRATION_EVALUATION_UNAVAILABLE` if the migration evaluator can't reach the tarball (transient — retry, or pass `force: true` to skip the migration check).
 2. **Fetches** tags from origin and verifies the target ref exists.
-3. **Deploys.** Tries the artifact-first path: downloads `dispatch-release.tar.gz` via direct HTTPS from the GitHub release into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates entries are not absolute / `..`-traversing, extracts into `~/.dispatch/server/`. If the artifact can't be downloaded or extracted, falls back to `git checkout <tag> && pnpm install --frozen-lockfile && pnpm run build:bun`.
+3. **Deploys from the release artifact.** Downloads `dispatch-release.tar.gz` via direct HTTPS from the GitHub release into the tarball cache (`~/.dispatch/cache/release-<tag>.tar.gz`), validates entries are not absolute / `..`-traversing, extracts into `~/.dispatch/server/`. There is **no build-from-source fallback** (removed in #693) — if the artifact can't be downloaded or extracted, the job fails; a corrupt cache entry is deleted so a retry re-downloads it.
 4. **Verifies the runtime binary** matches `dist/bun/dispatch-*-bun-<platform>-<arch>` and writes the new tag to `~/.dispatch/release.json`.
 5. **Restarts the service** by detaching `launchctl kickstart -k gui/$(id -u)/com.dispatch.server` (or `systemctl --user restart dispatch` on Linux). The new process binds the port itself; the standard update flow does not poll for health afterwards. Use `bin/dispatch-server status` (or hit `/api/v1/health`) to confirm.
 
@@ -205,7 +204,7 @@ Run the preflight check first to verify all dependencies are present:
 bin/preflight
 ```
 
-This checks required dependencies (git, postgresql, tmux) and optional ones (gh, claude, codex, opencode, playwright, xcode, docker). Fix any failures before proceeding.
+This checks required dependencies (git, postgresql, tmux) and optional ones (gh, claude, codex, opencode, cursor's `agent` binary, playwright, xcode, docker). Fix any failures before proceeding.
 
 To install Dispatch as a launchd service on a new machine:
 
