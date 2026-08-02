@@ -2,7 +2,12 @@ import path from "node:path";
 import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 
-import { runCommand, type RunCommandResult } from "../lib/run-command.js";
+import { runCommand, type CommandRunner } from "../lib/run-command.js";
+import {
+  normalizePath,
+  resolveCheckoutRoot,
+  resolveCurrentBranch,
+} from "./git-context.js";
 
 /**
  * Build a worktree-path slug from a branch name. When the worktree is being
@@ -22,12 +27,6 @@ export function worktreePathSlug(
   const hash = createHash("sha1").update(branchName).digest("hex").slice(0, 6);
   return `${baseSlug}-${hash}`;
 }
-
-type CommandRunner = (
-  command: string,
-  args: string[],
-  options?: { cwd?: string; allowedExitCodes?: number[]; timeoutMs?: number }
-) => Promise<RunCommandResult>;
 
 export type CreateGitWorktreeInput = {
   cwd: string;
@@ -350,17 +349,7 @@ async function resolveRepoRoot(
   commandRunner: CommandRunner
 ): Promise<string> {
   try {
-    return normalizePath(
-      (
-        await commandRunner(
-          "git",
-          ["-C", cwd, "rev-parse", "--show-toplevel"],
-          {
-            allowedExitCodes: [0],
-          }
-        )
-      ).stdout
-    );
+    return await resolveCheckoutRoot(cwd, commandRunner);
   } catch {
     throw new GitWorktreeError(
       "No git repository found for the provided working directory.",
@@ -399,19 +388,6 @@ async function resolveCommonRepoRoot(
   }
 
   return normalizePath(path.dirname(absoluteCommonDir));
-}
-
-async function resolveCurrentBranch(
-  cwd: string,
-  commandRunner: CommandRunner
-): Promise<string | null> {
-  const result = await commandRunner(
-    "git",
-    ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
-    { allowedExitCodes: [0, 1] }
-  );
-
-  return result.exitCode === 0 && result.stdout ? result.stdout : null;
 }
 
 async function resolveGitRef(
@@ -619,8 +595,4 @@ function slugify(value: string): string {
   }
 
   return slug;
-}
-
-function normalizePath(value: string): string {
-  return path.resolve(value).replace(/[\\/]+$/, "");
 }

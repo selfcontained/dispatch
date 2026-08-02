@@ -1,7 +1,7 @@
 import path from "node:path";
 
 import type { AgentGitContext } from "../../agents/types.js";
-import { runCommand } from "../lib/run-command.js";
+import { runCommand, type CommandRunner } from "../lib/run-command.js";
 import { detectRepoIcon } from "../repo-icon.js";
 
 const DEFAULT_PROBE_TIMEOUT_MS = 800;
@@ -12,7 +12,7 @@ export type ProbeResult =
   | { status: "ok"; value: AgentGitContext | null }
   | { status: "error" };
 
-function normalizePath(value: string): string {
+export function normalizePath(value: string): string {
   const resolved = path.resolve(value);
   const trimmed = resolved.replace(/[\\/]+$/, "");
   return trimmed.length > 0 ? trimmed : resolved;
@@ -64,19 +64,52 @@ export async function resolveRepoRoot(
   );
 }
 
+/**
+ * Root of the current checkout (`--show-toplevel`) — for a linked worktree
+ * this is the worktree path, not the main repository root. No timeout is
+ * applied unless one is passed. Throws when `cwd` is not inside a git
+ * working tree; callers that need a domain-specific error should rewrap.
+ */
+export async function resolveCheckoutRoot(
+  cwd: string,
+  commandRunner: CommandRunner = runCommand,
+  opts: ProbeOptions = {}
+): Promise<string> {
+  return normalizePath(
+    (
+      await commandRunner("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
+        allowedExitCodes: [0],
+        timeoutMs: opts.timeoutMs,
+      })
+    ).stdout
+  );
+}
+
 export async function resolveWorktreeRoot(
   cwd: string,
   opts: ProbeOptions = {}
 ): Promise<string> {
-  const timeoutMs = opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS;
-  return normalizePath(
-    (
-      await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-        allowedExitCodes: [0],
-        timeoutMs,
-      })
-    ).stdout
+  return await resolveCheckoutRoot(cwd, runCommand, {
+    timeoutMs: opts.timeoutMs ?? DEFAULT_PROBE_TIMEOUT_MS,
+  });
+}
+
+/**
+ * Short name of the currently checked-out branch, or null when HEAD is
+ * detached (or points at an empty/unborn ref).
+ */
+export async function resolveCurrentBranch(
+  cwd: string,
+  commandRunner: CommandRunner = runCommand,
+  opts: ProbeOptions = {}
+): Promise<string | null> {
+  const result = await commandRunner(
+    "git",
+    ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
+    { allowedExitCodes: [0, 1], timeoutMs: opts.timeoutMs }
   );
+
+  return result.exitCode === 0 && result.stdout ? result.stdout : null;
 }
 
 /**
@@ -103,22 +136,12 @@ export async function probeGitContext(
     }
 
     const repoRoot = await resolveRepoRoot(cwd, { timeoutMs });
-    const checkoutRoot = normalizePath(
-      (
-        await runCommand("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-          allowedExitCodes: [0],
-          timeoutMs,
-        })
-      ).stdout
-    );
+    const checkoutRoot = await resolveCheckoutRoot(cwd, runCommand, {
+      timeoutMs,
+    });
 
-    let branch = (
-      await runCommand(
-        "git",
-        ["-C", cwd, "symbolic-ref", "--short", "-q", "HEAD"],
-        { allowedExitCodes: [0, 1], timeoutMs }
-      )
-    ).stdout;
+    let branch =
+      (await resolveCurrentBranch(cwd, runCommand, { timeoutMs })) ?? "";
     if (!branch) {
       branch = (
         await runCommand("git", ["-C", cwd, "rev-parse", "--short", "HEAD"], {

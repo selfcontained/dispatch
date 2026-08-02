@@ -1,10 +1,8 @@
-import { runCommand, type RunCommandResult } from "../lib/run-command.js";
-
-type CommandRunner = (
-  command: string,
-  args: string[],
-  options?: { cwd?: string; allowedExitCodes?: number[]; timeoutMs?: number }
-) => Promise<RunCommandResult>;
+import {
+  resolveCheckoutRoot,
+  resolveCurrentBranch,
+} from "../git/git-context.js";
+import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 export type CreatePrInput = {
   cwd: string;
@@ -171,30 +169,13 @@ async function resolveRepoRoot(
   commandRunner: CommandRunner
 ): Promise<string> {
   try {
-    return (
-      await commandRunner("git", ["-C", cwd, "rev-parse", "--show-toplevel"], {
-        allowedExitCodes: [0],
-      })
-    ).stdout;
+    return await resolveCheckoutRoot(cwd, commandRunner);
   } catch {
     throw new GitHubPrError(
       "No git repository found for the provided working directory.",
       404
     );
   }
-}
-
-async function resolveCurrentBranch(
-  repoRoot: string,
-  commandRunner: CommandRunner
-): Promise<string | null> {
-  const result = await commandRunner(
-    "git",
-    ["-C", repoRoot, "symbolic-ref", "--short", "-q", "HEAD"],
-    { allowedExitCodes: [0, 1] }
-  );
-
-  return result.exitCode === 0 && result.stdout ? result.stdout : null;
 }
 
 async function ensureBaseBranchHasDiff(

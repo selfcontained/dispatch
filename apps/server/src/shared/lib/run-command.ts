@@ -13,6 +13,13 @@ export type RunCommandResult = {
   stderr: string;
 };
 
+/** Injectable runner shape used by git/gh helpers so tests can fake commands. */
+export type CommandRunner = (
+  command: string,
+  args: string[],
+  options?: { cwd?: string; allowedExitCodes?: number[]; timeoutMs?: number }
+) => Promise<RunCommandResult>;
+
 export async function runCommand(
   command: string,
   args: string[],
