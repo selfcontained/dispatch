@@ -13,7 +13,7 @@ import { toast } from "sonner";
 import { ArgInput } from "@/components/app/arg-input";
 import { ContextPicker } from "@/components/app/context-picker";
 import { startupFileKey } from "@/components/app/create-agent-dialog-clipboard";
-import { AgentTypeCombobox } from "@/components/app/automations-form-fields";
+import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
@@ -247,14 +247,12 @@ function LaunchTemplateDialogContent({
         onDrop={showMedia ? handleDrop : undefined}
       >
         {!isTerminal ? (
-          <div className="space-y-2">
-            <label className="text-sm text-muted-foreground">Agent type</label>
-            <AgentTypeCombobox
-              value={agentType}
-              onChange={setAgentType}
-              agentTypes={agentTypes}
-            />
-          </div>
+          <AgentTypeSelect
+            label="Agent type"
+            value={agentType}
+            onChange={setAgentType}
+            agentTypes={agentTypes}
+          />
         ) : null}
 
         {args.length > 0 ? (

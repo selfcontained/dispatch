@@ -1,115 +1,16 @@
-import { useMemo, useCallback, useRef, useState } from "react";
-import { Check, ChevronDown, GitBranch, Paperclip } from "lucide-react";
+import { useMemo } from "react";
+import { GitBranch, Paperclip } from "lucide-react";
 
+import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { BranchSelect } from "@/components/app/branch-select";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { PathInput } from "@/components/app/path-input";
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  Command,
-  CommandGroup,
-  CommandItem,
-  CommandList,
-} from "@/components/ui/command";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  AGENT_TYPE_LABELS,
-  type AgentType,
-  sortAgentTypes,
-} from "@/lib/agent-types";
-import { useClickOutside } from "@/hooks/use-click-outside";
+import { type AgentType } from "@/lib/agent-types";
 import { parseTemplateArgs } from "@/hooks/use-templates";
 import { cn } from "@/lib/utils";
-
-export function AgentTypeCombobox({
-  value,
-  onChange,
-  agentTypes,
-}: {
-  value: AgentType;
-  onChange: (value: AgentType) => void;
-  agentTypes: AgentType[];
-}): JSX.Element {
-  const sorted = useMemo(() => sortAgentTypes(agentTypes), [agentTypes]);
-  const [open, setOpen] = useState(false);
-  const cmdRef = useRef<HTMLDivElement>(null);
-  const triggerRef = useRef<HTMLButtonElement>(null);
-  const close = useCallback(() => setOpen(false), []);
-  useClickOutside(cmdRef, open, close);
-
-  return (
-    <div className="relative" ref={cmdRef}>
-      <button
-        ref={triggerRef}
-        type="button"
-        role="combobox"
-        tabIndex={0}
-        aria-expanded={open}
-        onClick={() => setOpen((prev) => !prev)}
-        onKeyDown={(e) => {
-          if (e.key === "ArrowDown" || e.key === "Enter" || e.key === " ") {
-            e.preventDefault();
-            if (!open) setOpen(true);
-          }
-        }}
-        className={cn(
-          "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-          "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
-        )}
-      >
-        {AGENT_TYPE_LABELS[value]}
-        <ChevronDown
-          className={cn(
-            "h-4 w-4 text-muted-foreground transition-transform",
-            open && "rotate-180"
-          )}
-        />
-      </button>
-      {open ? (
-        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
-          <Command
-            shouldFilter={false}
-            ref={(el) => {
-              if (el) requestAnimationFrame(() => el.focus());
-            }}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") {
-                e.preventDefault();
-                setOpen(false);
-                requestAnimationFrame(() => triggerRef.current?.focus());
-              }
-            }}
-          >
-            <CommandList>
-              <CommandGroup>
-                {sorted.map((t) => (
-                  <CommandItem
-                    key={t}
-                    value={t}
-                    onSelect={() => {
-                      onChange(t);
-                      setOpen(false);
-                      requestAnimationFrame(() => triggerRef.current?.focus());
-                    }}
-                  >
-                    <Check
-                      className={cn(
-                        "mr-2 h-3 w-3 shrink-0",
-                        t === value ? "opacity-100" : "opacity-0"
-                      )}
-                    />
-                    {AGENT_TYPE_LABELS[t]}
-                  </CommandItem>
-                ))}
-              </CommandGroup>
-            </CommandList>
-          </Command>
-        </div>
-      ) : null}
-    </div>
-  );
-}
 
 export function TemplateWorktreeOption({
   checked,
@@ -259,14 +160,12 @@ export function TemplateConfigFields({
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <label className="text-sm text-muted-foreground">Agent type</label>
-        <AgentTypeCombobox
-          value={agentType}
-          onChange={onAgentTypeChange}
-          agentTypes={enabledAgentTypes}
-        />
-      </div>
+      <AgentTypeSelect
+        label="Agent type"
+        value={agentType}
+        onChange={onAgentTypeChange}
+        agentTypes={enabledAgentTypes}
+      />
 
       <div className="space-y-1">
         <label className="text-sm text-muted-foreground">Name</label>

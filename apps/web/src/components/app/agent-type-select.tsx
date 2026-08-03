@@ -20,6 +20,7 @@ type AgentTypeSelectProps = {
   onChange: (type: AgentType) => void;
   agentTypes: AgentType[];
   onOpenChange?: (open: boolean) => void;
+  label?: string;
 };
 
 export function AgentTypeSelect({
@@ -27,6 +28,7 @@ export function AgentTypeSelect({
   onChange,
   agentTypes,
   onOpenChange,
+  label = "Type",
 }: AgentTypeSelectProps): JSX.Element {
   const sortedTypes = useMemo(() => sortAgentTypes(agentTypes), [agentTypes]);
   const [open, setOpen] = useState(false);
@@ -46,7 +48,7 @@ export function AgentTypeSelect({
 
   return (
     <div className="relative space-y-1" ref={cmdRef}>
-      <label className="text-sm text-muted-foreground">Type</label>
+      <label className="text-sm text-muted-foreground">{label}</label>
       <button
         ref={triggerRef}
         type="button"
