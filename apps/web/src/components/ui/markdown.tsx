@@ -12,6 +12,7 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
 import { Button } from "@/components/ui/button";
+import { highlightCodeLanguage } from "@/components/app/media-lightbox-syntax";
 import { useCopyText } from "@/hooks/use-copy";
 import { cn } from "@/lib/utils";
 
@@ -424,6 +425,19 @@ function MarkdownDefault({
             const block = getCodeBlock(children);
             if (block?.className === "language-mermaid") {
               return <MermaidBlock code={block.code} theme={mermaidTheme} />;
+            }
+            const highlightedHtml = block
+              ? highlightCodeLanguage(block.code, block.className)
+              : null;
+            if (block && highlightedHtml) {
+              return (
+                <pre>
+                  <code
+                    className={cn(block.className, "hljs")}
+                    dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+                  />
+                </pre>
+              );
             }
             return <pre>{children}</pre>;
           },

@@ -315,6 +315,51 @@ describe("FeedbackThreadMessage", () => {
     expect(screen.getByText("On it")).toBeTruthy();
   });
 
+  it("syntax-highlights fenced code in comments", () => {
+    render(
+      <FeedbackThreadMessage
+        message={threadMessage({
+          content: { body: "```tsx\nconst count = 1;\n```" },
+        })}
+        grouped={false}
+      />
+    );
+
+    const code = screen.getByText("const").closest("code");
+    expect(code).not.toBeNull();
+    expect(code?.className).toContain("hljs");
+    expect(code?.querySelector(".hljs-keyword")).not.toBeNull();
+  });
+
+  it("supports Golang fences and auto-detects unlabeled code", () => {
+    const { rerender } = render(
+      <FeedbackThreadMessage
+        message={threadMessage({
+          content: { body: "```golang\npackage main\n```" },
+        })}
+        grouped={false}
+      />
+    );
+
+    expect(screen.getByText("package").closest("code")?.className).toContain(
+      "hljs"
+    );
+    expect(screen.getByText("package").className).toContain("hljs-keyword");
+
+    rerender(
+      <FeedbackThreadMessage
+        message={threadMessage({
+          content: { body: "```\nconst count = 1;\n```" },
+        })}
+        grouped={false}
+      />
+    );
+
+    expect(screen.getByText("const").closest("code")?.className).toContain(
+      "hljs"
+    );
+  });
+
   it("labels a body-less resolution as a state change instead of an empty bubble", () => {
     render(
       <FeedbackThreadMessage
