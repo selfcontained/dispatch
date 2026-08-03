@@ -1,37 +1,22 @@
-import {
-  useCallback,
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
-import { PanelLeftOpen, PanelRightOpen } from "lucide-react";
 import { useAtomValue } from "jotai";
 
 import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
 
 import { ChangesTab } from "@/components/app/changes-tab";
 import { WhiteboardPane } from "@/components/app/whiteboard-pane";
-import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
-import {
-  CenterPaneTabBar,
-  TAB_DRAG_MIME,
-  formatDiffCount,
-} from "@/components/app/center-pane-tab-bar";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { CenterPaneSplit } from "@/components/app/center-pane-split";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
-import { useSplitPane } from "@/hooks/use-split-pane";
+import { useCenterPaneLayout } from "@/hooks/use-center-pane-layout";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
+import { AgentsViewHeader } from "@/components/app/agents-view-header";
 import {
   agentProjectRoot,
-  EXPANDED_AGENT_ID_KEY,
   isFullAccessEnabled,
-  readExpandedAgentId,
   readLastUsedAgentType,
 } from "@/components/app/agents-view-utils";
 import { AgentsViewDialogs } from "@/components/app/agents-view-dialogs";
@@ -42,22 +27,18 @@ import {
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
-import { QuickPhrasesButton } from "@/components/app/quick-phrases";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import { AmbientTipBar } from "@/components/tips/ambient-tip-bar";
-import { TipSpot } from "@/components/tips/tip-spot";
 import {
   type Agent,
   type AgentVisualState,
   type ConnState,
 } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { uploadAgentMedia } from "@/lib/media-upload";
-import { type AgentType, isNestedReviewAgent } from "@/lib/agent-types";
+import { type AgentType } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { type ThemeId } from "@/hooks/use-theme";
-import { type CenterTab } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
 import {
@@ -71,6 +52,10 @@ import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
+import {
+  useExpandedAgent,
+  useExpandedAgentSync,
+} from "@/hooks/use-expanded-agent";
 
 type AgentsViewProps = {
   enabledAgentTypes: AgentType[];
@@ -140,7 +125,6 @@ export function AgentsView({
   });
 
   const [createOpen, setCreateOpen] = useState(false);
-  const [isDraggingTab, setIsDraggingTab] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
   const [lastUsedAgentType, setLastUsedAgentType] = useState<AgentType | null>(
@@ -150,9 +134,9 @@ export function AgentsView({
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [stopConfirmOpen, setStopConfirmOpen] = useState(false);
   const [stopTarget, setStopTarget] = useState<Agent | null>(null);
-  const [expandedAgentId, setExpandedAgentId] = useState<string | null>(() =>
-    readExpandedAgentId()
-  );
+
+  const { expandedAgentId, setExpandedAgentId, toggleAgentDetails } =
+    useExpandedAgent();
 
   const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
   const sidebarAgentId = sharedConnectedAgentId ?? validatedSelectedAgentId;
@@ -230,84 +214,22 @@ export function AgentsView({
     whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
   );
 
-  const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
-    useSplitPane(focusedAgentId, isMobile);
-
-  const splitLeftRef = useRef<HTMLDivElement>(null);
-  const splitButtonRef = useRef<HTMLButtonElement>(null);
-  const defaultTerminalSlotRef = useRef<HTMLDivElement>(null);
-  const splitTerminalSlotRef = useRef<HTMLDivElement>(null);
-  const stableTerminalContainerRef = useRef<HTMLDivElement | null>(null);
-  if (!stableTerminalContainerRef.current) {
-    stableTerminalContainerRef.current = document.createElement("div");
-    stableTerminalContainerRef.current.className = "h-full";
-  }
-
-  useLayoutEffect(() => {
-    const container = stableTerminalContainerRef.current;
-    if (!container) return;
-    const target = isSplit
-      ? splitTerminalSlotRef.current
-      : defaultTerminalSlotRef.current;
-    if (target && container.parentElement !== target) {
-      target.appendChild(container);
-    }
-    return () => {
-      container.remove();
-    };
-  }, [isSplit, splitState.left, splitState.right]);
-
-  useEffect(() => {
-    if (!isSplit) return;
-    const panel = splitLeftRef.current;
-    const btn = splitButtonRef.current;
-    if (!panel || !btn) return;
-    const observer = new ResizeObserver((entries) => {
-      const width = entries[0]?.contentRect.width;
-      if (width != null) btn.style.left = `${width}px`;
-    });
-    observer.observe(panel);
-    return () => observer.disconnect();
-  }, [isSplit]);
-
-  useEffect(() => {
-    const reset = () => setIsDraggingTab(false);
-    document.addEventListener("dragend", reset);
-    return () => document.removeEventListener("dragend", reset);
-  }, []);
-
-  const handleContentDragOver = useCallback((e: React.DragEvent) => {
-    if (!e.dataTransfer.types.includes(TAB_DRAG_MIME)) return;
-    setIsDraggingTab(true);
-  }, []);
-
-  const handleContentDragLeave = useCallback((e: React.DragEvent) => {
-    if (e.currentTarget.contains(e.relatedTarget as Node)) return;
-    setIsDraggingTab(false);
-  }, []);
-
-  const handleContentDrop = useCallback(() => {
-    setIsDraggingTab(false);
-  }, []);
-
-  const handleDropOnZone = useCallback(
-    (tab: string, side: "left" | "right") => {
-      const activeTab: CenterTab = changesMatch ? "changes" : "terminal";
-      handleTabDrop(tab as CenterTab, side, activeTab);
-      setIsDraggingTab(false);
-    },
-    [changesMatch, handleTabDrop]
-  );
-
-  const handleSplitLayoutChange = useCallback(
-    (layout: Record<string, number>) => {
-      const left = layout["split-left"];
-      const right = layout["split-right"];
-      if (typeof left !== "number" || typeof right !== "number") return;
-      updateSizes([left, right]);
-    },
-    [updateSizes]
-  );
+  const {
+    splitState,
+    isSplit,
+    exitSplit,
+    isDraggingTab,
+    splitLeftRef,
+    splitButtonRef,
+    defaultTerminalSlotRef,
+    splitTerminalSlotRef,
+    stableTerminalContainer,
+    handleContentDragOver,
+    handleContentDragLeave,
+    handleContentDrop,
+    handleDropOnZone,
+    handleSplitLayoutChange,
+  } = useCenterPaneLayout({ focusedAgentId, isMobile, changesMatch });
 
   const {
     mediaFiles,
@@ -410,44 +332,26 @@ export function AgentsView({
       setMediaActiveTab("reviews");
       if (isMobile) setMobileLeftOpen(false);
     },
-    [isMobile, navTo, setMediaActiveTab, setMediaOpen, setMobileLeftOpen]
+    [
+      isMobile,
+      navTo,
+      setExpandedAgentId,
+      setMediaActiveTab,
+      setMediaOpen,
+      setMobileLeftOpen,
+    ]
   );
 
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    if (!expandedAgentId) {
-      window.localStorage.removeItem(EXPANDED_AGENT_ID_KEY);
-      return;
-    }
-    window.localStorage.setItem(EXPANDED_AGENT_ID_KEY, expandedAgentId);
-  }, [expandedAgentId]);
+  useExpandedAgentSync(
+    agents,
+    validatedSelectedAgentId,
+    expandedAgentId,
+    setExpandedAgentId
+  );
 
   useEffect(() => {
     pendingAutoAttachAgentIdRef.current = routeAgentId ?? null;
   }, [routeAgentId]);
-
-  const selectedExpansionTarget = useMemo(() => {
-    if (!validatedSelectedAgentId) return null;
-    const selected = agents.find((a) => a.id === validatedSelectedAgentId);
-    return selected && isNestedReviewAgent(selected)
-      ? (selected.parentAgentId ?? validatedSelectedAgentId)
-      : validatedSelectedAgentId;
-  }, [agents, validatedSelectedAgentId]);
-  const prevSelectedExpansionTargetRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    if (!selectedExpansionTarget) {
-      prevSelectedExpansionTargetRef.current = null;
-      return;
-    }
-    if (prevSelectedExpansionTargetRef.current === selectedExpansionTarget) {
-      return;
-    }
-    prevSelectedExpansionTargetRef.current = selectedExpansionTarget;
-    setExpandedAgentId((current) =>
-      current === selectedExpansionTarget ? current : selectedExpansionTarget
-    );
-  }, [selectedExpansionTarget]);
 
   useEffect(() => {
     if (!validatedSelectedAgentId) return;
@@ -520,10 +424,6 @@ export function AgentsView({
     handleSetLeftPanelOpen,
     openCreateDialog,
   });
-
-  const toggleAgentDetails = useCallback((agentId: string) => {
-    setExpandedAgentId((current) => (current === agentId ? null : agentId));
-  }, []);
 
   const borderForAgentState = useCallback((state: AgentVisualState): string => {
     if (state === "active") return "border-r-status-done";
@@ -673,105 +573,28 @@ export function AgentsView({
             )}
           >
             <div className="relative flex h-full min-h-0 min-w-0 flex-col">
-              <div className="relative z-10 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-background px-3">
-                <div className="flex items-center gap-1">
-                  {!leftPanelOpen ? (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      onClick={() => handleSetLeftPanelOpen(true)}
-                      title="Open sidebar"
-                    >
-                      <PanelRightOpen className="h-4 w-4" />
-                    </Button>
-                  ) : null}
-                  <TipSpot tipId="quick-phrases" side="bottom" align="center">
-                    <QuickPhrasesButton
-                      agentId={
-                        hasActiveAgent && connState === "connected"
-                          ? focusedAgentId!
-                          : null
-                      }
-                      focusTerminal={focusTerminal}
-                    />
-                  </TipSpot>
-                  {focusedDiffStats &&
-                  (focusedDiffStats.added > 0 ||
-                    focusedDiffStats.deleted > 0) ? (
-                    <span
-                      aria-label={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
-                      title={`${focusedDiffStats.added.toLocaleString("en-US")} additions, ${focusedDiffStats.deleted.toLocaleString("en-US")} deletions`}
-                      className="hidden items-center gap-1 whitespace-nowrap rounded-full border border-border/50 bg-muted/30 px-1.5 py-0.5 font-mono text-[10px] tracking-normal sm:inline-flex"
-                    >
-                      <span className="text-status-working">
-                        +{formatDiffCount(focusedDiffStats.added)}
-                      </span>
-                      <span className="text-status-blocked">
-                        {"−"}
-                        {formatDiffCount(focusedDiffStats.deleted)}
-                      </span>
-                    </span>
-                  ) : null}
-                </div>
-                <div className="flex items-center justify-center">
-                  {focusedAgent?.name ? (
-                    <>
-                      <span
-                        data-testid="current-session-name"
-                        className="sr-only"
-                      >
-                        {focusedAgent.name}
-                      </span>
-                      <CenterPaneTabBar
-                        activeTab={
-                          changesMatch
-                            ? "changes"
-                            : whiteboardMatch
-                              ? "whiteboard"
-                              : "terminal"
-                        }
-                        onTabChange={(tab) => {
-                          if (isSplit) {
-                            exitSplit();
-                          }
-                          onTabChange(tab);
-                        }}
-                        whiteboardAgentDrew={whiteboardAgentDrew}
-                        isSplit={isSplit}
-                        splitState={splitState}
-                        isMobile={isMobile}
-                      />
-                    </>
-                  ) : null}
-                </div>
-                <div className="flex items-center justify-end gap-1">
-                  {changesMatch && !isSplit ? (
-                    <ChangesSettingsPopover isMobile={isMobile} />
-                  ) : null}
-                  {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (
-                    <Button
-                      size="icon"
-                      variant="ghost"
-                      className="relative"
-                      onClick={() => setMediaOpen(true)}
-                      title="Open media sidebar"
-                      data-testid="toggle-media-sidebar"
-                    >
-                      <PanelLeftOpen className="h-4 w-4" />
-                      {unseenMediaCount + unreadMessageCount > 0 ? (
-                        <span className="absolute -right-1.5 -top-1.5 min-w-5 rounded-full border border-border bg-primary px-1 text-[10px] font-semibold text-primary-foreground">
-                          {unseenMediaCount + unreadMessageCount}
-                        </span>
-                      ) : null}
-                    </Button>
-                  ) : null}
-                </div>
-                {connState === "reconnecting" ? (
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 h-0.5 overflow-hidden">
-                    <div className="dispatch-reconnect-scan h-full w-1/3 will-change-transform bg-[linear-gradient(to_right,transparent,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)),transparent)] saturate-[1.35] brightness-[1.05] animate-[reconnect-scan_1350ms_ease-in-out_infinite] motion-reduce:animate-none motion-reduce:translate-x-[140%]" />
-                  </div>
-                ) : null}
-              </div>
+              <AgentsViewHeader
+                isMobile={isMobile}
+                connState={connState}
+                leftPanelOpen={leftPanelOpen}
+                handleSetLeftPanelOpen={handleSetLeftPanelOpen}
+                focusedAgentId={focusedAgentId}
+                focusedAgentName={focusedAgent?.name ?? null}
+                hasActiveAgent={hasActiveAgent}
+                focusTerminal={focusTerminal}
+                focusedDiffStats={focusedDiffStats}
+                changesMatch={changesMatch}
+                whiteboardMatch={whiteboardMatch}
+                isSplit={isSplit}
+                splitState={splitState}
+                exitSplit={exitSplit}
+                onTabChange={onTabChange}
+                whiteboardAgentDrew={whiteboardAgentDrew}
+                mediaPanelOpen={mediaPanelOpen}
+                setMediaOpen={setMediaOpen}
+                unseenMediaCount={unseenMediaCount}
+                unreadMessageCount={unreadMessageCount}
+              />
               <div
                 className={cn("relative min-h-0 flex-1", !isMobile && "pb-14")}
                 onDragOver={handleContentDragOver}
@@ -805,11 +628,8 @@ export function AgentsView({
                     {whiteboardElement}
                   </>
                 )}
-                {stableTerminalContainerRef.current
-                  ? createPortal(
-                      terminalElement,
-                      stableTerminalContainerRef.current
-                    )
+                {stableTerminalContainer
+                  ? createPortal(terminalElement, stableTerminalContainer)
                   : null}
                 <SplitDropZones
                   visible={isDraggingTab && !isMobile}
