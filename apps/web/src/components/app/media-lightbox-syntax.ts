@@ -108,14 +108,41 @@ const EXT_TO_LANG: Record<string, string> = {
   ".m": "objectivec",
 };
 
-export function highlightCode(
+// Every language registered above is supported by its canonical highlight.js
+// name (including `go` and highlight.js's `golang` alias). These only cover
+// popular Markdown fence aliases not supplied by those grammars.
+const FENCE_LANGUAGE_ALIASES: Record<string, string> = {
+  js: "javascript",
+  jsx: "javascript",
+  ts: "typescript",
+  tsx: "typescript",
+  shell: "bash",
+  shellscript: "bash",
+  yml: "yaml",
+  html: "xml",
+  svg: "xml",
+  md: "markdown",
+  py: "python",
+  rb: "ruby",
+  rs: "rust",
+  sh: "bash",
+};
+
+export function highlightCodeLanguage(
   content: string,
-  fileName: string
+  language?: string
 ): string | null {
-  const language = EXT_TO_LANG[fileExtension(fileName)];
-  if (language) {
+  const requestedLanguage = language
+    ?.replace(/^language-/, "")
+    .trim()
+    .toLowerCase();
+  const normalizedLanguage = requestedLanguage
+    ? (FENCE_LANGUAGE_ALIASES[requestedLanguage] ?? requestedLanguage)
+    : undefined;
+
+  if (normalizedLanguage && hljs.getLanguage(normalizedLanguage)) {
     try {
-      return hljs.highlight(content, { language }).value;
+      return hljs.highlight(content, { language: normalizedLanguage }).value;
     } catch {
       // Fall through to auto-detection.
     }
@@ -126,4 +153,12 @@ export function highlightCode(
   } catch {
     return null;
   }
+}
+
+export function highlightCode(
+  content: string,
+  fileName: string
+): string | null {
+  const language = EXT_TO_LANG[fileExtension(fileName)];
+  return highlightCodeLanguage(content, language);
 }
