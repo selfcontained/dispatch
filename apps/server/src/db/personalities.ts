@@ -86,26 +86,32 @@ export async function deletePersonality(
   pool: Pool,
   id: string
 ): Promise<boolean> {
-  // Atomic delete + active-id clear in one round-trip. The first CTE deletes
-  // the row; the second clears the active-id setting iff the row existed and
-  // was the active one. The trailing SELECT always returns one row, so we
-  // can read the deletion outcome without depending on either DELETE's
-  // RETURNING set. Closes the read-then-delete-then-clear race that an
-  // out-of-band activate would otherwise hit.
-  const result = await pool.query<{ deleted_count: number }>(
-    `WITH deleted AS (
-       DELETE FROM personalities WHERE id = $1 RETURNING id
-     ),
-     cleared AS (
-       DELETE FROM settings
-       WHERE key = 'active_personality_id'
-         AND value = $1
-         AND EXISTS (SELECT 1 FROM deleted)
-     )
-     SELECT COUNT(*)::int AS deleted_count FROM deleted`,
-    [id]
-  );
-  return (result.rows[0]?.deleted_count ?? 0) > 0;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    // This statement waits for activatePersonality's row lock when needed.
+    // The separate settings DELETE gets a fresh READ COMMITTED snapshot after
+    // that wait, ensuring it sees an activation that committed meanwhile.
+    const deleted = await client.query<{ id: string }>(
+      "DELETE FROM personalities WHERE id = $1 RETURNING id",
+      [id]
+    );
+    if (deleted.rowCount === 0) {
+      await client.query("COMMIT");
+      return false;
+    }
+    await client.query("DELETE FROM settings WHERE key = $1 AND value = $2", [
+      ACTIVE_PERSONALITY_KEY,
+      id,
+    ]);
+    await client.query("COMMIT");
+    return true;
+  } catch (error) {
+    await client.query("ROLLBACK").catch(() => undefined);
+    throw error;
+  } finally {
+    client.release();
+  }
 }
 
 export async function getActivePersonalityId(
@@ -124,6 +130,32 @@ export async function setActivePersonalityId(
     return;
   }
   await setSetting(pool, ACTIVE_PERSONALITY_KEY, id);
+}
+
+/**
+ * Set the active personality only while holding a row lock on it. Deletion
+ * acquires that same row lock before it clears the active setting, so a delete
+ * cannot interleave and leave a dangling active_personality_id behind.
+ */
+export async function activatePersonality(
+  pool: Pool,
+  id: string
+): Promise<boolean> {
+  const result = await pool.query<{ activated: boolean }>(
+    `WITH locked AS (
+       SELECT id FROM personalities WHERE id = $1 FOR UPDATE
+     ),
+     activated AS (
+       INSERT INTO settings (key, value, updated_at)
+       SELECT '${ACTIVE_PERSONALITY_KEY}', id, NOW() FROM locked
+       ON CONFLICT (key) DO UPDATE
+       SET value = EXCLUDED.value, updated_at = NOW()
+       RETURNING 1
+     )
+     SELECT EXISTS (SELECT 1 FROM activated) AS activated`,
+    [id]
+  );
+  return result.rows[0]?.activated ?? false;
 }
 
 export async function getActivePersonality(

@@ -28,6 +28,16 @@ import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 import { MessageStore } from "../messages/store.js";
 import { createWhiteboardHandlers } from "./mcp-whiteboard-handlers.js";
+import {
+  activatePersonality,
+  createPersonality,
+  deletePersonality,
+  getActivePersonalityId,
+  listPersonalities,
+  setActivePersonalityId,
+  updatePersonality,
+} from "../db/personalities.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
@@ -54,6 +64,13 @@ type CreateMcpHandlersDeps = {
   sendAgentPrompt: SendAgentPrompt;
   appLog: FastifyBaseLogger;
 };
+
+function normalizePersonalityDuplicateName(error: unknown): never {
+  if (errorMessage(error).includes("personalities_name_key")) {
+    throw new Error("A personality with that name already exists.");
+  }
+  throw error;
+}
 
 export function mcpMethodNotAllowed(): {
   jsonrpc: "2.0";
@@ -719,6 +736,46 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
   return {
     ...reviewHandlers,
     ...whiteboardHandlers,
+
+    listPersonalities: async () => {
+      const [personalities, activeId] = await Promise.all([
+        listPersonalities(deps.pool),
+        getActivePersonalityId(deps.pool),
+      ]);
+      return { personalities, activeId };
+    },
+
+    createPersonality: async (input: { name: string; prompt: string }) => {
+      try {
+        return await createPersonality(deps.pool, input);
+      } catch (error) {
+        return normalizePersonalityDuplicateName(error);
+      }
+    },
+
+    updatePersonality: (
+      id: string,
+      input: { name?: string; prompt?: string }
+    ) =>
+      updatePersonality(deps.pool, id, input)
+        .catch(normalizePersonalityDuplicateName)
+        .then((personality) => {
+          if (!personality) throw new Error("Personality not found.");
+          return personality;
+        }),
+
+    deletePersonality: (id: string) =>
+      deletePersonality(deps.pool, id).then((deleted) => {
+        if (!deleted) throw new Error("Personality not found.");
+      }),
+
+    setActivePersonality: async (id: string) => {
+      if (!(await activatePersonality(deps.pool, id))) {
+        throw new Error("Personality not found.");
+      }
+    },
+
+    clearActivePersonality: () => setActivePersonalityId(deps.pool, null),
 
     upsertEvent: (
       agentId: string,

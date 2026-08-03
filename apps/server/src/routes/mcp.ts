@@ -54,6 +54,12 @@ type McpRouteDeps = {
   mcpClearWhiteboard: unknown;
   mcpListPersonas: unknown;
   mcpLaunchPersona: unknown;
+  mcpListPersonalities: unknown;
+  mcpCreatePersonality: unknown;
+  mcpUpdatePersonality: unknown;
+  mcpDeletePersonality: unknown;
+  mcpSetActivePersonality: unknown;
+  mcpClearActivePersonality: unknown;
   mcpLaunchAgent: unknown;
   mcpResolveReviewFeedback: unknown;
   mcpReopenReviewFeedback: unknown;
@@ -212,6 +218,12 @@ export async function registerMcpRoutes(
       listPins: deps.mcpListPins,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
+      listPersonalities: deps.mcpListPersonalities,
+      createPersonality: deps.mcpCreatePersonality,
+      updatePersonality: deps.mcpUpdatePersonality,
+      deletePersonality: deps.mcpDeletePersonality,
+      setActivePersonality: deps.mcpSetActivePersonality,
+      clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
       reopenReviewFeedback: deps.mcpReopenReviewFeedback,
@@ -297,6 +309,12 @@ export async function registerMcpRoutes(
       clearWhiteboard: deps.mcpClearWhiteboard,
       listPersonas: deps.mcpListPersonas,
       launchPersona: deps.mcpLaunchPersona,
+      listPersonalities: deps.mcpListPersonalities,
+      createPersonality: deps.mcpCreatePersonality,
+      updatePersonality: deps.mcpUpdatePersonality,
+      deletePersonality: deps.mcpDeletePersonality,
+      setActivePersonality: deps.mcpSetActivePersonality,
+      clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
       reopenReviewFeedback: deps.mcpReopenReviewFeedback,
