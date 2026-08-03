@@ -63,8 +63,10 @@ rollback:
 ```
 
 V1 fields only: `id`, `title`, `summary`, `alreadySatisfied.description`,
-`instructions[]`, `validation.requiredChecks[]`, `rollback[]`. Anything else
-will fail validation.
+`instructions[]`, `validation.requiredChecks[]`, `rollback[]`. The parser
+silently strips unknown fields rather than rejecting them, so anything outside
+this list is dead weight the runtime never sees — don't add extra fields
+expecting an error to catch them.
 
 Out of scope for V1 (do **not** add): `appliesFrom`/version ranges, install-fact
 predicates, supersession or dependency edges, machine-executable step DSLs.
