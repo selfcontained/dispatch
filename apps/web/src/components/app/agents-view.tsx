@@ -52,7 +52,10 @@ import { useTerminal } from "@/hooks/use-terminal";
 import { useAgentFocus } from "@/hooks/use-agent-focus";
 import { useAgentsViewRouting } from "@/hooks/use-agents-view-routing";
 import { useAgentHotkeys } from "@/hooks/use-agent-hotkeys";
-import { useExpandedAgent } from "@/hooks/use-expanded-agent";
+import {
+  useExpandedAgent,
+  useExpandedAgentSync,
+} from "@/hooks/use-expanded-agent";
 
 type AgentsViewProps = {
   enabledAgentTypes: AgentType[];
@@ -133,7 +136,7 @@ export function AgentsView({
   const [stopTarget, setStopTarget] = useState<Agent | null>(null);
 
   const { expandedAgentId, setExpandedAgentId, toggleAgentDetails } =
-    useExpandedAgent(agents, validatedSelectedAgentId);
+    useExpandedAgent();
 
   const pendingAutoAttachAgentIdRef = useRef<string | null>(null);
   const sidebarAgentId = sharedConnectedAgentId ?? validatedSelectedAgentId;
@@ -337,6 +340,13 @@ export function AgentsView({
       setMediaOpen,
       setMobileLeftOpen,
     ]
+  );
+
+  useExpandedAgentSync(
+    agents,
+    validatedSelectedAgentId,
+    expandedAgentId,
+    setExpandedAgentId
   );
 
   useEffect(() => {

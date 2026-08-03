@@ -1,4 +1,12 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  type Dispatch,
+  type SetStateAction,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 
 import {
   EXPANDED_AGENT_ID_KEY,
@@ -8,18 +16,38 @@ import { type Agent } from "@/components/app/types";
 import { isNestedReviewAgent } from "@/lib/agent-types";
 
 /**
- * Owns which agent card is expanded in the sidebar: localStorage-persisted
- * state, a toggle, and an effect that follows the selected agent (resolving
- * nested review agents to their parent so the parent card expands).
+ * Owns which agent card is expanded in the sidebar: localStorage-initialized
+ * state and a toggle. The persistence and selection-follow effects live in
+ * `useExpandedAgentSync` so callers can register them at a specific point in
+ * their effect order.
  */
-export function useExpandedAgent(
-  agents: Agent[],
-  validatedSelectedAgentId: string | null
-) {
+export function useExpandedAgent() {
   const [expandedAgentId, setExpandedAgentId] = useState<string | null>(() =>
     readExpandedAgentId()
   );
 
+  const toggleAgentDetails = useCallback((agentId: string) => {
+    setExpandedAgentId((current) => (current === agentId ? null : agentId));
+  }, []);
+
+  return { expandedAgentId, setExpandedAgentId, toggleAgentDetails };
+}
+
+/**
+ * Registers the expanded-agent side effects: persisting the expanded card to
+ * localStorage, and following the selected agent (resolving nested review
+ * agents to their parent so the parent card expands). Split from
+ * `useExpandedAgent` so the effects register at the same position in the
+ * caller's effect sequence as before the extraction — React runs passive
+ * effects in declaration order, and this call site sits among other effects
+ * whose relative timing should not change.
+ */
+export function useExpandedAgentSync(
+  agents: Agent[],
+  validatedSelectedAgentId: string | null,
+  expandedAgentId: string | null,
+  setExpandedAgentId: Dispatch<SetStateAction<string | null>>
+) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (!expandedAgentId) {
@@ -50,11 +78,5 @@ export function useExpandedAgent(
     setExpandedAgentId((current) =>
       current === selectedExpansionTarget ? current : selectedExpansionTarget
     );
-  }, [selectedExpansionTarget]);
-
-  const toggleAgentDetails = useCallback((agentId: string) => {
-    setExpandedAgentId((current) => (current === agentId ? null : agentId));
-  }, []);
-
-  return { expandedAgentId, setExpandedAgentId, toggleAgentDetails };
+  }, [selectedExpansionTarget, setExpandedAgentId]);
 }
