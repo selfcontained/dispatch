@@ -2,6 +2,7 @@ import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 
 import {
+  activatePersonality,
   createPersonality,
   deletePersonality,
   getActivePersonalityId,
@@ -149,12 +150,9 @@ export async function registerPersonalityRoutes(
       return reply.code(400).send({ error: "id must be a string or null." });
     }
 
-    const personality = await getPersonality(pool, id);
-    if (!personality) {
+    if (!(await activatePersonality(pool, id))) {
       return reply.code(404).send({ error: "Personality not found." });
     }
-
-    await setActivePersonalityId(pool, id);
     return { activeId: id };
   });
 }

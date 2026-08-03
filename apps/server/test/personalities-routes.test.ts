@@ -13,6 +13,7 @@ import { registerPersonalityRoutes } from "../src/routes/personalities.js";
 import * as personalityQueries from "../src/db/personalities.js";
 
 vi.mock("../src/db/personalities.js", () => ({
+  activatePersonality: vi.fn(),
   listPersonalities: vi.fn(),
   getPersonality: vi.fn(),
   createPersonality: vi.fn(),
@@ -62,6 +63,7 @@ beforeEach(() => {
   vi.mocked(personalityQueries.setActivePersonalityId).mockResolvedValue(
     undefined
   );
+  vi.mocked(personalityQueries.activatePersonality).mockResolvedValue(true);
 });
 
 // ── GET /api/v1/personalities ──────────────────────────────────────────
@@ -435,7 +437,7 @@ describe("POST /api/v1/personalities/active", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json()).toEqual({ activeId: "p-1" });
-    expect(personalityQueries.setActivePersonalityId).toHaveBeenCalledWith(
+    expect(personalityQueries.activatePersonality).toHaveBeenCalledWith(
       pool,
       "p-1"
     );
@@ -480,7 +482,7 @@ describe("POST /api/v1/personalities/active", () => {
   });
 
   it("returns 404 for empty string id", async () => {
-    vi.mocked(personalityQueries.getPersonality).mockResolvedValue(null);
+    vi.mocked(personalityQueries.activatePersonality).mockResolvedValue(false);
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/personalities/active",
@@ -491,7 +493,7 @@ describe("POST /api/v1/personalities/active", () => {
   });
 
   it("returns 404 when personality does not exist", async () => {
-    vi.mocked(personalityQueries.getPersonality).mockResolvedValue(null);
+    vi.mocked(personalityQueries.activatePersonality).mockResolvedValue(false);
     const res = await app.inject({
       method: "POST",
       url: "/api/v1/personalities/active",

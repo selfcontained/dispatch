@@ -16,6 +16,7 @@ import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
 import { registerMessagingTools } from "./messaging-tools.js";
+import { registerPersonalityTools } from "./personality-tools.js";
 import { registerWhiteboardTools } from "./whiteboard-tools.js";
 import type {
   WhiteboardGetResult,
@@ -64,6 +65,12 @@ const AGENT_TOOLS = new Set([
   "dispatch_list_pins",
   "list_personas",
   "dispatch_launch_persona",
+  "list_personalities",
+  "create_personality",
+  "update_personality",
+  "delete_personality",
+  "set_active_personality",
+  "clear_active_personality",
   "dispatch_review_list_feedback",
   "dispatch_review_resolve",
   "dispatch_review_reopen",
@@ -255,6 +262,36 @@ export type McpRequestContext = {
       includeDiff?: boolean;
     }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
+  listPersonalities?: () => Promise<{
+    personalities: Array<{
+      id: string;
+      name: string;
+      prompt: string;
+      createdAt: string;
+      updatedAt: string;
+    }>;
+    activeId: string | null;
+  }>;
+  createPersonality?: (input: { name: string; prompt: string }) => Promise<{
+    id: string;
+    name: string;
+    prompt: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  updatePersonality?: (
+    id: string,
+    input: { name?: string; prompt?: string }
+  ) => Promise<{
+    id: string;
+    name: string;
+    prompt: string;
+    createdAt: string;
+    updatedAt: string;
+  }>;
+  deletePersonality?: (id: string) => Promise<void>;
+  setActivePersonality?: (id: string) => Promise<void>;
+  clearActivePersonality?: () => Promise<void>;
   launchAgent?: (
     agentId: string,
     input: {
@@ -474,6 +511,16 @@ async function createDispatchMcpServer(
       listPins: context.listPins,
     });
   }
+
+  // ── Personalities ────────────────────────────────────────────────
+  registerPersonalityTools(server, allowed, {
+    listPersonalities: context.listPersonalities,
+    createPersonality: context.createPersonality,
+    updatePersonality: context.updatePersonality,
+    deletePersonality: context.deletePersonality,
+    setActivePersonality: context.setActivePersonality,
+    clearActivePersonality: context.clearActivePersonality,
+  });
 
   if (allowed.has("dispatch_pin")) registerPinTool(server, context);
   if (allowed.has("dispatch_delete_pin"))
