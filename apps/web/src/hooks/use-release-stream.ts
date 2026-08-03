@@ -79,7 +79,7 @@ export type ReleaseStatus = {
  * `ReleasePhase`, and we have to cast it to whichever variant `prev`
  * actually is — that cast is the one place "trust the wire" lives.
  */
-function applyStreamEvent(
+export function applyStreamEvent(
   prev: ReleaseJob | null,
   event: Exclude<
     ReleaseStreamEvent,
