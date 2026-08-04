@@ -1,6 +1,5 @@
 import {
   type ClipboardEvent,
-  type DragEvent,
   type FormEvent,
   useCallback,
   useEffect,
@@ -12,7 +11,6 @@ import { toast } from "sonner";
 import {
   createClipboardSuggestionFromText,
   getClipboardFilesFromEvent,
-  startupFileKey,
 } from "@/components/app/create-agent-dialog-clipboard";
 import {
   CONTEXT_PROMPT_ID,
@@ -24,6 +22,7 @@ import {
   useCreateAgentPrefs,
 } from "@/components/app/create-agent-dialog-utils";
 import { type Agent } from "@/components/app/types";
+import { useStartupAttachments } from "@/components/app/use-startup-attachments";
 import { useSystemDefaults } from "@/hooks/use-system-defaults";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
@@ -62,9 +61,18 @@ export function useCreateAgentForm({
   const [cwdIsGitRepo, setCwdIsGitRepo] = useState<boolean | null>(null);
   const cwdPathInfoRef = useRef<{ isGitRepo: boolean } | null>(null);
   const [initialPrompt, setInitialPrompt] = useState("");
-  const [startupFiles, setStartupFiles] = useState<File[]>([]);
-  const [startupLinks, setStartupLinks] = useState<string[]>([]);
-  const [draggingFiles, setDraggingFiles] = useState(false);
+  const {
+    startupFiles,
+    startupLinks,
+    draggingFiles,
+    setDraggingFiles,
+    startupFilePreviewsRef,
+    appendStartupFiles,
+    handleAddLink,
+    handleRemoveStartupFile,
+    handleRemoveStartupLink,
+    handleStartupDrop,
+  } = useStartupAttachments();
   const [contextDraftInvalid, setContextDraftInvalid] = useState(false);
   const [creating, setCreating] = useState(false);
   const {
@@ -116,7 +124,7 @@ export function useCreateAgentForm({
     if (step !== "context") {
       setDraggingFiles(false);
     }
-  }, [step]);
+  }, [setDraggingFiles, step]);
 
   const handlePathInfoChange = useCallback(
     (info: { isGitRepo: boolean } | null) => {
@@ -125,35 +133,6 @@ export function useCreateAgentForm({
     },
     []
   );
-
-  const startupFilePreviewsRef = useRef<Map<string, string>>(new Map());
-
-  const appendStartupFiles = useCallback((files: File[]) => {
-    if (files.length === 0) return;
-    setStartupFiles((current) => {
-      const next = [...current];
-      const seen = new Set(current.map(startupFileKey));
-      for (const file of files) {
-        const key = startupFileKey(file);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        next.push(file);
-        if (
-          file.type.startsWith("image/") &&
-          !startupFilePreviewsRef.current.has(key)
-        ) {
-          startupFilePreviewsRef.current.set(key, URL.createObjectURL(file));
-        }
-      }
-      return next;
-    });
-  }, []);
-
-  const handleAddLink = useCallback((url: string) => {
-    setStartupLinks((current) =>
-      current.includes(url) ? current : [...current, url]
-    );
-  }, []);
 
   const handleStartupPaste = useCallback(
     (event: ClipboardEvent<HTMLElement>) => {
@@ -179,45 +158,6 @@ export function useCreateAgentForm({
     },
     [appendStartupFiles, handleAddLink]
   );
-
-  const handleStartupDrop = useCallback(
-    (event: DragEvent<HTMLElement>) => {
-      const droppedFiles = Array.from(event.dataTransfer.files ?? []);
-      if (droppedFiles.length === 0) return;
-      event.preventDefault();
-      setDraggingFiles(false);
-      appendStartupFiles(droppedFiles);
-    },
-    [appendStartupFiles]
-  );
-
-  const handleRemoveStartupFile = useCallback((fileToRemove: File) => {
-    const key = startupFileKey(fileToRemove);
-    const url = startupFilePreviewsRef.current.get(key);
-    if (url) {
-      URL.revokeObjectURL(url);
-      startupFilePreviewsRef.current.delete(key);
-    }
-    setStartupFiles((current) =>
-      current.filter((file) => startupFileKey(file) !== key)
-    );
-  }, []);
-
-  useEffect(() => {
-    const previews = startupFilePreviewsRef.current;
-    return () => {
-      for (const url of previews.values()) {
-        URL.revokeObjectURL(url);
-      }
-      previews.clear();
-    };
-  }, []);
-
-  const handleRemoveStartupLink = useCallback((linkToRemove: string) => {
-    setStartupLinks((current) =>
-      current.filter((link) => link !== linkToRemove)
-    );
-  }, []);
 
   const handleClipboardText = useCallback((text: string) => {
     setInitialPrompt((current) =>
