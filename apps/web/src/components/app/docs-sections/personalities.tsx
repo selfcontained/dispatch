@@ -36,6 +36,14 @@ export function PersonalitiesContent() {
           prompt it was launched with — edits are picked up the next time an
           agent launches, or when a paused agent resumes.
         </P>
+        <P>
+          Agents can manage personalities too: standard agents get{" "}
+          <Code>list_personalities</Code>, <Code>create_personality</Code>,{" "}
+          <Code>update_personality</Code>, <Code>delete_personality</Code>,{" "}
+          <Code>set_active_personality</Code>, and{" "}
+          <Code>clear_active_personality</Code> MCP tools, so you can ask an
+          agent to draft, tweak, or switch the active personality for you.
+        </P>
       </Section>
 
       <Section>

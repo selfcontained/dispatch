@@ -206,6 +206,12 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `create_template`               | Create a new reusable agent launch template                                |
 | `update_template`               | Update an existing template                                                |
 | `delete_template`               | Delete a template                                                          |
+| `list_personalities`            | List saved personalities and the active personality ID                     |
+| `create_personality`            | Create a saved personality                                                 |
+| `update_personality`            | Update a saved personality's name or prompt                                |
+| `delete_personality`            | Delete a saved personality (clears it if it was active)                    |
+| `set_active_personality`        | Set the active personality for subsequently launched agents                |
+| `clear_active_personality`      | Clear the active personality                                               |
 
 ### Persona agents
 

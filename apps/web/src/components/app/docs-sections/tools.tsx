@@ -235,6 +235,13 @@ export function ToolsContent() {
             <Code>delete_template</Code> — manage reusable agent launch
             templates
           </li>
+          <li>
+            <Code>list_personalities</Code>, <Code>create_personality</Code>,{" "}
+            <Code>update_personality</Code>, <Code>delete_personality</Code>,{" "}
+            <Code>set_active_personality</Code>,{" "}
+            <Code>clear_active_personality</Code> — manage saved personalities
+            and which one is active (see the Personalities section)
+          </li>
         </ul>
         <P>
           By default, <Code>list_agents</Code> and{" "}
