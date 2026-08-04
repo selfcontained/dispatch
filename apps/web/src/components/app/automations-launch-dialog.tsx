@@ -1,19 +1,12 @@
-import {
-  type DragEvent,
-  useCallback,
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-} from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Play } from "lucide-react";
 import { toast } from "sonner";
 
 import { ArgInput } from "@/components/app/arg-input";
 import { ContextPicker } from "@/components/app/context-picker";
-import { startupFileKey } from "@/components/app/create-agent-dialog-clipboard";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
+import { useStartupAttachments } from "@/components/app/use-startup-attachments";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
@@ -79,10 +72,18 @@ function LaunchTemplateDialogContent({
 
   const isTerminal = agentType === "terminal";
   const showMedia = !isTerminal && template.allowMedia;
-  const [startupFiles, setStartupFiles] = useState<File[]>([]);
-  const [startupLinks, setStartupLinks] = useState<string[]>([]);
-  const [draggingFiles, setDraggingFiles] = useState(false);
-  const startupFilePreviewsRef = useRef<Map<string, string>>(new Map());
+  const {
+    startupFiles,
+    startupLinks,
+    draggingFiles,
+    setDraggingFiles,
+    startupFilePreviewsRef,
+    appendStartupFiles,
+    handleAddLink,
+    handleRemoveStartupFile,
+    handleRemoveStartupLink,
+    handleStartupDrop,
+  } = useStartupAttachments();
 
   useEffect(() => {
     setArgValues({});
@@ -94,73 +95,7 @@ function LaunchTemplateDialogContent({
     requestAnimationFrame(() => launchButtonRef.current?.focus());
   }, [args.length]);
 
-  useEffect(() => {
-    const previews = startupFilePreviewsRef.current;
-    return () => {
-      for (const url of previews.values()) {
-        URL.revokeObjectURL(url);
-      }
-      previews.clear();
-    };
-  }, []);
-
   useRadixPopoverZFix();
-
-  const appendStartupFiles = useCallback((files: File[]) => {
-    if (files.length === 0) return;
-    setStartupFiles((current) => {
-      const next = [...current];
-      const seen = new Set(current.map(startupFileKey));
-      for (const file of files) {
-        const key = startupFileKey(file);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        next.push(file);
-        if (
-          file.type.startsWith("image/") &&
-          !startupFilePreviewsRef.current.has(key)
-        ) {
-          startupFilePreviewsRef.current.set(key, URL.createObjectURL(file));
-        }
-      }
-      return next;
-    });
-  }, []);
-
-  const handleRemoveStartupFile = useCallback((fileToRemove: File) => {
-    const key = startupFileKey(fileToRemove);
-    const url = startupFilePreviewsRef.current.get(key);
-    if (url) {
-      URL.revokeObjectURL(url);
-      startupFilePreviewsRef.current.delete(key);
-    }
-    setStartupFiles((current) =>
-      current.filter((file) => startupFileKey(file) !== key)
-    );
-  }, []);
-
-  const handleRemoveStartupLink = useCallback((linkToRemove: string) => {
-    setStartupLinks((current) =>
-      current.filter((link) => link !== linkToRemove)
-    );
-  }, []);
-
-  const handleAddLink = useCallback((url: string) => {
-    setStartupLinks((current) =>
-      current.includes(url) ? current : [...current, url]
-    );
-  }, []);
-
-  const handleDrop = useCallback(
-    (event: DragEvent<HTMLElement>) => {
-      const droppedFiles = Array.from(event.dataTransfer.files ?? []);
-      if (droppedFiles.length === 0) return;
-      event.preventDefault();
-      setDraggingFiles(false);
-      appendStartupFiles(droppedFiles);
-    },
-    [appendStartupFiles]
-  );
 
   const allArgsFilled =
     args.length === 0 ||
@@ -244,7 +179,7 @@ function LaunchTemplateDialogContent({
               }
             : undefined
         }
-        onDrop={showMedia ? handleDrop : undefined}
+        onDrop={showMedia ? handleStartupDrop : undefined}
       >
         {!isTerminal ? (
           <AgentTypeSelect
