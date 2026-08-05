@@ -298,11 +298,18 @@ export function AgentsContent() {
             a phrase with variables, a fill-in dialog appears first.
           </li>
           <li>
+            <strong>Searching</strong> — the popover opens with a search box
+            focused; type to filter phrases by label or text. Arrow keys move
+            the highlight, and <Code>Enter</Code> sends the highlighted phrase.
+            Clicking a phrase row sends it too.
+          </li>
+          <li>
             <strong>Injecting</strong> — phrases without variables show a split
             button: <strong>Send</strong> pastes the text and submits it; the
             dropdown offers <strong>Paste without submitting</strong> which
             pastes only. Phrases with variables show a <strong>Send…</strong>{" "}
-            button that opens the fill-in dialog.
+            button that opens the fill-in dialog — selecting one via row click
+            or <Code>Enter</Code> opens the same dialog.
           </li>
           <li>
             <strong>Editing and deleting</strong> — each phrase row has edit and
