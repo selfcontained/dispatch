@@ -3,8 +3,10 @@ import { Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import {
+  JobAgentTypeField,
   JobFullAccessOption,
   JobKeepAgentOption,
+  JobScheduleField,
   JobWorktreeOption,
   SwitchToggle,
   WebhookUrl,
@@ -12,27 +14,14 @@ import {
 import {
   cronError,
   errorMessage,
-  humanSchedule,
   minutesFromMs,
   msFromMinutes,
 } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { type AddJobConfig, type Job } from "@/hooks/use-jobs";
-import {
-  AGENT_TYPE_LABELS,
-  type AgentType,
-  type CliAgentType,
-  isCliAgentType,
-} from "@/lib/agent-types";
+import { type AgentType, type CliAgentType } from "@/lib/agent-types";
 
 export function SettingsTab({
   job,
@@ -125,70 +114,20 @@ export function SettingsTab({
               onChange={(event) => setDisplayName(event.target.value)}
             />
           </div>
-          <div className="space-y-1">
-            <label
-              className="text-sm text-muted-foreground"
-              htmlFor={`settings-schedule-${job.id}`}
-            >
-              Cron schedule{" "}
-              <span className="text-muted-foreground/70">(optional)</span>
-            </label>
-            <Input
-              id={`settings-schedule-${job.id}`}
-              value={schedule}
-              onChange={(event) => setSchedule(event.target.value)}
-              placeholder="*/30 * * * *"
-              className="font-mono text-xs"
-            />
-            {scheduleError ? (
-              <div className="text-xs text-status-blocked">{scheduleError}</div>
-            ) : null}
-            {!scheduleError && schedule.trim() ? (
-              <div className="text-xs text-muted-foreground">
-                {humanSchedule(schedule)}
-              </div>
-            ) : null}
-            {!schedule.trim() ? (
-              <div className="text-xs text-muted-foreground">
-                Leave blank for an on-demand job.
-              </div>
-            ) : null}
-            {schedule.trim() ? (
-              <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
-                <span>
-                  <span className="block font-medium text-foreground">
-                    Enabled
-                  </span>
-                  <span className="block text-xs text-muted-foreground">
-                    Run this job on its saved schedule.
-                  </span>
-                </span>
-                <SwitchToggle
-                  checked={enabled}
-                  onCheckedChange={setEnabled}
-                  ariaLabel="Enable job"
-                />
-              </label>
-            ) : null}
-          </div>
-          <div className="space-y-1">
-            <label className="text-sm text-muted-foreground">Agent type</label>
-            <Select
-              value={agentType}
-              onValueChange={(value) => setAgentType(value as CliAgentType)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {enabledAgentTypes.filter(isCliAgentType).map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {AGENT_TYPE_LABELS[type]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          <JobScheduleField
+            id={`settings-schedule-${job.id}`}
+            schedule={schedule}
+            scheduleError={scheduleError}
+            enabled={enabled}
+            enabledHelperText="Run this job on its saved schedule."
+            onScheduleChange={setSchedule}
+            onEnabledChange={setEnabled}
+          />
+          <JobAgentTypeField
+            value={agentType}
+            agentTypes={enabledAgentTypes}
+            onChange={setAgentType}
+          />
           <div className="space-y-1">
             <label
               className="text-sm text-muted-foreground"
