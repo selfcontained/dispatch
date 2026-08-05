@@ -2,7 +2,22 @@ import { Check, Copy, GitBranch } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
 
 import { BranchSelect } from "@/components/app/branch-select";
+import { humanSchedule } from "@/components/app/jobs-helpers";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import {
+  AGENT_TYPE_LABELS,
+  type AgentType,
+  type CliAgentType,
+  isCliAgentType,
+} from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
 export function SwitchToggle({
@@ -33,6 +48,99 @@ export function SwitchToggle({
         )}
       />
     </button>
+  );
+}
+
+export function JobScheduleField({
+  id,
+  schedule,
+  scheduleError,
+  enabled,
+  enabledHelperText,
+  onScheduleChange,
+  onEnabledChange,
+}: {
+  id: string;
+  schedule: string;
+  scheduleError: string | null;
+  enabled: boolean;
+  enabledHelperText: string;
+  onScheduleChange: (value: string) => void;
+  onEnabledChange: (enabled: boolean) => void;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <label className="text-sm text-muted-foreground" htmlFor={id}>
+        Cron schedule{" "}
+        <span className="text-muted-foreground/70">(optional)</span>
+      </label>
+      <Input
+        id={id}
+        value={schedule}
+        onChange={(event) => onScheduleChange(event.target.value)}
+        placeholder="*/30 * * * *"
+        className="font-mono text-xs"
+      />
+      {scheduleError ? (
+        <div className="text-xs text-status-blocked">{scheduleError}</div>
+      ) : null}
+      {!scheduleError && schedule.trim() ? (
+        <div className="text-xs text-muted-foreground">
+          {humanSchedule(schedule)}
+        </div>
+      ) : null}
+      {!schedule.trim() ? (
+        <div className="text-xs text-muted-foreground">
+          Leave blank for an on-demand job.
+        </div>
+      ) : null}
+      {schedule.trim() ? (
+        <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+          <span>
+            <span className="block font-medium text-foreground">Enabled</span>
+            <span className="block text-xs text-muted-foreground">
+              {enabledHelperText}
+            </span>
+          </span>
+          <SwitchToggle
+            checked={enabled}
+            onCheckedChange={onEnabledChange}
+            ariaLabel="Enable job"
+          />
+        </label>
+      ) : null}
+    </div>
+  );
+}
+
+export function JobAgentTypeField({
+  value,
+  agentTypes,
+  onChange,
+}: {
+  value: CliAgentType;
+  agentTypes: AgentType[];
+  onChange: (value: CliAgentType) => void;
+}) {
+  return (
+    <div className="min-w-0 space-y-1">
+      <label className="text-sm text-muted-foreground">Agent type</label>
+      <Select
+        value={value}
+        onValueChange={(next) => onChange(next as CliAgentType)}
+      >
+        <SelectTrigger>
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          {agentTypes.filter(isCliAgentType).map((type) => (
+            <SelectItem key={type} value={type}>
+              {AGENT_TYPE_LABELS[type]}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
   );
 }
 

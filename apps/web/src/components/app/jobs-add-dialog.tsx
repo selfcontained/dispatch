@@ -5,31 +5,24 @@ import { useState } from "react";
 import { PathInput } from "@/components/app/path-input";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import {
+  JobAgentTypeField,
   JobFullAccessOption,
   JobKeepAgentOption,
+  JobScheduleField,
   JobWorktreeOption,
   SwitchToggle,
 } from "@/components/app/jobs-form-fields";
 import {
   cronError,
   errorMessage,
-  humanSchedule,
   msFromMinutes,
 } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { type AddJobConfig } from "@/hooks/use-jobs";
 import {
-  AGENT_TYPE_LABELS,
   type AgentType,
   type CliAgentType,
   isCliAgentType,
@@ -169,74 +162,20 @@ export function AddJobFlow({
                   data-testid="job-directory-input"
                 />
               </div>
-              <div className="min-w-0 space-y-1">
-                <label
-                  className="text-sm text-muted-foreground"
-                  htmlFor="job-schedule"
-                >
-                  Cron schedule{" "}
-                  <span className="text-muted-foreground/70">(optional)</span>
-                </label>
-                <Input
-                  id="job-schedule"
-                  value={schedule}
-                  onChange={(event) => setSchedule(event.target.value)}
-                  placeholder="*/30 * * * *"
-                  className="font-mono text-xs"
-                />
-                {scheduleError ? (
-                  <div className="text-xs text-status-blocked">
-                    {scheduleError}
-                  </div>
-                ) : null}
-                {!scheduleError && schedule.trim() ? (
-                  <div className="text-xs text-muted-foreground">
-                    {humanSchedule(schedule)}
-                  </div>
-                ) : null}
-                {!schedule.trim() ? (
-                  <div className="text-xs text-muted-foreground">
-                    Leave blank for an on-demand job.
-                  </div>
-                ) : null}
-                {schedule.trim() ? (
-                  <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
-                    <span>
-                      <span className="block font-medium text-foreground">
-                        Enabled
-                      </span>
-                      <span className="block text-xs text-muted-foreground">
-                        Run this job on its schedule after creating it.
-                      </span>
-                    </span>
-                    <SwitchToggle
-                      checked={enableImmediately}
-                      onCheckedChange={setEnableImmediately}
-                      ariaLabel="Enable job"
-                    />
-                  </label>
-                ) : null}
-              </div>
-              <div className="min-w-0 space-y-1">
-                <label className="text-sm text-muted-foreground">
-                  Agent type
-                </label>
-                <Select
-                  value={agentType}
-                  onValueChange={(value) => setAgentType(value as CliAgentType)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {jobAgentTypes.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {AGENT_TYPE_LABELS[type]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              <JobScheduleField
+                id="job-schedule"
+                schedule={schedule}
+                scheduleError={scheduleError}
+                enabled={enableImmediately}
+                enabledHelperText="Run this job on its schedule after creating it."
+                onScheduleChange={setSchedule}
+                onEnabledChange={setEnableImmediately}
+              />
+              <JobAgentTypeField
+                value={agentType}
+                agentTypes={enabledAgentTypes}
+                onChange={setAgentType}
+              />
               <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
                 <span>
                   <span className="block font-medium text-foreground">
