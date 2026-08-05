@@ -1,7 +1,15 @@
-import { useCallback, useMemo, useState } from "react";
-import { MessageSquare, Plus } from "lucide-react";
+import { useCallback, useMemo, useRef, useState } from "react";
+import { MessageSquare, Plus, Search } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Command,
+  CommandEmpty,
+  CommandGroup,
+  CommandInput,
+  CommandItem,
+  CommandList,
+} from "@/components/ui/command";
 import {
   Popover,
   PopoverContent,
@@ -30,11 +38,26 @@ export function QuickPhrasesButton({
 }) {
   const canInject = agentId !== null;
   const [open, setOpen] = useState(false);
+  const [search, setSearch] = useState("");
   const [editing, setEditing] = useState<EditingPhrase>(null);
   const [filling, setFilling] = useState<FillingPhrase>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   const { data } = useQuickPhrases();
-  const phrases = data?.phrases ?? [];
+  const phrases = useMemo(() => data?.phrases ?? [], [data?.phrases]);
+  const filteredPhrases = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return phrases;
+
+    return phrases.filter((phrase) =>
+      `${phrase.label ?? ""} ${phrase.text}`.toLowerCase().includes(query)
+    );
+  }, [phrases, search]);
+
+  const handleOpenChange = useCallback((nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (nextOpen) setSearch("");
+  }, []);
 
   const actions = useQuickPhraseActions({
     onSaved: () => setEditing(null),
@@ -60,6 +83,17 @@ export function QuickPhrasesButton({
       setFilling({ phrase, argValues: {} });
     },
     [canInject]
+  );
+
+  const handleSelect = useCallback(
+    (phrase: QuickPhrase) => {
+      if (phrase.args.length > 0) {
+        handleFill(phrase);
+      } else {
+        handleInject(phrase, true);
+      }
+    },
+    [handleFill, handleInject]
   );
 
   const handleInjectWithArgs = useCallback(
@@ -104,7 +138,7 @@ export function QuickPhrasesButton({
 
   return (
     <>
-      <Popover open={open} onOpenChange={setOpen}>
+      <Popover open={open} onOpenChange={handleOpenChange}>
         <PopoverTrigger asChild>
           <Button
             size="icon"
@@ -119,6 +153,10 @@ export function QuickPhrasesButton({
         <PopoverContent
           align="start"
           className="w-[28rem] max-w-[calc(100vw-2rem)] p-0"
+          onOpenAutoFocus={(event) => {
+            event.preventDefault();
+            searchInputRef.current?.focus();
+          }}
         >
           <div className="flex items-center justify-between border-b border-border px-3 py-2">
             <h4 className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -138,32 +176,58 @@ export function QuickPhrasesButton({
               Connect to an agent session to inject phrases
             </div>
           ) : null}
-          <div className="max-h-64 overflow-y-auto">
-            {phrases.length === 0 ? (
-              <div className="px-3 py-4 text-center text-xs text-muted-foreground">
-                No phrases yet
-              </div>
-            ) : (
-              phrases.map((phrase) => (
-                <PhraseRow
-                  key={phrase.id}
-                  phrase={phrase}
-                  canInject={canInject}
-                  isPending={actions.injectPhrase.isPending}
-                  onInject={(submit) => handleInject(phrase, submit)}
-                  onFill={() => handleFill(phrase)}
-                  onEdit={() =>
-                    setEditing({
-                      id: phrase.id,
-                      label: phrase.label ?? "",
-                      text: phrase.text,
-                    })
-                  }
-                  onDelete={() => actions.deletePhrase.mutate(phrase.id)}
-                />
-              ))
-            )}
-          </div>
+          <Command shouldFilter={false} loop className="bg-transparent">
+            <div className="relative">
+              <Search className="pointer-events-none absolute left-4 top-1/2 z-10 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+              <CommandInput
+                ref={searchInputRef}
+                value={search}
+                onValueChange={setSearch}
+                placeholder="Search phrases..."
+                aria-label="Search quick phrases"
+                className="h-10 pl-7 text-sm"
+              />
+            </div>
+            <CommandList className="max-h-64">
+              {phrases.length === 0 ? (
+                <div className="px-3 py-4 text-center text-xs text-muted-foreground">
+                  No phrases yet
+                </div>
+              ) : (
+                <>
+                  <CommandEmpty>No matching phrases</CommandEmpty>
+                  <CommandGroup className="p-0">
+                    {filteredPhrases.map((phrase) => (
+                      <CommandItem
+                        key={phrase.id}
+                        value={phrase.id}
+                        onSelect={() => handleSelect(phrase)}
+                        className="border-b border-border/50 p-0 last:border-b-0 data-[selected=true]:bg-primary/10"
+                      >
+                        <PhraseRow
+                          phrase={phrase}
+                          canInject={canInject}
+                          isPending={actions.injectPhrase.isPending}
+                          onInject={(submit) => handleInject(phrase, submit)}
+                          onFill={() => handleFill(phrase)}
+                          onEdit={() =>
+                            setEditing({
+                              id: phrase.id,
+                              label: phrase.label ?? "",
+                              text: phrase.text,
+                            })
+                          }
+                          onDelete={() =>
+                            actions.deletePhrase.mutate(phrase.id)
+                          }
+                        />
+                      </CommandItem>
+                    ))}
+                  </CommandGroup>
+                </>
+              )}
+            </CommandList>
+          </Command>
         </PopoverContent>
       </Popover>
 

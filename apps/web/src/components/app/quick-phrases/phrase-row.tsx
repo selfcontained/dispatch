@@ -25,11 +25,14 @@ export function PhraseRow({
   const hasArgs = phrase.args.length > 0;
 
   return (
-    <div className="flex items-center gap-1.5 border-b border-border/50 px-2 py-1.5 last:border-b-0">
+    <div className="flex w-full items-center gap-1.5 px-2 py-1.5">
       <span className="min-w-0 flex-1 truncate text-sm text-foreground">
         {phrase.label || phrase.text}
       </span>
-      <div className="flex shrink-0 items-center gap-1">
+      <div
+        className="flex shrink-0 items-center gap-1"
+        onClick={(event) => event.stopPropagation()}
+      >
         {canInject ? (
           hasArgs ? (
             <Button
