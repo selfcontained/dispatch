@@ -133,19 +133,21 @@ export function MessageBubble({
   );
 }
 
-function ThreadGroup({
+export function MessageThreadAccordion({
   thread,
   agentId,
   expanded,
   onToggle,
+  className,
 }: {
   thread: Thread;
   agentId: string;
   expanded: boolean;
   onToggle: () => void;
+  className?: string;
 }): JSX.Element {
   return (
-    <div className="border-b border-border">
+    <div className={cn("border-b border-border", className)}>
       <button
         type="button"
         onClick={onToggle}
@@ -257,7 +259,7 @@ export function MessagesPanel({
   return (
     <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
       {threads.map((thread) => (
-        <ThreadGroup
+        <MessageThreadAccordion
           key={thread.otherId}
           thread={thread}
           agentId={agentId}
