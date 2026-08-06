@@ -5,7 +5,7 @@ import { parseDiff } from "react-diff-view";
 import { refractor } from "refractor";
 import javascript from "refractor/javascript";
 
-import { tokenizeHunksIndependently } from "./unified-diff-view";
+import { tokenizeHunksIndependently } from "./unified-diff-utils";
 
 refractor.register(javascript);
 

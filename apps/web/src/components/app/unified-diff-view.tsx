@@ -1,257 +1,23 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import {
-  Diff,
-  Hunk,
-  markEdits,
-  parseDiff,
-  tokenize,
-  getChangeKey,
-  type ChangeData,
-  type HunkTokens,
-  type HunkData,
-  type TokenizeOptions,
-  type EventMap,
-} from "react-diff-view";
+import { Diff, Hunk, parseDiff, type EventMap } from "react-diff-view";
 import "react-diff-view/style/index.css";
-import { refractor as baseRefractor } from "refractor";
-import jsx from "refractor/jsx";
-import tsx from "refractor/tsx";
-import scss from "refractor/scss";
-import toml from "refractor/toml";
-import diff from "refractor/diff";
-import docker from "refractor/docker";
-import graphql from "refractor/graphql";
-import elixir from "refractor/elixir";
-import haskell from "refractor/haskell";
-import lua from "refractor/lua";
-import php from "refractor/php";
-import scala from "refractor/scala";
-import dart from "refractor/dart";
-import r from "refractor/r";
-import perl from "refractor/perl";
-import zig from "refractor/zig";
-import nim from "refractor/nim";
-import objectivec from "refractor/objectivec";
-import shell from "refractor/shell-session";
 import { MessageSquare } from "lucide-react";
 
 import { type DiffViewType } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { type DraftComment } from "@/components/app/review-mode";
-import { InlineCommentForm } from "@/components/app/diff-comment-form";
-import { InlineDraftAnnotation } from "@/components/app/diff-draft-annotation";
-import { InlineFeedbackAnnotation } from "@/components/app/diff-feedback-annotation";
+import {
+  languageFromPath,
+  refractorAdapter,
+} from "@/components/app/unified-diff-language";
+import {
+  collectSelectedChangeKeys,
+  getNewLineNumber,
+  tokenizeHunksIndependently,
+  type LineSelection,
+} from "@/components/app/unified-diff-utils";
+import { useDiffWidgets } from "@/components/app/use-diff-widgets";
 import { type ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
-
-baseRefractor.register(jsx);
-baseRefractor.register(tsx);
-baseRefractor.register(scss);
-baseRefractor.register(toml);
-baseRefractor.register(diff);
-baseRefractor.register(docker);
-baseRefractor.register(graphql);
-baseRefractor.register(elixir);
-baseRefractor.register(haskell);
-baseRefractor.register(lua);
-baseRefractor.register(php);
-baseRefractor.register(scala);
-baseRefractor.register(dart);
-baseRefractor.register(r);
-baseRefractor.register(perl);
-baseRefractor.register(zig);
-baseRefractor.register(nim);
-baseRefractor.register(objectivec);
-baseRefractor.register(shell);
-
-const refractorAdapter = {
-  highlight(code: string, language: string) {
-    const root = baseRefractor.highlight(code, language);
-    return root.children;
-  },
-  registered(language: string) {
-    return baseRefractor.registered(language);
-  },
-};
-
-export type LineSelection = {
-  filePath: string;
-  startLine: number;
-  endLine: number;
-  anchorLine: number;
-};
-
-const EXT_TO_LANGUAGE: Record<string, string> = {
-  ts: "typescript",
-  tsx: "tsx",
-  js: "javascript",
-  jsx: "jsx",
-  json: "json",
-  css: "css",
-  scss: "scss",
-  html: "markup",
-  xml: "markup",
-  svg: "markup",
-  md: "markdown",
-  yaml: "yaml",
-  yml: "yaml",
-  toml: "toml",
-  sql: "sql",
-  sh: "bash",
-  bash: "bash",
-  zsh: "bash",
-  py: "python",
-  rs: "rust",
-  go: "go",
-  rb: "ruby",
-  java: "java",
-  swift: "swift",
-  kt: "kotlin",
-  c: "c",
-  cpp: "cpp",
-  h: "c",
-  hpp: "cpp",
-  diff: "diff",
-  patch: "diff",
-  graphql: "graphql",
-  gql: "graphql",
-  dockerfile: "docker",
-  ex: "elixir",
-  exs: "elixir",
-  hs: "haskell",
-  lua: "lua",
-  php: "php",
-  scala: "scala",
-  dart: "dart",
-  r: "r",
-  pl: "perl",
-  pm: "perl",
-  zig: "zig",
-  nim: "nim",
-  m: "objectivec",
-};
-
-const FILENAME_TO_LANGUAGE: Record<string, string> = {
-  Dockerfile: "docker",
-  Makefile: "makefile",
-};
-
-function languageFromPath(filePath: string): string | null {
-  const basename = filePath.split("/").pop() ?? "";
-  const byName = FILENAME_TO_LANGUAGE[basename];
-  if (byName && refractorAdapter.registered(byName)) return byName;
-
-  const ext = basename.split(".").pop()?.toLowerCase();
-  if (!ext) return null;
-  const lang = EXT_TO_LANGUAGE[ext];
-  if (!lang) return null;
-  if (!refractorAdapter.registered(lang)) return null;
-  return lang;
-}
-
-/**
- * Highlight each displayed hunk in isolation. A diff only includes a small
- * amount of surrounding source, so a multi-line construct can begin in one
- * hunk while its terminator is omitted before the next. Highlighting the
- * assembled file would then incorrectly carry that lexical state forward.
- */
-export function tokenizeHunksIndependently(
-  hunks: HunkData[],
-  options: TokenizeOptions
-): HunkTokens {
-  const merged: HunkTokens = { old: [], new: [] };
-
-  for (const hunk of hunks) {
-    const oldOffset = hunk.oldStart - 1;
-    const newOffset = hunk.newStart - 1;
-    const localHunk: HunkData = {
-      ...hunk,
-      oldStart: 1,
-      newStart: 1,
-      changes: hunk.changes.map((change) => {
-        if (change.type === "delete") {
-          return { ...change, lineNumber: change.lineNumber - oldOffset };
-        }
-        if (change.type === "insert") {
-          return { ...change, lineNumber: change.lineNumber - newOffset };
-        }
-        return {
-          ...change,
-          oldLineNumber: change.oldLineNumber - oldOffset,
-          newLineNumber: change.newLineNumber - newOffset,
-        };
-      }),
-    };
-    const hunkTokens = tokenize([localHunk], {
-      ...options,
-      enhancers: [markEdits([localHunk])],
-    });
-
-    for (const side of ["old", "new"] as const) {
-      const offset = side === "old" ? oldOffset : newOffset;
-      for (const change of hunk.changes) {
-        const lineNumber =
-          side === "old"
-            ? change.type === "insert"
-              ? null
-              : change.type === "delete"
-                ? change.lineNumber
-                : change.oldLineNumber
-            : change.type === "delete"
-              ? null
-              : change.type === "insert"
-                ? change.lineNumber
-                : change.newLineNumber;
-        if (lineNumber === null) continue;
-
-        const localLineNumber = lineNumber - offset;
-        merged[side][lineNumber - 1] =
-          hunkTokens[side][localLineNumber - 1] ?? [];
-      }
-    }
-  }
-
-  return merged;
-}
-
-function getNewLineNumber(change: ChangeData): number | null {
-  if (change.type === "insert") return change.lineNumber;
-  if (change.type === "normal") return change.newLineNumber;
-  return null;
-}
-
-function collectSelectedChangeKeys(
-  hunks: HunkData[],
-  startLine: number,
-  endLine: number
-): string[] {
-  const keys: string[] = [];
-  for (const hunk of hunks) {
-    for (const change of hunk.changes) {
-      const ln = getNewLineNumber(change);
-      if (ln !== null && ln >= startLine && ln <= endLine) {
-        keys.push(getChangeKey(change));
-      }
-    }
-  }
-  return keys;
-}
-
-export function findLastChangeKeyInRange(
-  hunks: HunkData[],
-  startLine: number,
-  endLine: number
-): string | null {
-  let lastKey: string | null = null;
-  for (const hunk of hunks) {
-    for (const change of hunk.changes) {
-      const ln = getNewLineNumber(change);
-      if (ln !== null && ln >= startLine && ln <= endLine) {
-        lastKey = getChangeKey(change);
-      }
-    }
-  }
-  return lastKey;
-}
 
 type UnifiedDiffViewProps = {
   agentId: string | null;
@@ -370,122 +136,24 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
     );
   }, [file, lineSelection]);
 
-  const widgets = useMemo(() => {
-    if (!file) return {};
-    const w: Record<string, React.ReactElement> = {};
-
-    if (feedbackItems) {
-      const grouped = new Map<string, typeof feedbackItems>();
-      for (const fi of feedbackItems) {
-        if (fi.lineStart == null) continue;
-        const key = findLastChangeKeyInRange(
-          file.hunks,
-          fi.lineStart,
-          fi.lineEnd ?? fi.lineStart
-        );
-        if (!key) continue;
-        const list = grouped.get(key) ?? [];
-        list.push(fi);
-        grouped.set(key, list);
-      }
-      for (const [key, items] of grouped) {
-        w[key] = (
-          <>
-            {items.map((fi) => {
-              const firstMsg = fi.messages[0]?.content?.body ?? "";
-              const isResolved = fi.status === "resolved";
-              return (
-                <InlineFeedbackAnnotation
-                  key={fi.id}
-                  agentId={agentId}
-                  feedbackItem={fi}
-                  comment={firstMsg}
-                  isResolved={isResolved}
-                  focused={fi.id === focusedFeedbackItemId}
-                  onFocusComplete={onFeedbackFocusComplete}
-                />
-              );
-            })}
-          </>
-        );
-      }
-    }
-
-    if (draftComments) {
-      for (const draft of draftComments) {
-        const key = findLastChangeKeyInRange(
-          file.hunks,
-          draft.startLine,
-          draft.endLine
-        );
-        if (!key) continue;
-        const draftWidget = (
-          <InlineDraftAnnotation
-            draft={draft}
-            onRemove={onRemoveDraft}
-            onUpdate={onUpdateDraft}
-          />
-        );
-        const existing = w[key];
-        w[key] = existing ? (
-          <>
-            {existing}
-            {draftWidget}
-          </>
-        ) : (
-          draftWidget
-        );
-      }
-    }
-
-    if (lineSelection && agentId && commentOpen) {
-      const lastKey = findLastChangeKeyInRange(
-        file.hunks,
-        lineSelection.startLine,
-        lineSelection.endLine
-      );
-      if (lastKey) {
-        w[lastKey] = (
-          <InlineCommentForm
-            agentId={agentId}
-            filePath={filePath}
-            startLine={lineSelection.startLine}
-            endLine={lineSelection.endLine}
-            reviewMode={reviewMode}
-            onStartReview={onStartReview}
-            onAddDraft={onAddDraft}
-            onCancel={() => {
-              onCommentOpen(false);
-              onLineSelection(null);
-            }}
-            onSubmitted={() => {
-              onCommentOpen(false);
-              onLineSelection(null);
-            }}
-          />
-        );
-      }
-    }
-
-    return w;
-  }, [
+  const widgets = useDiffWidgets({
     file,
-    lineSelection,
     agentId,
     filePath,
+    lineSelection,
     onLineSelection,
     commentOpen,
     onCommentOpen,
     reviewMode,
-    onStartReview,
     draftComments,
     onAddDraft,
     onRemoveDraft,
     onUpdateDraft,
+    onStartReview,
     feedbackItems,
     focusedFeedbackItemId,
     onFeedbackFocusComplete,
-  ]);
+  });
 
   const diffRef = useRef<HTMLDivElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
