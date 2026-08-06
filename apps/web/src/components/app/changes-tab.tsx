@@ -19,7 +19,7 @@ import { useAllReviewFeedbackItems } from "@/hooks/use-agent-reviews";
 import {
   findLastChangeKeyInRange,
   type LineSelection,
-} from "@/components/app/unified-diff-view";
+} from "@/components/app/unified-diff-utils";
 import { FileTree } from "@/components/app/changes-file-tree";
 import { DiffPane } from "@/components/app/changes-diff-section";
 

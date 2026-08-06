@@ -18,10 +18,8 @@ import {
 import type { DiffViewType } from "@/lib/store";
 import type { DraftComment } from "@/components/app/review-mode";
 import type { ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
-import {
-  UnifiedDiffView,
-  type LineSelection,
-} from "@/components/app/unified-diff-view";
+import { UnifiedDiffView } from "@/components/app/unified-diff-view";
+import { type LineSelection } from "@/components/app/unified-diff-utils";
 
 function statusIcon(status: DiffFileStatus): JSX.Element {
   switch (status) {
