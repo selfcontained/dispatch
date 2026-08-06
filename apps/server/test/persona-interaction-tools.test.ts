@@ -358,6 +358,26 @@ describe("registerPersonaInteractionTools", () => {
       expect((result as any).structuredContent.personas).toEqual(personas);
     });
 
+    it("registers persona authoring tools for a workspace", async () => {
+      const callbacks: PersonaInteractionCallbacks = {
+        agentId,
+        worktreeRoot: "/workspace",
+      };
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["persona_templates", "persona_upsert", "persona_validate"]),
+        callbacks
+      );
+
+      expect(server.tools.map((tool) => tool.name)).toEqual([
+        "persona_templates",
+        "persona_upsert",
+        "persona_validate",
+      ]);
+      const result = (await server.tools[0].handler({})) as any;
+      expect(result.structuredContent.templates).toHaveLength(3);
+    });
+
     it("dispatch_review_list_feedback returns 'no items' when empty", async () => {
       const listReviewFeedback = vi.fn(async () => []);
       const callbacks: PersonaInteractionCallbacks = {

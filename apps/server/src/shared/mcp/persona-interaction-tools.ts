@@ -8,6 +8,12 @@ import {
 } from "../review-limits.js";
 
 import { mergePersonasWithWorktreePrecedence } from "../../personas/loader.js";
+import {
+  getPersonaTemplate,
+  PERSONA_TEMPLATES,
+  upsertPersona,
+  validatePersonas,
+} from "../../personas/authoring.js";
 import type { McpRequestContext } from "./server.js";
 import { toToolError } from "./tool-error.js";
 
@@ -63,6 +69,119 @@ export function registerPersonaInteractionTools(
   callbacks: PersonaInteractionCallbacks
 ): void {
   const { agentId } = callbacks;
+
+  const personaRoot = callbacks.worktreeRoot ?? callbacks.repoRoot;
+
+  if (allowed.has("persona_templates")) {
+    server.registerTool(
+      "persona_templates",
+      {
+        description:
+          "Return concise examples and exact authoring fields for repository-specific review personas. Use these as a starting point, then create a tailored persona with persona_upsert.",
+        inputSchema: {},
+      },
+      async () => ({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({ templates: PERSONA_TEMPLATES }, null, 2),
+          },
+        ],
+        structuredContent: { templates: PERSONA_TEMPLATES },
+      })
+    );
+  }
+
+  if (allowed.has("persona_upsert") && personaRoot) {
+    server.registerTool(
+      "persona_upsert",
+      {
+        description:
+          "Create or update a repository persona in .dispatch/personas/. Provide repo-specific instructions; optionally start from a short built-in template. This writes only in the current workspace.",
+        inputSchema: {
+          slug: z.string().min(1).max(80),
+          template: z
+            .string()
+            .optional()
+            .describe("Optional template ID returned by persona_templates."),
+          name: z.string().max(200).optional(),
+          description: z.string().max(500).optional(),
+          instructions: z.string().max(20_000).optional(),
+          feedbackFormat: z.string().max(100).optional(),
+        },
+      },
+      async (args) => {
+        try {
+          const template = args.template
+            ? getPersonaTemplate(args.template)
+            : undefined;
+          if (args.template && !template)
+            throw new Error(
+              `Unknown persona template: ${args.template}. Call persona_templates for available IDs.`
+            );
+          const name = args.name ?? template?.name;
+          const description = args.description ?? template?.personaDescription;
+          const instructions = args.instructions ?? template?.instructions;
+          if (!name || !description || !instructions)
+            throw new Error(
+              "name, description, and instructions are required unless supplied by a template."
+            );
+          const result = await upsertPersona({
+            root: personaRoot,
+            slug: args.slug,
+            name,
+            description,
+            instructions,
+            feedbackFormat: args.feedbackFormat,
+          });
+          return {
+            content: [
+              {
+                type: "text",
+                text: `${result.created ? "Created" : "Updated"} ${result.path}.`,
+              },
+            ],
+            structuredContent: result,
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
+  if (allowed.has("persona_validate") && personaRoot) {
+    server.registerTool(
+      "persona_validate",
+      {
+        description:
+          "Validate persona files in the current workspace. Reports required metadata and instruction errors without modifying files.",
+        inputSchema: {},
+      },
+      async () => {
+        try {
+          const personas = await validatePersonas(personaRoot);
+          const valid = personas.every((persona) => persona.valid);
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  personas.length === 0
+                    ? "No persona files found."
+                    : valid
+                      ? `All ${personas.length} persona file(s) are valid.`
+                      : `${personas.filter((persona) => !persona.valid).length} invalid persona file(s) found.`,
+              },
+            ],
+            structuredContent: { valid, personas },
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
 
   const feedbackItemSchema = {
     filePath: z.string().optional().describe("Repo-relative file path."),
