@@ -1,9 +1,10 @@
 ## What's Changed
-* Add unit coverage for useAgentHotkeys by @selfcontained in https://github.com/selfcontained/dispatch/pull/874
-* Docs: cover the personality management MCP tools from #873 by @selfcontained in https://github.com/selfcontained/dispatch/pull/875
-* Extract shared useStartupAttachments hook by @selfcontained in https://github.com/selfcontained/dispatch/pull/876
-* Add unit coverage for use-activity by @selfcontained in https://github.com/selfcontained/dispatch/pull/877
-* feat(web): improve quick phrase picker by @selfcontained in https://github.com/selfcontained/dispatch/pull/878
+* Docs: cover quick-phrase picker search and keyboard selection by @selfcontained in https://github.com/selfcontained/dispatch/pull/879
+* Extract shared JobScheduleField and JobAgentTypeField by @selfcontained in https://github.com/selfcontained/dispatch/pull/880
+* Add unit coverage for the template launch dialog by @selfcontained in https://github.com/selfcontained/dispatch/pull/882
+* Split unified-diff-view.tsx into focused modules by @selfcontained in https://github.com/selfcontained/dispatch/pull/883
+* Extract shared MessageThreadAccordion from messages-panel and history messages by @selfcontained in https://github.com/selfcontained/dispatch/pull/884
+* Add persona authoring MCP tools by @selfcontained in https://github.com/selfcontained/dispatch/pull/885
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.31.3...v0.31.4
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.31.4...v0.31.5
