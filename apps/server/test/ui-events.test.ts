@@ -133,4 +133,54 @@ describe("UiEventBroker", () => {
     expect(parsed.agents).toHaveLength(1);
     expect(parsed.agents[0].id).toBe("agt_test123");
   });
+
+  it("buffers events until the initial snapshot is sent", () => {
+    const broker = new UiEventBroker();
+    const { stream, chunks } = createWritableStream();
+    broker.subscribe(stream, { bufferUntilSnapshot: true });
+
+    broker.publish({
+      type: "agent.upsert",
+      agent: { id: "agt_new" } as any,
+    });
+
+    expect(chunks).toHaveLength(0);
+
+    broker.sendSnapshot(stream, []);
+
+    expect(chunks).toHaveLength(2);
+    expect(chunks[0]).toContain('"type":"snapshot"');
+    expect(chunks[1]).toContain('"type":"agent.upsert"');
+    expect(chunks[1]).toContain('"id":"agt_new"');
+  });
+
+  it("flushes buffered events in order after the snapshot", () => {
+    const broker = new UiEventBroker();
+    const { stream, chunks } = createWritableStream();
+    broker.subscribe(stream, { bufferUntilSnapshot: true });
+
+    broker.publish({ type: "job.changed" });
+    broker.publish({ type: "template.changed" });
+    broker.sendSnapshot(stream, []);
+
+    expect(chunks).toHaveLength(3);
+    expect(chunks[0]).toContain('"type":"snapshot"');
+    expect(chunks[1]).toContain('"type":"job.changed"');
+    expect(chunks[2]).toContain('"type":"template.changed"');
+  });
+
+  it("can release buffered events when a snapshot cannot be loaded", () => {
+    const broker = new UiEventBroker();
+    const { stream, chunks } = createWritableStream();
+    broker.subscribe(stream, { bufferUntilSnapshot: true });
+
+    broker.publish({ type: "agent.deleted", agentId: "agt_old" });
+    broker.flushSnapshot(stream);
+
+    expect(chunks).toHaveLength(1);
+    expect(chunks[0]).toContain('"type":"agent.deleted"');
+
+    broker.publish({ type: "job.changed" });
+    expect(chunks).toHaveLength(2);
+  });
 });

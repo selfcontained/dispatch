@@ -726,9 +726,11 @@ async function registerRoutes() {
     worktreeLocationKey: WORKTREE_LOCATION_KEY,
     validWorktreeLocations: VALID_WORKTREE_LOCATIONS,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
-    subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
+    subscribeUiEvents: (stream, options) =>
+      uiEventBroker.subscribe(stream, options),
     sendUiSnapshot: (stream, agents) =>
       uiEventBroker.sendSnapshot(stream, agents),
+    flushUiEvents: (stream) => uiEventBroker.flushSnapshot(stream),
     ackWebNotification: (notificationId) =>
       notificationRuntime.ackWebNotification(notificationId),
     clearFocusedAgents: () => focusTracker.clearAll(),

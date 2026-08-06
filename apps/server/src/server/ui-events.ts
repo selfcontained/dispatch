@@ -69,14 +69,22 @@ export type UiEvent =
 
 export class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
+  private snapshotBuffers = new Map<NodeJS.WritableStream, UiEvent[]>();
   private nextId = 1;
   private eventsPublished = 0;
   private writeFailures = 0;
 
-  subscribe(stream: NodeJS.WritableStream): () => void {
+  subscribe(
+    stream: NodeJS.WritableStream,
+    options?: { bufferUntilSnapshot?: boolean }
+  ): () => void {
     this.clients.add(stream);
+    if (options?.bufferUntilSnapshot) {
+      this.snapshotBuffers.set(stream, []);
+    }
     return () => {
       this.clients.delete(stream);
+      this.snapshotBuffers.delete(stream);
     };
   }
 
@@ -103,6 +111,16 @@ export class UiEventBroker {
 
   sendSnapshot(stream: NodeJS.WritableStream, agents: AgentRecord[]): void {
     this.write({ type: "snapshot", agents }, stream);
+    this.flushSnapshot(stream);
+  }
+
+  flushSnapshot(stream: NodeJS.WritableStream): void {
+    const buffered = this.snapshotBuffers.get(stream);
+    if (!buffered) return;
+    this.snapshotBuffers.delete(stream);
+    for (const event of buffered) {
+      this.write(event, stream);
+    }
   }
 
   private write(event: UiEvent, target?: NodeJS.WritableStream): void {
@@ -113,6 +131,11 @@ export class UiEventBroker {
     }
 
     for (const client of this.clients) {
+      const buffered = this.snapshotBuffers.get(client);
+      if (buffered) {
+        buffered.push(event);
+        continue;
+      }
       try {
         client.write(payload);
       } catch {

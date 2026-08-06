@@ -14,22 +14,24 @@ export async function registerAgentEventRoutes(
     reply.hijack();
 
     const stream = reply.raw;
-    const unsubscribe = deps.subscribeUiEvents(stream);
+    const unsubscribe = deps.subscribeUiEvents(stream, {
+      bufferUntilSnapshot: true,
+    });
     const heartbeat = setInterval(() => {
       stream.write(": keepalive\n\n");
     }, 20_000);
+    stream.on("close", () => {
+      clearInterval(heartbeat);
+      unsubscribe();
+    });
 
     try {
       const agents = await deps.agentManager.listAgents();
       deps.sendUiSnapshot(stream, agents.map(deps.withStreamFlag));
     } catch (error) {
       deps.appLog.warn({ err: error }, "Failed to load SSE snapshot.");
+      deps.flushUiEvents(stream);
     }
-
-    stream.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-    });
   });
 
   app.post("/api/v1/notifications/ack", async (request, reply) => {

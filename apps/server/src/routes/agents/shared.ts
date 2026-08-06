@@ -15,6 +15,10 @@ export const CODEX_FULL_ACCESS_ARG =
   "--dangerously-bypass-approvals-and-sandbox";
 export const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
+export type UiEventSubscriptionOptions = {
+  bufferUntilSnapshot?: boolean;
+};
+
 export type AgentRouteDeps = {
   pool: Pool;
   appLog: FastifyBaseLogger;
@@ -22,11 +26,15 @@ export type AgentRouteDeps = {
   worktreeLocationKey: string;
   validWorktreeLocations: readonly string[];
   publishUiEvent: (event: unknown) => void;
-  subscribeUiEvents: (stream: NodeJS.WritableStream) => () => void;
+  subscribeUiEvents: (
+    stream: NodeJS.WritableStream,
+    options?: UiEventSubscriptionOptions
+  ) => () => void;
   sendUiSnapshot: (
     stream: NodeJS.WritableStream,
     agents: Array<AgentRecord & { hasStream: boolean }>
   ) => void;
+  flushUiEvents: (stream: NodeJS.WritableStream) => void;
   ackWebNotification: (notificationId: string) => boolean;
   clearFocusedAgents: () => void;
   setFocusedAgent: (agentId: string) => void;
