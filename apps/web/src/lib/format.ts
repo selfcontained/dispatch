@@ -52,9 +52,9 @@ export function formatShortDate(dateOnlyIso: string): string {
 }
 
 export function formatRelativeTime(iso: string): string {
-  const ms = Date.now() - new Date(iso).getTime();
-  if (Number.isNaN(ms)) return "";
-  const secs = Math.floor(ms / 1000);
+  const time = new Date(iso).getTime();
+  if (!Number.isFinite(time)) return "";
+  const secs = Math.max(0, Math.floor((Date.now() - time) / 1000));
   if (secs < 60) return "just now";
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m ago`;

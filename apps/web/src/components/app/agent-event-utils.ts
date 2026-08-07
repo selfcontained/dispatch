@@ -17,15 +17,3 @@ export function latestEventColor(type: EventType): string {
   if (type === "done") return "text-status-done";
   return "text-foreground/80";
 }
-
-export function formatRelativeTime(value: string): string {
-  const date = new Date(value);
-  const time = date.getTime();
-  if (!Number.isFinite(time)) return "";
-
-  const deltaSeconds = Math.max(0, Math.floor((Date.now() - time) / 1000));
-  if (deltaSeconds < 60) return "just now";
-  if (deltaSeconds < 3600) return `${Math.floor(deltaSeconds / 60)}m ago`;
-  if (deltaSeconds < 86_400) return `${Math.floor(deltaSeconds / 3600)}h ago`;
-  return `${Math.floor(deltaSeconds / 86_400)}d ago`;
-}

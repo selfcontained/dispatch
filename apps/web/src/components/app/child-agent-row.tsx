@@ -1,7 +1,6 @@
 import { Play, Terminal, X } from "lucide-react";
 
 import {
-  formatRelativeTime,
   latestEventColor,
   latestEventLabel,
 } from "@/components/app/agent-event-utils";
@@ -15,6 +14,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 export type ChildAgentRowProps = {
