@@ -1,5 +1,6 @@
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
+import type { GitHubReleaseListItem } from "./server/release-helpers.js";
 
 import { getSetting } from "./db/settings.js";
 import { readReleaseStore } from "./release-store.js";
@@ -13,7 +14,6 @@ import {
   toSummary,
   type PendingMigrationSummary,
 } from "./update-migrations-evaluator.js";
-import { runCommand } from "./shared/lib/run-command.js";
 import type { ReleaseProgress } from "./server/release-wire.js";
 
 const RELEASE_CHANNEL_KEY = "release_channel";
@@ -45,8 +45,8 @@ export type ComputeReleaseInfoDeps = {
   pool: Pool;
   serverDir: string;
   getGitHubRepo: () => Promise<string>;
-  parseGhJson: <T>(stdout: string) => T;
   compareSemver: (a: string, b: string) => number;
+  fetchGitHubReleases: () => Promise<GitHubReleaseListItem[]>;
   getAppVersionInfo: () => Promise<{
     version: string | null;
   }>;
@@ -97,22 +97,7 @@ export async function computeReleaseInfo(
     onProgress?.(progress);
   };
 
-  emit({
-    step: "fetching-tags",
-    label: "Fetching release tags",
-    detail: "Checking origin for the latest available releases.",
-  });
-
   try {
-    await runCommand("git", [
-      "-C",
-      deps.serverDir,
-      "fetch",
-      "origin",
-      "--tags",
-      "--quiet",
-    ]);
-
     const currentTag = await deriveCurrentTag(deps);
     const channelRaw = await getSetting(deps.pool, RELEASE_CHANNEL_KEY);
     const channel: ReleaseChannel =
@@ -126,36 +111,19 @@ export async function computeReleaseInfo(
         label: "Looking up latest release",
         detail: `Selecting the newest ${channel} release from GitHub.`,
       });
-      const repo = await deps.getGitHubRepo();
-      const ghResult = await runCommand("gh", [
-        "release",
-        "list",
-        "--repo",
-        repo,
-        "--limit",
-        "10",
-        "--json",
-        "tagName,isPrerelease",
-      ]);
-      const allReleases = deps.parseGhJson<
-        Array<{ tagName: string; isPrerelease: boolean }>
-      >(ghResult.stdout);
-      absoluteLatestTag = allReleases[0]?.tagName ?? null;
+      const allReleases = await deps.fetchGitHubReleases();
+      const artifactReleases = allReleases.filter(
+        (release) => release.hasDispatchArtifact
+      );
+      absoluteLatestTag = artifactReleases[0]?.tag ?? null;
       latestTag =
         channel === "stable"
-          ? (allReleases.find((r) => !r.isPrerelease)?.tagName ?? null)
-          : (allReleases[0]?.tagName ?? null);
-    } catch {
-      const tagsResult = await runCommand("git", [
-        "-C",
-        deps.serverDir,
-        "tag",
-        "--sort=-version:refname",
-      ]);
-      const fallbackTag =
-        tagsResult.stdout.split("\n").find((t) => t.startsWith("v")) ?? null;
-      latestTag = fallbackTag;
-      absoluteLatestTag = fallbackTag;
+          ? (artifactReleases.find((r) => !r.prerelease)?.tag ?? null)
+          : (artifactReleases[0]?.tag ?? null);
+    } catch (err) {
+      throw new Error(
+        `Unable to load GitHub Releases: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
 
     const updateAvailable = !!(

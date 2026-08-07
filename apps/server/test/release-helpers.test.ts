@@ -1,9 +1,8 @@
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   parseGhJson,
   compareSemver,
-  currentReleaseBinaryGlob,
   defaultServiceRestartCommand,
   getGitHubRepo,
   createCheckIsAdmin,
@@ -81,15 +80,6 @@ describe("compareSemver", () => {
   });
 });
 
-describe("currentReleaseBinaryGlob", () => {
-  it("returns a glob matching the current platform and arch", () => {
-    const glob = currentReleaseBinaryGlob();
-    expect(glob).toMatch(
-      /^dist\/bun\/dispatch-\*-bun-(darwin|linux)-(arm64|x64)$/
-    );
-  });
-});
-
 describe("defaultServiceRestartCommand", () => {
   it("returns a platform-specific restart command", () => {
     const cmd = defaultServiceRestartCommand();
@@ -108,7 +98,7 @@ describe("getGitHubRepo", () => {
       stderr: "",
       exitCode: 0,
     });
-    const repo = await getGitHubRepo(runCommand, "/srv");
+    const repo = await getGitHubRepo();
     expect(repo).toBe("selfcontained/dispatch");
   });
 
@@ -118,23 +108,23 @@ describe("getGitHubRepo", () => {
       stderr: "",
       exitCode: 0,
     });
-    const repo = await getGitHubRepo(runCommand, "/srv");
+    const repo = await getGitHubRepo();
     expect(repo).toBe("selfcontained/dispatch");
   });
 
-  it("handles HTTPS URL without .git suffix", async () => {
+  it("uses the configured/default repository without probing git", async () => {
     const runCommand = vi.fn().mockResolvedValue({
       stdout: "https://github.com/owner/repo",
       stderr: "",
       exitCode: 0,
     });
-    const repo = await getGitHubRepo(runCommand, "/srv");
-    expect(repo).toBe("owner/repo");
+    const repo = await getGitHubRepo();
+    expect(repo).toBe("selfcontained/dispatch");
   });
 
   it("falls back to selfcontained/dispatch when git fails", async () => {
     const runCommand = vi.fn().mockRejectedValue(new Error("not a repo"));
-    const repo = await getGitHubRepo(runCommand, "/srv");
+    const repo = await getGitHubRepo();
     expect(repo).toBe("selfcontained/dispatch");
   });
 
@@ -144,36 +134,30 @@ describe("getGitHubRepo", () => {
       stderr: "",
       exitCode: 0,
     });
-    const repo = await getGitHubRepo(runCommand, "/srv");
+    const repo = await getGitHubRepo();
     expect(repo).toBe("selfcontained/dispatch");
   });
 
-  it("passes the correct cwd to git command", async () => {
+  it("does not invoke git to discover the repository", async () => {
     const runCommand = vi.fn().mockResolvedValue({
       stdout: "https://github.com/a/b.git",
       stderr: "",
       exitCode: 0,
     });
-    await getGitHubRepo(runCommand, "/my/server");
-    expect(runCommand).toHaveBeenCalledWith("git", [
-      "-C",
-      "/my/server",
-      "remote",
-      "get-url",
-      "origin",
-    ]);
+    await getGitHubRepo();
+    expect(runCommand).not.toHaveBeenCalled();
   });
 });
 
 describe("createCheckIsAdmin", () => {
+  beforeEach(() => {
+    process.env.DISPATCH_RELEASE_AUTHORING = "1";
+  });
+
   it("returns true when viewerPermission is ADMIN", async () => {
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({ stdout: "", exitCode: 0 }) // gh --version
-      .mockResolvedValueOnce({
-        stdout: "https://github.com/selfcontained/dispatch.git\n",
-        exitCode: 0,
-      }) // git remote
       .mockResolvedValueOnce({
         stdout: "ADMIN\n",
         exitCode: 0,
@@ -186,10 +170,6 @@ describe("createCheckIsAdmin", () => {
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({ stdout: "", exitCode: 0 })
-      .mockResolvedValueOnce({
-        stdout: "https://github.com/selfcontained/dispatch.git\n",
-        exitCode: 0,
-      })
       .mockResolvedValueOnce({ stdout: "WRITE\n", exitCode: 0 });
     const checkIsAdmin = createCheckIsAdmin(runCommand, "/srv");
     expect(await checkIsAdmin()).toBe(false);
@@ -207,10 +187,6 @@ describe("createCheckIsAdmin", () => {
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({ stdout: "", exitCode: 0 })
-      .mockResolvedValueOnce({
-        stdout: "https://github.com/selfcontained/dispatch.git\n",
-        exitCode: 0,
-      })
       .mockRejectedValueOnce(new Error("auth required"));
     const checkIsAdmin = createCheckIsAdmin(runCommand, "/srv");
     expect(await checkIsAdmin()).toBe(false);
@@ -219,6 +195,21 @@ describe("createCheckIsAdmin", () => {
 
 describe("fetchReleaseMetadata", () => {
   it("returns release metadata on success", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              tag_name: "v1.0.0",
+              published_at: "2026-01-01T00:00:00Z",
+              html_url:
+                "https://github.com/selfcontained/dispatch/releases/tag/v1.0.0",
+              body: "  Release notes  ",
+            })
+          )
+      )
+    );
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({
@@ -234,7 +225,7 @@ describe("fetchReleaseMetadata", () => {
         }),
         exitCode: 0,
       });
-    const result = await fetchReleaseMetadata(runCommand, "/srv", "v1.0.0");
+    const result = await fetchReleaseMetadata("v1.0.0");
     expect(result).toEqual({
       tag: "v1.0.0",
       publishedAt: "2026-01-01T00:00:00Z",
@@ -244,6 +235,20 @@ describe("fetchReleaseMetadata", () => {
   });
 
   it("trims whitespace from body", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              tag_name: "v1.0.0",
+              published_at: "2026-01-01T00:00:00Z",
+              html_url: "https://example.com",
+              body: "\n  notes\n  ",
+            })
+          )
+      )
+    );
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({
@@ -259,11 +264,25 @@ describe("fetchReleaseMetadata", () => {
         }),
         exitCode: 0,
       });
-    const result = await fetchReleaseMetadata(runCommand, "/srv", "v1.0.0");
+    const result = await fetchReleaseMetadata("v1.0.0");
     expect(result?.body).toBe("notes");
   });
 
   it("returns null body when body is not a string", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              tag_name: "v1.0.0",
+              published_at: "2026-01-01T00:00:00Z",
+              html_url: "https://example.com",
+              body: null,
+            })
+          )
+      )
+    );
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({
@@ -279,17 +298,39 @@ describe("fetchReleaseMetadata", () => {
         }),
         exitCode: 0,
       });
-    const result = await fetchReleaseMetadata(runCommand, "/srv", "v1.0.0");
+    const result = await fetchReleaseMetadata("v1.0.0");
     expect(result?.body).toBeNull();
   });
 
-  it("returns null when gh command fails", async () => {
-    const runCommand = vi.fn().mockRejectedValue(new Error("network error"));
-    const result = await fetchReleaseMetadata(runCommand, "/srv", "v1.0.0");
+  it("returns null only when the requested release does not exist", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("no", { status: 404 }))
+    );
+    const result = await fetchReleaseMetadata("v1.0.0");
     expect(result).toBeNull();
   });
 
-  it("passes the correct tag to gh release view", async () => {
+  it("preserves GitHub failures other than not found", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("no", { status: 503 }))
+    );
+    await expect(fetchReleaseMetadata("v1.0.0")).rejects.toThrow("503");
+  });
+
+  it("requests the correct tag from GitHub Releases", async () => {
+    const fetchMock = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({
+            tag_name: "v2.5.0",
+            published_at: "2026-06-01T00:00:00Z",
+            html_url: "https://example.com",
+          })
+        )
+    );
+    vi.stubGlobal("fetch", fetchMock);
     const runCommand = vi
       .fn()
       .mockResolvedValueOnce({
@@ -304,15 +345,10 @@ describe("fetchReleaseMetadata", () => {
         }),
         exitCode: 0,
       });
-    await fetchReleaseMetadata(runCommand, "/srv", "v2.5.0");
-    expect(runCommand).toHaveBeenCalledWith("gh", [
-      "release",
-      "view",
-      "v2.5.0",
-      "--repo",
-      "selfcontained/dispatch",
-      "--json",
-      "tagName,publishedAt,url,body",
-    ]);
+    await fetchReleaseMetadata("v2.5.0");
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/repos/selfcontained/dispatch/releases/tags/v2.5.0",
+      expect.any(Object)
+    );
   });
 });

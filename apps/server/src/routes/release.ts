@@ -12,6 +12,10 @@ import {
   isCliAgentType,
 } from "../agent-type-settings.js";
 import { getReleaseUpdateAgentId } from "../auth.js";
+import {
+  GitHubApiError,
+  isReleaseAuthoringEnabled,
+} from "../server/release-helpers.js";
 import { getSetting, setSetting } from "../db/settings.js";
 import { readReleaseStore } from "../release-store.js";
 import {
@@ -43,6 +47,7 @@ import {
   type AssistedUpdateState,
 } from "../assisted-update-store.js";
 import type { UpdateMigrationManifest } from "../update-migrations.js";
+import type { GitHubReleaseListItem } from "../server/release-helpers.js";
 import {
   evaluatePendingMigrations,
   toSummary,
@@ -142,8 +147,8 @@ type ReleaseRouteDeps = {
     releaseUrl: string | null;
   }>;
   getGitHubRepo: () => Promise<string>;
-  parseGhJson: <T>(stdout: string) => T;
   compareSemver: (a: string, b: string) => number;
+  fetchGitHubReleases: () => Promise<GitHubReleaseListItem[]>;
   checkIsAdmin: () => Promise<boolean>;
   fetchReleaseMetadata: (tag: string) => Promise<{
     tag: string;
@@ -222,8 +227,8 @@ async function handleReleaseInfo(
     pool: deps.pool,
     serverDir: deps.serverDir,
     getGitHubRepo: deps.getGitHubRepo,
-    parseGhJson: deps.parseGhJson,
     compareSemver: deps.compareSemver,
+    fetchGitHubReleases: deps.fetchGitHubReleases,
     getAppVersionInfo: async () => {
       const info = await deps.getAppVersionInfo();
       return { version: info.version };
@@ -406,26 +411,13 @@ async function handleListReleases(
   reply: FastifyReply
 ) {
   try {
-    const repo = await deps.getGitHubRepo();
-    const result = await runCommand("gh", [
-      "release",
-      "list",
-      "--repo",
-      repo,
-      "--limit",
-      "10",
-      "--json",
-      "tagName,publishedAt,isPrerelease",
-    ]);
-    const releases = deps.parseGhJson<
-      Array<{ tagName: string; publishedAt: string; isPrerelease: boolean }>
-    >(result.stdout);
+    const releases = await deps.fetchGitHubReleases();
     return {
       releases: releases.map((r) => ({
-        tag: r.tagName,
+        tag: r.tag,
         publishedAt: r.publishedAt,
-        isPrerelease: r.isPrerelease,
-        url: `https://github.com/${repo}/releases/tag/${r.tagName}`,
+        isPrerelease: r.prerelease,
+        url: r.url,
       })),
     };
   } catch (err) {
@@ -439,6 +431,12 @@ async function handleCreateRelease(
   request: FastifyRequest,
   reply: FastifyReply
 ) {
+  if (!isReleaseAuthoringEnabled()) {
+    return reply.code(403).send({
+      error:
+        "Release authoring is disabled. Set DISPATCH_RELEASE_AUTHORING=1 on a maintainer installation.",
+    });
+  }
   const body = request.body as { versionType?: unknown } | undefined;
   if (
     !body?.versionType ||
@@ -567,7 +565,18 @@ async function handleUpdate(
       });
     }
 
-    const targetMeta = await deps.fetchReleaseMetadata(tag);
+    let targetMeta;
+    try {
+      targetMeta = await deps.fetchReleaseMetadata(tag);
+    } catch (err) {
+      if (err instanceof GitHubApiError) {
+        return reply.code(503).send({
+          error: "GITHUB_API_UNAVAILABLE",
+          message: `GitHub API unavailable (status ${err.status}); set GITHUB_TOKEN or retry later.`,
+        });
+      }
+      throw err;
+    }
     const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
     if (inspected.state === "invalid") {
       return reply.code(409).send({
@@ -701,7 +710,18 @@ async function handleAssistedLaunch(
       );
     }
 
-    const targetMeta = await deps.fetchReleaseMetadata(body.tag);
+    let targetMeta;
+    try {
+      targetMeta = await deps.fetchReleaseMetadata(body.tag);
+    } catch (err) {
+      if (err instanceof GitHubApiError) {
+        return reply.code(503).send({
+          error: "GITHUB_API_UNAVAILABLE",
+          message: `GitHub API unavailable (status ${err.status}); set GITHUB_TOKEN or retry later.`,
+        });
+      }
+      throw err;
+    }
     const inspected = inspectAssistedUpdateMetadata(targetMeta?.body ?? null);
     if (
       pendingMigrationManifests.length === 0 &&

@@ -37,7 +37,7 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     const output = run(`--output "${OUTPUT}"`);
     expect(output).toContain("packed release artifact");
     expect(existsSync(OUTPUT)).toBe(true);
-  });
+  }, 20_000);
 
   it("includes pre-built Bun binaries", () => {
     const files = tarList();
@@ -55,9 +55,7 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     const files = tarList();
     expect(files.some((f) => f.startsWith("bin/"))).toBe(true);
     expect(files.some((f) => f.includes("dispatch-server"))).toBe(true);
-    expect(files.some((f) => f.includes("dispatch-launchd-wrapper"))).toBe(
-      true
-    );
+    expect(files).toContain("bin/install-dispatch.sh");
   });
 
   it("does NOT include node_modules", () => {

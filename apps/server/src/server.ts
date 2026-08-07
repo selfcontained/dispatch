@@ -39,6 +39,7 @@ import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import { mimeType, resolveMediaDir } from "./shared/media.js";
 import { handleMcpRequest } from "./shared/mcp/server.js";
 import { readReleaseStore, writeReleaseStore } from "./release-store.js";
+import { promoteHealthyReleaseCandidate } from "./release-candidate-store.js";
 import {
   inspectAssistedUpdateMetadata,
   isAssistedUpdateRequired,
@@ -131,7 +132,6 @@ import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
   createReleaseRuntime,
-  pruneReleaseBinaries,
   type ReleaseJob,
   RELEASE_VERSION_TYPES,
 } from "./server/release-runtime.js";
@@ -280,8 +280,8 @@ const autoCheckRuntime = createAutoCheckRuntime({
     pool,
     serverDir,
     getGitHubRepo: releaseRuntime.getGitHubRepo,
-    parseGhJson: releaseRuntime.parseGhJson,
     compareSemver: releaseRuntime.compareSemver,
+    fetchGitHubReleases: releaseRuntime.fetchGitHubReleases,
     getAppVersionInfo: async () => {
       const info = await releaseRuntime.getAppVersionInfo();
       return { version: info.version };
@@ -676,8 +676,8 @@ async function registerRoutes() {
     releaseStreamClients: releaseRuntime.releaseStreamClients,
     getAppVersionInfo: releaseRuntime.getAppVersionInfo,
     getGitHubRepo: releaseRuntime.getGitHubRepo,
-    parseGhJson: releaseRuntime.parseGhJson,
     compareSemver: releaseRuntime.compareSemver,
+    fetchGitHubReleases: releaseRuntime.fetchGitHubReleases,
     checkIsAdmin: releaseRuntime.checkIsAdmin,
     fetchReleaseMetadata: releaseRuntime.fetchReleaseMetadata,
     fetchLatestReleaseMetadata: releaseRuntime.fetchLatestReleaseMetadata,
@@ -861,11 +861,16 @@ export async function start() {
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
 
-  const removed = pruneReleaseBinaries(serverDir, `v${packageVersion}`);
-  if (removed > 0) {
-    app.log.info(
-      `Pruned ${removed} old release binary file${removed === 1 ? "" : "s"} from dist/bun`
-    );
+  // The process that activated a new binary exits during the service restart,
+  // so only this newly healthy process can truthfully promote the candidate.
+  try {
+    const promoted = await promoteHealthyReleaseCandidate({
+      expectedTag: `v${packageVersion}`,
+      writeReleaseStore,
+    });
+    if (promoted) app.log.info("Promoted healthy release candidate");
+  } catch (err) {
+    app.log.error({ err }, "Failed to promote healthy release candidate");
   }
 }
 

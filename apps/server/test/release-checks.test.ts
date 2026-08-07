@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import https from "node:https";
 import type { Server as HttpsServer } from "node:https";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -34,10 +34,17 @@ let tmpServerDir: string;
 beforeEach(async () => {
   tmpServerDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-checks-"));
   stagedRecord = null;
+  process.env.DISPATCH_RUNTIME_PATH = path.join(tmpServerDir, "dispatch");
+  process.env.DISPATCH_SERVICE_DEFINITION_PATH = path.join(
+    tmpServerDir,
+    "dispatch.service"
+  );
 });
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  delete process.env.DISPATCH_RUNTIME_PATH;
+  delete process.env.DISPATCH_SERVICE_DEFINITION_PATH;
   await rm(tmpServerDir, { recursive: true, force: true });
 });
 
@@ -46,13 +53,8 @@ function setReleaseRecord(record: StoreRecord) {
 }
 
 describe("expected_runtime_artifact", () => {
-  it("passes when the host Bun binary exists", async () => {
-    const bunDist = path.join(tmpServerDir, "dist/bun");
-    await mkdir(bunDist, { recursive: true });
-    await writeFile(
-      path.join(bunDist, `dispatch-0.19.0-bun-${hostPlatform()}-${hostArch()}`),
-      "binary"
-    );
+  it("passes when the fixed runtime exists", async () => {
+    await writeFile(path.join(tmpServerDir, "dispatch"), "binary");
 
     const [result] = await runRequiredChecks(["expected_runtime_artifact"], {
       serverDir: tmpServerDir,
@@ -60,10 +62,10 @@ describe("expected_runtime_artifact", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.message).toMatch(/Platform binary present/);
+    expect(result.message).toMatch(/Fixed runtime present/);
   });
 
-  it("fails when no platform binary exists", async () => {
+  it("fails when the fixed runtime is absent", async () => {
     const [result] = await runRequiredChecks(["expected_runtime_artifact"], {
       serverDir: tmpServerDir,
       targetTag: "v0.19.0",
@@ -74,12 +76,10 @@ describe("expected_runtime_artifact", () => {
 });
 
 describe("service_entrypoint", () => {
-  it("passes when package.json declares scripts.start", async () => {
-    const pkgDir = path.join(tmpServerDir, "apps/server");
-    await mkdir(pkgDir, { recursive: true });
+  it("passes when the service definition invokes the fixed runtime", async () => {
     await writeFile(
-      path.join(pkgDir, "package.json"),
-      JSON.stringify({ scripts: { start: "bun src/main.ts" } })
+      path.join(tmpServerDir, "dispatch.service"),
+      `ExecStart=${path.join(tmpServerDir, "dispatch")}\n`
     );
 
     const [result] = await runRequiredChecks(["service_entrypoint"], {
@@ -88,25 +88,23 @@ describe("service_entrypoint", () => {
     });
 
     expect(result.ok).toBe(true);
-    expect(result.message).toMatch(/start script: bun src\/main\.ts/);
+    expect(result.message).toMatch(/Service invokes fixed runtime/);
   });
 
-  it("fails when package.json is missing", async () => {
+  it("fails when the service definition is missing", async () => {
     const [result] = await runRequiredChecks(["service_entrypoint"], {
       serverDir: tmpServerDir,
       targetTag: "v0.19.0",
     });
 
     expect(result.ok).toBe(false);
-    expect(result.message).toMatch(/package\.json/);
+    expect(result.message).toMatch(/Could not read service definition/);
   });
 
-  it("fails when scripts.start is missing", async () => {
-    const pkgDir = path.join(tmpServerDir, "apps/server");
-    await mkdir(pkgDir, { recursive: true });
+  it("fails when the service invokes an old versioned runtime", async () => {
     await writeFile(
-      path.join(pkgDir, "package.json"),
-      JSON.stringify({ scripts: { build: "tsc" } })
+      path.join(tmpServerDir, "dispatch.service"),
+      `ExecStart=${path.join(tmpServerDir, "dist/bun/dispatch-old")}\n`
     );
 
     const [result] = await runRequiredChecks(["service_entrypoint"], {
@@ -115,7 +113,7 @@ describe("service_entrypoint", () => {
     });
 
     expect(result.ok).toBe(false);
-    expect(result.message).toMatch(/scripts\.start is missing/);
+    expect(result.message).toMatch(/does not invoke/);
   });
 });
 
@@ -373,11 +371,9 @@ describe("runRequiredChecks", () => {
       tag: "v0.19.0",
       deployedAt: "2026-04-26T05:00:00.000Z",
     });
-    const pkgDir = path.join(tmpServerDir, "apps/server");
-    await mkdir(pkgDir, { recursive: true });
     await writeFile(
-      path.join(pkgDir, "package.json"),
-      JSON.stringify({ scripts: { start: "bun src/main.ts" } })
+      path.join(tmpServerDir, "dispatch.service"),
+      `ExecStart=${path.join(tmpServerDir, "dispatch")}\n`
     );
 
     const results = await runRequiredChecks(
@@ -393,14 +389,6 @@ describe("runRequiredChecks", () => {
     expect(results.every((r) => r.ok)).toBe(true);
   });
 });
-
-function hostPlatform(): "darwin" | "linux" {
-  return os.platform() === "darwin" ? "darwin" : "linux";
-}
-
-function hostArch(): "x64" | "arm64" {
-  return os.arch() === "arm64" ? "arm64" : "x64";
-}
 
 // Sanity: the AssistedUpdateState type ought to expose the same check
 // shape so the result of runRequiredChecks fits straight onto state.checks.

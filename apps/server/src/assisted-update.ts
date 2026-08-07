@@ -20,6 +20,7 @@ import type { RequiredCheckName } from "./release-metadata.js";
 import type { UpdateMigrationManifest } from "./update-migrations.js";
 import { markMigrationsApplied } from "./applied-migrations-store.js";
 import { clearEvaluatorCache } from "./update-migrations-evaluator.js";
+import { fixedRuntimePath } from "./server/release-helpers.js";
 
 export type StartAssistedUpdateInput = {
   tag: string;
@@ -296,26 +297,20 @@ function renderAssistedPrompt(
     `- Operate on ${serverDir}, not the user's development worktree.`,
     `- Do not edit secrets or .env unless explicitly required to restore service and you can explain why.`,
     `- Do not make source-code changes as part of the recovery path unless absolutely necessary.`,
-    `- Do not assume release.json points to a healthy rollback target after a failed deploy; confirm the last healthy tag from git/service history before rolling back.`,
+    `- Edit a service definition only when a pending migration explicitly identifies it as supported and user-owned. Otherwise stop and report the required operator action; never invent a service, elevate privileges, or alter a system-owned definition.`,
+    `- Treat release.json as the last confirmed healthy release; inspect release-candidate.json when an activation was interrupted.`,
     `- Restore service availability before deeper diagnosis.`,
     ``,
     `## Service architecture and recovery model`,
     ``,
-    `- Dispatch runs from a compiled Bun binary in \`${serverDir}/dist/bun\`, named like \`dispatch-<version>-bun-<platform>-<arch>\`.`,
-    `- The managed update endpoint downloads a pre-built release tarball, checks out the target tag, extracts the binary, writes release.json, then restarts the service.`,
-    `- If the managed update fails mid-deploy, git may already point at ${tag} while the matching binary is missing or stale.`,
-    `- On boot, Dispatch prunes release binaries that do not match the running version; after a partial deploy this can leave \`dist/bun\` empty.`,
-    `- Diagnostic for the expected binary:`,
-    `    \`platform=$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/darwin/;s/linux/linux/'); arch=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); ls -l dist/bun/dispatch-*-bun-$platform-$arch\``,
-    `- If no matching binary exists, recover by building from source in ${serverDir}: \`bin/dispatch-server build\` (requires bun and pnpm on PATH).`,
-    `- Restart after a successful source build with: \`bin/dispatch-server restart\`.`,
+    `- Dispatch runs from the fixed executable at \`${fixedRuntimePath(serverDir)}\`.`,
+    `- The managed update endpoint verifies a release artifact, atomically replaces that executable, retains an adjacent .previous rollback file, then restarts the service.`,
+    `- A newly healthy target promotes release-candidate.json into release.json.`,
     ``,
     `## Rollback recovery`,
     ``,
     `- Prefer the managed endpoint first. Use manual recovery only after it fails or the service does not restart cleanly.`,
-    `- Find the last confirmed healthy tag from service logs, release history, release.json before the failed run, or \`git tag --sort=-version:refname\`; do not assume the current release.json is healthy after a partial deploy.`,
-    `- Manual rollback sequence: \`git checkout <healthy-tag>\`, then \`bin/dispatch-server build\`, then \`bin/dispatch-server restart\`.`,
-    `- Before restarting after rollback, confirm \`dist/bun\` contains a binary whose version matches the checked-out tag and current platform/arch.`,
+    `- Manual rollback sequence: replace the fixed executable with its adjacent .previous file, then run the service restart command.`,
     `- Validate service health with ${recovery.healthEndpoint} before reporting \`rollback\` or continuing diagnosis.`,
     ``,
     migrationSections,

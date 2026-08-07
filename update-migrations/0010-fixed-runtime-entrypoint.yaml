@@ -1,0 +1,50 @@
+id: fixed-runtime-entrypoint
+title: Move Dispatch service to the fixed runtime path
+summary: >
+  Migrate existing versioned-binary and wrapper-based services to the fixed
+  Dispatch runtime path. This is required so future artifact updates can
+  atomically replace one executable without editing service configuration.
+
+alreadySatisfied:
+  description: >
+    The service manager invokes the configured fixed Dispatch runtime path,
+    that path is a regular executable, the service is healthy, and
+    release.json reports the target tag.
+
+instructions:
+  - >
+    Only edit one of these supported, user-owned service definitions: the
+    current user's ~/.config/systemd/user/dispatch.service managed through
+    systemctl --user, or the current user's
+    ~/Library/LaunchAgents/com.dispatch.server.plist. Treat every other
+    supervisor, a missing definition, a system-scope unit, root-owned file,
+    Docker setup, or custom wrapper as report-only; do not create a service
+    or modify it.
+  - Determine the configured fixed runtime path (DISPATCH_RUNTIME_PATH, or
+    DISPATCH_SERVER_DIR/dispatch when unset) and verify the target artifact
+    has installed a regular executable at that path.
+  - Preserve the currently healthy executable as the adjacent .previous
+    rollback file before changing the service entrypoint.
+  - Update the systemd unit or launchd plist so ExecStart/ProgramArguments
+    invokes the fixed runtime path, preserving environment, working directory,
+    logging, user scope, and display configuration.
+  - Reload the service manager configuration and restart Dispatch.
+  - Confirm the health endpoint is healthy and the newly running binary has
+    promoted the target tag into release.json.
+  - If the supported definition is absent or this account cannot modify it,
+    stop and report the exact operator action required; do not leave a
+    half-updated service entrypoint.
+
+validation:
+  requiredChecks:
+    - expected_runtime_artifact
+    - service_entrypoint
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - Atomically replace the fixed runtime path with its adjacent .previous
+    executable and restore the former service entrypoint if necessary.
+  - Reload the service manager configuration, restart Dispatch, and confirm
+    the health endpoint and release.json return to the prior healthy release.

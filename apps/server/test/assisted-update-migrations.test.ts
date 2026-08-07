@@ -125,6 +125,7 @@ describe("buildAssistedUpdateContext (migrations path)", () => {
     expect(ctx.prompt).toContain("Migration 2/2");
     // Per-migration validation checks listed
     expect(ctx.prompt).toMatch(/Validation checks for this migration/);
+    expect(ctx.prompt).toContain("never invent a service");
   });
 
   it("falls back to the legacy metadata path when no migrations are passed", async () => {

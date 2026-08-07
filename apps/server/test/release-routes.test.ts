@@ -14,10 +14,13 @@ import { mkdir, rm, writeFile } from "node:fs/promises";
 
 import { useInjectApp } from "./helpers/inject-app.js";
 
-const { runCommandMock, evaluateMock } = vi.hoisted(() => ({
-  runCommandMock: vi.fn(),
-  evaluateMock: vi.fn(),
-}));
+const { runCommandMock, evaluateMock, ensureCachedTarballMock } = vi.hoisted(
+  () => ({
+    runCommandMock: vi.fn(),
+    evaluateMock: vi.fn(),
+    ensureCachedTarballMock: vi.fn(),
+  })
+);
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
   runCommand: runCommandMock,
@@ -32,6 +35,12 @@ vi.mock("../src/update-migrations-evaluator.js", async (importOriginal) => {
     ...actual,
     evaluatePendingMigrations: evaluateMock,
   };
+});
+
+vi.mock("../src/release-tarball-cache.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("../src/release-tarball-cache.js")>();
+  return { ...actual, ensureCachedTarball: ensureCachedTarballMock };
 });
 
 let sessionCookie: string;
@@ -72,6 +81,9 @@ beforeEach(async () => {
     appliedIds: new Set(),
     errors: [],
   });
+  ensureCachedTarballMock.mockRejectedValue(
+    new Error("artifact download disabled in route test")
+  );
   await ctx.pool.query("DELETE FROM agent_events");
   await ctx.pool.query("DELETE FROM agents");
   await ctx.pool.query("DELETE FROM sessions");
@@ -768,6 +780,46 @@ function mockReleaseCommands({
   releaseViews?: Record<string, string>;
   viewerPermission?: string;
 }) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(async (input: string | URL) => {
+      const url = String(input);
+      if (url.includes("/releases?per_page=20")) {
+        return new Response(
+          JSON.stringify(
+            releaseList.map((release) => ({
+              tag_name: release.tagName,
+              published_at: "2026-04-26T00:00:00Z",
+              html_url: `https://github.com/selfcontained/dispatch/releases/tag/${release.tagName}`,
+              prerelease: release.isPrerelease,
+              assets: [{ name: "dispatch-release.tar.gz" }],
+            }))
+          )
+        );
+      }
+      const match = url.match(/\/releases\/tags\/([^/?]+)/);
+      if (match) {
+        const tag = decodeURIComponent(match[1]!);
+        const raw = releaseViews[tag];
+        if (!raw) return new Response("not found", { status: 404 });
+        const view = JSON.parse(raw) as {
+          tagName: string;
+          publishedAt: string;
+          url: string;
+          body?: string | null;
+        };
+        return new Response(
+          JSON.stringify({
+            tag_name: view.tagName,
+            published_at: view.publishedAt,
+            html_url: view.url,
+            body: view.body,
+          })
+        );
+      }
+      return new Response("unexpected URL", { status: 500 });
+    })
+  );
   runCommandMock.mockImplementation(
     async (
       cmd: string,
