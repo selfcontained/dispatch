@@ -209,7 +209,7 @@ EOF
   printf '{\n  "tag": "%s",\n  "previousTag": null,\n  "activatedAt": "%s"\n}\n' "$TAG" "$NOW" > "$STATE_DIR/release-candidate.json"
   if [ "$PLATFORM" = linux ]; then
     mkdir -p "$(dirname "$UNIT")"
-    printf '[Unit]\nDescription=Dispatch\n[Service]\nWorkingDirectory=%s\nEnvironmentFile=%s\nEnvironment=PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\nExecStart=%s\nRestart=on-failure\nRestartSec=3\n[Install]\nWantedBy=default.target\n' "$INSTALL_DIR" "$ENV_FILE" "$RUNTIME_PATH" > "$UNIT"
+    printf '[Unit]\nDescription=Dispatch\n[Service]\nWorkingDirectory=%s\nEnvironmentFile=%s\nEnvironment=PATH=/usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin\nExecStart=%s\nRestart=on-failure\nRestartSec=3\n# Keep tmux-backed agents alive across a Dispatch service restart.\nKillMode=process\n[Install]\nWantedBy=default.target\n' "$INSTALL_DIR" "$ENV_FILE" "$RUNTIME_PATH" > "$UNIT"
     SERVICE_REGISTERED=1
     systemctl --user daemon-reload; systemctl --user enable --now dispatch.service
     if command -v loginctl >/dev/null && ! loginctl show-user "$USER" -p Linger --value 2>/dev/null | grep -qx yes; then

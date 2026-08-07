@@ -1,0 +1,47 @@
+id: agent-restart-safety
+title: Preserve Dispatch agents across service restarts
+summary: >
+  Configure supported Linux user services to leave tmux-backed Dispatch agents
+  running when Dispatch restarts, so an assisted-update agent can observe and
+  validate the restart it initiated.
+
+alreadySatisfied:
+  description: >
+    The current user's supported systemd Dispatch service has
+    KillMode=process under [Service], its fixed runtime entrypoint is healthy,
+    and a normal Dispatch restart does not terminate its tmux child processes.
+
+instructions:
+  - >
+    Only modify the current user's ~/.config/systemd/user/dispatch.service
+    managed through systemctl --user. Treat launchd, system-scope units,
+    root-owned files, Docker, custom supervisors, or a missing definition as
+    report-only; do not create or modify another service definition.
+  - >
+    Before invoking the managed update, add KillMode=process under [Service]
+    and run systemctl --user daemon-reload. Dispatch agents run in tmux child
+    processes; systemd's default control-group kill mode terminates the
+    assisted-update agent during the very restart it must observe.
+  - >
+    Keep KillMode=process in the unit after the update. It intentionally
+    preserves running agents across future Dispatch service restarts; stop or
+    remove those agents explicitly when they are no longer wanted.
+  - Invoke the managed update and complete any other pending migration steps.
+  - >
+    Confirm the health endpoint is healthy, release.json reports the target
+    tag, and the assisted-update agent remains available after the restart.
+
+validation:
+  requiredChecks:
+    - expected_runtime_artifact
+    - service_entrypoint
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - >
+    Restore the prior systemd unit only if agent persistence is incompatible
+    with this host's process-management policy, then run systemctl --user
+    daemon-reload and restart Dispatch. Re-run the assisted update from a
+    process outside Dispatch's service cgroup.
