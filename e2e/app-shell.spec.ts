@@ -46,6 +46,32 @@ test.describe("App shell", () => {
     await expect(dbStatus).toContainText("ok", { timeout: 10_000 });
   });
 
+  test("bottom bar collapses, persists across reload, and expands back", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    const toggle = page.getByTestId("bottom-bar-toggle");
+    await expect(page.getByTestId("bottom-bar")).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await toggle.click();
+    await expect(page.getByTestId("bottom-bar")).toHaveCount(0);
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toBeFocused();
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
+    await expect(page.getByTestId("bottom-bar")).toHaveCount(0);
+    await expect(page.getByTestId("bottom-bar-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+
+    await page.getByTestId("bottom-bar-toggle").click();
+    await expect(page.getByTestId("bottom-bar")).toBeVisible();
+  });
+
   test("sidebar shows the Dispatch logo", async ({ page }) => {
     await loadApp(page);
 
