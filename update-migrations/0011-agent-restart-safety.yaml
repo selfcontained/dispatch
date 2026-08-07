@@ -8,20 +8,31 @@ summary: >
 alreadySatisfied:
   description: >
     The current user's supported systemd Dispatch service has
-    KillMode=process under [Service], its fixed runtime entrypoint is healthy,
-    and a normal Dispatch restart does not terminate its tmux child processes.
+    KillMode=process under [Service] and `systemctl --user show
+    dispatch.service -p KillMode` reports the loaded value as process, and
+    its fixed runtime entrypoint is healthy. Verify by configuration only —
+    do not perform a restart just to probe kill behavior. On hosts without a
+    supported user systemd unit (launchd, system scope, root-owned file,
+    Docker, custom supervisor, or no definition), this migration is a no-op:
+    treat it as satisfied and report why.
 
 instructions:
   - >
     Only modify the current user's ~/.config/systemd/user/dispatch.service
-    managed through systemctl --user. Treat launchd, system-scope units,
-    root-owned files, Docker, custom supervisors, or a missing definition as
-    report-only; do not create or modify another service definition.
+    managed through systemctl --user. On launchd, system-scope units,
+    root-owned files, Docker, custom supervisors, or a missing definition,
+    this migration is an explicit no-op: report the situation and continue
+    with the remaining plan; do not create or modify another service
+    definition.
   - >
     Before invoking the managed update, add KillMode=process under [Service]
-    and run systemctl --user daemon-reload. Dispatch agents run in tmux child
-    processes; systemd's default control-group kill mode terminates the
-    assisted-update agent during the very restart it must observe.
+    and run systemctl --user daemon-reload, confirming the loaded value with
+    systemctl --user show dispatch.service -p KillMode. An earlier migration
+    in this run (fixed-runtime-entrypoint) may already have added it before
+    its cutover restart — in that case just confirm and continue. Dispatch
+    agents run in tmux child processes; systemd's default control-group kill
+    mode terminates the assisted-update agent during the very restart it
+    must observe.
   - >
     Keep KillMode=process in the unit after the update. It intentionally
     preserves running agents across future Dispatch service restarts; stop or

@@ -44,6 +44,18 @@ instructions:
     dist/bun/dispatch-<target-version>-bun-<platform>-<arch>. Select by exact
     name; do not choose a glob match by modification time.
   - >
+    Linux restart safety: before ANY restart this migration performs, ensure
+    the unit has KillMode=process under [Service] and run systemctl --user
+    daemon-reload, confirming the loaded value with
+    systemctl --user show dispatch.service -p KillMode. The assisted-update
+    agent runs in a tmux child inside dispatch.service's control group, and
+    the default control-group kill mode terminates it during the very
+    restart it must observe. This intentionally front-runs the
+    agent-restart-safety migration (which is ordered after this one and
+    would arrive too late); keep the setting in place afterwards. Make no
+    other unit changes before the restart beyond this and the ExecStart
+    repoint described below.
+  - >
     Linux cutover, activation: determine the configured fixed runtime path
     (DISPATCH_RUNTIME_PATH, or DISPATCH_SERVER_DIR/dispatch when unset).
     Preserve the currently healthy executable that the service actually runs
