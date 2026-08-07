@@ -76,6 +76,15 @@ issues caused or worsened by this diff.`}</CodeBlock>
           the persona picker UI. The <Code>feedbackFormat</Code> field is
           optional and defaults to <Code>findings</Code>.
         </P>
+        <P>
+          Agents can author personas too: standard agents and jobs get{" "}
+          <Code>persona_templates</Code> (short built-in starting points),{" "}
+          <Code>persona_upsert</Code> (create or update a persona file in the
+          agent's checkout), and <Code>persona_validate</Code> (check every
+          persona file for required metadata) MCP tools, so you can ask an agent
+          to draft a repo-specific reviewer instead of writing the markdown
+          yourself.
+        </P>
       </Section>
 
       <Section>
