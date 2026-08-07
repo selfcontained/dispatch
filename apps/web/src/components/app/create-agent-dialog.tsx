@@ -73,8 +73,12 @@ function CreateAgentDialogContent({
   });
 
   useRadixPopoverZFix();
+  const supportsModelSelection = ["codex", "claude", "cursor"].includes(
+    form.createType
+  );
   const showModelSelect =
-    form.createType !== "terminal" && form.modelOptions.length > 0;
+    supportsModelSelection &&
+    (form.modelCatalogLoading || form.modelOptions.length > 0);
 
   return (
     <DialogContent
@@ -107,7 +111,10 @@ function CreateAgentDialogContent({
             <div className="min-h-0 flex-1 overflow-y-auto px-1">
               <div className="space-y-3">
                 <div
-                  className={cn("grid gap-3", showModelSelect && "grid-cols-2")}
+                  className={cn(
+                    "grid gap-3",
+                    showModelSelect && "min-[420px]:grid-cols-2"
+                  )}
                 >
                   <AgentTypeSelect
                     value={form.createType}
@@ -121,6 +128,7 @@ function CreateAgentDialogContent({
                       value={form.createModel}
                       options={form.modelOptions}
                       onChange={form.setCreateModel}
+                      loading={form.modelCatalogLoading}
                     />
                   ) : null}
                 </div>

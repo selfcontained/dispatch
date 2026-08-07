@@ -99,10 +99,13 @@ export function useCreateAgentForm({
     model: createModel,
     setModel: setCreateModel,
   } = useCreateAgentPrefs(createCwd, createType);
-  const { data: modelCatalog } = useQuery<{ models: AgentModelCatalog }>({
+  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
+    models: AgentModelCatalog;
+  }>({
     queryKey: ["agent-models"],
     queryFn: () => api("/api/v1/agent-models"),
     staleTime: Infinity,
+    gcTime: Infinity,
   });
   const modelOptions = useMemo(
     () => modelCatalog?.models[createType] ?? [],
@@ -213,7 +216,9 @@ export function useCreateAgentForm({
           name: createName.trim(),
           cwd,
           type: createType,
-          model: createModel ?? undefined,
+          model: modelOptions.some((option) => option.id === createModel)
+            ? createModel
+            : undefined,
           fullAccess: createFullAccess,
           autoReview: createAutoReview,
           useWorktree: submitUseWorktree,
@@ -287,6 +292,7 @@ export function useCreateAgentForm({
       startupFiles,
       startupLinks,
       step,
+      modelOptions,
     ]
   );
 
@@ -323,6 +329,7 @@ export function useCreateAgentForm({
     createModel,
     setCreateModel,
     modelOptions,
+    modelCatalogLoading,
     createBaseBranch,
     setCreateBaseBranch,
     createNewBranch,

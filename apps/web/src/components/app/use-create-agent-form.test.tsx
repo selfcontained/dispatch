@@ -13,7 +13,7 @@ import {
 } from "@/components/app/create-agent-dialog-utils";
 import type { Agent } from "@/components/app/types";
 import type { AgentType } from "@/lib/agent-types";
-import { createNewBranchPrefAtom } from "@/lib/store";
+import { createAgentModelPrefAtom, createNewBranchPrefAtom } from "@/lib/store";
 
 import { useCreateAgentForm } from "./use-create-agent-form";
 
@@ -463,6 +463,15 @@ describe("handleSubmit", () => {
     const call = agentsPost();
     expect(call).toBeDefined();
     expect(typeof call![1].body).toBe("string");
+  });
+
+  it("omits a persisted model until the catalog confirms it", async () => {
+    jotaiStore.set(createAgentModelPrefAtom("claude:/repo/app"), "retired");
+    const { result } = await setup({ initialAgentType: "claude" });
+
+    await act(async () => result.current.handleSubmit(submitEvent()));
+
+    expect(agentsPostJson().model).toBeUndefined();
   });
 
   it("records last-used values and hands the created agent to onCreated", async () => {
