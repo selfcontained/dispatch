@@ -57,6 +57,22 @@ export function normalizeAgentArgsForType(
   return { passthroughArgs, appendedSystemPrompt };
 }
 
+function stripModelArgs(args: string[]): string[] {
+  const filtered: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--model") {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--model=")) continue;
+    filtered.push(arg);
+  }
+
+  return filtered;
+}
+
 /**
  * Compose the first user-message-style prompt handed to the agent on
  * launch — formats `initialPrompt`, `initialPins`, and `initialMedia` into
@@ -358,6 +374,7 @@ export function buildAgentCommand(
     type,
     args
   );
+  const launchArgs = model ? stripModelArgs(passthroughArgs) : passthroughArgs;
 
   if (type === "claude") {
     const mcpConfig = shellEscape(
@@ -395,10 +412,10 @@ export function buildAgentCommand(
     // initialPrompt becomes the first user message (positional arg to Claude
     // Code CLI). Separate it from options with `--` so structured Dispatch
     // blocks that begin with `---` are not parsed as unknown CLI flags.
-    if (args.length === 0 && !initialPrompt) {
+    if (launchArgs.length === 0 && !initialPrompt) {
       return `${envPrefix} ${shellEscape(cliBin)} ${flags}`;
     }
-    const commandArgs = args.map((arg) => shellEscape(arg));
+    const commandArgs = launchArgs.map((arg) => shellEscape(arg));
     if (initialPrompt) {
       commandArgs.push("--", shellEscape(initialPrompt));
     }
@@ -442,8 +459,8 @@ export function buildAgentCommand(
     ].filter(Boolean);
     const startupPrompt = cursorPromptParts.join("\n\n");
     if (model) flagParts.push("--model", shellEscape(model));
-    if (passthroughArgs.length > 0) {
-      const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
+    if (launchArgs.length > 0) {
+      const escaped = launchArgs.map((arg) => shellEscape(arg)).join(" ");
       flagParts.push(escaped);
     }
     if (startupPrompt) {
@@ -477,9 +494,9 @@ export function buildAgentCommand(
     initialPrompt,
   ].filter(Boolean);
   const startupPrompt = codexPromptParts.join("\n\n");
-  if (passthroughArgs.length === 0) {
+  if (launchArgs.length === 0) {
     return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${modelFlag} ${shellEscape(startupPrompt)}`;
   }
-  const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
+  const escaped = launchArgs.map((arg) => shellEscape(arg)).join(" ");
   return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${modelFlag} ${escaped} ${shellEscape(startupPrompt)}`;
 }

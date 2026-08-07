@@ -235,21 +235,45 @@ describe("buildAgentCommand", () => {
     expect(cursor).toContain("--model 'auto'");
   });
 
-  it("puts a selected Cursor model before saved CLI args", () => {
-    const cmd = buildAgentCommand(
-      baseConfig,
-      "cursor",
-      "standard",
-      ["--model", "saved-model"],
-      "/tmp/media",
-      SESSION,
-      false,
-      { model: "auto" }
-    );
+  it("drops saved model flags when a selected model is supplied", () => {
+    const commands = [
+      buildAgentCommand(
+        baseConfig,
+        "claude",
+        "standard",
+        ["--model", "saved-model", "--verbose"],
+        "/tmp/media",
+        SESSION,
+        false,
+        { model: "opus" }
+      ),
+      buildAgentCommand(
+        baseConfig,
+        "codex",
+        "standard",
+        ["--model=saved-model", "--verbose"],
+        "/tmp/media",
+        SESSION,
+        false,
+        { model: "gpt-5.6-terra" }
+      ),
+      buildAgentCommand(
+        baseConfig,
+        "cursor",
+        "standard",
+        ["--model", "saved-model", "--verbose"],
+        "/tmp/media",
+        SESSION,
+        false,
+        { model: "auto" }
+      ),
+    ];
 
-    expect(cmd.indexOf("--model 'auto'")).toBeLessThan(
-      cmd.indexOf("'--model' 'saved-model'")
-    );
+    for (const cmd of commands) {
+      expect(cmd).not.toContain("saved-model");
+      expect(cmd).toContain("'--verbose'");
+      expect((cmd.match(/--model/g) ?? []).length).toBe(1);
+    }
   });
 
   it("for claude with cliSessionId + resume, emits --resume; without resume, emits --session-id", () => {
