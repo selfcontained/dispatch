@@ -3,10 +3,10 @@ import React from "react";
 import {
   latestEventLabel,
   latestEventColor,
-  formatRelativeTime,
 } from "@/components/app/agent-event-utils";
 import { type Agent } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
+import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 function RepoLabel({

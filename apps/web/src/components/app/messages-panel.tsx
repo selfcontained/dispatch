@@ -20,6 +20,7 @@ import {
 } from "@/hooks/use-agent-messages";
 import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
+import { formatRelativeTime } from "@/lib/format";
 import { messageGroupsCollapsedAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -56,15 +57,6 @@ export function groupByParticipant(
   return Array.from(threads.values());
 }
 
-function relativeTime(iso: string): string {
-  const then = new Date(iso).getTime();
-  const secs = Math.round((Date.now() - then) / 1000);
-  if (secs < 60) return `${secs}s ago`;
-  if (secs < 3600) return `${Math.round(secs / 60)}m ago`;
-  if (secs < 86400) return `${Math.round(secs / 3600)}h ago`;
-  return `${Math.round(secs / 86400)}d ago`;
-}
-
 export function MessageBubble({
   message,
   isSent,
@@ -98,7 +90,7 @@ export function MessageBubble({
           ) : (
             <ArrowDownLeft className="h-2.5 w-2.5" />
           )}
-          <span>{relativeTime(message.createdAt)}</span>
+          <span>{formatRelativeTime(message.createdAt)}</span>
           {!message.delivered && (
             <span
               className={cn(

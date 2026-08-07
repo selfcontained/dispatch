@@ -110,6 +110,11 @@ describe("formatRelativeTime", () => {
     expect(formatRelativeTime("2026-01-01T00:00:00Z")).toBe("just now");
   });
 
+  it("clamps future timestamps to 'just now'", () => {
+    vi.useFakeTimers({ now: new Date("2026-01-01T00:00:00Z") });
+    expect(formatRelativeTime("2026-01-01T00:10:00Z")).toBe("just now");
+  });
+
   it("returns minutes ago", () => {
     vi.useFakeTimers({ now: new Date("2026-01-01T00:05:00Z") });
     expect(formatRelativeTime("2026-01-01T00:00:00Z")).toBe("5m ago");
