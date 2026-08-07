@@ -4,7 +4,7 @@ import { useAtom } from "jotai";
 
 import { type AgentType, isAgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
-import { createNewBranchPrefAtom } from "@/lib/store";
+import { createAgentModelPrefAtom, createNewBranchPrefAtom } from "@/lib/store";
 
 export const LAST_USED_CWD_KEY = "dispatch:lastUsedAgentCwd";
 export const LAST_USED_TYPE_KEY = "dispatch:lastUsedAgentType";
@@ -199,7 +199,7 @@ export function useCwdHistory() {
   };
 }
 
-export function useCreateAgentPrefs(cwd: string) {
+export function useCreateAgentPrefs(cwd: string, agentType: AgentType) {
   const trimmedCwd = cwd.trim();
   const [fullAccess, setFullAccess] = useState(false);
   const [autoReview, setAutoReview] = useState(false);
@@ -210,6 +210,11 @@ export function useCreateAgentPrefs(cwd: string) {
     [trimmedCwd]
   );
   const [createNewBranch, setCreateNewBranch] = useAtom(createNewBranchAtom);
+  const modelAtom = useMemo(
+    () => createAgentModelPrefAtom(`${agentType}:${trimmedCwd}`),
+    [agentType, trimmedCwd]
+  );
+  const [model, setModel] = useAtom(modelAtom);
 
   useEffect(() => {
     if (!trimmedCwd) {
@@ -262,5 +267,7 @@ export function useCreateAgentPrefs(cwd: string) {
     setBaseBranch,
     createNewBranch,
     setCreateNewBranch,
+    model,
+    setModel,
   };
 }

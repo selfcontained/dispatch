@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
+import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
@@ -72,6 +73,12 @@ function CreateAgentDialogContent({
   });
 
   useRadixPopoverZFix();
+  const supportsModelSelection = ["codex", "claude", "cursor"].includes(
+    form.createType
+  );
+  const showModelSelect =
+    supportsModelSelection &&
+    (form.modelCatalogLoading || form.modelOptions.length > 0);
 
   return (
     <DialogContent
@@ -103,12 +110,28 @@ function CreateAgentDialogContent({
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-1">
               <div className="space-y-3">
-                <AgentTypeSelect
-                  value={form.createType}
-                  onChange={form.setCreateType}
-                  agentTypes={enabledAgentTypes}
-                  onOpenChange={setTypeDropdownOpen}
-                />
+                <div
+                  className={cn(
+                    "grid gap-3",
+                    showModelSelect && "min-[420px]:grid-cols-2"
+                  )}
+                >
+                  <AgentTypeSelect
+                    value={form.createType}
+                    onChange={form.setCreateType}
+                    agentTypes={enabledAgentTypes}
+                    onOpenChange={setTypeDropdownOpen}
+                  />
+
+                  {showModelSelect ? (
+                    <AgentModelSelect
+                      value={form.createModel}
+                      options={form.modelOptions}
+                      onChange={form.setCreateModel}
+                      loading={form.modelCatalogLoading}
+                    />
+                  ) : null}
+                </div>
 
                 <div className="space-y-1">
                   <label className="text-sm text-muted-foreground">Name</label>

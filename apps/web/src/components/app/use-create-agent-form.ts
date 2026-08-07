@@ -3,9 +3,11 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import {
@@ -26,6 +28,9 @@ import { useStartupAttachments } from "@/components/app/use-startup-attachments"
 import { useSystemDefaults } from "@/hooks/use-system-defaults";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
+
+type AgentModelOption = { id: string; label: string };
+type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
 
 type UseCreateAgentFormOptions = {
   enabledAgentTypes: AgentType[];
@@ -91,7 +96,31 @@ export function useCreateAgentForm({
     setBaseBranch: setCreateBaseBranch,
     createNewBranch,
     setCreateNewBranch,
-  } = useCreateAgentPrefs(createCwd);
+    model: createModel,
+    setModel: setCreateModel,
+  } = useCreateAgentPrefs(createCwd, createType);
+  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
+    models: AgentModelCatalog;
+  }>({
+    queryKey: ["agent-models"],
+    queryFn: () => api("/api/v1/agent-models"),
+    staleTime: Infinity,
+    gcTime: Infinity,
+  });
+  const modelOptions = useMemo(
+    () => modelCatalog?.models[createType] ?? [],
+    [createType, modelCatalog]
+  );
+
+  useEffect(() => {
+    if (!modelCatalog) return;
+    if (
+      createModel &&
+      !modelOptions.some((option) => option.id === createModel)
+    ) {
+      setCreateModel(null);
+    }
+  }, [createModel, modelCatalog, modelOptions, setCreateModel]);
 
   useEffect(() => {
     setCreateWorktreeBranch("");
@@ -187,6 +216,9 @@ export function useCreateAgentForm({
           name: createName.trim(),
           cwd,
           type: createType,
+          model: modelOptions.some((option) => option.id === createModel)
+            ? createModel
+            : undefined,
           fullAccess: createFullAccess,
           autoReview: createAutoReview,
           useWorktree: submitUseWorktree,
@@ -249,6 +281,7 @@ export function useCreateAgentForm({
       createCwd,
       createFullAccess,
       createName,
+      createModel,
       createNewBranch,
       createType,
       createUseWorktree,
@@ -259,6 +292,7 @@ export function useCreateAgentForm({
       startupFiles,
       startupLinks,
       step,
+      modelOptions,
     ]
   );
 
@@ -292,6 +326,10 @@ export function useCreateAgentForm({
     setCreateFullAccess,
     createAutoReview,
     setCreateAutoReview,
+    createModel,
+    setCreateModel,
+    modelOptions,
+    modelCatalogLoading,
     createBaseBranch,
     setCreateBaseBranch,
     createNewBranch,

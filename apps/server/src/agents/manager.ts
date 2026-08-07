@@ -124,6 +124,7 @@ type CreateAgentInput = {
   role?: AgentRole;
   cwd: string;
   agentArgs?: string[];
+  model?: string;
   fullAccess?: boolean;
   useWorktree?: boolean;
   /**
@@ -167,6 +168,7 @@ type PreparedCreateInputs = {
   tmuxSession: string;
   mediaDir: string;
   agentArgs: string[];
+  model: string | undefined;
   fullAccess: boolean;
   initialPins: AgentPin[];
   useWorktree: boolean;
@@ -398,6 +400,7 @@ export class AgentManager {
         tmuxSession: p.tmuxSession,
         mediaDir: p.mediaDir,
         agentArgs: p.agentArgs,
+        model: p.model,
         fullAccess: p.fullAccess,
         useWorktree: p.useWorktree,
         createNewBranch: p.createNewBranch,
@@ -512,6 +515,7 @@ export class AgentManager {
       tmuxSession,
       mediaDir,
       agentArgs,
+      model: input.model,
       fullAccess,
       initialPins,
       useWorktree,
@@ -530,8 +534,8 @@ export class AgentManager {
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, model, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, NOW())
       `,
       [
         p.id,
@@ -542,6 +546,7 @@ export class AgentManager {
         p.tmuxSession,
         p.mediaDir,
         JSON.stringify(p.agentArgs),
+        p.model ?? null,
         p.fullAccess,
         p.initialSetupPhase,
         input.persona ?? null,
@@ -632,6 +637,7 @@ export class AgentManager {
     tmuxSession: string;
     mediaDir: string;
     agentArgs: string[];
+    model: string | undefined;
     fullAccess: boolean;
     useWorktree: boolean;
     createNewBranch: boolean;
@@ -654,6 +660,7 @@ export class AgentManager {
       tmuxSession,
       mediaDir,
       agentArgs,
+      model,
       fullAccess,
       useWorktree,
       createNewBranch,
@@ -677,17 +684,19 @@ export class AgentManager {
         mediaDir,
         tmuxSession,
         fullAccess,
-        cliSessionId ?? undefined,
-        false,
-        opts.jobRunId,
-        shouldSuggestSessionRename(name, id, {
-          persona: opts.persona,
+        {
+          cliSessionId: cliSessionId ?? undefined,
           jobRunId: opts.jobRunId,
-          templateId: opts.templateId,
-        }),
-        !opts.persona && !opts.jobRunId && opts.autoReview,
-        startupPrompt,
-        personality?.prompt ?? null
+          suggestSessionRename: shouldSuggestSessionRename(name, id, {
+            persona: opts.persona,
+            jobRunId: opts.jobRunId,
+            templateId: opts.templateId,
+          }),
+          autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
+          initialPrompt: startupPrompt,
+          personalityPrompt: personality?.prompt ?? null,
+          model,
+        }
       );
 
       const setupScript = generateSetupScript(this.config, {
@@ -863,16 +872,17 @@ export class AgentManager {
         mediaDir,
         tmuxSession,
         agent.fullAccess ?? false,
-        cliSessionId ?? undefined,
-        shouldResume,
-        undefined,
-        shouldSuggestSessionRename(agent.name, id, {
-          persona: agent.persona,
-          templateId: agent.templateId,
-        }),
-        !agent.persona && (agent.autoReview ?? false),
-        undefined,
-        personality?.prompt ?? null
+        {
+          cliSessionId: cliSessionId ?? undefined,
+          resume: shouldResume,
+          suggestSessionRename: shouldSuggestSessionRename(agent.name, id, {
+            persona: agent.persona,
+            templateId: agent.templateId,
+          }),
+          autoReview: !agent.persona && (agent.autoReview ?? false),
+          personalityPrompt: personality?.prompt ?? null,
+          model: agent.model ?? undefined,
+        }
       );
 
       await this.runtime.launch({
@@ -1280,6 +1290,7 @@ export class AgentManager {
         simulator_udid AS "simulatorUdid",
         media_dir AS "mediaDir",
         codex_args AS "agentArgs",
+        model,
         full_access AS "fullAccess",
         setup_phase AS "setupPhase",
         archive_phase AS "archivePhase",

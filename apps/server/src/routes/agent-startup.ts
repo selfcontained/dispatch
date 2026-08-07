@@ -10,6 +10,7 @@ import {
 export type CreateAgentBody = {
   name?: unknown;
   type?: unknown;
+  model?: unknown;
   cwd?: unknown;
   agentArgs?: unknown;
   codexArgs?: unknown;

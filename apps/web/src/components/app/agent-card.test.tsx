@@ -75,6 +75,7 @@ function makeAgent(overrides: Partial<Agent> = {}): Agent {
     worktreeBranch: null,
     tmuxSession: `dispatch-${AGENT_ID}`,
     agentArgs: [],
+    model: null,
     fullAccess: false,
     mediaDir: null,
     createdAt: "2026-07-15T12:00:00.000Z",

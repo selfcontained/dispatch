@@ -10,6 +10,7 @@ import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
+import { validateAgentModel } from "../shared/agent-models.js";
 import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js";
 import type { JobService } from "../jobs/service.js";
 import type {
@@ -281,6 +282,7 @@ async function handleLaunchAgent(
     name: string;
     prompt: string;
     type?: string;
+    model?: string;
     useWorktree?: boolean;
     createNewBranch?: boolean;
     baseBranch?: string;
@@ -315,12 +317,17 @@ async function handleLaunchAgent(
   const fullAccess = parent.fullAccess && input.fullAccess !== false;
 
   const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
+  const model = validateAgentModel(
+    agentType as (typeof CLI_AGENT_TYPES)[number],
+    input.model
+  );
 
   const agent = await deps.agentManager.createAgent({
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
     cwd: input.cwd ?? parentCwd,
     fullAccess,
+    model,
     useWorktree,
     createNewBranch,
     baseBranch: input.baseBranch,
@@ -829,6 +836,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         name: string;
         prompt: string;
         type?: string;
+        model?: string;
         useWorktree?: boolean;
         createNewBranch?: boolean;
         baseBranch?: string;

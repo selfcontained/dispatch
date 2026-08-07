@@ -13,6 +13,7 @@ export type LaunchAgentInput = {
   name: string;
   prompt: string;
   type?: string;
+  model?: string;
   useWorktree?: boolean;
   createNewBranch?: boolean;
   baseBranch?: string;
@@ -63,6 +64,12 @@ export function registerAgentLaunchTools(
           .describe(
             "Agent type. Defaults to the same type as the launching agent."
           ),
+        model: z
+          .string()
+          .optional()
+          .describe(
+            "Model ID from Dispatch's supported catalog. Omit to let the CLI use its default."
+          ),
         useWorktree: z
           .boolean()
           .optional()
@@ -106,6 +113,7 @@ export function registerAgentLaunchTools(
           prompt: args.prompt,
         };
         if (args.type !== undefined) input.type = args.type;
+        if (args.model !== undefined) input.model = args.model;
         if (args.useWorktree !== undefined)
           input.useWorktree = args.useWorktree;
         if (args.createNewBranch !== undefined)

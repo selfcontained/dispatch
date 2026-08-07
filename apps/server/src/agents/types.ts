@@ -89,6 +89,7 @@ export type AgentRecord = {
   simulatorUdid: string | null;
   mediaDir: string | null;
   agentArgs: string[];
+  model: string | null;
   fullAccess: boolean;
   setupPhase: SetupPhase;
   archivePhase: ArchivePhase;

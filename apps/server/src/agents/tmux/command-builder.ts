@@ -57,6 +57,22 @@ export function normalizeAgentArgsForType(
   return { passthroughArgs, appendedSystemPrompt };
 }
 
+function stripModelArgs(args: string[]): string[] {
+  const filtered: string[] = [];
+
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    if (arg === "--model" || arg === "-m") {
+      index += 1;
+      continue;
+    }
+    if (arg.startsWith("--model=") || arg.startsWith("-m")) continue;
+    filtered.push(arg);
+  }
+
+  return filtered;
+}
+
 /**
  * Compose the first user-message-style prompt handed to the agent on
  * launch — formats `initialPrompt`, `initialPins`, and `initialMedia` into
@@ -215,6 +231,17 @@ export function buildLaunchGuidance(
  * Security note: every interpolated value flows through `shellEscape`,
  * since this string lands directly in `tmux new-session … bash -c …`.
  */
+type BuildAgentCommandOptions = {
+  cliSessionId?: string;
+  resume?: boolean;
+  jobRunId?: string;
+  suggestSessionRename?: boolean;
+  autoReview?: boolean;
+  initialPrompt?: string;
+  personalityPrompt?: string | null;
+  model?: string;
+};
+
 export function buildAgentCommand(
   config: AppConfig,
   type: AgentType,
@@ -223,13 +250,16 @@ export function buildAgentCommand(
   mediaDir: string,
   sessionName: string,
   fullAccess: boolean,
-  cliSessionId?: string,
-  resume?: boolean,
-  jobRunId?: string,
-  suggestSessionRename?: boolean,
-  autoReview?: boolean,
-  initialPrompt?: string,
-  personalityPrompt?: string | null
+  {
+    cliSessionId,
+    resume,
+    jobRunId,
+    suggestSessionRename,
+    autoReview,
+    initialPrompt,
+    personalityPrompt,
+    model,
+  }: BuildAgentCommandOptions = {}
 ): string {
   const agentId = agentIdFromSessionName(sessionName);
   const launchGuidance = buildLaunchGuidance(agentId, {
@@ -344,6 +374,7 @@ export function buildAgentCommand(
     type,
     args
   );
+  const launchArgs = model ? stripModelArgs(passthroughArgs) : passthroughArgs;
 
   if (type === "claude") {
     const mcpConfig = shellEscape(
@@ -374,16 +405,17 @@ export function buildAgentCommand(
         ? `--resume ${shellEscape(cliSessionId)}`
         : `--session-id ${shellEscape(cliSessionId)}`
       : "";
-    const flags = [mcpFlag, systemFlag, personalityFlag, sessionFlag]
+    const modelFlag = model ? `--model ${shellEscape(model)}` : "";
+    const flags = [mcpFlag, systemFlag, personalityFlag, sessionFlag, modelFlag]
       .filter(Boolean)
       .join(" ");
     // initialPrompt becomes the first user message (positional arg to Claude
     // Code CLI). Separate it from options with `--` so structured Dispatch
     // blocks that begin with `---` are not parsed as unknown CLI flags.
-    if (args.length === 0 && !initialPrompt) {
+    if (launchArgs.length === 0 && !initialPrompt) {
       return `${envPrefix} ${shellEscape(cliBin)} ${flags}`;
     }
-    const commandArgs = args.map((arg) => shellEscape(arg));
+    const commandArgs = launchArgs.map((arg) => shellEscape(arg));
     if (initialPrompt) {
       commandArgs.push("--", shellEscape(initialPrompt));
     }
@@ -426,8 +458,9 @@ export function buildAgentCommand(
       initialPrompt,
     ].filter(Boolean);
     const startupPrompt = cursorPromptParts.join("\n\n");
-    if (passthroughArgs.length > 0) {
-      const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
+    if (model) flagParts.push("--model", shellEscape(model));
+    if (launchArgs.length > 0) {
+      const escaped = launchArgs.map((arg) => shellEscape(arg)).join(" ");
       flagParts.push(escaped);
     }
     if (startupPrompt) {
@@ -449,9 +482,10 @@ export function buildAgentCommand(
     ),
   ].join(" ");
   const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${shellEscape(dispatchMcpToken)}`;
+  const modelFlag = model ? `--model ${shellEscape(model)}` : "";
   // Codex resume: `codex resume <sessionId>` with MCP flags
   if (resume && cliSessionId) {
-    return `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${shellEscape(cliSessionId)} ${codexMcpFlags}`;
+    return `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${shellEscape(cliSessionId)} ${modelFlag} ${codexMcpFlags}`;
   }
   const codexPromptParts = [
     launchGuidance,
@@ -460,9 +494,9 @@ export function buildAgentCommand(
     initialPrompt,
   ].filter(Boolean);
   const startupPrompt = codexPromptParts.join("\n\n");
-  if (passthroughArgs.length === 0) {
-    return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${shellEscape(startupPrompt)}`;
+  if (launchArgs.length === 0) {
+    return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${modelFlag} ${shellEscape(startupPrompt)}`;
   }
-  const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
-  return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${shellEscape(startupPrompt)}`;
+  const escaped = launchArgs.map((arg) => shellEscape(arg)).join(" ");
+  return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${modelFlag} ${escaped} ${shellEscape(startupPrompt)}`;
 }
