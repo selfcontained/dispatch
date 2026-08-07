@@ -3,7 +3,10 @@ import { createPortal } from "react-dom";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { useAtomValue } from "jotai";
 
-import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
+import {
+  bottomBarCollapsedAtom,
+  whiteboardAgentDrewAtomFamily,
+} from "@/lib/store";
 
 import { ChangesTab } from "@/components/app/changes-tab";
 import { WhiteboardPane } from "@/components/app/whiteboard-pane";
@@ -24,11 +27,11 @@ import {
   MediaSidebar,
   MediaSidebarContent,
 } from "@/components/app/media-sidebar";
+import { BottomBar } from "@/components/app/bottom-bar";
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
 import { TerminalPane } from "@/components/app/terminal-pane";
-import { AmbientTipBar } from "@/components/tips/ambient-tip-bar";
 import {
   type Agent,
   type AgentVisualState,
@@ -213,6 +216,7 @@ export function AgentsView({
   const whiteboardAgentDrew = useAtomValue(
     whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
   );
+  const bottomBarCollapsed = useAtomValue(bottomBarCollapsedAtom);
 
   const {
     splitState,
@@ -596,7 +600,10 @@ export function AgentsView({
                 unreadMessageCount={unreadMessageCount}
               />
               <div
-                className={cn("relative min-h-0 flex-1", !isMobile && "pb-14")}
+                className={cn(
+                  "relative min-h-0 flex-1",
+                  !isMobile && !bottomBarCollapsed && "pb-14"
+                )}
                 onDragOver={handleContentDragOver}
                 onDragLeave={handleContentDragLeave}
                 onDrop={handleContentDrop}
@@ -635,15 +642,16 @@ export function AgentsView({
                   visible={isDraggingTab && !isMobile}
                   onDrop={handleDropOnZone}
                 />
-                {!isMobile ? (
-                  <div className="pointer-events-none absolute inset-x-0 bottom-0 z-10 h-14 bg-background">
-                    <AmbientTipBar />
-                  </div>
-                ) : null}
+                {!isMobile ? <BottomBar /> : null}
               </div>
 
               {!isMobile ? (
-                <div className="pointer-events-none absolute inset-x-2 bottom-16 z-20">
+                <div
+                  className={cn(
+                    "pointer-events-none absolute inset-x-2 z-20",
+                    bottomBarCollapsed ? "bottom-8" : "bottom-16"
+                  )}
+                >
                   <TerminalCopyModeBannerLayer
                     visible={copyMode === "copy" || copyMode === "exiting"}
                     copyMode={copyMode}

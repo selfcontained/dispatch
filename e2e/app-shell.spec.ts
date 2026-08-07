@@ -46,6 +46,26 @@ test.describe("App shell", () => {
     await expect(dbStatus).toContainText("ok", { timeout: 10_000 });
   });
 
+  test("bottom bar collapses, persists across reload, and expands back", async ({
+    page,
+  }) => {
+    await loadApp(page);
+
+    await expect(page.getByTestId("bottom-bar")).toBeVisible();
+
+    await page.getByTestId("bottom-bar-collapse").click();
+    await expect(page.getByTestId("bottom-bar")).toHaveCount(0);
+    await expect(page.getByTestId("bottom-bar-expand")).toBeVisible();
+
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
+    await expect(page.getByTestId("bottom-bar")).toHaveCount(0);
+    await expect(page.getByTestId("bottom-bar-expand")).toBeVisible();
+
+    await page.getByTestId("bottom-bar-expand").click();
+    await expect(page.getByTestId("bottom-bar")).toBeVisible();
+  });
+
   test("sidebar shows the Dispatch logo", async ({ page }) => {
     await loadApp(page);
 
