@@ -105,6 +105,23 @@ describe("UiEventBroker", () => {
     expect(good.chunks).toHaveLength(2);
   });
 
+  it("removes destroyed clients before publishing", () => {
+    const broker = new UiEventBroker();
+    const destroyed = {
+      destroyed: true,
+      write: vi.fn(),
+    };
+    const good = createWritableStream();
+    broker.subscribe(destroyed as unknown as NodeJS.WritableStream);
+    broker.subscribe(good.stream);
+
+    broker.publish({ type: "job.changed" });
+
+    expect(destroyed.write).not.toHaveBeenCalled();
+    expect(good.chunks).toHaveLength(1);
+    expect(broker.getMetrics().clients).toBe(1);
+  });
+
   it("sendSnapshot writes only to the target stream", () => {
     const broker = new UiEventBroker();
     const c1 = createWritableStream();

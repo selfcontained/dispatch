@@ -6,7 +6,7 @@ export async function registerAgentEventRoutes(
   app: FastifyInstance,
   deps: AgentRouteDeps
 ): Promise<void> {
-  app.get("/api/v1/events", async (_request, reply) => {
+  app.get("/api/v1/events", async (request, reply) => {
     reply.raw.setHeader("Content-Type", "text/event-stream");
     reply.raw.setHeader("Cache-Control", "no-cache, no-transform");
     reply.raw.setHeader("Connection", "keep-alive");
@@ -18,18 +18,37 @@ export async function registerAgentEventRoutes(
     const heartbeat = setInterval(() => {
       stream.write(": keepalive\n\n");
     }, 20_000);
+    let cleanedUp = false;
+    const cleanup = () => {
+      if (cleanedUp) return;
+      cleanedUp = true;
+      clearInterval(heartbeat);
+      unsubscribe();
+      request.raw.removeListener("close", cleanup);
+      request.raw.removeListener("aborted", cleanup);
+    };
+
+    // Bun does not emit close on ServerResponse, but does emit it on the
+    // request. Register before the async snapshot load so early disconnects
+    // cannot retain the subscription or heartbeat.
+    request.raw.once("close", cleanup);
+    request.raw.once("aborted", cleanup);
+
+    if (request.raw.destroyed) {
+      cleanup();
+      return;
+    }
 
     try {
       const agents = await deps.agentManager.listAgents();
-      deps.sendUiSnapshot(stream, agents.map(deps.withStreamFlag));
+      if (!request.raw.destroyed) {
+        deps.sendUiSnapshot(stream, agents.map(deps.withStreamFlag));
+      } else {
+        cleanup();
+      }
     } catch (error) {
       deps.appLog.warn({ err: error }, "Failed to load SSE snapshot.");
     }
-
-    stream.on("close", () => {
-      clearInterval(heartbeat);
-      unsubscribe();
-    });
   });
 
   app.post("/api/v1/notifications/ack", async (request, reply) => {
