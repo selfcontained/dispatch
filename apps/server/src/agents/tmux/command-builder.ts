@@ -62,7 +62,7 @@ function stripModelArgs(args: string[]): string[] {
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
-    if (arg === "--model") {
+    if (arg === "--model" || arg === "-m") {
       index += 1;
       continue;
     }
