@@ -160,6 +160,12 @@ export function ToolsContent() {
             current repo
           </li>
           <li>
+            <Code>persona_templates</Code>, <Code>persona_upsert</Code>,{" "}
+            <Code>persona_validate</Code> — starter templates plus create/update
+            and validation for persona files in the agent's checkout (see the
+            Reviewers section)
+          </li>
+          <li>
             <Code>dispatch_launch_persona</Code> — launch a persona agent as a
             child of the current session
           </li>

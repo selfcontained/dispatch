@@ -170,6 +170,9 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `dispatch_list_pins`            | List current sidebar pins for this agent                                   |
 | `dispatch_delete_pin`           | Permanently remove a pin by its listed stable ID                           |
 | `list_personas`                 | List available persona reviewers for this project                          |
+| `persona_templates`             | Get built-in starter templates for authoring review personas               |
+| `persona_upsert`                | Create or update a persona file in `.dispatch/personas/`                   |
+| `persona_validate`              | Validate persona files for required metadata and instructions              |
 | `dispatch_launch_persona`       | Launch a persona child agent for automated review                          |
 | `dispatch_review_list_feedback` | List human review feedback items with statuses and threads                 |
 | `dispatch_review_resolve`       | Resolve a review feedback item as fixed or dismissed                       |
@@ -219,7 +222,7 @@ Persona review agents get a narrower set focused on reviewing their parent's wor
 
 ### Job agents
 
-Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus the interactive collaboration, unified review, analytics, Brain, job, and template tools listed above.
+Job agents get lifecycle and reporting tools: `job_complete`, `job_failed`, `job_needs_input`, `job_log`, plus the persona, collaboration, unified review, analytics, Brain, job, and template tools listed above.
 
 ### Repo-specific tools
 
