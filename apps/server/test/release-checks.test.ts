@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process";
 import https from "node:https";
 import type { Server as HttpsServer } from "node:https";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -86,6 +86,24 @@ describe("expected_runtime_artifact", () => {
     });
 
     expect(result.ok).toBe(false);
+  });
+
+  // Regression: a legacy install can leave the fixed path as a symlink
+  // pinned to a versioned dist/bun binary. stat() follows the link and saw
+  // a regular file, so the check false-greened on exactly the shape the
+  // fixed-runtime migration exists to eliminate.
+  it("fails when the fixed runtime is a symlink to a versioned binary", async () => {
+    const target = path.join(tmpServerDir, "dispatch-0.31.4-bun-linux-x64");
+    await writeFile(target, "old binary");
+    await symlink(target, path.join(tmpServerDir, "dispatch"));
+
+    const [result] = await runRequiredChecks(["expected_runtime_artifact"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/symlink/);
   });
 });
 
@@ -350,6 +368,101 @@ describe("health_endpoint with self-signed loopback HTTPS", () => {
     });
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/503/);
+  });
+});
+
+describe("running_version", () => {
+  const respond = (headers: Record<string, string>) =>
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ status: "ok" }), {
+        status: 200,
+        headers,
+      })
+    );
+
+  it("passes when the X-Dispatch-Version header matches the target tag", async () => {
+    respond({ "X-Dispatch-Version": "0.19.0" });
+
+    const [result] = await runRequiredChecks(["running_version"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+      healthUrl: "http://test/health",
+    });
+
+    expect(result.ok).toBe(true);
+    expect(result.message).toMatch(/reports 0\.19\.0/);
+  });
+
+  it("fails when the running executable reports an older version", async () => {
+    respond({ "X-Dispatch-Version": "0.18.4" });
+
+    const [result] = await runRequiredChecks(["running_version"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+      healthUrl: "http://test/health",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/reports 0\.18\.4, expected 0\.19\.0/);
+  });
+
+  // The false-green scenario: a pre-header runtime is serving after the
+  // restart. No header means we cannot prove the running version — fail.
+  it("fails when no version header is present", async () => {
+    respond({});
+
+    const [result] = await runRequiredChecks(["running_version"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+      healthUrl: "http://test/health",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/no X-Dispatch-Version header/);
+  });
+
+  it("fails on non-2xx response", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("oops", { status: 503 })
+    );
+
+    const [result] = await runRequiredChecks(["running_version"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+      healthUrl: "http://test/health",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/503/);
+  });
+
+  it("fails on fetch error", async () => {
+    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("ECONNREFUSED"));
+
+    const [result] = await runRequiredChecks(["running_version"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+      healthUrl: "http://test/health",
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/ECONNREFUSED/);
+  });
+});
+
+describe("unknown check names", () => {
+  // Manifest schemas accept names this runtime may not implement (they come
+  // from the target release's tarball). They must fail closed, not pass or
+  // throw.
+  it("fails closed on a check name this runtime does not implement", async () => {
+    const [result] = await runRequiredChecks(["check_from_the_future"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+    });
+
+    expect(result.name).toBe("check_from_the_future");
+    expect(result.ok).toBe(false);
+    expect(result.message).toMatch(/unknown required check/);
   });
 });
 

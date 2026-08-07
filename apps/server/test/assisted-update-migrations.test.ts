@@ -75,9 +75,11 @@ describe("buildAssistedUpdateContext (migrations path)", () => {
     );
     expect(ctx.state.migrations?.map((m) => m.id)).toEqual(["first", "second"]);
     expect(ctx.state.metadata).toBeNull();
-    // Union: service_entrypoint from first + health_endpoint from second
+    // Union: service_entrypoint from first + health_endpoint from second,
+    // plus the framework-enforced running_version.
     expect(ctx.state.requiredChecks.sort()).toEqual([
       "health_endpoint",
+      "running_version",
       "service_entrypoint",
     ]);
     expect(ctx.state.phase).toBe("inspect");
@@ -105,6 +107,7 @@ describe("buildAssistedUpdateContext (migrations path)", () => {
     expect(ctx.state.requiredChecks).toEqual([
       "health_endpoint",
       "service_entrypoint",
+      "running_version",
     ]);
   });
 
@@ -154,7 +157,10 @@ describe("buildAssistedUpdateContext (migrations path)", () => {
     );
     expect(ctx.state.migrations).toBeNull();
     expect(ctx.state.metadata?.title).toBe("Legacy block");
-    expect(ctx.state.requiredChecks).toEqual(["health_endpoint"]);
+    expect(ctx.state.requiredChecks).toEqual([
+      "health_endpoint",
+      "running_version",
+    ]);
     expect(ctx.prompt).toContain("Legacy block");
     // Legacy header, not the migration header
     expect(ctx.prompt).not.toContain("Pending migrations");
@@ -259,5 +265,51 @@ describe("runAndRecordChecks (migrations path)", () => {
 
     const state = await applied.readAppliedMigrationsState();
     expect(state.appliedMigrations).toEqual({});
+  });
+
+  // A run launched by an older server has no running_version in its
+  // persisted requiredChecks — but the validating (newer) binary must still
+  // prove the running executable's version rather than trusting
+  // release.json.
+  it("enforces running_version even when the launched state predates it", async () => {
+    const { assisted } = await importEverything();
+    const ctx = await assisted.buildAssistedUpdateContext(
+      {
+        tag: "v0.18.13",
+        fromTag: "v0.18.12",
+        migrations: [MIGRATION("first")],
+        serverDir: "/tmp/dispatch-test-server",
+        recovery: RECOVERY,
+      },
+      "http://127.0.0.1:6767"
+    );
+    // Simulate state written by an older server version.
+    ctx.state.requiredChecks = ctx.state.requiredChecks.filter(
+      (name) => name !== "running_version"
+    );
+
+    const releaseChecks = await import("../src/release-checks.js");
+    let requestedNames: ReadonlyArray<string> = [];
+    const spy = vi
+      .spyOn(releaseChecks, "runRequiredChecks")
+      .mockImplementation(async (names) => {
+        requestedNames = names;
+        return names.map((name) => ({
+          name,
+          ok: true,
+          message: `${name} passed`,
+        }));
+      });
+
+    try {
+      await assisted.runAndRecordChecks(ctx.state, {
+        serverDir: "/tmp/dispatch-test-server",
+        targetTag: "v0.18.13",
+      });
+    } finally {
+      spy.mockRestore();
+    }
+
+    expect(requestedNames).toContain("running_version");
   });
 });

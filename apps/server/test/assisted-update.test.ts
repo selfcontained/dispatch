@@ -161,6 +161,7 @@ describe("buildAssistedUpdateContext", () => {
     expect(ctx.state.requiredChecks).toEqual([
       "service_restarted",
       "version_converged",
+      "running_version",
     ]);
   });
 
@@ -257,7 +258,9 @@ describe("buildAssistedUpdateContext", () => {
     );
     expect(ctx.prompt).not.toContain("## Instructions");
     expect(ctx.prompt).not.toContain("## Rollback guidance");
-    expect(ctx.prompt).toContain("(none)");
+    // Even with no metadata checks, the framework-enforced running_version
+    // check is always listed.
+    expect(ctx.prompt).toContain("- running_version");
   });
 });
 

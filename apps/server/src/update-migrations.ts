@@ -2,7 +2,6 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
-import { REQUIRED_CHECK_NAMES } from "./release-metadata.js";
 
 /**
  * Persistent install-update migration manifest. Migrations live in
@@ -14,7 +13,16 @@ import { REQUIRED_CHECK_NAMES } from "./release-metadata.js";
 
 const MANIFEST_FILE_RE = /^(\d+)-([a-z0-9][a-z0-9-]*)\.ya?ml$/i;
 
-const RequiredCheckSchema = z.enum(REQUIRED_CHECK_NAMES);
+// Deliberately NOT an enum of REQUIRED_CHECK_NAMES. Manifests ship inside
+// the *target* release tarball but are parsed by the *currently installed*
+// runtime — a strict enum here would make every older install reject a
+// manifest the moment a new check name is introduced, silently dropping the
+// whole migration from its pending set. Accept any well-formed name at
+// parse time; `runRequiredChecks` fails closed on names this runtime
+// doesn't implement.
+const RequiredCheckSchema = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9_]*$/, "check name must be lowercase snake_case");
 
 export const UpdateMigrationManifestSchema = z.object({
   id: z

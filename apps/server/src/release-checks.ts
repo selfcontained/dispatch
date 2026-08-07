@@ -1,4 +1,4 @@
-import { readFile, stat } from "node:fs/promises";
+import { lstat, readFile } from "node:fs/promises";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
@@ -14,13 +14,15 @@ export type CheckContext = {
 };
 
 export type CheckResult = {
-  name: RequiredCheckName;
+  /** Usually a RequiredCheckName; a manifest authored for a newer runtime
+   *  may name a check this build doesn't know (those fail closed). */
+  name: string;
   ok: boolean;
   message: string;
 };
 
 export async function runRequiredChecks(
-  names: RequiredCheckName[],
+  names: ReadonlyArray<string>,
   ctx: CheckContext
 ): Promise<CheckResult[]> {
   const results: CheckResult[] = [];
@@ -38,11 +40,8 @@ export async function runRequiredChecks(
   return results;
 }
 
-async function runCheck(
-  name: RequiredCheckName,
-  ctx: CheckContext
-): Promise<CheckResult> {
-  switch (name) {
+async function runCheck(name: string, ctx: CheckContext): Promise<CheckResult> {
+  switch (name as RequiredCheckName) {
     case "expected_runtime_artifact":
       return checkRuntimeArtifact(ctx);
     case "service_entrypoint":
@@ -53,13 +52,34 @@ async function runCheck(
       return checkHealthEndpoint(ctx);
     case "version_converged":
       return checkVersionConverged(ctx);
+    case "running_version":
+      return checkRunningVersion(ctx);
+    default:
+      // Fail closed: a manifest authored for a newer runtime may require a
+      // check this build cannot evaluate. Passing it silently would defeat
+      // the point of a required check.
+      return {
+        name,
+        ok: false,
+        message: `unknown required check "${name}" — this runtime cannot evaluate it`,
+      };
   }
 }
 
 async function checkRuntimeArtifact(ctx: CheckContext): Promise<CheckResult> {
   const runtime = fixedRuntimePath(ctx.serverDir);
   try {
-    const info = await stat(runtime);
+    // lstat, not stat: a symlink at the fixed path (e.g. a legacy pin to a
+    // versioned dist/bun binary) must not pass as the activated runtime —
+    // atomic replacement and .previous rollback assume a regular file.
+    const info = await lstat(runtime);
+    if (info.isSymbolicLink()) {
+      return {
+        name: "expected_runtime_artifact",
+        ok: false,
+        message: `${runtime} is a symlink; the fixed runtime must be a regular executable`,
+      };
+    }
     return info.isFile()
       ? {
           name: "expected_runtime_artifact",
@@ -225,9 +245,13 @@ function isLoopbackHttps(url: string): boolean {
 
 async function fetchViaGlobal(
   url: string
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; versionHeader: string | null }> {
   const res = await fetch(url, { signal: AbortSignal.timeout(5_000) });
-  return { status: res.status, body: await res.text() };
+  return {
+    status: res.status,
+    body: await res.text(),
+    versionHeader: res.headers.get("x-dispatch-version"),
+  };
 }
 
 // The same-process self-check legitimately hits the local server's
@@ -238,7 +262,7 @@ async function fetchViaGlobal(
 // future config points it at a remote host.
 function fetchLoopbackHttps(
   url: string
-): Promise<{ status: number; body: string }> {
+): Promise<{ status: number; body: string; versionHeader: string | null }> {
   return new Promise((resolve, reject) => {
     const parsed = new URL(url);
     const req = https.request(
@@ -254,9 +278,13 @@ function fetchLoopbackHttps(
         const chunks: Buffer[] = [];
         res.on("data", (c: Buffer) => chunks.push(c));
         res.on("end", () => {
+          const header = res.headers["x-dispatch-version"];
           resolve({
             status: res.statusCode ?? 0,
             body: Buffer.concat(chunks).toString("utf8"),
+            versionHeader: Array.isArray(header)
+              ? (header[0] ?? null)
+              : (header ?? null),
           });
         });
         res.on("error", reject);
@@ -268,6 +296,56 @@ function fetchLoopbackHttps(
     req.on("error", reject);
     req.end();
   });
+}
+
+/**
+ * Prove the executable that is actually serving requests is the target
+ * version. Every API response carries the build-time package version in the
+ * X-Dispatch-Version header, so this cannot be spoofed by an on-disk record
+ * — release.json only says what was *deployed*, not what is *running* (a
+ * version-pinned service entrypoint can restart straight back into the old
+ * binary while release.json claims the target).
+ */
+async function checkRunningVersion(ctx: CheckContext): Promise<CheckResult> {
+  const url = ctx.healthUrl ?? "http://127.0.0.1:6767/api/v1/health";
+  const expected = ctx.targetTag.replace(/^v/, "");
+  try {
+    const { status, versionHeader } = isLoopbackHttps(url)
+      ? await fetchLoopbackHttps(url)
+      : await fetchViaGlobal(url);
+    if (status < 200 || status >= 300) {
+      return {
+        name: "running_version",
+        ok: false,
+        message: `${url} returned ${status}`,
+      };
+    }
+    const running = versionHeader?.trim();
+    if (!running) {
+      return {
+        name: "running_version",
+        ok: false,
+        message: `no X-Dispatch-Version header from ${url} — cannot prove the running executable's version (runtime predates version reporting or is not the target binary)`,
+      };
+    }
+    return running === expected
+      ? {
+          name: "running_version",
+          ok: true,
+          message: `running executable reports ${running} (target ${ctx.targetTag})`,
+        }
+      : {
+          name: "running_version",
+          ok: false,
+          message: `running executable reports ${running}, expected ${expected} (target ${ctx.targetTag})`,
+        };
+  } catch (err) {
+    return {
+      name: "running_version",
+      ok: false,
+      message: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 async function checkVersionConverged(ctx: CheckContext): Promise<CheckResult> {

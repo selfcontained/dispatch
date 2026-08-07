@@ -47,7 +47,33 @@ describe("parseManifest", () => {
     expect(result.data.rollback.length).toBe(2);
   });
 
-  it("rejects an unknown requiredChecks entry", () => {
+  // Manifests ship in the target tarball but are parsed by the currently
+  // installed runtime — an unknown (but well-formed) check name must parse
+  // so an older install doesn't drop the whole migration. It fails closed
+  // at run time instead (see release-checks runCheck default).
+  it("accepts an unknown but well-formed requiredChecks entry", () => {
+    const result = parseManifest(`
+id: forward
+title: t
+summary: s
+alreadySatisfied:
+  description: d
+instructions:
+  - step
+validation:
+  requiredChecks:
+    - check_from_the_future
+rollback: []
+`);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.validation.requiredChecks).toEqual([
+        "check_from_the_future",
+      ]);
+    }
+  });
+
+  it("rejects a malformed requiredChecks entry", () => {
     const result = parseManifest(`
 id: bad
 title: t
@@ -58,7 +84,7 @@ instructions:
   - step
 validation:
   requiredChecks:
-    - made_up_check
+    - "Not A Check!"
 rollback: []
 `);
     expect(result.success).toBe(false);
@@ -191,6 +217,48 @@ describe("filterPending", () => {
       makeFile("0002-b.yaml", "b"),
     ];
     expect(filterPending(migrations, new Set(["a", "b"]))).toEqual([]);
+  });
+});
+
+describe("shipped manifests (update-migrations/)", () => {
+  const shippedDir = path.join(
+    __dirname,
+    "..",
+    "..",
+    "..",
+    "update-migrations"
+  );
+
+  it("all parse cleanly", async () => {
+    const result = await loadUpdateMigrations(shippedDir);
+    expect(result.errors).toEqual([]);
+    expect(result.migrations.length).toBeGreaterThan(0);
+  });
+
+  // Compatibility guard: manifests ship in the target release tarball but
+  // are parsed by whatever runtime is currently installed. Runtimes before
+  // v0.33 use a strict check-name enum and DROP an entire manifest on an
+  // unknown name — so shipped manifests must stick to the original five
+  // names (in particular, no running_version; the framework enforces that
+  // one implicitly). Relax this only once installs older than v0.33 no
+  // longer need to parse new manifests.
+  it("only use check names pre-v0.33 runtimes can parse", async () => {
+    const legacyParserSafe = new Set([
+      "expected_runtime_artifact",
+      "service_entrypoint",
+      "service_restarted",
+      "health_endpoint",
+      "version_converged",
+    ]);
+    const result = await loadUpdateMigrations(shippedDir);
+    for (const m of result.migrations) {
+      for (const check of m.manifest.validation.requiredChecks) {
+        expect(
+          legacyParserSafe.has(check),
+          `${m.filename} uses check "${check}", which pre-v0.33 runtimes cannot parse`
+        ).toBe(true);
+      }
+    }
   });
 });
 

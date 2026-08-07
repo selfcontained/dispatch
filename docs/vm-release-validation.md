@@ -56,6 +56,10 @@ tmux child of the Dispatch user service.
    record its unit file, `MainPID`, current release record, and health result.
 2. For a legacy fixture, make `ExecStart` resolve a version-pinned binary or
    symlink. Keep a backup of the fixture unit inside the VM.
+   `scripts/vm-fixtures/legacy-pinned-symlink.sh` converts a healthy
+   fixed-path install into this shape (pinned `bin/dispatch` symlink, no
+   fixed runtime file, no `KillMode=process`, fixed-runtime migrations
+   un-applied) — run it only inside the disposable VM.
 3. Download the published target tarball, select the exact platform/arch
    member, reject unexpected archive members, and compare its SHA-256 to the
    tarball manifest.

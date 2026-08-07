@@ -2,10 +2,7 @@ import { randomBytes } from "node:crypto";
 import os from "node:os";
 import path from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
-import type {
-  AssistedUpdateMetadata,
-  RequiredCheckName,
-} from "./release-metadata.js";
+import type { AssistedUpdateMetadata } from "./release-metadata.js";
 import type { CheckResult } from "./release-checks.js";
 import type { UpdateMigrationManifest } from "./update-migrations.js";
 
@@ -54,7 +51,9 @@ export type AssistedUpdateState = {
    * `metadata` for the legacy single-block flow.
    */
   migrations: UpdateMigrationManifest[] | null;
-  requiredChecks: RequiredCheckName[];
+  /** Usually RequiredCheckName values; manifests from a newer release may
+   *  name checks this runtime doesn't know (they fail closed when run). */
+  requiredChecks: string[];
   phase: AssistedPhase;
   /** Random nonce; the launched agent uses this to authenticate phase POSTs. */
   token: string;
