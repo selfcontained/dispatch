@@ -20,15 +20,33 @@ instructions:
     supervisor, a missing definition, a system-scope unit, root-owned file,
     Docker setup, or custom wrapper as report-only; do not create a service
     or modify it.
-  - Determine the configured fixed runtime path (DISPATCH_RUNTIME_PATH, or
-    DISPATCH_SERVER_DIR/dispatch when unset) and verify the target artifact
-    has installed a regular executable at that path.
-  - Preserve the currently healthy executable as the adjacent .previous
-    rollback file before changing the service entrypoint.
+  - >
+    This release is a compatibility bridge: invoke the managed update first.
+    Its retained launchd wrapper starts the exact binary for the checked-out
+    target tag, so do not change or restart a legacy service definition before
+    that update has completed and the service is healthy. The wrapper is only
+    for this transition; the fixed path below is the permanent entrypoint.
+  - >
+    After the managed update is healthy, determine the configured fixed
+    runtime path (DISPATCH_RUNTIME_PATH, or DISPATCH_SERVER_DIR/dispatch when
+    unset). Hardlink or copy the target platform binary extracted at
+    DISPATCH_SERVER_DIR/dist/bun/dispatch-<target-version>-bun-<platform>-<arch>
+    to that path, preserving executable mode. Do not choose a glob match by
+    modification time.
+  - >
+    Before changing the service entrypoint, preserve the currently healthy
+    executable as the adjacent .previous rollback file. If its path is a
+    deleted inode, re-download and checksum-verify the last known healthy
+    release artifact to reconstruct that rollback file. If no healthy tag can
+    be established, stop and report that manual rollback is unavailable rather
+    than claiming the migration is reversible.
   - Update the systemd unit or launchd plist so ExecStart/ProgramArguments
     invokes the fixed runtime path, preserving environment, working directory,
     logging, user scope, and display configuration.
-  - Reload the service manager configuration and restart Dispatch.
+  - >
+    Reload the service manager configuration and restart Dispatch. On macOS,
+    if launchd is stuck watching a deleted old wrapper, use bootout followed by
+    bootstrap for the user LaunchAgent; do not wait indefinitely on kickstart.
   - Confirm the health endpoint is healthy and the newly running binary has
     promoted the target tag into release.json.
   - If the supported definition is absent or this account cannot modify it,

@@ -52,6 +52,20 @@ function setReleaseRecord(record: StoreRecord) {
   stagedRecord = record;
 }
 
+function serviceDefinitionWithEntrypoint(runtime: string): string {
+  return process.platform === "darwin"
+    ? `<plist><dict><key>ProgramArguments</key><array><string>${runtime}</string></array></dict></plist>`
+    : `ExecStart=${runtime}\n`;
+}
+
+function serviceDefinitionWithRuntimeOnlyInEnvironment(
+  runtime: string
+): string {
+  return process.platform === "darwin"
+    ? `<plist><dict><key>EnvironmentVariables</key><dict><key>DISPATCH_RUNTIME_PATH</key><string>${runtime}</string></dict><key>ProgramArguments</key><array><string>/legacy/wrapper</string></array></dict></plist>`
+    : `Environment=DISPATCH_RUNTIME_PATH=${runtime}\nExecStart=/legacy/wrapper\n`;
+}
+
 describe("expected_runtime_artifact", () => {
   it("passes when the fixed runtime exists", async () => {
     await writeFile(path.join(tmpServerDir, "dispatch"), "binary");
@@ -79,7 +93,7 @@ describe("service_entrypoint", () => {
   it("passes when the service definition invokes the fixed runtime", async () => {
     await writeFile(
       path.join(tmpServerDir, "dispatch.service"),
-      `ExecStart=${path.join(tmpServerDir, "dispatch")}\n`
+      serviceDefinitionWithEntrypoint(path.join(tmpServerDir, "dispatch"))
     );
 
     const [result] = await runRequiredChecks(["service_entrypoint"], {
@@ -114,6 +128,22 @@ describe("service_entrypoint", () => {
 
     expect(result.ok).toBe(false);
     expect(result.message).toMatch(/does not invoke/);
+  });
+
+  it("fails when the runtime is only mentioned in service environment", async () => {
+    await writeFile(
+      path.join(tmpServerDir, "dispatch.service"),
+      serviceDefinitionWithRuntimeOnlyInEnvironment(
+        path.join(tmpServerDir, "dispatch")
+      )
+    );
+
+    const [result] = await runRequiredChecks(["service_entrypoint"], {
+      serverDir: tmpServerDir,
+      targetTag: "v0.19.0",
+    });
+
+    expect(result.ok).toBe(false);
   });
 });
 
@@ -373,7 +403,7 @@ describe("runRequiredChecks", () => {
     });
     await writeFile(
       path.join(tmpServerDir, "dispatch.service"),
-      `ExecStart=${path.join(tmpServerDir, "dispatch")}\n`
+      serviceDefinitionWithEntrypoint(path.join(tmpServerDir, "dispatch"))
     );
 
     const results = await runRequiredChecks(

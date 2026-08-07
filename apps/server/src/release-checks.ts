@@ -85,7 +85,7 @@ async function checkServiceEntrypoint(ctx: CheckContext): Promise<CheckResult> {
   const definition = serviceDefinitionPath();
   try {
     const contents = await readFile(definition, "utf8");
-    return contents.includes(runtime)
+    return serviceDefinitionInvokesRuntime(contents, runtime)
       ? {
           name: "service_entrypoint",
           ok: true,
@@ -103,6 +103,31 @@ async function checkServiceEntrypoint(ctx: CheckContext): Promise<CheckResult> {
       message: `Could not read service definition ${definition}: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+}
+
+function serviceDefinitionInvokesRuntime(
+  contents: string,
+  runtime: string
+): boolean {
+  const escapedRuntime = escapeRegex(runtime);
+  if (process.platform !== "darwin") {
+    return new RegExp(`^ExecStart=${escapedRuntime}(?:\\s|$)`, "m").test(
+      contents
+    );
+  }
+
+  // Restrict the string match to ProgramArguments. A runtime path in an
+  // environment value or comment does not mean launchd will execute it.
+  const args = contents.match(
+    /<key>\s*ProgramArguments\s*<\/key>\s*<array>([\s\S]*?)<\/array>/
+  );
+  return args
+    ? new RegExp(`<string>\\s*${escapedRuntime}\\s*<\\/string>`).test(args[1])
+    : false;
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function serviceDefinitionPath(): string {

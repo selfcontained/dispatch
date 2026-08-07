@@ -7,6 +7,7 @@ import type { UpdateMigrationManifest } from "../src/update-migrations.js";
 let testDir: string;
 let appliedStorePath: string;
 let assistedStorePath: string;
+let previousAssistedStorePath: string | undefined;
 
 async function importEverything() {
   return {
@@ -22,14 +23,20 @@ beforeEach(async () => {
   appliedStorePath = path.join(testDir, "applied-migrations.json");
   assistedStorePath = path.join(testDir, "assisted-update.json");
   process.env.DISPATCH_APPLIED_MIGRATIONS_STORE_PATH = appliedStorePath;
-  // assisted-update-store doesn't have an env override yet, so we mock
-  // the path module if needed. For this suite we test the orchestrator
-  // logic against module-loaded path; clear state by rming the file.
-  await rm(assistedStorePath, { force: true }).catch(() => {});
+  // Every path that can persist assisted-update state must be test-scoped.
+  // In particular, failed-check handling records a blocked phase; without
+  // this override it would write the real ~/.dispatch store.
+  previousAssistedStorePath = process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH;
+  process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH = assistedStorePath;
 });
 
 afterEach(async () => {
   delete process.env.DISPATCH_APPLIED_MIGRATIONS_STORE_PATH;
+  if (previousAssistedStorePath === undefined) {
+    delete process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH;
+  } else {
+    process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH = previousAssistedStorePath;
+  }
   await rm(testDir, { recursive: true, force: true });
 });
 
