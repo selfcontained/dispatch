@@ -20,6 +20,14 @@ if [ "$(uname -s)" != "Linux" ]; then
   exit 1
 fi
 
+# Preflight every tool the conversion needs BEFORE touching the install, so
+# a missing dependency can't strand a half-converted service.
+for tool in python3 systemctl sed ln cp; do
+  command -v "$tool" >/dev/null || { echo "error: $tool is required" >&2; exit 1; }
+done
+systemctl --user show-environment >/dev/null 2>&1 \
+  || { echo "error: user systemd manager is not reachable (systemctl --user)" >&2; exit 1; }
+
 INSTALL_DIR="${DISPATCH_INSTALL_DIR:-$HOME/.dispatch/server}"
 ENV_FILE="$INSTALL_DIR/.env"
 UNIT="$HOME/.config/systemd/user/dispatch.service"
@@ -72,12 +80,15 @@ rm -f "$RUNTIME_PATH" "$RUNTIME_PATH.previous"
 #    update treats them as pending (fresh installs seed them as applied).
 if [ -f "$APPLIED_STORE" ]; then
   python3 - "$APPLIED_STORE" <<'PY'
-import json, sys
+import json, os, sys
 path = sys.argv[1]
 state = json.load(open(path))
 for mid in ("fixed-runtime-entrypoint", "agent-restart-safety"):
     state.get("appliedMigrations", {}).pop(mid, None)
-json.dump(state, open(path, "w"), indent=2)
+tmp = path + ".tmp"
+with open(tmp, "w") as f:
+    json.dump(state, f, indent=2)
+os.replace(tmp, path)
 PY
 fi
 
