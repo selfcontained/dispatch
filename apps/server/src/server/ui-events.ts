@@ -113,6 +113,11 @@ export class UiEventBroker {
     }
 
     for (const client of this.clients) {
+      if ((client as { destroyed?: boolean }).destroyed) {
+        this.clients.delete(client);
+        continue;
+      }
+
       try {
         client.write(payload);
       } catch {
