@@ -1,10 +1,8 @@
 ## What's Changed
-* Docs: cover quick-phrase picker search and keyboard selection by @selfcontained in https://github.com/selfcontained/dispatch/pull/879
-* Extract shared JobScheduleField and JobAgentTypeField by @selfcontained in https://github.com/selfcontained/dispatch/pull/880
-* Add unit coverage for the template launch dialog by @selfcontained in https://github.com/selfcontained/dispatch/pull/882
-* Split unified-diff-view.tsx into focused modules by @selfcontained in https://github.com/selfcontained/dispatch/pull/883
-* Extract shared MessageThreadAccordion from messages-panel and history messages by @selfcontained in https://github.com/selfcontained/dispatch/pull/884
-* Add persona authoring MCP tools by @selfcontained in https://github.com/selfcontained/dispatch/pull/885
+* Add unit coverage for the quick-phrase picker by @selfcontained in https://github.com/selfcontained/dispatch/pull/886
+* Docs: document persona authoring MCP tools by @selfcontained in https://github.com/selfcontained/dispatch/pull/888
+* Consolidate three diverged formatRelativeTime copies onto lib/format by @selfcontained in https://github.com/selfcontained/dispatch/pull/889
+* Decouple regular installs from git checkouts by @selfcontained in https://github.com/selfcontained/dispatch/pull/890
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.31.4...v0.31.5
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.31.5...v0.32.0
