@@ -1,3 +1,5 @@
+import path from "node:path";
+
 export type RunCommand = (
   command: string,
   args: string[],
@@ -15,6 +17,35 @@ export type GitHubReleaseMetadata = {
   url: string;
   body?: string | null;
 };
+
+export type GitHubReleaseListItem = {
+  tag: string;
+  publishedAt: string;
+  url: string;
+  prerelease: boolean;
+  hasDispatchArtifact: boolean;
+};
+
+const DEFAULT_GITHUB_REPO = "selfcontained/dispatch";
+
+export class GitHubApiError extends Error {
+  constructor(readonly status: number) {
+    super(`GitHub Releases request failed: ${status}`);
+  }
+}
+
+export function isReleaseAuthoringEnabled(): boolean {
+  return process.env.DISPATCH_RELEASE_AUTHORING === "1";
+}
+
+/**
+ * Release distribution must work from a source-less install. Keep the
+ * repository explicit instead of probing a git remote owned by a different
+ * user (or absent altogether).
+ */
+export async function getGitHubRepo(): Promise<string> {
+  return process.env.DISPATCH_GITHUB_REPO?.trim() || DEFAULT_GITHUB_REPO;
+}
 
 export function parseGhJson<T>(stdout: string): T {
   const trimmed = stdout.trim();
@@ -38,28 +69,11 @@ export function compareSemver(a: string, b: string): number {
   return 0;
 }
 
-export function currentReleaseBinaryGlob(): string {
-  const platform =
-    process.platform === "darwin"
-      ? "darwin"
-      : process.platform === "linux"
-        ? "linux"
-        : null;
-  if (!platform) {
-    throw new Error(
-      `Unsupported platform for Bun release binary: ${process.platform}`
-    );
-  }
-
-  const arch =
-    process.arch === "arm64" ? "arm64" : process.arch === "x64" ? "x64" : null;
-  if (!arch) {
-    throw new Error(
-      `Unsupported architecture for Bun release binary: ${process.arch}`
-    );
-  }
-
-  return `dist/bun/dispatch-*-bun-${platform}-${arch}`;
+export function fixedRuntimePath(serverDir: string): string {
+  const configured = process.env.DISPATCH_RUNTIME_PATH?.trim();
+  return configured
+    ? path.resolve(configured)
+    : path.join(serverDir, "dispatch");
 }
 
 export function defaultServiceRestartCommand(): string {
@@ -68,38 +82,18 @@ export function defaultServiceRestartCommand(): string {
     : "launchctl kickstart -k gui/$(id -u)/com.dispatch.server";
 }
 
-export async function getGitHubRepo(
-  runCommand: RunCommand,
-  serverDir: string
-): Promise<string> {
-  try {
-    const result = await runCommand("git", [
-      "-C",
-      serverDir,
-      "remote",
-      "get-url",
-      "origin",
-    ]);
-    const url = result.stdout;
-    const match = url.match(/github\.com[:/]([^/]+\/[^/.]+?)(?:\.git)?$/);
-    if (match?.[1]) {
-      return match[1];
-    }
-  } catch {}
-  return "selfcontained/dispatch";
-}
-
 export function createCheckIsAdmin(
   runCommand: RunCommand,
   serverDir: string
 ): () => Promise<boolean> {
   let cached: boolean | null = null;
   return async () => {
+    if (!isReleaseAuthoringEnabled()) return false;
     const canCacheResult = process.env.VITEST !== "true";
     if (canCacheResult && cached !== null) return cached;
     try {
       await runCommand("gh", ["--version"]);
-      const repo = await getGitHubRepo(runCommand, serverDir);
+      const repo = await getGitHubRepo();
       const result = await runCommand("gh", [
         "repo",
         "view",
@@ -124,34 +118,65 @@ export function createCheckIsAdmin(
 }
 
 export async function fetchReleaseMetadata(
-  runCommand: RunCommand,
-  serverDir: string,
   tag: string
 ): Promise<GitHubReleaseMetadata | null> {
   try {
-    const repo = await getGitHubRepo(runCommand, serverDir);
-    const result = await runCommand("gh", [
-      "release",
-      "view",
-      tag,
-      "--repo",
-      repo,
-      "--json",
-      "tagName,publishedAt,url,body",
-    ]);
-    const data = JSON.parse(result.stdout) as {
-      tagName: string;
-      publishedAt: string;
-      url: string;
+    const repo = await getGitHubRepo();
+    const data = (await githubApi(
+      `/repos/${repo}/releases/tags/${encodeURIComponent(tag)}`
+    )) as {
+      tag_name: string;
+      published_at: string;
+      html_url: string;
       body?: string | null;
     };
     return {
-      tag: data.tagName,
-      publishedAt: data.publishedAt,
-      url: data.url,
+      tag: data.tag_name,
+      publishedAt: data.published_at,
+      url: data.html_url,
       body: typeof data.body === "string" ? data.body.trim() : null,
     };
-  } catch {
-    return null;
+  } catch (error) {
+    if (error instanceof GitHubApiError && error.status === 404) return null;
+    throw error;
   }
+}
+
+export async function fetchGitHubReleases(): Promise<GitHubReleaseListItem[]> {
+  const repo = await getGitHubRepo();
+  const data = (await githubApi(
+    `/repos/${repo}/releases?per_page=20`
+  )) as Array<{
+    tag_name: string;
+    published_at: string;
+    html_url: string;
+    prerelease: boolean;
+    assets?: Array<{ name: string }>;
+  }>;
+  return data.map((release) => ({
+    tag: release.tag_name,
+    publishedAt: release.published_at,
+    url: release.html_url,
+    prerelease: release.prerelease,
+    hasDispatchArtifact:
+      release.assets?.some(
+        (asset) => asset.name === "dispatch-release.tar.gz"
+      ) ?? false,
+  }));
+}
+
+async function githubApi(pathname: string): Promise<unknown> {
+  const token = process.env.GITHUB_TOKEN?.trim();
+  const response = await fetch(`https://api.github.com${pathname}`, {
+    headers: {
+      Accept: "application/vnd.github+json",
+      "User-Agent": "dispatch-release-runtime",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    signal: AbortSignal.timeout(15_000),
+  });
+  if (!response.ok) {
+    throw new GitHubApiError(response.status);
+  }
+  return response.json();
 }

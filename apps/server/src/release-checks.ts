@@ -1,10 +1,10 @@
-import { existsSync, readdirSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import https from "node:https";
 import os from "node:os";
 import path from "node:path";
 import type { RequiredCheckName } from "./release-metadata.js";
 import { readReleaseStore } from "./release-store.js";
+import { fixedRuntimePath } from "./server/release-helpers.js";
 
 export type CheckContext = {
   serverDir: string;
@@ -57,49 +57,65 @@ async function runCheck(
 }
 
 async function checkRuntimeArtifact(ctx: CheckContext): Promise<CheckResult> {
-  const platformBinary = selectPlatformBinary(ctx.serverDir);
-  return {
-    name: "expected_runtime_artifact",
-    ok: platformBinary.ok,
-    message: platformBinary.ok
-      ? `Platform binary present: ${platformBinary.message}`
-      : platformBinary.message,
-  };
+  const runtime = fixedRuntimePath(ctx.serverDir);
+  try {
+    const info = await stat(runtime);
+    return info.isFile()
+      ? {
+          name: "expected_runtime_artifact",
+          ok: true,
+          message: `Fixed runtime present: ${runtime}`,
+        }
+      : {
+          name: "expected_runtime_artifact",
+          ok: false,
+          message: `${runtime} is not a regular file`,
+        };
+  } catch {
+    return {
+      name: "expected_runtime_artifact",
+      ok: false,
+      message: `Fixed runtime not found: ${runtime}`,
+    };
+  }
 }
 
 async function checkServiceEntrypoint(ctx: CheckContext): Promise<CheckResult> {
-  const pkgPath = path.join(ctx.serverDir, "apps/server/package.json");
-  if (!existsSync(pkgPath)) {
-    return {
-      name: "service_entrypoint",
-      ok: false,
-      message: `${pkgPath} not found`,
-    };
-  }
+  const runtime = fixedRuntimePath(ctx.serverDir);
+  const definition = serviceDefinitionPath();
   try {
-    const pkg = JSON.parse(await readFile(pkgPath, "utf8")) as {
-      scripts?: { start?: string };
-    };
-    const start = pkg.scripts?.start;
-    if (!start || typeof start !== "string") {
-      return {
-        name: "service_entrypoint",
-        ok: false,
-        message: "package.json scripts.start is missing",
-      };
-    }
-    return {
-      name: "service_entrypoint",
-      ok: true,
-      message: `start script: ${start}`,
-    };
+    const contents = await readFile(definition, "utf8");
+    return contents.includes(runtime)
+      ? {
+          name: "service_entrypoint",
+          ok: true,
+          message: `Service invokes fixed runtime: ${runtime}`,
+        }
+      : {
+          name: "service_entrypoint",
+          ok: false,
+          message: `${definition} does not invoke ${runtime}`,
+        };
   } catch (err) {
     return {
       name: "service_entrypoint",
       ok: false,
-      message: err instanceof Error ? err.message : String(err),
+      message: `Could not read service definition ${definition}: ${err instanceof Error ? err.message : String(err)}`,
     };
   }
+}
+
+function serviceDefinitionPath(): string {
+  const configured = process.env.DISPATCH_SERVICE_DEFINITION_PATH?.trim();
+  if (configured) return configured;
+  return process.platform === "darwin"
+    ? path.join(
+        os.homedir(),
+        "Library",
+        "LaunchAgents",
+        "com.dispatch.server.plist"
+      )
+    : path.join(os.homedir(), ".config", "systemd", "user", "dispatch.service");
 }
 
 async function checkServiceRestarted(_ctx: CheckContext): Promise<CheckResult> {
@@ -227,69 +243,6 @@ function fetchLoopbackHttps(
     req.on("error", reject);
     req.end();
   });
-}
-
-function selectPlatformBinary(
-  serverDir: string
-): { ok: true; message: string } | { ok: false; message: string } {
-  const platform = platformLabel();
-  const arch = archLabel();
-  if (!platform || !arch) {
-    return {
-      ok: false,
-      message: `unsupported host platform ${os.platform()}/${os.arch()}`,
-    };
-  }
-  const bunDir = path.join(serverDir, "dist/bun");
-  if (!existsSync(bunDir)) {
-    return {
-      ok: false,
-      message: `${bunDir} not found`,
-    };
-  }
-
-  const entries = listBunBinaries(bunDir, platform, arch);
-  if (entries.length === 0) {
-    return {
-      ok: false,
-      message: `no Bun binary found for ${platform}/${arch} in ${bunDir}`,
-    };
-  }
-  return { ok: true, message: entries[0]! };
-}
-
-function platformLabel(): "darwin" | "linux" | null {
-  switch (os.platform()) {
-    case "darwin":
-      return "darwin";
-    case "linux":
-      return "linux";
-    default:
-      return null;
-  }
-}
-
-function archLabel(): "x64" | "arm64" | null {
-  switch (os.arch()) {
-    case "x64":
-      return "x64";
-    case "arm64":
-      return "arm64";
-    default:
-      return null;
-  }
-}
-
-function listBunBinaries(
-  bunDir: string,
-  platform: "darwin" | "linux",
-  arch: "x64" | "arm64"
-): string[] {
-  return readdirSync(bunDir)
-    .filter((entry) =>
-      new RegExp(`^dispatch-.*-bun-${platform}-${arch}$`).test(entry)
-    )
-    .map((entry) => path.join(bunDir, entry));
 }
 
 async function checkVersionConverged(ctx: CheckContext): Promise<CheckResult> {

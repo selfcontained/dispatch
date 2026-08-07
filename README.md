@@ -4,19 +4,24 @@ Dispatch is a local-first control plane for running and managing multiple AI cod
 
 ## Quick Install
 
-Give this prompt to a coding agent to get Dispatch installed as a persistent service:
+Install and start PostgreSQL 14+ first, then run this on macOS or Linux:
 
-> Clone https://github.com/selfcontained/dispatch.git and install it as a persistent service on this machine. Steps:
->
-> 1. Clone the repo to `~/.dispatch/server`.
-> 2. Install system dependencies: **PostgreSQL** (14+), **tmux**, and the agent CLI binaries you want Dispatch to launch.
-> 3. Start PostgreSQL and create the database: `createdb dispatch && psql dispatch -c "CREATE ROLE dispatch WITH LOGIN PASSWORD 'dispatch'; GRANT ALL ON DATABASE dispatch TO dispatch; GRANT ALL ON SCHEMA public TO dispatch;"`.
-> 4. Copy `.env.example` to `.env`. The defaults work for local-only use. Set `DISPATCH_HOST=0.0.0.0` only when this machine should accept remote connections. On first visit to the web UI you will be prompted to set a password; sessions are stored as signed HTTP cookies.
-> 5. Register as a system service:
->    - **macOS**: Run `bin/install-launchd` to create a launchd plist that starts on boot.
->    - **Linux**: Download and extract the latest `dispatch-release.tar.gz` into `~/.dispatch/server`, then create a systemd user service for Xvfb (`~/.config/systemd/user/xvfb.service`) that runs `Xvfb :99 -screen 0 1024x768x24`. Enable with `systemctl --user enable --now xvfb`. Then create the Dispatch service (`~/.config/systemd/user/dispatch.service`) that runs the included `dist/bun/dispatch-<version>-bun-linux-x64` or `dist/bun/dispatch-<version>-bun-linux-arm64` binary with `EnvironmentFile=~/.dispatch/server/.env`. Add `DISPATCH_COPY_DISPLAY=:99` to the `.env` file for clipboard image support. Enable with `systemctl --user enable --now dispatch`.
-> 6. Verify: `curl http://127.0.0.1:6767/api/v1/health`
-> 7. Check which agent CLIs are installed (`claude --version`, `codex --version`, `agent --version`, `opencode --version`). In the Dispatch UI under Settings, disable any agent types whose CLI is not installed.
+```bash
+curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash
+```
+
+The installer selects the latest stable release, creates a private local
+database and credentials when it can administer PostgreSQL, installs the
+platform-matched binary at `~/.dispatch/server/dispatch`, and registers a
+user service. For a managed database, pass its URL instead:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash -s -- --database-url 'postgres://…'
+```
+
+The service listens on `127.0.0.1:6767`. Verify with
+`curl http://127.0.0.1:6767/api/v1/health`. Normal UI updates atomically
+replace the fixed executable and restart the service.
 
 <img width="1440" height="900" alt="image" src="https://github.com/user-attachments/assets/efb154d9-7d4c-411a-861b-d460cb0816d6" />
 
@@ -82,14 +87,6 @@ Dispatch spawns agents via their CLI tools. Install at least one:
 
 The agent CLI must be authenticated before Dispatch can spawn agents of that type. Dispatch invokes the CLI directly, so any API keys or login state in your shell environment are inherited automatically.
 
-### Preflight Check
-
-Run `bin/preflight` to see what's installed and what's missing:
-
-```bash
-bin/preflight
-```
-
 ## Setup
 
 ```bash
@@ -145,10 +142,6 @@ curl -s -X POST $(bin/dispatch-dev url)/api/v1/agents \
   -H 'Content-Type: application/json' \
   -d '{"cwd": "/tmp", "type": "claude"}' | jq
 ```
-
-## Production Setup (Dedicated Machine)
-
-For setting up Dispatch as a persistent service on a dedicated machine, see [docs/12-new-machine-setup.md](docs/12-new-machine-setup.md). That guide covers macOS with launchd. For Linux, the Quick Install prompt above provides systemd instructions that an agent can follow.
 
 ## MCP Tools
 
@@ -246,7 +239,6 @@ User-facing documentation (agents, keyboard shortcuts, personalities, repo tools
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract
 - [Operations Runbook](docs/10-operations-runbook.md) — service management, releases, diagnostics
 - [Backend Compatibility Checklist](docs/11-backend-compatibility-checklist.md) — guidelines for safe backend changes
-- [New Machine Setup](docs/12-new-machine-setup.md) — first-time macOS setup guide
 - [Theming](docs/14-theming.md) — how to add and customize color themes
 - [Jobs](docs/17-jobs.md) — scheduled/on-demand agent tasks with structured reports
 

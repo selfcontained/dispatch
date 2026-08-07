@@ -31,7 +31,7 @@ dispatch/
 │   └── web/                   # Vite React frontend (@dispatch/web)
 │       └── src/
 ├── e2e/                       # Playwright E2E tests
-├── bin/                       # dispatch-dev, dispatch-server, install-launchd, etc.
+├── bin/                       # dispatch-dev, dispatch-server, install-dispatch, etc.
 ├── scripts/                   # e2e-isolated.sh, generate-icon-colors.ts
 ├── .dispatch/                 # repo-level Dispatch config
 │   ├── config.json            # repo-level settings (e.g. Linear integration)

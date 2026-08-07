@@ -44,6 +44,9 @@ import type { UpdateMigrationFile } from "../src/update-migrations.js";
 
 type GhRelease = { tagName: string; isPrerelease: boolean };
 
+let releaseList: GhRelease[] = [];
+let releaseListError: Error | undefined;
+
 function expectOk(
   result: ComputeReleaseInfoResult
 ): asserts result is { ok: true; snapshot: ReleaseInfoSnapshot } {
@@ -69,6 +72,8 @@ function stubCommands(opts: {
   ghError?: Error;
   gitTags?: string[];
 }): void {
+  releaseList = opts.ghReleases ?? [];
+  releaseListError = opts.fetchError ?? opts.ghError;
   runCommandMock.mockImplementation(async (command: string, args: string[]) => {
     if (command === "git" && args[2] === "fetch") {
       if (opts.fetchError) throw opts.fetchError;
@@ -100,8 +105,17 @@ function makeDeps(
     pool: {} as Pool,
     serverDir: "/srv",
     getGitHubRepo: vi.fn(async () => "owner/repo"),
-    parseGhJson: <T>(stdout: string): T => JSON.parse(stdout) as T,
     compareSemver,
+    fetchGitHubReleases: vi.fn(async () => {
+      if (releaseListError) throw releaseListError;
+      return releaseList.map((release) => ({
+        tag: release.tagName,
+        publishedAt: "2026-08-01T00:00:00Z",
+        url: `https://github.com/owner/repo/releases/tag/${release.tagName}`,
+        prerelease: release.isPrerelease,
+        hasDispatchArtifact: true,
+      }));
+    }),
     getAppVersionInfo: vi.fn(async () => ({ version: null })),
     fetchLatestReleaseMetadata: vi.fn(async () => null),
     ...overrides,
@@ -261,7 +275,7 @@ describe("channel and latest-tag selection", () => {
     expect(result.snapshot.updateAvailable).toBe(false);
   });
 
-  it("falls back to sorted local git tags when gh release list fails", async () => {
+  it("fails instead of falling back to local git tags when release lookup fails", async () => {
     stubCommands({
       ghError: new Error("gh not authenticated"),
       gitTags: ["not-a-tag", "v0.18.9", "v0.18.8"],
@@ -269,9 +283,8 @@ describe("channel and latest-tag selection", () => {
 
     const result = await computeReleaseInfo(makeDeps());
 
-    expectOk(result);
-    expect(result.snapshot.latestTag).toBe("v0.18.9");
-    expect(result.snapshot.absoluteLatestTag).toBe("v0.18.9");
+    expectFailed(result);
+    expect(result.error).toMatch(/Unable to load GitHub Releases/);
   });
 });
 
@@ -525,7 +538,6 @@ describe("progress emission", () => {
 
     expectOk(result);
     expect(progress.map((p) => (p === null ? "END" : p.step))).toEqual([
-      "fetching-tags",
       "loading-release-list",
       "loading-release-notes",
       "inspecting-release-package",
@@ -557,7 +569,10 @@ describe("progress emission", () => {
       onProgress: (p) => progress.push(p),
     });
 
-    expect(result).toEqual({ ok: false, error: "network unreachable" });
+    expect(result).toEqual({
+      ok: false,
+      error: "Unable to load GitHub Releases: network unreachable",
+    });
     expect(progress[progress.length - 1]).toBeNull();
   });
 });

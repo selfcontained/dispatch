@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
-import { readdirSync, unlinkSync } from "node:fs";
-import path from "node:path";
+import { lstat } from "node:fs/promises";
 
 import type { Pool } from "pg";
 
@@ -11,19 +10,27 @@ import type {
 } from "../assisted-update-store.js";
 import type { ReleaseLogStreamProcessor } from "../release-log-stream.js";
 import {
+  writeReleaseCandidate,
+  type ReleaseCandidate,
+} from "../release-candidate-store.js";
+import {
+  gitSha as embeddedGitSha,
   packageVersion,
   releaseNotesMarkdown,
 } from "../generated/runtime-assets.js";
 import {
+  fetchGitHubReleases,
   type RunCommand,
   parseGhJson,
   compareSemver,
-  currentReleaseBinaryGlob,
   defaultServiceRestartCommand,
   getGitHubRepo as getGitHubRepoImpl,
   createCheckIsAdmin,
   fetchReleaseMetadata as fetchReleaseMetadataImpl,
+  fixedRuntimePath,
+  isReleaseAuthoringEnabled,
 } from "./release-helpers.js";
+import { verifyAndStageRuntime } from "./release-artifact.js";
 
 // Wire types (job, phases, stream events) live in release-wire.ts so the
 // web client can import them without pulling in this module's runtime
@@ -85,39 +92,40 @@ type CreateReleaseRuntimeDeps = {
     },
     onLine?: (line: string) => void
   ) => ReleaseLogStreamProcessor;
+  /** Kept injectable so artifact activation can be tested without a service manager. */
+  restartService?: () => void;
+  writeReleaseCandidate?: (candidate: ReleaseCandidate) => Promise<void>;
 };
-
-export function pruneReleaseBinaries(
-  serverDir: string,
-  keepTag: string
-): number {
-  const bunDir = path.join(serverDir, "dist/bun");
-  const version = keepTag.replace(/^v/, "");
-  let removed = 0;
-
-  try {
-    for (const entry of readdirSync(bunDir)) {
-      if (!entry.startsWith("dispatch-")) continue;
-      if (entry.startsWith(`dispatch-${version}-bun-`)) continue;
-      try {
-        unlinkSync(path.join(bunDir, entry));
-        removed += 1;
-      } catch {}
-    }
-  } catch {}
-
-  return removed;
-}
 
 export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   let activeReleaseJob: ReleaseJob | null = null;
   let activeAssistedUpdateLaunch = false;
   const releaseStreamClients = new Set<ReleaseStreamClient>();
-  const getGitHubRepo = () =>
-    getGitHubRepoImpl(deps.runCommand, deps.serverDir);
+  const getGitHubRepo = getGitHubRepoImpl;
   const checkIsAdmin = createCheckIsAdmin(deps.runCommand, deps.serverDir);
-  const fetchReleaseMetadata = (tag: string) =>
-    fetchReleaseMetadataImpl(deps.runCommand, deps.serverDir, tag);
+  const fetchReleaseMetadata = fetchReleaseMetadataImpl;
+  const restartService =
+    deps.restartService ??
+    (() => {
+      if (process.platform === "linux") {
+        spawn("systemctl", ["--user", "restart", "dispatch"], {
+          detached: true,
+          stdio: "ignore",
+        }).unref();
+        return;
+      }
+      const uid = process.getuid?.() ?? 501;
+      spawn(
+        "launchctl",
+        ["kickstart", "-k", `gui/${uid}/com.dispatch.server`],
+        {
+          detached: true,
+          stdio: "ignore",
+        }
+      ).unref();
+    });
+  const recordReleaseCandidate =
+    deps.writeReleaseCandidate ?? writeReleaseCandidate;
 
   async function getAppVersionInfo(): Promise<{
     releaseTag: string | null;
@@ -134,20 +142,7 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
     // package.json from disk does not.
     const version = packageVersion.trim() || null;
 
-    let gitSha: string | null = null;
-    try {
-      const gitResult = await deps.runCommand(
-        "git",
-        ["rev-parse", "--short=12", "HEAD"],
-        {
-          allowedExitCodes: [0, 128],
-          cwd: process.env.DISPATCH_REPO_ROOT ?? process.cwd(),
-        }
-      );
-      if (gitResult.exitCode === 0) {
-        gitSha = gitResult.stdout.trim() || null;
-      }
-    } catch {}
+    const gitSha = embeddedGitSha?.trim() || null;
 
     const releaseTag = record?.tag ?? null;
     const releaseNotes = releaseNotesMarkdown.trim() || null;
@@ -223,7 +218,7 @@ Primary objective:
 Update details:
 - Current recorded tag in release.json: ${input.currentTag ?? "unknown"}
 - Target tag: ${input.tag}
-- Production checkout: ${deps.serverDir}
+- Production installation root: ${deps.serverDir}
 - Health endpoint: ${dispatchHealthUrl()}
 - Dispatch API base URL: $DISPATCH_API_URL
 - Dispatch API update token env: $DISPATCH_RELEASE_UPDATE_TOKEN
@@ -235,25 +230,18 @@ Guardrails:
 - Operate on ${deps.serverDir}, not the user's development worktree.
 - Do not edit secrets or .env unless explicitly required to restore service and you can explain why.
 - Do not make source-code changes as part of the recovery path unless absolutely necessary.
-- Do not assume release.json points to a healthy rollback target after a failed deploy; confirm the last healthy tag from git/service history before rolling back.
+- Treat release.json as the last confirmed healthy release; inspect release-candidate.json when an activation was interrupted.
 - Prefer rollback to the last confirmed healthy tag over speculative fixes if the service does not come back.
 - Restore service availability before deeper diagnosis.
 
 Service architecture and recovery model:
-- Dispatch runs from a compiled Bun binary in ${deps.serverDir}/dist/bun, named like dispatch-<version>-bun-<platform>-<arch>.
-- The managed update endpoint downloads a pre-built release tarball, checks out the target tag, extracts the binary, writes release.json, then restarts the service.
-- If the managed update fails mid-deploy, git may already point at ${input.tag} while the matching binary is missing or stale.
-- On boot, Dispatch prunes release binaries that do not match the running version; after a partial deploy this can leave dist/bun empty.
-- Diagnostic for the expected binary:
-  \`platform=$(uname -s | tr '[:upper:]' '[:lower:]' | sed 's/darwin/darwin/;s/linux/linux/'); arch=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'); ls -l dist/bun/dispatch-*-bun-$platform-$arch\`
-- If no matching binary exists, recover by building from source in ${deps.serverDir}: \`bin/dispatch-server build\` (requires bun and pnpm on PATH).
-- Restart after a successful source build with: \`bin/dispatch-server restart\`.
+- Dispatch runs from one fixed compiled binary at ${fixedRuntimePath(deps.serverDir)}.
+- Updates extract and verify a release artifact, atomically replace that path, retain ${fixedRuntimePath(deps.serverDir)}.previous for rollback, then restart.
+- A newly healthy target promotes release-candidate.json into release.json.
 
 Rollback recovery:
 - Prefer the managed endpoint first. Use manual recovery only after it fails or the service does not restart cleanly.
-- Find the last confirmed healthy tag from service logs, release history, release.json before the failed run, or \`git tag --sort=-version:refname\`; do not assume the current release.json is healthy after a partial deploy.
-- Manual rollback sequence: \`git checkout <healthy-tag>\`, then \`bin/dispatch-server build\`, then \`bin/dispatch-server restart\`.
-- Before restarting after rollback, confirm dist/bun contains a binary whose version matches the checked-out tag and current platform/arch.
+- Manual rollback sequence: atomically replace ${fixedRuntimePath(deps.serverDir)} with ${fixedRuntimePath(deps.serverDir)}.previous, then run the service restart command.
 - Validate service health with ${dispatchHealthUrl()} before reporting success.
 
 Suggested workflow:
@@ -403,59 +391,30 @@ Suggested workflow:
       },
     });
 
-    appendReleaseLog(job, `==> checking out ${tag} (for version metadata)`);
-    setReleaseProgress(job, {
-      step: "checking-out-tag",
-      label: `Loading ${tag}`,
-      detail: "Checking out the target release for validation.",
-    });
-    await deps.runCommand("git", ["-C", deps.serverDir, "checkout", tag]);
-
     appendReleaseLog(job, "==> validating artifact contents");
     setReleaseProgress(job, {
       step: "validating-artifact",
       label: "Validating release package",
       detail: "Inspecting the downloaded artifact before extraction.",
     });
-    let listing: Awaited<ReturnType<RunCommand>>;
-    try {
-      listing = await deps.runCommand("tar", ["tzf", cached.path]);
-    } catch (err) {
-      await deps.unlinkCachedTarball(tag);
-      appendReleaseLog(
-        job,
-        `==> cache entry for ${tag} was corrupt — removed; next attempt will re-download`
-      );
-      throw err;
-    }
-    const unsafeEntries = listing.stdout
-      .split("\n")
-      .filter((entry) => entry.startsWith("/") || entry.includes("../"));
-    if (unsafeEntries.length > 0) {
-      throw new Error(
-        `Release artifact contains unsafe paths: ${unsafeEntries.slice(0, 5).join(", ")}`
-      );
-    }
-
-    appendReleaseLog(job, "==> extracting pre-built artifact");
+    appendReleaseLog(job, "==> staging verified runtime executable");
     setReleaseProgress(job, {
       step: "extracting-artifact",
-      label: "Installing release package",
-      detail: "Extracting the pre-built release into the install directory.",
+      label: "Installing release executable",
+      detail: "Extracting and verifying the pre-built executable.",
     });
     try {
-      await deps.runCommand("tar", [
-        "xzf",
-        cached.path,
-        "--no-same-owner",
-        "-C",
-        deps.serverDir,
-      ]);
+      await verifyAndStageRuntime({
+        tarballPath: cached.path,
+        tag,
+        livePath: fixedRuntimePath(deps.serverDir),
+        runCommand: deps.runCommand,
+      });
     } catch (err) {
       await deps.unlinkCachedTarball(tag);
       appendReleaseLog(
         job,
-        `==> extraction failed for ${tag} — removed cache entry; next attempt will re-download`
+        `==> activation failed for ${tag} — removed cache entry; next attempt will re-download`
       );
       throw err;
     }
@@ -468,26 +427,12 @@ Suggested workflow:
   }
 
   async function assertCurrentReleaseBinary(job: ReleaseJob): Promise<void> {
-    const globPattern = currentReleaseBinaryGlob();
-    const result = await deps.runCommand(
-      "bash",
-      [
-        "-lc",
-        `set -euo pipefail; shopt -s nullglob; matches=(${globPattern}); if [ "\${#matches[@]}" -eq 0 ]; then exit 1; fi; printf '%s\n' "\${matches[0]}"`,
-      ],
-      { cwd: deps.serverDir, allowedExitCodes: [0, 1] }
-    );
-
-    if (result.exitCode !== 0 || !result.stdout.trim()) {
-      throw new Error(
-        `Expected compiled Bun binary matching ${globPattern} after deploy/build, but none was found`
-      );
+    const livePath = fixedRuntimePath(deps.serverDir);
+    const stats = await lstat(livePath).catch(() => null);
+    if (!stats?.isFile()) {
+      throw new Error(`Expected live Dispatch executable at ${livePath}`);
     }
-
-    appendReleaseLog(
-      job,
-      `==> verified runtime binary ${result.stdout.trim()}`
-    );
+    appendReleaseLog(job, `==> activated runtime binary ${livePath}`);
   }
 
   async function deployTag(job: ReleaseJob, tag: string): Promise<void> {
@@ -502,13 +447,21 @@ Suggested workflow:
       detail: "Checking the installed release binary before restart.",
     });
     await assertCurrentReleaseBinary(job);
+    const prior = await deps.readReleaseStore().catch(() => null);
+    await recordReleaseCandidate({
+      tag,
+      previousTag: prior?.tag ?? null,
+      activatedAt: new Date().toISOString(),
+    });
     setReleaseProgress(job, {
       step: "recording-release",
       label: "Recording deployed version",
       detail: `Saving ${tag} as the active release.`,
     });
-    await deps.writeReleaseStore({ tag, deployedAt: new Date().toISOString() });
-    appendReleaseLog(job, `==> wrote release record for ${tag}`);
+    appendReleaseLog(
+      job,
+      `==> activated ${tag}; it will be recorded after health confirmation`
+    );
     setReleasePhase(job, "restarting");
     appendReleaseLog(job, "==> restarting service");
     setReleaseProgress(job, {
@@ -517,57 +470,22 @@ Suggested workflow:
       detail: "Waiting for the service to come back on the new version.",
     });
 
-    if (process.platform === "linux") {
-      spawn("systemctl", ["--user", "restart", "dispatch"], {
-        detached: true,
-        stdio: "ignore",
-      }).unref();
-    } else {
-      const uid = process.getuid?.() ?? 501;
-      spawn(
-        "launchctl",
-        ["kickstart", "-k", `gui/${uid}/com.dispatch.server`],
-        {
-          detached: true,
-          stdio: "ignore",
-        }
-      ).unref();
-    }
+    restartService();
   }
 
   async function runUpdateJob(job: ReleaseJob): Promise<void> {
     try {
       const tag = job.tag!;
       setReleasePhase(job, "fetching");
-      appendReleaseLog(job, "==> fetching tags from origin");
+      appendReleaseLog(job, `==> confirming release ${tag}`);
       setReleaseProgress(job, {
         step: "fetching-tags",
-        label: "Fetching release tags",
-        detail: "Checking the latest tags from origin before update.",
+        label: "Confirming release",
+        detail: "Checking GitHub Releases before update.",
       });
-      await deps.runCommand("git", [
-        "-C",
-        deps.serverDir,
-        "fetch",
-        "--tags",
-        "--quiet",
-      ]);
-
-      try {
-        setReleaseProgress(job, {
-          step: "resolving-tag",
-          label: `Resolving ${tag}`,
-          detail: "Confirming the requested tag exists locally.",
-        });
-        await deps.runCommand("git", [
-          "-C",
-          deps.serverDir,
-          "rev-parse",
-          "--verify",
-          tag,
-        ]);
-      } catch {
-        throw new Error(`Tag ${tag} not found after fetching`);
+      const metadata = await fetchReleaseMetadata(tag);
+      if (!metadata) {
+        throw new Error(`Release ${tag} was not found on GitHub`);
       }
 
       await deployTag(job, tag);
@@ -583,6 +501,13 @@ Suggested workflow:
 
   async function runReleaseJob(job: ReleaseJob): Promise<void> {
     try {
+      if (!isReleaseAuthoringEnabled()) {
+        throw new Error(
+          "Release authoring is disabled (set DISPATCH_RELEASE_AUTHORING=1)"
+        );
+      }
+      const authoringRepoDir =
+        process.env.DISPATCH_RELEASE_AUTHORING_REPO_DIR ?? deps.serverDir;
       setReleasePhase(job, "preflight");
       try {
         await deps.runCommand("gh", ["--version"]);
@@ -655,14 +580,14 @@ Suggested workflow:
 
       await deps.runCommand("git", [
         "-C",
-        deps.serverDir,
+        authoringRepoDir,
         "fetch",
         "--tags",
         "--quiet",
       ]);
       const tagsResult = await deps.runCommand("git", [
         "-C",
-        deps.serverDir,
+        authoringRepoDir,
         "tag",
         "--sort=-version:refname",
       ]);
@@ -727,6 +652,7 @@ Suggested workflow:
     parseGhJson,
     compareSemver,
     fetchReleaseMetadata,
+    fetchGitHubReleases,
     fetchLatestReleaseMetadata: fetchReleaseMetadata,
   };
 }

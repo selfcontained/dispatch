@@ -8,8 +8,7 @@ set -euo pipefail
 #
 # The tarball includes:
 #   - Pre-built Bun binaries + checksums
-#   - bin/ scripts (deploy, server management, launchd wrapper)
-#   - docs/config scaffolding needed by install-launchd
+#   - bin/ scripts and docs/configuration needed at runtime
 #
 # NOT included (must be handled on host):
 #   - node_modules/
@@ -83,7 +82,9 @@ if [[ -d "update-migrations" ]]; then
   echo "update-migrations" >> "$MANIFEST"
 fi
 
-tar czf "$OUTPUT" --exclude='bin/embed-assisted-update.ts' -T "$MANIFEST"
+# BSD tar on macOS otherwise stores Finder/xattr metadata which causes noisy
+# warnings when a Linux host verifies or extracts a perfectly valid release.
+COPYFILE_DISABLE=1 tar czf "$OUTPUT" --exclude='bin/embed-assisted-update.ts' -T "$MANIFEST"
 
 # Print summary
 SIZE=$(wc -c < "$OUTPUT" | tr -d ' ')

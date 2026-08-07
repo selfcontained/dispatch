@@ -6,20 +6,11 @@ import PageIntro from "../components/PageIntro.astro";
   <PageIntro eyebrow="Documentation" title="Run a shared workspace on your own machine.">Dispatch runs locally, keeps agent processes alive in tmux, and uses the tools already present in a repository. It gives people and agents a durable place to return to the same terminals, worktrees, and shared context. Installation retrieves a released Bun binary; a production host does not need Node or pnpm to run Dispatch.</PageIntro>
   <article class="reading accent-yellow">
     <h2>Install</h2>
-    <p>The quickest path is to give the setup work to a coding agent. Copy this prompt into Claude, Codex, or another agent on the machine that will run Dispatch:</p>
-    <pre class="diagram">Clone https://github.com/selfcontained/dispatch.git and install its released binary as a persistent service on this machine.
-
-1. Clone the repo to ~/.dispatch/server.
-2. Install PostgreSQL 14+, tmux, and the agent CLI binaries to use with Dispatch.
-3. Create the dispatch database and copy .env.example to .env.
-4. Register Dispatch as a system service:
-   - macOS: run bin/install-launchd. It downloads and installs the latest release.
-   - Linux: download and extract the latest dispatch-release.tar.gz into
-     ~/.dispatch/server, then create Xvfb and Dispatch systemd user services.
-     The Dispatch service runs the matching dist/bun/dispatch-*-bun-linux-* binary;
-     add DISPATCH_COPY_DISPLAY=:99 to .env for clipboard image support.
-5. Verify: curl http://127.0.0.1:6767/api/v1/health</pre>
-    <p>Dispatch runs the platform-matching Bun binary inside <code>dispatch-release.tar.gz</code>. On macOS, <code>bin/install-launchd</code> downloads, extracts, and registers it. On Linux, the same artifact belongs in <code>~/.dispatch/server</code>; the systemd user service invokes the matching binary from <code>dist/bun</code>.</p>
+    <p>Start PostgreSQL 14+ first, then install the latest stable release with one command:</p>
+    <pre class="diagram">curl -fsSL https://raw.githubusercontent.com/selfcontained/dispatch/main/bin/install-dispatch.sh | bash</pre>
+    <p>The installer works on macOS and Linux. It downloads a tagged release artifact, creates local database credentials when it can administer PostgreSQL, writes private configuration, and registers a user service. It does not clone the repository or require Node, pnpm, Bun, or a hand-written env file.</p>
+    <p>For a managed database, append <code>-- --database-url 'postgres://…'</code> to the command. Existing installations are moved to this layout by the assisted-update migration; the fresh installer intentionally refuses to overwrite them.</p>
+    <p>Dispatch runs the platform-matching Bun binary inside <code>dispatch-release.tar.gz</code>. The service manager always invokes one fixed executable path; normal updates atomically replace that executable and restart the service.</p>
     <h2>Agent CLI support</h2>
     <p><strong>Codex and Claude are the recommended paths today.</strong> They are the CLIs Dispatch is most often exercised against and the best choice for a first installation.</p>
     <p>Cursor and OpenCode are supported as agent types, but they still have integration gaps. They can be useful when they match an existing setup; expect the experience to be less complete than Codex or Claude. A plain terminal is also available when the work does not need a coding-agent CLI.</p>

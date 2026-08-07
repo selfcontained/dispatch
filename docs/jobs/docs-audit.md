@@ -79,7 +79,6 @@ Only touch these if the Phase 1 diff points to them or they're explicitly in `ne
 - `docs/04-agent-lifecycle.md` — state machine, tmux contract, reconciliation (developer-facing).
 - `docs/10-operations-runbook.md` — service management, releases, diagnostics.
 - `docs/11-backend-compatibility-checklist.md` — dev checklist.
-- `docs/12-new-machine-setup.md` — first-time machine setup.
 - `docs/14-theming.md` — theme authoring guide.
 
 Do not rewrite docs for style. Fix factual drift only.
