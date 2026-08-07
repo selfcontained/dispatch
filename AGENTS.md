@@ -112,6 +112,19 @@ Before marking any task as done, run the following checks and fix any failures:
 - `repo_dev_up` creates an isolated Postgres container with its own port — no manual `DATABASE_URL` setup needed.
 - Migrations run automatically on API server start.
 
+## Optional VM Release Validation
+
+VMs are for high-risk installation, service-manager, release-artifact,
+assisted-update, or update-migration changes—not ordinary development or the
+default test suite. Follow [docs/vm-release-validation.md](docs/vm-release-validation.md)
+when that validation is warranted.
+
+**Always ask the user before provisioning, starting, resetting, modifying, or
+using a VM.** This applies even when a named local VM already exists. Explain
+the scenario to be exercised, expected resource/use impact, and whether the
+VM will be changed or cleaned up. Do not make VM validation a prerequisite for
+unrelated changes or CI.
+
 ## Agent Pins
 
 - Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.
