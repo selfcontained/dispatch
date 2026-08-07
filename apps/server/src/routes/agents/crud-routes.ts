@@ -26,6 +26,7 @@ import {
   CLAUDE_FULL_ACCESS_ARG,
   type AgentRouteDeps,
 } from "./shared.js";
+import { validateAgentModel } from "../../shared/agent-models.js";
 
 export async function registerAgentCrudRoutes(
   app: FastifyInstance,
@@ -209,6 +210,12 @@ export async function registerAgentCrudRoutes(
       });
     }
 
+    if (body.model !== undefined && typeof body.model !== "string") {
+      return reply
+        .code(400)
+        .send({ error: "model must be a string when provided." });
+    }
+
     if (
       body.worktreeBranch !== undefined &&
       typeof body.worktreeBranch !== "string"
@@ -254,6 +261,17 @@ export async function registerAgentCrudRoutes(
     }
 
     const isTerminalAgent = agentType === "terminal";
+    let model: string | undefined;
+    try {
+      model = validateAgentModel(
+        agentType,
+        typeof body.model === "string" && body.model.trim()
+          ? body.model.trim()
+          : undefined
+      );
+    } catch (error) {
+      return reply.code(400).send({ error: errorMessage(error) });
+    }
     const fullAccessArg =
       agentType === "claude"
         ? CLAUDE_FULL_ACCESS_ARG
@@ -290,6 +308,7 @@ export async function registerAgentCrudRoutes(
         type: agentType,
         cwd: body.cwd,
         agentArgs: resolvedAgentArgs,
+        model,
         fullAccess: !isTerminalAgent && fullAccess === true,
         useWorktree,
         createNewBranch,

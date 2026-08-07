@@ -102,6 +102,23 @@ describe("POST /api/v1/agents (create)", () => {
     expect(agent.type).toBe("claude");
   });
 
+  it("stores a supported model and rejects a model for another runtime", async () => {
+    const agent = await createAgent({
+      type: "codex",
+      model: "gpt-5.6-terra",
+    });
+    expect(agent.model).toBe("gpt-5.6-terra");
+
+    const res = await authedInject("POST", "/api/v1/agents", {
+      cwd: "/tmp",
+      useWorktree: false,
+      type: "claude",
+      model: "gpt-5.6-terra",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("not supported for claude");
+  });
+
   it("rejects missing cwd", async () => {
     const res = await authedInject("POST", "/api/v1/agents", {});
     expect(res.statusCode).toBe(400);

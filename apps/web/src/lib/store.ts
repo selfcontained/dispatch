@@ -92,6 +92,12 @@ export const createNewBranchPrefAtom = atomFamily((cwd: string) =>
   atomWithLocalStorage<boolean>(`dispatch:createNewBranch:${cwd}`, true)
 );
 
+// Per-project, per-runtime model preference for the Create Agent dialog.
+// null is intentional: it means leave model selection to the CLI.
+export const createAgentModelPrefAtom = atomFamily((key: string) =>
+  atomWithLocalStorage<string | null>(`dispatch:model:${key}`, null)
+);
+
 // Per-tag dismissal flag for the "release available" toast. Dismissing
 // vX.Y.Z prevents that toast from re-showing for the same tag, but a
 // newer tag still triggers a fresh toast on its own atom.

@@ -198,6 +198,64 @@ describe("buildAgentCommand", () => {
     expect(cmd).toContain(AGENT_ID);
   });
 
+  it("passes a selected model to Claude, Codex, and Cursor", () => {
+    const claude = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "opus"
+    );
+    const codex = buildAgentCommand(
+      baseConfig,
+      "codex",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "gpt-5.6-terra"
+    );
+    const cursor = buildAgentCommand(
+      baseConfig,
+      "cursor",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      "auto"
+    );
+
+    expect(claude).toContain("--model 'opus'");
+    expect(codex).toContain("--model 'gpt-5.6-terra'");
+    expect(cursor).toContain("--model 'auto'");
+  });
+
   it("for claude with cliSessionId + resume, emits --resume; without resume, emits --session-id", () => {
     const resumed = buildAgentCommand(
       baseConfig,

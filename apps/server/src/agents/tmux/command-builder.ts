@@ -229,7 +229,8 @@ export function buildAgentCommand(
   suggestSessionRename?: boolean,
   autoReview?: boolean,
   initialPrompt?: string,
-  personalityPrompt?: string | null
+  personalityPrompt?: string | null,
+  model?: string
 ): string {
   const agentId = agentIdFromSessionName(sessionName);
   const launchGuidance = buildLaunchGuidance(agentId, {
@@ -374,7 +375,8 @@ export function buildAgentCommand(
         ? `--resume ${shellEscape(cliSessionId)}`
         : `--session-id ${shellEscape(cliSessionId)}`
       : "";
-    const flags = [mcpFlag, systemFlag, personalityFlag, sessionFlag]
+    const modelFlag = model ? `--model ${shellEscape(model)}` : "";
+    const flags = [mcpFlag, systemFlag, personalityFlag, sessionFlag, modelFlag]
       .filter(Boolean)
       .join(" ");
     // initialPrompt becomes the first user message (positional arg to Claude
@@ -430,6 +432,7 @@ export function buildAgentCommand(
       const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
       flagParts.push(escaped);
     }
+    if (model) flagParts.push("--model", shellEscape(model));
     if (startupPrompt) {
       return `${envPrefix} ${shellEscape(cliBin)} ${flagParts.join(" ")} ${shellEscape(startupPrompt)}`.trim();
     }
@@ -449,9 +452,10 @@ export function buildAgentCommand(
     ),
   ].join(" ");
   const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${shellEscape(dispatchMcpToken)}`;
+  const modelFlag = model ? `--model ${shellEscape(model)}` : "";
   // Codex resume: `codex resume <sessionId>` with MCP flags
   if (resume && cliSessionId) {
-    return `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${shellEscape(cliSessionId)} ${codexMcpFlags}`;
+    return `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${shellEscape(cliSessionId)} ${modelFlag} ${codexMcpFlags}`;
   }
   const codexPromptParts = [
     launchGuidance,
@@ -461,8 +465,8 @@ export function buildAgentCommand(
   ].filter(Boolean);
   const startupPrompt = codexPromptParts.join("\n\n");
   if (passthroughArgs.length === 0) {
-    return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${shellEscape(startupPrompt)}`;
+    return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${modelFlag} ${shellEscape(startupPrompt)}`;
   }
   const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
-  return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${escaped} ${shellEscape(startupPrompt)}`;
+  return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${modelFlag} ${escaped} ${shellEscape(startupPrompt)}`;
 }
