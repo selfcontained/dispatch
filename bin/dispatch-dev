@@ -258,6 +258,7 @@ cmd_up() {
     # Keep the release store out of ~/.dispatch/ — a stale version there
     # surfaces the update-available toast against the dev build.
     export DISPATCH_RELEASE_STORE_PATH="$(log_dir)/release.json"
+    export DISPATCH_RELEASE_CANDIDATE_STORE_PATH="$(log_dir)/release-candidate.json"
     export DISPATCH_RELEASE_CACHE_DIR="$DEV_RELEASE_CACHE_DIR"
 
     if [ "$OPT_NO_DB" != "1" ]; then

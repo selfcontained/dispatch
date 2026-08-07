@@ -89,4 +89,88 @@ describe("legacy launchd compatibility wrapper", () => {
     );
     expect(output).toBe("exact-tag");
   });
+
+  it("falls back to a working fixed runtime after checkout before extraction", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "dispatch-wrapper-"));
+    roots.push(root);
+    const bin = path.join(root, "bin");
+    const fakePath = path.join(root, "fake-path");
+    const home = path.join(root, "home");
+    const fixedRuntime = path.join(root, "dispatch");
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(fakePath, { recursive: true });
+    mkdirSync(home, { recursive: true });
+    copyFileSync(WRAPPER, path.join(bin, "dispatch-launchd-wrapper"));
+    chmodSync(path.join(bin, "dispatch-launchd-wrapper"), 0o755);
+    makeExecutable(fixedRuntime, "#!/bin/sh\nprintf fixed-runtime\n");
+    makeExecutable(
+      path.join(fakePath, "uname"),
+      '#!/bin/sh\nif [ "$1" = "-m" ]; then echo arm64; else echo Darwin; fi\n'
+    );
+    execFileSync("git", ["init", "-q"], { cwd: root });
+    execFileSync("git", ["config", "user.email", "test@example.com"], {
+      cwd: root,
+    });
+    execFileSync("git", ["config", "user.name", "Dispatch test"], {
+      cwd: root,
+    });
+    writeFileSync(path.join(root, "release-marker"), "v1.2.3\n");
+    execFileSync("git", ["add", "release-marker"], { cwd: root });
+    execFileSync("git", ["commit", "-qm", "release"], { cwd: root });
+    execFileSync("git", ["tag", "v1.2.3"], { cwd: root });
+
+    const output = execFileSync(
+      "zsh",
+      [path.join(bin, "dispatch-launchd-wrapper")],
+      {
+        cwd: root,
+        env: {
+          ...process.env,
+          HOME: home,
+          PATH: `${fakePath}:${process.env.PATH}`,
+        },
+        encoding: "utf8",
+      }
+    );
+    expect(output).toBe("fixed-runtime");
+  });
+
+  it("reports a git lookup failure when neither runtime is available", () => {
+    const root = mkdtempSync(path.join(os.tmpdir(), "dispatch-wrapper-"));
+    roots.push(root);
+    const bin = path.join(root, "bin");
+    const fakePath = path.join(root, "fake-path");
+    const home = path.join(root, "home");
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(fakePath, { recursive: true });
+    mkdirSync(home, { recursive: true });
+    copyFileSync(WRAPPER, path.join(bin, "dispatch-launchd-wrapper"));
+    chmodSync(path.join(bin, "dispatch-launchd-wrapper"), 0o755);
+    makeExecutable(
+      path.join(fakePath, "uname"),
+      '#!/bin/sh\nif [ "$1" = "-m" ]; then echo arm64; else echo Darwin; fi\n'
+    );
+    makeExecutable(
+      path.join(fakePath, "git"),
+      "#!/bin/sh\necho simulated-safe-directory-refusal >&2\nexit 128\n"
+    );
+
+    try {
+      execFileSync("zsh", [path.join(bin, "dispatch-launchd-wrapper")], {
+        cwd: root,
+        env: {
+          ...process.env,
+          HOME: home,
+          PATH: `${fakePath}:${process.env.PATH}`,
+        },
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      expect.fail("wrapper should fail without a runtime");
+    } catch (error) {
+      expect(String((error as { stderr?: Buffer }).stderr)).toContain(
+        "could not identify checkout release tag: simulated-safe-directory-refusal"
+      );
+    }
+  });
 });

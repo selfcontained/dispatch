@@ -34,7 +34,14 @@ case "$ARCH_NAME" in
     ;;
 esac
 
-TAG="$(git -C "$ROOT_DIR" describe --tags --exact-match HEAD 2>/dev/null || true)"
+GIT_ERROR=""
+if TAG_OUTPUT="$(git -C "$ROOT_DIR" describe --tags --exact-match HEAD 2>&1)"; then
+  TAG="$TAG_OUTPUT"
+else
+  TAG=""
+  GIT_ERROR="$TAG_OUTPUT"
+fi
+TAG_ERROR=""
 if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
   VERSION="${TAG#v}"
   BINARY="$ROOT_DIR/dist/bun/dispatch-${VERSION}-bun-${PLATFORM}-${ARCH}"
@@ -42,8 +49,11 @@ if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
     cd "$ROOT_DIR"
     exec "$BINARY"
   fi
-  echo "error: expected Dispatch binary for $TAG at $BINARY" >&2
-  exit 1
+  # A crash can happen after checkout but before tar extraction. Keep a
+  # working fixed runtime reachable in that partial-deploy window.
+  TAG_ERROR="expected Dispatch binary for $TAG at $BINARY"
+elif [[ -n "$GIT_ERROR" ]]; then
+  TAG_ERROR="could not identify checkout release tag: $GIT_ERROR"
 fi
 
 # A migrated unit should no longer reach this wrapper, but honoring the fixed
@@ -51,7 +61,11 @@ fi
 # no longer has a release checkout to identify an exact artifact.
 FIXED_RUNTIME="${DISPATCH_RUNTIME_PATH:-$ROOT_DIR/dispatch}"
 if [[ ! -x "$FIXED_RUNTIME" ]]; then
-  echo "error: no fixed runtime and checkout is not at an exact release tag" >&2
+  if [[ -n "$TAG_ERROR" ]]; then
+    echo "error: $TAG_ERROR; no fixed runtime at $FIXED_RUNTIME" >&2
+  else
+    echo "error: no fixed runtime and checkout is not at an exact release tag" >&2
+  fi
   exit 1
 fi
 
