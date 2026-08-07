@@ -38,33 +38,41 @@ function renderBar() {
 }
 
 describe("BottomBar", () => {
-  it("renders expanded by default with a collapse control", () => {
+  it("renders expanded by default with a collapse toggle", () => {
     renderBar();
 
     expect(screen.getByTestId("bottom-bar")).toBeTruthy();
-    expect(screen.getByTestId("bottom-bar-collapse")).toBeTruthy();
-    expect(screen.queryByTestId("bottom-bar-expand")).toBeNull();
+    const toggle = screen.getByTestId("bottom-bar-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(toggle.getAttribute("aria-label")).toBe("Collapse bottom bar");
   });
 
-  it("collapses to a slim expand control and persists the choice", () => {
+  it("collapses, persists the choice, and keeps the toggle focused", () => {
     renderBar();
 
-    fireEvent.click(screen.getByTestId("bottom-bar-collapse"));
+    const toggle = screen.getByTestId("bottom-bar-toggle");
+    toggle.focus();
+    fireEvent.click(toggle);
 
     expect(screen.queryByTestId("bottom-bar")).toBeNull();
-    expect(screen.getByTestId("bottom-bar-expand")).toBeTruthy();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(toggle.getAttribute("aria-label")).toBe("Expand bottom bar");
+    // The toggle stays mounted across the swap, so keyboard focus survives.
+    expect(document.activeElement).toBe(toggle);
     expect(window.localStorage.getItem("dispatch:bottomBarCollapsed")).toBe(
       "true"
     );
   });
 
-  it("expands back from the collapsed control", () => {
+  it("expands back from the collapsed toggle", () => {
     renderBar();
 
-    fireEvent.click(screen.getByTestId("bottom-bar-collapse"));
-    fireEvent.click(screen.getByTestId("bottom-bar-expand"));
+    const toggle = screen.getByTestId("bottom-bar-toggle");
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
 
     expect(screen.getByTestId("bottom-bar")).toBeTruthy();
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
     expect(window.localStorage.getItem("dispatch:bottomBarCollapsed")).toBe(
       "false"
     );

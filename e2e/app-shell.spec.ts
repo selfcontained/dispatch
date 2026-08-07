@@ -51,18 +51,24 @@ test.describe("App shell", () => {
   }) => {
     await loadApp(page);
 
+    const toggle = page.getByTestId("bottom-bar-toggle");
     await expect(page.getByTestId("bottom-bar")).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
 
-    await page.getByTestId("bottom-bar-collapse").click();
+    await toggle.click();
     await expect(page.getByTestId("bottom-bar")).toHaveCount(0);
-    await expect(page.getByTestId("bottom-bar-expand")).toBeVisible();
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await expect(toggle).toBeFocused();
 
     await page.reload({ waitUntil: "domcontentloaded" });
     await page.getByTestId("agent-sidebar").waitFor({ state: "visible" });
     await expect(page.getByTestId("bottom-bar")).toHaveCount(0);
-    await expect(page.getByTestId("bottom-bar-expand")).toBeVisible();
+    await expect(page.getByTestId("bottom-bar-toggle")).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
 
-    await page.getByTestId("bottom-bar-expand").click();
+    await page.getByTestId("bottom-bar-toggle").click();
     await expect(page.getByTestId("bottom-bar")).toBeVisible();
   });
 
