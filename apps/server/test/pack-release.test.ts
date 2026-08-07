@@ -56,6 +56,10 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     expect(files.some((f) => f.startsWith("bin/"))).toBe(true);
     expect(files.some((f) => f.includes("dispatch-server"))).toBe(true);
     expect(files).toContain("bin/install-dispatch.sh");
+    // Temporary bridge for legacy macOS LaunchAgents. New installs do not
+    // reference it, but old checkout-based services need it through the
+    // fixed-runtime migration.
+    expect(files).toContain("bin/dispatch-launchd-wrapper");
   });
 
   it("does NOT include node_modules", () => {

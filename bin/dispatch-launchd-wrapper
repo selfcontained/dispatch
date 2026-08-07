@@ -1,0 +1,59 @@
+#!/bin/zsh
+#
+# Temporary compatibility bridge for legacy LaunchAgents that still invoke
+# this wrapper. New installs and migrated services invoke the fixed runtime
+# at $DISPATCH_RUNTIME_PATH (or <server-dir>/dispatch) directly.
+#
+# This wrapper deliberately selects the binary for the checked-out tag. Do
+# not replace this with mtime-based glob selection: release tarball mtimes are
+# not a reliable indication of the deployed version.
+
+[[ -f ~/.zprofile ]] && source ~/.zprofile
+[[ -f ~/.zshrc ]] && source ~/.zshrc
+
+export TERM="${TERM:-xterm-256color}"
+
+ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+OS_NAME="$(uname -s)"
+ARCH_NAME="$(uname -m)"
+
+case "$OS_NAME" in
+  Darwin) PLATFORM="darwin" ;;
+  *)
+    echo "error: dispatch-launchd-wrapper only supports macOS" >&2
+    exit 1
+    ;;
+esac
+
+case "$ARCH_NAME" in
+  arm64|aarch64) ARCH="arm64" ;;
+  x86_64) ARCH="x64" ;;
+  *)
+    echo "error: unsupported architecture $ARCH_NAME" >&2
+    exit 1
+    ;;
+esac
+
+TAG="$(git -C "$ROOT_DIR" describe --tags --exact-match HEAD 2>/dev/null || true)"
+if [[ "$TAG" =~ ^v?[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.]+)?$ ]]; then
+  VERSION="${TAG#v}"
+  BINARY="$ROOT_DIR/dist/bun/dispatch-${VERSION}-bun-${PLATFORM}-${ARCH}"
+  if [[ -x "$BINARY" ]]; then
+    cd "$ROOT_DIR"
+    exec "$BINARY"
+  fi
+  echo "error: expected Dispatch binary for $TAG at $BINARY" >&2
+  exit 1
+fi
+
+# A migrated unit should no longer reach this wrapper, but honoring the fixed
+# runtime makes an accidental stale wrapper reference harmless once the host
+# no longer has a release checkout to identify an exact artifact.
+FIXED_RUNTIME="${DISPATCH_RUNTIME_PATH:-$ROOT_DIR/dispatch}"
+if [[ ! -x "$FIXED_RUNTIME" ]]; then
+  echo "error: no fixed runtime and checkout is not at an exact release tag" >&2
+  exit 1
+fi
+
+cd "$ROOT_DIR"
+exec "$FIXED_RUNTIME"
