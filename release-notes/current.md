@@ -1,8 +1,6 @@
 ## What's Changed
-* Add unit coverage for the quick-phrase picker by @selfcontained in https://github.com/selfcontained/dispatch/pull/886
-* Docs: document persona authoring MCP tools by @selfcontained in https://github.com/selfcontained/dispatch/pull/888
-* Consolidate three diverged formatRelativeTime copies onto lib/format by @selfcontained in https://github.com/selfcontained/dispatch/pull/889
-* Decouple regular installs from git checkouts by @selfcontained in https://github.com/selfcontained/dispatch/pull/890
+* Add collapsible bottom bar under the center pane (desktop layout) by @selfcontained in https://github.com/selfcontained/dispatch/pull/891
+* Add safe legacy launchd update bridge by @selfcontained in https://github.com/selfcontained/dispatch/pull/892
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.31.5...v0.32.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.32.0...v0.32.1
