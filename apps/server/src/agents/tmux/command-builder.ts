@@ -66,7 +66,7 @@ function stripModelArgs(args: string[]): string[] {
       index += 1;
       continue;
     }
-    if (arg.startsWith("--model=")) continue;
+    if (arg.startsWith("--model=") || arg.startsWith("-m")) continue;
     filtered.push(arg);
   }
 

@@ -251,7 +251,7 @@ describe("buildAgentCommand", () => {
         baseConfig,
         "codex",
         "standard",
-        ["-m", "saved-model", "--verbose"],
+        ["-m=unallowlisted", "--verbose"],
         "/tmp/media",
         SESSION,
         false,
