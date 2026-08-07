@@ -24,7 +24,7 @@ export type Agent = {
   worktreeBranch: string | null;
   tmuxSession: string | null;
   agentArgs: string[];
-  model?: string | null;
+  model: string | null;
   fullAccess: boolean;
   setupPhase?: "worktree" | "env" | "deps" | "session" | null;
   archivePhase?:

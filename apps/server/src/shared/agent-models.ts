@@ -17,7 +17,6 @@ export const AGENT_MODEL_OPTIONS: Partial<
   Record<AgentType, readonly AgentModelOption[]>
 > = {
   codex: [
-    { id: "gpt-5.6", label: "GPT-5.6 (Sol)" },
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
@@ -45,11 +44,16 @@ export function validateAgentModel(
   agentType: AgentType,
   model: string | undefined
 ): string | undefined {
-  if (model === undefined) return undefined;
-  if (getAgentModelOptions(agentType).some((option) => option.id === model)) {
-    return model;
+  const normalizedModel = model?.trim() || undefined;
+  if (normalizedModel === undefined) return undefined;
+  if (
+    getAgentModelOptions(agentType).some(
+      (option) => option.id === normalizedModel
+    )
+  ) {
+    return normalizedModel;
   }
   throw new Error(
-    `Model "${model}" is not supported for ${agentType}. Choose a configured model or omit model for the CLI default.`
+    `Model "${normalizedModel}" is not supported for ${agentType}. Choose a configured model or omit model for the CLI default.`
   );
 }

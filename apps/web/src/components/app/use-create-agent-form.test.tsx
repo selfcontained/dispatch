@@ -35,6 +35,7 @@ const createdAgent = {
   worktreeBranch: null,
   tmuxSession: "dispatch-agt_new",
   agentArgs: [],
+  model: null,
   fullAccess: false,
   mediaDir: null,
   createdAt: "2026-07-31T00:00:00.000Z",

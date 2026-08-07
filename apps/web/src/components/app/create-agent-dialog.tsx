@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { ChevronLeft } from "lucide-react";
 
+import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { ContextPicker } from "@/components/app/context-picker";
 import { CONTEXT_PROMPT_ID } from "@/components/app/create-agent-dialog-utils";
@@ -18,13 +19,6 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { type Agent } from "@/components/app/types";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { type AgentType } from "@/lib/agent-types";
@@ -79,6 +73,8 @@ function CreateAgentDialogContent({
   });
 
   useRadixPopoverZFix();
+  const showModelSelect =
+    form.createType !== "terminal" && form.modelOptions.length > 0;
 
   return (
     <DialogContent
@@ -110,7 +106,9 @@ function CreateAgentDialogContent({
           >
             <div className="min-h-0 flex-1 overflow-y-auto px-1">
               <div className="space-y-3">
-                <div className="grid grid-cols-2 gap-3">
+                <div
+                  className={cn("grid gap-3", showModelSelect && "grid-cols-2")}
+                >
                   <AgentTypeSelect
                     value={form.createType}
                     onChange={form.setCreateType}
@@ -118,39 +116,12 @@ function CreateAgentDialogContent({
                     onOpenChange={setTypeDropdownOpen}
                   />
 
-                  {form.createType !== "terminal" &&
-                  form.modelOptions.length > 0 ? (
-                    <div className="space-y-1">
-                      <label
-                        className="text-sm text-muted-foreground"
-                        htmlFor="create-agent-model"
-                      >
-                        Model
-                      </label>
-                      <Select
-                        value={form.createModel ?? "__default__"}
-                        onValueChange={(value) =>
-                          form.setCreateModel(
-                            value === "__default__" ? null : value
-                          )
-                        }
-                      >
-                        <SelectTrigger
-                          id="create-agent-model"
-                          data-testid="create-agent-model"
-                        >
-                          <SelectValue />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="__default__">Default</SelectItem>
-                          {form.modelOptions.map((option) => (
-                            <SelectItem key={option.id} value={option.id}>
-                              {option.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                    </div>
+                  {showModelSelect ? (
+                    <AgentModelSelect
+                      value={form.createModel}
+                      options={form.modelOptions}
+                      onChange={form.setCreateModel}
+                    />
                   ) : null}
                 </div>
 

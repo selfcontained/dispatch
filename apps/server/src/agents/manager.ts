@@ -684,18 +684,19 @@ export class AgentManager {
         mediaDir,
         tmuxSession,
         fullAccess,
-        cliSessionId ?? undefined,
-        false,
-        opts.jobRunId,
-        shouldSuggestSessionRename(name, id, {
-          persona: opts.persona,
+        {
+          cliSessionId: cliSessionId ?? undefined,
           jobRunId: opts.jobRunId,
-          templateId: opts.templateId,
-        }),
-        !opts.persona && !opts.jobRunId && opts.autoReview,
-        startupPrompt,
-        personality?.prompt ?? null,
-        model
+          suggestSessionRename: shouldSuggestSessionRename(name, id, {
+            persona: opts.persona,
+            jobRunId: opts.jobRunId,
+            templateId: opts.templateId,
+          }),
+          autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
+          initialPrompt: startupPrompt,
+          personalityPrompt: personality?.prompt ?? null,
+          model,
+        }
       );
 
       const setupScript = generateSetupScript(this.config, {
@@ -871,17 +872,17 @@ export class AgentManager {
         mediaDir,
         tmuxSession,
         agent.fullAccess ?? false,
-        cliSessionId ?? undefined,
-        shouldResume,
-        undefined,
-        shouldSuggestSessionRename(agent.name, id, {
-          persona: agent.persona,
-          templateId: agent.templateId,
-        }),
-        !agent.persona && (agent.autoReview ?? false),
-        undefined,
-        personality?.prompt ?? null,
-        agent.model ?? undefined
+        {
+          cliSessionId: cliSessionId ?? undefined,
+          resume: shouldResume,
+          suggestSessionRename: shouldSuggestSessionRename(agent.name, id, {
+            persona: agent.persona,
+            templateId: agent.templateId,
+          }),
+          autoReview: !agent.persona && (agent.autoReview ?? false),
+          personalityPrompt: personality?.prompt ?? null,
+          model: agent.model ?? undefined,
+        }
       );
 
       await this.runtime.launch({

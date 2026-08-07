@@ -110,13 +110,14 @@ export function useCreateAgentForm({
   );
 
   useEffect(() => {
+    if (!modelCatalog) return;
     if (
       createModel &&
       !modelOptions.some((option) => option.id === createModel)
     ) {
       setCreateModel(null);
     }
-  }, [createModel, modelOptions, setCreateModel]);
+  }, [createModel, modelCatalog, modelOptions, setCreateModel]);
 
   useEffect(() => {
     setCreateWorktreeBranch("");

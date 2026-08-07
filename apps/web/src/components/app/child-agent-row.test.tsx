@@ -19,6 +19,7 @@ const baseAgent: Agent = {
   worktreeBranch: null,
   tmuxSession: "dispatch-agt_child",
   agentArgs: [],
+  model: null,
   fullAccess: false,
   latestEvent: {
     type: "working",

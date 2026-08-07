@@ -17,5 +17,10 @@ Omitting a model uses the CLI default.
 Use only provider documentation. Confirm that a candidate both appears in the
 provider's current catalog and is accepted by that CLI's `--model` flag. Keep
 the `Default` UI option untouched: it deliberately sends no model flag. Update
-the catalog, its labels, and this document if a source URL changes. Run the
-relevant server tests plus `pnpm run check` before opening a draft PR.
+the catalog, its labels, and this document if a source URL changes.
+
+When removing an id, first check for active agents using it: selected models
+persist in `agents.model` and are passed through unchanged on resume. Existing
+agents with a retired id can therefore fail at the CLI until their model is
+changed or the provider restores the id. Run the relevant server tests plus
+`pnpm run check` before opening a draft PR.

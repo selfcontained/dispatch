@@ -215,6 +215,17 @@ export function buildLaunchGuidance(
  * Security note: every interpolated value flows through `shellEscape`,
  * since this string lands directly in `tmux new-session … bash -c …`.
  */
+type BuildAgentCommandOptions = {
+  cliSessionId?: string;
+  resume?: boolean;
+  jobRunId?: string;
+  suggestSessionRename?: boolean;
+  autoReview?: boolean;
+  initialPrompt?: string;
+  personalityPrompt?: string | null;
+  model?: string;
+};
+
 export function buildAgentCommand(
   config: AppConfig,
   type: AgentType,
@@ -223,14 +234,16 @@ export function buildAgentCommand(
   mediaDir: string,
   sessionName: string,
   fullAccess: boolean,
-  cliSessionId?: string,
-  resume?: boolean,
-  jobRunId?: string,
-  suggestSessionRename?: boolean,
-  autoReview?: boolean,
-  initialPrompt?: string,
-  personalityPrompt?: string | null,
-  model?: string
+  {
+    cliSessionId,
+    resume,
+    jobRunId,
+    suggestSessionRename,
+    autoReview,
+    initialPrompt,
+    personalityPrompt,
+    model,
+  }: BuildAgentCommandOptions = {}
 ): string {
   const agentId = agentIdFromSessionName(sessionName);
   const launchGuidance = buildLaunchGuidance(agentId, {
@@ -428,11 +441,11 @@ export function buildAgentCommand(
       initialPrompt,
     ].filter(Boolean);
     const startupPrompt = cursorPromptParts.join("\n\n");
+    if (model) flagParts.push("--model", shellEscape(model));
     if (passthroughArgs.length > 0) {
       const escaped = passthroughArgs.map((arg) => shellEscape(arg)).join(" ");
       flagParts.push(escaped);
     }
-    if (model) flagParts.push("--model", shellEscape(model));
     if (startupPrompt) {
       return `${envPrefix} ${shellEscape(cliBin)} ${flagParts.join(" ")} ${shellEscape(startupPrompt)}`.trim();
     }

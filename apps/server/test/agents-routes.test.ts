@@ -102,10 +102,10 @@ describe("POST /api/v1/agents (create)", () => {
     expect(agent.type).toBe("claude");
   });
 
-  it("stores a supported model and rejects a model for another runtime", async () => {
+  it("normalizes a supported model and rejects one for another runtime", async () => {
     const agent = await createAgent({
       type: "codex",
-      model: "gpt-5.6-terra",
+      model: " gpt-5.6-terra ",
     });
     expect(agent.model).toBe("gpt-5.6-terra");
 

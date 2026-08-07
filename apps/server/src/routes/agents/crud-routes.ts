@@ -265,9 +265,7 @@ export async function registerAgentCrudRoutes(
     try {
       model = validateAgentModel(
         agentType,
-        typeof body.model === "string" && body.model.trim()
-          ? body.model.trim()
-          : undefined
+        typeof body.model === "string" ? body.model : undefined
       );
     } catch (error) {
       return reply.code(400).send({ error: errorMessage(error) });

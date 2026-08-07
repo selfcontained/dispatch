@@ -207,14 +207,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      "opus"
+      { model: "opus" }
     );
     const codex = buildAgentCommand(
       baseConfig,
@@ -224,14 +217,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      "gpt-5.6-terra"
+      { model: "gpt-5.6-terra" }
     );
     const cursor = buildAgentCommand(
       baseConfig,
@@ -241,19 +227,29 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      undefined,
-      "auto"
+      { model: "auto" }
     );
 
     expect(claude).toContain("--model 'opus'");
     expect(codex).toContain("--model 'gpt-5.6-terra'");
     expect(cursor).toContain("--model 'auto'");
+  });
+
+  it("puts a selected Cursor model before saved CLI args", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "cursor",
+      "standard",
+      ["--model", "saved-model"],
+      "/tmp/media",
+      SESSION,
+      false,
+      { model: "auto" }
+    );
+
+    expect(cmd.indexOf("--model 'auto'")).toBeLessThan(
+      cmd.indexOf("'--model' 'saved-model'")
+    );
   });
 
   it("for claude with cliSessionId + resume, emits --resume; without resume, emits --session-id", () => {
@@ -265,8 +261,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      "session-uuid",
-      true
+      { cliSessionId: "session-uuid", resume: true }
     );
     expect(resumed).toContain("--resume 'session-uuid'");
     expect(resumed).not.toContain("--session-id");
@@ -279,8 +274,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      "session-uuid",
-      false
+      { cliSessionId: "session-uuid", resume: false }
     );
     expect(fresh).toContain("--session-id 'session-uuid'");
     expect(fresh).not.toContain("--resume");
@@ -311,8 +305,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      "codex-session",
-      true
+      { cliSessionId: "codex-session", resume: true }
     );
     expect(cmd).toContain("'/opt/codex' resume 'codex-session'");
   });
@@ -367,11 +360,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      undefined,
-      false,
-      undefined,
-      false,
-      true
+      { autoReview: true }
     );
     expect(cmd).toContain("Autonomous Review is enabled");
   });
@@ -398,9 +387,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      undefined,
-      false,
-      "run_jobid"
+      { jobRunId: "run_jobid" }
     );
     expect(cmd).toContain("Dispatch job startup rules:");
     expect(cmd).toContain("job_log");
@@ -452,12 +439,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      undefined,
-      false,
-      undefined,
-      false,
-      false,
-      "--- DISPATCH: REVIEW ASSIGNMENT ---\nbegin work"
+      { initialPrompt: "--- DISPATCH: REVIEW ASSIGNMENT ---\nbegin work" }
     );
     expect(cmd).toContain(
       "'--verbose' -- '--- DISPATCH: REVIEW ASSIGNMENT ---\nbegin work'"
@@ -473,13 +455,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      undefined,
-      false,
-      undefined,
-      false,
-      false,
-      undefined,
-      "talk like a 1920s newspaper editor"
+      { personalityPrompt: "talk like a 1920s newspaper editor" }
     );
     const flagCount = (cmd.match(/--append-system-prompt/g) ?? []).length;
     expect(flagCount).toBe(2);
@@ -509,13 +485,7 @@ describe("buildAgentCommand", () => {
       "/tmp/media",
       SESSION,
       false,
-      undefined,
-      false,
-      undefined,
-      false,
-      false,
-      undefined,
-      "be terse"
+      { personalityPrompt: "be terse" }
     );
     expect(cmd).toContain("be terse");
   });
