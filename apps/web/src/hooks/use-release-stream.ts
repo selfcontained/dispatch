@@ -145,7 +145,18 @@ export type UseReleaseStreamResult = {
   setJob: React.Dispatch<React.SetStateAction<ReleaseJob | null>>;
 };
 
-export function useReleaseStream(): UseReleaseStreamResult {
+/**
+ * "create" backs the admin Releases page (cutting a new release); "update"
+ * backs the all-users Updates page (applying one). Each kind gets its own
+ * SSE connection to a dedicated endpoint so the two features never share
+ * job state — an in-flight release must never block, or be confused with,
+ * an in-flight update, or vice versa.
+ */
+export type ReleaseStreamKind = "create" | "update";
+
+export function useReleaseStream(
+  kind: ReleaseStreamKind
+): UseReleaseStreamResult {
   const [status, setStatus] = useState<ReleaseStatus | null>(null);
   const [job, setJob] = useState<ReleaseJob | null>(null);
   const [infoProgress, setInfoProgress] = useState<ReleaseProgress | null>(
@@ -205,7 +216,7 @@ export function useReleaseStream(): UseReleaseStreamResult {
   const connectStream = useCallback(() => {
     eventSourceRef.current?.close();
     const es = new EventSource(
-      `/api/v1/release/stream?clientId=${encodeURIComponent(clientIdRef.current)}`
+      `/api/v1/release/${kind}/stream?clientId=${encodeURIComponent(clientIdRef.current)}`
     );
     eventSourceRef.current = es;
 
@@ -236,7 +247,7 @@ export function useReleaseStream(): UseReleaseStreamResult {
       es.close();
       eventSourceRef.current = null;
     };
-  }, [startHealthPoll]);
+  }, [kind, startHealthPoll]);
 
   useEffect(() => {
     connectStream();

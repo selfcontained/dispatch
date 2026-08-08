@@ -97,11 +97,11 @@ describe("release runtime stream targeting", () => {
 
     const writeA = vi.fn();
     const writeB = vi.fn();
-    runtime.releaseStreamClients.add({
+    runtime.releaseUpdateStreamClients.add({
       clientId: "client-a",
       stream: { write: writeA } as never,
     });
-    runtime.releaseStreamClients.add({
+    runtime.releaseCreateStreamClients.add({
       clientId: "client-b",
       stream: { write: writeB } as never,
     });
@@ -187,7 +187,7 @@ describe("artifact activation", () => {
       writeReleaseCandidate: writeCandidate,
     });
     const job = updateJob(tag);
-    runtime.setActiveReleaseJob(job);
+    runtime.setActiveUpdateJob(job);
     await runtime.runUpdateJob(job);
 
     expect(job.phase).toBe("restarting");
@@ -241,7 +241,7 @@ describe("artifact activation", () => {
       writeReleaseCandidate: vi.fn(),
     });
     const job = updateJob(tag);
-    runtime.setActiveReleaseJob(job);
+    runtime.setActiveUpdateJob(job);
     await runtime.runUpdateJob(job);
 
     expect(job.phase).toBe("failed");
@@ -303,7 +303,7 @@ describe("artifact activation", () => {
         writeReleaseCandidate: vi.fn(),
       });
       const job = updateJob(tag);
-      runtime.setActiveReleaseJob(job);
+      runtime.setActiveUpdateJob(job);
       await runtime.runUpdateJob(job);
 
       expect(job.phase).toBe("failed");

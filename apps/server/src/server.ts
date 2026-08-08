@@ -132,7 +132,6 @@ import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
   createReleaseRuntime,
-  type ReleaseJob,
   RELEASE_VERSION_TYPES,
 } from "./server/release-runtime.js";
 import {
@@ -661,19 +660,24 @@ async function registerRoutes() {
     agentManager,
     worktreeLocationKey: WORKTREE_LOCATION_KEY,
     validWorktreeLocations: VALID_WORKTREE_LOCATIONS,
-    getActiveReleaseJob: releaseRuntime.getActiveReleaseJob,
-    setActiveReleaseJob: (job) => {
+    getActiveCreateJob: releaseRuntime.getActiveCreateJob,
+    setActiveCreateJob: releaseRuntime.setActiveCreateJob,
+    getActiveUpdateJob: releaseRuntime.getActiveUpdateJob,
+    setActiveUpdateJob: (job) => {
       // When an apply starts for the same tag the snapshot advertises,
       // clear the snapshot so the UI doesn't keep showing "vX available"
       // alongside the in-flight install.
       if (job && job.tag) {
         autoCheckRuntime.clearSnapshotIfMatchesTag(job.tag);
       }
-      releaseRuntime.setActiveReleaseJob(job as ReleaseJob | null);
+      releaseRuntime.setActiveUpdateJob(job);
     },
+    hasActiveCreateJob: releaseRuntime.hasActiveCreateJob,
+    hasActiveUpdateJob: releaseRuntime.hasActiveUpdateJob,
     getActiveAssistedUpdateLaunch: releaseRuntime.getActiveAssistedUpdateLaunch,
     setActiveAssistedUpdateLaunch: releaseRuntime.setActiveAssistedUpdateLaunch,
-    releaseStreamClients: releaseRuntime.releaseStreamClients,
+    releaseCreateStreamClients: releaseRuntime.releaseCreateStreamClients,
+    releaseUpdateStreamClients: releaseRuntime.releaseUpdateStreamClients,
     getAppVersionInfo: releaseRuntime.getAppVersionInfo,
     getGitHubRepo: releaseRuntime.getGitHubRepo,
     compareSemver: releaseRuntime.compareSemver,

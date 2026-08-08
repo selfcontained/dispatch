@@ -530,7 +530,7 @@ describe("release metadata route handling", () => {
       },
     });
 
-    // 1. Launch sets activeReleaseJob to update-assisted for v0.19.0
+    // 1. Launch sets the active update job to update-assisted for v0.19.0
     //    and creates the agent that will own the bearer token.
     const launchResp = await ctx.app.inject({
       method: "POST",
@@ -636,8 +636,8 @@ describe("release metadata route handling", () => {
       });
     } finally {
       // Always tear down the assisted job so a failed assertion doesn't
-      // leak `activeReleaseJob` into the next test (which then 409s on
-      // an unrelated active-job conflict).
+      // leak the active update job into the next test (which then 409s
+      // on an unrelated active-job conflict).
       await ctx.app.inject({
         method: "DELETE",
         url: "/api/v1/release/assisted/state",
@@ -869,6 +869,81 @@ describe("release metadata route handling", () => {
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({
       error: "ASSISTED_UPDATE_METADATA_INVALID",
+    });
+  });
+
+  describe("release-creation / update independence", () => {
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("allows /release/update while a release-creation job is in flight", async () => {
+      vi.stubEnv("DISPATCH_RELEASE_AUTHORING", "1");
+      mockReleaseCommands({
+        releaseViews: {
+          "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
+        },
+      });
+
+      const createResp = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release",
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { versionType: "patch" },
+      });
+      expect(createResp.statusCode).toBe(202);
+
+      // Before the fix, a non-terminal "create" job made /release/update
+      // 409 with "A release or update is already in progress." — release
+      // creation and update application now use independent active-job
+      // slots, so an in-flight release must not block an update apply.
+      const updateResp = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release/update",
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { tag: "v0.19.0" },
+      });
+      expect(updateResp.statusCode).toBe(202);
+      expect(updateResp.json()).toMatchObject({ ok: true });
+    });
+
+    it("blocks /release while an update job is in flight — the server is about to restart", async () => {
+      // This is a deliberately one-way gate (round-2 review #1290): an
+      // update job ends by restarting the server, so a release build
+      // started during that window would get killed mid-run with no
+      // clean way to surface that. Unlike the reverse direction, this
+      // asymmetry is intentional.
+      mockReleaseCommands({
+        releaseViews: {
+          "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
+        },
+      });
+      // Keep the update job stuck mid-deploy (never resolves) so it's
+      // still reliably non-terminal when /release is attempted — a real
+      // update job stays non-terminal for the same reason (in-flight
+      // network I/O) right up until the server restarts out from
+      // under it.
+      ensureCachedTarballMock.mockImplementation(() => new Promise(() => {}));
+
+      const updateResp = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release/update",
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { tag: "v0.19.0" },
+      });
+      expect(updateResp.statusCode).toBe(202);
+
+      vi.stubEnv("DISPATCH_RELEASE_AUTHORING", "1");
+      const createResp = await ctx.app.inject({
+        method: "POST",
+        url: "/api/v1/release",
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { versionType: "patch" },
+      });
+      expect(createResp.statusCode).toBe(409);
+      expect(createResp.json()).toMatchObject({
+        error: "An update is in progress; the server is about to restart.",
+      });
     });
   });
 });

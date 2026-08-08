@@ -164,11 +164,14 @@ async function computeAdminExtras(input: {
 }
 import { runCommand } from "../shared/lib/run-command.js";
 import type {
+  CreateJob,
   ReleaseJob,
+  ReleaseJobKind,
   ReleaseProgress,
   ReleaseStreamClient,
   ReleaseStreamEvent,
   ReleaseVersionType,
+  UpdateJob,
 } from "../server/release-runtime.js";
 import { RELEASE_VERSION_TYPES } from "../server/release-runtime.js";
 
@@ -184,11 +187,16 @@ type ReleaseRouteDeps = {
   agentManager: AgentManager;
   worktreeLocationKey: string;
   validWorktreeLocations: readonly string[];
-  getActiveReleaseJob: () => ReleaseJob | null;
-  setActiveReleaseJob: (job: ReleaseJob | null) => void;
+  getActiveCreateJob: () => CreateJob | null;
+  setActiveCreateJob: (job: CreateJob | null) => void;
+  getActiveUpdateJob: () => UpdateJob | null;
+  setActiveUpdateJob: (job: UpdateJob | null) => void;
+  hasActiveCreateJob: () => boolean;
+  hasActiveUpdateJob: () => boolean;
   getActiveAssistedUpdateLaunch: () => boolean;
   setActiveAssistedUpdateLaunch: (active: boolean) => void;
-  releaseStreamClients: Set<ReleaseStreamClient>;
+  releaseCreateStreamClients: Set<ReleaseStreamClient>;
+  releaseUpdateStreamClients: Set<ReleaseStreamClient>;
   getAppVersionInfo: () => Promise<{
     releaseTag: string | null;
     version: string | null;
@@ -220,7 +228,10 @@ type ReleaseRouteDeps = {
     currentTag: string | null;
   }) => string;
   hasActiveAssistedUpdateAgent: () => Promise<boolean>;
-  broadcastReleaseEvent: (event: ReleaseStreamEvent) => void;
+  broadcastReleaseEvent: (
+    kind: ReleaseJobKind,
+    event: ReleaseStreamEvent
+  ) => void;
   sendReleaseEventToClient: (
     clientId: string,
     event: ReleaseStreamEvent
@@ -314,14 +325,12 @@ async function handleReleaseInfo(
   // connected client and re-advertise the in-flight tag as "available",
   // undoing the clear-on-apply protection. The requesting client still
   // gets the fresh data in the response body either way.
-  const activeJob = deps.getActiveReleaseJob();
+  const activeUpdateJob = deps.getActiveUpdateJob();
   const isApplyingSnapshotTag =
-    activeJob !== null &&
-    (activeJob.jobType === "update" ||
-      activeJob.jobType === "update-assisted") &&
-    activeJob.tag !== null &&
-    activeJob.tag === snapshot.latestTag &&
-    !isTerminalPhase(activeJob.phase as AssistedPhase);
+    activeUpdateJob !== null &&
+    activeUpdateJob.tag !== null &&
+    activeUpdateJob.tag === snapshot.latestTag &&
+    !isTerminalPhase(activeUpdateJob.phase as AssistedPhase);
   if (!isApplyingSnapshotTag) {
     deps.autoCheck.setSnapshotForWriteThrough(snapshot);
   }
@@ -498,11 +507,19 @@ async function handleCreateRelease(
       error: `versionType must be one of: ${RELEASE_VERSION_TYPES.join(", ")}`,
     });
   }
-  if (
-    deps.getActiveReleaseJob() &&
-    !isTerminalPhase(deps.getActiveReleaseJob()!.phase as AssistedPhase)
-  ) {
+  if (deps.hasActiveCreateJob()) {
     return reply.code(409).send({ error: "A release is already in progress." });
+  }
+  // An update job ends by restarting the server — starting a release
+  // build during that window would get killed mid-run (possibly
+  // mid version-bump/push) with no clean way to surface that to the
+  // admin. This is a one-way gate: an in-flight release must not block
+  // an update apply (that's the point of the separate job slots), but
+  // an in-flight update legitimately blocks starting a release.
+  if (deps.hasActiveUpdateJob()) {
+    return reply.code(409).send({
+      error: "An update is in progress; the server is about to restart.",
+    });
   }
   try {
     await runCommand("gh", ["--version"]);
@@ -512,7 +529,7 @@ async function handleCreateRelease(
         "GitHub CLI (gh) is not available. Install it from https://cli.github.com",
     });
   }
-  const job: ReleaseJob = {
+  const job: CreateJob = {
     jobType: "create",
     versionType: body.versionType as ReleaseVersionType,
     phase: "preflight",
@@ -523,7 +540,7 @@ async function handleCreateRelease(
     error: null,
     progress: null,
   };
-  deps.setActiveReleaseJob(job);
+  deps.setActiveCreateJob(job);
   void deps.runReleaseJob(job);
   return reply.code(202).send({ ok: true });
 }
@@ -568,20 +585,20 @@ async function handleUpdate(
     }
   }
 
-  const activeReleaseJob = deps.getActiveReleaseJob();
+  const activeUpdateJob = deps.getActiveUpdateJob();
   if (
-    activeReleaseJob &&
-    !isTerminalPhase(activeReleaseJob.phase as AssistedPhase)
+    activeUpdateJob &&
+    !isTerminalPhase(activeUpdateJob.phase as AssistedPhase)
   ) {
     const isAssistedTakeover =
       releaseUpdateAgentId !== null &&
-      activeReleaseJob.jobType === "update-assisted" &&
-      activeReleaseJob.assisted?.agentId === releaseUpdateAgentId &&
-      activeReleaseJob.tag === tag;
+      activeUpdateJob.jobType === "update-assisted" &&
+      activeUpdateJob.assisted?.agentId === releaseUpdateAgentId &&
+      activeUpdateJob.tag === tag;
     if (!isAssistedTakeover) {
       return reply
         .code(409)
-        .send({ error: "A release or update is already in progress." });
+        .send({ error: "An update is already in progress." });
     }
   }
 
@@ -665,7 +682,7 @@ async function handleUpdate(
     }
   }
 
-  const job: ReleaseJob = {
+  const job: UpdateJob = {
     jobType: "update",
     versionType: null,
     phase: "fetching",
@@ -676,7 +693,7 @@ async function handleUpdate(
     error: null,
     progress: null,
   };
-  deps.setActiveReleaseJob(job);
+  deps.setActiveUpdateJob(job);
   void deps.runUpdateJob(job);
   return reply.code(202).send({ ok: true });
 }
@@ -706,14 +723,8 @@ async function handleAssistedLaunch(
     });
   }
 
-  const activeReleaseJob = deps.getActiveReleaseJob();
-  if (
-    activeReleaseJob &&
-    !isTerminalPhase(activeReleaseJob.phase as AssistedPhase)
-  ) {
-    return reply
-      .code(409)
-      .send({ error: "A release or update is already in progress." });
+  if (deps.hasActiveUpdateJob()) {
+    return reply.code(409).send({ error: "An update is already in progress." });
   }
   if (deps.getActiveAssistedUpdateLaunch()) {
     return reply.code(409).send({
@@ -849,7 +860,7 @@ async function handleAssistedLaunch(
       } else if (assistedMeta) {
         launchLog.push(`==> mode: ${assistedMeta.mode}`);
       }
-      deps.setActiveReleaseJob({
+      deps.setActiveUpdateJob({
         jobType: "update-assisted",
         versionType: null,
         phase: "inspect",
@@ -861,7 +872,7 @@ async function handleAssistedLaunch(
         progress: null,
         assisted: { ...assistedState, agentId: agent.id },
       });
-      deps.broadcastReleaseEvent({
+      deps.broadcastReleaseEvent("update", {
         type: "assisted",
         state: { ...assistedState, agentId: agent.id },
       });
@@ -905,21 +916,24 @@ async function handleAssistedPhase(
     return reply.code(409).send({ error: result.reason });
   }
 
-  const activeReleaseJob = deps.getActiveReleaseJob();
-  if (activeReleaseJob && activeReleaseJob.jobType === "update-assisted") {
-    activeReleaseJob.phase = result.state.phase;
-    activeReleaseJob.assisted = result.state;
-    if (result.state.error) activeReleaseJob.error = result.state.error;
+  const activeUpdateJob = deps.getActiveUpdateJob();
+  if (activeUpdateJob && activeUpdateJob.jobType === "update-assisted") {
+    activeUpdateJob.phase = result.state.phase;
+    activeUpdateJob.assisted = result.state;
+    if (result.state.error) activeUpdateJob.error = result.state.error;
     const persistedNote = result.state.notes[result.state.phase];
     const summary = persistedNote
       ? `==> phase ${result.state.phase}: ${persistedNote}`
       : `==> phase ${result.state.phase}`;
-    deps.appendReleaseLog(activeReleaseJob, summary);
-    deps.broadcastReleaseEvent({
+    deps.appendReleaseLog(activeUpdateJob, summary);
+    deps.broadcastReleaseEvent("update", {
       type: "phase",
-      phase: activeReleaseJob.phase,
+      phase: activeUpdateJob.phase,
     });
-    deps.broadcastReleaseEvent({ type: "assisted", state: result.state });
+    deps.broadcastReleaseEvent("update", {
+      type: "assisted",
+      state: result.state,
+    });
   }
 
   if (result.state.phase === "validate") {
@@ -928,7 +942,7 @@ async function handleAssistedPhase(
       targetTag: result.state.tag,
       healthUrl: deps.dispatchHealthUrl(),
     });
-    const activeJob = deps.getActiveReleaseJob();
+    const activeJob = deps.getActiveUpdateJob();
     if (activeJob && activeJob.jobType === "update-assisted") {
       activeJob.phase = post.phase;
       activeJob.assisted = post;
@@ -939,8 +953,11 @@ async function handleAssistedPhase(
           `  - ${check.ok ? "✓" : "✗"} ${check.name}: ${check.message}`
         );
       }
-      deps.broadcastReleaseEvent({ type: "phase", phase: activeJob.phase });
-      deps.broadcastReleaseEvent({ type: "assisted", state: post });
+      deps.broadcastReleaseEvent("update", {
+        type: "phase",
+        phase: activeJob.phase,
+      });
+      deps.broadcastReleaseEvent("update", { type: "assisted", state: post });
     }
   }
 
@@ -953,9 +970,9 @@ async function handleAssistedStateGet() {
 
 async function handleAssistedStateClear(deps: ReleaseRouteDeps) {
   await clearAssistedUpdateState();
-  const activeReleaseJob = deps.getActiveReleaseJob();
-  if (activeReleaseJob?.jobType === "update-assisted") {
-    deps.setActiveReleaseJob(null);
+  const activeUpdateJob = deps.getActiveUpdateJob();
+  if (activeUpdateJob?.jobType === "update-assisted") {
+    deps.setActiveUpdateJob(null);
   }
   return { ok: true };
 }
@@ -963,7 +980,8 @@ async function handleAssistedStateClear(deps: ReleaseRouteDeps) {
 async function handleReleaseStream(
   deps: ReleaseRouteDeps,
   request: FastifyRequest,
-  reply: FastifyReply
+  reply: FastifyReply,
+  kind: ReleaseJobKind
 ) {
   const clientId =
     typeof request.query === "object" &&
@@ -981,18 +999,26 @@ async function handleReleaseStream(
 
   const stream = reply.raw;
   const client = { clientId, stream };
-  deps.releaseStreamClients.add(client);
+  const clients =
+    kind === "create"
+      ? deps.releaseCreateStreamClients
+      : deps.releaseUpdateStreamClients;
+  clients.add(client);
   const heartbeat = setInterval(() => {
     stream.write(": keepalive\n\n");
   }, 20_000);
 
-  await deps.rehydrateActiveAssistedJob();
-
-  let snapshotJob = deps.getActiveReleaseJob();
-  if (snapshotJob && snapshotJob.jobType === "update-assisted") {
-    const persisted = await readAssistedUpdateState();
-    if (persisted) {
-      snapshotJob = { ...snapshotJob, assisted: persisted };
+  let snapshotJob: ReleaseJob | null;
+  if (kind === "create") {
+    snapshotJob = deps.getActiveCreateJob();
+  } else {
+    await deps.rehydrateActiveAssistedJob();
+    snapshotJob = deps.getActiveUpdateJob();
+    if (snapshotJob && snapshotJob.jobType === "update-assisted") {
+      const persisted = await readAssistedUpdateState();
+      if (persisted) {
+        snapshotJob = { ...snapshotJob, assisted: persisted };
+      }
     }
   }
   const snapshot: ReleaseStreamEvent = { type: "snapshot", job: snapshotJob };
@@ -1000,7 +1026,7 @@ async function handleReleaseStream(
 
   stream.on("close", () => {
     clearInterval(heartbeat);
-    deps.releaseStreamClients.delete(client);
+    clients.delete(client);
   });
 }
 
@@ -1047,7 +1073,10 @@ export async function registerReleaseRoutes(
   app.delete("/api/v1/release/assisted/state", () =>
     handleAssistedStateClear(deps)
   );
-  app.get("/api/v1/release/stream", (req, reply) =>
-    handleReleaseStream(deps, req, reply)
+  app.get("/api/v1/release/create/stream", (req, reply) =>
+    handleReleaseStream(deps, req, reply, "create")
+  );
+  app.get("/api/v1/release/update/stream", (req, reply) =>
+    handleReleaseStream(deps, req, reply, "update")
   );
 }

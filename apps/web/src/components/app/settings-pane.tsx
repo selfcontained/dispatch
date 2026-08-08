@@ -10,7 +10,7 @@ import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { PersonalitySettings } from "@/components/app/personality-settings";
 import { ReleasesAdmin } from "@/components/app/release-admin";
-import { UpdatesSection } from "@/components/app/release-manager";
+import { UpdatesSection } from "@/components/app/updates-section";
 import { SecuritySettings } from "@/components/app/security-settings";
 import { ServiceStatus } from "@/components/app/service-status";
 import { ServiceResourcesSettings } from "@/components/app/service-resources-settings";
@@ -150,7 +150,16 @@ export function SettingsContent({
   onSubsectionChange?: (subsection: string | null) => void;
   isAdmin: boolean;
 }): JSX.Element {
-  const releaseStream = useReleaseStream();
+  // Owned here, not inside UpdatesSection: this component stays mounted
+  // across settings-section switches, so an in-flight update's restart
+  // health-poll (client-side-only state — the server is briefly down and
+  // can't hand it back via a fresh snapshot) survives navigating away
+  // from the Updates tab and back. ReleasesAdmin has no equivalent
+  // requirement (release-creation never restarts the server, and the
+  // create job's log/progress lives server-side, so a fresh mount just
+  // gets it back via the stream snapshot) and keeps owning its own
+  // create-kind stream locally.
+  const updateStream = useReleaseStream("update");
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -209,7 +218,7 @@ export function SettingsContent({
         {activeSection === "connections" && <BrowserExtensionSettings />}
         {activeSection === "resources" && <ServiceResourcesSettings />}
         {activeSection === "updates" && (
-          <UpdatesSection stream={releaseStream} />
+          <UpdatesSection stream={updateStream} />
         )}
         {activeSection === "help" && (
           <DocsContent
@@ -218,9 +227,7 @@ export function SettingsContent({
             onSectionChange={onSubsectionChange}
           />
         )}
-        {activeSection === "releases" && isAdmin && (
-          <ReleasesAdmin stream={releaseStream} />
-        )}
+        {activeSection === "releases" && isAdmin && <ReleasesAdmin />}
       </div>
     </div>
   );
