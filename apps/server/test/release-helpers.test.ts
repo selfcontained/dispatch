@@ -8,7 +8,65 @@ import {
   createCheckIsAdmin,
   fetchReleaseMetadata,
   resolveAuthoringRepoDir,
+  createAuthoringRemoteRefresher,
 } from "../src/server/release-helpers.js";
+
+describe("createAuthoringRemoteRefresher", () => {
+  const okResult = { stdout: "", stderr: "", exitCode: 0 };
+
+  it("coalesces concurrent refreshes into one git fetch", async () => {
+    let resolveFetch!: (value: typeof okResult) => void;
+    const runCommand = vi.fn(
+      () =>
+        new Promise<typeof okResult>((resolve) => {
+          resolveFetch = resolve;
+        })
+    );
+    const refresher = createAuthoringRemoteRefresher(runCommand);
+    const first = refresher.refresh("/srv/authoring");
+    const second = refresher.refresh("/srv/authoring");
+    resolveFetch(okResult);
+    expect(await first).toEqual({ ok: true });
+    expect(await second).toEqual({ ok: true });
+    expect(runCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("reuses the last result within the TTL and refetches after it", async () => {
+    const runCommand = vi.fn().mockResolvedValue(okResult);
+    const refresher = createAuthoringRemoteRefresher(runCommand, { ttlMs: 20 });
+    await refresher.refresh("/srv/authoring");
+    await refresher.refresh("/srv/authoring");
+    expect(runCommand).toHaveBeenCalledTimes(1);
+    await new Promise((resolve) => setTimeout(resolve, 30));
+    await refresher.refresh("/srv/authoring");
+    expect(runCommand).toHaveBeenCalledTimes(2);
+  });
+
+  it("shares a failure within the TTL instead of hammering the remote", async () => {
+    const runCommand = vi.fn().mockRejectedValue(new Error("boom"));
+    const refresher = createAuthoringRemoteRefresher(runCommand, {
+      ttlMs: 60_000,
+    });
+    const first = await refresher.refresh("/srv/authoring");
+    const second = await refresher.refresh("/srv/authoring");
+    expect(first.ok).toBe(false);
+    expect(second.ok).toBe(false);
+    expect(runCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("tracks checkouts independently and clears on reset", async () => {
+    const runCommand = vi.fn().mockResolvedValue(okResult);
+    const refresher = createAuthoringRemoteRefresher(runCommand, {
+      ttlMs: 60_000,
+    });
+    await refresher.refresh("/a");
+    await refresher.refresh("/b");
+    expect(runCommand).toHaveBeenCalledTimes(2);
+    refresher.reset();
+    await refresher.refresh("/a");
+    expect(runCommand).toHaveBeenCalledTimes(3);
+  });
+});
 
 describe("resolveAuthoringRepoDir", () => {
   afterEach(() => {

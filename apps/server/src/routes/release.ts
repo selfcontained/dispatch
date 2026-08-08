@@ -13,6 +13,7 @@ import {
 } from "../agent-type-settings.js";
 import { getReleaseUpdateAgentId } from "../auth.js";
 import {
+  createAuthoringRemoteRefresher,
   GitHubApiError,
   isReleaseAuthoringEnabled,
   resolveAuthoringRepoDir,
@@ -66,12 +67,22 @@ import {
  * server's runtime dir may be git-free or pinned to a release tag. A fetch
  * failure is reported as fetchError, never as zero unreleased commits: the
  * dispatched release workflow builds current origin/main regardless of what
- * a stale local checkout shows.
+ * a stale local checkout shows. The fetch is coalesced/TTL'd via
+ * authoringRemoteRefresher, and the client-facing fetchError is a fixed
+ * message — git stderr can carry paths and remote/credential details, so
+ * the raw error goes to the server log only.
  */
+const AUTHORING_FETCH_ERROR_MESSAGE =
+  "Unable to refresh origin/main in the authoring checkout. See the server log for details.";
+
+export const authoringRemoteRefresher =
+  createAuthoringRemoteRefresher(runCommand);
+
 async function computeAdminExtras(input: {
   isAdmin: boolean;
   compareTag: string | null;
   authoringRepoDir: string;
+  log: FastifyBaseLogger;
 }): Promise<{
   unreleasedCount: number;
   commits: Array<{ sha: string; subject: string }>;
@@ -86,27 +97,19 @@ async function computeAdminExtras(input: {
       fetchError: null,
     };
   }
-  try {
-    await runCommand(
-      "git",
-      [
-        "-C",
-        input.authoringRepoDir,
-        "fetch",
-        "--quiet",
-        "--tags",
-        "origin",
-        "main",
-      ],
-      { timeoutMs: 30_000 }
+  const fetchResult = await authoringRemoteRefresher.refresh(
+    input.authoringRepoDir
+  );
+  if (!fetchResult.ok) {
+    input.log.warn(
+      { err: fetchResult.error, authoringRepoDir: input.authoringRepoDir },
+      "release/info: authoring checkout fetch failed"
     );
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
     return {
       unreleasedCount: 0,
       commits: [],
       refMissing: false,
-      fetchError: message,
+      fetchError: AUTHORING_FETCH_ERROR_MESSAGE,
     };
   }
   const refCheck = await runCommand(
@@ -328,13 +331,8 @@ async function handleReleaseInfo(
     isAdmin,
     compareTag: snapshot.absoluteLatestTag ?? snapshot.currentTag,
     authoringRepoDir: resolveAuthoringRepoDir(deps.serverDir),
+    log: request.log,
   });
-  if (extras.fetchError) {
-    request.log.warn(
-      { fetchError: extras.fetchError },
-      "release/info: authoring checkout fetch failed"
-    );
-  }
 
   return {
     currentTag: snapshot.currentTag,

@@ -214,9 +214,14 @@ describe("release metadata route handling", () => {
   describe("admin unreleased-commit enrichment", () => {
     const authoringDir = "/srv/authoring-checkout";
 
-    beforeEach(() => {
+    beforeEach(async () => {
       vi.stubEnv("DISPATCH_RELEASE_AUTHORING", "1");
       vi.stubEnv("DISPATCH_RELEASE_AUTHORING_REPO_DIR", authoringDir);
+      // The fetch coalescer caches per-checkout results for its TTL;
+      // clear it so each test observes its own fetch.
+      const { authoringRemoteRefresher } =
+        await import("../src/routes/release.js");
+      authoringRemoteRefresher.reset();
     });
 
     afterEach(() => {
@@ -321,12 +326,17 @@ describe("release metadata route handling", () => {
       });
 
       expect(response.statusCode).toBe(200);
-      expect(response.json()).toMatchObject({
+      const body = response.json() as { unreleasedFetchError: string };
+      expect(body).toMatchObject({
         isAdmin: true,
         unreleasedCount: 0,
         refMissing: false,
-        unreleasedFetchError: expect.stringContaining("could not resolve host"),
+        unreleasedFetchError: expect.stringContaining(
+          "Unable to refresh origin/main"
+        ),
       });
+      // Sanitized: raw git stderr must not reach the client.
+      expect(body.unreleasedFetchError).not.toContain("could not resolve host");
       const comparisonCalls = runCommandMock.mock.calls.filter(
         ([cmd, args]) =>
           cmd === "git" &&

@@ -62,13 +62,18 @@ const VERSION_CONFIG: Record<
 
 const CREATE_PHASES = ["preflight", "triggering", "watching", "done"] as const;
 
-/** Predict the tag the release workflow will cut for a version bump. */
+/**
+ * Predict the tag the release workflow will cut for a version bump.
+ * Exact stable tags only — the workflow bumps from main's package
+ * version, so a prerelease-suffixed base would predict the wrong tag;
+ * better to show no preview than a false promise.
+ */
 function bumpVersion(
   base: string | null,
   type: ReleaseVersionType
 ): string | null {
   if (!base) return null;
-  const match = /^v?(\d+)\.(\d+)\.(\d+)/.exec(base);
+  const match = /^v?(\d+)\.(\d+)\.(\d+)$/.exec(base);
   if (!match) return null;
   const major = Number(match[1]);
   const minor = Number(match[2]);
@@ -386,20 +391,21 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                 Checked {formatAgo(lastCheckedAt, now)}
               </span>
             )}
-            <button
-              type="button"
+            <Button
+              variant="ghost"
+              size="icon"
+              aria-label="Refresh unreleased changes"
+              title="Refresh"
               onClick={() => {
                 void fetchInfo();
                 void fetchReleases();
               }}
               disabled={infoLoading}
-              title="Refresh"
-              className="text-muted-foreground transition-colors hover:text-foreground disabled:opacity-50"
             >
               <RefreshCw
                 className={cn("h-3.5 w-3.5", infoLoading && "animate-spin")}
               />
-            </button>
+            </Button>
           </div>
         </div>
 
@@ -599,7 +605,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
             {releases.map((r) => (
               <div
                 key={r.tag}
-                className="flex items-center gap-3 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-2.5"
+                className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-white/[0.12] bg-white/[0.04] px-3 py-2.5"
               >
                 <span className="font-mono text-sm font-semibold text-foreground">
                   {r.tag}
@@ -617,7 +623,7 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
                 <span className="text-xs text-muted-foreground">
                   {formatDate(r.publishedAt)}
                 </span>
-                <div className="ml-auto flex items-center gap-2">
+                <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
                   {r.isPrerelease && confirmPromoteTag !== r.tag && (
                     <Button
                       size="sm"
