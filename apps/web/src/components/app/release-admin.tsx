@@ -13,6 +13,13 @@ import { OperationTakeover } from "@/components/app/release-operation-takeover";
 import { cleanError, formatDate } from "@/components/app/release-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import type {
   ReleaseInfo,
   ReleaseVersionType,
@@ -29,35 +36,11 @@ type GitHubRelease = {
 
 const VERSION_CONFIG: Record<
   ReleaseVersionType,
-  {
-    icon: typeof ShieldCheck;
-    color: string;
-    border: string;
-    bg: string;
-    hover: string;
-  }
+  { icon: typeof ShieldCheck; color: string }
 > = {
-  patch: {
-    icon: ShieldCheck,
-    color: "text-status-working",
-    border: "border-status-working/30",
-    bg: "bg-status-working/10",
-    hover: "hover:border-status-working/60 hover:bg-status-working/20",
-  },
-  minor: {
-    icon: Sparkles,
-    color: "text-status-done",
-    border: "border-status-done/30",
-    bg: "bg-status-done/10",
-    hover: "hover:border-status-done/60 hover:bg-status-done/20",
-  },
-  major: {
-    icon: Zap,
-    color: "text-violet-400",
-    border: "border-violet-500/30",
-    bg: "bg-violet-500/10",
-    hover: "hover:border-violet-500/60 hover:bg-violet-500/20",
-  },
+  patch: { icon: ShieldCheck, color: "text-status-working" },
+  minor: { icon: Sparkles, color: "text-status-done" },
+  major: { icon: Zap, color: "text-violet-400" },
 };
 
 const CREATE_PHASES = ["preflight", "triggering", "watching", "done"] as const;
@@ -493,89 +476,70 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
               </div>
             )}
 
-            <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap gap-2">
               {(["patch", "minor", "major"] as ReleaseVersionType[]).map(
                 (type) => {
-                  const {
-                    icon: Icon,
-                    color,
-                    border,
-                    bg,
-                    hover,
-                  } = VERSION_CONFIG[type];
+                  const { icon: Icon, color } = VERSION_CONFIG[type];
                   const nextTag = bumpVersion(bumpBase, type);
                   return (
-                    <button
+                    <Button
                       key={type}
-                      onClick={() =>
-                        setConfirmType((prev) => (prev === type ? null : type))
-                      }
+                      onClick={() => setConfirmType(type)}
                       disabled={releaseInFlight}
-                      className={cn(
-                        "flex flex-col items-center justify-center gap-1.5 rounded-lg border py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all disabled:cursor-not-allowed disabled:opacity-50",
-                        border,
-                        bg,
-                        !releaseInFlight && hover,
-                        confirmType === type && "ring-1 ring-white/30"
-                      )}
+                      className="gap-1.5"
                     >
-                      <Icon className={cn("h-5 w-5", color)} />
-                      <span
-                        className={cn(
-                          "font-mono text-sm font-bold capitalize",
-                          color
-                        )}
-                      >
-                        {type}
-                      </span>
+                      <Icon className={cn("h-3.5 w-3.5", color)} />
+                      <span className="capitalize">{type}</span>
                       {nextTag && (
-                        <span className="font-mono text-[11px] text-muted-foreground">
-                          → {nextTag}
+                        <span className="font-mono text-xs text-muted-foreground">
+                          {nextTag}
                         </span>
                       )}
-                    </button>
+                    </Button>
                   );
                 }
               )}
             </div>
 
-            {confirmType && !releaseInFlight && (
-              <div className="mt-3 flex flex-col gap-3 rounded-lg border border-white/[0.12] bg-white/[0.04] p-3 sm:flex-row sm:items-center">
-                <span className="text-sm text-foreground">
-                  Trigger a{" "}
-                  <span className="font-semibold capitalize">
-                    {confirmType}
-                  </span>{" "}
-                  release
-                  {bumpVersion(bumpBase, confirmType) && (
-                    <>
-                      {" "}
-                      as{" "}
-                      <span className="font-mono font-semibold">
-                        {bumpVersion(bumpBase, confirmType)}
-                      </span>
-                    </>
-                  )}
-                  ? This runs the release workflow against{" "}
-                  <span className="font-mono">main</span>.
-                </span>
-                <div className="flex shrink-0 items-center gap-2 sm:ml-auto">
+            <Dialog
+              open={confirmType !== null}
+              onOpenChange={(open) => {
+                if (!open) setConfirmType(null);
+              }}
+            >
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>
+                    Create {confirmType ?? ""} release
+                    {confirmType && bumpVersion(bumpBase, confirmType) && (
+                      <>
+                        {" "}
+                        <span className="font-mono">
+                          {bumpVersion(bumpBase, confirmType)}
+                        </span>
+                      </>
+                    )}
+                  </DialogTitle>
+                  <DialogDescription>
+                    This triggers the release workflow against{" "}
+                    <span className="font-mono">main</span> on GitHub.
+                  </DialogDescription>
+                </DialogHeader>
+                <div className="flex justify-end gap-2">
+                  <Button variant="ghost" onClick={() => setConfirmType(null)}>
+                    Cancel
+                  </Button>
                   <Button
-                    size="sm"
-                    onClick={() => void handleRelease(confirmType)}
+                    variant="primary"
+                    onClick={() => {
+                      if (confirmType) void handleRelease(confirmType);
+                    }}
                   >
                     Release
                   </Button>
-                  <Button
-                    size="sm"
-                    variant="ghost"
-                    onClick={() => setConfirmType(null)}
-                  >
-                    Cancel
-                  </Button>
                 </div>
-              </div>
-            )}
+              </DialogContent>
+            </Dialog>
           </div>
         )}
 
