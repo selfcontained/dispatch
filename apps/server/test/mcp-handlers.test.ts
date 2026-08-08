@@ -848,6 +848,19 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("passes a custom model ID through after trimming it", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "Use my account model.",
+        type: "claude",
+        model: " claude-fable-5 ",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "claude-fable-5" })
+      );
+    });
+
     it("throws when parent agent is not found", async () => {
       deps.agentManager.getAgent.mockResolvedValue(null);
       await expect(

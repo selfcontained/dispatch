@@ -1,9 +1,11 @@
 # Agent model catalog
 
-Dispatch exposes a source-controlled model catalog for its Codex, Claude, and
-Cursor launchers in `apps/server/src/shared/agent-models.ts`. The catalog is
-the allowlist used by the create-agent API and `dispatch_launch_agent` MCP tool.
-Omitting a model uses the CLI default.
+Dispatch exposes a source-controlled suggested model catalog for its Codex,
+Claude, and Cursor launchers in `apps/server/src/shared/agent-models.ts`.
+Suggestions make common choices convenient, but Dispatch accepts any non-empty
+model ID and passes it to the selected provider CLI. The provider CLI and
+account determine whether an ID is available. Omitting a model uses the CLI
+default.
 
 ## Maintenance sources
 
@@ -16,8 +18,9 @@ Omitting a model uses the CLI default.
 
 Use only provider documentation. Confirm that a candidate both appears in the
 provider's current catalog and is accepted by that CLI's `--model` flag. Keep
-the `Default` UI option untouched: it deliberately sends no model flag. Update
-the catalog, its labels, and this document if a source URL changes.
+the empty `Default (CLI setting)` UI option untouched: it deliberately sends no
+model flag. Update the catalog, its labels, and this document if a source URL
+changes.
 
 When removing an id, first check for active agents using it: selected models
 persist in `agents.model` and are passed through unchanged on resume. Existing

@@ -3,7 +3,7 @@ import type { AgentType } from "./agent-types.js";
 export type AgentModelOption = { id: string; label: string };
 
 /**
- * Source-controlled model catalog for the launchers Dispatch supports.
+ * Source-controlled suggested model catalog for the launchers Dispatch supports.
  *
  * Maintenance sources (review before changing this catalog):
  * - Codex: https://learn.chatgpt.com/docs/models.md
@@ -41,19 +41,13 @@ export function getAgentModelOptions(
 }
 
 export function validateAgentModel(
-  agentType: AgentType,
+  _agentType: AgentType,
   model: string | undefined
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
-  if (
-    getAgentModelOptions(agentType).some(
-      (option) => option.id === normalizedModel
-    )
-  ) {
-    return normalizedModel;
-  }
-  throw new Error(
-    `Model "${normalizedModel}" is not supported for ${agentType}. Choose a configured model or omit model for the CLI default.`
-  );
+  // The provider CLI is authoritative for model availability. The catalog only
+  // supplies UI suggestions, so account-specific and newly released IDs pass
+  // through unchanged.
+  return normalizedModel;
 }

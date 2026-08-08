@@ -125,6 +125,7 @@ describe("registerAgentLaunchTools", () => {
         createNewBranch: true,
         baseBranch: "main",
         fullAccess: false,
+        model: "claude-fable-5",
       });
 
       expect(ctx.launchAgent).toHaveBeenCalledWith(AGENT_ID, {
@@ -135,6 +136,7 @@ describe("registerAgentLaunchTools", () => {
         createNewBranch: true,
         baseBranch: "main",
         fullAccess: false,
+        model: "claude-fable-5",
       });
     });
 

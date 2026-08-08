@@ -113,16 +113,6 @@ export function useCreateAgentForm({
   );
 
   useEffect(() => {
-    if (!modelCatalog) return;
-    if (
-      createModel &&
-      !modelOptions.some((option) => option.id === createModel)
-    ) {
-      setCreateModel(null);
-    }
-  }, [createModel, modelCatalog, modelOptions, setCreateModel]);
-
-  useEffect(() => {
     setCreateWorktreeBranch("");
   }, [createCwd]);
 
@@ -216,9 +206,7 @@ export function useCreateAgentForm({
           name: createName.trim(),
           cwd,
           type: createType,
-          model: modelOptions.some((option) => option.id === createModel)
-            ? createModel
-            : undefined,
+          model: createModel?.trim() || undefined,
           fullAccess: createFullAccess,
           autoReview: createAutoReview,
           useWorktree: submitUseWorktree,

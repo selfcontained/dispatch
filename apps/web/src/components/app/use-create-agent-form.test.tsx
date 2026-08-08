@@ -465,13 +465,13 @@ describe("handleSubmit", () => {
     expect(typeof call![1].body).toBe("string");
   });
 
-  it("omits a persisted model until the catalog confirms it", async () => {
+  it("submits a persisted custom model even when absent from suggestions", async () => {
     jotaiStore.set(createAgentModelPrefAtom("claude:/repo/app"), "retired");
     const { result } = await setup({ initialAgentType: "claude" });
 
     await act(async () => result.current.handleSubmit(submitEvent()));
 
-    expect(agentsPostJson().model).toBeUndefined();
+    expect(agentsPostJson().model).toBe("retired");
   });
 
   it("records last-used values and hands the created agent to onCreated", async () => {

@@ -1,10 +1,4 @@
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Input } from "@/components/ui/input";
 
 type AgentModelOption = { id: string; label: string };
 
@@ -21,6 +15,7 @@ export function AgentModelSelect({
   onChange,
   loading = false,
 }: AgentModelSelectProps): JSX.Element {
+  const listId = "create-agent-model-suggestions";
   return (
     <div className="space-y-1">
       <label
@@ -29,35 +24,26 @@ export function AgentModelSelect({
       >
         Model
       </label>
-      <Select
-        value={loading ? "__loading__" : (value ?? "__default__")}
-        onValueChange={(nextValue) =>
-          onChange(nextValue === "__default__" ? null : nextValue)
-        }
-      >
-        <SelectTrigger
-          id="create-agent-model"
-          data-testid="create-agent-model"
-          disabled={loading}
-        >
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          {loading ? (
-            <SelectItem value="__loading__" disabled>
-              Loading models…
-            </SelectItem>
-          ) : (
-            <SelectItem value="__default__">Default (CLI setting)</SelectItem>
-          )}
-          {!loading &&
-            options.map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.label}
-              </SelectItem>
-            ))}
-        </SelectContent>
-      </Select>
+      <Input
+        id="create-agent-model"
+        data-testid="create-agent-model"
+        value={value ?? ""}
+        onChange={(event) => onChange(event.target.value || null)}
+        placeholder={loading ? "Loading suggestions…" : "Default (CLI setting)"}
+        list={loading ? undefined : listId}
+        disabled={loading}
+      />
+      {!loading ? (
+        <datalist id={listId}>
+          {options.map((option) => (
+            <option key={option.id} value={option.id} label={option.label} />
+          ))}
+        </datalist>
+      ) : null}
+      <p className="text-xs text-muted-foreground">
+        Suggested IDs are shown as you type. Your provider CLI validates custom
+        model availability.
+      </p>
     </div>
   );
 }
