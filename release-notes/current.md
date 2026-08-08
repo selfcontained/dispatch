@@ -1,6 +1,5 @@
 ## What's Changed
-* Fix Releases page unreleased-commit count on stale or git-free installs by @selfcontained in https://github.com/selfcontained/dispatch/pull/897
-* Add brain entry deletion controls by @selfcontained in https://github.com/selfcontained/dispatch/pull/900
+* Allow custom agent model IDs by @selfcontained in https://github.com/selfcontained/dispatch/pull/901
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.32.4...v0.32.5
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.32.5...v0.32.6
