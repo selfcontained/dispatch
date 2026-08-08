@@ -331,10 +331,12 @@ export function ListCard({
   list,
   repoRoot,
   agentId,
+  onDelete,
 }: {
   list: BrainList;
   repoRoot: string;
   agentId?: string;
+  onDelete?: () => void;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(list.itemCount <= 5);
   const { data } = useBrainListItems(repoRoot, list.collection, list.name, {
@@ -357,6 +359,12 @@ export function ListCard({
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
           {agentId ? <AgentIdLabel agentId={agentId} /> : null}
           {items.length > 0 ? <CopyButton value={allItemValues} /> : null}
+          {onDelete ? (
+            <DeleteButton
+              label={`Delete list ${list.name}`}
+              onClick={onDelete}
+            />
+          ) : null}
           <span>{list.itemCount} items</span>
           <RelativeTime iso={list.updatedAt} />
         </div>

@@ -238,6 +238,15 @@ test.describe("Automations Brains page", () => {
       page.getByRole("button", { name: "Delete event build" })
     ).not.toBeVisible();
 
+    await page.getByRole("button", { name: "Delete list task-queue" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Delete task-queue?" })
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Delete permanently" }).click();
+    await expect(
+      page.getByText("task-queue", { exact: true })
+    ).not.toBeVisible();
+
     await page.getByRole("button", { name: "config" }).click();
     await page.getByRole("button", { name: "Clear collection" }).click();
     await expect(
@@ -247,5 +256,16 @@ test.describe("Automations Brains page", () => {
     await expect(
       page.getByText("No brain data in this collection yet.")
     ).toBeVisible();
+
+    await page.getByRole("button", { name: "Clear project" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Clear this project?" })
+    ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-project-delete-confirmation.png",
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Delete permanently" }).click();
+    await expect(page).toHaveURL(/\/automations\/brains$/);
   });
 });

@@ -58,6 +58,34 @@ describe("GET /api/v1/brain/projects", () => {
   });
 });
 
+describe("DELETE /api/v1/brain/projects", () => {
+  it("deletes every collection and entry type for one project", async () => {
+    await brainStore.storeObject(REPO_ROOT, "agt_test", {
+      collection: "one",
+      name: "object",
+      value: {},
+    });
+    await brainStore.pushListItems(REPO_ROOT, "agt_test", {
+      collection: "two",
+      name: "list",
+      items: [{ value: 1 }],
+    });
+    await brainStore.appendEvent(REPO_ROOT, "agt_test", {
+      collection: "two",
+      kind: "event",
+      value: {},
+    });
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/projects?repoRoot=${encodeURIComponent(REPO_ROOT)}`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ objects: 1, lists: 1, events: 1 });
+    expect(await brainStore.listProjects()).toEqual([]);
+  });
+});
+
 describe("GET /api/v1/brain/collections", () => {
   it("returns 400 without repoRoot", async () => {
     const res = await authedInject("GET", "/api/v1/brain/collections");
@@ -402,6 +430,26 @@ describe("GET /api/v1/brain/lists/:collection/:name", () => {
     expect(body.items[0].value).toEqual({ i: 1 });
     expect(body.items[1].value).toEqual({ i: 2 });
     expect(body.totalCount).toBe(5);
+  });
+});
+
+describe("DELETE /api/v1/brain/lists/:collection/:name", () => {
+  it("deletes a list and its items", async () => {
+    await brainStore.pushListItems(REPO_ROOT, "agt_test", {
+      collection: "queue",
+      name: "removable",
+      items: [{ task: "clean" }],
+    });
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/lists/queue/removable?repoRoot=${encodeURIComponent(REPO_ROOT)}`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: true });
+    expect(
+      await brainStore.getList(REPO_ROOT, "queue", "removable")
+    ).toBeNull();
   });
 });
 

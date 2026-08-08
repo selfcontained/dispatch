@@ -16,6 +16,17 @@ export async function registerBrainRoutes(
     return await brainStore.listProjects();
   });
 
+  app.delete<{ Querystring: { repoRoot?: string } }>(
+    "/api/v1/brain/projects",
+    async (request, reply) => {
+      const { repoRoot } = request.query;
+      if (!repoRoot) {
+        return reply.code(400).send({ error: "repoRoot is required." });
+      }
+      return await brainStore.deleteProject(repoRoot);
+    }
+  );
+
   app.get<{ Querystring: { repoRoot?: string } }>(
     "/api/v1/brain/collections",
     async (request, reply) => {
@@ -129,6 +140,23 @@ export async function registerBrainRoutes(
       offset: offset ? parseInt(offset, 10) : undefined,
       order: order === "asc" ? "asc" : "desc",
     });
+  });
+
+  app.delete<{
+    Params: { collection: string; name: string };
+    Querystring: { repoRoot?: string };
+  }>("/api/v1/brain/lists/:collection/:name", async (request, reply) => {
+    const { repoRoot } = request.query;
+    if (!repoRoot) {
+      return reply.code(400).send({ error: "repoRoot is required." });
+    }
+    return {
+      deleted: await brainStore.deleteList(
+        repoRoot,
+        request.params.collection,
+        request.params.name
+      ),
+    };
   });
 
   app.get<{

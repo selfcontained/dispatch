@@ -19,6 +19,7 @@ import {
   useBrainEvents,
   useBrainActions,
   type BrainObject,
+  type BrainList,
   type BrainEvent,
 } from "@/hooks/use-brain";
 import {
@@ -228,18 +229,46 @@ function BrainProjectDetail({
   const { data: collections = [], isLoading: collectionsLoading } =
     useBrainCollections(repoRoot);
   const [search, setSearch] = useState("");
+  const [projectDeleteOpen, setProjectDeleteOpen] = useState(false);
+  const { deleteProject } = useBrainActions();
+
+  const confirmProjectDelete = async () => {
+    try {
+      const result = await deleteProject.mutateAsync({ repoRoot });
+      toast.success(
+        `Deleted ${result.objects + result.lists + result.events} entries from this project.`
+      );
+      setProjectDeleteOpen(false);
+      navigate("/automations/brains", { replace: true });
+    } catch {
+      toast.error("Could not delete project brain data.");
+    }
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-background">
       <div className="border-b border-border px-4 py-3 md:px-6">
-        <h2 className="truncate text-xl font-semibold">
-          {repoBasename(repoRoot)}
-        </h2>
-        <div
-          className="mt-0.5 truncate font-mono text-xs text-muted-foreground"
-          title={repoRoot}
-        >
-          {repoRoot}
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-xl font-semibold">
+              {repoBasename(repoRoot)}
+            </h2>
+            <div
+              className="mt-0.5 truncate font-mono text-xs text-muted-foreground"
+              title={repoRoot}
+            >
+              {repoRoot}
+            </div>
+          </div>
+          <Button
+            type="button"
+            variant="ghost-destructive"
+            size="sm"
+            onClick={() => setProjectDeleteOpen(true)}
+          >
+            <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+            Clear project
+          </Button>
         </div>
       </div>
 
@@ -321,6 +350,35 @@ function BrainProjectDetail({
         collection={selectedCollection}
         search={search}
       />
+      <Dialog open={projectDeleteOpen} onOpenChange={setProjectDeleteOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Clear this project?</DialogTitle>
+            <DialogDescription>
+              This permanently deletes every object, list, and event in all
+              collections for this project.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex justify-end gap-2">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={() => setProjectDeleteOpen(false)}
+              disabled={deleteProject.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="destructive"
+              onClick={() => void confirmProjectDelete()}
+              disabled={deleteProject.isPending}
+            >
+              {deleteProject.isPending ? "Deleting..." : "Delete permanently"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -389,9 +447,11 @@ function BrainCollectionView({
     repoRoot,
     eventFilters
   );
-  const { deleteObject, deleteEvent, deleteCollection } = useBrainActions();
+  const { deleteObject, deleteList, deleteEvent, deleteCollection } =
+    useBrainActions();
   const [deleteTarget, setDeleteTarget] = useState<
     | { type: "object"; object: BrainObject }
+    | { type: "list"; list: BrainList }
     | { type: "event"; event: BrainEvent }
     | { type: "collection"; collection: string }
     | null
@@ -464,6 +524,13 @@ function BrainCollectionView({
           name: deleteTarget.object.name,
         });
         toast.success("Object deleted.");
+      } else if (deleteTarget.type === "list") {
+        await deleteList.mutateAsync({
+          repoRoot,
+          collection: deleteTarget.list.collection,
+          name: deleteTarget.list.name,
+        });
+        toast.success("List deleted.");
       } else if (deleteTarget.type === "event") {
         await deleteEvent.mutateAsync({ repoRoot, id: deleteTarget.event.id });
         toast.success("Event deleted.");
@@ -484,6 +551,7 @@ function BrainCollectionView({
 
   const deleting =
     deleteObject.isPending ||
+    deleteList.isPending ||
     deleteEvent.isPending ||
     deleteCollection.isPending;
 
@@ -540,6 +608,7 @@ function BrainCollectionView({
               list={list}
               repoRoot={repoRoot}
               agentId={list.updatedByAgentId}
+              onDelete={() => setDeleteTarget({ type: "list", list })}
             />
           ))}
         </CollapsibleSection>
@@ -577,6 +646,7 @@ function DeleteBrainDialog({
 }: {
   target:
     | { type: "object"; object: BrainObject }
+    | { type: "list"; list: BrainList }
     | { type: "event"; event: BrainEvent }
     | { type: "collection"; collection: string }
     | null;
@@ -587,9 +657,11 @@ function DeleteBrainDialog({
   const title =
     target?.type === "object"
       ? `Delete ${target.object.name}?`
-      : target?.type === "event"
-        ? `Delete ${target.event.kind} event?`
-        : `Clear ${target?.collection ?? "collection"}?`;
+      : target?.type === "list"
+        ? `Delete ${target.list.name}?`
+        : target?.type === "event"
+          ? `Delete ${target.event.kind} event?`
+          : `Clear ${target?.collection ?? "collection"}?`;
   const description =
     target?.type === "collection"
       ? `This permanently deletes all objects, lists, and events in “${target.collection}” for this project.`

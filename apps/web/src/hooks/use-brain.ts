@@ -201,6 +201,23 @@ export function useBrainActions() {
     onSuccess: invalidate,
   });
 
+  const deleteList = useMutation({
+    mutationFn: ({
+      repoRoot,
+      collection,
+      name,
+    }: {
+      repoRoot: string;
+      collection: string;
+      name: string;
+    }) =>
+      api<{ deleted: boolean }>(
+        `/api/v1/brain/lists/${encodeURIComponent(collection)}/${encodeURIComponent(name)}?${new URLSearchParams({ repoRoot })}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: invalidate,
+  });
+
   const deleteCollection = useMutation({
     mutationFn: ({
       repoRoot,
@@ -216,5 +233,20 @@ export function useBrainActions() {
     onSuccess: invalidate,
   });
 
-  return { deleteObject, deleteEvent, deleteCollection };
+  const deleteProject = useMutation({
+    mutationFn: ({ repoRoot }: { repoRoot: string }) =>
+      api<{ objects: number; lists: number; events: number }>(
+        `/api/v1/brain/projects?${new URLSearchParams({ repoRoot })}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: invalidate,
+  });
+
+  return {
+    deleteObject,
+    deleteList,
+    deleteEvent,
+    deleteCollection,
+    deleteProject,
+  };
 }

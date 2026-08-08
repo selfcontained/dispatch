@@ -66,6 +66,8 @@ export type BrainCollectionDeleteResult = {
   events: number;
 };
 
+export type BrainDeleteResult = BrainCollectionDeleteResult;
+
 export type BrainAgentActivity = {
   objects: BrainObject[];
   lists: (BrainList & { itemCount: number })[];
@@ -291,25 +293,11 @@ export class BrainStore {
     repoRoot: string,
     collection: string
   ): Promise<BrainCollectionDeleteResult> {
-    return this.withTransaction(async (client) => {
-      const objects = await client.query(
-        `DELETE FROM brain_objects WHERE repo_root = $1 AND collection = $2`,
-        [repoRoot, collection]
-      );
-      const lists = await client.query(
-        `DELETE FROM brain_lists WHERE repo_root = $1 AND collection = $2`,
-        [repoRoot, collection]
-      );
-      const events = await client.query(
-        `DELETE FROM brain_events WHERE repo_root = $1 AND collection = $2`,
-        [repoRoot, collection]
-      );
-      return {
-        objects: objects.rowCount ?? 0,
-        lists: lists.rowCount ?? 0,
-        events: events.rowCount ?? 0,
-      };
-    });
+    return this.deleteEntries(repoRoot, "AND collection = $2", [collection]);
+  }
+
+  async deleteProject(repoRoot: string): Promise<BrainDeleteResult> {
+    return this.deleteEntries(repoRoot, "", []);
   }
 
   // ── Lists ────────────────────────────────────────────────────────
@@ -828,6 +816,33 @@ export class BrainStore {
       params
     );
     return result.rows.map(mapEvent);
+  }
+
+  private async deleteEntries(
+    repoRoot: string,
+    condition: string,
+    extraParams: unknown[]
+  ): Promise<BrainDeleteResult> {
+    return this.withTransaction(async (client) => {
+      const params = [repoRoot, ...extraParams];
+      const objects = await client.query(
+        `DELETE FROM brain_objects WHERE repo_root = $1 ${condition}`,
+        params
+      );
+      const lists = await client.query(
+        `DELETE FROM brain_lists WHERE repo_root = $1 ${condition}`,
+        params
+      );
+      const events = await client.query(
+        `DELETE FROM brain_events WHERE repo_root = $1 ${condition}`,
+        params
+      );
+      return {
+        objects: objects.rowCount ?? 0,
+        lists: lists.rowCount ?? 0,
+        events: events.rowCount ?? 0,
+      };
+    });
   }
 
   private async withTransaction<T>(
