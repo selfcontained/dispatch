@@ -1,4 +1,12 @@
-import { app, shutdown, start } from "./server.js";
+import { restoreLegacyMacLaunchAgentEnvironment } from "./startup/shell-environment.js";
+
+const shellEnvironment = await restoreLegacyMacLaunchAgentEnvironment();
+
+const { app, shutdown, start } = await import("./server.js");
+
+if (shellEnvironment.state === "resolved") {
+  app.log.info({ shellEnvironment }, "Shell environment restored");
+}
 
 // Global error handlers — prevent silent crashes from background tasks
 process.on("unhandledRejection", (reason) => {

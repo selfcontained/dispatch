@@ -14,6 +14,14 @@ describe("install-dispatch systemd unit", () => {
     expect(script).toContain("KillMode=process");
   });
 
+  it("does not add a shell-environment marker to either service", async () => {
+    const script = await readFile(
+      path.join(REPO_ROOT, "bin", "install-dispatch.sh"),
+      "utf8"
+    );
+    expect(script).not.toContain("DISPATCH_SHELL_ENV");
+  });
+
   it("requires existing Linux services to adopt the safe kill mode before update", async () => {
     const migration = await readFile(
       path.join(
