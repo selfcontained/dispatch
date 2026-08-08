@@ -112,6 +112,14 @@ export function useCreateAgentForm({
     [createType, modelCatalog]
   );
 
+  const handleCreateUseWorktreeChange = useCallback(
+    (useWorktree: boolean) => {
+      setCreateUseWorktree(useWorktree);
+      if (!useWorktree) setCreateNewBranch(false);
+    },
+    [setCreateNewBranch]
+  );
+
   useEffect(() => {
     if (!modelCatalog) return;
     // Anything stored that the catalog no longer offers (a retired id, or an
@@ -312,7 +320,7 @@ export function useCreateAgentForm({
     createCwd,
     setCreateCwd,
     createUseWorktree,
-    setCreateUseWorktree,
+    setCreateUseWorktree: handleCreateUseWorktreeChange,
     createWorktreeBranch,
     setCreateWorktreeBranch,
     initialPrompt,

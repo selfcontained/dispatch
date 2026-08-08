@@ -351,6 +351,16 @@ describe("handleSubmit", () => {
     expect(result.current.creating).toBe(false);
   });
 
+  it("clears the new branch preference when worktree creation is disabled", async () => {
+    const { result } = await setup();
+
+    expect(result.current.createNewBranch).toBe(true);
+    act(() => result.current.setCreateUseWorktree(false));
+
+    expect(result.current.createUseWorktree).toBe(false);
+    expect(result.current.createNewBranch).toBe(false);
+  });
+
   it("sends the default JSON payload and omits context-only fields on the config step", async () => {
     const { result } = await setup();
     act(() => result.current.setCreateName("  my agent  "));
