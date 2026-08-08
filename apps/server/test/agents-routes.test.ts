@@ -102,7 +102,7 @@ describe("POST /api/v1/agents (create)", () => {
     expect(agent.type).toBe("claude");
   });
 
-  it("normalizes a supported model and rejects one for another runtime", async () => {
+  it("normalizes configured model IDs and rejects unsupported ones", async () => {
     const agent = await createAgent({
       type: "codex",
       model: " gpt-5.6-terra ",
@@ -113,7 +113,7 @@ describe("POST /api/v1/agents (create)", () => {
       cwd: "/tmp",
       useWorktree: false,
       type: "claude",
-      model: "gpt-5.6-terra",
+      model: "not-a-real-model",
     });
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toContain("not supported for claude");

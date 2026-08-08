@@ -14,10 +14,24 @@ Omitting a model uses the CLI default.
 
 ## Updating the catalog
 
-Use only provider documentation. Confirm that a candidate both appears in the
-provider's current catalog and is accepted by that CLI's `--model` flag. Keep
-the `Default` UI option untouched: it deliberately sends no model flag. Update
-the catalog, its labels, and this document if a source URL changes.
+Use only the provider documentation linked above. Before adding an ID, verify
+that it is accepted by the relevant launcher, not merely available in a
+provider API:
+
+- **Codex:** Check the Codex model-selection documentation for IDs supported by
+  the installed Codex CLI. Include current coding-capable model aliases and
+  variants, but exclude API-only models such as embeddings, image, audio, and
+  moderation models.
+- **Claude Code:** Check the Claude Code CLI reference. It supports the moving
+  `opus` and `sonnet` aliases plus documented full model IDs; add a full ID when
+  it is available to the intended account.
+- **Cursor Agent:** Check both the Cursor CLI parameter reference and Cursor's
+  model catalog, because availability can differ by Cursor plan and rollout.
+
+Keep the `Default` UI option untouched: it deliberately sends no model flag.
+Update the catalog, its labels, and this document when a provider adds, retires,
+or renames a model. Dispatch rejects IDs outside this curated catalog; a
+freeform model-ID setting is a separate future feature.
 
 When removing an id, first check for active agents using it: selected models
 persist in `agents.model` and are passed through unchanged on resume. Existing

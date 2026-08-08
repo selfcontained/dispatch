@@ -17,14 +17,21 @@ export const AGENT_MODEL_OPTIONS: Partial<
   Record<AgentType, readonly AgentModelOption[]>
 > = {
   codex: [
+    { id: "gpt-5.6", label: "GPT-5.6 (Sol alias)" },
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+    { id: "gpt-5.5", label: "GPT-5.5" },
+    { id: "gpt-5.4", label: "GPT-5.4" },
+    { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
+    { id: "gpt-5.4-nano", label: "GPT-5.4 nano" },
+    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
   ],
   // Claude Code documents these moving aliases for its latest models.
   claude: [
     { id: "opus", label: "Opus" },
     { id: "sonnet", label: "Sonnet" },
+    { id: "claude-fable-5", label: "Claude Fable 5" },
   ],
   cursor: [
     { id: "auto", label: "Auto" },
