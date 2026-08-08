@@ -15,6 +15,13 @@ export const REQUIRED_CHECK_NAMES = [
   "service_restarted",
   "health_endpoint",
   "version_converged",
+  // Proves the actual running executable's baked-in version (via the
+  // X-Dispatch-Version response header), not what release.json claims.
+  // Runtimes before v0.33 reject unknown check names when parsing update
+  // migration manifests, so keep this OUT of update-migrations/*.yaml
+  // requiredChecks until the pre-v0.33 population is gone — the assisted
+  // framework enforces it implicitly (see runAndRecordChecks).
+  "running_version",
 ] as const;
 export type RequiredCheckName = (typeof REQUIRED_CHECK_NAMES)[number];
 

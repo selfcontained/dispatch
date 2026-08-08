@@ -16,7 +16,6 @@ import {
   type AssistedUpdateState,
 } from "./assisted-update-store.js";
 import { runRequiredChecks, type CheckContext } from "./release-checks.js";
-import type { RequiredCheckName } from "./release-metadata.js";
 import type { UpdateMigrationManifest } from "./update-migrations.js";
 import { markMigrationsApplied } from "./applied-migrations-store.js";
 import { clearEvaluatorCache } from "./update-migrations-evaluator.js";
@@ -74,9 +73,17 @@ export async function buildAssistedUpdateContext(
       "buildAssistedUpdateContext requires either migrations or metadata"
     );
   }
-  const requiredChecks: RequiredCheckName[] = migrations
+  const requiredChecks: string[] = migrations
     ? unionMigrationChecks(migrations)
     : normalizeRequiredChecks(metadata!);
+  // Always prove the running executable's version, even when no manifest
+  // asks for it. Manifests can't name this check yet (pre-v0.33 runtimes
+  // reject unknown check names at parse time), and release.json-based
+  // checks alone false-green when a pinned service entrypoint restarts back
+  // into the old binary.
+  if (!requiredChecks.includes("running_version")) {
+    requiredChecks.push("running_version");
+  }
 
   const state: AssistedUpdateState = {
     tag: input.tag,
@@ -111,11 +118,9 @@ export async function buildAssistedUpdateContext(
   return { state, prompt };
 }
 
-function unionMigrationChecks(
-  migrations: UpdateMigrationManifest[]
-): RequiredCheckName[] {
-  const seen = new Set<RequiredCheckName>();
-  const ordered: RequiredCheckName[] = [];
+function unionMigrationChecks(migrations: UpdateMigrationManifest[]): string[] {
+  const seen = new Set<string>();
+  const ordered: string[] = [];
   for (const m of migrations) {
     for (const c of m.validation.requiredChecks) {
       if (seen.has(c)) continue;
@@ -201,7 +206,14 @@ export async function runAndRecordChecks(
   state: AssistedUpdateState,
   ctx: CheckContext
 ): Promise<AssistedUpdateState> {
-  const results = await runRequiredChecks(state.requiredChecks, ctx);
+  // Enforce running_version at check-run time as well as launch time: a run
+  // launched by an older server (whose state.requiredChecks predates the
+  // check) is often validated by the freshly restarted target binary — this
+  // code — so appending here closes the gap for in-flight upgrades.
+  const names = state.requiredChecks.includes("running_version")
+    ? state.requiredChecks
+    : [...state.requiredChecks, "running_version"];
+  const results = await runRequiredChecks(names, ctx);
   state.checks = results;
   state.updatedAt = new Date().toISOString();
   await writeAssistedUpdateState(state);
