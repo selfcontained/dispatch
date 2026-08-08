@@ -1,6 +1,6 @@
 ## What's Changed
-* Add direct unit coverage for use-agent-history hooks by @selfcontained in https://github.com/selfcontained/dispatch/pull/898
-* Consolidate diverged formatBytes copies into shared/lib/format-bytes by @selfcontained in https://github.com/selfcontained/dispatch/pull/899
+* Fix Releases page unreleased-commit count on stale or git-free installs by @selfcontained in https://github.com/selfcontained/dispatch/pull/897
+* Add brain entry deletion controls by @selfcontained in https://github.com/selfcontained/dispatch/pull/900
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.32.3...v0.32.4
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.32.4...v0.32.5
