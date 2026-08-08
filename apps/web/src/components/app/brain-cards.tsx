@@ -472,8 +472,9 @@ function DeleteButton({
         e.stopPropagation();
         onClick();
       }}
-      className="rounded p-0.5 text-muted-foreground transition-colors hover:text-destructive"
+      className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
       aria-label={label}
+      title={label}
     >
       <Trash2 className="h-3 w-3" />
     </button>

@@ -349,6 +349,9 @@ function BrainProjectDetail({
         repoRoot={repoRoot}
         collection={selectedCollection}
         search={search}
+        onCollectionCleared={() =>
+          navigate(`/automations/brains/${encodedRepoRoot}`, { replace: true })
+        }
       />
       <Dialog open={projectDeleteOpen} onOpenChange={setProjectDeleteOpen}>
         <DialogContent>
@@ -426,10 +429,12 @@ function BrainCollectionView({
   repoRoot,
   collection,
   search,
+  onCollectionCleared,
 }: {
   repoRoot: string;
   collection: string | null;
   search: string;
+  onCollectionCleared: () => void;
 }): JSX.Element {
   const objectFilters = collection ? { collection } : { limit: 100 };
   const listFilters = collection ? { collection } : { limit: 100 };
@@ -542,6 +547,7 @@ function BrainCollectionView({
         toast.success(
           `Deleted ${result.objects + result.lists + result.events} entries from ${deleteTarget.collection}.`
         );
+        onCollectionCleared();
       }
       setDeleteTarget(null);
     } catch {

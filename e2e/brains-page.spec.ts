@@ -153,6 +153,11 @@ test.describe("Automations Brains page", () => {
     await expect(page.getByText("app-settings")).toBeVisible({
       timeout: 5_000,
     });
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-delete-controls-project.png",
+      fullPage: true,
+      scale: "device",
+    });
 
     const configPill = page.getByRole("button", { name: "config" });
     await expect(configPill).toBeVisible({ timeout: 5_000 });
@@ -233,6 +238,10 @@ test.describe("Automations Brains page", () => {
     await expect(
       page.getByRole("heading", { name: "Delete build event?" })
     ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-event-delete-confirmation.png",
+      scale: "device",
+    });
     await page.getByRole("button", { name: "Delete permanently" }).click();
     await expect(
       page.getByRole("button", { name: "Delete event build" })
@@ -242,20 +251,32 @@ test.describe("Automations Brains page", () => {
     await expect(
       page.getByRole("heading", { name: "Delete task-queue?" })
     ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-list-delete-confirmation.png",
+      scale: "device",
+    });
     await page.getByRole("button", { name: "Delete permanently" }).click();
     await expect(
       page.getByText("task-queue", { exact: true })
     ).not.toBeVisible();
 
     await page.getByRole("button", { name: "config" }).click();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-delete-controls-collection.png",
+      fullPage: true,
+      scale: "device",
+    });
     await page.getByRole("button", { name: "Clear collection" }).click();
     await expect(
       page.getByRole("heading", { name: "Clear config?" })
     ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-collection-delete-confirmation.png",
+      scale: "device",
+    });
     await page.getByRole("button", { name: "Delete permanently" }).click();
-    await expect(
-      page.getByText("No brain data in this collection yet.")
-    ).toBeVisible();
+    await expect(page).toHaveURL(/\/automations\/brains\/[^/]+$/);
+    await expect(page.getByText("build-status")).toBeVisible();
 
     await page.getByRole("button", { name: "Clear project" }).click();
     await expect(
