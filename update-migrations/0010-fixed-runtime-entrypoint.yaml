@@ -28,35 +28,46 @@ instructions:
     as either the fixed runtime path already, or a legacy shape: a symlink
     or wrapper pinned to a versioned binary such as
     dist/bun/dispatch-<old-version>-bun-<platform>-<arch>, or a legacy
-    bin/dispatch symlink.
+    bin/dispatch symlink. The steps below are explicit branches keyed on
+    platform and that classification — follow only the branch that matches;
+    do not apply steps from another branch.
   - >
-    On Linux with a legacy version-pinned entrypoint, do NOT invoke the
+    Branch A — Linux, entrypoint already invokes the fixed runtime path:
+    do not stage binaries or edit the entrypoint manually. Ensure
+    KillMode=process is loaded per the Linux restart-safety step below, then
+    invoke the managed update normally — it verifies the artifact,
+    atomically replaces the fixed executable, preserves the adjacent
+    .previous rollback file, records candidate state, and restarts. Then
+    continue at the verification step.
+  - >
+    Branch B — Linux, legacy version-pinned entrypoint: do NOT invoke the
     managed update or restart the service first. A restart would relaunch
     the old pinned binary, and old runtimes prune versioned release binaries
     at boot — deleting the freshly extracted target artifact while
-    release.json still claims the update succeeded. Instead perform the
-    fixed-runtime cutover BEFORE the first restart, as described in the next
-    steps, and only then let the managed flow record state.
+    release.json still claims the update succeeded. Perform the cutover in
+    the next steps BEFORE the first restart, and only afterwards let the
+    managed flow record state.
   - >
-    Linux cutover, staging: download or reuse the cached target release
-    tarball, verify the target platform binary against dist/bun/SHA256SUMS.txt
-    from that tarball, and extract the exact member
-    dist/bun/dispatch-<target-version>-bun-<platform>-<arch>. Select by exact
-    name; do not choose a glob match by modification time.
+    Branch B staging: download or reuse the cached target release tarball,
+    verify the target platform binary against dist/bun/SHA256SUMS.txt from
+    that tarball, and extract the exact member
+    dist/bun/dispatch-<target-version>-bun-<platform>-<arch>. Select by
+    exact name; do not choose a glob match by modification time.
   - >
-    Linux restart safety: before ANY restart this migration performs, ensure
-    the unit has KillMode=process under [Service] and run systemctl --user
-    daemon-reload, confirming the loaded value with
+    Linux restart safety (applies to every restart this migration performs
+    on Linux, in either branch): before restarting, ensure the unit has
+    KillMode=process under [Service] and run systemctl --user daemon-reload,
+    confirming the loaded value with
     systemctl --user show dispatch.service -p KillMode. The assisted-update
     agent runs in a tmux child inside dispatch.service's control group, and
     the default control-group kill mode terminates it during the very
     restart it must observe. This intentionally front-runs the
     agent-restart-safety migration (which is ordered after this one and
-    would arrive too late); keep the setting in place afterwards. Make no
-    other unit changes before the restart beyond this and the ExecStart
-    repoint described below.
+    would arrive too late); keep the setting in place afterwards. In Branch
+    B, make no other unit changes before the restart beyond this and the
+    ExecStart repoint described next.
   - >
-    Linux cutover, activation: determine the configured fixed runtime path
+    Branch B activation: determine the configured fixed runtime path
     (DISPATCH_RUNTIME_PATH, or DISPATCH_SERVER_DIR/dispatch when unset).
     Preserve the currently healthy executable that the service actually runs
     (resolve the entrypoint symlink to its real file) as the fixed path's
@@ -64,16 +75,19 @@ instructions:
     binary to the fixed runtime path, preserving executable mode, so the
     fixed path is a regular file — never a symlink into dist/bun. Then
     repoint ExecStart to the fixed runtime path, run systemctl --user
-    daemon-reload, and restart Dispatch.
+    daemon-reload, and restart Dispatch. After this restart, never overwrite
+    the .previous file this step created — it is the run's only rollback
+    artifact, and the executable now live at the fixed path is the target,
+    not a rollback candidate.
   - >
-    On macOS this release is a compatibility bridge: invoke the managed
-    update first. Its retained launchd wrapper starts the exact binary for
-    the checked-out target tag, so do not change or restart a legacy service
-    definition before that update has completed and the service is healthy.
-    The wrapper is only for this transition; the fixed path is the permanent
-    entrypoint.
+    Branch C — macOS: this release is a compatibility bridge, so invoke the
+    managed update first. Its retained launchd wrapper starts the exact
+    binary for the checked-out target tag; do not change or restart a legacy
+    service definition before that update has completed and the service is
+    healthy. The wrapper is only for this transition; the fixed path is the
+    permanent entrypoint.
   - >
-    On macOS, after the managed update is healthy, determine the configured
+    Branch C, after the managed update is healthy: determine the configured
     fixed runtime path (DISPATCH_RUNTIME_PATH, or
     DISPATCH_SERVER_DIR/dispatch when unset). Hardlink or copy the target
     platform binary extracted at
@@ -81,33 +95,34 @@ instructions:
     to that path, preserving executable mode. Do not choose a glob match by
     modification time.
   - >
-    Before changing the service entrypoint, ensure the currently healthy
-    executable is preserved as the fixed path's adjacent .previous rollback
-    file. If its path is a deleted inode, re-download and checksum-verify
-    the last known healthy release artifact to reconstruct that rollback
-    file. If no healthy tag can be established, stop and report that manual
-    rollback is unavailable rather than claiming the migration is
-    reversible.
-  - Update the systemd unit or launchd plist so ExecStart/ProgramArguments
-    invokes the fixed runtime path, preserving environment, working directory,
-    logging, user scope, and display configuration.
+    Branch C, before changing the service entrypoint: ensure the executable
+    that was healthy before this update is preserved as the fixed path's
+    adjacent .previous rollback file. If its path is a deleted inode,
+    re-download and checksum-verify the last known healthy release artifact
+    to reconstruct that rollback file. If no healthy tag can be established,
+    stop and report that manual rollback is unavailable rather than claiming
+    the migration is reversible.
   - >
-    Reload the service manager configuration and restart Dispatch. On macOS,
-    if launchd is stuck watching a deleted old wrapper, use bootout followed by
-    bootstrap for the user LaunchAgent; do not wait indefinitely on kickstart.
+    Branch C: update the launchd plist so ProgramArguments invokes the fixed
+    runtime path, preserving environment, working directory, logging, user
+    scope, and display configuration. Reload the service configuration and
+    restart Dispatch. If launchd is stuck watching a deleted old wrapper,
+    use bootout followed by bootstrap for the user LaunchAgent; do not wait
+    indefinitely on kickstart.
   - >
-    Hygiene: after the cutover is healthy, repoint any remaining legacy
-    bin/dispatch symlink at the fixed runtime path, or remove it if nothing
-    references it, so no dangling pin to an old versioned binary survives.
-    Also refresh any pre-update service-definition backup you created so it
-    does not reintroduce the legacy entrypoint if restored.
+    Hygiene (all branches): after the service is healthy on the fixed path,
+    repoint any remaining legacy bin/dispatch symlink at the fixed runtime
+    path, or remove it if nothing references it, so no dangling pin to an
+    old versioned binary survives. Also refresh any pre-update
+    service-definition backup you created so it does not reintroduce the
+    legacy entrypoint if restored.
   - >
-    Confirm the health endpoint is healthy and that the actual running
-    process is the target executable — verify the X-Dispatch-Version
-    response header (or /proc/<MainPID>/exe on Linux) reports the target
-    version, and that the newly running binary has promoted the target tag
-    into release.json. Do not treat release.json alone as proof the running
-    binary changed.
+    Verification (all branches): confirm the health endpoint is healthy and
+    that the actual running process is the target executable — verify the
+    X-Dispatch-Version response header (or /proc/<MainPID>/exe on Linux)
+    reports the target version, and that the newly running binary has
+    promoted the target tag into release.json. Do not treat release.json
+    alone as proof the running binary changed.
   - If the supported definition is absent or this account cannot modify it,
     stop and report the exact operator action required; do not leave a
     half-updated service entrypoint.
