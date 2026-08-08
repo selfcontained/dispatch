@@ -1,5 +1,6 @@
 ## What's Changed
-* Restore legacy macOS launcher environment by @selfcontained in https://github.com/selfcontained/dispatch/pull/902
+* Fix blank model select in the create-agent dialog by @selfcontained in https://github.com/selfcontained/dispatch/pull/903
+* Decouple Releases admin UI from Updates UI by @selfcontained in https://github.com/selfcontained/dispatch/pull/904
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.32.6...v0.32.7
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.32.7...v0.32.8
