@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
 
@@ -168,4 +168,85 @@ export function useBrainEvents(
     enabled: !!repoRoot,
     refetchOnWindowFocus: false,
   });
+}
+
+export function useBrainActions() {
+  const queryClient = useQueryClient();
+  const invalidate = () =>
+    queryClient.invalidateQueries({ queryKey: ["brain"] });
+
+  const deleteObject = useMutation({
+    mutationFn: ({
+      repoRoot,
+      collection,
+      name,
+    }: {
+      repoRoot: string;
+      collection: string;
+      name: string;
+    }) =>
+      api<{ deleted: boolean }>(
+        `/api/v1/brain/objects/${encodeURIComponent(collection)}/${encodeURIComponent(name)}?${new URLSearchParams({ repoRoot })}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: invalidate,
+  });
+
+  const deleteEvent = useMutation({
+    mutationFn: ({ repoRoot, id }: { repoRoot: string; id: string }) =>
+      api<{ deleted: boolean }>(
+        `/api/v1/brain/events/${encodeURIComponent(id)}?${new URLSearchParams({ repoRoot })}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: invalidate,
+  });
+
+  const deleteList = useMutation({
+    mutationFn: ({
+      repoRoot,
+      collection,
+      name,
+    }: {
+      repoRoot: string;
+      collection: string;
+      name: string;
+    }) =>
+      api<{ deleted: boolean }>(
+        `/api/v1/brain/lists/${encodeURIComponent(collection)}/${encodeURIComponent(name)}?${new URLSearchParams({ repoRoot })}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: invalidate,
+  });
+
+  const deleteCollection = useMutation({
+    mutationFn: ({
+      repoRoot,
+      collection,
+    }: {
+      repoRoot: string;
+      collection: string;
+    }) =>
+      api<{ objects: number; lists: number; events: number }>(
+        `/api/v1/brain/collections/${encodeURIComponent(collection)}?${new URLSearchParams({ repoRoot })}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: invalidate,
+  });
+
+  const deleteProject = useMutation({
+    mutationFn: ({ repoRoot }: { repoRoot: string }) =>
+      api<{ objects: number; lists: number; events: number }>(
+        `/api/v1/brain/projects?${new URLSearchParams({ repoRoot })}`,
+        { method: "DELETE" }
+      ),
+    onSuccess: invalidate,
+  });
+
+  return {
+    deleteObject,
+    deleteList,
+    deleteEvent,
+    deleteCollection,
+    deleteProject,
+  };
 }

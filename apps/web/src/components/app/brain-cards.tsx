@@ -1,6 +1,13 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, ChevronDown, ChevronRight, Copy, History } from "lucide-react";
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Copy,
+  History,
+  Trash2,
+} from "lucide-react";
 
 import {
   useBrainListItems,
@@ -222,10 +229,12 @@ export function ObjectCard({
   obj,
   agentId,
   revision,
+  onDelete,
 }: {
   obj: BrainObject;
   agentId?: string;
   revision?: number;
+  onDelete?: () => void;
 }): JSX.Element {
   return (
     <div className="mx-3 mb-2 rounded-md border border-border bg-muted/20 p-2.5 overflow-hidden">
@@ -244,6 +253,12 @@ export function ObjectCard({
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
           {agentId ? <AgentIdLabel agentId={agentId} /> : null}
           <CopyButton value={obj.value} />
+          {onDelete ? (
+            <DeleteButton
+              label={`Delete object ${obj.name}`}
+              onClick={onDelete}
+            />
+          ) : null}
           <RelativeTime iso={obj.updatedAt} />
         </div>
       </div>
@@ -316,10 +331,12 @@ export function ListCard({
   list,
   repoRoot,
   agentId,
+  onDelete,
 }: {
   list: BrainList;
   repoRoot: string;
   agentId?: string;
+  onDelete?: () => void;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(list.itemCount <= 5);
   const { data } = useBrainListItems(repoRoot, list.collection, list.name, {
@@ -342,6 +359,12 @@ export function ListCard({
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
           {agentId ? <AgentIdLabel agentId={agentId} /> : null}
           {items.length > 0 ? <CopyButton value={allItemValues} /> : null}
+          {onDelete ? (
+            <DeleteButton
+              label={`Delete list ${list.name}`}
+              onClick={onDelete}
+            />
+          ) : null}
           <span>{list.itemCount} items</span>
           <RelativeTime iso={list.updatedAt} />
         </div>
@@ -377,9 +400,11 @@ export function ListCard({
 export function EventCard({
   event,
   agentId,
+  onDelete,
 }: {
   event: BrainEvent;
   agentId?: string;
+  onDelete?: () => void;
 }): JSX.Element {
   const style = getKindStyle(event.kind);
 
@@ -417,6 +442,12 @@ export function EventCard({
         <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground shrink-0">
           {agentId ? <AgentIdLabel agentId={agentId} /> : null}
           <CopyButton value={event.value} />
+          {onDelete ? (
+            <DeleteButton
+              label={`Delete event ${event.kind}`}
+              onClick={onDelete}
+            />
+          ) : null}
           <RelativeTime iso={event.createdAt} />
         </div>
       </div>
@@ -424,5 +455,28 @@ export function EventCard({
         <KeyValueTable value={allEntries} />
       </div>
     </div>
+  );
+}
+
+function DeleteButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <button
+      type="button"
+      onClick={(e) => {
+        e.stopPropagation();
+        onClick();
+      }}
+      className="inline-flex h-8 w-8 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-destructive/10 hover:text-destructive"
+      aria-label={label}
+      title={label}
+    >
+      <Trash2 className="h-3 w-3" />
+    </button>
   );
 }

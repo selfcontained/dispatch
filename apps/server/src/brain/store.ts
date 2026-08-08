@@ -60,6 +60,14 @@ export type BrainCollectionSummary = {
   eventCount: number;
 };
 
+export type BrainCollectionDeleteResult = {
+  objects: number;
+  lists: number;
+  events: number;
+};
+
+export type BrainDeleteResult = BrainCollectionDeleteResult;
+
 export type BrainAgentActivity = {
   objects: BrainObject[];
   lists: (BrainList & { itemCount: number })[];
@@ -279,6 +287,17 @@ export class BrainStore {
       [repoRoot, collection, name]
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteCollection(
+    repoRoot: string,
+    collection: string
+  ): Promise<BrainCollectionDeleteResult> {
+    return this.deleteEntries(repoRoot, "AND collection = $2", [collection]);
+  }
+
+  async deleteProject(repoRoot: string): Promise<BrainDeleteResult> {
+    return this.deleteEntries(repoRoot, "", []);
   }
 
   // ── Lists ────────────────────────────────────────────────────────
@@ -735,6 +754,14 @@ export class BrainStore {
     return mapEvent(result.rows[0]);
   }
 
+  async deleteEvent(repoRoot: string, id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM brain_events WHERE repo_root = $1 AND id = $2`,
+      [repoRoot, id]
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
   async queryEvents(
     repoRoot: string,
     filter?: {
@@ -789,6 +816,33 @@ export class BrainStore {
       params
     );
     return result.rows.map(mapEvent);
+  }
+
+  private async deleteEntries(
+    repoRoot: string,
+    condition: string,
+    extraParams: unknown[]
+  ): Promise<BrainDeleteResult> {
+    return this.withTransaction(async (client) => {
+      const params = [repoRoot, ...extraParams];
+      const objects = await client.query(
+        `DELETE FROM brain_objects WHERE repo_root = $1 ${condition}`,
+        params
+      );
+      const lists = await client.query(
+        `DELETE FROM brain_lists WHERE repo_root = $1 ${condition}`,
+        params
+      );
+      const events = await client.query(
+        `DELETE FROM brain_events WHERE repo_root = $1 ${condition}`,
+        params
+      );
+      return {
+        objects: objects.rowCount ?? 0,
+        lists: lists.rowCount ?? 0,
+        events: events.rowCount ?? 0,
+      };
+    });
   }
 
   private async withTransaction<T>(

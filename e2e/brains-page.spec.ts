@@ -153,6 +153,11 @@ test.describe("Automations Brains page", () => {
     await expect(page.getByText("app-settings")).toBeVisible({
       timeout: 5_000,
     });
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-delete-controls-project.png",
+      fullPage: true,
+      scale: "device",
+    });
 
     const configPill = page.getByRole("button", { name: "config" });
     await expect(configPill).toBeVisible({ timeout: 5_000 });
@@ -177,7 +182,9 @@ test.describe("Automations Brains page", () => {
     await searchInput.fill("deploy");
 
     await expect(page.getByText("deploy-targets")).toBeVisible();
-    await expect(page.getByText("app-settings")).not.toBeVisible();
+    await expect(
+      page.getByText("app-settings", { exact: true })
+    ).not.toBeVisible();
   });
 
   test("shows list items inline", async ({ page }) => {
@@ -192,5 +199,94 @@ test.describe("Automations Brains page", () => {
     await expect(page.getByText("task-queue")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText("3 items")).toBeVisible({ timeout: 5_000 });
     await expect(page.getByText("lint")).toBeVisible({ timeout: 5_000 });
+  });
+
+  test("deletes objects, events, and a collection after confirmation", async ({
+    page,
+  }) => {
+    await navigateToBrains(page);
+    await projectRow(page).click();
+    await expect(page.getByText("app-settings")).toBeVisible({
+      timeout: 5_000,
+    });
+
+    await page
+      .getByRole("button", { name: "Delete object app-settings" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: "Delete app-settings?" })
+    ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-delete-confirmation.png",
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Delete app-settings?" })
+    ).not.toBeVisible();
+    await expect(page.getByText("app-settings")).toBeVisible();
+
+    await page
+      .getByRole("button", { name: "Delete object app-settings" })
+      .click();
+    await page.getByRole("button", { name: "Delete permanently" }).click();
+    await expect(
+      page.getByText("app-settings", { exact: true })
+    ).not.toBeVisible();
+
+    await page.getByRole("button", { name: "Delete event build" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Delete build event?" })
+    ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-event-delete-confirmation.png",
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Delete permanently" }).click();
+    await expect(
+      page.getByRole("button", { name: "Delete event build" })
+    ).not.toBeVisible();
+
+    await page.getByRole("button", { name: "Delete list task-queue" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Delete task-queue?" })
+    ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-list-delete-confirmation.png",
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Delete permanently" }).click();
+    await expect(
+      page.getByText("task-queue", { exact: true })
+    ).not.toBeVisible();
+
+    await page.getByRole("button", { name: "config" }).click();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-delete-controls-collection.png",
+      fullPage: true,
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Clear collection" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Clear config?" })
+    ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-collection-delete-confirmation.png",
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Delete permanently" }).click();
+    await expect(page).toHaveURL(/\/automations\/brains\/[^/]+$/);
+    await expect(page.getByText("build-status")).toBeVisible();
+
+    await page.getByRole("button", { name: "Clear project" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Clear this project?" })
+    ).toBeVisible();
+    await page.screenshot({
+      path: "/tmp/dispatch-brain-project-delete-confirmation.png",
+      scale: "device",
+    });
+    await page.getByRole("button", { name: "Delete permanently" }).click();
+    await expect(page).toHaveURL(/\/automations\/brains$/);
   });
 });
