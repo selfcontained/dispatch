@@ -15,12 +15,22 @@ type AgentModelSelectProps = {
   loading?: boolean;
 };
 
+const DEFAULT_VALUE = "__default__";
+
 export function AgentModelSelect({
   value,
   options,
   onChange,
   loading = false,
 }: AgentModelSelectProps): JSX.Element {
+  // Radix renders an empty trigger whenever the selected value has no matching
+  // item, so anything unrecognized (a retired model id, a stray empty string)
+  // falls back to Default — which is what an unset model means anyway.
+  const selectedValue =
+    value && options.some((option) => option.id === value)
+      ? value
+      : DEFAULT_VALUE;
+
   return (
     <div className="space-y-1">
       <label
@@ -30,32 +40,32 @@ export function AgentModelSelect({
         Model
       </label>
       <Select
-        value={loading ? "__loading__" : (value ?? "__default__")}
-        onValueChange={(nextValue) =>
-          onChange(nextValue === "__default__" ? null : nextValue)
-        }
+        value={selectedValue}
+        onValueChange={(nextValue) => {
+          // Radix's hidden form input echoes an empty value back through
+          // onValueChange when its native <option> set lags the rendered items.
+          // Persisting that would leave the trigger permanently blank.
+          if (!nextValue) return;
+          onChange(nextValue === DEFAULT_VALUE ? null : nextValue);
+        }}
       >
         <SelectTrigger
           id="create-agent-model"
           data-testid="create-agent-model"
           disabled={loading}
         >
-          <SelectValue />
+          <SelectValue>{loading ? "Loading models…" : undefined}</SelectValue>
         </SelectTrigger>
         <SelectContent>
-          {loading ? (
-            <SelectItem value="__loading__" disabled>
-              Loading models…
+          <SelectItem value={DEFAULT_VALUE}>
+            Default{" "}
+            <span className="text-xs text-muted-foreground">(CLI setting)</span>
+          </SelectItem>
+          {options.map((option) => (
+            <SelectItem key={option.id} value={option.id}>
+              {option.label}
             </SelectItem>
-          ) : (
-            <SelectItem value="__default__">Default (CLI setting)</SelectItem>
-          )}
-          {!loading &&
-            options.map((option) => (
-              <SelectItem key={option.id} value={option.id}>
-                {option.label}
-              </SelectItem>
-            ))}
+          ))}
         </SelectContent>
       </Select>
     </div>

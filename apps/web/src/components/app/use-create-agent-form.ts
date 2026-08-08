@@ -114,8 +114,10 @@ export function useCreateAgentForm({
 
   useEffect(() => {
     if (!modelCatalog) return;
+    // Anything stored that the catalog no longer offers (a retired id, or an
+    // empty string persisted by an older build) resets to the CLI default.
     if (
-      createModel &&
+      createModel !== null &&
       !modelOptions.some((option) => option.id === createModel)
     ) {
       setCreateModel(null);

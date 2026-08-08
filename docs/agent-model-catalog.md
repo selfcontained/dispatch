@@ -23,8 +23,8 @@ provider API:
   variants, but exclude API-only models such as embeddings, image, audio, and
   moderation models.
 - **Claude Code:** Check the Claude Code CLI reference. It supports the moving
-  `opus` and `sonnet` aliases plus documented full model IDs; add a full ID when
-  it is available to the intended account.
+  `opus`, `sonnet`, and `haiku` aliases plus documented full model IDs; add a
+  full ID when it is available to the intended account.
 - **Cursor Agent:** Check both the Cursor CLI parameter reference and Cursor's
   model catalog, because availability can differ by Cursor plan and rollout.
 

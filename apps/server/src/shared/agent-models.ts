@@ -31,7 +31,8 @@ export const AGENT_MODEL_OPTIONS: Partial<
   claude: [
     { id: "opus", label: "Opus" },
     { id: "sonnet", label: "Sonnet" },
-    { id: "claude-fable-5", label: "Claude Fable 5" },
+    { id: "haiku", label: "Haiku" },
+    { id: "claude-fable-5", label: "Fable 5" },
   ],
   cursor: [
     { id: "auto", label: "Auto" },
