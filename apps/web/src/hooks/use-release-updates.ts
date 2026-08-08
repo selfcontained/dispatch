@@ -17,6 +17,14 @@ import {
   type AppVersionInfo,
 } from "@/components/app/release-utils";
 
+/**
+ * Takes the update stream as a param rather than opening its own — the
+ * stream must survive switching settings sections mid-update (the health
+ * poll after a restart lives only in this client-side state, since the
+ * server is briefly down and can't hand it back via a fresh snapshot), so
+ * the caller owns it at a level that outlives this component. See
+ * settings-pane.tsx.
+ */
 export function useReleaseUpdates(stream: UseReleaseStreamResult) {
   const navigate = useNavigate();
   const {

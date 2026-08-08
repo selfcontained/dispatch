@@ -23,8 +23,8 @@ import {
 import type {
   ReleaseInfo,
   ReleaseVersionType,
-  UseReleaseStreamResult,
 } from "@/hooks/use-release-stream";
+import { useReleaseStream } from "@/hooks/use-release-stream";
 import { cn } from "@/lib/utils";
 
 type GitHubRelease = {
@@ -76,11 +76,8 @@ function formatAgo(ts: number, now: number): string {
   return `${hours}h ago`;
 }
 
-type ReleasesAdminProps = {
-  stream: UseReleaseStreamResult;
-};
-
-export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
+export function ReleasesAdmin(): JSX.Element {
+  const stream = useReleaseStream("create");
   const {
     job,
     postRestartPolling,

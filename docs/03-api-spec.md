@@ -413,7 +413,8 @@ The Chrome extension (developer preview) pairs with Dispatch and submits page fe
 | POST   | `/release/assisted/phase`   | Phase callback used by the assisted-update agent (token-authed, not for browser use) |
 | GET    | `/release/assisted/state`   | Read the current assisted-update state (tag, phase, notes, checks)                   |
 | DELETE | `/release/assisted/state`   | Clear the persisted assisted-update state                                            |
-| GET    | `/release/stream`           | SSE stream for release operation progress                                            |
+| GET    | `/release/create/stream`    | SSE stream for release-creation progress (backs the admin Releases page)             |
+| GET    | `/release/update/stream`    | SSE stream for update-apply progress (backs the all-users Updates page)              |
 
 ### `POST /release/auto-update-mode`
 

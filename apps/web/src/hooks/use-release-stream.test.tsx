@@ -235,11 +235,11 @@ describe("useReleaseStream", () => {
   }
 
   it("connects with the stable client id and applies stream events to the job", () => {
-    const { result } = renderHook(() => useReleaseStream());
+    const { result } = renderHook(() => useReleaseStream("update"));
 
     expect(FakeEventSource.instances).toHaveLength(1);
     expect(lastSource().url).toBe(
-      `/api/v1/release/stream?clientId=${encodeURIComponent(result.current.streamClientId)}`
+      `/api/v1/release/update/stream?clientId=${encodeURIComponent(result.current.streamClientId)}`
     );
 
     // Events that arrive before a snapshot must be no-ops.
@@ -254,7 +254,7 @@ describe("useReleaseStream", () => {
   });
 
   it("routes info-progress to infoProgress without touching the job", () => {
-    const { result } = renderHook(() => useReleaseStream());
+    const { result } = renderHook(() => useReleaseStream("update"));
 
     act(() => lastSource().emit({ type: "info-progress", progress }));
     expect(result.current.infoProgress).toEqual(progress);
@@ -262,7 +262,7 @@ describe("useReleaseStream", () => {
   });
 
   it("connectStream closes the previous stream and reuses the client id", () => {
-    const { result } = renderHook(() => useReleaseStream());
+    const { result } = renderHook(() => useReleaseStream("update"));
     const first = lastSource();
 
     act(() => result.current.connectStream());
@@ -274,7 +274,7 @@ describe("useReleaseStream", () => {
 
   it("stream error during an update deploy polls health and finishes on the new tag", async () => {
     vi.useFakeTimers();
-    const { result } = renderHook(() => useReleaseStream());
+    const { result } = renderHook(() => useReleaseStream("update"));
     const source = lastSource();
 
     act(() =>
@@ -314,7 +314,7 @@ describe("useReleaseStream", () => {
 
   it("keeps polling while the server still reports the old tag", async () => {
     vi.useFakeTimers();
-    const { result } = renderHook(() => useReleaseStream());
+    const { result } = renderHook(() => useReleaseStream("update"));
     const source = lastSource();
 
     act(() =>
@@ -348,7 +348,9 @@ describe("useReleaseStream", () => {
     // An update job outside deploying/restarting must not poll either.
     ["update", updateJob({ phase: "fetching" }), "fetching"],
   ] as const)("stream error leaves %s jobs alone", (jobType, job, phase) => {
-    const { result } = renderHook(() => useReleaseStream());
+    const { result } = renderHook(() =>
+      useReleaseStream(jobType === "create" ? "create" : "update")
+    );
     const source = lastSource();
 
     act(() => source.emit({ type: "snapshot", job }));
@@ -361,7 +363,7 @@ describe("useReleaseStream", () => {
 
   it("unmount closes the stream and stops the health poll", async () => {
     vi.useFakeTimers();
-    const { unmount } = renderHook(() => useReleaseStream());
+    const { unmount } = renderHook(() => useReleaseStream("update"));
     const source = lastSource();
 
     act(() =>

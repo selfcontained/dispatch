@@ -57,6 +57,8 @@ export type {
   ReleaseVersionType,
 } from "./release-wire.js";
 
+export type ReleaseJobKind = "create" | "update";
+
 export type ReleaseStreamClient = {
   clientId: string;
   stream: NodeJS.WritableStream;
@@ -98,10 +100,29 @@ type CreateReleaseRuntimeDeps = {
   writeReleaseCandidate?: (candidate: ReleaseCandidate) => Promise<void>;
 };
 
+export type CreateJob = Extract<ReleaseJob, { jobType: "create" }>;
+export type UpdateJob = Extract<
+  ReleaseJob,
+  { jobType: "update" | "update-assisted" }
+>;
+
+function kindOf(job: ReleaseJob): ReleaseJobKind {
+  return job.jobType === "create" ? "create" : "update";
+}
+
 export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
-  let activeReleaseJob: ReleaseJob | null = null;
+  // Release creation (admin "Releases" page) and update application
+  // (all-users "Updates" page) are unrelated operations that happen to
+  // share a lot of plumbing. Each gets its own active-job slot and its
+  // own SSE client set so one can never block, or leak progress into,
+  // the other — see the "kind"-scoped broadcast helpers below.
+  let activeCreateJob: CreateJob | null = null;
+  let activeUpdateJob: UpdateJob | null = null;
   let activeAssistedUpdateLaunch = false;
-  const releaseStreamClients = new Set<ReleaseStreamClient>();
+  const releaseCreateStreamClients = new Set<ReleaseStreamClient>();
+  const releaseUpdateStreamClients = new Set<ReleaseStreamClient>();
+  const clientsForKind = (kind: ReleaseJobKind): Set<ReleaseStreamClient> =>
+    kind === "create" ? releaseCreateStreamClients : releaseUpdateStreamClients;
   const getGitHubRepo = getGitHubRepoImpl;
   const checkIsAdmin = createCheckIsAdmin(deps.runCommand, deps.serverDir);
   const fetchReleaseMetadata = fetchReleaseMetadataImpl;
@@ -161,10 +182,10 @@ export function createReleaseRuntime(deps: CreateReleaseRuntimeDeps) {
   }
 
   async function rehydrateActiveAssistedJob(): Promise<void> {
-    if (activeReleaseJob) return;
+    if (activeUpdateJob) return;
     const state = await deps.readAssistedUpdateState().catch(() => null);
     if (!state || deps.isTerminalPhase(state.phase)) return;
-    activeReleaseJob = {
+    activeUpdateJob = {
       jobType: "update-assisted",
       versionType: null,
       phase: state.phase,
@@ -258,13 +279,17 @@ Suggested workflow:
 `.trim();
   }
 
-  function broadcastReleaseEvent(event: ReleaseStreamEvent): void {
+  function broadcastReleaseEvent(
+    kind: ReleaseJobKind,
+    event: ReleaseStreamEvent
+  ): void {
+    const clients = clientsForKind(kind);
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const client of releaseStreamClients) {
+    for (const client of clients) {
       try {
         client.stream.write(payload);
       } catch {
-        releaseStreamClients.delete(client);
+        clients.delete(client);
       }
     }
   }
@@ -274,19 +299,24 @@ Suggested workflow:
     event: ReleaseStreamEvent
   ): void {
     const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const client of releaseStreamClients) {
-      if (client.clientId !== clientId) continue;
-      try {
-        client.stream.write(payload);
-      } catch {
-        releaseStreamClients.delete(client);
+    for (const clients of [
+      releaseCreateStreamClients,
+      releaseUpdateStreamClients,
+    ]) {
+      for (const client of clients) {
+        if (client.clientId !== clientId) continue;
+        try {
+          client.stream.write(payload);
+        } catch {
+          clients.delete(client);
+        }
       }
     }
   }
 
   function appendReleaseLog(job: ReleaseJob, line: string): void {
     job.log.push(line);
-    broadcastReleaseEvent({ type: "log", line });
+    broadcastReleaseEvent(kindOf(job), { type: "log", line });
   }
 
   function replaceReleaseLog(job: ReleaseJob, line: string): void {
@@ -295,14 +325,14 @@ Suggested workflow:
     } else {
       job.log.push(line);
     }
-    broadcastReleaseEvent({ type: "log.replace", line });
+    broadcastReleaseEvent(kindOf(job), { type: "log.replace", line });
   }
 
   function rewindReleaseLog(job: ReleaseJob, count: number): void {
     const actual = Math.min(count, job.log.length);
     if (actual > 0) {
       job.log.splice(-actual);
-      broadcastReleaseEvent({ type: "log.rewind", count: actual });
+      broadcastReleaseEvent(kindOf(job), { type: "log.rewind", count: actual });
     }
   }
 
@@ -312,7 +342,7 @@ Suggested workflow:
     error?: string
   ): void {
     job.phase = phase;
-    broadcastReleaseEvent({ type: "phase", phase, error });
+    broadcastReleaseEvent(kindOf(job), { type: "phase", phase, error });
   }
 
   function setReleaseProgress(
@@ -320,7 +350,7 @@ Suggested workflow:
     progress: ReleaseProgress | null
   ): void {
     job.progress = progress;
-    broadcastReleaseEvent({ type: "progress", progress });
+    broadcastReleaseEvent(kindOf(job), { type: "progress", progress });
   }
 
   function streamProcess(
@@ -492,8 +522,8 @@ Suggested workflow:
       await deployTag(job, tag);
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      if (activeReleaseJob) {
-        activeReleaseJob.error = error;
+      if (activeUpdateJob) {
+        activeUpdateJob.error = error;
       }
       setReleaseProgress(job, null);
       setReleasePhase(job, "failed", error);
@@ -562,7 +592,7 @@ Suggested workflow:
 
       const runUrl = `https://github.com/${repo}/actions/runs/${runId}`;
       job.runUrl = runUrl;
-      broadcastReleaseEvent({ type: "runUrl", url: runUrl });
+      broadcastReleaseEvent("create", { type: "runUrl", url: runUrl });
       appendReleaseLog(job, `==> watching run ${runId}`);
       appendReleaseLog(job, `    ${runUrl}`);
 
@@ -600,42 +630,47 @@ Suggested workflow:
       }
 
       job.tag = tag;
-      broadcastReleaseEvent({ type: "tag", tag });
+      broadcastReleaseEvent("create", { type: "tag", tag });
       appendReleaseLog(job, `==> release ${tag} created successfully`);
       setReleasePhase(job, "done");
     } catch (err) {
       const error = err instanceof Error ? err.message : String(err);
-      if (activeReleaseJob) {
-        activeReleaseJob.error = error;
+      if (activeCreateJob) {
+        activeCreateJob.error = error;
       }
       setReleasePhase(job, "failed", error);
     }
   }
 
   function hasActiveUpdateJob(): boolean {
-    if (!activeReleaseJob) return false;
-    if (
-      activeReleaseJob.jobType !== "update" &&
-      activeReleaseJob.jobType !== "update-assisted"
-    ) {
-      return false;
-    }
-    return !deps.isTerminalPhase(activeReleaseJob.phase as AssistedPhase);
+    if (!activeUpdateJob) return false;
+    return !deps.isTerminalPhase(activeUpdateJob.phase as AssistedPhase);
+  }
+
+  function hasActiveCreateJob(): boolean {
+    if (!activeCreateJob) return false;
+    return !deps.isTerminalPhase(activeCreateJob.phase as AssistedPhase);
   }
 
   return {
     RELEASE_VERSION_TYPES,
     getAppVersionInfo,
-    getActiveReleaseJob: () => activeReleaseJob,
-    hasActiveUpdateJob,
-    setActiveReleaseJob: (job: ReleaseJob | null) => {
-      activeReleaseJob = job;
+    getActiveCreateJob: () => activeCreateJob,
+    setActiveCreateJob: (job: CreateJob | null) => {
+      activeCreateJob = job;
     },
+    getActiveUpdateJob: () => activeUpdateJob,
+    setActiveUpdateJob: (job: UpdateJob | null) => {
+      activeUpdateJob = job;
+    },
+    hasActiveUpdateJob,
+    hasActiveCreateJob,
     getActiveAssistedUpdateLaunch: () => activeAssistedUpdateLaunch,
     setActiveAssistedUpdateLaunch: (active: boolean) => {
       activeAssistedUpdateLaunch = active;
     },
-    releaseStreamClients,
+    releaseCreateStreamClients,
+    releaseUpdateStreamClients,
     rehydrateActiveAssistedJob,
     dispatchHealthUrl,
     dispatchBaseUrl,
