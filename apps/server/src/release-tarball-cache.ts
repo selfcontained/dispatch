@@ -7,6 +7,7 @@ import os from "node:os";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import { formatBytes } from "./shared/lib/format-bytes.js";
 import { runCommand } from "./shared/lib/run-command.js";
 
 /**
@@ -138,7 +139,7 @@ export async function ensureCachedTarball(input: {
         destination: partialPath,
         onProgress: (bytes, totalBytes) => {
           onProgress?.({
-            message: `downloaded ${formatBytes(bytes)}`,
+            message: `downloaded ${formatBytes(bytes, { compact: true })}`,
             bytesReceived: bytes,
             totalBytes,
           });
@@ -507,10 +508,4 @@ function sanitizeTag(tag: string): string {
   // future release tag could include characters that would escape the cache
   // dir (e.g. "../../etc/passwd"). Replace anything outside [A-Za-z0-9._-]
   return tag.replace(/[^A-Za-z0-9._-]/g, "_");
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)}M`;
-  if (bytes >= 1024) return `${Math.round(bytes / 1024)}K`;
-  return `${bytes}B`;
 }
