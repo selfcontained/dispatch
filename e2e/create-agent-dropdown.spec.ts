@@ -48,6 +48,25 @@ test.describe("Create agent dialog", () => {
     await expect(form).not.toBeVisible({ timeout: 3_000 });
   });
 
+  test("accepts a custom model ID outside the suggestions", async ({
+    page,
+  }, testInfo) => {
+    await loadApp(page);
+
+    await page.getByTestId("create-agent-button").click();
+    const model = page.getByTestId("create-agent-model");
+    await model.fill("claude-fable-5");
+
+    await expect(model).toHaveValue("claude-fable-5");
+    await expect(
+      page.getByText("Your provider CLI validates custom model availability.")
+    ).toBeVisible();
+    await page.screenshot({
+      path: testInfo.outputPath("custom-model-id.png"),
+      fullPage: true,
+    });
+  });
+
   test("recent directories filter by typed project name or path", async ({
     page,
   }) => {
