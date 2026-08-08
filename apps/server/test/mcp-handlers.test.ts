@@ -848,7 +848,7 @@ describe("createMcpHandlers", () => {
       );
     });
 
-    it("passes a custom model ID through after trimming it", async () => {
+    it("passes a configured model ID through after trimming it", async () => {
       await handlers.launchAgent("agt_test1", {
         name: "worker",
         prompt: "Use my account model.",

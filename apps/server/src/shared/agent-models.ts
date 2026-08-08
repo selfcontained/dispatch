@@ -3,7 +3,7 @@ import type { AgentType } from "./agent-types.js";
 export type AgentModelOption = { id: string; label: string };
 
 /**
- * Source-controlled suggested model catalog for the launchers Dispatch supports.
+ * Source-controlled model catalog for the launchers Dispatch supports.
  *
  * Maintenance sources (review before changing this catalog):
  * - Codex: https://learn.chatgpt.com/docs/models.md
@@ -17,14 +17,21 @@ export const AGENT_MODEL_OPTIONS: Partial<
   Record<AgentType, readonly AgentModelOption[]>
 > = {
   codex: [
+    { id: "gpt-5.6", label: "GPT-5.6 (Sol alias)" },
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
+    { id: "gpt-5.5", label: "GPT-5.5" },
+    { id: "gpt-5.4", label: "GPT-5.4" },
+    { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
+    { id: "gpt-5.4-nano", label: "GPT-5.4 nano" },
+    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
   ],
   // Claude Code documents these moving aliases for its latest models.
   claude: [
     { id: "opus", label: "Opus" },
     { id: "sonnet", label: "Sonnet" },
+    { id: "claude-fable-5", label: "Claude Fable 5" },
   ],
   cursor: [
     { id: "auto", label: "Auto" },
@@ -41,13 +48,19 @@ export function getAgentModelOptions(
 }
 
 export function validateAgentModel(
-  _agentType: AgentType,
+  agentType: AgentType,
   model: string | undefined
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
-  // The provider CLI is authoritative for model availability. The catalog only
-  // supplies UI suggestions, so account-specific and newly released IDs pass
-  // through unchanged.
-  return normalizedModel;
+  if (
+    getAgentModelOptions(agentType).some(
+      (option) => option.id === normalizedModel
+    )
+  ) {
+    return normalizedModel;
+  }
+  throw new Error(
+    `Model "${normalizedModel}" is not supported for ${agentType}. Choose a configured model or omit model for the CLI default.`
+  );
 }
