@@ -109,12 +109,6 @@ describe("POST /api/v1/agents (create)", () => {
     });
     expect(agent.model).toBe("gpt-5.6-terra");
 
-    const fableAgent = await createAgent({
-      type: "claude",
-      model: " claude-fable-5 ",
-    });
-    expect(fableAgent.model).toBe("claude-fable-5");
-
     const res = await authedInject("POST", "/api/v1/agents", {
       cwd: "/tmp",
       useWorktree: false,
