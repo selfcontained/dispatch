@@ -56,6 +56,11 @@ export type ReleaseInfo = {
   unreleasedCount: number;
   commits: Array<{ sha: string; subject: string }>;
   refMissing?: boolean;
+  /**
+   * Set when refreshing origin/main in the authoring checkout failed —
+   * unreleased-commit info is unknown, not zero.
+   */
+  unreleasedFetchError?: string | null;
   assisted?: AssistedUpdateMetadata | null;
   assistedRequired?: boolean;
   /**

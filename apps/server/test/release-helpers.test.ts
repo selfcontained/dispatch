@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   parseGhJson,
@@ -7,7 +7,29 @@ import {
   getGitHubRepo,
   createCheckIsAdmin,
   fetchReleaseMetadata,
+  resolveAuthoringRepoDir,
 } from "../src/server/release-helpers.js";
+
+describe("resolveAuthoringRepoDir", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it("prefers DISPATCH_RELEASE_AUTHORING_REPO_DIR when set", () => {
+    vi.stubEnv("DISPATCH_RELEASE_AUTHORING_REPO_DIR", "/srv/authoring");
+    expect(resolveAuthoringRepoDir("/srv/runtime")).toBe("/srv/authoring");
+  });
+
+  it("falls back to serverDir when unset", () => {
+    vi.stubEnv("DISPATCH_RELEASE_AUTHORING_REPO_DIR", "");
+    expect(resolveAuthoringRepoDir("/srv/runtime")).toBe("/srv/runtime");
+  });
+
+  it("falls back to serverDir when whitespace-only", () => {
+    vi.stubEnv("DISPATCH_RELEASE_AUTHORING_REPO_DIR", "   ");
+    expect(resolveAuthoringRepoDir("/srv/runtime")).toBe("/srv/runtime");
+  });
+});
 
 describe("parseGhJson", () => {
   it("parses valid JSON", () => {

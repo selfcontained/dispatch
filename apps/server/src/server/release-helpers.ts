@@ -39,6 +39,16 @@ export function isReleaseAuthoringEnabled(): boolean {
 }
 
 /**
+ * Maintainer installs may run the server from a git-free runtime dir while
+ * authoring releases from a separate checkout. Everything that inspects the
+ * authoring repo (release job tag refresh, unreleased-commit enrichment)
+ * must agree on which checkout that is.
+ */
+export function resolveAuthoringRepoDir(serverDir: string): string {
+  return process.env.DISPATCH_RELEASE_AUTHORING_REPO_DIR?.trim() || serverDir;
+}
+
+/**
  * Release distribution must work from a source-less install. Keep the
  * repository explicit instead of probing a git remote owned by a different
  * user (or absent altogether).

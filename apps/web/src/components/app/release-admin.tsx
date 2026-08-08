@@ -223,7 +223,15 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
 
         {info && !infoLoading && (
           <>
-            {info.refMissing ? (
+            {info.unreleasedFetchError ? (
+              <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-sm text-status-waiting">
+                Couldn't refresh <span className="font-mono">origin/main</span>{" "}
+                — unreleased commit info is unavailable, not necessarily zero.
+                <div className="mt-1 break-words font-mono text-xs opacity-80">
+                  {cleanError(info.unreleasedFetchError)}
+                </div>
+              </div>
+            ) : info.refMissing ? (
               <div className="rounded-lg border border-status-waiting/30 bg-status-waiting/10 px-3 py-2 text-sm text-status-waiting">
                 Deployed version{" "}
                 <span className="font-mono">
@@ -264,55 +272,58 @@ export function ReleasesAdmin({ stream }: ReleasesAdminProps): JSX.Element {
       </div>
 
       {/* Create release */}
-      {info && (info.refMissing || info.unreleasedCount > 0) && (
-        <div>
-          <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
-            Create release
-          </div>
-
-          {releaseError && (
-            <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-              {releaseError}
+      {info &&
+        (info.refMissing ||
+          Boolean(info.unreleasedFetchError) ||
+          info.unreleasedCount > 0) && (
+          <div>
+            <div className="mb-3 text-[10px] uppercase tracking-widest text-muted-foreground">
+              Create release
             </div>
-          )}
 
-          <div className="flex flex-col gap-2">
-            {(["patch", "minor", "major"] as ReleaseVersionType[]).map(
-              (type) => {
-                const {
-                  icon: Icon,
-                  color,
-                  border,
-                  bg,
-                  hover,
-                } = VERSION_CONFIG[type];
-                return (
-                  <button
-                    key={type}
-                    onClick={() => void handleRelease(type)}
-                    className={cn(
-                      "flex flex-col items-center justify-center gap-2 rounded-lg border py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all",
-                      border,
-                      bg,
-                      hover
-                    )}
-                  >
-                    <Icon className={cn("h-5 w-5", color)} />
-                    <span
+            {releaseError && (
+              <div className="mb-3 rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                {releaseError}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2">
+              {(["patch", "minor", "major"] as ReleaseVersionType[]).map(
+                (type) => {
+                  const {
+                    icon: Icon,
+                    color,
+                    border,
+                    bg,
+                    hover,
+                  } = VERSION_CONFIG[type];
+                  return (
+                    <button
+                      key={type}
+                      onClick={() => void handleRelease(type)}
                       className={cn(
-                        "font-mono text-sm font-bold capitalize",
-                        color
+                        "flex flex-col items-center justify-center gap-2 rounded-lg border py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.06)] transition-all",
+                        border,
+                        bg,
+                        hover
                       )}
                     >
-                      {type}
-                    </span>
-                  </button>
-                );
-              }
-            )}
+                      <Icon className={cn("h-5 w-5", color)} />
+                      <span
+                        className={cn(
+                          "font-mono text-sm font-bold capitalize",
+                          color
+                        )}
+                      >
+                        {type}
+                      </span>
+                    </button>
+                  );
+                }
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       <div className="border-t border-white/[0.12]" />
 
