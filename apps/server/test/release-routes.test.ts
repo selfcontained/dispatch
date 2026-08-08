@@ -3,6 +3,7 @@ import path from "node:path";
 import { mkdtempSync, readFileSync } from "node:fs";
 import {
   afterAll,
+  afterEach,
   beforeAll,
   beforeEach,
   describe,
@@ -208,6 +209,143 @@ describe("release metadata route handling", () => {
       "v0.19.0",
       expect.objectContaining({ repo: "selfcontained/dispatch" })
     );
+  });
+
+  describe("admin unreleased-commit enrichment", () => {
+    const authoringDir = "/srv/authoring-checkout";
+
+    beforeEach(async () => {
+      vi.stubEnv("DISPATCH_RELEASE_AUTHORING", "1");
+      vi.stubEnv("DISPATCH_RELEASE_AUTHORING_REPO_DIR", authoringDir);
+      // The fetch coalescer caches per-checkout results for its TTL;
+      // clear it so each test observes its own fetch.
+      const { authoringRemoteRefresher } =
+        await import("../src/routes/release.js");
+      authoringRemoteRefresher.reset();
+    });
+
+    afterEach(() => {
+      vi.unstubAllEnvs();
+    });
+
+    it("fetches origin/main in the authoring checkout before counting", async () => {
+      mockReleaseCommands({
+        releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],
+        releaseViews: {
+          "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
+        },
+      });
+      const base = runCommandMock.getMockImplementation()!;
+      runCommandMock.mockImplementation(async (cmd, args, opts) => {
+        if (
+          cmd === "git" &&
+          args.includes("rev-parse") &&
+          args.includes("--verify")
+        ) {
+          return { exitCode: 0, stdout: "abc123\n", stderr: "" };
+        }
+        if (cmd === "git" && args.includes("rev-list")) {
+          return { exitCode: 0, stdout: "3", stderr: "" };
+        }
+        if (cmd === "git" && args.includes("log")) {
+          return {
+            exitCode: 0,
+            stdout: [
+              "1111111aaaaaaa\tfix: one",
+              "2222222bbbbbbb\tfeat: two",
+              "3333333ccccccc\tchore: three",
+            ].join("\n"),
+            stderr: "",
+          };
+        }
+        return base(cmd, args, opts);
+      });
+
+      const response = await ctx.app.inject({
+        method: "GET",
+        url: "/api/v1/release/info",
+        headers: { cookie: sessionCookie },
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(response.json()).toMatchObject({
+        isAdmin: true,
+        unreleasedCount: 3,
+        refMissing: false,
+        unreleasedFetchError: null,
+        commits: [
+          { sha: "1111111", subject: "fix: one" },
+          { sha: "2222222", subject: "feat: two" },
+          { sha: "3333333", subject: "chore: three" },
+        ],
+      });
+
+      const gitCalls = runCommandMock.mock.calls.filter(
+        (call): call is [string, string[]] => call[0] === "git"
+      );
+      const fetchCall = gitCalls.find(([, args]) => args.includes("fetch"));
+      expect(fetchCall?.[1]).toEqual([
+        "-C",
+        authoringDir,
+        "fetch",
+        "--quiet",
+        "--tags",
+        "origin",
+        "main",
+      ]);
+      const enrichmentCalls = gitCalls.filter(([, args]) =>
+        ["rev-parse", "rev-list", "log"].some((sub) => args.includes(sub))
+      );
+      expect(enrichmentCalls.length).toBeGreaterThan(0);
+      for (const [, args] of enrichmentCalls) {
+        expect(args.slice(0, 2)).toEqual(["-C", authoringDir]);
+      }
+    });
+
+    it("reports a fetch failure instead of zero unreleased commits", async () => {
+      mockReleaseCommands({
+        releaseList: [{ tagName: "v0.19.0", isPrerelease: false }],
+        releaseViews: {
+          "v0.19.0": validReleaseView({ body: "no fenced metadata" }),
+        },
+      });
+      const base = runCommandMock.getMockImplementation()!;
+      runCommandMock.mockImplementation(async (cmd, args, opts) => {
+        if (cmd === "git" && args.includes("fetch")) {
+          throw new Error(
+            "Command failed (git fetch), exitCode=128, stderr=could not resolve host"
+          );
+        }
+        return base(cmd, args, opts);
+      });
+
+      const response = await ctx.app.inject({
+        method: "GET",
+        url: "/api/v1/release/info",
+        headers: { cookie: sessionCookie },
+      });
+
+      expect(response.statusCode).toBe(200);
+      const body = response.json() as { unreleasedFetchError: string };
+      expect(body).toMatchObject({
+        isAdmin: true,
+        unreleasedCount: 0,
+        refMissing: false,
+        unreleasedFetchError: expect.stringContaining(
+          "Unable to refresh origin/main"
+        ),
+      });
+      // Sanitized: raw git stderr must not reach the client.
+      expect(body.unreleasedFetchError).not.toContain("could not resolve host");
+      const comparisonCalls = runCommandMock.mock.calls.filter(
+        ([cmd, args]) =>
+          cmd === "git" &&
+          ["rev-parse", "rev-list", "log"].some((sub) =>
+            (args as string[]).includes(sub)
+          )
+      );
+      expect(comparisonCalls).toHaveLength(0);
+    });
   });
 
   it("falls back to the packaged app version when no release tag is recorded", async () => {

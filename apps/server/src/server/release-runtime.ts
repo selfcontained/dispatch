@@ -29,6 +29,7 @@ import {
   fetchReleaseMetadata as fetchReleaseMetadataImpl,
   fixedRuntimePath,
   isReleaseAuthoringEnabled,
+  resolveAuthoringRepoDir,
 } from "./release-helpers.js";
 import { verifyAndStageRuntime } from "./release-artifact.js";
 
@@ -506,8 +507,7 @@ Suggested workflow:
           "Release authoring is disabled (set DISPATCH_RELEASE_AUTHORING=1)"
         );
       }
-      const authoringRepoDir =
-        process.env.DISPATCH_RELEASE_AUTHORING_REPO_DIR ?? deps.serverDir;
+      const authoringRepoDir = resolveAuthoringRepoDir(deps.serverDir);
       setReleasePhase(job, "preflight");
       try {
         await deps.runCommand("gh", ["--version"]);

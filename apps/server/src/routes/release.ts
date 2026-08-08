@@ -13,8 +13,10 @@ import {
 } from "../agent-type-settings.js";
 import { getReleaseUpdateAgentId } from "../auth.js";
 import {
+  createAuthoringRemoteRefresher,
   GitHubApiError,
   isReleaseAuthoringEnabled,
+  resolveAuthoringRepoDir,
 } from "../server/release-helpers.js";
 import { getSetting, setSetting } from "../db/settings.js";
 import { readReleaseStore } from "../release-store.js";
@@ -59,41 +61,89 @@ import {
  * shared snapshot because it depends on the requesting user's GitHub repo
  * permission. Sees no auth context — the caller passes the precomputed
  * isAdmin flag so we don't hit gh twice in one request.
+ *
+ * Runs against the authoring checkout (DISPATCH_RELEASE_AUTHORING_REPO_DIR,
+ * falling back to serverDir), the same checkout the release job uses — the
+ * server's runtime dir may be git-free or pinned to a release tag. A fetch
+ * failure is reported as fetchError, never as zero unreleased commits: the
+ * dispatched release workflow builds current origin/main regardless of what
+ * a stale local checkout shows. The fetch is coalesced/TTL'd via
+ * authoringRemoteRefresher, and the client-facing fetchError is a fixed
+ * message — git stderr can carry paths and remote/credential details, so
+ * the raw error goes to the server log only.
  */
+const AUTHORING_FETCH_ERROR_MESSAGE =
+  "Unable to refresh origin/main in the authoring checkout. See the server log for details.";
+
+export const authoringRemoteRefresher =
+  createAuthoringRemoteRefresher(runCommand);
+
 async function computeAdminExtras(input: {
   isAdmin: boolean;
   compareTag: string | null;
-  serverDir: string;
+  authoringRepoDir: string;
+  log: FastifyBaseLogger;
 }): Promise<{
   unreleasedCount: number;
   commits: Array<{ sha: string; subject: string }>;
   refMissing: boolean;
+  fetchError: string | null;
 }> {
   if (!input.isAdmin || !input.compareTag) {
-    return { unreleasedCount: 0, commits: [], refMissing: false };
+    return {
+      unreleasedCount: 0,
+      commits: [],
+      refMissing: false,
+      fetchError: null,
+    };
+  }
+  const fetchResult = await authoringRemoteRefresher.refresh(
+    input.authoringRepoDir
+  );
+  if (!fetchResult.ok) {
+    input.log.warn(
+      { err: fetchResult.error, authoringRepoDir: input.authoringRepoDir },
+      "release/info: authoring checkout fetch failed"
+    );
+    return {
+      unreleasedCount: 0,
+      commits: [],
+      refMissing: false,
+      fetchError: AUTHORING_FETCH_ERROR_MESSAGE,
+    };
   }
   const refCheck = await runCommand(
     "git",
-    ["-C", input.serverDir, "rev-parse", "--verify", input.compareTag],
+    ["-C", input.authoringRepoDir, "rev-parse", "--verify", input.compareTag],
     { allowedExitCodes: [0, 128] }
   );
   if (refCheck.exitCode !== 0) {
-    return { unreleasedCount: 0, commits: [], refMissing: true };
+    return {
+      unreleasedCount: 0,
+      commits: [],
+      refMissing: true,
+      fetchError: null,
+    };
   }
   const countResult = await runCommand("git", [
     "-C",
-    input.serverDir,
+    input.authoringRepoDir,
     "rev-list",
     `${input.compareTag}..origin/main`,
     "--count",
   ]);
   const unreleasedCount = Number(countResult.stdout) || 0;
   if (unreleasedCount === 0) {
-    return { unreleasedCount: 0, commits: [], refMissing: false };
+    return {
+      unreleasedCount: 0,
+      commits: [],
+      refMissing: false,
+      fetchError: null,
+    };
   }
   const logResult = await runCommand("git", [
     "-C",
-    input.serverDir,
+    input.authoringRepoDir,
     "log",
     `${input.compareTag}..origin/main`,
     "--no-merges",
@@ -110,7 +160,7 @@ async function computeAdminExtras(input: {
         subject: line.slice(tab + 1),
       };
     });
-  return { unreleasedCount, commits, refMissing: false };
+  return { unreleasedCount, commits, refMissing: false, fetchError: null };
 }
 import { runCommand } from "../shared/lib/run-command.js";
 import type {
@@ -280,7 +330,8 @@ async function handleReleaseInfo(
   const extras = await computeAdminExtras({
     isAdmin,
     compareTag: snapshot.absoluteLatestTag ?? snapshot.currentTag,
-    serverDir: deps.serverDir,
+    authoringRepoDir: resolveAuthoringRepoDir(deps.serverDir),
+    log: request.log,
   });
 
   return {
@@ -293,6 +344,7 @@ async function handleReleaseInfo(
     unreleasedCount: extras.unreleasedCount,
     commits: extras.commits,
     refMissing: extras.refMissing,
+    unreleasedFetchError: extras.fetchError,
     assisted: snapshot.assisted,
     assistedRequired: snapshot.assistedRequired,
     pendingMigrations: snapshot.pendingMigrations,
