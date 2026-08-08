@@ -5,6 +5,9 @@ import type {
 } from "@/hooks/use-release-stream";
 import type { ReleaseInfoSnapshot } from "@/hooks/use-cached-release-info";
 import { formatShortDateTime } from "@/lib/format";
+import { formatBytes } from "../../../../server/src/shared/lib/format-bytes";
+
+export { formatBytes };
 
 export type AppVersionInfo = {
   releaseTag: string | null;
@@ -32,19 +35,6 @@ export function cleanError(raw: string): string {
     return stderr.replace(/^fatal:\s*/i, "");
   }
   return raw;
-}
-
-export function formatBytes(bytes: number): string {
-  if (bytes >= 1024 * 1024 * 1024) {
-    return `${(bytes / 1024 / 1024 / 1024).toFixed(1)} GB`;
-  }
-  if (bytes >= 1024 * 1024) {
-    return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
-  }
-  if (bytes >= 1024) {
-    return `${Math.round(bytes / 1024)} KB`;
-  }
-  return `${bytes} B`;
 }
 
 export function formatProgressLabel(job: ReleaseJob): string | null {
