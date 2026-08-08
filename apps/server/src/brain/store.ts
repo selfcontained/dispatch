@@ -60,6 +60,12 @@ export type BrainCollectionSummary = {
   eventCount: number;
 };
 
+export type BrainCollectionDeleteResult = {
+  objects: number;
+  lists: number;
+  events: number;
+};
+
 export type BrainAgentActivity = {
   objects: BrainObject[];
   lists: (BrainList & { itemCount: number })[];
@@ -279,6 +285,31 @@ export class BrainStore {
       [repoRoot, collection, name]
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteCollection(
+    repoRoot: string,
+    collection: string
+  ): Promise<BrainCollectionDeleteResult> {
+    return this.withTransaction(async (client) => {
+      const objects = await client.query(
+        `DELETE FROM brain_objects WHERE repo_root = $1 AND collection = $2`,
+        [repoRoot, collection]
+      );
+      const lists = await client.query(
+        `DELETE FROM brain_lists WHERE repo_root = $1 AND collection = $2`,
+        [repoRoot, collection]
+      );
+      const events = await client.query(
+        `DELETE FROM brain_events WHERE repo_root = $1 AND collection = $2`,
+        [repoRoot, collection]
+      );
+      return {
+        objects: objects.rowCount ?? 0,
+        lists: lists.rowCount ?? 0,
+        events: events.rowCount ?? 0,
+      };
+    });
   }
 
   // ── Lists ────────────────────────────────────────────────────────
@@ -733,6 +764,14 @@ export class BrainStore {
       ]
     );
     return mapEvent(result.rows[0]);
+  }
+
+  async deleteEvent(repoRoot: string, id: string): Promise<boolean> {
+    const result = await this.pool.query(
+      `DELETE FROM brain_events WHERE repo_root = $1 AND id = $2`,
+      [repoRoot, id]
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async queryEvents(

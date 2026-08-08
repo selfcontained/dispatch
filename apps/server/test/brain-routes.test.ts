@@ -236,6 +236,64 @@ describe("GET /api/v1/brain/objects/:collection/:name", () => {
   });
 });
 
+describe("DELETE /api/v1/brain/objects/:collection/:name", () => {
+  it("deletes an object scoped to the requested repo", async () => {
+    await brainStore.storeObject(REPO_ROOT, "agt_test", {
+      collection: "config",
+      name: "removable",
+      value: {},
+    });
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/objects/config/removable?repoRoot=${encodeURIComponent(REPO_ROOT)}`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: true });
+    expect(
+      await brainStore.getObject(REPO_ROOT, "config", "removable")
+    ).toBeNull();
+  });
+});
+
+describe("DELETE /api/v1/brain/collections/:collection", () => {
+  it("deletes all entry types in a collection only", async () => {
+    await brainStore.storeObject(REPO_ROOT, "agt_test", {
+      collection: "purge",
+      name: "object",
+      value: {},
+    });
+    await brainStore.pushListItems(REPO_ROOT, "agt_test", {
+      collection: "purge",
+      name: "list",
+      items: [{ value: 1 }],
+    });
+    await brainStore.appendEvent(REPO_ROOT, "agt_test", {
+      collection: "purge",
+      kind: "event",
+      value: {},
+    });
+    await brainStore.storeObject(REPO_ROOT, "agt_test", {
+      collection: "keep",
+      name: "object",
+      value: {},
+    });
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/collections/purge?repoRoot=${encodeURIComponent(REPO_ROOT)}`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ objects: 1, lists: 1, events: 1 });
+    expect(
+      await brainStore.listObjects(REPO_ROOT, { collection: "purge" })
+    ).toEqual([]);
+    expect(
+      await brainStore.getObject(REPO_ROOT, "keep", "object")
+    ).not.toBeNull();
+  });
+});
+
 describe("GET /api/v1/brain/lists", () => {
   it("returns 400 without repoRoot", async () => {
     const res = await authedInject("GET", "/api/v1/brain/lists");
@@ -469,6 +527,24 @@ describe("GET /api/v1/brain/events", () => {
     );
     expect(res.statusCode).toBe(200);
     expect(res.json()).toHaveLength(2);
+  });
+});
+
+describe("DELETE /api/v1/brain/events/:id", () => {
+  it("deletes an event scoped to the requested repo", async () => {
+    const event = await brainStore.appendEvent(REPO_ROOT, "agt_test", {
+      collection: "ci",
+      kind: "removable",
+      value: {},
+    });
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/events/${event.id}?repoRoot=${encodeURIComponent(REPO_ROOT)}`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: true });
+    expect(await brainStore.queryEvents(REPO_ROOT)).toEqual([]);
   });
 });
 

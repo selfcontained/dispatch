@@ -1,6 +1,15 @@
 import { useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { Activity, Brain, Database, List, Radio, Search } from "lucide-react";
+import {
+  Activity,
+  Brain,
+  Database,
+  List,
+  Radio,
+  Search,
+  Trash2,
+} from "lucide-react";
+import { toast } from "sonner";
 
 import {
   useBrainProjects,
@@ -8,6 +17,9 @@ import {
   useBrainObjects,
   useBrainLists,
   useBrainEvents,
+  useBrainActions,
+  type BrainObject,
+  type BrainEvent,
 } from "@/hooks/use-brain";
 import {
   CollapsibleSection,
@@ -25,6 +37,14 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 function repoBasename(repoRoot: string): string {
@@ -369,6 +389,13 @@ function BrainCollectionView({
     repoRoot,
     eventFilters
   );
+  const { deleteObject, deleteEvent, deleteCollection } = useBrainActions();
+  const [deleteTarget, setDeleteTarget] = useState<
+    | { type: "object"; object: BrainObject }
+    | { type: "event"; event: BrainEvent }
+    | { type: "collection"; collection: string }
+    | null
+  >(null);
 
   const isLoading = objectsLoading || listsLoading || eventsLoading;
 
@@ -427,6 +454,39 @@ function BrainCollectionView({
     !collection &&
     (objects.length >= 100 || lists.length >= 100 || events.length >= 100);
 
+  const confirmDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      if (deleteTarget.type === "object") {
+        await deleteObject.mutateAsync({
+          repoRoot,
+          collection: deleteTarget.object.collection,
+          name: deleteTarget.object.name,
+        });
+        toast.success("Object deleted.");
+      } else if (deleteTarget.type === "event") {
+        await deleteEvent.mutateAsync({ repoRoot, id: deleteTarget.event.id });
+        toast.success("Event deleted.");
+      } else {
+        const result = await deleteCollection.mutateAsync({
+          repoRoot,
+          collection: deleteTarget.collection,
+        });
+        toast.success(
+          `Deleted ${result.objects + result.lists + result.events} entries from ${deleteTarget.collection}.`
+        );
+      }
+      setDeleteTarget(null);
+    } catch {
+      toast.error("Could not delete brain data.");
+    }
+  };
+
+  const deleting =
+    deleteObject.isPending ||
+    deleteEvent.isPending ||
+    deleteCollection.isPending;
+
   return (
     <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden">
       <div className="space-y-1 px-1 pt-4 pb-12 sm:px-2 md:px-5">
@@ -434,6 +494,22 @@ function BrainCollectionView({
           <div className="mx-3 mb-2 rounded-md border border-border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
             Showing the first 100 items per section. Select a collection to see
             all entries.
+          </div>
+        ) : null}
+
+        {collection ? (
+          <div className="mx-3 mb-2 flex justify-end">
+            <Button
+              type="button"
+              variant="ghost-destructive"
+              size="sm"
+              onClick={() =>
+                setDeleteTarget({ type: "collection", collection })
+              }
+            >
+              <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+              Clear collection
+            </Button>
           </div>
         ) : null}
 
@@ -448,6 +524,7 @@ function BrainCollectionView({
               obj={obj}
               agentId={obj.updatedByAgentId}
               revision={obj.revision}
+              onDelete={() => setDeleteTarget({ type: "object", object: obj })}
             />
           ))}
         </CollapsibleSection>
@@ -473,10 +550,77 @@ function BrainCollectionView({
           count={filteredEvents.length}
         >
           {filteredEvents.map((event) => (
-            <EventCard key={event.id} event={event} agentId={event.agentId} />
+            <EventCard
+              key={event.id}
+              event={event}
+              agentId={event.agentId}
+              onDelete={() => setDeleteTarget({ type: "event", event })}
+            />
           ))}
         </CollapsibleSection>
       </div>
+      <DeleteBrainDialog
+        target={deleteTarget}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
+        onConfirm={() => void confirmDelete()}
+        deleting={deleting}
+      />
     </div>
+  );
+}
+
+function DeleteBrainDialog({
+  target,
+  onOpenChange,
+  onConfirm,
+  deleting,
+}: {
+  target:
+    | { type: "object"; object: BrainObject }
+    | { type: "event"; event: BrainEvent }
+    | { type: "collection"; collection: string }
+    | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+  deleting: boolean;
+}): JSX.Element {
+  const title =
+    target?.type === "object"
+      ? `Delete ${target.object.name}?`
+      : target?.type === "event"
+        ? `Delete ${target.event.kind} event?`
+        : `Clear ${target?.collection ?? "collection"}?`;
+  const description =
+    target?.type === "collection"
+      ? `This permanently deletes all objects, lists, and events in “${target.collection}” for this project.`
+      : "This permanently deletes shared brain data for this project.";
+
+  return (
+    <Dialog open={target !== null} onOpenChange={onOpenChange}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{title}</DialogTitle>
+          <DialogDescription>{description}</DialogDescription>
+        </DialogHeader>
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+            disabled={deleting}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant="destructive"
+            onClick={onConfirm}
+            disabled={deleting}
+          >
+            {deleting ? "Deleting..." : "Delete permanently"}
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
   );
 }

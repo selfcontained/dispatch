@@ -65,6 +65,37 @@ export async function registerBrainRoutes(
     return obj;
   });
 
+  app.delete<{
+    Params: { collection: string; name: string };
+    Querystring: { repoRoot?: string };
+  }>("/api/v1/brain/objects/:collection/:name", async (request, reply) => {
+    const { repoRoot } = request.query;
+    if (!repoRoot) {
+      return reply.code(400).send({ error: "repoRoot is required." });
+    }
+    return {
+      deleted: await brainStore.deleteObject(
+        repoRoot,
+        request.params.collection,
+        request.params.name
+      ),
+    };
+  });
+
+  app.delete<{
+    Params: { collection: string };
+    Querystring: { repoRoot?: string };
+  }>("/api/v1/brain/collections/:collection", async (request, reply) => {
+    const { repoRoot } = request.query;
+    if (!repoRoot) {
+      return reply.code(400).send({ error: "repoRoot is required." });
+    }
+    return await brainStore.deleteCollection(
+      repoRoot,
+      request.params.collection
+    );
+  });
+
   app.get<{
     Querystring: { repoRoot?: string; collection?: string; limit?: string };
   }>("/api/v1/brain/lists", async (request, reply) => {
@@ -126,6 +157,19 @@ export async function registerBrainRoutes(
       until: until || undefined,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
+  });
+
+  app.delete<{
+    Params: { id: string };
+    Querystring: { repoRoot?: string };
+  }>("/api/v1/brain/events/:id", async (request, reply) => {
+    const { repoRoot } = request.query;
+    if (!repoRoot) {
+      return reply.code(400).send({ error: "repoRoot is required." });
+    }
+    return {
+      deleted: await brainStore.deleteEvent(repoRoot, request.params.id),
+    };
   });
 
   app.get<{
