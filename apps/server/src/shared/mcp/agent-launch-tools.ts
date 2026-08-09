@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
 import { CLI_AGENT_TYPES } from "../../agent-type-settings.js";
+import { describeAgentModelCatalog } from "../agent-models.js";
 import { toToolError } from "./tool-error.js";
 
 export type LaunchAgentResult = {
@@ -68,7 +69,8 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Model ID from Dispatch's supported catalog. Omit to let the CLI use its default."
+            "Model id for the new agent, matching its type. Omit to let the CLI use its default. " +
+              describeAgentModelCatalog()
           ),
         useWorktree: z
           .boolean()

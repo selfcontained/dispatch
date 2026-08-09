@@ -1,4 +1,4 @@
-import type { AgentType } from "./agent-types.js";
+import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
 export type AgentModelOption = { id: string; label: string };
 
@@ -51,6 +51,60 @@ export function getAgentModelOptions(
   agentType: AgentType
 ): readonly AgentModelOption[] {
   return AGENT_MODEL_OPTIONS[agentType] ?? [];
+}
+
+function joinWithAnd(values: readonly string[]): string {
+  if (values.length <= 2) return values.join(" and ");
+  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
+}
+
+/**
+ * Keeps a label's trailing qualifier — "GPT-5.3 Codex Spark (preview)" renders
+ * as "gpt-5.3-codex-spark (preview)". The catalog marks risky ids only in their
+ * labels, so dropping them would advertise a preview id as an equal of a stable
+ * one to every agent reading the tool description.
+ */
+function describeOption(option: AgentModelOption): string {
+  const qualifier = /\(([^)]*)\)\s*$/.exec(option.label)?.[1];
+  return qualifier ? `${option.id} (${qualifier})` : option.id;
+}
+
+/**
+ * Renders the catalog as a one-line summary for MCP tool schemas.
+ *
+ * Agents launching other agents over MCP have no other way to discover which
+ * model ids a given agent type accepts, and an unsupported id is rejected at
+ * launch — so the allowlist ships inside the `model` parameter description.
+ *
+ * Pass the agent types the calling tool actually accepts: template tools also
+ * take `terminal`, which has no catalog entry, and naming it as unsupported is
+ * what keeps the description honest about the ids that tool will take.
+ */
+export function describeAgentModelCatalog(
+  agentTypes: readonly AgentType[] = CLI_AGENT_TYPES
+): string {
+  const supported: string[] = [];
+  const unsupported: string[] = [];
+
+  for (const agentType of agentTypes) {
+    const options = getAgentModelOptions(agentType);
+    if (options.length === 0) {
+      unsupported.push(agentType);
+      continue;
+    }
+    supported.push(`${agentType}: ${options.map(describeOption).join(", ")}`);
+  }
+
+  const sentences =
+    supported.length > 0
+      ? [`Supported ids by agent type — ${supported.join("; ")}.`]
+      : [];
+  if (unsupported.length > 0) {
+    sentences.push(
+      `${joinWithAnd(unsupported)} accept${unsupported.length === 1 ? "s" : ""} no model override — omit model for ${unsupported.length === 1 ? "that" : "those"}.`
+    );
+  }
+  return sentences.join(" ");
 }
 
 export function validateAgentModel(

@@ -7,6 +7,12 @@ Omitting a model uses the CLI default. Agent types with no catalog entry
 (currently Cursor and OpenCode) hide the model picker entirely and always
 launch with the CLI default.
 
+Agents launching agents over MCP cannot see the catalog any other way, so
+`describeAgentModelCatalog()` renders it into the `model` parameter description
+of `dispatch_launch_agent`, `dispatch_launch_persona`, `create_job`,
+`update_job`, `create_template`, and `update_template`. That text is derived
+from the catalog — editing the catalog updates it, no separate step.
+
 ## Maintenance sources
 
 - [Codex model selection](https://learn.chatgpt.com/docs/models.md)
