@@ -13,6 +13,7 @@ import {
   getAgentModelOptions,
   validateAgentModel,
 } from "../shared/agent-models.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { sleep } from "../shared/lib/sleep.js";
 import {
@@ -204,7 +205,7 @@ export class JobService {
         report: run.report,
       };
     } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
+      const message = errorMessage(error);
       const crashed = await this.markCrashed(
         run,
         `Job failed to start: ${message}`,
@@ -715,10 +716,7 @@ export class JobService {
         this.logger.warn({ err: error, runId }, "Job monitor failed.");
         const run = await this.store.getRun(runId);
         if (run && ACTIVE_RUN_STATUSES.has(run.status)) {
-          return await this.markCrashed(
-            run,
-            error instanceof Error ? error.message : String(error)
-          );
+          return await this.markCrashed(run, errorMessage(error));
         }
         if (run) return run;
       })

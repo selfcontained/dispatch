@@ -31,6 +31,7 @@ import {
   isReleaseAuthoringEnabled,
   resolveAuthoringRepoDir,
 } from "./release-helpers.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 import { verifyAndStageRuntime } from "./release-artifact.js";
 
 // Wire types (job, phases, stream events) live in release-wire.ts so the
@@ -521,7 +522,7 @@ Suggested workflow:
 
       await deployTag(job, tag);
     } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errorMessage(err);
       if (activeUpdateJob) {
         activeUpdateJob.error = error;
       }
@@ -565,9 +566,7 @@ Suggested workflow:
           `version=${job.versionType}`,
         ]);
       } catch (err) {
-        throw new Error(
-          `Failed to trigger workflow: ${err instanceof Error ? err.message : String(err)}`
-        );
+        throw new Error(`Failed to trigger workflow: ${errorMessage(err)}`);
       }
 
       await new Promise((r) => setTimeout(r, 3000));
@@ -634,7 +633,7 @@ Suggested workflow:
       appendReleaseLog(job, `==> release ${tag} created successfully`);
       setReleasePhase(job, "done");
     } catch (err) {
-      const error = err instanceof Error ? err.message : String(err);
+      const error = errorMessage(err);
       if (activeCreateJob) {
         activeCreateJob.error = error;
       }

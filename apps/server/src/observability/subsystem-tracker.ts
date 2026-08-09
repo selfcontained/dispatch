@@ -1,3 +1,5 @@
+import { errorMessage } from "../shared/lib/error-message.js";
+
 export type SubsystemHealthState =
   | "healthy"
   | "degraded"
@@ -41,7 +43,7 @@ export type SubsystemTrackerOptions = {
 const MAX_DURATIONS = 60;
 
 function publicErrorSummary(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error);
+  const raw = errorMessage(error);
   return /timed?\s*out|timeout|abort/i.test(raw)
     ? "Operation timed out"
     : "Operation failed";

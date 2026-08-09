@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { tokensEqual } from "./auth.js";
 import { sanitizeAgentString } from "./shared/lib/agent-strings.js";
+import { errorMessage } from "./shared/lib/error-message.js";
 import {
   isAssistedUpdateRequired,
   normalizeRequiredChecks,
@@ -239,7 +240,7 @@ export async function runAndRecordChecks(
     try {
       await markMigrationsApplied(ids, state.tag);
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       const transition = await applyAssistedPhase({
         token: state.token,
         phase: "blocked",
