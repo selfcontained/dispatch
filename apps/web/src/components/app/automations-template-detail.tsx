@@ -66,12 +66,14 @@ function TemplateDetail({
   const [directory, setDirectory] = useState(template.directory);
   const [prompt, setPrompt] = useState(template.prompt ?? "");
   const [agentType, setAgentType] = useState<AgentType>(template.agentType);
+  const [model, setModel] = useState<string | null>(template.model);
   const [useWorktree, setUseWorktree] = useState(template.useWorktree);
   const [baseBranch, setBaseBranch] = useState(template.baseBranch ?? "main");
   const [branchName, setBranchName] = useState(template.branchName ?? "");
   const [fullAccess, setFullAccess] = useState(template.fullAccess);
   const [callable, setCallable] = useState(template.callable);
   const [allowMedia, setAllowMedia] = useState(template.allowMedia);
+  const [selfImprove, setSelfImprove] = useState(template.selfImprove);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
@@ -82,12 +84,14 @@ function TemplateDetail({
     setDirectory(template.directory);
     setPrompt(template.prompt ?? "");
     setAgentType(template.agentType);
+    setModel(template.model);
     setUseWorktree(template.useWorktree);
     setBaseBranch(template.baseBranch ?? "main");
     setBranchName(template.branchName ?? "");
     setFullAccess(template.fullAccess);
     setCallable(template.callable);
     setAllowMedia(template.allowMedia);
+    setSelfImprove(template.selfImprove);
     setSaveError(null);
     setRemoveDialogOpen(false);
     setLaunchDialogOpen(false);
@@ -116,12 +120,14 @@ function TemplateDetail({
         directory: directory.trim(),
         prompt: isTerminal ? null : prompt || null,
         agentType,
+        model,
         useWorktree: isTerminal ? false : useWorktree,
         baseBranch: isTerminal ? null : useWorktree ? baseBranch : null,
         branchName: isTerminal ? null : useWorktree ? branchName || null : null,
         fullAccess: isTerminal ? false : fullAccess,
         callable,
         allowMedia: isTerminal ? false : allowMedia,
+        selfImprove: isTerminal ? false : selfImprove,
       })
       .then(() => {
         addCwdHistory(directory);
@@ -136,12 +142,14 @@ function TemplateDetail({
     directory,
     prompt,
     agentType,
+    model,
     useWorktree,
     baseBranch,
     branchName,
     fullAccess,
     callable,
     allowMedia,
+    selfImprove,
     addCwdHistory,
   ]);
 
@@ -218,6 +226,8 @@ function TemplateDetail({
               <TemplateConfigFields
                 agentType={agentType}
                 onAgentTypeChange={setAgentType}
+                model={model}
+                onModelChange={setModel}
                 enabledAgentTypes={enabledAgentTypes}
                 name={displayName}
                 onNameChange={setDisplayName}
@@ -237,6 +247,8 @@ function TemplateDetail({
                 onCallableChange={setCallable}
                 allowMedia={allowMedia}
                 onAllowMediaChange={setAllowMedia}
+                selfImprove={selfImprove}
+                onSelfImproveChange={setSelfImprove}
                 prompt={prompt}
                 onPromptChange={setPrompt}
               />

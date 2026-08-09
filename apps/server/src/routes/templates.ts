@@ -32,12 +32,14 @@ const AddTemplateBodySchema = z.object({
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
+  model: z.string().nullable().optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   callable: z.boolean().optional(),
   allowMedia: z.boolean().optional(),
+  selfImprove: z.boolean().optional(),
 });
 
 const UpdateTemplateBodySchema = z.object({
@@ -46,12 +48,14 @@ const UpdateTemplateBodySchema = z.object({
   description: z.string().nullable().optional(),
   prompt: z.string().nullable().optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
+  model: z.string().nullable().optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
   branchName: z.string().nullable().optional(),
   fullAccess: z.boolean().optional(),
   callable: z.boolean().optional(),
   allowMedia: z.boolean().optional(),
+  selfImprove: z.boolean().optional(),
 });
 
 const LaunchBodySchema = z.object({

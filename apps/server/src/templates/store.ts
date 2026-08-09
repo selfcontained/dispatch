@@ -21,12 +21,14 @@ export type TemplateRecord = {
   description: string | null;
   prompt: string | null;
   agentType: AgentType;
+  model: string | null;
   useWorktree: boolean;
   baseBranch: string | null;
   branchName: string | null;
   fullAccess: boolean;
   callable: boolean;
   allowMedia: boolean;
+  selfImprove: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -37,12 +39,14 @@ export type TemplateConfigUpdate = {
   directory?: string;
   prompt?: string | null;
   agentType?: AgentType;
+  model?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
   allowMedia?: boolean;
+  selfImprove?: boolean;
 };
 
 export class TemplateStore {
@@ -54,19 +58,21 @@ export class TemplateStore {
     description: string | null;
     prompt: string | null;
     agentType: AgentType;
+    model?: string | null;
     useWorktree: boolean;
     baseBranch: string | null;
     branchName: string | null;
     fullAccess: boolean;
     callable: boolean;
     allowMedia: boolean;
+    selfImprove?: boolean;
   }): Promise<TemplateRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO templates (id, directory, name, description, prompt, agent_type, use_worktree, base_branch, branch_name, full_access, callable, allow_media)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        INSERT INTO templates (id, directory, name, description, prompt, agent_type, model, use_worktree, base_branch, branch_name, full_access, callable, allow_media, self_improve)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
         RETURNING ${this.columns()}
         `,
         [
@@ -76,12 +82,14 @@ export class TemplateStore {
           input.description,
           input.prompt,
           input.agentType,
+          input.model ?? null,
           input.useWorktree,
           input.baseBranch,
           input.branchName,
           input.fullAccess,
           input.callable,
           input.allowMedia,
+          input.selfImprove ?? false,
         ]
       );
       return mapTemplate(result.rows[0]);
@@ -167,12 +175,14 @@ export class TemplateStore {
             directory = COALESCE($5, directory),
             prompt = CASE WHEN $6 THEN $7 ELSE prompt END,
             agent_type = COALESCE($8, agent_type),
-            use_worktree = COALESCE($9, use_worktree),
-            base_branch = CASE WHEN $10 THEN $11 ELSE base_branch END,
-            branch_name = CASE WHEN $12 THEN $13 ELSE branch_name END,
-            full_access = COALESCE($14, full_access),
-            callable = COALESCE($15, callable),
-            allow_media = COALESCE($16, allow_media),
+            model = CASE WHEN $9 THEN $10 ELSE model END,
+            use_worktree = COALESCE($11, use_worktree),
+            base_branch = CASE WHEN $12 THEN $13 ELSE base_branch END,
+            branch_name = CASE WHEN $14 THEN $15 ELSE branch_name END,
+            full_access = COALESCE($16, full_access),
+            callable = COALESCE($17, callable),
+            allow_media = COALESCE($18, allow_media),
+            self_improve = COALESCE($19, self_improve),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.columns()}
@@ -186,6 +196,8 @@ export class TemplateStore {
           hasPrompt,
           input.prompt ?? null,
           input.agentType,
+          Object.prototype.hasOwnProperty.call(input, "model"),
+          input.model ?? null,
           input.useWorktree,
           hasBaseBranch,
           input.baseBranch ?? null,
@@ -194,6 +206,7 @@ export class TemplateStore {
           input.fullAccess,
           input.callable,
           input.allowMedia,
+          input.selfImprove,
         ]
       );
       if (!result.rows[0]) throw new Error(`Template ${id} not found.`);
@@ -237,12 +250,14 @@ export class TemplateStore {
       description,
       prompt,
       agent_type AS "agentType",
+      model,
       use_worktree AS "useWorktree",
       base_branch AS "baseBranch",
       branch_name AS "branchName",
       full_access AS "fullAccess",
       callable,
       allow_media AS "allowMedia",
+      self_improve AS "selfImprove",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;

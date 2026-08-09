@@ -24,10 +24,12 @@ export function SwitchToggle({
   checked,
   onCheckedChange,
   ariaLabel,
+  disabled = false,
 }: {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
   ariaLabel: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -35,9 +37,10 @@ export function SwitchToggle({
       role="switch"
       aria-checked={checked}
       aria-label={ariaLabel}
+      disabled={disabled}
       onClick={() => onCheckedChange(!checked)}
       className={cn(
-        "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background",
+        "inline-flex h-6 w-11 shrink-0 items-center rounded-full border border-transparent p-0.5 transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2 focus:ring-offset-background disabled:cursor-not-allowed disabled:opacity-50",
         checked ? "bg-primary" : "bg-muted"
       )}
     >
@@ -57,6 +60,7 @@ export function JobScheduleField({
   scheduleError,
   enabled,
   enabledHelperText,
+  showEnabled = true,
   onScheduleChange,
   onEnabledChange,
 }: {
@@ -65,6 +69,7 @@ export function JobScheduleField({
   scheduleError: string | null;
   enabled: boolean;
   enabledHelperText: string;
+  showEnabled?: boolean;
   onScheduleChange: (value: string) => void;
   onEnabledChange: (enabled: boolean) => void;
 }) {
@@ -94,7 +99,7 @@ export function JobScheduleField({
           Leave blank for an on-demand job.
         </div>
       ) : null}
-      {schedule.trim() ? (
+      {showEnabled && schedule.trim() ? (
         <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
           <span>
             <span className="block font-medium text-foreground">Enabled</span>

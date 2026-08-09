@@ -27,6 +27,7 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   timeoutMs: z.number().int().positive().optional(),
   needsInputTimeoutMs: z.number().int().positive().optional(),
   agentType: z.enum(CLI_AGENT_TYPES).optional(),
+  model: z.string().nullable().optional(),
   useWorktree: z.boolean().optional(),
   baseBranch: z.string().nullable().optional(),
   branchName: z.string().nullable().optional(),
@@ -37,6 +38,7 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   webhookEnabled: z.boolean().optional(),
   defaultArgs: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
+  selfImprove: z.boolean().optional(),
 });
 const JobHistoryParamsSchema = z.object({
   name: z.string().min(1, "Job name is required."),

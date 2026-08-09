@@ -1,6 +1,7 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import {
   JobAgentTypeField,
@@ -11,6 +12,8 @@ import {
   SwitchToggle,
   WebhookUrl,
 } from "@/components/app/jobs-form-fields";
+import { AgentModelSelect } from "@/components/app/agent-model-select";
+import { api } from "@/lib/api";
 import {
   cronError,
   errorMessage,
@@ -47,6 +50,14 @@ export function SettingsTab({
     minutesFromMs(job.needsInputTimeoutMs)
   );
   const [agentType, setAgentType] = useState<CliAgentType>(job.agentType);
+  const [model, setModel] = useState<string | null>(job.model);
+  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
+    models: Partial<Record<CliAgentType, Array<{ id: string; label: string }>>>;
+  }>({
+    queryKey: ["agent-models"],
+    queryFn: () => api("/api/v1/agent-models"),
+  });
+  const modelOptions = modelCatalog?.models[agentType] ?? [];
   const [fullAccess, setFullAccess] = useState(job.fullAccess);
   const [useWorktree, setUseWorktree] = useState(job.useWorktree);
   const [baseBranch, setBaseBranch] = useState(job.baseBranch ?? "main");
@@ -56,11 +67,14 @@ export function SettingsTab({
   const [singleton, setSingleton] = useState(job.singleton);
   const [webhookEnabled, setWebhookEnabled] = useState(job.webhookEnabled);
   const [enabled, setEnabled] = useState(job.enabled);
+  const [isUpdatingEnabled, setIsUpdatingEnabled] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [enabledError, setEnabledError] = useState<string | null>(null);
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [saved, setSaved] = useState(false);
   const effectiveEnabled = schedule.trim() ? enabled : false;
+  const hasSavedSchedule = Boolean(job.schedule?.trim());
   const scheduleError = cronError(schedule, effectiveEnabled);
   const canSave =
     !!displayName.trim() &&
@@ -77,6 +91,7 @@ export function SettingsTab({
     setTimeoutMinutes(minutesFromMs(job.timeoutMs));
     setNeedsInputTimeoutMinutes(minutesFromMs(job.needsInputTimeoutMs));
     setAgentType(job.agentType);
+    setModel(job.model);
     setFullAccess(job.fullAccess);
     setUseWorktree(job.useWorktree);
     setBaseBranch(job.baseBranch ?? "main");
@@ -87,6 +102,7 @@ export function SettingsTab({
     setWebhookEnabled(job.webhookEnabled);
     setEnabled(job.enabled);
     setSaveError(null);
+    setEnabledError(null);
     setRemoveError(null);
     setRemoveDialogOpen(false);
     setSaved(false);
@@ -95,6 +111,44 @@ export function SettingsTab({
 
   return (
     <div className="mt-4 grid gap-4">
+      <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+        <span>
+          <span className="block font-medium text-foreground">Enabled</span>
+          <span className="block text-xs text-muted-foreground">
+            {hasSavedSchedule
+              ? "Allow this job to run on its schedule."
+              : "Save a schedule before enabling this job."}
+          </span>
+        </span>
+        <SwitchToggle
+          checked={enabled}
+          onCheckedChange={(nextEnabled) => {
+            if (!hasSavedSchedule || isUpdatingEnabled) return;
+            setEnabled(nextEnabled);
+            setEnabledError(null);
+            setIsUpdatingEnabled(true);
+            void onUpdateJob({
+              name: job.name,
+              directory: job.directory,
+              enabled: nextEnabled,
+            })
+              .catch((error) => {
+                setEnabled(job.enabled);
+                setEnabledError(errorMessage(error));
+              })
+              .finally(() => {
+                setIsUpdatingEnabled(false);
+              });
+          }}
+          ariaLabel="Enable schedule"
+          disabled={!hasSavedSchedule || isUpdatingEnabled}
+        />
+      </label>
+      {enabledError ? (
+        <div className="rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
+          {enabledError}
+        </div>
+      ) : null}
       <div className="rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
         <div className="text-sm font-medium">Job configuration</div>
         <p className="mt-1 text-xs text-muted-foreground">
@@ -120,14 +174,26 @@ export function SettingsTab({
             scheduleError={scheduleError}
             enabled={enabled}
             enabledHelperText="Run this job on its saved schedule."
+            showEnabled={false}
             onScheduleChange={setSchedule}
             onEnabledChange={setEnabled}
           />
           <JobAgentTypeField
             value={agentType}
             agentTypes={enabledAgentTypes}
-            onChange={setAgentType}
+            onChange={(nextAgentType) => {
+              setAgentType(nextAgentType);
+              setModel(null);
+            }}
           />
+          {modelOptions.length > 0 || modelCatalogLoading ? (
+            <AgentModelSelect
+              value={model}
+              options={modelOptions}
+              onChange={setModel}
+              loading={modelCatalogLoading}
+            />
+          ) : null}
           <div className="space-y-1">
             <label
               className="text-sm text-muted-foreground"
@@ -258,6 +324,7 @@ export function SettingsTab({
                 timeoutMs: msFromMinutes(timeoutMinutes),
                 needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
                 agentType,
+                model,
                 useWorktree,
                 baseBranch: useWorktree ? baseBranch : null,
                 branchName: useWorktree ? branchName : null,
@@ -266,7 +333,6 @@ export function SettingsTab({
                 callable,
                 singleton,
                 webhookEnabled,
-                enabled: effectiveEnabled,
               })
                 .then(() => {
                   setSaved(true);

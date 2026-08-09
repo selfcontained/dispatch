@@ -19,6 +19,8 @@ function buildTemplate(
     branchName: null,
     fullAccess: false,
     callable: true,
+    allowMedia: true,
+    selfImprove: false,
     createdAt: new Date().toISOString(),
     updatedAt: new Date().toISOString(),
     ...overrides,
@@ -114,6 +116,34 @@ describe("TemplateService.launchTemplate", () => {
       expect.objectContaining({
         initialPrompt: "Review  with ",
       })
+    );
+  });
+
+  it("adds runtime-only self-improvement guidance when enabled", async () => {
+    const createAgent = vi.fn(async () => buildAgent());
+    const service = new TemplateService(
+      {} as never,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(
+      buildTemplate({ selfImprove: true, prompt: "Review the change." })
+    );
+
+    await service.launchTemplate({
+      templateId: "tmpl_123",
+      agentType: "codex",
+    });
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        initialPrompt: expect.stringContaining(
+          'update_template with templateId "tmpl_123"'
+        ),
+      })
+    );
+    expect(createAgent.mock.calls[0][0].initialPrompt).toContain(
+      "Review the change."
     );
   });
 });

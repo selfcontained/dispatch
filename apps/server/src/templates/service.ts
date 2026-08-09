@@ -5,6 +5,11 @@ import type { AgentManager } from "../agents/manager.js";
 import type { AgentPin, AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
+import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
+import {
+  getAgentModelOptions,
+  validateAgentModel,
+} from "../shared/agent-models.js";
 import {
   TemplateStore,
   parseTemplateArgs,
@@ -18,12 +23,14 @@ export type AddTemplateInput = {
   description?: string | null;
   prompt?: string | null;
   agentType?: AgentType;
+  model?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
   allowMedia?: boolean;
+  selfImprove?: boolean;
 };
 
 export type LaunchTemplateInput = {
@@ -65,12 +72,18 @@ export class TemplateService {
       description: input.description ?? null,
       prompt: input.prompt ?? null,
       agentType: input.agentType ?? "claude",
+      model:
+        validateAgentModel(
+          input.agentType ?? "claude",
+          input.model ?? undefined
+        ) ?? null,
       useWorktree: input.useWorktree ?? false,
       baseBranch: input.baseBranch ?? null,
       branchName: input.branchName ?? null,
       fullAccess: input.fullAccess ?? false,
       callable: input.callable ?? true,
       allowMedia: input.allowMedia ?? true,
+      selfImprove: input.selfImprove ?? false,
     });
     this.logger.info(
       { templateId: template.id, name: template.name },
@@ -83,13 +96,31 @@ export class TemplateService {
     id: string,
     input: Partial<AddTemplateInput>
   ): Promise<TemplateRecord> {
+    const existing = await this.store.getTemplate(id);
+    if (!existing) throw new Error(`Template "${id}" not found.`);
     const updates: Parameters<TemplateStore["updateTemplate"]>[1] = {};
     if (input.name !== undefined) updates.name = input.name.trim();
     if (input.description !== undefined)
       updates.description = input.description;
     if (input.directory !== undefined) updates.directory = input.directory;
     if (input.prompt !== undefined) updates.prompt = input.prompt;
+    const nextAgentType = input.agentType ?? existing.agentType;
+    let nextModel = existing.model;
+    if (input.model !== undefined) {
+      nextModel =
+        validateAgentModel(nextAgentType, input.model ?? undefined) ?? null;
+    } else if (
+      input.agentType !== undefined &&
+      existing.model !== null &&
+      !getAgentModelOptions(nextAgentType).some(
+        (option) => option.id === existing.model
+      )
+    ) {
+      nextModel = null;
+    }
     if (input.agentType !== undefined) updates.agentType = input.agentType;
+    if (nextModel !== existing.model || input.model !== undefined)
+      updates.model = nextModel;
     if (input.useWorktree !== undefined)
       updates.useWorktree = input.useWorktree;
     if (input.baseBranch !== undefined) updates.baseBranch = input.baseBranch;
@@ -97,6 +128,8 @@ export class TemplateService {
     if (input.fullAccess !== undefined) updates.fullAccess = input.fullAccess;
     if (input.callable !== undefined) updates.callable = input.callable;
     if (input.allowMedia !== undefined) updates.allowMedia = input.allowMedia;
+    if (input.selfImprove !== undefined)
+      updates.selfImprove = input.selfImprove;
 
     const updated = await this.store.updateTemplate(id, updates);
     this.logger.info(
@@ -174,6 +207,12 @@ export class TemplateService {
         parsedArgs.length > 0
           ? substituteArgs(template.prompt, args)
           : template.prompt;
+      if (template.selfImprove) {
+        finalPrompt += buildSelfImprovementGuidance({
+          kind: "template",
+          templateId: template.id,
+        });
+      }
 
       const argPins = parsedArgs
         .filter((a) => args[a.key] != null || args[a.name] != null)
@@ -190,6 +229,10 @@ export class TemplateService {
     const agent = await this.agentManager.createAgent({
       name: sanitizeAgentName(template.name),
       type: resolvedType,
+      model:
+        resolvedType === template.agentType
+          ? (template.model ?? undefined)
+          : undefined,
       cwd,
       initialPrompt: finalPrompt,
       fullAccess: !isTerminal && template.fullAccess,
