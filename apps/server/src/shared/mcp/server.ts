@@ -9,6 +9,7 @@ import type {
   AgentType as CliAgentType,
 } from "../../agents/types.js";
 import type { BrainStore } from "../../brain/store.js";
+import { registerAgentArchiveTools } from "./agent-archive-tools.js";
 import { registerAgentLaunchTools } from "./agent-launch-tools.js";
 import { registerAgentLifecycleTools } from "./agent-lifecycle-tools.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
@@ -81,6 +82,7 @@ const AGENT_TOOLS = new Set([
   "list_agents",
   "dispatch_send_message",
   "dispatch_launch_agent",
+  "dispatch_archive_agent",
   "get_activity_summary",
   "get_agent_history",
   "get_feedback_summary",
@@ -135,6 +137,7 @@ const JOB_TOOLS = new Set([
   "list_agents",
   "dispatch_send_message",
   "dispatch_launch_agent",
+  "dispatch_archive_agent",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -315,6 +318,10 @@ export type McpRequestContext = {
       cwd?: string;
     }
   ) => Promise<{ agentId: string; name: string }>;
+  archiveAgent?: (
+    agentId: string,
+    input: { agentId: string; cleanupWorktree?: "auto" | "keep" | "force" }
+  ) => Promise<{ agentId: string; name: string; archived: true }>;
   resolveReviewFeedback?: (
     agentId: string,
     itemId: number,
@@ -580,6 +587,14 @@ async function createDispatchMcpServer(
     registerAgentLaunchTools(server, allowed, {
       agentId: context.agent.id,
       launchAgent: context.launchAgent,
+    });
+  }
+
+  // ── Agent archive tools ───────────────────────────────────────────
+  if (context.agent) {
+    registerAgentArchiveTools(server, allowed, {
+      agentId: context.agent.id,
+      archiveAgent: context.archiveAgent,
     });
   }
 

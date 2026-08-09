@@ -61,6 +61,7 @@ type McpRouteDeps = {
   mcpSetActivePersonality: unknown;
   mcpClearActivePersonality: unknown;
   mcpLaunchAgent: unknown;
+  mcpArchiveAgent: unknown;
   mcpResolveReviewFeedback: unknown;
   mcpReopenReviewFeedback: unknown;
   mcpSubmitReview: unknown;
@@ -225,6 +226,7 @@ export async function registerMcpRoutes(
       setActivePersonality: deps.mcpSetActivePersonality,
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
+      archiveAgent: deps.mcpArchiveAgent,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
       reopenReviewFeedback: deps.mcpReopenReviewFeedback,
       submitReview: deps.mcpSubmitReview,
@@ -316,6 +318,7 @@ export async function registerMcpRoutes(
       setActivePersonality: deps.mcpSetActivePersonality,
       clearActivePersonality: deps.mcpClearActivePersonality,
       launchAgent: deps.mcpLaunchAgent,
+      archiveAgent: deps.mcpArchiveAgent,
       resolveReviewFeedback: deps.mcpResolveReviewFeedback,
       reopenReviewFeedback: deps.mcpReopenReviewFeedback,
       submitReview: deps.mcpSubmitReview,

@@ -627,6 +627,7 @@ async function registerRoutes() {
     mcpSetActivePersonality: mcpHandlers.setActivePersonality,
     mcpClearActivePersonality: mcpHandlers.clearActivePersonality,
     mcpLaunchAgent: mcpHandlers.launchAgent,
+    mcpArchiveAgent: mcpHandlers.archiveAgent,
     mcpResolveReviewFeedback: mcpHandlers.resolveReviewFeedback,
     mcpReopenReviewFeedback: mcpHandlers.reopenReviewFeedback,
     mcpSubmitReview: mcpHandlers.submitReview,
