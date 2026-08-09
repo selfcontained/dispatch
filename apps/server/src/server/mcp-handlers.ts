@@ -16,6 +16,7 @@ import { validateAgentModel } from "../shared/agent-models.js";
 import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js";
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
+import { templateWorktreeConfig } from "../templates/worktree-config.js";
 import type {
   NotifyInput,
   NotifyResult,
@@ -65,7 +66,9 @@ type CreateMcpHandlersDeps = {
   mediaRoot: string;
   agentManager: AgentManager;
   jobService: JobService;
-  templateService: TemplateService;
+  // Only the template lookup is needed here — the full TemplateService can
+  // launch agents, which the MCP handler layer has no business doing.
+  templateService: Pick<TemplateService, "getTemplate">;
   slackNotifier: SlackNotifier;
   publishUiEvent: PublishUiEvent;
   withStreamFlag: <T extends AgentRecord>(
@@ -331,16 +334,20 @@ async function handleLaunchAgent(
     throw new Error(`Template ${input.templateId} not found.`);
   }
 
+  const fromTemplate = templateWorktreeConfig(template);
+
   const parentCwd = parent.worktreePath ?? parent.cwd;
-  const useWorktree = input.useWorktree ?? template?.useWorktree ?? false;
-  // Templates have no createNewBranch field; a template-driven worktree gets a
-  // fresh branch, matching how TemplateService.launchTemplate leaves it to the
-  // agent manager's default.
-  const createNewBranch =
-    input.createNewBranch ?? (template?.useWorktree ? true : false);
-  const baseBranch = input.baseBranch ?? template?.baseBranch ?? undefined;
-  const worktreeBranch =
-    input.worktreeBranch ?? template?.branchName ?? undefined;
+  const useWorktree = input.useWorktree ?? fromTemplate.useWorktree;
+  // Templates have no createNewBranch column, so the decision keys off where
+  // the worktree came from: a template-supplied one follows the template's
+  // branch policy and gets a fresh branch, matching how
+  // TemplateService.launchTemplate leaves the field to the agent manager's
+  // default. An explicit useWorktree with no template keeps the old default of
+  // false so existing callers don't change behaviour.
+  const worktreeFromTemplate = fromTemplate.useWorktree;
+  const createNewBranch = input.createNewBranch ?? worktreeFromTemplate;
+  const baseBranch = input.baseBranch ?? fromTemplate.baseBranch;
+  const worktreeBranch = input.worktreeBranch ?? fromTemplate.worktreeBranch;
   const fullAccess = parent.fullAccess && input.fullAccess !== false;
 
   if (

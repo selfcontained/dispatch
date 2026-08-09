@@ -20,8 +20,6 @@ export type AgentRouteDeps = {
   pool: Pool;
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;
-  worktreeLocationKey: string;
-  validWorktreeLocations: readonly string[];
   publishUiEvent: (event: unknown) => void;
   subscribeUiEvents: (stream: NodeJS.WritableStream) => () => void;
   sendUiSnapshot: (

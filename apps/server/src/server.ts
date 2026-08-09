@@ -34,10 +34,6 @@ import { loadConfig } from "./config.js";
 import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
-import {
-  VALID_WORKTREE_LOCATIONS,
-  WORKTREE_LOCATION_KEY,
-} from "./worktree-location-settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import { mimeType, resolveMediaDir } from "./shared/media.js";
@@ -683,8 +679,6 @@ async function registerRoutes() {
     config,
     serverDir,
     agentManager,
-    worktreeLocationKey: WORKTREE_LOCATION_KEY,
-    validWorktreeLocations: VALID_WORKTREE_LOCATIONS,
     getActiveCreateJob: releaseRuntime.getActiveCreateJob,
     setActiveCreateJob: releaseRuntime.setActiveCreateJob,
     getActiveUpdateJob: releaseRuntime.getActiveUpdateJob,
@@ -753,8 +747,6 @@ async function registerRoutes() {
     pool,
     appLog: app.log,
     agentManager,
-    worktreeLocationKey: WORKTREE_LOCATION_KEY,
-    validWorktreeLocations: VALID_WORKTREE_LOCATIONS,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
     sendUiSnapshot: (stream, agents) =>

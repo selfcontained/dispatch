@@ -17,8 +17,10 @@ export function isWorktreeLocation(value: unknown): value is WorktreeLocation {
 
 /**
  * The instance-wide worktree placement setting, falling back to "sibling" when
- * unset or invalid. Every path that creates an agent worktree must go through
- * here, or MCP-launched agents end up placed differently from UI-launched ones.
+ * unset or invalid. This is the only reader: the MCP launch handler, the agent
+ * creation route, and the assisted-update route all resolve placement through
+ * here, so an MCP-launched agent lands in the same place a UI-launched one
+ * would.
  */
 export async function getWorktreeLocation(
   pool: Pool

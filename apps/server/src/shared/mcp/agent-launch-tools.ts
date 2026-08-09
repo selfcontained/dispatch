@@ -107,7 +107,7 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. Its worktree settings fill in any of useWorktree/createNewBranch/baseBranch/worktreeBranch not passed explicitly here."
+            "Template to apply to the new agent. Only its worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) are applied, filling in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
           ),
         cwd: z
           .string()
