@@ -1,9 +1,6 @@
 ## What's Changed
-* Fix create-agent branch checkbox sync by @selfcontained in https://github.com/selfcontained/dispatch/pull/905
-* Launch multiple review personas at once, with a model picker by @selfcontained in https://github.com/selfcontained/dispatch/pull/906
-* Add job and template self-improvement by @selfcontained in https://github.com/selfcontained/dispatch/pull/907
-* Add SettingsTab component tests for jobs settings by @selfcontained in https://github.com/selfcontained/dispatch/pull/908
-* Hold automated prompt injections while the user types by @selfcontained in https://github.com/selfcontained/dispatch/pull/909
+* Document agent model selection and automation self-improvement by @selfcontained in https://github.com/selfcontained/dispatch/pull/910
+* Let template launches override the model by @selfcontained in https://github.com/selfcontained/dispatch/pull/911
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.32.8...v0.33.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.33.0...v0.33.1
