@@ -20,6 +20,10 @@ import {
   type ReleaseInfoSnapshot,
 } from "@/hooks/use-cached-release-info";
 
+/** Backoff bounds for self-driven reconnects after a fatal EventSource error. */
+const INITIAL_RECONNECT_DELAY_MS = 1_000;
+const MAX_RECONNECT_DELAY_MS = 30_000;
+
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
   | { type: "agent.upsert"; agent: Agent }
@@ -150,7 +154,20 @@ export function useSSE(authState: AuthState): void {
   const eventSourceRef = useRef<EventSource | null>(null);
 
   useEffect(() => {
+    // EventSource only auto-reconnects after *transient* failures. A fatal
+    // one (non-200 response, wrong content-type — e.g. hitting the server
+    // mid-restart) moves it to CLOSED permanently, and nothing here noticed:
+    // the dead instance stayed in `eventSourceRef`, so `openSSE` early-
+    // returned forever and a visible tab silently lost every realtime update.
+    // We drive our own capped backoff for that case.
+    let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
     const handleSSEMessage = (event: MessageEvent) => {
+      // Any delivered event means the stream is healthy again — the server
+      // sends a snapshot on every connect, so this doubles as the success
+      // signal for the backoff.
+      reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       try {
         recordSSEEvent();
         const payload = JSON.parse(event.data) as UiEvent;
@@ -350,8 +367,27 @@ export function useSSE(authState: AuthState): void {
       } catch {}
     };
 
+    const cancelReconnect = () => {
+      if (reconnectTimer !== null) {
+        clearTimeout(reconnectTimer);
+        reconnectTimer = null;
+      }
+    };
+
+    const scheduleReconnect = () => {
+      if (reconnectTimer !== null) return;
+      const delay = reconnectDelayMs;
+      reconnectDelayMs = Math.min(reconnectDelayMs * 2, MAX_RECONNECT_DELAY_MS);
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        if (document.hidden) return;
+        openSSE();
+      }, delay);
+    };
+
     const openSSE = () => {
       if (eventSourceRef.current) return;
+      cancelReconnect();
       const source = new EventSource("/api/v1/events", {
         withCredentials: true,
       });
@@ -359,10 +395,20 @@ export function useSSE(authState: AuthState): void {
       source.onmessage = handleSSEMessage;
       source.onerror = () => {
         recordSSEReconnect();
+        // CONNECTING means the browser is retrying on its own — leave it be.
+        // CLOSED means it has given up; the instance is dead, so drop it and
+        // retry ourselves.
+        if (source.readyState !== EventSource.CLOSED) return;
+        source.close();
+        if (eventSourceRef.current === source) {
+          eventSourceRef.current = null;
+        }
+        scheduleReconnect();
       };
     };
 
     const closeSSE = () => {
+      cancelReconnect();
       if (eventSourceRef.current) {
         eventSourceRef.current.close();
         eventSourceRef.current = null;
@@ -377,6 +423,9 @@ export function useSSE(authState: AuthState): void {
       if (document.hidden || authState !== "authenticated") {
         closeSSE();
       } else {
+        // Foregrounding is a fresh start — don't inherit a backed-off delay
+        // from whatever killed the previous connection.
+        reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
         openSSE();
       }
     };
