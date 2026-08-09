@@ -131,6 +131,26 @@ import {
   addThreadMessage,
 } from "../src/agents/reviews.js";
 
+function templateRecord(overrides: Record<string, unknown> = {}) {
+  return {
+    id: "tmpl_123",
+    name: "Build Idea",
+    directory: "/repo",
+    description: null,
+    prompt: "do the thing",
+    agentType: "claude",
+    model: null,
+    useWorktree: false,
+    baseBranch: null,
+    branchName: null,
+    fullAccess: false,
+    callable: true,
+    allowMedia: false,
+    selfImprove: false,
+    ...overrides,
+  };
+}
+
 function createMockDeps() {
   return {
     pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
@@ -218,6 +238,9 @@ function createMockDeps() {
         id: "run_1",
         status: "running",
       })),
+    },
+    templateService: {
+      getTemplate: vi.fn(async (_id: string): Promise<any> => null),
     },
     slackNotifier: {
       sendNotification: vi.fn(async () => ({ ok: true })),
@@ -1043,6 +1066,10 @@ describe("createMcpHandlers", () => {
     });
 
     it("passes templateId through", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ id: "tmpl_123" })
+      );
+
       await handlers.launchAgent("agt_test1", {
         name: "child",
         prompt: "work",
@@ -1052,6 +1079,157 @@ describe("createMcpHandlers", () => {
       expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
         expect.objectContaining({ templateId: "tmpl_123" })
       );
+    });
+
+    it("takes worktree config from the template when the caller omits it", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          useWorktree: true,
+          baseBranch: "develop",
+          branchName: "feat/from-template",
+        })
+      );
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+
+      expect(deps.templateService.getTemplate).toHaveBeenCalledWith("tmpl_123");
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          useWorktree: true,
+          createNewBranch: true,
+          baseBranch: "develop",
+          worktreeBranch: "feat/from-template",
+        })
+      );
+    });
+
+    it("lets explicit worktree args override the template", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          useWorktree: true,
+          baseBranch: "develop",
+          branchName: "feat/from-template",
+        })
+      );
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+        useWorktree: false,
+        createNewBranch: false,
+        baseBranch: "main",
+        worktreeBranch: "feat/from-caller",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          useWorktree: false,
+          createNewBranch: false,
+          baseBranch: "main",
+          worktreeBranch: "feat/from-caller",
+        })
+      );
+    });
+
+    it("keeps useWorktree false when the template does not ask for one", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ useWorktree: false })
+      );
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        templateId: "tmpl_123",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          useWorktree: false,
+          createNewBranch: false,
+          baseBranch: undefined,
+          worktreeBranch: undefined,
+        })
+      );
+    });
+
+    it("throws when the referenced template does not exist", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(null);
+
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "work",
+          templateId: "tmpl_missing",
+        })
+      ).rejects.toThrow("Template tmpl_missing not found.");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
+    it("does not look up a template when no templateId is given", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+      });
+
+      expect(deps.templateService.getTemplate).not.toHaveBeenCalled();
+    });
+
+    it("applies the instance-wide worktree location setting", async () => {
+      deps.pool.query.mockResolvedValue({ rows: [{ value: "nested" }] });
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        useWorktree: true,
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ worktreeLocation: "nested" })
+      );
+    });
+
+    it("falls back to sibling when the worktree location setting is unset", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        useWorktree: true,
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ worktreeLocation: "sibling" })
+      );
+    });
+
+    it("lets an explicit worktreeLocation override the setting", async () => {
+      deps.pool.query.mockResolvedValue({ rows: [{ value: "nested" }] });
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        useWorktree: true,
+        worktreeLocation: "sibling",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ worktreeLocation: "sibling" })
+      );
+    });
+
+    it("rejects an invalid worktreeLocation", async () => {
+      await expect(
+        handlers.launchAgent("agt_test1", {
+          name: "child",
+          prompt: "work",
+          useWorktree: true,
+          worktreeLocation: "elsewhere",
+        })
+      ).rejects.toThrow("worktreeLocation must be one of: sibling, nested.");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
     it("publishes UI event on success", async () => {

@@ -34,6 +34,10 @@ import { loadConfig } from "./config.js";
 import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
+import {
+  VALID_WORKTREE_LOCATIONS,
+  WORKTREE_LOCATION_KEY,
+} from "./worktree-location-settings.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import { mimeType, resolveMediaDir } from "./shared/media.js";
@@ -417,6 +421,7 @@ const mcpHandlers = createMcpHandlers({
   mediaRoot: config.mediaRoot,
   agentManager,
   jobService,
+  templateService,
   slackNotifier,
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   withStreamFlag,
@@ -446,9 +451,6 @@ jobService.onRunStateChange((run) => {
 
 const SESSION_COOKIE = "dispatch_session";
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
-const WORKTREE_LOCATION_KEY = "worktree_location";
-type WorktreeLocation = "sibling" | "nested";
-const VALID_WORKTREE_LOCATIONS: WorktreeLocation[] = ["sibling", "nested"];
 
 async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
