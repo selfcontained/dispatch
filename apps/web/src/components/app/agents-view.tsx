@@ -181,6 +181,7 @@ export function AgentsView({
     resyncing,
     draggingFiles,
     uploadingFiles,
+    terminalInputAtRef,
   } = useTerminal({
     authState: "authenticated",
     agents,
@@ -469,6 +470,8 @@ export function AgentsView({
           ? selectedAgent.archivePhase
           : null
       }
+      holdBadgeAgentId={focusedAgentId}
+      terminalInputAtRef={terminalInputAtRef}
     />
   );
 

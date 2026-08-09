@@ -1108,7 +1108,7 @@ describe("createMcpHandlers", () => {
           message: "hello",
           replyTarget: "agt_test1",
         })}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`,
-        { swallowFailure: false }
+        { swallowFailure: false, awaitDelivery: false }
       );
       expect(deps.sendAgentPrompt).not.toHaveBeenCalledWith(
         "agt_target1",

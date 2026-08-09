@@ -3,6 +3,7 @@ import type { ReleaseInfoSnapshot } from "../release-info.js";
 
 import type { DiffStats } from "../shared/git/diff-stats.js";
 import type { TerminalUiState } from "../terminal/copy-mode-observer.js";
+import type { InjectionHoldState } from "../terminal/injection-coordinator.js";
 
 export type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
@@ -11,6 +12,11 @@ export type UiEvent =
       type: "agent.terminal_state_changed";
       agentId: string;
       terminalState: TerminalUiState;
+    }
+  | {
+      type: "agent.injection_hold_changed";
+      agentId: string;
+      holdState: InjectionHoldState;
     }
   | {
       type: "agent.diff_state_changed";

@@ -128,6 +128,11 @@ import {
 import { escapeLike } from "./shared/lib/escape-like.js";
 import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
+import { InjectionCoordinator } from "./terminal/injection-coordinator.js";
+import {
+  injectionHoldEnabled,
+  loadInjectionHoldEnabled,
+} from "./injection-hold-settings.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
@@ -375,7 +380,24 @@ const notificationRuntime = createNotificationRuntime({
   autoArchiveJobAgent: (agentId) =>
     agentLifecycleRuntime.autoArchiveJobAgent(agentId),
 });
-const injectAgentPrompt = createPromptInjector(agentManager, app.log);
+void loadInjectionHoldEnabled(pool).catch((err) => {
+  app.log.warn({ err }, "Failed to load injection-hold setting; default off");
+});
+const injectionCoordinator = new InjectionCoordinator({
+  log: app.log,
+  gateEnabled: injectionHoldEnabled,
+  onHoldChange: (agentId, holdState) =>
+    uiEventBroker.publish({
+      type: "agent.injection_hold_changed",
+      agentId,
+      holdState,
+    }),
+});
+const injectAgentPrompt = createPromptInjector(
+  agentManager,
+  app.log,
+  injectionCoordinator
+);
 agentManager.onLatestEvent(
   createAutoRenamePrompter({ injectAgentPrompt, log: app.log })
 );
@@ -709,6 +731,7 @@ async function registerRoutes() {
     agentManager,
     appLog: app.log,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    injectionCoordinator,
   });
 
   await registerMessagesRoutes(app, {
@@ -750,6 +773,7 @@ async function registerRoutes() {
       terminalTokenStore.consume(agentId, token),
     copyModeObserverManager,
     copyModeAssistManager,
+    injectionCoordinator,
     diffStatsRefresher,
     onArchivedAgentsDeleted: (deletedIds) =>
       agentLifecycleRuntime.onArchivedAgentsDeleted(deletedIds),

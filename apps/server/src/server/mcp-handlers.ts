@@ -523,7 +523,13 @@ async function handleSendMessage(
   let delivered = false;
   let deliveryError: unknown = null;
   try {
-    await deps.sendAgentPrompt(target.id, prompt, { swallowFailure: false });
+    await deps.sendAgentPrompt(target.id, prompt, {
+      swallowFailure: false,
+      // Enqueue-and-return: awaiting gated delivery can exceed MCP client
+      // timeouts (~60s), and a timed-out sender retrying would inject the
+      // message twice. Session validation still happens before this resolves.
+      awaitDelivery: false,
+    });
     delivered = true;
   } catch (err) {
     deliveryError = err;

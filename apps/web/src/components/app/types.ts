@@ -85,6 +85,12 @@ export type TerminalUiState = {
   lastObservedAt: number;
 };
 
+export type InjectionHoldState = {
+  held: boolean;
+  pendingCount: number;
+  quietMs: number;
+};
+
 export type DiffStats = {
   added: number;
   deleted: number;

@@ -19,6 +19,7 @@ import {
   sanitizeUploadedFileName,
   toMediaKey,
 } from "../shared/media.js";
+import type { InjectionCoordinator } from "../terminal/injection-coordinator.js";
 import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 import { hostClipboardImageCapable } from "../shared/lib/clipboard-capability.js";
 import { writeImageToClipboard } from "../shared/lib/clipboard-write.js";
@@ -40,6 +41,7 @@ type MediaRouteDeps = {
   agentManager: AgentManager;
   appLog: FastifyBaseLogger;
   publishUiEvent: (event: unknown) => void;
+  injectionCoordinator: InjectionCoordinator;
 };
 
 export async function registerMediaRoutes(
@@ -199,16 +201,26 @@ export async function registerMediaRoutes(
       // For images, try the native clipboard path first
       if (isImage && hostClipboardImageCapable()) {
         try {
-          await writeImageToClipboard(buffer, data.mimetype);
-          // Send Ctrl+V to the agent's tmux session
           const access = await deps.agentManager.getTerminalAccess(id);
           if (access.mode === "tmux") {
-            await runCommand("tmux", [
-              "send-keys",
-              "-t",
-              access.sessionName,
-              "C-v",
-            ]);
+            // User-initiated: serialize against active pane writes but skip
+            // the quiet gate — the upload is the user acting. The clipboard
+            // write happens inside the queued task so the host clipboard and
+            // the C-v paste stay adjacent (no window for another writer to
+            // replace the clipboard between them).
+            await deps.injectionCoordinator.inject(
+              id,
+              async () => {
+                await writeImageToClipboard(buffer, data.mimetype);
+                await runCommand("tmux", [
+                  "send-keys",
+                  "-t",
+                  access.sessionName,
+                  "C-v",
+                ]);
+              },
+              { gate: false }
+            );
             clipboardOk = true;
             delivery = "clipboard";
           }
@@ -227,7 +239,11 @@ export async function registerMediaRoutes(
           if (access.mode === "tmux") {
             const seq = nextFileSeq(id);
             const terminal = new TmuxTerminal(access.sessionName);
-            await terminal.pasteText(`[File #${seq}] ${mediaPath} `);
+            await deps.injectionCoordinator.inject(
+              id,
+              () => terminal.pasteText(`[File #${seq}] ${mediaPath} `),
+              { gate: false }
+            );
             delivery = "path";
           }
         } catch (err) {
