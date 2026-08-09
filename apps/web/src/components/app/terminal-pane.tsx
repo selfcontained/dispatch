@@ -1,7 +1,14 @@
-import { memo, type RefCallback, useEffect, useState } from "react";
+import {
+  memo,
+  type MutableRefObject,
+  type RefCallback,
+  useEffect,
+  useState,
+} from "react";
 import { Archive, TerminalSquare, Upload } from "lucide-react";
 
 import { type Agent, type ConnState } from "@/components/app/types";
+import { TerminalInjectionHoldPill } from "@/components/app/terminal-injection-hold-pill";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
 
@@ -16,6 +23,8 @@ type TerminalPaneProps = {
   resyncing: boolean;
   draggingFiles: boolean;
   uploadingFiles: boolean;
+  holdBadgeAgentId: string | null;
+  terminalInputAtRef: MutableRefObject<number>;
 };
 
 export const TerminalPane = memo(function TerminalPane({
@@ -29,6 +38,8 @@ export const TerminalPane = memo(function TerminalPane({
   resyncing,
   draggingFiles,
   uploadingFiles,
+  holdBadgeAgentId,
+  terminalInputAtRef,
 }: TerminalPaneProps): JSX.Element {
   const [showReconnectOverlay, setShowReconnectOverlay] = useState(false);
 
@@ -70,6 +81,16 @@ export const TerminalPane = memo(function TerminalPane({
         )}
       >
         <div className="h-full px-2" ref={terminalHostRef} />
+      </div>
+
+      {/* Injection hold badge lives inside the pane so it always travels
+          with the terminal (portaled into split panes and hidden with the
+          pane on the changes/whiteboard routes). */}
+      <div className="pointer-events-none absolute bottom-9 right-3 z-30">
+        <TerminalInjectionHoldPill
+          agentId={holdBadgeAgentId}
+          terminalInputAtRef={terminalInputAtRef}
+        />
       </div>
 
       {showEmptyState ? (

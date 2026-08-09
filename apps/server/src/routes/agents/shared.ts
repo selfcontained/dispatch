@@ -9,6 +9,7 @@ import type {
   TerminalUiState,
 } from "../../terminal/copy-mode-observer.js";
 import type { CopyModeAssistManager } from "../../terminal/copy-mode-assist-manager.js";
+import type { InjectionCoordinator } from "../../terminal/injection-coordinator.js";
 
 export const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
 export const CODEX_FULL_ACCESS_ARG =
@@ -45,6 +46,7 @@ export type AgentRouteDeps = {
   consumeTerminalToken: (agentId: string, token: string) => boolean;
   copyModeObserverManager: CopyModeObserverManager;
   copyModeAssistManager: CopyModeAssistManager;
+  injectionCoordinator: InjectionCoordinator;
   diffStatsRefresher: DiffStatsRefresher;
   onArchivedAgentsDeleted: (deletedIds: string[]) => void;
   onArchiveError: (agentId: string, error: unknown) => void;

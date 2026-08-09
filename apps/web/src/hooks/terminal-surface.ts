@@ -35,6 +35,7 @@ export interface TerminalSurfaceRefs {
   noteScrollInteractionRef: MutableRefObject<() => void>;
   deferMediaResizeRef: MutableRefObject<boolean>;
   uploadFilesRef: MutableRefObject<(files: File[]) => void>;
+  terminalInputAtRef: MutableRefObject<number>;
 }
 
 export interface TerminalSurfaceCallbacks {
@@ -62,6 +63,7 @@ export function createTerminalSurface(
     noteScrollInteractionRef,
     deferMediaResizeRef,
     uploadFilesRef,
+    terminalInputAtRef,
   } = refs;
   const { requestFit, invalidateAttachAttempt, setDraggingFiles } = callbacks;
 
@@ -316,6 +318,7 @@ export function createTerminalSurface(
   const disposable = term.onData((data) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    terminalInputAtRef.current = Date.now();
     if (ctrlPendingRef.current && data.length === 1) {
       const code = data.toUpperCase().charCodeAt(0);
       if (code >= 65 && code <= 90) {

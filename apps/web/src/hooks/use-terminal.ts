@@ -78,6 +78,7 @@ export function useTerminal(args: {
   resyncing: boolean;
   draggingFiles: boolean;
   uploadingFiles: boolean;
+  terminalInputAtRef: MutableRefObject<number>;
 } {
   const {
     authState,
@@ -157,6 +158,10 @@ export function useTerminal(args: {
   const deferMediaResizeRef = useRef(deferMediaResize);
   deferMediaResizeRef.current = deferMediaResize;
   const lastInteractionHintAtRef = useRef(0);
+  // Timestamp of the user's last terminal keystroke — mirrors the server-side
+  // injection quiet gate so UI (the hold badge's ETA ring) can render delivery
+  // progress from local data without server round-trips.
+  const terminalInputAtRef = useRef(0);
 
   const { data: terminalState } = useQuery<TerminalUiState>({
     queryKey: ["terminal-state", connectedAgentId],
@@ -584,6 +589,7 @@ export function useTerminal(args: {
   const sendTerminalInput = useCallback((data: string) => {
     const ws = wsRef.current;
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
+    terminalInputAtRef.current = Date.now();
     ws.send(JSON.stringify({ type: "input", data }));
     terminalRef.current?.focus();
   }, []);
@@ -599,6 +605,10 @@ export function useTerminal(args: {
       return;
     }
     const now = Date.now();
+    // Scrolling counts as user activity for the server's injection quiet
+    // gate, so mirror it into the local timestamp the hold badge's ETA ring
+    // renders from — otherwise the ring fills while the server keeps holding.
+    terminalInputAtRef.current = now;
     if (now - lastInteractionHintAtRef.current < 300) {
       return;
     }
@@ -661,6 +671,7 @@ export function useTerminal(args: {
         noteScrollInteractionRef,
         deferMediaResizeRef,
         uploadFilesRef,
+        terminalInputAtRef,
       },
       { requestFit, invalidateAttachAttempt, setDraggingFiles }
     );
@@ -845,6 +856,7 @@ export function useTerminal(args: {
       resyncing,
       draggingFiles,
       uploadingFiles,
+      terminalInputAtRef,
     }),
     [
       connState,

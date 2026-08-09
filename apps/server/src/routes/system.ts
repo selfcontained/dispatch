@@ -10,6 +10,10 @@ import {
   isCrossRepoMessagingEnabled,
   setCrossRepoMessagingEnabled,
 } from "../cross-repo-messaging-settings.js";
+import {
+  loadInjectionHoldEnabled,
+  setInjectionHoldEnabled,
+} from "../injection-hold-settings.js";
 import { JobService } from "../jobs/service.js";
 import {
   AGENT_TYPES,
@@ -423,6 +427,22 @@ export async function registerSystemRoutes(
     }
 
     return { enabledIdes: await setEnabledIdes(deps.pool, uniqueIdes) };
+  });
+
+  app.get("/api/v1/app/settings/injection-hold", async () => {
+    // Authoritative read: hits the DB and re-syncs the in-memory cache, so a
+    // failed boot load or interleaved POSTs self-heal whenever settings open.
+    // The injection hot path keeps using the sync cache.
+    return { enabled: await loadInjectionHoldEnabled(deps.pool) };
+  });
+
+  app.post("/api/v1/app/settings/injection-hold", async (request, reply) => {
+    const body = request.body as { enabled?: unknown } | null;
+    if (typeof body?.enabled !== "boolean") {
+      return reply.code(400).send({ error: "enabled must be a boolean." });
+    }
+    await setInjectionHoldEnabled(deps.pool, body.enabled);
+    return { enabled: body.enabled };
   });
 
   app.get("/api/v1/app/settings/cross-repo-messaging", async () => {

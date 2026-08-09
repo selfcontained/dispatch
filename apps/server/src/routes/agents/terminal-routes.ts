@@ -107,6 +107,7 @@ export async function registerAgentTerminalRoutes(
           return reply.code(409).send({ error: access.message });
         }
 
+        deps.injectionCoordinator.noteUserActivity(id);
         deps.copyModeObserverManager.noteInteraction(
           id,
           access.sessionName,
@@ -188,15 +189,36 @@ export async function registerAgentTerminalRoutes(
         }
 
         const terminal = new TmuxTerminal(access.sessionName);
-        if (submit) {
-          await terminal.sendCommand(text);
-        } else {
-          await terminal.pasteText(text);
-        }
+        // User-initiated: skip the quiet gate (the click IS the user acting)
+        // but serialize against any in-flight automated injection.
+        await deps.injectionCoordinator.inject(
+          agentId,
+          () =>
+            submit ? terminal.sendCommand(text) : terminal.pasteText(text),
+          { gate: false }
+        );
         return reply.code(204).send();
       } catch (error) {
         return deps.handleAgentError(reply, error);
       }
+    }
+  );
+
+  // "Send now" for a held injection: skip the quiet gate for everything
+  // currently queued for this agent.
+  app.post(
+    "/api/v1/agents/:id/terminal/release-injections",
+    async (request, reply) => {
+      const params = request.params as { id?: string };
+      const id = params.id ?? "";
+
+      const agent = await deps.agentManager.getAgent(id);
+      if (!agent) {
+        return reply.code(404).send({ error: "Agent not found." });
+      }
+
+      deps.injectionCoordinator.releaseHold(id);
+      return reply.code(204).send();
     }
   );
 
@@ -294,6 +316,7 @@ export async function registerAgentTerminalRoutes(
           if (!message.data) {
             return;
           }
+          deps.injectionCoordinator.noteUserActivity(agentId);
           ptyProcess.write(message.data);
           return;
         }
@@ -306,6 +329,7 @@ export async function registerAgentTerminalRoutes(
         }
 
         if (message.type === "interaction") {
+          deps.injectionCoordinator.noteUserActivity(agentId);
           if (assistState.activeRef.current) {
             deps.copyModeObserverManager.noteInteraction(
               agentId,
