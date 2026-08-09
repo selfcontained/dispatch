@@ -8,8 +8,11 @@ export type AgentModelOption = { id: string; label: string };
  * Maintenance sources (review before changing this catalog):
  * - Codex: https://learn.chatgpt.com/docs/models.md
  * - Claude Code: https://docs.anthropic.com/en/docs/claude-code/cli-usage
- * - Cursor Agent: https://docs.cursor.com/en/cli/reference/parameters
- * - Cursor models: https://docs.cursor.com/models/
+ *
+ * Cursor deliberately has no curated list: its model roster is account- and
+ * plan-dependent and can't be verified without a logged-in CLI, so the picker
+ * is hidden and launches use the CLI default. To re-add options, verify slugs
+ * with `cursor-agent --list-models` on the account Dispatch runs under.
  *
  * See docs/agent-model-catalog.md for the update procedure.
  */
@@ -32,12 +35,6 @@ export const AGENT_MODEL_OPTIONS: Partial<
     { id: "sonnet", label: "Sonnet" },
     { id: "haiku", label: "Haiku" },
     { id: "claude-fable-5", label: "Fable 5" },
-  ],
-  cursor: [
-    { id: "auto", label: "Auto" },
-    { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
-    { id: "claude-opus-4.6", label: "Claude Opus 4.6" },
-    { id: "gemini-3-pro", label: "Gemini 3 Pro" },
   ],
 };
 

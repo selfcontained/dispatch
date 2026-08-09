@@ -56,9 +56,9 @@ export function AutomationsContent() {
           </li>
           <li>
             <strong>Model</strong> — shown for CLI types with a curated model
-            catalog (<Code>claude</Code>, <Code>codex</Code>,{" "}
-            <Code>cursor</Code>). Launches pin the agent to that model; leave{" "}
-            <strong>Default</strong> to use the CLI's own setting.
+            catalog (<Code>claude</Code>, <Code>codex</Code>). Launches pin the
+            agent to that model; leave <strong>Default</strong> to use the CLI's
+            own setting.
           </li>
           <li>
             <strong>Use worktree</strong> — give each launch its own git
@@ -200,9 +200,9 @@ export function AutomationsContent() {
           </li>
           <li>
             <strong>Model</strong> — shown for agent types with a curated model
-            catalog (<Code>claude</Code>, <Code>codex</Code>,{" "}
-            <Code>cursor</Code>). Runs pin the spawned agent to that model;
-            leave <strong>Default</strong> to use the CLI's own setting.
+            catalog (<Code>claude</Code>, <Code>codex</Code>). Runs pin the
+            spawned agent to that model; leave <strong>Default</strong> to use
+            the CLI's own setting.
           </li>
           <li>
             <strong>Prompt</strong> — the instructions sent as the agent's first

@@ -1,16 +1,16 @@
 # Agent model catalog
 
-Dispatch exposes a source-controlled model catalog for its Codex, Claude, and
-Cursor launchers in `apps/server/src/shared/agent-models.ts`. The catalog is
+Dispatch exposes a source-controlled model catalog for its Codex and Claude
+launchers in `apps/server/src/shared/agent-models.ts`. The catalog is
 the allowlist used by the create-agent API and `dispatch_launch_agent` MCP tool.
-Omitting a model uses the CLI default.
+Omitting a model uses the CLI default. Agent types with no catalog entry
+(currently Cursor) hide the model picker entirely and always launch with the
+CLI default.
 
 ## Maintenance sources
 
 - [Codex model selection](https://learn.chatgpt.com/docs/models.md)
 - [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-usage)
-- [Cursor Agent CLI parameters](https://docs.cursor.com/en/cli/reference/parameters)
-- [Cursor models](https://docs.cursor.com/models/)
 
 ## Updating the catalog
 
@@ -31,8 +31,12 @@ provider API:
 - **Claude Code:** Check the Claude Code CLI reference. It supports the moving
   `opus`, `sonnet`, and `haiku` aliases plus documented full model IDs; add a
   full ID when it is available to the intended account.
-- **Cursor Agent:** Check both the Cursor CLI parameter reference and Cursor's
-  model catalog, because availability can differ by Cursor plan and rollout.
+- **Cursor Agent:** No curated list ships on purpose. Cursor's model roster is
+  account- and plan-dependent, its public docs list display names rather than
+  verified CLI slugs, and a logged-out `cursor-agent` reports no models at all —
+  so no entry in a static catalog can be verified. Launches use the CLI
+  default. To re-add options, run `cursor-agent --list-models` on the
+  logged-in account Dispatch runs under and use those exact slugs.
 
 Keep the `Default` UI option untouched: it deliberately sends no model flag.
 Update the catalog, its labels, and this document when a provider adds, retires,
