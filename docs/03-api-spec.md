@@ -606,11 +606,14 @@ Launches an agent from a template. Accepts either JSON or `multipart/form-data` 
 {
   "args": { "feature_name": "auth-refactor", "area": "middleware" },
   "directory": "~/projects/myapp",
-  "agentType": "codex"
+  "agentType": "codex",
+  "model": "gpt-5.6-sol"
 }
 ```
 
 All fields are optional. `args` fills `{{placeholder}}` values in the template prompt. `directory` overrides the template's default directory. `agentType` overrides the template's configured agent type.
+
+`model` overrides the template's saved model for this launch only, and is three-state: omit it to keep the template's saved model, send `null` to force the CLI default, or send a model id from the catalog for the launched agent type. An id the launched agent type cannot run returns `400`.
 
 **Multipart body (for startup files):**
 
@@ -619,6 +622,7 @@ When `allowMedia` is enabled on the template, the launch endpoint accepts `multi
 - `args` — JSON-encoded string of template arguments
 - `directory` — override directory
 - `agentType` — override agent type
+- `model` — override model; an empty string means the CLI default, and omitting the field keeps the template's saved model
 - `startupFiles` — up to 10 file uploads (images, video, documents, or text files)
 - `startupLinks` — JSON array of URLs to pin for the agent
 

@@ -319,6 +319,49 @@ describe("POST /api/v1/templates/:id/launch", () => {
     expect(agent.cwd).toBe("/var/tmp");
   });
 
+  it("launches with a model override", async () => {
+    const created = await createTemplate("model-tmpl", {
+      prompt: "Run it",
+      agentType: "claude",
+      model: "sonnet",
+    });
+    const id = (created as { id: string }).id;
+    const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
+      model: "opus",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agent.model).toBe("opus");
+  });
+
+  it("treats an empty model field as the CLI default", async () => {
+    const created = await createTemplate("model-default-tmpl", {
+      prompt: "Run it",
+      agentType: "claude",
+      model: "sonnet",
+    });
+    const id = (created as { id: string }).id;
+    // Multipart launches serialize "use the default" as an empty string.
+    const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
+      model: "",
+    });
+    expect(res.statusCode).toBe(200);
+    expect(res.json().agent.model).toBeNull();
+  });
+
+  it("rejects a model the launched agent type cannot run", async () => {
+    const created = await createTemplate("model-mismatch-tmpl", {
+      prompt: "Run it",
+      agentType: "claude",
+    });
+    const id = (created as { id: string }).id;
+    const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
+      agentType: "codex",
+      model: "sonnet",
+    });
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("not supported for codex");
+  });
+
   it("returns error for non-existent template", async () => {
     const res = await authedInject(
       "POST",

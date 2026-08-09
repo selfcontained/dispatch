@@ -101,7 +101,9 @@ test.describe("Callable templates — Cmd+K launch lifecycle", () => {
     await expect(palette).not.toBeVisible({ timeout: 3_000 });
     const launchDialog = page.getByRole("dialog", { name: templateName });
     await expect(launchDialog).toBeVisible({ timeout: 3_000 });
-    const agentTypeField = launchDialog.getByRole("combobox");
+    const agentTypeField = launchDialog.getByRole("combobox", {
+      name: /agent type/i,
+    });
     await expect(agentTypeField).toContainText("Claude");
     await agentTypeField.click();
     await page.getByRole("option", { name: "Codex" }).click();

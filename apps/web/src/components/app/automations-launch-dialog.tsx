@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { ArgInput } from "@/components/app/arg-input";
 import { ContextPicker } from "@/components/app/context-picker";
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
+import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useStartupAttachments } from "@/components/app/use-startup-attachments";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
@@ -22,9 +23,11 @@ import {
   type Template,
 } from "@/hooks/use-templates";
 import { type AgentType } from "@/lib/agent-types";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
 import { agentRoute } from "@/lib/agent-routes";
+import { cn } from "@/lib/utils";
 
 export function LaunchTemplateDialog({
   template,
@@ -69,6 +72,18 @@ function LaunchTemplateDialogContent({
   );
   const [argValues, setArgValues] = useState<Record<string, string>>({});
   const [agentType, setAgentType] = useState<AgentType>(template.agentType);
+  const [model, setModel] = useState<string | null>(template.model);
+  // Each runtime keeps its own pick for the dialog's lifetime, so toggling the
+  // agent type to compare and back does not silently drop a chosen model.
+  const modelByAgentType = useRef<Partial<Record<AgentType, string | null>>>({
+    [template.agentType]: template.model,
+  });
+  const {
+    options: modelOptions,
+    loading: modelCatalogLoading,
+    loaded: modelCatalogLoaded,
+  } = useAgentModelCatalog(agentType);
+  const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
   const isTerminal = agentType === "terminal";
   const showMedia = !isTerminal && template.allowMedia;
@@ -88,7 +103,26 @@ function LaunchTemplateDialogContent({
   useEffect(() => {
     setArgValues({});
     setAgentType(template.agentType);
-  }, [template.agentType]);
+    setModel(template.model);
+    modelByAgentType.current = { [template.agentType]: template.model };
+  }, [template.agentType, template.model]);
+
+  const handleAgentTypeChange = useCallback(
+    (nextAgentType: AgentType) => {
+      modelByAgentType.current[agentType] = model;
+      setAgentType(nextAgentType);
+      setModel(modelByAgentType.current[nextAgentType] ?? null);
+    },
+    [agentType, model]
+  );
+
+  const handleModelChange = useCallback(
+    (nextModel: string | null) => {
+      modelByAgentType.current[agentType] = nextModel;
+      setModel(nextModel);
+    },
+    [agentType]
+  );
 
   useEffect(() => {
     if (args.length > 0) return;
@@ -103,11 +137,21 @@ function LaunchTemplateDialogContent({
 
   const handleLaunch = useCallback(() => {
     const launchArgs = args.length > 0 ? argValues : undefined;
+    // Terminal sessions have no model. Otherwise: until the catalog arrives we
+    // cannot tell a valid selection from a retired model id, so send nothing
+    // and let the template's saved model stand.
+    const launchModel =
+      isTerminal || !modelCatalogLoaded
+        ? undefined
+        : modelOptions.some((option) => option.id === model)
+          ? model
+          : null;
     launchTemplate
       .mutateAsync({
         id: template.id,
         args: launchArgs,
         agentType,
+        model: launchModel,
         startupFiles: startupFiles.length > 0 ? startupFiles : undefined,
         startupLinks: startupLinks.length > 0 ? startupLinks : undefined,
       })
@@ -122,7 +166,11 @@ function LaunchTemplateDialogContent({
     agentType,
     args,
     argValues,
+    isTerminal,
     launchTemplate,
+    model,
+    modelCatalogLoaded,
+    modelOptions,
     navigate,
     onOpenChange,
     startupFiles,
@@ -132,7 +180,6 @@ function LaunchTemplateDialogContent({
 
   return (
     <DialogContent
-      className="max-w-md"
       onEscapeKeyDown={(e) => {
         swallowEscapeFromCombobox(e);
       }}
@@ -182,12 +229,30 @@ function LaunchTemplateDialogContent({
         onDrop={showMedia ? handleStartupDrop : undefined}
       >
         {!isTerminal ? (
-          <AgentTypeSelect
-            label="Agent type"
-            value={agentType}
-            onChange={setAgentType}
-            agentTypes={agentTypes}
-          />
+          <div
+            className={cn(
+              "grid gap-3",
+              showModelSelect && "min-[420px]:grid-cols-2"
+            )}
+          >
+            <AgentTypeSelect
+              label="Agent type"
+              id="launch-template-agent-type"
+              value={agentType}
+              onChange={handleAgentTypeChange}
+              agentTypes={agentTypes}
+            />
+            {showModelSelect ? (
+              <AgentModelSelect
+                value={model}
+                options={modelOptions}
+                onChange={handleModelChange}
+                loading={modelCatalogLoading}
+                id="launch-template-model"
+                testId="launch-template-model"
+              />
+            ) : null}
+          </div>
         ) : null}
 
         {args.length > 0 ? (
