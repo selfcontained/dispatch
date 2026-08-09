@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import * as z from "zod/v4";
 
 import {
   type CrudToolCallbacks,
@@ -7,7 +8,9 @@ import {
 
 type RegisteredCall = {
   name: string;
-  config: { inputSchema: Record<string, { description?: string }> };
+  config: {
+    inputSchema: z.ZodRawShape & Record<string, { description?: string }>;
+  };
   handler: (args: Record<string, unknown>) => Promise<unknown>;
 };
 
@@ -104,6 +107,33 @@ describe("crud tools model parameter", () => {
     expect(describeModel("create_template")).not.toContain(
       "Pass null to clear"
     );
+  });
+
+  it("round-trips null as null and omits an unset model", () => {
+    const { server } = registerAll();
+    // Parse through the registered shape, not just the handler — the services
+    // read null as "clear" and undefined as "leave alone", so a schema change
+    // that collapsed omitted into null would silently wipe stored models.
+    const parse = (name: string, args: Record<string, unknown>) =>
+      z
+        .object(server.tools.find((t) => t.name === name)!.config.inputSchema)
+        .parse(args) as Record<string, unknown>;
+
+    expect("model" in parse("update_job", { name: "nightly" })).toBe(false);
+    expect(
+      parse("update_job", { name: "nightly", model: null }).model
+    ).toBeNull();
+    expect("model" in parse("update_template", { templateId: "tpl_1" })).toBe(
+      false
+    );
+    expect(
+      parse("update_template", { templateId: "tpl_1", model: null }).model
+    ).toBeNull();
+    // agentType defaults before validation, so a bare codex id gets rejected
+    // downstream rather than stored against claude.
+    expect(
+      parse("create_job", { name: "nightly", model: "gpt-5.5" })
+    ).toMatchObject({ agentType: "claude", model: "gpt-5.5" });
   });
 
   it("passes model through to the job and template callbacks", async () => {

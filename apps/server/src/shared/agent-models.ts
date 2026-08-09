@@ -59,6 +59,17 @@ function joinWithAnd(values: readonly string[]): string {
 }
 
 /**
+ * Keeps a label's trailing qualifier — "GPT-5.3 Codex Spark (preview)" renders
+ * as "gpt-5.3-codex-spark (preview)". The catalog marks risky ids only in their
+ * labels, so dropping them would advertise a preview id as an equal of a stable
+ * one to every agent reading the tool description.
+ */
+function describeOption(option: AgentModelOption): string {
+  const qualifier = /\(([^)]*)\)\s*$/.exec(option.label)?.[1];
+  return qualifier ? `${option.id} (${qualifier})` : option.id;
+}
+
+/**
  * Renders the catalog as a one-line summary for MCP tool schemas.
  *
  * Agents launching other agents over MCP have no other way to discover which
@@ -81,9 +92,7 @@ export function describeAgentModelCatalog(
       unsupported.push(agentType);
       continue;
     }
-    supported.push(
-      `${agentType}: ${options.map((option) => option.id).join(", ")}`
-    );
+    supported.push(`${agentType}: ${options.map(describeOption).join(", ")}`);
   }
 
   const sentences =

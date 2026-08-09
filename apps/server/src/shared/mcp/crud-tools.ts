@@ -11,10 +11,12 @@ const TEMPLATE_AGENT_TYPES = [...JOB_AGENT_TYPES, "terminal"] as const;
 const jobAgentTypeEnum = z.enum(JOB_AGENT_TYPES);
 const templateAgentTypeEnum = z.enum(TEMPLATE_AGENT_TYPES);
 
+// No return annotation: `z.ZodType<string | null | undefined>` erases the key's
+// optionality, so inferred handler args would claim `model` is always present.
 function modelSchema(
   mode: "create" | "update",
   agentTypes: readonly AgentType[]
-): z.ZodType<string | null | undefined> {
+) {
   const clearing =
     mode === "create" ? "" : " Pass null to clear a stored model.";
   return z

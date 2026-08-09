@@ -50,6 +50,17 @@ describe("describeAgentModelCatalog", () => {
     expect(description).toContain("no model override");
   });
 
+  it("carries a label's qualifier so risky ids are not shown as equals", () => {
+    const description = describeAgentModelCatalog(["codex"]);
+
+    for (const option of AGENT_MODEL_OPTIONS.codex ?? []) {
+      const qualifier = /\(([^)]*)\)\s*$/.exec(option.label)?.[1];
+      expect(description).toContain(
+        qualifier ? `${option.id} (${qualifier})` : option.id
+      );
+    }
+  });
+
   it("describes only the agent types the caller accepts", () => {
     // Template tools also accept terminal, which has no catalog entry.
     const description = describeAgentModelCatalog(["claude", "terminal"]);
