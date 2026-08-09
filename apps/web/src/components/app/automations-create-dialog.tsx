@@ -50,12 +50,14 @@ function CreateTemplateDialogContent({
   const [directory, setDirectory] = useState("");
   const [prompt, setPrompt] = useState("");
   const [agentType, setAgentType] = useState<AgentType>("claude");
+  const [model, setModel] = useState<string | null>(null);
   const [useWorktree, setUseWorktree] = useState(false);
   const [baseBranch, setBaseBranch] = useState("main");
   const [branchName, setBranchName] = useState("");
   const [fullAccess, setFullAccess] = useState(false);
   const [callable, setCallable] = useState(true);
   const [allowMedia, setAllowMedia] = useState(true);
+  const [selfImprove, setSelfImprove] = useState(false);
   const [creating, setCreating] = useState(false);
   const { add: addCwdHistory } = useCwdHistory();
 
@@ -69,12 +71,14 @@ function CreateTemplateDialogContent({
         directory,
         prompt: isTerminal ? null : prompt || null,
         agentType,
+        model,
         useWorktree: isTerminal ? false : useWorktree,
         baseBranch: isTerminal ? null : useWorktree ? baseBranch : null,
         branchName: isTerminal ? null : useWorktree ? branchName || null : null,
         fullAccess: isTerminal ? false : fullAccess,
         callable,
         allowMedia: isTerminal ? false : allowMedia,
+        selfImprove: isTerminal ? false : selfImprove,
       })
       .then(() => {
         addCwdHistory(directory);
@@ -92,12 +96,14 @@ function CreateTemplateDialogContent({
     directory,
     prompt,
     agentType,
+    model,
     useWorktree,
     baseBranch,
     branchName,
     fullAccess,
     callable,
     allowMedia,
+    selfImprove,
     addCwdHistory,
     onOpenChange,
   ]);
@@ -106,6 +112,7 @@ function CreateTemplateDialogContent({
 
   return (
     <DialogContent
+      className="md:h-[min(760px,88vh)] md:w-[min(760px,calc(100vw-2rem))] md:max-w-none"
       onEscapeKeyDown={(e) => {
         swallowEscapeFromCombobox(e);
       }}
@@ -129,6 +136,8 @@ function CreateTemplateDialogContent({
         <TemplateConfigFields
           agentType={agentType}
           onAgentTypeChange={setAgentType}
+          model={model}
+          onModelChange={setModel}
           enabledAgentTypes={enabledAgentTypes}
           name={name}
           onNameChange={setName}
@@ -148,6 +157,8 @@ function CreateTemplateDialogContent({
           onCallableChange={setCallable}
           allowMedia={allowMedia}
           onAllowMediaChange={setAllowMedia}
+          selfImprove={selfImprove}
+          onSelfImproveChange={setSelfImprove}
           prompt={prompt}
           onPromptChange={setPrompt}
           autoFocusName

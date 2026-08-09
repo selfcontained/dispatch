@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import { errorMessage } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
+import { SwitchToggle } from "@/components/app/jobs-form-fields";
 import { type AddJobConfig, type Job } from "@/hooks/use-jobs";
 
 export function PromptTab({
@@ -15,11 +16,13 @@ export function PromptTab({
   isUpdating: boolean;
 }) {
   const [prompt, setPrompt] = useState(job.prompt ?? "");
+  const [selfImprove, setSelfImprove] = useState(job.selfImprove);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
   useEffect(() => {
     setPrompt(job.prompt ?? "");
+    setSelfImprove(job.selfImprove);
     setSaveError(null);
     setSaved(false);
   }, [job]);
@@ -45,6 +48,22 @@ export function PromptTab({
           placeholder="Describe what the agent should do..."
           className="mt-2 h-[max(16rem,calc(100dvh-21rem))] min-h-64 shrink-0 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm font-mono ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
         />
+        <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+          <span>
+            <span className="block font-medium text-foreground">
+              Self improve after each run
+            </span>
+            <span className="block text-xs text-muted-foreground">
+              Let the agent update this job's saved prompt when it finds a
+              durable improvement.
+            </span>
+          </span>
+          <SwitchToggle
+            checked={selfImprove}
+            onCheckedChange={setSelfImprove}
+            ariaLabel="Self improve after each run"
+          />
+        </label>
         {saveError ? (
           <div className="mt-4 rounded-md border border-status-blocked/40 bg-status-blocked/10 p-3 text-sm text-status-blocked">
             {saveError}
@@ -66,6 +85,7 @@ export function PromptTab({
                 name: job.name,
                 directory: job.directory,
                 prompt: prompt.trim() || null,
+                selfImprove,
               })
                 .then(() => {
                   setSaved(true);

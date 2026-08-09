@@ -21,12 +21,14 @@ export type AddTemplateConfig = {
   description?: string | null;
   prompt?: string | null;
   agentType?: AgentType;
+  model?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
   fullAccess?: boolean;
   callable?: boolean;
   allowMedia?: boolean;
+  selfImprove?: boolean;
 };
 
 export type LaunchResult = {

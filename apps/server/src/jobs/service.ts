@@ -8,6 +8,11 @@ import { Cron } from "croner";
 import type { AgentManager } from "../agents/manager.js";
 import type { AppConfig } from "../config.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
+import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
+import {
+  getAgentModelOptions,
+  validateAgentModel,
+} from "../shared/agent-models.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { sleep } from "../shared/lib/sleep.js";
 import {
@@ -165,13 +170,18 @@ export class JobService {
     );
     this.emitRunStateChange(run);
 
-    const jobLikeForPrompt = { ...job, prompt: resolvedPrompt };
+    const jobLikeForPrompt = {
+      ...job,
+      prompt: resolvedPrompt,
+      selfImprove: agentConfig.selfImprove,
+    };
     const prompt = buildJobPrompt(jobLikeForPrompt, run.id);
 
     try {
       const agent = await this.agentManager.createAgent({
         name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
         type: agentType,
+        model: agentConfig.model ?? undefined,
         cwd: job.directory,
         agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
         fullAccess: agentConfig.fullAccess,
@@ -290,12 +300,18 @@ export class JobService {
       description: null,
       prompt: input.prompt ?? null,
       agentType: input.agentType ?? "claude",
+      model:
+        validateAgentModel(
+          input.agentType ?? "claude",
+          input.model ?? undefined
+        ) ?? null,
       useWorktree: input.useWorktree ?? false,
       baseBranch: input.baseBranch ?? null,
       branchName: input.branchName ?? null,
       fullAccess: input.fullAccess ?? false,
       callable: false,
       allowMedia: false,
+      selfImprove: input.selfImprove ?? false,
     });
 
     const webhookEnabled = input.webhookEnabled ?? false;
@@ -312,6 +328,11 @@ export class JobService {
         needsInputTimeoutMs:
           input.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
         agentType: input.agentType ?? "claude",
+        model:
+          validateAgentModel(
+            input.agentType ?? "claude",
+            input.model ?? undefined
+          ) ?? null,
         useWorktree: input.useWorktree ?? false,
         baseBranch: input.baseBranch ?? null,
         branchName: input.branchName ?? null,
@@ -324,6 +345,7 @@ export class JobService {
         templateId: template.id,
         defaultArgs: {},
         enabled: input.enabled ?? false,
+        selfImprove: input.selfImprove ?? false,
       });
     } catch (error) {
       await this.templateStore
@@ -382,7 +404,23 @@ export class JobService {
     if (input.timeoutMs !== undefined) config.timeoutMs = input.timeoutMs;
     if (input.needsInputTimeoutMs !== undefined)
       config.needsInputTimeoutMs = input.needsInputTimeoutMs;
+    const nextAgentType = input.agentType ?? existing.agentType;
+    let nextModel = existing.model;
+    if (input.model !== undefined) {
+      nextModel =
+        validateAgentModel(nextAgentType, input.model ?? undefined) ?? null;
+    } else if (
+      input.agentType !== undefined &&
+      existing.model !== null &&
+      !getAgentModelOptions(nextAgentType).some(
+        (option) => option.id === existing.model
+      )
+    ) {
+      nextModel = null;
+    }
     if (input.agentType !== undefined) config.agentType = input.agentType;
+    if (nextModel !== existing.model || input.model !== undefined)
+      config.model = nextModel;
     if (input.useWorktree !== undefined) config.useWorktree = input.useWorktree;
     if (baseBranch !== undefined) config.baseBranch = baseBranch;
     if (branchName !== undefined) config.branchName = branchName;
@@ -399,6 +437,7 @@ export class JobService {
       }
     }
     if (input.enabled !== undefined) config.enabled = input.enabled;
+    if (input.selfImprove !== undefined) config.selfImprove = input.selfImprove;
 
     const updated = await this.store.updateJobConfig(existing.id, config);
 
@@ -408,6 +447,7 @@ export class JobService {
       if (input.prompt !== undefined) templateUpdates.prompt = input.prompt;
       if (input.agentType !== undefined)
         templateUpdates.agentType = input.agentType;
+      if (config.model !== undefined) templateUpdates.model = config.model;
       if (input.useWorktree !== undefined)
         templateUpdates.useWorktree = input.useWorktree;
       if (input.baseBranch !== undefined)
@@ -416,6 +456,8 @@ export class JobService {
         templateUpdates.branchName = input.branchName;
       if (input.fullAccess !== undefined)
         templateUpdates.fullAccess = input.fullAccess;
+      if (input.selfImprove !== undefined)
+        templateUpdates.selfImprove = input.selfImprove;
       if (displayName !== undefined && displayName !== existing.name) {
         templateUpdates.name = displayName;
       }
@@ -897,6 +939,15 @@ function buildJobPrompt(job: JobRecord, runId: string): string {
     "Use repo tools when they are relevant to the job.",
     "\nJob prompt:",
     job.prompt!,
+    ...(job.selfImprove
+      ? [
+          buildSelfImprovementGuidance({
+            kind: "job",
+            name: job.name,
+            directory: job.directory,
+          }),
+        ]
+      : []),
   ].join("\n");
 }
 

@@ -32,6 +32,7 @@ export type CrudToolCallbacks = {
     callable?: boolean;
     singleton?: boolean;
     enabled?: boolean;
+    selfImprove?: boolean;
   }) => Promise<unknown>;
   updateJob: (input: {
     name: string;
@@ -50,6 +51,7 @@ export type CrudToolCallbacks = {
     callable?: boolean;
     singleton?: boolean;
     enabled?: boolean;
+    selfImprove?: boolean;
   }) => Promise<unknown>;
   deleteJob: (name: string, directory: string) => Promise<unknown>;
   runJob: (name: string, directory: string) => Promise<unknown>;
@@ -68,6 +70,7 @@ export type CrudToolCallbacks = {
     fullAccess?: boolean;
     callable?: boolean;
     allowMedia?: boolean;
+    selfImprove?: boolean;
   }) => Promise<unknown>;
   updateTemplate: (
     templateId: string,
@@ -83,6 +86,7 @@ export type CrudToolCallbacks = {
       fullAccess?: boolean;
       callable?: boolean;
       allowMedia?: boolean;
+      selfImprove?: boolean;
     }
   ) => Promise<unknown>;
   deleteTemplate: (templateId: string) => Promise<unknown>;
@@ -243,6 +247,10 @@ export function registerCrudTools(
             .boolean()
             .default(false)
             .describe("Enable scheduled runs."),
+          selfImprove: z
+            .boolean()
+            .default(false)
+            .describe("Let agents improve this prompt after a run."),
         },
       },
       async (args) => {
@@ -334,6 +342,10 @@ export function registerCrudTools(
             .optional()
             .describe("Only one active run at a time."),
           enabled: z.boolean().optional().describe("Enable scheduled runs."),
+          selfImprove: z
+            .boolean()
+            .optional()
+            .describe("Let agents improve this prompt after a run."),
         },
       },
       async (args) => {
@@ -518,6 +530,10 @@ export function registerCrudTools(
             .boolean()
             .default(true)
             .describe("Allow media attachments when launching."),
+          selfImprove: z
+            .boolean()
+            .default(false)
+            .describe("Let agents improve this prompt after a run."),
         },
       },
       async (args) => {
@@ -583,6 +599,10 @@ export function registerCrudTools(
             .boolean()
             .optional()
             .describe("Allow media attachments when launching."),
+          selfImprove: z
+            .boolean()
+            .optional()
+            .describe("Let agents improve this prompt after a run."),
         },
       },
       async (args) => {

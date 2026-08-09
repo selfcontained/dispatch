@@ -43,6 +43,7 @@ export type JobRecord = {
   prompt: string | null;
   enabled: boolean;
   agentType: JobAgentType;
+  model: string | null;
   useWorktree: boolean;
   baseBranch: string | null;
   branchName: string | null;
@@ -54,6 +55,7 @@ export type JobRecord = {
   webhookSecret: string | null;
   templateId: string | null;
   defaultArgs: Record<string, string>;
+  selfImprove: boolean;
   createdAt: string;
   updatedAt: string;
 };
@@ -108,6 +110,7 @@ export type AddJobInput = {
   timeoutMs?: number;
   needsInputTimeoutMs?: number;
   agentType?: JobAgentType;
+  model?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -118,6 +121,7 @@ export type AddJobInput = {
   webhookEnabled?: boolean;
   defaultArgs?: Record<string, string>;
   enabled?: boolean;
+  selfImprove?: boolean;
 };
 
 export type JobConfigUpdate = {
@@ -127,6 +131,7 @@ export type JobConfigUpdate = {
   timeoutMs?: number;
   needsInputTimeoutMs?: number;
   agentType?: JobAgentType;
+  model?: string | null;
   useWorktree?: boolean;
   baseBranch?: string | null;
   branchName?: string | null;
@@ -139,6 +144,7 @@ export type JobConfigUpdate = {
   templateId?: string | null;
   defaultArgs?: Record<string, string>;
   enabled?: boolean;
+  selfImprove?: boolean;
 };
 
 export class JobStore {
@@ -152,6 +158,7 @@ export class JobStore {
     timeoutMs: number;
     needsInputTimeoutMs: number;
     agentType: JobAgentType;
+    model?: string | null;
     useWorktree: boolean;
     baseBranch: string | null;
     branchName: string | null;
@@ -164,13 +171,14 @@ export class JobStore {
     templateId?: string | null;
     defaultArgs?: Record<string, string>;
     enabled: boolean;
+    selfImprove?: boolean;
   }): Promise<JobRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19::jsonb, $20)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, model, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled, self_improve)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, $22)
         RETURNING ${this.jobColumns()}
         `,
         [
@@ -183,6 +191,7 @@ export class JobStore {
           input.prompt,
           input.fullAccess,
           input.agentType,
+          input.model ?? null,
           input.useWorktree,
           input.baseBranch,
           input.branchName,
@@ -194,6 +203,7 @@ export class JobStore {
           input.templateId ?? null,
           JSON.stringify(input.defaultArgs ?? {}),
           input.enabled,
+          input.selfImprove ?? false,
         ]
       );
       return mapJob(result.rows[0]);
@@ -419,6 +429,7 @@ export class JobStore {
         j.prompt,
         j.enabled,
         j.agent_type AS "agentType",
+        j.model,
         j.use_worktree AS "useWorktree",
         j.base_branch AS "baseBranch",
         j.branch_name AS "branchName",
@@ -430,6 +441,7 @@ export class JobStore {
         j.webhook_secret AS "webhookSecret",
         j.template_id AS "templateId",
         j.default_args AS "defaultArgs",
+        j.self_improve AS "selfImprove",
         j.created_at AS "createdAt",
         j.updated_at AS "updatedAt",
         lr.id AS "lastRunId",
@@ -604,18 +616,20 @@ export class JobStore {
             timeout_ms = COALESCE($7, timeout_ms),
             needs_input_timeout_ms = COALESCE($8, needs_input_timeout_ms),
             agent_type = COALESCE($9, agent_type),
-            use_worktree = COALESCE($10, use_worktree),
-            branch_name = CASE WHEN $11 THEN $12 ELSE branch_name END,
-            full_access = COALESCE($13, full_access),
-            enabled = COALESCE($14, enabled),
-            base_branch = CASE WHEN $15 THEN $16 ELSE base_branch END,
-            auto_archive = COALESCE($17, auto_archive),
-            callable = COALESCE($18, callable),
-            singleton = COALESCE($19, singleton),
-            template_id = CASE WHEN $20 THEN $21 ELSE template_id END,
-            default_args = CASE WHEN $22 THEN $23::jsonb ELSE default_args END,
-            webhook_enabled = COALESCE($24, webhook_enabled),
-            webhook_secret = CASE WHEN $25 THEN $26 ELSE webhook_secret END,
+            model = CASE WHEN $10 THEN $11 ELSE model END,
+            use_worktree = COALESCE($12, use_worktree),
+            branch_name = CASE WHEN $13 THEN $14 ELSE branch_name END,
+            full_access = COALESCE($15, full_access),
+            enabled = COALESCE($16, enabled),
+            base_branch = CASE WHEN $17 THEN $18 ELSE base_branch END,
+            auto_archive = COALESCE($19, auto_archive),
+            callable = COALESCE($20, callable),
+            singleton = COALESCE($21, singleton),
+            template_id = CASE WHEN $22 THEN $23 ELSE template_id END,
+            default_args = CASE WHEN $24 THEN $25::jsonb ELSE default_args END,
+            webhook_enabled = COALESCE($26, webhook_enabled),
+            webhook_secret = CASE WHEN $27 THEN $28 ELSE webhook_secret END,
+            self_improve = COALESCE($29, self_improve),
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -630,6 +644,8 @@ export class JobStore {
           input.timeoutMs,
           input.needsInputTimeoutMs,
           input.agentType,
+          Object.prototype.hasOwnProperty.call(input, "model"),
+          input.model ?? null,
           input.useWorktree,
           Object.prototype.hasOwnProperty.call(input, "branchName"),
           input.branchName ?? null,
@@ -647,6 +663,7 @@ export class JobStore {
           input.webhookEnabled,
           Object.prototype.hasOwnProperty.call(input, "webhookSecret"),
           input.webhookSecret ?? null,
+          input.selfImprove,
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
@@ -724,6 +741,7 @@ export class JobStore {
       prompt,
       enabled,
       agent_type AS "agentType",
+      model,
       use_worktree AS "useWorktree",
       base_branch AS "baseBranch",
       branch_name AS "branchName",
@@ -735,6 +753,7 @@ export class JobStore {
       webhook_secret AS "webhookSecret",
       template_id AS "templateId",
       default_args AS "defaultArgs",
+      self_improve AS "selfImprove",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;

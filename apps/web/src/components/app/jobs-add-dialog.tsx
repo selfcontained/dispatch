@@ -1,8 +1,11 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { PathInput } from "@/components/app/path-input";
+import { AgentModelSelect } from "@/components/app/agent-model-select";
+import { api } from "@/lib/api";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import {
   JobAgentTypeField,
@@ -90,6 +93,14 @@ export function AddJobFlow({
   const [agentType, setAgentType] = useState<CliAgentType>(
     jobAgentTypes[0] ?? "codex"
   );
+  const [model, setModel] = useState<string | null>(null);
+  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
+    models: Partial<Record<CliAgentType, Array<{ id: string; label: string }>>>;
+  }>({
+    queryKey: ["agent-models"],
+    queryFn: () => api("/api/v1/agent-models"),
+  });
+  const modelOptions = modelCatalog?.models[agentType] ?? [];
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
   const [baseBranch, setBaseBranch] = useState("main");
@@ -98,6 +109,7 @@ export function AddJobFlow({
   const [callable, setCallable] = useState(false);
   const [singleton, setSingleton] = useState(true);
   const [enableImmediately, setEnableImmediately] = useState(false);
+  const [selfImprove, setSelfImprove] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const {
@@ -171,11 +183,24 @@ export function AddJobFlow({
                 onScheduleChange={setSchedule}
                 onEnabledChange={setEnableImmediately}
               />
-              <JobAgentTypeField
-                value={agentType}
-                agentTypes={enabledAgentTypes}
-                onChange={setAgentType}
-              />
+              <div className="grid gap-3 min-[420px]:grid-cols-2 md:col-span-2">
+                <JobAgentTypeField
+                  value={agentType}
+                  agentTypes={enabledAgentTypes}
+                  onChange={(nextAgentType) => {
+                    setAgentType(nextAgentType);
+                    setModel(null);
+                  }}
+                />
+                {modelOptions.length > 0 || modelCatalogLoading ? (
+                  <AgentModelSelect
+                    value={model}
+                    options={modelOptions}
+                    onChange={setModel}
+                    loading={modelCatalogLoading}
+                  />
+                ) : null}
+              </div>
               <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm md:col-span-2">
                 <span>
                   <span className="block font-medium text-foreground">
@@ -228,6 +253,22 @@ export function AddJobFlow({
               placeholder="Describe what the agent should do..."
               className="mt-2 min-h-64 w-full rounded-md border border-white/[0.12] bg-white/[0.04] backdrop-blur-md shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] px-3 py-2 text-sm ring-offset-background placeholder:text-muted-foreground focus:outline-none focus:ring-1 focus:ring-ring"
             />
+            <label className="mt-3 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
+              <span>
+                <span className="block font-medium text-foreground">
+                  Self improve after each run
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Let the agent update this job's saved prompt when it finds a
+                  durable improvement.
+                </span>
+              </span>
+              <SwitchToggle
+                checked={selfImprove}
+                onCheckedChange={setSelfImprove}
+                ariaLabel="Self improve after each run"
+              />
+            </label>
           </div>
 
           <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
@@ -343,6 +384,7 @@ export function AddJobFlow({
               timeoutMs: msFromMinutes(timeoutMinutes),
               needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
               agentType,
+              model,
               useWorktree,
               baseBranch: useWorktree ? baseBranch : null,
               branchName: useWorktree ? branchName : null,
@@ -351,6 +393,7 @@ export function AddJobFlow({
               callable,
               singleton,
               enabled: effectiveEnabled,
+              selfImprove,
             })
               .then(() => addCwdHistory(trimmedDirectory))
               .catch((error) => setSubmitError(errorMessage(error)));

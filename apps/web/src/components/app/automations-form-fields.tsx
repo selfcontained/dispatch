@@ -1,7 +1,10 @@
 import { useMemo } from "react";
+import { useQuery } from "@tanstack/react-query";
 import { GitBranch, Paperclip } from "lucide-react";
 
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
+import { AgentModelSelect } from "@/components/app/agent-model-select";
+import { api } from "@/lib/api";
 import { BranchSelect } from "@/components/app/branch-select";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { PathInput } from "@/components/app/path-input";
@@ -95,6 +98,8 @@ export function TemplateFullAccessOption({
 export interface TemplateConfigFieldsProps {
   agentType: AgentType;
   onAgentTypeChange: (value: AgentType) => void;
+  model: string | null;
+  onModelChange: (value: string | null) => void;
   enabledAgentTypes: AgentType[];
   name: string;
   onNameChange: (value: string) => void;
@@ -114,6 +119,8 @@ export interface TemplateConfigFieldsProps {
   onCallableChange: (checked: boolean) => void;
   allowMedia: boolean;
   onAllowMediaChange: (checked: boolean) => void;
+  selfImprove: boolean;
+  onSelfImproveChange: (checked: boolean) => void;
   prompt: string;
   onPromptChange: (value: string) => void;
   autoFocusName?: boolean;
@@ -122,6 +129,8 @@ export interface TemplateConfigFieldsProps {
 export function TemplateConfigFields({
   agentType,
   onAgentTypeChange,
+  model,
+  onModelChange,
   enabledAgentTypes,
   name,
   onNameChange,
@@ -141,11 +150,20 @@ export function TemplateConfigFields({
   onCallableChange,
   allowMedia,
   onAllowMediaChange,
+  selfImprove,
+  onSelfImproveChange,
   prompt,
   onPromptChange,
   autoFocusName,
 }: TemplateConfigFieldsProps): JSX.Element {
   const isTerminal = agentType === "terminal";
+  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
+    models: Partial<Record<AgentType, Array<{ id: string; label: string }>>>;
+  }>({
+    queryKey: ["agent-models"],
+    queryFn: () => api("/api/v1/agent-models"),
+  });
+  const modelOptions = modelCatalog?.models[agentType] ?? [];
   const {
     history: cwdHistory,
     removableHistory: removableCwdHistory,
@@ -160,12 +178,25 @@ export function TemplateConfigFields({
 
   return (
     <div className="space-y-3">
-      <AgentTypeSelect
-        label="Agent type"
-        value={agentType}
-        onChange={onAgentTypeChange}
-        agentTypes={enabledAgentTypes}
-      />
+      <div className="grid gap-3 min-[420px]:grid-cols-2">
+        <AgentTypeSelect
+          label="Agent type"
+          value={agentType}
+          onChange={(nextAgentType) => {
+            onAgentTypeChange(nextAgentType);
+            onModelChange(null);
+          }}
+          agentTypes={enabledAgentTypes}
+        />
+        {modelOptions.length > 0 || modelCatalogLoading ? (
+          <AgentModelSelect
+            value={model}
+            options={modelOptions}
+            onChange={onModelChange}
+            loading={modelCatalogLoading}
+          />
+        ) : null}
+      </div>
 
       <div className="space-y-1">
         <label className="text-sm text-muted-foreground">Name</label>
@@ -263,7 +294,7 @@ export function TemplateConfigFields({
               onChange={(e) => onPromptChange(e.target.value)}
               placeholder="Describe what the agent should do..."
               className={cn(
-                "min-h-[120px] resize-y",
+                "min-h-64 resize-y",
                 "ring-offset-background placeholder:text-muted-foreground",
                 "focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
               )}
@@ -284,6 +315,23 @@ export function TemplateConfigFields({
               </div>
             ) : null}
           </div>
+
+          <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
+            <Checkbox
+              checked={selfImprove}
+              onCheckedChange={() => onSelfImproveChange(!selfImprove)}
+              className="mt-0.5"
+            />
+            <span className="space-y-1">
+              <span className="block text-sm font-medium text-foreground">
+                Self improve after each run
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Ask the agent to make a conservative saved-prompt improvement
+                when it finds one.
+              </span>
+            </span>
+          </label>
         </>
       ) : null}
     </div>
