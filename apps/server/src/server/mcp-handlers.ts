@@ -43,11 +43,7 @@ import {
   updatePersonality,
 } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import {
-  getWorktreeLocation,
-  isWorktreeLocation,
-  VALID_WORKTREE_LOCATIONS,
-} from "../worktree-location-settings.js";
+import { getWorktreeLocation } from "../worktree-location-settings.js";
 
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
@@ -302,7 +298,6 @@ async function handleLaunchAgent(
     fullAccess?: boolean;
     templateId?: string;
     cwd?: string;
-    worktreeLocation?: string;
   }
 ): Promise<{ agentId: string; name: string }> {
   const parent = await deps.agentManager.getAgent(agentId);
@@ -350,19 +345,9 @@ async function handleLaunchAgent(
   const worktreeBranch = input.worktreeBranch ?? fromTemplate.worktreeBranch;
   const fullAccess = parent.fullAccess && input.fullAccess !== false;
 
-  if (
-    input.worktreeLocation !== undefined &&
-    !isWorktreeLocation(input.worktreeLocation)
-  ) {
-    throw new Error(
-      `worktreeLocation must be one of: ${VALID_WORKTREE_LOCATIONS.join(", ")}.`
-    );
-  }
   // Placement is an instance-wide setting the web UI already honours; without
   // this the MCP path silently forced "sibling".
-  const worktreeLocation = isWorktreeLocation(input.worktreeLocation)
-    ? input.worktreeLocation
-    : await getWorktreeLocation(deps.pool);
+  const worktreeLocation = await getWorktreeLocation(deps.pool);
 
   const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
   const model = validateAgentModel(
@@ -950,7 +935,6 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         fullAccess?: boolean;
         templateId?: string;
         cwd?: string;
-        worktreeLocation?: string;
       }
     ) => handleLaunchAgent(deps, agentId, input),
 

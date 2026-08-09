@@ -22,7 +22,6 @@ export type LaunchAgentInput = {
   fullAccess?: boolean;
   templateId?: string;
   cwd?: string;
-  worktreeLocation?: string;
 };
 
 export type AgentLaunchToolsContext = {
@@ -115,12 +114,6 @@ export function registerAgentLaunchTools(
           .describe(
             "Working directory for the new agent. Defaults to the parent's working directory."
           ),
-        worktreeLocation: z
-          .enum(["sibling", "nested"])
-          .optional()
-          .describe(
-            "Where to place the worktree. Defaults to the instance-wide worktree location setting."
-          ),
       },
     },
     async (args) => {
@@ -141,8 +134,6 @@ export function registerAgentLaunchTools(
         if (args.fullAccess !== undefined) input.fullAccess = args.fullAccess;
         if (args.templateId !== undefined) input.templateId = args.templateId;
         if (args.cwd !== undefined) input.cwd = args.cwd;
-        if (args.worktreeLocation !== undefined)
-          input.worktreeLocation = args.worktreeLocation;
 
         const result = await launchAgent(agentId, input);
         return {
