@@ -30,6 +30,7 @@ import {
   resolveRepoRoot,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
+import { validateAgentModel } from "../shared/agent-models.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import {
@@ -487,6 +488,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         context: string;
         agentType?: (typeof CLI_AGENT_TYPES)[number];
         includeDiff?: boolean;
+        model?: string;
       }
     ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
       const parent = await agentManager.getAgent(agentId);
@@ -511,6 +513,8 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
       if (!enabledAgentTypes.includes(personaAgentType)) {
         throw new Error(`${personaAgentType} agents are disabled in settings.`);
       }
+
+      const personaModel = validateAgentModel(personaAgentType, opts.model);
 
       const parentCwd = parent.worktreePath ?? parent.cwd;
       let personaRoot: string;
@@ -599,6 +603,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         type: personaAgentType,
         role: "review",
         cwd: parentCwd,
+        model: personaModel,
         agentArgs: personaArgs,
         fullAccess: parent.fullAccess,
         useWorktree: false,

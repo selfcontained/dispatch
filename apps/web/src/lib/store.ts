@@ -98,6 +98,13 @@ export const createAgentModelPrefAtom = atomFamily((key: string) =>
   atomWithLocalStorage<string | null>(`dispatch:model:${key}`, null)
 );
 
+// Per-project, per-runtime model preference for the Launch Review dialog.
+// Kept separate from the Create Agent preference so picking a heavier model
+// for reviewers doesn't change what new agents are created with.
+export const reviewAgentModelPrefAtom = atomFamily((key: string) =>
+  atomWithLocalStorage<string | null>(`dispatch:reviewModel:${key}`, null)
+);
+
 // Per-tag dismissal flag for the "release available" toast. Dismissing
 // vX.Y.Z prevents that toast from re-showing for the same tag, but a
 // newer tag still triggers a fresh toast on its own atom.

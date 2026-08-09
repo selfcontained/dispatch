@@ -3,11 +3,9 @@ import {
   type FormEvent,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import {
@@ -25,12 +23,10 @@ import {
 } from "@/components/app/create-agent-dialog-utils";
 import { type Agent } from "@/components/app/types";
 import { useStartupAttachments } from "@/components/app/use-startup-attachments";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useSystemDefaults } from "@/hooks/use-system-defaults";
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
-
-type AgentModelOption = { id: string; label: string };
-type AgentModelCatalog = Partial<Record<AgentType, AgentModelOption[]>>;
 
 type UseCreateAgentFormOptions = {
   enabledAgentTypes: AgentType[];
@@ -99,18 +95,11 @@ export function useCreateAgentForm({
     model: createModel,
     setModel: setCreateModel,
   } = useCreateAgentPrefs(createCwd, createType);
-  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
-    models: AgentModelCatalog;
-  }>({
-    queryKey: ["agent-models"],
-    queryFn: () => api("/api/v1/agent-models"),
-    staleTime: Infinity,
-    gcTime: Infinity,
-  });
-  const modelOptions = useMemo(
-    () => modelCatalog?.models[createType] ?? [],
-    [createType, modelCatalog]
-  );
+  const {
+    options: modelOptions,
+    loading: modelCatalogLoading,
+    loaded: modelCatalogLoaded,
+  } = useAgentModelCatalog(createType);
 
   const handleCreateUseWorktreeChange = useCallback(
     (useWorktree: boolean) => {
@@ -121,7 +110,7 @@ export function useCreateAgentForm({
   );
 
   useEffect(() => {
-    if (!modelCatalog) return;
+    if (!modelCatalogLoaded) return;
     // Anything stored that the catalog no longer offers (a retired id, or an
     // empty string persisted by an older build) resets to the CLI default.
     if (
@@ -130,7 +119,7 @@ export function useCreateAgentForm({
     ) {
       setCreateModel(null);
     }
-  }, [createModel, modelCatalog, modelOptions, setCreateModel]);
+  }, [createModel, modelCatalogLoaded, modelOptions, setCreateModel]);
 
   useEffect(() => {
     setCreateWorktreeBranch("");

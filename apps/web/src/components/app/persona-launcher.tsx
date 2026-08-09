@@ -1,7 +1,9 @@
 import { Check, ChevronDown } from "lucide-react";
-import { useCallback, useRef, useState } from "react";
+import { useAtom } from "jotai";
+import { useCallback, useMemo, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -29,6 +31,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useClickOutside } from "@/hooks/use-click-outside";
 import { api } from "@/lib/api";
 import { swallowEscapeFromCombobox } from "@/lib/dialog-escape";
@@ -37,6 +40,7 @@ import {
   type AgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
+import { reviewAgentModelPrefAtom } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 type PersonaSummary = {
@@ -72,13 +76,23 @@ export function PersonaLauncher({
   const reviewerTypes = enabledAgentTypes.filter(isCliAgentType);
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
-  const [selectedPersona, setSelectedPersona] = useState<string | null>(null);
+  const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
   );
   const [typeDropdownOpen, setTypeDropdownOpen] = useState(false);
   const typeCmdRef = useRef<HTMLDivElement>(null);
   const typeTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const modelAtom = useMemo(
+    () => reviewAgentModelPrefAtom(`${selectedAgentType}:${cwd}`),
+    [selectedAgentType, cwd]
+  );
+  const [selectedModel, setSelectedModel] = useAtom(modelAtom);
+
+  const { options: modelOptions, loading: modelCatalogLoading } =
+    useAgentModelCatalog(selectedAgentType);
+  const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
   const { data: personas = [] } = useQuery<PersonaSummary[]>({
     queryKey: ["personas", cwd],
@@ -94,13 +108,18 @@ export function PersonaLauncher({
   useClickOutside(typeCmdRef, typeDropdownOpen, closeTypeDropdown);
 
   const launchMutation = useMutation({
-    mutationFn: async (persona: string) => {
+    mutationFn: async (personas: string[]) => {
       await persistReviewAgentType(selectedAgentType);
       await api(`/api/v1/agents/${agent.id}/launch-review`, {
         method: "POST",
         body: JSON.stringify({
-          persona,
+          personas,
           agentType: selectedAgentType,
+          // A stored id the catalog no longer offers means "CLI default",
+          // same as the select renders it.
+          model: modelOptions.some((option) => option.id === selectedModel)
+            ? selectedModel
+            : null,
         }),
       });
     },
@@ -136,7 +155,7 @@ export function PersonaLauncher({
 
   const openDialog = (agentType = defaultReviewAgentType(agent)) => {
     setSelectedAgentType(agentType);
-    setSelectedPersona(null);
+    setSelectedPersonas([]);
     launchMutation.reset();
     setTypeDropdownOpen(false);
     setDialogOpen(true);
@@ -242,119 +261,168 @@ export function PersonaLauncher({
             <DialogHeader>
               <DialogTitle>Launch Review</DialogTitle>
               <DialogDescription>
-                Pick a reviewer persona and review agent type. The reviewer will
-                submit one tracked review, with follow-up discussion kept in its
-                feedback item threads.
+                Pick one or more reviewer personas and a review agent type. Each
+                reviewer will submit one tracked review, with follow-up
+                discussion kept in its feedback item threads.
               </DialogDescription>
             </DialogHeader>
 
             <div className="flex min-h-0 flex-col">
               <div className="min-h-0 flex-1 overflow-y-auto px-1">
                 <div className="space-y-3">
-                  <div className="relative space-y-1" ref={typeCmdRef}>
-                    <label className="text-sm text-muted-foreground">
-                      Agent type
-                    </label>
-                    <button
-                      ref={typeTriggerRef}
-                      type="button"
-                      role="combobox"
-                      aria-expanded={typeDropdownOpen}
-                      onClick={() => setTypeDropdownOpen((prev) => !prev)}
-                      onKeyDown={(e) => {
-                        if (
-                          e.key === "ArrowDown" ||
-                          e.key === "Enter" ||
-                          e.key === " "
-                        ) {
-                          e.preventDefault();
-                          if (!typeDropdownOpen) setTypeDropdownOpen(true);
-                        }
-                      }}
-                      className={cn(
-                        "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
-                        "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
-                      )}
-                      data-testid="launch-reviewer-agent-type"
-                    >
-                      <span className="flex items-center gap-2">
-                        <AgentTypeIcon
-                          type={selectedAgentType}
-                          className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
-                        />
-                        {AGENT_TYPE_LABELS[selectedAgentType]}
-                      </span>
-                      <ChevronDown
+                  <div
+                    className={cn(
+                      "grid gap-3",
+                      showModelSelect && "min-[420px]:grid-cols-2"
+                    )}
+                  >
+                    <div className="relative space-y-1" ref={typeCmdRef}>
+                      <label className="text-sm text-muted-foreground">
+                        Agent type
+                      </label>
+                      <button
+                        ref={typeTriggerRef}
+                        type="button"
+                        role="combobox"
+                        aria-expanded={typeDropdownOpen}
+                        onClick={() => setTypeDropdownOpen((prev) => !prev)}
+                        onKeyDown={(e) => {
+                          if (
+                            e.key === "ArrowDown" ||
+                            e.key === "Enter" ||
+                            e.key === " "
+                          ) {
+                            e.preventDefault();
+                            if (!typeDropdownOpen) setTypeDropdownOpen(true);
+                          }
+                        }}
                         className={cn(
-                          "h-4 w-4 text-muted-foreground transition-transform",
-                          typeDropdownOpen && "rotate-180"
+                          "flex h-9 w-full items-center justify-between rounded-md border border-white/[0.12] bg-white/[0.04] px-3 py-2 text-sm shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)] backdrop-blur-md",
+                          "ring-offset-background focus:outline-none focus:ring-1 focus:ring-ring"
                         )}
+                        data-testid="launch-reviewer-agent-type"
+                      >
+                        <span className="flex items-center gap-2">
+                          <AgentTypeIcon
+                            type={selectedAgentType}
+                            className="h-4 w-4 border-none bg-transparent p-0 text-foreground/80"
+                          />
+                          {AGENT_TYPE_LABELS[selectedAgentType]}
+                        </span>
+                        <ChevronDown
+                          className={cn(
+                            "h-4 w-4 text-muted-foreground transition-transform",
+                            typeDropdownOpen && "rotate-180"
+                          )}
+                        />
+                      </button>
+                      {typeDropdownOpen ? (
+                        <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
+                          <Command
+                            shouldFilter={false}
+                            ref={(el) => {
+                              if (el) requestAnimationFrame(() => el.focus());
+                            }}
+                            onKeyDown={(e) => {
+                              if (e.key === "Escape") {
+                                e.preventDefault();
+                                setTypeDropdownOpen(false);
+                                requestAnimationFrame(() =>
+                                  typeTriggerRef.current?.focus()
+                                );
+                              }
+                            }}
+                          >
+                            <CommandList>
+                              <CommandGroup>
+                                {reviewerTypes.map((agentType) => (
+                                  <CommandItem
+                                    key={agentType}
+                                    value={agentType}
+                                    onSelect={() => {
+                                      setSelectedAgentType(agentType);
+                                      launchMutation.reset();
+                                      setTypeDropdownOpen(false);
+                                      requestAnimationFrame(() =>
+                                        typeTriggerRef.current?.focus()
+                                      );
+                                    }}
+                                  >
+                                    <Check
+                                      className={cn(
+                                        "mr-2 h-3 w-3 shrink-0",
+                                        agentType === selectedAgentType
+                                          ? "opacity-100"
+                                          : "opacity-0"
+                                      )}
+                                    />
+                                    {AGENT_TYPE_LABELS[agentType]}
+                                  </CommandItem>
+                                ))}
+                              </CommandGroup>
+                            </CommandList>
+                          </Command>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {showModelSelect ? (
+                      <AgentModelSelect
+                        value={selectedModel}
+                        options={modelOptions}
+                        onChange={(model) => {
+                          setSelectedModel(model);
+                          launchMutation.reset();
+                        }}
+                        loading={modelCatalogLoading}
+                        id="launch-reviewer-model"
+                        testId="launch-reviewer-model"
                       />
-                    </button>
-                    {typeDropdownOpen ? (
-                      <div className="absolute left-0 right-0 z-[80] mt-1 rounded-md border border-white/[0.2] bg-[hsl(var(--card))] shadow-[0_16px_64px_rgba(0,0,0,0.5),inset_0_1px_0_rgba(255,255,255,0.15)] backdrop-blur-2xl">
-                        <Command
-                          shouldFilter={false}
-                          ref={(el) => {
-                            if (el) requestAnimationFrame(() => el.focus());
-                          }}
-                          onKeyDown={(e) => {
-                            if (e.key === "Escape") {
-                              e.preventDefault();
-                              setTypeDropdownOpen(false);
-                              requestAnimationFrame(() =>
-                                typeTriggerRef.current?.focus()
-                              );
-                            }
-                          }}
-                        >
-                          <CommandList>
-                            <CommandGroup>
-                              {reviewerTypes.map((agentType) => (
-                                <CommandItem
-                                  key={agentType}
-                                  value={agentType}
-                                  onSelect={() => {
-                                    setSelectedAgentType(agentType);
-                                    launchMutation.reset();
-                                    setTypeDropdownOpen(false);
-                                    requestAnimationFrame(() =>
-                                      typeTriggerRef.current?.focus()
-                                    );
-                                  }}
-                                >
-                                  <Check
-                                    className={cn(
-                                      "mr-2 h-3 w-3 shrink-0",
-                                      agentType === selectedAgentType
-                                        ? "opacity-100"
-                                        : "opacity-0"
-                                    )}
-                                  />
-                                  {AGENT_TYPE_LABELS[agentType]}
-                                </CommandItem>
-                              ))}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </div>
                     ) : null}
                   </div>
 
                   <div className="space-y-2">
-                    <label className="text-sm text-muted-foreground">
-                      Persona
-                    </label>
-                    <div className="space-y-2">
+                    <div className="flex items-baseline justify-between">
+                      <span
+                        id="launch-reviewer-personas-label"
+                        className="text-sm text-muted-foreground"
+                      >
+                        Personas
+                      </span>
+                      {/* Live so toggling a row announces the running total,
+                          which is otherwise only conveyed visually. */}
+                      <span
+                        aria-live="polite"
+                        className="text-xs text-muted-foreground"
+                        data-testid="launch-reviewer-selected-count"
+                      >
+                        {selectedPersonas.length > 0
+                          ? `${selectedPersonas.length} selected`
+                          : ""}
+                      </span>
+                    </div>
+                    <div
+                      role="group"
+                      aria-labelledby="launch-reviewer-personas-label"
+                      className="space-y-2"
+                    >
                       {personas.map((persona, index) => {
                         const colorVar = `var(--chart-${(index % 4) + 1})`;
-                        const isSelected = selectedPersona === persona.slug;
+                        const isSelected = selectedPersonas.includes(
+                          persona.slug
+                        );
                         return (
                           <button
                             key={persona.slug}
                             type="button"
+                            role="checkbox"
+                            aria-checked={isSelected}
                             onClick={() => {
-                              setSelectedPersona(persona.slug);
+                              setSelectedPersonas((prev) =>
+                                prev.includes(persona.slug)
+                                  ? prev.filter((slug) => slug !== persona.slug)
+                                  : [...prev, persona.slug]
+                              );
                               launchMutation.reset();
                             }}
                             className={cn(
@@ -382,12 +450,22 @@ export function PersonaLauncher({
                                 </span>
                               ) : null}
                             </span>
-                            <Check
+                            <span
+                              aria-hidden="true"
                               className={cn(
-                                "mt-0.5 h-4 w-4 shrink-0 text-primary transition-opacity",
-                                isSelected ? "opacity-100" : "opacity-0"
+                                "mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border transition-colors",
+                                isSelected
+                                  ? "border-primary bg-primary text-primary-foreground"
+                                  : "border-border/80 bg-transparent"
                               )}
-                            />
+                            >
+                              <Check
+                                className={cn(
+                                  "h-3 w-3",
+                                  isSelected ? "opacity-100" : "opacity-0"
+                                )}
+                              />
+                            </span>
                           </button>
                         );
                       })}
@@ -415,14 +493,22 @@ export function PersonaLauncher({
                 <Button
                   type="button"
                   variant="primary"
-                  disabled={!selectedPersona || launchMutation.isPending}
+                  disabled={
+                    selectedPersonas.length === 0 ||
+                    launchMutation.isPending ||
+                    // Launching mid-load would send model: null and silently
+                    // drop the stored preference the select is about to show.
+                    modelCatalogLoading
+                  }
                   onClick={() => {
-                    if (!selectedPersona) return;
-                    void launchMutation.mutateAsync(selectedPersona);
+                    if (selectedPersonas.length === 0) return;
+                    void launchMutation.mutateAsync(selectedPersonas);
                   }}
                   data-testid="launch-reviewer-submit"
                 >
-                  Launch Review
+                  {selectedPersonas.length > 1
+                    ? `Launch ${selectedPersonas.length} Reviews`
+                    : "Launch Review"}
                 </Button>
               </div>
             </div>

@@ -13,6 +13,9 @@ type AgentModelSelectProps = {
   options: readonly AgentModelOption[];
   onChange: (model: string | null) => void;
   loading?: boolean;
+  /** Overridden by dialogs other than Create Agent so ids stay unique. */
+  id?: string;
+  testId?: string;
 };
 
 const DEFAULT_VALUE = "__default__";
@@ -22,6 +25,8 @@ export function AgentModelSelect({
   options,
   onChange,
   loading = false,
+  id = "create-agent-model",
+  testId = "create-agent-model",
 }: AgentModelSelectProps): JSX.Element {
   // Radix renders an empty trigger whenever the selected value has no matching
   // item, so anything unrecognized (a retired model id, a stray empty string)
@@ -33,10 +38,7 @@ export function AgentModelSelect({
 
   return (
     <div className="space-y-1">
-      <label
-        className="text-sm text-muted-foreground"
-        htmlFor="create-agent-model"
-      >
+      <label className="text-sm text-muted-foreground" htmlFor={id}>
         Model
       </label>
       <Select
@@ -49,11 +51,7 @@ export function AgentModelSelect({
           onChange(nextValue === DEFAULT_VALUE ? null : nextValue);
         }}
       >
-        <SelectTrigger
-          id="create-agent-model"
-          data-testid="create-agent-model"
-          disabled={loading}
-        >
+        <SelectTrigger id={id} data-testid={testId} disabled={loading}>
           <SelectValue>{loading ? "Loading models…" : undefined}</SelectValue>
         </SelectTrigger>
         <SelectContent>
