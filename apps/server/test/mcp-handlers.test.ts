@@ -168,6 +168,20 @@ function createMockDeps() {
         id,
         name,
       })),
+      beginArchive: vi.fn(async (id: string) => ({
+        id,
+        status: "archiving",
+      })),
+      executeArchive: vi.fn(
+        async (
+          id: string,
+          callbacks: {
+            onComplete: (deletedIds: string[]) => void;
+          }
+        ) => {
+          callbacks.onComplete([id]);
+        }
+      ),
       upsertPin: vi.fn(async (id: string) => ({
         id,
         name: "test-agent",
@@ -1076,6 +1090,121 @@ describe("createMcpHandlers", () => {
           createNewBranch: false,
         })
       );
+    });
+  });
+
+  describe("archiveAgent", () => {
+    it("archives an agent the caller launched", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child1",
+        name: "child",
+        cwd: "/repo",
+        parentAgentId: "agt_test1",
+      } as any);
+
+      const result = await handlers.archiveAgent("agt_test1", {
+        agentId: "agt_child1",
+      });
+
+      expect(deps.agentManager.beginArchive).toHaveBeenCalledWith(
+        "agt_child1",
+        "auto"
+      );
+      expect(deps.agentManager.executeArchive).toHaveBeenCalledWith(
+        "agt_child1",
+        expect.objectContaining({
+          onPhaseChange: expect.any(Function),
+          onComplete: expect.any(Function),
+          onError: expect.any(Function),
+        })
+      );
+      expect(result).toEqual({
+        agentId: "agt_child1",
+        name: "child",
+        archived: true,
+      });
+    });
+
+    it("passes a custom cleanupWorktree mode through", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child1",
+        name: "child",
+        cwd: "/repo",
+        parentAgentId: "agt_test1",
+      } as any);
+
+      await handlers.archiveAgent("agt_test1", {
+        agentId: "agt_child1",
+        cleanupWorktree: "force",
+      });
+
+      expect(deps.agentManager.beginArchive).toHaveBeenCalledWith(
+        "agt_child1",
+        "force"
+      );
+    });
+
+    it("publishes agent.upsert and agent.deleted UI events", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child1",
+        name: "child",
+        cwd: "/repo",
+        parentAgentId: "agt_test1",
+      } as any);
+
+      await handlers.archiveAgent("agt_test1", { agentId: "agt_child1" });
+
+      expect(deps.publishUiEvent).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "agent.upsert" })
+      );
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "agent.deleted",
+        agentId: "agt_child1",
+      });
+    });
+
+    it("throws when the target agent is not found", async () => {
+      deps.agentManager.getAgent.mockResolvedValue(null);
+
+      await expect(
+        handlers.archiveAgent("agt_test1", { agentId: "agt_missing" })
+      ).rejects.toThrow("Agent not found.");
+      expect(deps.agentManager.beginArchive).not.toHaveBeenCalled();
+    });
+
+    it("rejects archiving an agent the caller did not launch", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_other1",
+        name: "other",
+        cwd: "/repo",
+        parentAgentId: "agt_someone_else",
+      } as any);
+
+      await expect(
+        handlers.archiveAgent("agt_test1", { agentId: "agt_other1" })
+      ).rejects.toThrow("You can only archive agents you launched");
+      expect(deps.agentManager.beginArchive).not.toHaveBeenCalled();
+    });
+
+    it("propagates archive failures reported via onError", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child1",
+        name: "child",
+        cwd: "/repo",
+        parentAgentId: "agt_test1",
+      } as any);
+      deps.agentManager.executeArchive.mockImplementationOnce(
+        async (
+          _id: string,
+          callbacks: { onError: (error: unknown) => void }
+        ) => {
+          callbacks.onError(new Error("boom"));
+        }
+      );
+
+      await expect(
+        handlers.archiveAgent("agt_test1", { agentId: "agt_child1" })
+      ).rejects.toThrow("boom");
     });
   });
 

@@ -6,6 +6,8 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import { AgentError } from "../agents/errors.js";
+import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -344,6 +346,57 @@ async function handleLaunchAgent(
   });
 
   return { agentId: agent.id, name: agent.name };
+}
+
+async function handleArchiveAgent(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  input: { agentId: string; cleanupWorktree?: WorktreeCleanupMode }
+): Promise<{ agentId: string; name: string; archived: true }> {
+  const target = await deps.agentManager.getAgent(input.agentId);
+  if (!target) throw new AgentError("Agent not found.", 404);
+  if (target.parentAgentId !== agentId) {
+    throw new AgentError(
+      "You can only archive agents you launched via dispatch_launch_agent or dispatch_launch_persona.",
+      403
+    );
+  }
+
+  const targetName = target.name;
+  const archiving = await deps.agentManager.beginArchive(
+    target.id,
+    input.cleanupWorktree ?? "auto"
+  );
+  deps.publishUiEvent({
+    type: "agent.upsert",
+    agent: deps.withStreamFlag(archiving),
+  });
+
+  let archiveError: unknown;
+  await deps.agentManager.executeArchive(target.id, {
+    onPhaseChange: (updated) => {
+      deps.publishUiEvent({
+        type: "agent.upsert",
+        agent: deps.withStreamFlag(updated),
+      });
+    },
+    onComplete: (deletedIds) => {
+      for (const deletedId of deletedIds) {
+        deps.publishUiEvent({ type: "agent.deleted", agentId: deletedId });
+      }
+    },
+    onError: (error) => {
+      archiveError = error;
+    },
+  });
+
+  if (archiveError !== undefined) {
+    throw archiveError instanceof Error
+      ? archiveError
+      : new Error(errorMessage(archiveError));
+  }
+
+  return { agentId: target.id, name: targetName, archived: true };
 }
 
 async function handleShareMedia(
@@ -852,6 +905,11 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         cwd?: string;
       }
     ) => handleLaunchAgent(deps, agentId, input),
+
+    archiveAgent: (
+      agentId: string,
+      input: { agentId: string; cleanupWorktree?: WorktreeCleanupMode }
+    ) => handleArchiveAgent(deps, agentId, input),
 
     shareMedia: (
       agentId: string,
