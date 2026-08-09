@@ -188,7 +188,7 @@ describe("POST /api/v1/agents/:id/launch-review — input validation", () => {
         personas: ["ux-review"],
         agentType: "claude",
         // A Codex model id — valid elsewhere, not for a Claude reviewer.
-        model: "gpt-5.6",
+        model: "gpt-5.6-sol",
       },
     });
 

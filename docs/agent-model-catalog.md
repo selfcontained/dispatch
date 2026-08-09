@@ -21,7 +21,13 @@ provider API:
 - **Codex:** Check the Codex model-selection documentation for IDs supported by
   the installed Codex CLI. Include current coding-capable model aliases and
   variants, but exclude API-only models such as embeddings, image, audio, and
-  moderation models.
+  moderation models. Cross-check every ID against the installed CLI's model
+  registry before adding it: `~/.codex/models_cache.json` holds the remote
+  catalog the CLI actually serves (each entry's `slug` is the accepted ID), and
+  `strings $(readlink -f $(which codex)) | grep '"slug"'` exposes the embedded
+  fallback registry. Doc prose and config examples (e.g. `model = "gpt-5.6"`)
+  are not evidence that a slug exists — the CLI silently reroutes unknown
+  models to the account default, so a bogus ID fails only subtly.
 - **Claude Code:** Check the Claude Code CLI reference. It supports the moving
   `opus`, `sonnet`, and `haiku` aliases plus documented full model IDs; add a
   full ID when it is available to the intended account.

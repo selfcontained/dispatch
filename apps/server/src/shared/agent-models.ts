@@ -17,15 +17,14 @@ export const AGENT_MODEL_OPTIONS: Partial<
   Record<AgentType, readonly AgentModelOption[]>
 > = {
   codex: [
-    { id: "gpt-5.6", label: "GPT-5.6 (Sol alias)" },
     { id: "gpt-5.6-sol", label: "GPT-5.6 Sol" },
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
     { id: "gpt-5.5", label: "GPT-5.5" },
+    // gpt-5.4 and gpt-5.4-mini retire 2026-08-31 (successors: terra, luna).
     { id: "gpt-5.4", label: "GPT-5.4" },
     { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
-    { id: "gpt-5.4-nano", label: "GPT-5.4 nano" },
-    { id: "gpt-5.3-codex", label: "GPT-5.3 Codex" },
+    { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark" },
   ],
   // Claude Code documents these moving aliases for its latest models.
   claude: [
