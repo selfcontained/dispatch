@@ -34,12 +34,12 @@ import {
   type ActivityRange,
 } from "@/hooks/use-activity";
 import { useRadixPopoverZFix } from "@/hooks/use-radix-popover-z-fix";
+import { DailyStackedBarChart } from "@/components/app/activity-status-chart";
+import { DailyTokenChart } from "@/components/app/activity-token-chart";
 import {
-  DailyStackedBarChart,
-  DailyTokenChart,
   ModelBreakdown,
   ProjectBreakdown,
-} from "@/components/app/activity-charts";
+} from "@/components/app/activity-breakdowns";
 import { formatDate } from "@/components/app/activity-chart-utils";
 import { ActiveHoursGrid, Heatmap } from "@/components/app/activity-heatmaps";
 import type { TokenStats } from "@/hooks/use-activity";
