@@ -1,4 +1,4 @@
-import type { AgentType } from "./agent-types.js";
+import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
 export type AgentModelOption = { id: string; label: string };
 
@@ -51,6 +51,37 @@ export function getAgentModelOptions(
   agentType: AgentType
 ): readonly AgentModelOption[] {
   return AGENT_MODEL_OPTIONS[agentType] ?? [];
+}
+
+/**
+ * Renders the catalog as a one-line summary for MCP tool schemas.
+ *
+ * Agents launching other agents over MCP have no other way to discover which
+ * model ids a given agent type accepts, and an unsupported id is rejected at
+ * launch — so the allowlist ships inside the `model` parameter description.
+ */
+export function describeAgentModelCatalog(): string {
+  const supported: string[] = [];
+  const unsupported: string[] = [];
+
+  for (const agentType of CLI_AGENT_TYPES) {
+    const options = getAgentModelOptions(agentType);
+    if (options.length === 0) {
+      unsupported.push(agentType);
+      continue;
+    }
+    supported.push(
+      `${agentType}: ${options.map((option) => option.id).join(", ")}`
+    );
+  }
+
+  const sentences = [`Supported ids by agent type — ${supported.join("; ")}.`];
+  if (unsupported.length > 0) {
+    sentences.push(
+      `${unsupported.join(" and ")} accept no model override — omit model for those.`
+    );
+  }
+  return sentences.join(" ");
 }
 
 export function validateAgentModel(

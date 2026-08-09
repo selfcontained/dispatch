@@ -14,6 +14,7 @@ import {
   upsertPersona,
   validatePersonas,
 } from "../../personas/authoring.js";
+import { describeAgentModelCatalog } from "../agent-models.js";
 import type { McpRequestContext } from "./server.js";
 import { toToolError } from "./tool-error.js";
 
@@ -376,7 +377,8 @@ export function registerPersonaInteractionTools(
             .string()
             .optional()
             .describe(
-              "Optional model id for the reviewer, from the catalog for its agent type. Omit to use the CLI default."
+              "Optional model id for the reviewer, matching its agent type. Omit to use the CLI default. " +
+                describeAgentModelCatalog()
             ),
           includeDiff: z
             .boolean()
