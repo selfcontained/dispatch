@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useCallback, useMemo } from "react";
 
 import { type AgentType } from "@/lib/agent-types";
 import { api } from "@/lib/api";
@@ -19,6 +19,14 @@ export function useAgentModelCatalog(agentType: AgentType): {
   /** True only once a catalog has actually arrived — a failed fetch stays
    * false so callers don't mistake "no catalog" for "empty catalog". */
   loaded: boolean;
+  /** Map a stored model id to something the server will accept: ids absent
+   * from the loaded catalog become null (Default). Forms that persist a model
+   * must send this instead of raw state — the server rejects retired ids, and
+   * the picker either coerces them to Default silently or (for types with no
+   * catalog) isn't rendered at all, leaving the user no way to clear the
+   * stale value. While the catalog hasn't loaded, values pass through
+   * untouched so a failed fetch never wipes a saved model. */
+  normalizeModel: (value: string | null) => string | null;
 } {
   const { data, isLoading } = useQuery<{ models: AgentModelCatalog }>({
     queryKey: ["agent-models"],
@@ -27,10 +35,19 @@ export function useAgentModelCatalog(agentType: AgentType): {
     gcTime: Infinity,
   });
 
+  const loaded = data !== undefined;
   const options = useMemo(
     () => data?.models?.[agentType] ?? [],
     [agentType, data]
   );
 
-  return { options, loading: isLoading, loaded: data !== undefined };
+  const normalizeModel = useCallback(
+    (value: string | null): string | null =>
+      loaded && value !== null && !options.some((option) => option.id === value)
+        ? null
+        : value,
+    [loaded, options]
+  );
+
+  return { options, loading: isLoading, loaded, normalizeModel };
 }

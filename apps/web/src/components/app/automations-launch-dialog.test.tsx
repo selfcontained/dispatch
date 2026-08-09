@@ -163,7 +163,7 @@ const MODEL_CATALOG = {
       { id: "opus", label: "Opus" },
       { id: "sonnet", label: "Sonnet" },
     ],
-    codex: [{ id: "gpt-5.6", label: "GPT-5.6" }],
+    codex: [{ id: "gpt-5.6-sol", label: "GPT-5.6 Sol" }],
   },
 };
 
@@ -342,12 +342,17 @@ describe("model override", () => {
     // ...and Codex must still remember its own pick too.
     fireEvent.click(agentTypeSelect());
     fireEvent.click(await screen.findByRole("option", { name: /Codex/ }));
-    await waitFor(() => expect(modelSelect().textContent).toContain("GPT-5.6"));
+    await waitFor(() =>
+      expect(modelSelect().textContent).toContain("GPT-5.6 Sol")
+    );
 
     fireEvent.click(launchButton());
 
     await waitFor(() => expect(launchCalls()).toHaveLength(1));
-    expect(lastJsonBody()).toEqual({ agentType: "codex", model: "gpt-5.6" });
+    expect(lastJsonBody()).toEqual({
+      agentType: "codex",
+      model: "gpt-5.6-sol",
+    });
   });
 });
 

@@ -1,11 +1,10 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { ChevronDown, X } from "lucide-react";
 import { useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 
 import { PathInput } from "@/components/app/path-input";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
-import { api } from "@/lib/api";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import {
   JobAgentTypeField,
@@ -94,13 +93,8 @@ export function AddJobFlow({
     jobAgentTypes[0] ?? "codex"
   );
   const [model, setModel] = useState<string | null>(null);
-  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
-    models: Partial<Record<CliAgentType, Array<{ id: string; label: string }>>>;
-  }>({
-    queryKey: ["agent-models"],
-    queryFn: () => api("/api/v1/agent-models"),
-  });
-  const modelOptions = modelCatalog?.models[agentType] ?? [];
+  const { options: modelOptions, loading: modelCatalogLoading } =
+    useAgentModelCatalog(agentType);
   const [fullAccess, setFullAccess] = useState(false);
   const [useWorktree, setUseWorktree] = useState(false);
   const [baseBranch, setBaseBranch] = useState("main");
