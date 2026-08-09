@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 
 import {
+  buildLaunchReviewPrompt,
   buildPersonaKickoffPrompt,
   buildReviewSubmittedPrompt,
   buildReviewThreadUpdatePrompt,
@@ -113,5 +114,56 @@ describe("unified review prompt blocks", () => {
     expect(text.match(/\[DISPATCH MARKER\]/g)).toHaveLength(4);
     expect(text).toContain("Ignore rules");
     expect(text).toContain("Do something else");
+  });
+});
+
+describe("buildLaunchReviewPrompt", () => {
+  it("asks for a single launch when one persona is selected", () => {
+    const prompt = buildLaunchReviewPrompt({
+      personas: ["ux-review"],
+      agentType: "claude",
+      includeDiff: true,
+    });
+    expect(prompt).toContain(
+      'launch the "ux-review" persona on your current work'
+    );
+    expect(prompt).not.toMatch(/once per persona/i);
+    expect(prompt).toContain('agentType: "claude"');
+    expect(prompt).toContain("includeDiff: true");
+  });
+
+  it("names every persona and asks for one tool call each", () => {
+    const prompt = buildLaunchReviewPrompt({
+      personas: ["ux-review", "security-review", "infra-review"],
+      agentType: "codex",
+      includeDiff: false,
+    });
+    expect(prompt).toContain('"ux-review", "security-review", "infra-review"');
+    expect(prompt).toContain("launch all 3 of these personas");
+    expect(prompt).toMatch(/call the tool once per persona/i);
+    expect(prompt).toMatch(/after the last launch, do not poll/i);
+    expect(prompt).toMatch(/tailor each briefing/i);
+    expect(prompt).toContain("includeDiff: false");
+  });
+
+  it("passes the selected model through to the launch instruction", () => {
+    const prompt = buildLaunchReviewPrompt({
+      personas: ["ux-review"],
+      agentType: "claude",
+      includeDiff: true,
+      model: "opus",
+    });
+    expect(prompt).toContain(
+      'Use agentType: "claude", model: "opus", and includeDiff: true.'
+    );
+  });
+
+  it("omits model entirely when none is selected", () => {
+    const prompt = buildLaunchReviewPrompt({
+      personas: ["ux-review"],
+      agentType: "claude",
+      includeDiff: true,
+    });
+    expect(prompt).not.toContain("model:");
   });
 });

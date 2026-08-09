@@ -372,6 +372,12 @@ export function registerPersonaInteractionTools(
             .describe(
               "Optional agent runtime override for the persona launch."
             ),
+          model: z
+            .string()
+            .optional()
+            .describe(
+              "Optional model id for the reviewer, from the catalog for its agent type. Omit to use the CLI default."
+            ),
           includeDiff: z
             .boolean()
             .default(true)
@@ -387,6 +393,7 @@ export function registerPersonaInteractionTools(
             context: args.context,
             agentType: args.agentType,
             includeDiff: args.includeDiff,
+            model: args.model,
           });
           const text = buildLaunchPersonaResponseText(
             result.persona,
@@ -583,7 +590,7 @@ export function buildLaunchPersonaResponseText(
 
 The reviewer will inspect the target and create a review only when it calls dispatch_review_submit. Dispatch will inject a structured REVIEW SUBMITTED block here with the review summary and any feedback item IDs.
 
-Do not poll, sleep, call list_agents, or schedule a wakeup while waiting for the review. End this turn after the launch; Dispatch will notify you with a new injected REVIEW SUBMITTED block when the reviewer submits.
+Do not poll, sleep, call list_agents, or schedule a wakeup while waiting for the review. If you were asked to launch more reviewers, call this tool again for each one first. End this turn once every reviewer for this pass is launched; Dispatch will notify you with a new injected REVIEW SUBMITTED block as each reviewer submits.
 
 If the review has feedback, call dispatch_review_list_feedback with its reviewId before acting. Keep all questions and explanations tracked in the corresponding item thread with dispatch_review_add_message. After fixing an item, post a concise message asking the reviewer to verify it; do not call dispatch_review_resolve on persona feedback yourself. The reviewer will re-inspect the fix and resolve it if complete, or leave it open and reply with further instructions.
 

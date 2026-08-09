@@ -102,4 +102,125 @@ describe("POST /api/v1/agents/:id/launch-review — input validation", () => {
     // 409 (tmux unavailable in inert mode) means slug validation passed.
     expect(response.statusCode).toBe(409);
   });
+
+  it("accepts a personas array of valid slugs", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: {
+        personas: ["backend-security-review", "ux-review"],
+        agentType: "claude",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+  });
+
+  it("rejects a personas array containing an invalid slug", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: {
+        personas: ["backend-security-review", "../../etc/passwd"],
+        agentType: "claude",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("deduplicates repeated slugs instead of rejecting them", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: {
+        personas: ["ux-review", "ux-review"],
+        agentType: "claude",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+  });
+
+  it("rejects more unique personas than the launch cap allows", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: {
+        personas: Array.from({ length: 21 }, (_, index) => `persona-${index}`),
+        agentType: "claude",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: expect.stringMatching(/at most 20/i),
+    });
+  });
+
+  it("rejects a slug longer than the pattern's length cap", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { personas: ["a".repeat(101)], agentType: "claude" },
+    });
+
+    expect(response.statusCode).toBe(400);
+  });
+
+  it("rejects a model that is not in the catalog for the agent type", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: {
+        personas: ["ux-review"],
+        agentType: "claude",
+        // A Codex model id — valid elsewhere, not for a Claude reviewer.
+        model: "gpt-5.6",
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: expect.stringMatching(/not supported for claude/i),
+    });
+  });
+
+  it("accepts a catalog model and a null model", async () => {
+    const agentId = await insertParent();
+    for (const model of ["opus", null]) {
+      const response = await ctx.app.inject({
+        method: "POST",
+        url: `/api/v1/agents/${agentId}/launch-review`,
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { personas: ["ux-review"], agentType: "claude", model },
+      });
+      expect(response.statusCode).toBe(409);
+    }
+  });
+
+  it("rejects an empty or non-array personas value", async () => {
+    const agentId = await insertParent();
+    for (const personas of [[], "backend-security-review", [""], [null]]) {
+      const response = await ctx.app.inject({
+        method: "POST",
+        url: `/api/v1/agents/${agentId}/launch-review`,
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload: { personas, agentType: "claude" },
+      });
+      expect(response.statusCode).toBe(400);
+    }
+  });
 });

@@ -125,3 +125,41 @@ export function buildReviewItemStatePrompt(input: {
   );
   return buildReviewPromptBlock(kind, lines);
 }
+
+/**
+ * Build the single prompt injected into the author agent when a review is
+ * launched from the UI. One request can select several personas; the agent
+ * still calls dispatch_launch_persona once per persona so it can tailor each
+ * briefing, so the prompt has to make the "one call each" expectation explicit
+ * and keep the end-of-turn instruction from cutting the sequence short.
+ */
+export function buildLaunchReviewPrompt({
+  personas,
+  agentType,
+  includeDiff,
+  model,
+}: {
+  personas: string[];
+  agentType: string;
+  includeDiff: boolean;
+  model?: string;
+}): string {
+  const multiple = personas.length > 1;
+  const personaList = personas.map((persona) => `"${persona}"`).join(", ");
+  return [
+    multiple
+      ? `Use the dispatch_launch_persona MCP tool to launch all ${personas.length} of these personas on your current work: ${personaList}. Call the tool once per persona — one launch each, in that order — before ending your turn.`
+      : `Use the dispatch_launch_persona MCP tool to launch the ${personaList} persona on your current work.`,
+    model
+      ? `Use agentType: "${agentType}", model: "${model}", and includeDiff: ${includeDiff ? "true" : "false"}.`
+      : `Use agentType: "${agentType}" and includeDiff: ${includeDiff ? "true" : "false"}.`,
+    "Treat this as an author-requested review for the current worktree/branch.",
+    multiple
+      ? "After the last launch, do not poll, sleep, call list_agents, or schedule a wakeup."
+      : "After launch, do not poll, sleep, call list_agents, or schedule a wakeup.",
+    "End the turn and wait for Dispatch to inject the structured REVIEW SUBMITTED prompt. Keep all review discussion in feedback-item threads with the dispatch_review_* tools. After fixing an item, ask the reviewer to verify it instead of resolving it yourself.",
+    multiple
+      ? "Give each persona its own detailed context briefing covering what you built, key files changed, and any areas that need extra attention — tailor each briefing to what that persona reviews."
+      : "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
+  ].join(" ");
+}

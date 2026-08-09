@@ -266,6 +266,7 @@ export type McpRequestContext = {
       context: string;
       agentType?: LaunchPersonaAgentType;
       includeDiff?: boolean;
+      model?: string;
     }
   ) => Promise<{ agentId: string; persona: string; parentAgentId: string }>;
   listPersonalities?: () => Promise<{
