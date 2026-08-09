@@ -1,0 +1,151 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# Move media written by Dispatch versions that treated a leading `~` as a
+# literal directory name. This is intentionally a standalone shell script: it
+# ships in release tarballs and runs on installs that only have the compiled
+# Dispatch binary (not Bun, pnpm, or source files).
+
+ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+MODE="dry-run"
+
+usage() {
+  cat <<'USAGE'
+Usage: bin/migrate-legacy-media [--dry-run|--apply]
+
+Moves the legacy literal-tilde media tree at:
+  <Dispatch install>/~/.dispatch/media
+
+to the correct home-relative media tree:
+  $HOME/.dispatch/media
+
+--dry-run is the default. --apply moves files that do not already exist at
+the destination, removes source duplicates with identical contents, and
+leaves conflicting files untouched. Exit status 2 means conflicts or
+unsupported entries need manual handling.
+USAGE
+}
+
+case "${1:-}" in
+  ""|--dry-run) ;;
+  --apply) MODE="apply" ;;
+  --help|-h) usage; exit 0 ;;
+  *) echo "error: unknown argument: $1" >&2; usage >&2; exit 1 ;;
+esac
+
+if [[ -z "${HOME:-}" ]]; then
+  echo "error: HOME must be set to migrate legacy media" >&2
+  exit 1
+fi
+
+SOURCE_DIR="$ROOT_DIR/~/.dispatch/media"
+DESTINATION_DIR="$HOME/.dispatch/media"
+
+destination_ancestors_are_safe() {
+  local relative_path="$1"
+  local parent_path=""
+  local current="$HOME"
+  local component
+
+  if [[ "$relative_path" == */* ]]; then
+    parent_path="${relative_path%/*}"
+  fi
+
+  # Check every existing path component below HOME. A symlink at any level
+  # would make mkdir -p follow it and let a migration write outside the media
+  # tree. Missing components are safe; mkdir -p creates them during --apply.
+  for component in ".dispatch" "media"; do
+    current="$current/$component"
+    if [[ -L "$current" || ( -e "$current" && ! -d "$current" ) ]]; then
+      echo "$current"
+      return 1
+    fi
+  done
+
+  while [[ -n "$parent_path" ]]; do
+    component="${parent_path%%/*}"
+    current="$current/$component"
+    if [[ -L "$current" || ( -e "$current" && ! -d "$current" ) ]]; then
+      echo "$current"
+      return 1
+    fi
+    if [[ "$parent_path" == */* ]]; then
+      parent_path="${parent_path#*/}"
+    else
+      parent_path=""
+    fi
+  done
+}
+
+if [[ ! -e "$SOURCE_DIR" ]]; then
+  echo "No legacy media directory found at $SOURCE_DIR; nothing to migrate."
+  exit 0
+fi
+if [[ ! -d "$SOURCE_DIR" ]]; then
+  echo "error: legacy media path is not a directory: $SOURCE_DIR" >&2
+  exit 1
+fi
+
+moved=0
+duplicates=0
+conflicts=0
+unsupported=0
+
+while IFS= read -r -d '' source_file; do
+  relative_path="${source_file#"$SOURCE_DIR"/}"
+  destination_file="$DESTINATION_DIR/$relative_path"
+
+  if ! unsafe_ancestor="$(destination_ancestors_are_safe "$relative_path")"; then
+    conflicts=$((conflicts + 1))
+    echo "conflict (unsafe destination ancestor left untouched): $relative_path ($unsafe_ancestor)" >&2
+    continue
+  fi
+
+  # -e is false for dangling symlinks, so test -L first. Never replace a
+  # symlink, directory, device, or other non-regular destination entry.
+  if [[ -L "$destination_file" || ( -e "$destination_file" && ! -f "$destination_file" ) ]]; then
+    conflicts=$((conflicts + 1))
+    echo "conflict (non-regular destination left untouched): $relative_path" >&2
+    continue
+  fi
+
+  if [[ -f "$destination_file" ]]; then
+    if cmp -s "$source_file" "$destination_file"; then
+      duplicates=$((duplicates + 1))
+      if [[ "$MODE" == "apply" ]]; then
+        rm "$source_file"
+        echo "removed duplicate: $relative_path"
+      else
+        echo "would remove duplicate: $relative_path"
+      fi
+    else
+      conflicts=$((conflicts + 1))
+      echo "conflict (left untouched): $relative_path" >&2
+    fi
+    continue
+  fi
+
+  moved=$((moved + 1))
+  if [[ "$MODE" == "apply" ]]; then
+    mkdir -p "$(dirname "$destination_file")"
+    mv "$source_file" "$destination_file"
+    echo "moved: $relative_path"
+  else
+    echo "would move: $relative_path"
+  fi
+done < <(find "$SOURCE_DIR" -type f -print0)
+
+while IFS= read -r -d '' unsupported_path; do
+  unsupported=$((unsupported + 1))
+  echo "unsupported entry (left untouched): ${unsupported_path#"$SOURCE_DIR"/}" >&2
+done < <(find "$SOURCE_DIR" \( -type l -o -type p -o -type s -o -type b -o -type c \) -print0)
+
+if [[ "$MODE" == "apply" && "$conflicts" -eq 0 && "$unsupported" -eq 0 ]]; then
+  find "$SOURCE_DIR" -depth -type d -empty -delete
+fi
+
+echo "Legacy media migration ($MODE): $moved file(s) moved, $duplicates duplicate(s) removed, $conflicts conflict(s), $unsupported unsupported entry(s)."
+
+if [[ "$conflicts" -gt 0 || "$unsupported" -gt 0 ]]; then
+  exit 2
+fi

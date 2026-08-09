@@ -1509,6 +1509,45 @@ describe("AgentManager", () => {
       expect(launchCommand).toContain(sessionId);
     });
 
+    it("should resolve a legacy home-relative media_dir before restarting", async () => {
+      const { runCommand } =
+        await import("../../src/shared/lib/run-command.js");
+      const agent = await createStoppedAgent({ type: "claude" });
+      const fakeHome = await mkdtemp(path.join(os.tmpdir(), "dispatch-home-"));
+      const legacyMediaDir = `~/.dispatch/legacy-media-${agent.id}`;
+      const expectedMediaDir = path.join(
+        fakeHome,
+        ".dispatch",
+        `legacy-media-${agent.id}`
+      );
+      const newSessionArgs: string[][] = [];
+      const homedirSpy = vi.spyOn(os, "homedir").mockReturnValue(fakeHome);
+
+      try {
+        await pool.query(`UPDATE agents SET media_dir = $2 WHERE id = $1`, [
+          agent.id,
+          legacyMediaDir,
+        ]);
+        vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
+          if (args[0] === "has-session") {
+            if (newSessionArgs.length === 0)
+              return { exitCode: 1, stdout: "", stderr: "" };
+            return { exitCode: 0, stdout: "", stderr: "" };
+          }
+          if (args.includes("new-session")) newSessionArgs.push(args);
+          return { exitCode: 0, stdout: "", stderr: "" };
+        });
+
+        await manager.startAgent(agent.id);
+
+        expect(newSessionArgs).toHaveLength(1);
+        expect(newSessionArgs[0]!.join(" ")).toContain(expectedMediaDir);
+      } finally {
+        homedirSpy.mockRestore();
+        await rm(fakeHome, { recursive: true, force: true });
+      }
+    });
+
     it("should not include --resume flag for fresh sessions", async () => {
       const { runCommand } =
         await import("../../src/shared/lib/run-command.js");
@@ -2219,6 +2258,11 @@ describe("AgentManager", () => {
       expect(typeof item.createdAt).toBe("string");
       expect(item.filePath.endsWith(`${agent.id}/doc.pdf`)).toBe(true);
       expect(path.isAbsolute(item.filePath)).toBe(true);
+
+      await writeFile(item.filePath, "shared media");
+      await expect(readFile(item.filePath, "utf-8")).resolves.toBe(
+        "shared media"
+      );
     });
 
     it("should resolve filePath using the agent's media_dir override", async () => {

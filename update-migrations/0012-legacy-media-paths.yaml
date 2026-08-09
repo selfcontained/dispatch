@@ -1,0 +1,59 @@
+id: legacy-media-paths
+title: Migrate shared media from the legacy literal-tilde directory
+summary: >
+  Earlier Dispatch versions accepted MEDIA_ROOT values such as
+  ~/.dispatch/media without expanding the tilde. Those installs stored shared
+  media beneath a literal ~ directory inside the Dispatch install. This
+  migration moves that legacy tree into the correct home-relative media
+  directory so historical dispatch_list_media entries remain readable after
+  the path-resolution fix.
+
+alreadySatisfied:
+  description: >
+    The legacy directory <Dispatch install>/~/.dispatch/media does not exist,
+    or it is empty after migration; no active agent has a stored media_dir
+    beginning with ~/ or a session launched before this release; and the
+    current service is healthy on the target tag. An empty or absent legacy
+    directory alone is insufficient because an already-running agent can
+    recreate it using its retained literal-tilde environment.
+
+instructions:
+  - During inspect, independently check whether
+    <Dispatch install>/~/.dispatch/media exists and identify every active agent
+    whose stored media_dir begins with ~/ or whose session was launched before
+    this release. Record affected agents even when the legacy directory is
+    absent, because their retained environment can create it later.
+  - If alreadySatisfied is false, use the managed update endpoint to install
+    the target release and wait for the service to become healthy.
+  - After the target service is healthy and regardless of whether the legacy
+    directory exists, stop every affected active agent cleanly so no process
+    continues writing to the literal-tilde tree. If an agent cannot be safely
+    stopped, report the update as blocked and do not run the file migration.
+  - From the Dispatch install directory, run
+    bin/migrate-legacy-media --dry-run and inspect its summary before moving
+    anything. Do not manually overwrite destination files.
+  - Run bin/migrate-legacy-media --apply only when the dry run reports zero
+    conflicts and zero unsupported entries. The command is idempotent and
+    retains conflicting source files for manual recovery.
+  - If the command reports conflicts or unsupported entries, report the
+    update as blocked with the affected relative paths; do not delete either
+    copy. Otherwise confirm the legacy directory is absent or empty.
+  - Restart each agent stopped for this migration only after the file migration
+    succeeds (including when the migration is a no-op), so its
+    DISPATCH_MEDIA_DIR is recreated from the corrected absolute path.
+  - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok and release.json
+    under the install directory reports the target tag.
+
+validation:
+  requiredChecks:
+    - service_restarted
+    - health_endpoint
+    - version_converged
+
+rollback:
+  - If the target service does not return healthy, roll back to the previous
+    healthy release using the normal Dispatch rollback flow.
+  - If media migration has started, leave both the corrected destination files
+    and any unresolved source files in place; the migration never overwrites
+    destination data, so rerunning it is safe after recovery.
+  - Restart the prior service and confirm its health endpoint returns status=ok.

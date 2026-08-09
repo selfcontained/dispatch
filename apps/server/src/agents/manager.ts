@@ -17,6 +17,7 @@ import {
   worktreePathSlug,
 } from "../shared/git/worktree.js";
 import { readWorktreeStatus } from "../shared/git/worktree-status.js";
+import { resolveMediaDir } from "../shared/media.js";
 import {
   buildGitContextForWorktree,
   probeGitContext,
@@ -905,7 +906,11 @@ export class AgentManager {
     }
 
     try {
-      const mediaDir = agent.mediaDir ?? this.defaultMediaDir(id);
+      const mediaDir = resolveMediaDir(
+        id,
+        agent.mediaDir,
+        this.config.mediaRoot
+      );
       // mediaDir must exist before launch — both runtimes assume the
       // directory is present. (The original inert path created it
       // explicitly; the tmux setup-script path created it via the

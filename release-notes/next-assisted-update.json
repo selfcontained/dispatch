@@ -1,0 +1,12 @@
+{
+  "mode": "required",
+  "title": "Migrate shared media from legacy tilde paths",
+  "summary": "This release corrects shared-media storage paths configured with ~/.dispatch/media. The required assisted update safely moves recoverable historical files from the old literal-tilde directory into the correct home media directory, preserving conflicts for manual recovery.",
+  "instructions": "1. Use the managed update flow to install the target release and wait for health.\n2. Identify and stop every active agent that still has a legacy literal-tilde media path or was launched before this release, even if the old directory is absent; a retained agent environment can recreate it. If any cannot be safely stopped, block the update before moving files.\n3. From the Dispatch install directory, run bin/migrate-legacy-media --dry-run.\n4. If the dry run reports no conflicts or unsupported entries, run bin/migrate-legacy-media --apply.\n5. If any conflict is reported, do not overwrite either file; report the affected path for manual recovery.\n6. Restart only the agents stopped for migration after it succeeds, including after a no-op migration, then confirm the legacy directory is empty or absent, the health endpoint is healthy, and release.json reports the target tag.",
+  "requiredChecks": [
+    "service_restarted",
+    "health_endpoint",
+    "version_converged"
+  ],
+  "rollbackGuidance": "If the target service is unhealthy, roll back using the normal Dispatch rollback flow. Do not delete media from either location: the migrator never overwrites destination files, and it is safe to rerun after recovery."
+}
