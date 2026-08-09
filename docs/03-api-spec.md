@@ -62,8 +62,8 @@
   "cwd": "/path/to/repo",
   "name": "fix-auth-bug",
   "type": "claude",
+  "model": "opus",
   "fullAccess": true,
-  "agentArgs": ["--model", "opus"],
   "useWorktree": true,
   "createNewBranch": true,
   "worktreeBranch": "fix-auth-bug",
@@ -74,6 +74,8 @@
 ```
 
 `type` is one of `claude`, `codex`, `cursor`, `opencode`, or `terminal` and defaults to `codex` if omitted. The type must be enabled in app settings. Terminal-type agents have no CLI to drive — `fullAccess`, `autoReview`, and `initialPrompt` are stored as off/empty regardless of what's posted.
+
+`model` optionally pins the agent to an id from the curated per-type catalog (`GET /agent-models`); ids outside the catalog are rejected with 400, and omitting the field uses the CLI default. When `model` is set, any explicit `--model`/`-m` flags in `agentArgs` are stripped in its favor. The model persists with the agent and is reused on resume.
 
 `useWorktree` requests a managed git worktree; `createNewBranch` (default: true when worktree is created) controls whether a fresh branch forks from `baseBranch` or the existing `worktreeBranch` is checked out directly. `autoReview` queues a persona review to run automatically when the agent reaches a terminal state. `initialPrompt` is piped into the agent CLI as its first user turn.
 
@@ -244,13 +246,14 @@ Query params: `cwd=/path/to/repo`. The server tries the worktree root first, the
 
 ```json
 {
-  "persona": "backend-security-review",
+  "personas": ["backend-security-review", "frontend-ux-review"],
   "agentType": "claude",
-  "includeDiff": true
+  "includeDiff": true,
+  "model": "opus"
 }
 ```
 
-Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool with the given options. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`); `persona` must match the slug pattern `[a-zA-Z0-9_-]+`. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. The launched agent creates its review through `dispatch_review_submit` after completing its initial pass.
+Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool once per persona so it can tailor each context briefing. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. Each launched agent creates its review through `dispatch_review_submit` after completing its initial pass.
 
 ### `PATCH /agents/:id/feedback/:feedbackId`
 
@@ -361,6 +364,7 @@ Returns `204` regardless of whether the notification was still pending.
 | POST   | `/agents/settings`          | Update agent settings (all fields optional)                                   |
 | GET    | `/app/settings/agent-types` | Get enabled agent types                                                       |
 | POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`) |
+| GET    | `/agent-models`             | Curated per-type model catalog (`{ models: { claude: [...], ... } }`)         |
 
 ## System
 

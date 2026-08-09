@@ -236,6 +236,14 @@ export const tips: Tip[] = [
     since: "0.29.0",
     surfaces: ["ambient"],
   },
+  {
+    id: "self-improve",
+    title: "Self-Improving Automations",
+    body: "Jobs and templates can refine their own prompts: turn on 'Self improve after each run' and the agent conservatively updates the saved prompt when it finds a durable improvement.",
+    docsSection: "automations",
+    since: "0.33.0",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {

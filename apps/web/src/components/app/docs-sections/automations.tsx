@@ -55,6 +55,12 @@ export function AutomationsContent() {
             below.
           </li>
           <li>
+            <strong>Model</strong> — shown for CLI types with a curated model
+            catalog (<Code>claude</Code>, <Code>codex</Code>,{" "}
+            <Code>cursor</Code>). Launches pin the agent to that model; leave{" "}
+            <strong>Default</strong> to use the CLI's own setting.
+          </li>
+          <li>
             <strong>Use worktree</strong> — give each launch its own git
             worktree. Optionally set a base branch and custom branch name.
           </li>
@@ -71,6 +77,13 @@ export function AutomationsContent() {
             default), the launch dialog shows a Context section where you can
             attach files (images, PDFs, text) or paste links. These are pinned
             to the agent and available from the start of the session.
+          </li>
+          <li>
+            <strong>Self improve after each run</strong> — appends run-only
+            guidance asking the launched agent to reflect before finishing and,
+            only when it finds a clear, durable improvement, update the saved
+            prompt itself via <Code>update_template</Code>. The guidance is
+            never persisted into the prompt, so it can't compound across runs.
           </li>
         </ul>
       </Section>
@@ -186,6 +199,12 @@ export function AutomationsContent() {
             Terminal-type agents can't run jobs.
           </li>
           <li>
+            <strong>Model</strong> — shown for agent types with a curated model
+            catalog (<Code>claude</Code>, <Code>codex</Code>,{" "}
+            <Code>cursor</Code>). Runs pin the spawned agent to that model;
+            leave <strong>Default</strong> to use the CLI's own setting.
+          </li>
+          <li>
             <strong>Prompt</strong> — the instructions sent as the agent's first
             message. Dispatch prepends a short preamble that identifies the job
             and run and reminds the agent to drive the run to a terminal state.
@@ -193,6 +212,13 @@ export function AutomationsContent() {
             collect arguments at run time — <Code>{"{{D:Arg Name}}"}</Code>{" "}
             placeholders are only substituted from default values saved via the
             API.
+          </li>
+          <li>
+            <strong>Self improve after each run</strong> — appends run-only
+            guidance asking the job agent to reflect before finishing and, only
+            when it finds a clear, durable improvement, update the job's saved
+            prompt itself via <Code>update_job</Code>. For an existing job the
+            toggle lives on its <strong>Prompt</strong> tab.
           </li>
           <li>
             <strong>Show in command palette</strong> — marks the job as
