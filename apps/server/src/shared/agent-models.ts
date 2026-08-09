@@ -53,18 +53,29 @@ export function getAgentModelOptions(
   return AGENT_MODEL_OPTIONS[agentType] ?? [];
 }
 
+function joinWithAnd(values: readonly string[]): string {
+  if (values.length <= 2) return values.join(" and ");
+  return `${values.slice(0, -1).join(", ")}, and ${values[values.length - 1]}`;
+}
+
 /**
  * Renders the catalog as a one-line summary for MCP tool schemas.
  *
  * Agents launching other agents over MCP have no other way to discover which
  * model ids a given agent type accepts, and an unsupported id is rejected at
  * launch — so the allowlist ships inside the `model` parameter description.
+ *
+ * Pass the agent types the calling tool actually accepts: template tools also
+ * take `terminal`, which has no catalog entry, and naming it as unsupported is
+ * what keeps the description honest about the ids that tool will take.
  */
-export function describeAgentModelCatalog(): string {
+export function describeAgentModelCatalog(
+  agentTypes: readonly AgentType[] = CLI_AGENT_TYPES
+): string {
   const supported: string[] = [];
   const unsupported: string[] = [];
 
-  for (const agentType of CLI_AGENT_TYPES) {
+  for (const agentType of agentTypes) {
     const options = getAgentModelOptions(agentType);
     if (options.length === 0) {
       unsupported.push(agentType);
@@ -75,10 +86,13 @@ export function describeAgentModelCatalog(): string {
     );
   }
 
-  const sentences = [`Supported ids by agent type — ${supported.join("; ")}.`];
+  const sentences =
+    supported.length > 0
+      ? [`Supported ids by agent type — ${supported.join("; ")}.`]
+      : [];
   if (unsupported.length > 0) {
     sentences.push(
-      `${unsupported.join(" and ")} accept no model override — omit model for those.`
+      `${joinWithAnd(unsupported)} accept${unsupported.length === 1 ? "s" : ""} no model override — omit model for ${unsupported.length === 1 ? "that" : "those"}.`
     );
   }
   return sentences.join(" ");

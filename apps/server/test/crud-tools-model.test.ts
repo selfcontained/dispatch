@@ -77,6 +77,21 @@ describe("crud tools model parameter", () => {
     }
   });
 
+  it("names terminal as unsupported on template tools only", () => {
+    const { server } = registerAll();
+    const describeModel = (name: string) =>
+      server.tools.find((t) => t.name === name)!.config.inputSchema.model
+        ?.description ?? "";
+
+    // Template tools accept agentType terminal, which has no catalog entry —
+    // saying so in the schema beats a runtime "not supported" error.
+    expect(describeModel("create_template")).toContain("terminal");
+    expect(describeModel("update_template")).toContain("terminal");
+    // Jobs cannot be terminal, so naming it there would only confuse.
+    expect(describeModel("create_job")).not.toContain("terminal");
+    expect(describeModel("update_job")).not.toContain("terminal");
+  });
+
   it("documents null-clearing only on the update tools", () => {
     const { server } = registerAll();
     const describeModel = (name: string) =>

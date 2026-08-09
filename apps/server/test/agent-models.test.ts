@@ -49,4 +49,21 @@ describe("describeAgentModelCatalog", () => {
     }
     expect(description).toContain("no model override");
   });
+
+  it("describes only the agent types the caller accepts", () => {
+    // Template tools also accept terminal, which has no catalog entry.
+    const description = describeAgentModelCatalog(["claude", "terminal"]);
+
+    expect(description).toContain("claude: opus");
+    expect(description).toContain(
+      "terminal accepts no model override — omit model for that."
+    );
+    expect(description).not.toContain("codex");
+  });
+
+  it("returns only the unsupported clause when nothing has a catalog", () => {
+    expect(describeAgentModelCatalog(["cursor", "opencode", "terminal"])).toBe(
+      "cursor, opencode, and terminal accept no model override — omit model for those."
+    );
+  });
 });
