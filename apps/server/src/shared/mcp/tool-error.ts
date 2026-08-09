@@ -1,5 +1,6 @@
 import { GitHubPrError } from "../github/pr.js";
 import { GitWorktreeError } from "../git/worktree.js";
+import { errorMessage } from "../lib/error-message.js";
 
 export function toToolError(error: unknown): {
   content: Array<{ type: "text"; text: string }>;
@@ -8,9 +9,7 @@ export function toToolError(error: unknown): {
   const message =
     error instanceof GitWorktreeError || error instanceof GitHubPrError
       ? error.message
-      : error instanceof Error
-        ? error.message
-        : String(error);
+      : errorMessage(error);
 
   return {
     content: [

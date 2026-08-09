@@ -20,6 +20,7 @@ import {
 } from "../server/release-helpers.js";
 import { getSetting, setSetting } from "../db/settings.js";
 import { readReleaseStore } from "../release-store.js";
+import { errorMessage } from "../shared/lib/error-message.js";
 import {
   inspectAssistedUpdateMetadata,
   isAssistedUpdateRequired,
@@ -612,7 +613,7 @@ async function handleUpdate(
         toSummary(m.manifest)
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+      const message = errorMessage(err);
       request.log.warn(
         { err, tag, force },
         "release/update: migration evaluation failed"

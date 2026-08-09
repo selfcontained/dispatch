@@ -9,6 +9,7 @@ import {
 } from "node:fs/promises";
 import path from "node:path";
 
+import { errorMessage } from "../shared/lib/error-message.js";
 import { parseFrontmatter } from "./loader.js";
 
 const PERSONAS_DIR = ".dispatch/personas";
@@ -178,7 +179,7 @@ export async function validatePersonas(
         try {
           validatePersonaSlug(slug);
         } catch (error) {
-          errors.push(error instanceof Error ? error.message : String(error));
+          errors.push(errorMessage(error));
         }
         if (!frontmatter.name?.trim())
           errors.push("Missing required frontmatter field: name.");

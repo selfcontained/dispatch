@@ -4,6 +4,7 @@ import type { GitHubReleaseListItem } from "./server/release-helpers.js";
 
 import { getSetting } from "./db/settings.js";
 import { readReleaseStore } from "./release-store.js";
+import { errorMessage } from "./shared/lib/error-message.js";
 import {
   inspectAssistedUpdateMetadata,
   isAssistedUpdateRequired,
@@ -121,9 +122,7 @@ export async function computeReleaseInfo(
           ? (artifactReleases.find((r) => !r.prerelease)?.tag ?? null)
           : (artifactReleases[0]?.tag ?? null);
     } catch (err) {
-      throw new Error(
-        `Unable to load GitHub Releases: ${err instanceof Error ? err.message : String(err)}`
-      );
+      throw new Error(`Unable to load GitHub Releases: ${errorMessage(err)}`);
     }
 
     const updateAvailable = !!(

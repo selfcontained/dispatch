@@ -597,7 +597,7 @@ export class AgentManager {
         );
         await setupAgentWorkspace(originalCwd, worktreePath, this.logger);
       } catch (error) {
-        const message = error instanceof Error ? error.message : String(error);
+        const message = errorMessage(error);
         const lastError = `Worktree creation failed: ${message}`;
         this.logger.warn(
           { err: error, agentId: id },

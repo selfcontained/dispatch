@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import type { RequiredCheckName } from "./release-metadata.js";
 import { readReleaseStore } from "./release-store.js";
+import { errorMessage } from "./shared/lib/error-message.js";
 import { fixedRuntimePath } from "./server/release-helpers.js";
 
 export type CheckContext = {
@@ -33,7 +34,7 @@ export async function runRequiredChecks(
       results.push({
         name,
         ok: false,
-        message: err instanceof Error ? err.message : String(err),
+        message: errorMessage(err),
       });
     }
   }
@@ -120,7 +121,7 @@ async function checkServiceEntrypoint(ctx: CheckContext): Promise<CheckResult> {
     return {
       name: "service_entrypoint",
       ok: false,
-      message: `Could not read service definition ${definition}: ${err instanceof Error ? err.message : String(err)}`,
+      message: `Could not read service definition ${definition}: ${errorMessage(err)}`,
     };
   }
 }
@@ -223,7 +224,7 @@ async function checkHealthEndpoint(ctx: CheckContext): Promise<CheckResult> {
     return {
       name: "health_endpoint",
       ok: false,
-      message: err instanceof Error ? err.message : String(err),
+      message: errorMessage(err),
     };
   }
 }
@@ -343,7 +344,7 @@ async function checkRunningVersion(ctx: CheckContext): Promise<CheckResult> {
     return {
       name: "running_version",
       ok: false,
-      message: err instanceof Error ? err.message : String(err),
+      message: errorMessage(err),
     };
   }
 }

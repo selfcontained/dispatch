@@ -2,6 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { parse as parseYaml } from "yaml";
 import { z } from "zod";
+import { errorMessage } from "./shared/lib/error-message.js";
 
 /**
  * Persistent install-update migration manifest. Migrations live in
@@ -112,7 +113,7 @@ export async function loadUpdateMigrations(
     } catch (err) {
       errors.push({
         filename,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorMessage(err),
       });
       continue;
     }
@@ -148,7 +149,7 @@ export function parseManifest(
   try {
     yamlValue = parseYaml(raw);
   } catch (err) {
-    const message = err instanceof Error ? err.message : String(err);
+    const message = errorMessage(err);
     return { success: false, error: `YAML parse error: ${message}` };
   }
 
