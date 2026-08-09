@@ -6,6 +6,7 @@ import { toast } from "sonner";
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import type { AgentType } from "@/lib/agent-types";
 import { shortPath } from "@/lib/format";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -67,6 +68,7 @@ function TemplateDetail({
   const [prompt, setPrompt] = useState(template.prompt ?? "");
   const [agentType, setAgentType] = useState<AgentType>(template.agentType);
   const [model, setModel] = useState<string | null>(template.model);
+  const { normalizeModel } = useAgentModelCatalog(agentType);
   const [useWorktree, setUseWorktree] = useState(template.useWorktree);
   const [baseBranch, setBaseBranch] = useState(template.baseBranch ?? "main");
   const [branchName, setBranchName] = useState(template.branchName ?? "");
@@ -120,7 +122,7 @@ function TemplateDetail({
         directory: directory.trim(),
         prompt: isTerminal ? null : prompt || null,
         agentType,
-        model,
+        model: normalizeModel(model),
         useWorktree: isTerminal ? false : useWorktree,
         baseBranch: isTerminal ? null : useWorktree ? baseBranch : null,
         branchName: isTerminal ? null : useWorktree ? branchName || null : null,
@@ -143,6 +145,7 @@ function TemplateDetail({
     prompt,
     agentType,
     model,
+    normalizeModel,
     useWorktree,
     baseBranch,
     branchName,

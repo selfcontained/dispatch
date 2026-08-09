@@ -1,7 +1,6 @@
 import * as DialogPrimitive from "@radix-ui/react-dialog";
 import { Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
 
 import {
   JobAgentTypeField,
@@ -13,7 +12,7 @@ import {
   WebhookUrl,
 } from "@/components/app/jobs-form-fields";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
-import { api } from "@/lib/api";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import {
   cronError,
   errorMessage,
@@ -51,13 +50,11 @@ export function SettingsTab({
   );
   const [agentType, setAgentType] = useState<CliAgentType>(job.agentType);
   const [model, setModel] = useState<string | null>(job.model);
-  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
-    models: Partial<Record<CliAgentType, Array<{ id: string; label: string }>>>;
-  }>({
-    queryKey: ["agent-models"],
-    queryFn: () => api("/api/v1/agent-models"),
-  });
-  const modelOptions = modelCatalog?.models[agentType] ?? [];
+  const {
+    options: modelOptions,
+    loading: modelCatalogLoading,
+    normalizeModel,
+  } = useAgentModelCatalog(agentType);
   const [fullAccess, setFullAccess] = useState(job.fullAccess);
   const [useWorktree, setUseWorktree] = useState(job.useWorktree);
   const [baseBranch, setBaseBranch] = useState(job.baseBranch ?? "main");
@@ -324,7 +321,7 @@ export function SettingsTab({
                 timeoutMs: msFromMinutes(timeoutMinutes),
                 needsInputTimeoutMs: msFromMinutes(needsInputTimeoutMinutes),
                 agentType,
-                model,
+                model: normalizeModel(model),
                 useWorktree,
                 baseBranch: useWorktree ? baseBranch : null,
                 branchName: useWorktree ? branchName : null,

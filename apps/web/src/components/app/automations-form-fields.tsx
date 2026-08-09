@@ -1,10 +1,9 @@
 import { useMemo } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { GitBranch, Paperclip } from "lucide-react";
 
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
 import { AgentModelSelect } from "@/components/app/agent-model-select";
-import { api } from "@/lib/api";
+import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import { BranchSelect } from "@/components/app/branch-select";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { PathInput } from "@/components/app/path-input";
@@ -157,13 +156,8 @@ export function TemplateConfigFields({
   autoFocusName,
 }: TemplateConfigFieldsProps): JSX.Element {
   const isTerminal = agentType === "terminal";
-  const { data: modelCatalog, isLoading: modelCatalogLoading } = useQuery<{
-    models: Partial<Record<AgentType, Array<{ id: string; label: string }>>>;
-  }>({
-    queryKey: ["agent-models"],
-    queryFn: () => api("/api/v1/agent-models"),
-  });
-  const modelOptions = modelCatalog?.models[agentType] ?? [];
+  const { options: modelOptions, loading: modelCatalogLoading } =
+    useAgentModelCatalog(agentType);
   const {
     history: cwdHistory,
     removableHistory: removableCwdHistory,
