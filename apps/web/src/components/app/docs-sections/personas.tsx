@@ -36,6 +36,19 @@ export function PersonasContent() {
           so terminal-type agents are not selectable as reviewers.
         </P>
         <P>
+          The <strong>Review</strong> button on an agent's detail card opens the{" "}
+          <strong>Launch Review</strong> dialog, where persona rows are
+          checkboxes — select one or more and a single launch action starts
+          every selected reviewer, each with its own tracked review. Alongside
+          the agent-type picker, a <strong>Model</strong> selector appears for
+          types with a curated model catalog; leave it on{" "}
+          <strong>Default</strong> for the CLI's own setting (the choice is
+          remembered per repo and agent type). Under the hood the parent agent
+          still calls <Code>dispatch_launch_persona</Code> once per persona so
+          it can tailor each context briefing, and the tool accepts the same
+          optional <Code>model</Code> id.
+        </P>
+        <P>
           Persona agents also have <Code>dispatch_pin</Code> and{" "}
           <Code>dispatch_share</Code> for surfacing files or screenshots, and{" "}
           <Code>get_parent_context</Code> to retrieve the parent agent's pins

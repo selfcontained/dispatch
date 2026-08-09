@@ -167,7 +167,8 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>dispatch_launch_persona</Code> — launch a persona agent as a
-            child of the current session
+            child of the current session, optionally pinned to a model from the
+            curated catalog
           </li>
           <li>
             <Code>dispatch_review_submit</Code> and{" "}
@@ -194,7 +195,8 @@ export function ToolsContent() {
           <li>
             <Code>dispatch_launch_agent</Code> — launch a new agent as a child
             of the current session with a name, prompt, and optional agent type,
-            working directory, worktree settings, full access mode, or template
+            model, working directory, worktree settings, full access mode, or
+            template
           </li>
           <li>
             <Code>list_agents</Code> — list other agents in the same repo with

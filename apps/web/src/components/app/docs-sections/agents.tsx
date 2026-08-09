@@ -17,6 +17,13 @@ export function AgentsContent() {
             Disabled types can be enabled in Settings.
           </li>
           <li>
+            <strong>Model</strong> — shown for CLI types with a curated model
+            catalog (<Code>claude</Code>, <Code>codex</Code>,{" "}
+            <Code>cursor</Code>). Pin the agent to a specific model, or leave{" "}
+            <strong>Default</strong> to use the CLI's own setting. The choice
+            sticks with the agent and is reused when it resumes.
+          </li>
+          <li>
             <strong>Name</strong> — optional display name. Leave it blank and
             the agent picks its own name once it has a sense of the task.
             Terminal agents fall back to a generated name.
