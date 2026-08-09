@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { describeAgentModelCatalog } from "../agent-models.js";
 import { toToolError } from "./tool-error.js";
 
 const jobAgentTypeEnum = z.enum(["claude", "codex", "opencode", "cursor"]);
@@ -11,6 +12,21 @@ const templateAgentTypeEnum = z.enum([
   "cursor",
   "terminal",
 ]);
+
+function modelSchema(
+  mode: "create" | "update"
+): z.ZodType<string | null | undefined> {
+  const clearing =
+    mode === "create" ? "" : " Pass null to clear a stored model.";
+  return z
+    .string()
+    .nullable()
+    .optional()
+    .describe(
+      `Model id, matching agentType. Omit to use the CLI default.${clearing} ` +
+        describeAgentModelCatalog()
+    );
+}
 
 export type CrudToolCallbacks = {
   listJobs: (directory?: string) => Promise<unknown>;
@@ -24,6 +40,7 @@ export type CrudToolCallbacks = {
     timeoutMs?: number;
     needsInputTimeoutMs?: number;
     agentType?: string;
+    model?: string | null;
     useWorktree?: boolean;
     baseBranch?: string | null;
     branchName?: string | null;
@@ -43,6 +60,7 @@ export type CrudToolCallbacks = {
     timeoutMs?: number;
     needsInputTimeoutMs?: number;
     agentType?: string;
+    model?: string | null;
     useWorktree?: boolean;
     baseBranch?: string | null;
     branchName?: string | null;
@@ -64,6 +82,7 @@ export type CrudToolCallbacks = {
     description?: string | null;
     prompt?: string | null;
     agentType?: string;
+    model?: string | null;
     useWorktree?: boolean;
     baseBranch?: string | null;
     branchName?: string | null;
@@ -80,6 +99,7 @@ export type CrudToolCallbacks = {
       description?: string | null;
       prompt?: string | null;
       agentType?: string;
+      model?: string | null;
       useWorktree?: boolean;
       baseBranch?: string | null;
       branchName?: string | null;
@@ -213,6 +233,7 @@ export function registerCrudTools(
           agentType: jobAgentTypeEnum
             .default("claude")
             .describe("Agent runtime type."),
+          model: modelSchema("create"),
           useWorktree: z
             .boolean()
             .default(false)
@@ -311,6 +332,7 @@ export function registerCrudTools(
           agentType: jobAgentTypeEnum
             .optional()
             .describe("Agent runtime type."),
+          model: modelSchema("update"),
           useWorktree: z
             .boolean()
             .optional()
@@ -504,6 +526,7 @@ export function registerCrudTools(
           agentType: templateAgentTypeEnum
             .default("claude")
             .describe("Agent runtime type."),
+          model: modelSchema("create"),
           useWorktree: z
             .boolean()
             .default(false)
@@ -576,6 +599,7 @@ export function registerCrudTools(
           agentType: templateAgentTypeEnum
             .optional()
             .describe("Agent runtime type."),
+          model: modelSchema("update"),
           useWorktree: z
             .boolean()
             .optional()
