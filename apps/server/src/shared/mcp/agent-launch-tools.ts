@@ -22,6 +22,7 @@ export type LaunchAgentInput = {
   fullAccess?: boolean;
   templateId?: string;
   cwd?: string;
+  worktreeLocation?: string;
 };
 
 export type AgentLaunchToolsContext = {
@@ -76,20 +77,26 @@ export function registerAgentLaunchTools(
           .boolean()
           .optional()
           .describe(
-            "Create a new git worktree for the agent. Default: false (shares parent's worktree)."
+            "Create a new git worktree for the agent. Default: the template's setting when templateId is given, otherwise false (shares parent's worktree)."
           ),
         createNewBranch: z
           .boolean()
           .optional()
-          .describe("Create a new branch for the worktree. Default: false."),
+          .describe(
+            "Create a new branch for the worktree. Default: true when a template supplies the worktree, otherwise false."
+          ),
         baseBranch: z
           .string()
           .optional()
-          .describe("Branch to base the worktree on."),
+          .describe(
+            "Branch to base the worktree on. Defaults to the template's base branch when templateId is given."
+          ),
         worktreeBranch: z
           .string()
           .optional()
-          .describe("Explicit branch name for the worktree."),
+          .describe(
+            "Explicit branch name for the worktree. Defaults to the template's branch name when templateId is given."
+          ),
         fullAccess: z
           .boolean()
           .optional()
@@ -99,12 +106,20 @@ export function registerAgentLaunchTools(
         templateId: z
           .string()
           .optional()
-          .describe("Template to apply to the new agent."),
+          .describe(
+            "Template to apply to the new agent. Only its worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) are applied, filling in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+          ),
         cwd: z
           .string()
           .optional()
           .describe(
             "Working directory for the new agent. Defaults to the parent's working directory."
+          ),
+        worktreeLocation: z
+          .enum(["sibling", "nested"])
+          .optional()
+          .describe(
+            "Where to place the worktree. Defaults to the instance-wide worktree location setting."
           ),
       },
     },
@@ -126,6 +141,8 @@ export function registerAgentLaunchTools(
         if (args.fullAccess !== undefined) input.fullAccess = args.fullAccess;
         if (args.templateId !== undefined) input.templateId = args.templateId;
         if (args.cwd !== undefined) input.cwd = args.cwd;
+        if (args.worktreeLocation !== undefined)
+          input.worktreeLocation = args.worktreeLocation;
 
         const result = await launchAgent(agentId, input);
         return {

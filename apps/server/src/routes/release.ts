@@ -19,6 +19,7 @@ import {
   resolveAuthoringRepoDir,
 } from "../server/release-helpers.js";
 import { getSetting, setSetting } from "../db/settings.js";
+import { getWorktreeLocation } from "../worktree-location-settings.js";
 import { readReleaseStore } from "../release-store.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
@@ -186,8 +187,6 @@ type ReleaseRouteDeps = {
   config: { authToken: string };
   serverDir: string;
   agentManager: AgentManager;
-  worktreeLocationKey: string;
-  validWorktreeLocations: readonly string[];
   getActiveCreateJob: () => CreateJob | null;
   setActiveCreateJob: (job: CreateJob | null) => void;
   getActiveUpdateJob: () => UpdateJob | null;
@@ -744,15 +743,7 @@ async function handleAssistedLaunch(
     }
 
     const record = await readReleaseStore().catch(() => null);
-    const worktreeLocationRaw = await getSetting(
-      deps.pool,
-      deps.worktreeLocationKey
-    );
-    const worktreeLocation =
-      worktreeLocationRaw &&
-      deps.validWorktreeLocations.includes(worktreeLocationRaw)
-        ? worktreeLocationRaw
-        : "sibling";
+    const worktreeLocation = await getWorktreeLocation(deps.pool);
 
     let pendingMigrationManifests: UpdateMigrationManifest[] = [];
     try {
@@ -842,7 +833,7 @@ async function handleAssistedLaunch(
       cwd: deps.serverDir,
       fullAccess: true,
       useWorktree: false,
-      worktreeLocation: worktreeLocation as "sibling" | "nested",
+      worktreeLocation,
       initialPrompt,
     });
 

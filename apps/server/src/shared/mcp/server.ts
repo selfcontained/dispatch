@@ -316,6 +316,7 @@ export type McpRequestContext = {
       agentArgs?: string;
       templateId?: string;
       cwd?: string;
+      worktreeLocation?: string;
     }
   ) => Promise<{ agentId: string; name: string }>;
   archiveAgent?: (

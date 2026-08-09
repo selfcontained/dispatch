@@ -417,6 +417,7 @@ const mcpHandlers = createMcpHandlers({
   mediaRoot: config.mediaRoot,
   agentManager,
   jobService,
+  templateService,
   slackNotifier,
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   withStreamFlag,
@@ -446,9 +447,6 @@ jobService.onRunStateChange((run) => {
 
 const SESSION_COOKIE = "dispatch_session";
 const SESSION_MAX_AGE_S = 30 * 24 * 60 * 60; // 30 days
-const WORKTREE_LOCATION_KEY = "worktree_location";
-type WorktreeLocation = "sibling" | "nested";
-const VALID_WORKTREE_LOCATIONS: WorktreeLocation[] = ["sibling", "nested"];
 
 async function registerRoutes() {
   const cookieSecret = await getOrCreateCookieSecret(pool);
@@ -681,8 +679,6 @@ async function registerRoutes() {
     config,
     serverDir,
     agentManager,
-    worktreeLocationKey: WORKTREE_LOCATION_KEY,
-    validWorktreeLocations: VALID_WORKTREE_LOCATIONS,
     getActiveCreateJob: releaseRuntime.getActiveCreateJob,
     setActiveCreateJob: releaseRuntime.setActiveCreateJob,
     getActiveUpdateJob: releaseRuntime.getActiveUpdateJob,
@@ -751,8 +747,6 @@ async function registerRoutes() {
     pool,
     appLog: app.log,
     agentManager,
-    worktreeLocationKey: WORKTREE_LOCATION_KEY,
-    validWorktreeLocations: VALID_WORKTREE_LOCATIONS,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
     sendUiSnapshot: (stream, agents) =>

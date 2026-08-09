@@ -16,6 +16,7 @@ import {
   substituteArgs,
   type TemplateRecord,
 } from "./store.js";
+import { templateWorktreeConfig } from "./worktree-config.js";
 
 export type AddTemplateInput = {
   name: string;
@@ -242,11 +243,9 @@ export class TemplateService {
       cwd,
       initialPrompt: finalPrompt,
       fullAccess: !isTerminal && template.fullAccess,
-      useWorktree: !isTerminal && template.useWorktree,
-      baseBranch: !isTerminal ? (template.baseBranch ?? undefined) : undefined,
-      worktreeBranch: !isTerminal
-        ? (template.branchName ?? undefined)
-        : undefined,
+      ...(isTerminal
+        ? { useWorktree: false }
+        : templateWorktreeConfig(template)),
       initialPins,
       initialFiles: !isTerminal ? (input.startupFiles ?? []) : [],
       templateId: template.id,

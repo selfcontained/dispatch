@@ -30,6 +30,7 @@ import {
   substituteArgs,
   type TemplateRecord,
 } from "../templates/store.js";
+import { templateWorktreeConfig } from "../templates/worktree-config.js";
 import {
   getNextRun,
   validateCronExpression,
@@ -186,9 +187,7 @@ export class JobService {
         cwd: job.directory,
         agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
         fullAccess: agentConfig.fullAccess,
-        useWorktree: agentConfig.useWorktree,
-        baseBranch: agentConfig.baseBranch ?? undefined,
-        worktreeBranch: agentConfig.branchName ?? undefined,
+        ...templateWorktreeConfig(agentConfig),
         jobRunId: run.id,
       });
       run = await this.store.attachAgent(run.id, agent.id);

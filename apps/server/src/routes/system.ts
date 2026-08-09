@@ -29,10 +29,13 @@ import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
 import { AGENT_MODEL_OPTIONS } from "../shared/agent-models.js";
+import {
+  getWorktreeLocation,
+  isWorktreeLocation,
+  WORKTREE_LOCATION_KEY,
+} from "../worktree-location-settings.js";
 
-const WORKTREE_LOCATION_KEY = "worktree_location";
 const INSTANCE_NAME_KEY = "instance_name";
-const VALID_WORKTREE_LOCATIONS = ["sibling", "nested"] as const;
 
 type SystemRouteDeps = {
   pool: Pool;
@@ -219,11 +222,7 @@ export async function registerSystemRoutes(
   });
 
   app.get("/api/v1/agents/settings", async () => {
-    const raw = await getSetting(deps.pool, WORKTREE_LOCATION_KEY);
-    const worktreeLocation =
-      raw && (VALID_WORKTREE_LOCATIONS as readonly string[]).includes(raw)
-        ? raw
-        : "sibling";
+    const worktreeLocation = await getWorktreeLocation(deps.pool);
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
     return {
       worktreeLocation,
@@ -240,12 +239,7 @@ export async function registerSystemRoutes(
     };
 
     if (body.worktreeLocation !== undefined) {
-      if (
-        typeof body.worktreeLocation !== "string" ||
-        !(VALID_WORKTREE_LOCATIONS as readonly string[]).includes(
-          body.worktreeLocation
-        )
-      ) {
+      if (!isWorktreeLocation(body.worktreeLocation)) {
         return reply
           .code(400)
           .send({ error: 'worktreeLocation must be "sibling" or "nested".' });
@@ -280,11 +274,7 @@ export async function registerSystemRoutes(
       }
     }
 
-    const raw = await getSetting(deps.pool, WORKTREE_LOCATION_KEY);
-    const worktreeLocation =
-      raw && (VALID_WORKTREE_LOCATIONS as readonly string[]).includes(raw)
-        ? raw
-        : "sibling";
+    const worktreeLocation = await getWorktreeLocation(deps.pool);
     const instanceName = (await getSetting(deps.pool, INSTANCE_NAME_KEY)) ?? "";
     return {
       worktreeLocation,

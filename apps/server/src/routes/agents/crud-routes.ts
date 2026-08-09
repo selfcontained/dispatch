@@ -9,7 +9,7 @@ import {
   type AgentType,
   getEnabledAgentTypes,
 } from "../../agent-type-settings.js";
-import { getSetting } from "../../db/settings.js";
+import { getWorktreeLocation } from "../../worktree-location-settings.js";
 import {
   type CreateAgentBody,
   type StartupFileUpload,
@@ -291,15 +291,7 @@ export async function registerAgentCrudRoutes(
     }
 
     try {
-      const worktreeLocationRaw = await getSetting(
-        deps.pool,
-        deps.worktreeLocationKey
-      );
-      const worktreeLocation =
-        worktreeLocationRaw &&
-        deps.validWorktreeLocations.includes(worktreeLocationRaw)
-          ? worktreeLocationRaw
-          : "sibling";
+      const worktreeLocation = await getWorktreeLocation(deps.pool);
 
       const agent = await deps.agentManager.createAgent({
         name: typeof body.name === "string" ? body.name : undefined,
@@ -316,7 +308,7 @@ export async function registerAgentCrudRoutes(
             : undefined,
         baseBranch:
           typeof body.baseBranch === "string" ? body.baseBranch : undefined,
-        worktreeLocation: worktreeLocation as "sibling" | "nested",
+        worktreeLocation,
         persona: typeof body.persona === "string" ? body.persona : undefined,
         parentAgentId:
           typeof body.parentAgentId === "string"

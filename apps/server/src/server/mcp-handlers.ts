@@ -15,6 +15,8 @@ import {
 import { validateAgentModel } from "../shared/agent-models.js";
 import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js";
 import type { JobService } from "../jobs/service.js";
+import type { TemplateService } from "../templates/service.js";
+import { templateWorktreeConfig } from "../templates/worktree-config.js";
 import type {
   NotifyInput,
   NotifyResult,
@@ -41,6 +43,11 @@ import {
   updatePersonality,
 } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import {
+  getWorktreeLocation,
+  isWorktreeLocation,
+  VALID_WORKTREE_LOCATIONS,
+} from "../worktree-location-settings.js";
 
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
@@ -59,6 +66,9 @@ type CreateMcpHandlersDeps = {
   mediaRoot: string;
   agentManager: AgentManager;
   jobService: JobService;
+  // Only the template lookup is needed here — the full TemplateService can
+  // launch agents, which the MCP handler layer has no business doing.
+  templateService: Pick<TemplateService, "getTemplate">;
   slackNotifier: SlackNotifier;
   publishUiEvent: PublishUiEvent;
   withStreamFlag: <T extends AgentRecord>(
@@ -292,6 +302,7 @@ async function handleLaunchAgent(
     fullAccess?: boolean;
     templateId?: string;
     cwd?: string;
+    worktreeLocation?: string;
   }
 ): Promise<{ agentId: string; name: string }> {
   const parent = await deps.agentManager.getAgent(agentId);
@@ -313,10 +324,45 @@ async function handleLaunchAgent(
     throw new Error(`${agentType} agents are disabled in settings.`);
   }
 
+  // A templateId means "launch this the way the template says to". Its
+  // worktree config fills in whatever the caller left unset; anything passed
+  // explicitly at the call site still wins.
+  const template = input.templateId
+    ? await deps.templateService.getTemplate(input.templateId)
+    : null;
+  if (input.templateId && !template) {
+    throw new Error(`Template ${input.templateId} not found.`);
+  }
+
+  const fromTemplate = templateWorktreeConfig(template);
+
   const parentCwd = parent.worktreePath ?? parent.cwd;
-  const useWorktree = input.useWorktree ?? false;
-  const createNewBranch = input.createNewBranch ?? false;
+  const useWorktree = input.useWorktree ?? fromTemplate.useWorktree;
+  // Templates have no createNewBranch column, so the decision keys off where
+  // the worktree came from: a template-supplied one follows the template's
+  // branch policy and gets a fresh branch, matching how
+  // TemplateService.launchTemplate leaves the field to the agent manager's
+  // default. An explicit useWorktree with no template keeps the old default of
+  // false so existing callers don't change behaviour.
+  const worktreeFromTemplate = fromTemplate.useWorktree;
+  const createNewBranch = input.createNewBranch ?? worktreeFromTemplate;
+  const baseBranch = input.baseBranch ?? fromTemplate.baseBranch;
+  const worktreeBranch = input.worktreeBranch ?? fromTemplate.worktreeBranch;
   const fullAccess = parent.fullAccess && input.fullAccess !== false;
+
+  if (
+    input.worktreeLocation !== undefined &&
+    !isWorktreeLocation(input.worktreeLocation)
+  ) {
+    throw new Error(
+      `worktreeLocation must be one of: ${VALID_WORKTREE_LOCATIONS.join(", ")}.`
+    );
+  }
+  // Placement is an instance-wide setting the web UI already honours; without
+  // this the MCP path silently forced "sibling".
+  const worktreeLocation = isWorktreeLocation(input.worktreeLocation)
+    ? input.worktreeLocation
+    : await getWorktreeLocation(deps.pool);
 
   const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
   const model = validateAgentModel(
@@ -332,8 +378,9 @@ async function handleLaunchAgent(
     model,
     useWorktree,
     createNewBranch,
-    baseBranch: input.baseBranch,
-    worktreeBranch: input.worktreeBranch,
+    baseBranch,
+    worktreeBranch,
+    worktreeLocation,
     parentAgentId: agentId,
     cliSessionId,
     initialPrompt: buildChildAgentInitialPrompt(agentId, input.prompt),
@@ -903,6 +950,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         fullAccess?: boolean;
         templateId?: string;
         cwd?: string;
+        worktreeLocation?: string;
       }
     ) => handleLaunchAgent(deps, agentId, input),
 
