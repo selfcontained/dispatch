@@ -194,7 +194,7 @@ describe("AgentsViewDialogs", () => {
       enabledAgentTypes: ["claude", "codex", "cursor", "opencode", "terminal"],
     });
 
-    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(screen.getByRole("combobox", { name: /agent type/i }));
 
     const options = await screen.findAllByRole("option");
     const labels = options.map((option) => option.textContent);

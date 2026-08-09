@@ -14,6 +14,7 @@ function buildTemplate(
     description: null,
     prompt: "Review {{D:Target}}",
     agentType: "claude",
+    model: null,
     useWorktree: false,
     baseBranch: null,
     branchName: null,
@@ -144,6 +145,75 @@ describe("TemplateService.launchTemplate", () => {
     );
     expect(createAgent.mock.calls[0][0].initialPrompt).toContain(
       "Review the change."
+    );
+  });
+});
+
+describe("TemplateService.launchTemplate model resolution", () => {
+  function setup(template: TemplateRecord) {
+    const createAgent = vi.fn(async () => buildAgent());
+    const service = new TemplateService(
+      {} as never,
+      { createAgent } as never,
+      { info: vi.fn() } as never
+    );
+    vi.spyOn(service.store, "getTemplate").mockResolvedValue(template);
+    return { createAgent, service };
+  }
+
+  it("keeps the template's saved model when no override is sent", async () => {
+    const { createAgent, service } = setup(buildTemplate({ model: "sonnet" }));
+
+    await service.launchTemplate({ templateId: "tmpl_123" });
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "sonnet" })
+    );
+  });
+
+  it("uses the per-launch model override", async () => {
+    const { createAgent, service } = setup(buildTemplate({ model: "sonnet" }));
+
+    await service.launchTemplate({ templateId: "tmpl_123", model: "opus" });
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: "opus" })
+    );
+  });
+
+  it("falls back to the CLI default when the override is null", async () => {
+    const { createAgent, service } = setup(buildTemplate({ model: "sonnet" }));
+
+    await service.launchTemplate({ templateId: "tmpl_123", model: null });
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: undefined })
+    );
+  });
+
+  it("validates the override against the launched agent type", async () => {
+    const { createAgent, service } = setup(buildTemplate());
+
+    await expect(
+      service.launchTemplate({
+        templateId: "tmpl_123",
+        agentType: "codex",
+        model: "sonnet",
+      })
+    ).rejects.toThrow(/not supported for codex/);
+    expect(createAgent).not.toHaveBeenCalled();
+  });
+
+  it("drops the saved model when launching under a different agent type", async () => {
+    const { createAgent, service } = setup(buildTemplate({ model: "sonnet" }));
+
+    await service.launchTemplate({
+      templateId: "tmpl_123",
+      agentType: "codex",
+    });
+
+    expect(createAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ model: undefined })
     );
   });
 });

@@ -75,7 +75,7 @@ function LocationProbe(): JSX.Element {
   return <div data-testid="location">{location.pathname}</div>;
 }
 
-function renderDialog(template: Template) {
+async function renderDialog(template: Template) {
   const onOpenChange = vi.fn();
   render(
     <QueryClientProvider client={new QueryClient()}>
@@ -90,7 +90,27 @@ function renderDialog(template: Template) {
       </MemoryRouter>
     </QueryClientProvider>
   );
+  if (template.agentType !== "terminal") {
+    // The launch payload only carries a model once the catalog has arrived, so
+    // every test starts from the settled state the user actually sees.
+    await waitFor(() => expect(modelSelect().disabled).toBe(false));
+  }
   return { onOpenChange };
+}
+
+function agentTypeSelect(): HTMLButtonElement {
+  return screen.getByRole("combobox", {
+    name: /agent type/i,
+  }) as HTMLButtonElement;
+}
+
+function modelSelect(): HTMLButtonElement {
+  return screen.getByTestId("launch-template-model") as HTMLButtonElement;
+}
+
+async function pickModel(name: RegExp): Promise<void> {
+  fireEvent.click(modelSelect());
+  fireEvent.click(await screen.findByRole("option", { name }));
 }
 
 function launchButton(): HTMLButtonElement {
@@ -115,10 +135,17 @@ function dropFiles(target: Element, files: File[]): void {
   fireEvent.drop(target, { dataTransfer: { files, types: ["Files"] } });
 }
 
+const LAUNCH_PATH = "/api/v1/templates/tpl_1/launch";
+
+// The dialog also fetches the model catalog, so call-count assertions have to
+// look at launch calls specifically rather than the api mock as a whole.
+function launchCalls(): unknown[][] {
+  return apiMock.mock.calls.filter((call) => call[0] === LAUNCH_PATH);
+}
+
 function lastCallBody(): unknown {
-  const call = apiMock.mock.calls.at(-1);
-  if (!call) throw new Error("api was not called");
-  expect(call[0]).toBe("/api/v1/templates/tpl_1/launch");
+  const call = launchCalls().at(-1);
+  if (!call) throw new Error("launch was not called");
   const init = call[1] as { method: string; body: unknown };
   expect(init.method).toBe("POST");
   return init.body;
@@ -130,11 +157,40 @@ function lastJsonBody(): Record<string, unknown> {
   return JSON.parse(body as string) as Record<string, unknown>;
 }
 
+const MODEL_CATALOG = {
+  models: {
+    claude: [
+      { id: "opus", label: "Opus" },
+      { id: "sonnet", label: "Sonnet" },
+    ],
+    codex: [{ id: "gpt-5.6", label: "GPT-5.6" }],
+  },
+};
+
+// Launch responses are queued per test; the catalog is always served so the
+// mount-time fetch cannot swallow a queued launch result.
+const launchQueue: Array<() => Promise<unknown>> = [];
+
+function queueLaunch(responder: () => Promise<unknown>): void {
+  launchQueue.push(responder);
+}
+
+function queueLaunchedAgent(id: string): void {
+  queueLaunch(() => Promise.resolve({ agent: makeAgent(id) }));
+}
+
 const originalCreateObjectURL = URL.createObjectURL;
 const originalRevokeObjectURL = URL.revokeObjectURL;
 
 beforeEach(() => {
   apiMock.mockReset();
+  launchQueue.length = 0;
+  apiMock.mockImplementation(((path: string) => {
+    if (path === "/api/v1/agent-models") return Promise.resolve(MODEL_CATALOG);
+    const responder = launchQueue.shift();
+    if (!responder) throw new Error(`unexpected api call: ${path}`);
+    return responder();
+  }) as unknown as typeof api);
   toastErrorMock.mockReset();
   URL.createObjectURL = vi.fn(
     (input: File | Blob | MediaSource) =>
@@ -158,23 +214,23 @@ afterEach(() => {
 });
 
 describe("launch payload", () => {
-  it("launches a no-arg template as JSON carrying only the agent type", async () => {
-    apiMock.mockResolvedValueOnce({ agent: makeAgent("agt_new") });
-    renderDialog(makeTemplate());
+  it("launches a no-arg template as JSON carrying the agent type and model", async () => {
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate());
 
     fireEvent.click(launchButton());
 
-    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
     const body = lastJsonBody();
-    expect(body).toEqual({ agentType: "claude" });
+    expect(body).toEqual({ agentType: "claude", model: null });
     expect("args" in body).toBe(false);
     expect("startupFiles" in body).toBe(false);
     expect("startupLinks" in body).toBe(false);
   });
 
   it("sends typed args keyed by lowercased name, omitting untouched ones", async () => {
-    apiMock.mockResolvedValueOnce({ agent: makeAgent("agt_new") });
-    renderDialog(
+    queueLaunchedAgent("agt_new");
+    await renderDialog(
       makeTemplate({ prompt: "Review {{D:Branch|required}} with {{D:Note}}" })
     );
 
@@ -183,30 +239,121 @@ describe("launch payload", () => {
     });
     fireEvent.click(launchButton());
 
-    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
     expect(lastJsonBody()).toEqual({
       args: { branch: "main" },
       agentType: "claude",
+      model: null,
     });
   });
 
   it("selecting a different agent type overrides the template default", async () => {
-    apiMock.mockResolvedValueOnce({ agent: makeAgent("agt_new") });
-    renderDialog(makeTemplate());
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate());
 
-    fireEvent.click(screen.getByRole("combobox"));
+    fireEvent.click(agentTypeSelect());
     const codex = await screen.findByRole("option", { name: /Codex/ });
     fireEvent.click(codex);
     fireEvent.click(launchButton());
 
-    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
-    expect(lastJsonBody()).toEqual({ agentType: "codex" });
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
+    expect(lastJsonBody()).toEqual({ agentType: "codex", model: null });
+  });
+});
+
+describe("model override", () => {
+  it("defaults to the template's saved model and sends it unchanged", async () => {
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate({ model: "sonnet" }));
+
+    expect(modelSelect().textContent).toContain("Sonnet");
+
+    fireEvent.click(launchButton());
+
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
+    expect(lastJsonBody()).toEqual({ agentType: "claude", model: "sonnet" });
+  });
+
+  it("sends the picked model instead of the template's", async () => {
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate({ model: "sonnet" }));
+
+    await pickModel(/Opus/);
+    fireEvent.click(launchButton());
+
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
+    expect(lastJsonBody()).toEqual({ agentType: "claude", model: "opus" });
+  });
+
+  it("sends null when the saved model is cleared back to the CLI default", async () => {
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate({ model: "sonnet" }));
+
+    await pickModel(/^Default/);
+    fireEvent.click(launchButton());
+
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
+    expect(lastJsonBody()).toEqual({ agentType: "claude", model: null });
+  });
+
+  it("drops a model that the newly selected agent type cannot run", async () => {
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate({ model: "sonnet" }));
+
+    fireEvent.click(agentTypeSelect());
+    fireEvent.click(await screen.findByRole("option", { name: /Codex/ }));
+    await waitFor(() => expect(modelSelect().textContent).toContain("Default"));
+
+    fireEvent.click(launchButton());
+
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
+    expect(lastJsonBody()).toEqual({ agentType: "codex", model: null });
+  });
+
+  it("restores the template's model when switching back to its agent type", async () => {
+    await renderDialog(makeTemplate({ model: "sonnet" }));
+
+    fireEvent.click(agentTypeSelect());
+    fireEvent.click(await screen.findByRole("option", { name: /Codex/ }));
+    await waitFor(() => expect(modelSelect().textContent).toContain("Default"));
+
+    fireEvent.click(agentTypeSelect());
+    fireEvent.click(await screen.findByRole("option", { name: /Claude/ }));
+    await waitFor(() => expect(modelSelect().textContent).toContain("Sonnet"));
+  });
+
+  it("keeps each runtime's own pick across agent type round trips", async () => {
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate({ model: "sonnet" }));
+
+    await pickModel(/Opus/);
+
+    fireEvent.click(agentTypeSelect());
+    fireEvent.click(await screen.findByRole("option", { name: /Codex/ }));
+    await waitFor(() => expect(modelSelect().textContent).toContain("Default"));
+    await pickModel(/GPT-5\.6/);
+
+    // Returning to Claude must restore the explicit Opus pick, not the
+    // template's saved Sonnet.
+    fireEvent.click(agentTypeSelect());
+    fireEvent.click(await screen.findByRole("option", { name: /Claude/ }));
+    await waitFor(() => expect(modelSelect().textContent).toContain("Opus"));
+
+    // ...and Codex must still remember its own pick too.
+    fireEvent.click(agentTypeSelect());
+    fireEvent.click(await screen.findByRole("option", { name: /Codex/ }));
+    await waitFor(() => expect(modelSelect().textContent).toContain("GPT-5.6"));
+
+    fireEvent.click(launchButton());
+
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
+    expect(lastJsonBody()).toEqual({ agentType: "codex", model: "gpt-5.6" });
   });
 });
 
 describe("arg gating", () => {
   it("disables launch until every required arg is non-blank", async () => {
-    renderDialog(makeTemplate({ prompt: "Do {{D:Task|required}}" }));
+    await renderDialog(makeTemplate({ prompt: "Do {{D:Task|required}}" }));
 
     expect(launchButton().disabled).toBe(true);
 
@@ -221,7 +368,7 @@ describe("arg gating", () => {
     // api seam on a later microtask — flush before asserting.
     fireEvent.submit(dialogForm());
     await act(async () => {});
-    expect(apiMock).not.toHaveBeenCalled();
+    expect(launchCalls()).toHaveLength(0);
 
     fireEvent.change(screen.getByLabelText(/Task/), {
       target: { value: "ship it" },
@@ -229,16 +376,16 @@ describe("arg gating", () => {
     expect(launchButton().disabled).toBe(false);
   });
 
-  it("optional args do not block launching", () => {
-    renderDialog(makeTemplate({ prompt: "Maybe {{D:Note}}" }));
+  it("optional args do not block launching", async () => {
+    await renderDialog(makeTemplate({ prompt: "Maybe {{D:Note}}" }));
     expect(launchButton().disabled).toBe(false);
   });
 });
 
 describe("launch outcome", () => {
   it("closes the dialog and navigates to the new agent on success", async () => {
-    apiMock.mockResolvedValueOnce({ agent: makeAgent("agt_new") });
-    const { onOpenChange } = renderDialog(makeTemplate());
+    queueLaunchedAgent("agt_new");
+    const { onOpenChange } = await renderDialog(makeTemplate());
 
     fireEvent.click(launchButton());
 
@@ -247,8 +394,8 @@ describe("launch outcome", () => {
   });
 
   it("surfaces a toast and stays open on failure", async () => {
-    apiMock.mockRejectedValueOnce(new Error("boom"));
-    const { onOpenChange } = renderDialog(makeTemplate());
+    queueLaunch(() => Promise.reject(new Error("boom")));
+    const { onOpenChange } = await renderDialog(makeTemplate());
 
     fireEvent.click(launchButton());
 
@@ -261,12 +408,13 @@ describe("launch outcome", () => {
 
   it("ignores resubmits while a launch is pending", async () => {
     let resolveLaunch!: (value: { agent: Agent }) => void;
-    apiMock.mockReturnValueOnce(
-      new Promise((resolve) => {
-        resolveLaunch = resolve;
-      })
+    queueLaunch(
+      () =>
+        new Promise((resolve) => {
+          resolveLaunch = resolve;
+        })
     );
-    const { onOpenChange } = renderDialog(makeTemplate());
+    const { onOpenChange } = await renderDialog(makeTemplate());
 
     fireEvent.click(launchButton());
     await waitFor(() => expect(launchButton().disabled).toBe(true));
@@ -278,33 +426,36 @@ describe("launch outcome", () => {
 
     resolveLaunch({ agent: makeAgent("agt_new") });
     await waitFor(() => expect(onOpenChange).toHaveBeenCalledWith(false));
-    expect(apiMock).toHaveBeenCalledTimes(1);
+    expect(launchCalls()).toHaveLength(1);
   });
 });
 
 describe("terminal templates", () => {
   it("hides agent type and media affordances and launches as terminal", async () => {
-    apiMock.mockResolvedValueOnce({ agent: makeAgent("agt_new") });
-    renderDialog(makeTemplate({ agentType: "terminal", allowMedia: true }));
+    queueLaunchedAgent("agt_new");
+    await renderDialog(
+      makeTemplate({ agentType: "terminal", allowMedia: true })
+    );
 
     expect(
       screen.getByText("This will open a terminal session in /repo.")
     ).toBeTruthy();
     expect(screen.queryByRole("combobox")).toBeNull();
+    expect(screen.queryByTestId("launch-template-model")).toBeNull();
     // allowMedia is true, but terminal launches have nowhere to route media.
     expect(screen.queryByText("Add files or links")).toBeNull();
 
     fireEvent.click(launchButton());
 
-    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
     expect(lastJsonBody()).toEqual({ agentType: "terminal" });
   });
 });
 
 describe("media attachments", () => {
   it("ignores drops when the template does not allow media", async () => {
-    apiMock.mockResolvedValueOnce({ agent: makeAgent("agt_new") });
-    renderDialog(makeTemplate({ allowMedia: false }));
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate({ allowMedia: false }));
 
     expect(screen.queryByText("Add files or links")).toBeNull();
     dropFiles(dialogForm(), [file("shot.png", "image/png")]);
@@ -312,13 +463,13 @@ describe("media attachments", () => {
 
     fireEvent.click(launchButton());
 
-    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
     // Still the plain JSON branch — nothing was attached.
-    expect(lastJsonBody()).toEqual({ agentType: "claude" });
+    expect(lastJsonBody()).toEqual({ agentType: "claude", model: null });
   });
 
-  it("arms the drop zone only for file drags", () => {
-    renderDialog(makeTemplate({ allowMedia: true }));
+  it("arms the drop zone only for file drags", async () => {
+    await renderDialog(makeTemplate({ allowMedia: true }));
 
     // Positive control for the empty-state copy the media-gating tests
     // assert absent — if this copy drifts, those absence checks go vacuous.
@@ -336,9 +487,13 @@ describe("media attachments", () => {
   });
 
   it("sends dropped files, added links, and args as multipart form data", async () => {
-    apiMock.mockResolvedValueOnce({ agent: makeAgent("agt_new") });
-    renderDialog(
-      makeTemplate({ allowMedia: true, prompt: "Ship {{D:Tag|required}}" })
+    queueLaunchedAgent("agt_new");
+    await renderDialog(
+      makeTemplate({
+        allowMedia: true,
+        model: "sonnet",
+        prompt: "Ship {{D:Tag|required}}",
+      })
     );
     fireEvent.change(screen.getByLabelText(/Tag/), {
       target: { value: "v1" },
@@ -363,7 +518,7 @@ describe("media attachments", () => {
 
     fireEvent.click(launchButton());
 
-    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
     const body = lastCallBody();
     expect(body).toBeInstanceOf(FormData);
     const formData = body as FormData;
@@ -374,12 +529,26 @@ describe("media attachments", () => {
       JSON.stringify(["https://example.com/docs"])
     );
     expect(formData.get("agentType")).toBe("claude");
+    expect(formData.get("model")).toBe("sonnet");
     expect(formData.get("args")).toBe(JSON.stringify({ tag: "v1" }));
   });
 
+  it("sends an empty model field when multipart launches use the CLI default", async () => {
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate({ allowMedia: true }));
+
+    dropFiles(dialogForm(), [file("shot.png", "image/png")]);
+    fireEvent.click(launchButton());
+
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
+    const formData = lastCallBody() as FormData;
+    // Absent would mean "keep the template's model"; empty means "default".
+    expect(formData.get("model")).toBe("");
+  });
+
   it("keeps a removed file out of the payload", async () => {
-    apiMock.mockResolvedValueOnce({ agent: makeAgent("agt_new") });
-    renderDialog(makeTemplate({ allowMedia: true }));
+    queueLaunchedAgent("agt_new");
+    await renderDialog(makeTemplate({ allowMedia: true }));
 
     dropFiles(dialogForm(), [
       file("shot.png", "image/png"),
@@ -390,7 +559,7 @@ describe("media attachments", () => {
 
     fireEvent.click(launchButton());
 
-    await waitFor(() => expect(apiMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(launchCalls()).toHaveLength(1));
     const body = lastCallBody();
     expect(body).toBeInstanceOf(FormData);
     expect(

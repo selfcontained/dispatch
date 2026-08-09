@@ -95,12 +95,15 @@ export function useTemplateActions() {
       id,
       args,
       agentType,
+      model,
       startupFiles,
       startupLinks,
     }: {
       id: string;
       args?: Record<string, string>;
       agentType?: AgentType;
+      /** Omit to keep the template's saved model; null forces the CLI default. */
+      model?: string | null;
       startupFiles?: File[];
       startupLinks?: string[];
     }) => {
@@ -111,6 +114,9 @@ export function useTemplateActions() {
         const formData = new FormData();
         if (args) formData.append("args", JSON.stringify(args));
         if (agentType) formData.append("agentType", agentType);
+        // Empty string is the wire form of "CLI default" for multipart; only
+        // an absent field falls back to the template's saved model.
+        if (model !== undefined) formData.append("model", model ?? "");
         if (startupLinks) {
           formData.append("startupLinks", JSON.stringify(startupLinks));
         }
@@ -124,7 +130,7 @@ export function useTemplateActions() {
       }
       return api<LaunchResult>(`/api/v1/templates/${id}/launch`, {
         method: "POST",
-        body: JSON.stringify({ args, agentType }),
+        body: JSON.stringify({ args, agentType, model }),
       });
     },
     onSuccess: (result) => {

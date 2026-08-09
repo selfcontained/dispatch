@@ -38,6 +38,9 @@ export type LaunchTemplateInput = {
   args?: Record<string, string>;
   directory?: string;
   agentType?: AgentType;
+  /** Per-launch override. Undefined keeps the template's saved model; null
+   * forces the CLI default. */
+  model?: string | null;
   startupFiles?: Array<{
     fileName: string;
     originalName?: string;
@@ -180,6 +183,12 @@ export class TemplateService {
 
     const resolvedType = input.agentType ?? template.agentType;
     const isTerminal = resolvedType === "terminal";
+    const resolvedModel =
+      input.model !== undefined
+        ? validateAgentModel(resolvedType, input.model ?? undefined)
+        : resolvedType === template.agentType
+          ? (template.model ?? undefined)
+          : undefined;
 
     if (!isTerminal && !template.prompt) {
       throw new Error(
@@ -229,10 +238,7 @@ export class TemplateService {
     const agent = await this.agentManager.createAgent({
       name: sanitizeAgentName(template.name),
       type: resolvedType,
-      model:
-        resolvedType === template.agentType
-          ? (template.model ?? undefined)
-          : undefined,
+      model: resolvedModel,
       cwd,
       initialPrompt: finalPrompt,
       fullAccess: !isTerminal && template.fullAccess,

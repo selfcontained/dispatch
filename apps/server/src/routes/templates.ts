@@ -62,13 +62,25 @@ const LaunchBodySchema = z.object({
   args: z.record(z.string(), z.string()).optional(),
   directory: directoryField.optional(),
   agentType: z.enum(AGENT_TYPES).optional(),
+  // Multipart fields arrive as strings, so an empty string is how "use the CLI
+  // default" reaches us there — distinct from omitting the field, which keeps
+  // the template's saved model.
+  model: z
+    .string()
+    .nullable()
+    .optional()
+    .transform((value) => (value === "" ? null : value)),
 });
 
 function classifyErrorCode(message: string): number {
   if (message.includes("not found")) return 404;
   if (message.includes("already exists") || message.includes("referenced by"))
     return 409;
-  if (message.includes("Missing required") || message.includes("no prompt"))
+  if (
+    message.includes("Missing required") ||
+    message.includes("no prompt") ||
+    message.includes("is not supported for")
+  )
     return 400;
   return 500;
 }

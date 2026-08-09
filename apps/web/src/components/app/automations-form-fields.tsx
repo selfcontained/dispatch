@@ -181,6 +181,9 @@ export function TemplateConfigFields({
       <div className="grid gap-3 min-[420px]:grid-cols-2">
         <AgentTypeSelect
           label="Agent type"
+          // The template detail page keeps this form mounted behind the launch
+          // dialog, so both agent-type selects need distinct ids.
+          id="template-config-agent-type"
           value={agentType}
           onChange={(nextAgentType) => {
             onAgentTypeChange(nextAgentType);

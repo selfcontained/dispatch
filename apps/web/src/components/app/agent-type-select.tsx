@@ -21,6 +21,9 @@ type AgentTypeSelectProps = {
   agentTypes: AgentType[];
   onOpenChange?: (open: boolean) => void;
   label?: string;
+  /** Override when a page can render more than one of these, so ids stay
+   * unique. */
+  id?: string;
 };
 
 export function AgentTypeSelect({
@@ -29,6 +32,7 @@ export function AgentTypeSelect({
   agentTypes,
   onOpenChange,
   label = "Type",
+  id = "agent-type-select",
 }: AgentTypeSelectProps): JSX.Element {
   const sortedTypes = useMemo(() => sortAgentTypes(agentTypes), [agentTypes]);
   const [open, setOpen] = useState(false);
@@ -48,9 +52,12 @@ export function AgentTypeSelect({
 
   return (
     <div className="relative space-y-1" ref={cmdRef}>
-      <label className="text-sm text-muted-foreground">{label}</label>
+      <label className="text-sm text-muted-foreground" htmlFor={id}>
+        {label}
+      </label>
       <button
         ref={triggerRef}
+        id={id}
         type="button"
         role="combobox"
         tabIndex={0}
