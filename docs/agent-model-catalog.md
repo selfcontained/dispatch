@@ -62,6 +62,17 @@ absent from the loaded catalog to Default at save time, so removed ids don't
 strand their edit forms. Run the relevant server tests plus `pnpm run check`
 before opening a draft PR.
 
+## Repeatable audit
+
+`pnpm tsx scripts/audit-agent-models.ts` re-verifies the whole catalog against
+the installed CLIs mechanically — the Codex binary's embedded registry and
+per-account cache, the Claude binary's accepted ids, `cursor-agent
+--list-models` when Cursor entries exist, and the retirement dates below. It
+exits 1 on drift. Run it whenever you edit the catalog; it also backs the
+recurring `model-catalog-audit` Dispatch job (prompt in
+`docs/jobs/model-catalog-audit.md`) so drift is caught without anyone
+re-deriving the evidence by hand.
+
 ## Known upcoming retirements
 
 Check this list on every catalog edit and prune entries whose date has passed.

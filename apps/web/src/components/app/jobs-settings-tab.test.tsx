@@ -205,6 +205,22 @@ describe("save payload", () => {
     });
   });
 
+  it("normalizes a model id no longer in the catalog to null on save", async () => {
+    const { onUpdateJob } = renderTab(makeJob({ model: "retired-model" }));
+
+    // Wait for the catalog: while it loads, normalizeModel passes values
+    // through untouched, so saving too early would sidestep the behavior
+    // under test.
+    await waitFor(() =>
+      expect(screen.getByTestId("create-agent-model").textContent).toContain(
+        "Default"
+      )
+    );
+
+    await clickSave();
+    expect(onUpdateJob).toHaveBeenCalledWith({ ...basePayload(), model: null });
+  });
+
   it("passes worktree branches only while the worktree option is checked", async () => {
     const { onUpdateJob } = renderTab(
       makeJob({ useWorktree: true, baseBranch: "develop", branchName: "" })
