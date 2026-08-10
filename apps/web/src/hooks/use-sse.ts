@@ -183,7 +183,9 @@ export function useSSE(authState: AuthState): void {
     let source: EventSource | null = null;
     let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let connectStartedAt = 0;
+    /** When the current connection last established — or, before it has
+     *  opened, when we started attempting it. */
+    let connectionAliveSince = 0;
 
     const handleSSEMessage = (event: MessageEvent) => {
       try {
@@ -395,7 +397,7 @@ export function useSSE(authState: AuthState): void {
     /** A delivered event clears the backoff, but only once the connection has
      *  proven it can last — see STABLE_CONNECTION_MS. */
     const noteStreamActivity = () => {
-      if (Date.now() - connectStartedAt >= STABLE_CONNECTION_MS) {
+      if (Date.now() - connectionAliveSince >= STABLE_CONNECTION_MS) {
         reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
       }
     };
@@ -419,8 +421,20 @@ export function useSSE(authState: AuthState): void {
       const opened = new EventSource("/api/v1/events", {
         withCredentials: true,
       });
-      connectStartedAt = Date.now();
+      // No `open` yet, so measure from the attempt. Generous by the
+      // establishment latency, but never 0 — a zero here would make the
+      // staleness check trivially true and silently clear the backoff.
+      connectionAliveSince = Date.now();
       source = opened;
+      // `open` fires on every establishment, including the browser's own
+      // internal retries after a transient drop. Those never re-run `openSSE`,
+      // so without this the gate would measure the age of the *instance*
+      // rather than of the connection, and a connect-time snapshot delivered
+      // by an internal retry would clear the backoff — the exact event the
+      // gate exists to discount.
+      opened.onopen = () => {
+        connectionAliveSince = Date.now();
+      };
       opened.onmessage = (event) => {
         noteStreamActivity();
         handleSSEMessage(event);
@@ -432,9 +446,12 @@ export function useSSE(authState: AuthState): void {
         // retry ourselves.
         if (opened.readyState !== EventSource.CLOSED) return;
         opened.close();
-        if (source === opened) {
-          source = null;
-        }
+        // `close()` aborts queued dispatches, so a replaced instance can't
+        // reach here in a conformant browser. Keep the whole branch behind the
+        // identity check anyway: scheduling a retry beside a live connection
+        // would double the delay for nothing.
+        if (source !== opened) return;
+        source = null;
         scheduleReconnect();
       };
     };

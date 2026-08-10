@@ -98,6 +98,7 @@ class FakeEventSource {
   static instances: FakeEventSource[] = [];
 
   readyState = FakeEventSource.CONNECTING;
+  onopen: ((event: Event) => void) | null = null;
   onmessage: ((event: MessageEvent) => void) | null = null;
   onerror: ((event: Event) => void) | null = null;
 
@@ -107,6 +108,15 @@ class FakeEventSource {
 
   close(): void {
     this.readyState = FakeEventSource.CLOSED;
+  }
+
+  /**
+   * Simulate the connection establishing. Fires on the browser's own internal
+   * retries too, which is what separates connection age from instance age.
+   */
+  open(): void {
+    this.readyState = FakeEventSource.OPEN;
+    this.onopen?.(new Event("open"));
   }
 
   /** Simulate the server delivering an event (the hook's success signal). */
@@ -235,6 +245,35 @@ describe("useSSE reconnect", () => {
     act(() => FakeEventSource.instances[1].fail(true));
 
     // The delay kept doubling: 2s, so 1s must not be enough.
+    act(() => void vi.advanceTimersByTime(1_000));
+    expect(FakeEventSource.instances).toHaveLength(2);
+
+    act(() => void vi.advanceTimersByTime(1_000));
+    expect(FakeEventSource.instances).toHaveLength(3);
+  });
+
+  it("measures connection age, not instance age, across an internal retry", () => {
+    // The browser reconnects transiently under the *same* instance without
+    // re-running openSSE. A snapshot from that fresh connection must not clear
+    // the backoff just because the instance itself is old.
+    renderSSE();
+
+    act(() => FakeEventSource.instances[0].fail(true));
+    act(() => void vi.advanceTimersByTime(1_000));
+    expect(FakeEventSource.instances).toHaveLength(2);
+
+    const instance = FakeEventSource.instances[1];
+    act(() => instance.open());
+    act(() => void vi.advanceTimersByTime(10_000));
+
+    // Transient drop, then the browser re-establishes on its own and the
+    // server's connect-time snapshot lands on a seconds-old connection.
+    act(() => instance.fail(false));
+    act(() => instance.open());
+    act(() => instance.emit({ type: "snapshot", agents: [] }));
+
+    // Backoff must still be elevated: 2s, so 1s is not enough.
+    act(() => instance.fail(true));
     act(() => void vi.advanceTimersByTime(1_000));
     expect(FakeEventSource.instances).toHaveLength(2);
 
