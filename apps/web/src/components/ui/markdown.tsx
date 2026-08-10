@@ -14,6 +14,7 @@ import remarkGfm from "remark-gfm";
 import { Button } from "@/components/ui/button";
 import { highlightCodeLanguage } from "@/components/app/media-lightbox-syntax";
 import { useCopyText } from "@/hooks/use-copy";
+import { errorMessage } from "@/lib/errors";
 import { cn } from "@/lib/utils";
 
 let mermaidPromise: Promise<(typeof import("mermaid"))["default"]> | null =
@@ -208,7 +209,7 @@ function MermaidBlock({
         if (!cancelled) setSvg(renderedSvg);
       } catch (err) {
         if (!cancelled) {
-          setError(err instanceof Error ? err.message : String(err));
+          setError(errorMessage(err));
         }
       }
     }

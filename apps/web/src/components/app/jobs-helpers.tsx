@@ -69,10 +69,6 @@ export function msFromMinutes(value: string): number | undefined {
   return minutes * 60_000;
 }
 
-export function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
 export function cronError(schedule: string, enabled: boolean): string | null {
   const trimmed = schedule.trim();
   if (!trimmed)
