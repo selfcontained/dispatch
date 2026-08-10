@@ -1205,7 +1205,9 @@ describe("createMcpHandlers", () => {
       );
     });
 
-    it("lets an explicit worktreeLocation override the setting", async () => {
+    // The `as never` is the point: it exercises the path an untyped MCP payload
+    // would take, so this stays a runtime guard rather than a compile-time one.
+    it("ignores a caller-supplied worktreeLocation", async () => {
       deps.pool.query.mockResolvedValue({ rows: [{ value: "nested" }] });
 
       await handlers.launchAgent("agt_test1", {
@@ -1213,23 +1215,11 @@ describe("createMcpHandlers", () => {
         prompt: "work",
         useWorktree: true,
         worktreeLocation: "sibling",
-      });
+      } as never);
 
       expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
-        expect.objectContaining({ worktreeLocation: "sibling" })
+        expect.objectContaining({ worktreeLocation: "nested" })
       );
-    });
-
-    it("rejects an invalid worktreeLocation", async () => {
-      await expect(
-        handlers.launchAgent("agt_test1", {
-          name: "child",
-          prompt: "work",
-          useWorktree: true,
-          worktreeLocation: "elsewhere",
-        })
-      ).rejects.toThrow("worktreeLocation must be one of: sibling, nested.");
-      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
     });
 
     it("publishes UI event on success", async () => {

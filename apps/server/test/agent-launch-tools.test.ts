@@ -140,6 +140,49 @@ describe("registerAgentLaunchTools", () => {
       });
     });
 
+    // Worktree placement is an instance-wide, operator-owned setting. The tool
+    // must not offer a per-call override, at either layer: the schema has no
+    // such key (so the SDK's z.object strips it off the wire), and the handler
+    // copies named keys only (so nothing survives even if the schema changes).
+    it("does not declare a worktreeLocation input", () => {
+      registerAgentLaunchTools(
+        server as never,
+        new Set(["dispatch_launch_agent"]),
+        baseContext()
+      );
+
+      const tool = server.tools.find(
+        (t) => t.name === "dispatch_launch_agent"
+      )!;
+      const inputSchema = tool.config.inputSchema as Record<string, unknown>;
+      expect(Object.keys(inputSchema)).not.toContain("worktreeLocation");
+    });
+
+    it("drops a caller-supplied worktreeLocation", async () => {
+      const ctx = baseContext();
+      registerAgentLaunchTools(
+        server as never,
+        new Set(["dispatch_launch_agent"]),
+        ctx
+      );
+
+      const tool = server.tools.find(
+        (t) => t.name === "dispatch_launch_agent"
+      )!;
+      await tool.handler({
+        name: "child",
+        prompt: "work",
+        useWorktree: true,
+        worktreeLocation: "nested",
+      });
+
+      expect(ctx.launchAgent).toHaveBeenCalledWith(AGENT_ID, {
+        name: "child",
+        prompt: "work",
+        useWorktree: true,
+      });
+    });
+
     it("returns tool error on failure", async () => {
       const ctx = baseContext();
       (ctx.launchAgent as ReturnType<typeof vi.fn>).mockRejectedValue(
