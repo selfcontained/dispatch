@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect } from "react";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "jotai";
 import {
@@ -23,7 +23,23 @@ import {
 /** Backoff bounds for self-driven reconnects after a fatal EventSource error. */
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
-/** How long a connection must last before it counts as healthy for the backoff. */
+/**
+ * How long a connection must last before a delivered event counts as proof
+ * that it is healthy.
+ *
+ * A delivered event on its own proves only that the *connect* succeeded: the
+ * server writes the snapshot the moment it accepts the connection (see
+ * `sendUiSnapshot` in apps/server/src/routes/agents/events-routes.ts, called
+ * immediately after accept). Clearing the backoff on that lets a flapping
+ * server pin every tab at the 1s floor forever — connect, snapshot, reset,
+ * drop, repeat — so the cap never engages in the case it exists for.
+ *
+ * The reset stays keyed on a delivered event rather than a bare timer, so a
+ * hung proxy holding the socket open without sending anything can't clear the
+ * backoff either. Tradeoff: a connection that stays healthy but silent for its
+ * whole life fails with an elevated delay (capped at MAX_RECONNECT_DELAY_MS,
+ * and cleared on tab foreground) — acceptable for a stream this chatty.
+ */
 const STABLE_CONNECTION_MS = 10_000;
 
 type UiEvent =
@@ -153,36 +169,23 @@ export function applyReviewCreated(
 export function useSSE(authState: AuthState): void {
   const queryClient = useQueryClient();
   const jotaiStore = useStore();
-  const eventSourceRef = useRef<EventSource | null>(null);
-
   useEffect(() => {
     // EventSource only auto-reconnects after *transient* failures. A fatal
     // one (non-200 response, wrong content-type — e.g. hitting the server
     // mid-restart) moves it to CLOSED permanently, and nothing here noticed:
-    // the dead instance stayed in `eventSourceRef`, so `openSSE` early-
-    // returned forever and a visible tab silently lost every realtime update.
-    // We drive our own capped backoff for that case.
+    // the dead instance stayed put, so `openSSE` early-returned forever and a
+    // visible tab silently lost every realtime update. We drive our own capped
+    // backoff for that case.
+    //
+    // The connection and its backoff are one state machine, so they share one
+    // lifetime: all of it is effect-scoped and torn down together. Nothing
+    // here is read during render, so none of it needs to be a ref.
+    let source: EventSource | null = null;
     let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let connectedAt = 0;
+    let connectStartedAt = 0;
 
     const handleSSEMessage = (event: MessageEvent) => {
-      // Clearing the backoff needs proof the stream is actually healthy, and a
-      // delivered event alone isn't that: the server writes a snapshot the
-      // moment it accepts the connection, so the first one only proves the
-      // *connect* succeeded. Resetting on it lets a flapping server pin every
-      // tab at the 1s floor forever — connect, snapshot, reset, drop, repeat —
-      // so the cap never engages in exactly the case it exists for. Require
-      // the connection to have lasted a while first.
-      //
-      // Still keyed on a delivered event rather than a bare timer, so a hung
-      // proxy that holds the socket open without sending anything can't clear
-      // the backoff. The tradeoff: a connection that stays healthy but silent
-      // for its whole life fails with an elevated delay (capped at 30s, and
-      // reset on tab foreground) — acceptable for a stream this chatty.
-      if (Date.now() - connectedAt >= STABLE_CONNECTION_MS) {
-        reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
-      }
       try {
         recordSSEEvent();
         const payload = JSON.parse(event.data) as UiEvent;
@@ -389,6 +392,14 @@ export function useSSE(authState: AuthState): void {
       }
     };
 
+    /** A delivered event clears the backoff, but only once the connection has
+     *  proven it can last — see STABLE_CONNECTION_MS. */
+    const noteStreamActivity = () => {
+      if (Date.now() - connectStartedAt >= STABLE_CONNECTION_MS) {
+        reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+      }
+    };
+
     const scheduleReconnect = () => {
       if (reconnectTimer !== null) return;
       const delay = reconnectDelayMs;
@@ -401,23 +412,28 @@ export function useSSE(authState: AuthState): void {
     };
 
     const openSSE = () => {
-      if (eventSourceRef.current) return;
+      // A live source and a pending retry are mutually exclusive: a retry is
+      // only ever scheduled after the source is dropped.
+      if (source) return;
       cancelReconnect();
-      const source = new EventSource("/api/v1/events", {
+      const opened = new EventSource("/api/v1/events", {
         withCredentials: true,
       });
-      connectedAt = Date.now();
-      eventSourceRef.current = source;
-      source.onmessage = handleSSEMessage;
-      source.onerror = () => {
+      connectStartedAt = Date.now();
+      source = opened;
+      opened.onmessage = (event) => {
+        noteStreamActivity();
+        handleSSEMessage(event);
+      };
+      opened.onerror = () => {
         recordSSEReconnect();
         // CONNECTING means the browser is retrying on its own — leave it be.
         // CLOSED means it has given up; the instance is dead, so drop it and
         // retry ourselves.
-        if (source.readyState !== EventSource.CLOSED) return;
-        source.close();
-        if (eventSourceRef.current === source) {
-          eventSourceRef.current = null;
+        if (opened.readyState !== EventSource.CLOSED) return;
+        opened.close();
+        if (source === opened) {
+          source = null;
         }
         scheduleReconnect();
       };
@@ -425,9 +441,9 @@ export function useSSE(authState: AuthState): void {
 
     const closeSSE = () => {
       cancelReconnect();
-      if (eventSourceRef.current) {
-        eventSourceRef.current.close();
-        eventSourceRef.current = null;
+      if (source) {
+        source.close();
+        source = null;
       }
     };
 

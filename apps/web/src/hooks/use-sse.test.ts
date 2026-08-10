@@ -127,7 +127,6 @@ class FakeEventSource {
 }
 
 describe("useSSE reconnect", () => {
-  let originalEventSource: typeof globalThis.EventSource;
   let hiddenValue = false;
 
   function renderSSE() {
@@ -148,12 +147,8 @@ describe("useSSE reconnect", () => {
     vi.useFakeTimers();
     FakeEventSource.instances = [];
     hiddenValue = false;
-    Object.defineProperty(document, "hidden", {
-      configurable: true,
-      get: () => hiddenValue,
-    });
-    originalEventSource = globalThis.EventSource;
-    globalThis.EventSource = FakeEventSource as unknown as typeof EventSource;
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.spyOn(document, "hidden", "get").mockImplementation(() => hiddenValue);
   });
 
   afterEach(() => {
@@ -162,7 +157,8 @@ describe("useSSE reconnect", () => {
     // call, every hook stays mounted (listeners and all) for the rest of the
     // file and a leaked instance answers the next test's document events.
     cleanup();
-    globalThis.EventSource = originalEventSource;
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
     vi.useRealTimers();
   });
 
