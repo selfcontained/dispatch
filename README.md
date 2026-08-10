@@ -172,6 +172,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `dispatch_review_reopen`        | Reopen a resolved review feedback item                                     |
 | `dispatch_review_add_message`   | Reply to a review feedback thread                                          |
 | `dispatch_launch_agent`         | Launch a new child agent to work on a subtask                              |
+| `dispatch_archive_agent`        | Archive an agent this session launched, with worktree cleanup control      |
 | `list_agents`                   | List other agents in the same repo with IDs, names, statuses, and activity |
 | `dispatch_send_message`         | Send a message to another running agent by ID or name                      |
 | `get_activity_summary`          | Summarize agent activity over a time range                                 |

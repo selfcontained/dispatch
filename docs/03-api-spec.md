@@ -157,33 +157,38 @@ Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`
 
 Server-Sent Events stream. Used by the frontend for real-time UI updates. Event types:
 
-| Event type                     | Payload                                              |
-| ------------------------------ | ---------------------------------------------------- |
-| `snapshot`                     | Full agent list (sent on initial connection)         |
-| `agent.upsert`                 | Single agent record (created or updated)             |
-| `agent.terminal_state_changed` | Terminal UI state for an agent                       |
-| `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)     |
-| `agent.deleted`                | Agent ID that was deleted                            |
-| `media.changed`                | Agent ID whose media list changed                    |
-| `media.seen`                   | Agent ID + array of media keys marked seen           |
-| `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)  |
-| `stream.started`               | Agent ID whose live stream started                   |
-| `stream.stopped`               | Agent ID whose live stream stopped                   |
-| `feedback.created`             | Agent ID + new feedback record                       |
-| `feedback.updated`             | Agent ID + updated feedback record                   |
-| `job.changed`                  | (no payload) — job config or run state changed       |
-| `template.changed`             | (no payload) — template created, updated, or deleted |
-| `notification`                 | Web notification payload (id, agent, event, message) |
-| `release.cached_info_changed`  | Latest release-info snapshot (or `null`)             |
+| Event type                     | Payload                                                             |
+| ------------------------------ | ------------------------------------------------------------------- |
+| `snapshot`                     | Full agent list (sent on initial connection)                        |
+| `agent.upsert`                 | Single agent record (created or updated)                            |
+| `agent.terminal_state_changed` | Terminal UI state for an agent                                      |
+| `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)                    |
+| `agent.injection_hold_changed` | Agent ID + injection hold state (`held`, `pendingCount`, `quietMs`) |
+| `agent.deleted`                | Agent ID that was deleted                                           |
+| `media.changed`                | Agent ID whose media list changed                                   |
+| `media.seen`                   | Agent ID + array of media keys marked seen                          |
+| `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)                 |
+| `stream.started`               | Agent ID whose live stream started                                  |
+| `stream.stopped`               | Agent ID whose live stream stopped                                  |
+| `feedback.created`             | Agent ID + new feedback record                                      |
+| `feedback.updated`             | Agent ID + updated feedback record                                  |
+| `job.changed`                  | (no payload) — job config or run state changed                      |
+| `template.changed`             | (no payload) — template created, updated, or deleted                |
+| `notification`                 | Web notification payload (id, agent, event, message)                |
+| `release.cached_info_changed`  | Latest release-info snapshot (or `null`)                            |
 
 ## Terminal
 
-| Method | Path                                | Description                             |
-| ------ | ----------------------------------- | --------------------------------------- |
-| POST   | `/agents/:id/terminal/token`        | Issue short-lived terminal access token |
-| WS     | `/agents/:id/terminal/ws?token=...` | WebSocket for interactive terminal I/O  |
+| Method | Path                                      | Description                                                        |
+| ------ | ----------------------------------------- | ------------------------------------------------------------------ |
+| POST   | `/agents/:id/terminal/token`              | Issue short-lived terminal access token                            |
+| WS     | `/agents/:id/terminal/ws?token=...`       | WebSocket for interactive terminal I/O                             |
+| GET    | `/agents/:id/terminal/state`              | Current tmux terminal state (copy mode / live)                     |
+| POST   | `/agents/:id/terminal/copy-mode/exit`     | Leave tmux copy mode and return the pane to live input             |
+| POST   | `/agents/:id/terminal/interaction`        | Record a user terminal interaction (`{ "interaction": "scroll" }`) |
+| POST   | `/agents/:id/terminal/release-injections` | Deliver every prompt currently held by the quiet gate              |
 
-The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session.
+The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session. Keystrokes and `interaction` messages also feed the injection quiet gate — see `/app/settings/injection-hold`. The state, copy-mode, interaction, and inject-phrase endpoints return `409` when the agent has no tmux session.
 
 ## Quick Phrases
 
@@ -358,13 +363,19 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 
-| Method | Path                        | Description                                                                   |
-| ------ | --------------------------- | ----------------------------------------------------------------------------- |
-| GET    | `/agents/settings`          | Get agent settings (worktree location, icon color, instance name)             |
-| POST   | `/agents/settings`          | Update agent settings (all fields optional)                                   |
-| GET    | `/app/settings/agent-types` | Get enabled agent types                                                       |
-| POST   | `/app/settings/agent-types` | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`) |
-| GET    | `/agent-models`             | Curated per-type model catalog (`{ models: { claude: [...], ... } }`)         |
+| Method | Path                                 | Description                                                                   |
+| ------ | ------------------------------------ | ----------------------------------------------------------------------------- |
+| GET    | `/agents/settings`                   | Get agent settings (worktree location, icon color, instance name)             |
+| POST   | `/agents/settings`                   | Update agent settings (all fields optional)                                   |
+| GET    | `/app/settings/agent-types`          | Get enabled agent types                                                       |
+| POST   | `/app/settings/agent-types`          | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`) |
+| GET    | `/app/settings/ides`                 | Get enabled IDE integrations                                                  |
+| POST   | `/app/settings/ides`                 | Set enabled IDE integrations                                                  |
+| GET    | `/app/settings/cross-repo-messaging` | Whether agents may message agents in other repositories                       |
+| POST   | `/app/settings/cross-repo-messaging` | Enable or disable cross-repo messaging (`{ "enabled": boolean }`)             |
+| GET    | `/app/settings/injection-hold`       | Whether automated prompts wait for a typing pause (`{ "enabled": boolean }`)  |
+| POST   | `/app/settings/injection-hold`       | Enable or disable the injection quiet gate (`{ "enabled": boolean }`)         |
+| GET    | `/agent-models`                      | Curated per-type model catalog (`{ models: { claude: [...], ... } }`)         |
 
 ## System
 
