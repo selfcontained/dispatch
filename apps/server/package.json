@@ -9,9 +9,9 @@
     "build": "bun run prepare:runtime-assets && tsc -p tsconfig.json",
     "start": "bun run prepare:runtime-assets && bun src/main.ts",
     "check": "bun run prepare:runtime-assets && tsc --noEmit",
-    "test": "bun run prepare:runtime-assets && bun x vitest run",
-    "test:coverage": "bun run prepare:runtime-assets && mkdir -p coverage/.tmp && bun x vitest run --coverage",
-    "test:watch": "bun run prepare:runtime-assets && bun x vitest",
+    "test": "bun run prepare:runtime-assets && bash ../../scripts/server-tests-isolated.sh run",
+    "test:coverage": "bun run prepare:runtime-assets && mkdir -p coverage/.tmp && bash ../../scripts/server-tests-isolated.sh run --coverage",
+    "test:watch": "bun run prepare:runtime-assets && bash ../../scripts/server-tests-isolated.sh",
     "db:migrate": "bun run prepare:runtime-assets && bun src/db/migrate.ts"
   },
   "dependencies": {
