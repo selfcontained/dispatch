@@ -10,6 +10,7 @@ import {
   BrainValidationError,
   BrainLimitExceededError,
   MAX_LIST_ITEMS_PER_PUSH,
+  MAX_EVENT_IDS_PER_DELETE,
 } from "../../brain/store.js";
 import { toToolError } from "./tool-error.js";
 
@@ -74,7 +75,9 @@ const subjectSchema = z.string().min(1).max(255);
 const tagSchema = z.string().min(1).max(255);
 const tagsSchema = z.array(tagSchema).max(50);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
-const MAX_EVENT_IDS_PER_DELETE = 200;
+// Bare strings like "now" or "epoch" are valid timestamptz literals to Postgres,
+// so the destructive path only accepts explicit instants.
+const eventTimestampSchema = z.iso.datetime({ offset: true });
 const listOrderSchema = z.enum(["asc", "desc"]);
 
 export function registerBrainTools(
@@ -598,8 +601,15 @@ export function registerBrainTools(
           "Either pass explicit event ids (from brain_query_events), or pass filters " +
           "(collection, kind, subject, tags, since, until) to delete every matching event — not both. " +
           "At least one id or filter is required so the whole log cannot be wiped by accident. " +
-          "Deletion is permanent: query first to confirm what will be removed.",
+          "Deletion is permanent and there is no undo: run with dryRun first to see how many " +
+          "events the same selector matches.",
         inputSchema: {
+          dryRun: z
+            .boolean()
+            .optional()
+            .describe(
+              "Report how many events this selector matches without deleting anything."
+            ),
           ids: z
             .array(z.uuid())
             .min(1)
@@ -618,17 +628,15 @@ export function registerBrainTools(
           tags: tagsSchema
             .optional()
             .describe("Delete events containing all of these tags."),
-          since: z
-            .string()
+          since: eventTimestampSchema
             .optional()
             .describe(
-              "Delete events created at or after this ISO 8601 timestamp."
+              "Delete events created at or after this ISO 8601 timestamp (e.g. 2026-01-01T00:00:00Z)."
             ),
-          until: z
-            .string()
+          until: eventTimestampSchema
             .optional()
             .describe(
-              "Delete events created at or before this ISO 8601 timestamp."
+              "Delete events created at or before this ISO 8601 timestamp (e.g. 2026-01-01T00:00:00Z)."
             ),
         },
       },
@@ -636,6 +644,7 @@ export function registerBrainTools(
         try {
           const result = await store.deleteEvents(repoRoot, {
             ids: args.ids,
+            dryRun: args.dryRun,
             collection: args.collection,
             kind: args.kind,
             subject: args.subject,
@@ -648,8 +657,9 @@ export function registerBrainTools(
             content: [
               {
                 type: "text",
-                text:
-                  result.deleted === 1
+                text: args.dryRun
+                  ? `Dry run: ${result.matched} event(s) match. Nothing was deleted.`
+                  : result.deleted === 1
                     ? "Deleted 1 event."
                     : `Deleted ${result.deleted} events.`,
               },

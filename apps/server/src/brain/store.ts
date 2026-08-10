@@ -147,6 +147,14 @@ export class BrainLimitExceededError extends Error {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 export const MAX_LIST_ITEMS_PER_PUSH = 200;
+export const MAX_EVENT_IDS_PER_DELETE = 200;
+
+// Postgres accepts special timestamp literals ("now", "epoch", "infinity",
+// "yesterday", …) wherever a timestamptz is expected, so an unvalidated string
+// like "now" silently widens a delete to the whole log. Only accept explicit
+// ISO 8601 instants on destructive paths.
+const ISO_TIMESTAMP_RE =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 
 function clampLimit(limit: number | undefined): number {
   const n = limit ?? DEFAULT_LIMIT;
@@ -773,9 +781,9 @@ export class BrainStore {
 
   async deleteEvents(
     repoRoot: string,
-    selector: BrainEventFilter & { ids?: string[] }
-  ): Promise<{ deleted: number }> {
-    const { ids, ...filter } = selector;
+    selector: BrainEventFilter & { ids?: string[]; dryRun?: boolean }
+  ): Promise<{ deleted: number; matched: number }> {
+    const { ids, dryRun, ...filter } = selector;
     const hasIds = ids !== undefined && ids.length > 0;
     const hasFilter = hasEventFilter(filter);
     if (hasIds === hasFilter) {
@@ -783,6 +791,13 @@ export class BrainStore {
         "Provide either ids or at least one filter (collection, kind, subject, tags, since, until) when deleting events."
       );
     }
+    if (ids && ids.length > MAX_EVENT_IDS_PER_DELETE) {
+      throw new BrainLimitExceededError(
+        `Event delete accepts at most ${MAX_EVENT_IDS_PER_DELETE} ids per call.`
+      );
+    }
+    assertIsoTimestamp("since", filter.since);
+    assertIsoTimestamp("until", filter.until);
 
     const conditions: string[] = ["repo_root = $1"];
     const params: unknown[] = [repoRoot];
@@ -794,11 +809,22 @@ export class BrainStore {
       appendEventFilters(filter, conditions, params);
     }
 
+    const where = conditions.join(" AND ");
+
+    if (dryRun) {
+      const preview = await this.pool.query(
+        `SELECT COUNT(*)::int AS matched FROM brain_events WHERE ${where}`,
+        params
+      );
+      return { deleted: 0, matched: preview.rows[0]?.matched ?? 0 };
+    }
+
     const result = await this.pool.query(
-      `DELETE FROM brain_events WHERE ${conditions.join(" AND ")}`,
+      `DELETE FROM brain_events WHERE ${where}`,
       params
     );
-    return { deleted: result.rowCount ?? 0 };
+    const deleted = result.rowCount ?? 0;
+    return { deleted, matched: deleted };
   }
 
   async queryEvents(
@@ -1180,6 +1206,15 @@ function objectColumns(): string {
 
 function mapObject(row: Record<string, unknown>): BrainObject {
   return row as BrainObject;
+}
+
+function assertIsoTimestamp(field: string, value: string | undefined): void {
+  if (value === undefined) return;
+  if (!ISO_TIMESTAMP_RE.test(value) || Number.isNaN(Date.parse(value))) {
+    throw new BrainValidationError(
+      `"${field}" must be an ISO 8601 timestamp with a UTC offset (e.g. 2026-01-01T00:00:00Z).`
+    );
+  }
 }
 
 function hasEventFilter(filter: BrainEventFilter): boolean {

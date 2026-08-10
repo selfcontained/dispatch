@@ -861,7 +861,7 @@ describe("registerBrainTools", () => {
 
   describe("brain_delete_events", () => {
     it("deletes by ids and publishes the change", async () => {
-      store.deleteEvents.mockResolvedValue({ deleted: 2 });
+      store.deleteEvents.mockResolvedValue({ deleted: 2, matched: 2 });
       registerAll();
 
       const result = (await findHandler(
@@ -876,11 +876,12 @@ describe("registerBrainTools", () => {
       };
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toEqual({ deleted: 2 });
+      expect(result.structuredContent).toEqual({ deleted: 2, matched: 2 });
       expect(result.content[0].text).toBe("Deleted 2 events.");
       expect(publishBrainChanged).toHaveBeenCalledTimes(1);
       expect(store.deleteEvents).toHaveBeenCalledWith(REPO_ROOT, {
         ids: ["11111111-1111-4111-8111-111111111111"],
+        dryRun: undefined,
         collection: undefined,
         kind: undefined,
         subject: undefined,
@@ -891,7 +892,7 @@ describe("registerBrainTools", () => {
     });
 
     it("passes all filter parameters", async () => {
-      store.deleteEvents.mockResolvedValue({ deleted: 1 });
+      store.deleteEvents.mockResolvedValue({ deleted: 1, matched: 1 });
       registerAll();
 
       const result = (await findHandler(
@@ -909,6 +910,7 @@ describe("registerBrainTools", () => {
       expect(result.content[0].text).toBe("Deleted 1 event.");
       expect(store.deleteEvents).toHaveBeenCalledWith(REPO_ROOT, {
         ids: undefined,
+        dryRun: undefined,
         collection: "c",
         kind: "run",
         subject: "test-enforcer",
@@ -919,7 +921,7 @@ describe("registerBrainTools", () => {
     });
 
     it("does not publish when nothing matched", async () => {
-      store.deleteEvents.mockResolvedValue({ deleted: 0 });
+      store.deleteEvents.mockResolvedValue({ deleted: 0, matched: 0 });
       registerAll();
 
       const result = (await findHandler(
@@ -931,6 +933,52 @@ describe("registerBrainTools", () => {
 
       expect(result.content[0].text).toBe("Deleted 0 events.");
       expect(publishBrainChanged).not.toHaveBeenCalled();
+    });
+
+    it("reports the match count on a dry run without publishing", async () => {
+      store.deleteEvents.mockResolvedValue({ deleted: 0, matched: 412 });
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_delete_events"
+      )({
+        collection: "c",
+        dryRun: true,
+      })) as {
+        structuredContent: { deleted: number; matched: number };
+        content: Array<{ text: string }>;
+      };
+
+      expect(result.content[0].text).toBe(
+        "Dry run: 412 event(s) match. Nothing was deleted."
+      );
+      expect(result.structuredContent).toEqual({ deleted: 0, matched: 412 });
+      expect(publishBrainChanged).not.toHaveBeenCalled();
+      expect(store.deleteEvents).toHaveBeenCalledWith(
+        REPO_ROOT,
+        expect.objectContaining({ dryRun: true, collection: "c" })
+      );
+    });
+
+    it("surfaces limit errors from the store", async () => {
+      store.deleteEvents.mockRejectedValue(
+        new BrainLimitExceededError("Event delete accepts at most 200 ids")
+      );
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_delete_events"
+      )({
+        ids: ["11111111-1111-4111-8111-111111111111"],
+      })) as {
+        isError: true;
+        structuredContent: { error: { code: string } };
+      };
+
+      expect(result.isError).toBe(true);
+      expect(result.structuredContent.error.code).toBe("limit_exceeded");
     });
 
     it("surfaces validation errors from the store", async () => {
