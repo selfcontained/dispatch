@@ -11,6 +11,8 @@ import {
   BrainLimitExceededError,
   MAX_LIST_ITEMS_PER_PUSH,
   MAX_EVENT_IDS_PER_DELETE,
+  isIsoInstant,
+  toEventDeleteSelector,
 } from "../src/brain/store.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./db/setup.js";
 
@@ -447,6 +449,53 @@ describe("BrainStore deleteEvents", () => {
     ).resolves.toEqual({ deleted: 0, matched: 0 });
   });
 
+  it("exposes one instant rule for the schema and the store to share", async () => {
+    for (const value of [
+      "2026-01-01T00:00:00Z",
+      "2026-01-01T00:00:00+05:30",
+      "2026-01-01T00:00:00-08:00",
+      "2026-01-01T00:00:00+0500",
+      "2028-02-29T00:00:00Z",
+    ]) {
+      expect(isIsoInstant(value)).toBe(true);
+    }
+    for (const value of [
+      "now",
+      "epoch",
+      "infinity",
+      "yesterday",
+      "not-a-date",
+      "2026-01-01",
+      "2026-01-01T00:00:00",
+      "2026-02-30T00:00:00Z",
+      "0000-01-01T00:00:00Z",
+    ]) {
+      expect(isIsoInstant(value)).toBe(false);
+    }
+  });
+
+  it("narrows a loose selector to one legal mode, or throws", () => {
+    expect(toEventDeleteSelector({ ids: ["a"], dryRun: true })).toEqual({
+      ids: ["a"],
+      dryRun: true,
+    });
+    expect(
+      toEventDeleteSelector({ collection: "prune", kind: "stale" })
+    ).toMatchObject({ collection: "prune", kind: "stale" });
+
+    // The shapes the union makes unrepresentable at the call site.
+    expect(() =>
+      toEventDeleteSelector({ ids: [], collection: "prune" })
+    ).toThrow(BrainValidationError);
+    expect(() =>
+      toEventDeleteSelector({ ids: ["a"], collection: "p" })
+    ).toThrow(BrainValidationError);
+    expect(() => toEventDeleteSelector({ kind: "stale" })).toThrow(
+      BrainValidationError
+    );
+    expect(() => toEventDeleteSelector({})).toThrow(BrainValidationError);
+  });
+
   it("counts without deleting on a dry run", async () => {
     await store.deleteEvents(REPO, { collection: "prune" });
     await seedPruneEvents();
@@ -479,6 +528,42 @@ describe("BrainStore deleteEvents", () => {
     const other = await store.queryEvents(REPO_B, { collection: "prune" });
     expect(other).toHaveLength(3);
     await store.deleteEvents(REPO_B, { collection: "prune" });
+  });
+
+  it("rejects an empty ids array instead of widening to the filter", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    // The dangerous shape: a caller passes a collection plus a list that
+    // happened to come back empty.
+    await expect(
+      store.deleteEvents(REPO, {
+        collection: "prune",
+        ids: [],
+      } as never)
+    ).rejects.toBeInstanceOf(BrainValidationError);
+    await expect(store.deleteEvents(REPO, { ids: [] })).rejects.toBeInstanceOf(
+      BrainValidationError
+    );
+
+    expect(await store.queryEvents(REPO, { collection: "prune" })).toHaveLength(
+      3
+    );
+    await store.deleteEvents(REPO, { collection: "prune" });
+  });
+
+  it("deletes a single event through the deleteEvent convenience wrapper", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    const ids = await seedPruneEvents();
+
+    expect(await store.deleteEvent(REPO, ids[0])).toBe(true);
+    expect(await store.deleteEvent(REPO, ids[0])).toBe(false);
+    expect(await store.deleteEvent(REPO_B, ids[1])).toBe(false);
+    expect(await store.queryEvents(REPO, { collection: "prune" })).toHaveLength(
+      2
+    );
+
+    await store.deleteEvents(REPO, { collection: "prune" });
   });
 
   it("rejects a delete with no ids and no filter", async () => {

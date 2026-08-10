@@ -11,6 +11,9 @@ import {
   BrainLimitExceededError,
   MAX_LIST_ITEMS_PER_PUSH,
   MAX_EVENT_IDS_PER_DELETE,
+  ISO_INSTANT_HINT,
+  isIsoInstant,
+  toEventDeleteSelector,
 } from "../../brain/store.js";
 import { toToolError } from "./tool-error.js";
 
@@ -76,8 +79,12 @@ const tagSchema = z.string().min(1).max(255);
 const tagsSchema = z.array(tagSchema).max(50);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
 // Bare strings like "now" or "epoch" are valid timestamptz literals to Postgres,
-// so the destructive path only accepts explicit instants.
-const eventTimestampSchema = z.iso.datetime({ offset: true });
+// so the destructive path only accepts explicit instants. The rule itself lives
+// in the store — refine against it rather than restating it here, or the two
+// definitions drift.
+const eventTimestampSchema = z.string().refine(isIsoInstant, {
+  message: `Timestamp ${ISO_INSTANT_HINT}.`,
+});
 const listOrderSchema = z.enum(["asc", "desc"]);
 
 export function registerBrainTools(
@@ -602,7 +609,8 @@ export function registerBrainTools(
           "with optional narrowing filters (kind, subject, tags, since, until) to delete every " +
           "matching event — not both. Filter deletes always require a collection: kinds and " +
           "subjects are reused across collections, so an unscoped delete would reach much " +
-          "further than it reads. " +
+          "further than it reads. Run brain_query_events without a collection to see which " +
+          "collections exist. " +
           "Deletion is permanent and there is no undo: run with dryRun first to see how many " +
           "events the same selector matches.",
         inputSchema: {
@@ -648,16 +656,19 @@ export function registerBrainTools(
       },
       async (args) => {
         try {
-          const result = await store.deleteEvents(repoRoot, {
-            ids: args.ids,
-            dryRun: args.dryRun,
-            collection: args.collection,
-            kind: args.kind,
-            subject: args.subject,
-            tags: args.tags,
-            since: args.since,
-            until: args.until,
-          });
+          const result = await store.deleteEvents(
+            repoRoot,
+            toEventDeleteSelector({
+              ids: args.ids,
+              dryRun: args.dryRun,
+              collection: args.collection,
+              kind: args.kind,
+              subject: args.subject,
+              tags: args.tags,
+              since: args.since,
+              until: args.until,
+            })
+          );
           if (result.deleted > 0) publishBrainChanged?.();
           return {
             content: [
