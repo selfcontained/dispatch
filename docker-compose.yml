@@ -2,7 +2,10 @@ services:
   postgres:
     image: postgres:17-alpine
     container_name: dispatch-postgres-${DISPATCH_DB_NAME:-dev}
-    restart: unless-stopped
+    # The long-lived dev database should come back with Docker; the per-run
+    # test databases must not, or a run killed before its teardown leaves a
+    # container that Docker resurrects on every daemon start.
+    restart: ${DISPATCH_DB_RESTART:-unless-stopped}
     environment:
       POSTGRES_USER: dispatch
       POSTGRES_PASSWORD: dispatch

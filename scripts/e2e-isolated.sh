@@ -32,6 +32,9 @@ API_PORT="$(find_free_port)"
 
 export DISPATCH_DB_NAME="$RUN_ID"
 export DISPATCH_DB_PORT="$DB_PORT"
+# Per-run database: never resurrect it on daemon start. Without this, a run
+# that dies before `cleanup` leaves a container Docker keeps bringing back.
+export DISPATCH_DB_RESTART="no"
 export E2E_PORT="$API_PORT"
 # Agent runtime defaults to inert (no real agent processes). Live mode is an
 # explicit opt-in via E2E_AGENT_RUNTIME=tmux (`pnpm run test:e2e:live`), which
