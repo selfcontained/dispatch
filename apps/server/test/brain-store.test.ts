@@ -422,6 +422,29 @@ describe("BrainStore deleteEvents", () => {
     await store.deleteEvents(REPO, { collection: "prune" });
   });
 
+  it("rejects calendar-impossible timestamps before they reach pg", async () => {
+    for (const value of [
+      "2026-02-30T00:00:00Z",
+      "0000-01-01T00:00:00Z",
+      "2026-13-01T00:00:00Z",
+      "2026-01-32T00:00:00Z",
+      "2027-02-29T00:00:00Z",
+    ]) {
+      await expect(
+        store.deleteEvents(REPO, { until: value })
+      ).rejects.toBeInstanceOf(BrainValidationError);
+    }
+
+    // Real leap days still pass (dry run so the check stays non-destructive).
+    await expect(
+      store.deleteEvents(REPO, {
+        collection: "prune",
+        until: "2028-02-29T00:00:00Z",
+        dryRun: true,
+      })
+    ).resolves.toEqual({ deleted: 0, matched: 0 });
+  });
+
   it("counts without deleting on a dry run", async () => {
     await store.deleteEvents(REPO, { collection: "prune" });
     await seedPruneEvents();

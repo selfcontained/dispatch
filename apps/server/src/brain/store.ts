@@ -154,7 +154,7 @@ export const MAX_EVENT_IDS_PER_DELETE = 200;
 // like "now" silently widens a delete to the whole log. Only accept explicit
 // ISO 8601 instants on destructive paths.
 const ISO_TIMESTAMP_RE =
-  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
+  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 
 function clampLimit(limit: number | undefined): number {
   const n = limit ?? DEFAULT_LIMIT;
@@ -1210,11 +1210,23 @@ function mapObject(row: Record<string, unknown>): BrainObject {
 
 function assertIsoTimestamp(field: string, value: string | undefined): void {
   if (value === undefined) return;
-  if (!ISO_TIMESTAMP_RE.test(value) || Number.isNaN(Date.parse(value))) {
+  const match = ISO_TIMESTAMP_RE.exec(value);
+  // Date.parse rolls impossible dates over (Feb 30 becomes Mar 2) and accepts
+  // year 0, both of which Postgres rejects — so check the calendar directly
+  // rather than letting a raw pg error escape as an untyped failure.
+  if (!match || Number.isNaN(Date.parse(value)) || !isRealCalendarDate(match)) {
     throw new BrainValidationError(
       `"${field}" must be an ISO 8601 timestamp with a UTC offset (e.g. 2026-01-01T00:00:00Z).`
     );
   }
+}
+
+function isRealCalendarDate(match: RegExpExecArray): boolean {
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 function hasEventFilter(filter: BrainEventFilter): boolean {
