@@ -190,8 +190,9 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `brain_list_get`                | Read items from a shared Brain list with paging and ordering               |
 | `brain_list_set`                | Replace one item in a shared Brain list by index                           |
 | `brain_list_delete`             | Delete a shared Brain list and all of its items                            |
-| `brain_append_event`            | Append a structured event to the Brain's immutable event log               |
+| `brain_append_event`            | Append a structured event to the Brain's append-only event log             |
 | `brain_query_events`            | Query Brain events by collection, kind, subject, tags, and time range      |
+| `brain_delete_events`           | Delete Brain events by id, or prune every event matching a filter          |
 | `list_jobs`                     | List jobs scoped to a directory                                            |
 | `get_job`                       | Get a single job by ID or name                                             |
 | `create_job`                    | Create a new job                                                           |

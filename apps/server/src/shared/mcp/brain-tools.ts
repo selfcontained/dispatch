@@ -74,6 +74,7 @@ const subjectSchema = z.string().min(1).max(255);
 const tagSchema = z.string().min(1).max(255);
 const tagsSchema = z.array(tagSchema).max(50);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
+const MAX_EVENT_IDS_PER_DELETE = 200;
 const listOrderSchema = z.enum(["asc", "desc"]);
 
 export function registerBrainTools(
@@ -541,7 +542,8 @@ export function registerBrainTools(
       {
         description:
           "Append a structured event to the shared brain's event log. " +
-          "Events are immutable and append-only. Use events to record history, " +
+          "Events are append-only — they cannot be edited, only pruned with brain_delete_events. " +
+          "Use events to record history, " +
           "assessments, decisions, or any structured observation that other agents can query.",
         inputSchema: {
           collection: collectionSchema.describe(
@@ -578,6 +580,81 @@ export function registerBrainTools(
           return {
             content: [{ type: "text", text: JSON.stringify(event, null, 2) }],
             structuredContent: toStructuredContent(event),
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_delete_events ───────────────────────────────────────────
+  if (allowed.has("brain_delete_events")) {
+    server.registerTool(
+      "brain_delete_events",
+      {
+        description:
+          "Delete events from the shared brain's event log. " +
+          "Either pass explicit event ids (from brain_query_events), or pass filters " +
+          "(collection, kind, subject, tags, since, until) to delete every matching event — not both. " +
+          "At least one id or filter is required so the whole log cannot be wiped by accident. " +
+          "Deletion is permanent: query first to confirm what will be removed.",
+        inputSchema: {
+          ids: z
+            .array(z.uuid())
+            .min(1)
+            .max(MAX_EVENT_IDS_PER_DELETE)
+            .optional()
+            .describe(
+              `Event ids to delete (max ${MAX_EVENT_IDS_PER_DELETE}). Cannot be combined with filters.`
+            ),
+          collection: collectionSchema
+            .optional()
+            .describe("Delete events in this collection."),
+          kind: kindSchema.optional().describe("Delete events of this kind."),
+          subject: subjectSchema
+            .optional()
+            .describe("Delete events with this subject."),
+          tags: tagsSchema
+            .optional()
+            .describe("Delete events containing all of these tags."),
+          since: z
+            .string()
+            .optional()
+            .describe(
+              "Delete events created at or after this ISO 8601 timestamp."
+            ),
+          until: z
+            .string()
+            .optional()
+            .describe(
+              "Delete events created at or before this ISO 8601 timestamp."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await store.deleteEvents(repoRoot, {
+            ids: args.ids,
+            collection: args.collection,
+            kind: args.kind,
+            subject: args.subject,
+            tags: args.tags,
+            since: args.since,
+            until: args.until,
+          });
+          if (result.deleted > 0) publishBrainChanged?.();
+          return {
+            content: [
+              {
+                type: "text",
+                text:
+                  result.deleted === 1
+                    ? "Deleted 1 event."
+                    : `Deleted ${result.deleted} events.`,
+              },
+            ],
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);

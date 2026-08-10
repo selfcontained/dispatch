@@ -68,6 +68,15 @@ export type BrainCollectionDeleteResult = {
 
 export type BrainDeleteResult = BrainCollectionDeleteResult;
 
+export type BrainEventFilter = {
+  collection?: string;
+  kind?: string;
+  subject?: string;
+  tags?: string[];
+  since?: string;
+  until?: string;
+};
+
 export type BrainAgentActivity = {
   objects: BrainObject[];
   lists: (BrainList & { itemCount: number })[];
@@ -762,15 +771,39 @@ export class BrainStore {
     return (result.rowCount ?? 0) > 0;
   }
 
+  async deleteEvents(
+    repoRoot: string,
+    selector: BrainEventFilter & { ids?: string[] }
+  ): Promise<{ deleted: number }> {
+    const { ids, ...filter } = selector;
+    const hasIds = ids !== undefined && ids.length > 0;
+    const hasFilter = hasEventFilter(filter);
+    if (hasIds === hasFilter) {
+      throw new BrainValidationError(
+        "Provide either ids or at least one filter (collection, kind, subject, tags, since, until) when deleting events."
+      );
+    }
+
+    const conditions: string[] = ["repo_root = $1"];
+    const params: unknown[] = [repoRoot];
+
+    if (hasIds) {
+      params.push(ids);
+      conditions.push(`id = ANY($${params.length}::uuid[])`);
+    } else {
+      appendEventFilters(filter, conditions, params);
+    }
+
+    const result = await this.pool.query(
+      `DELETE FROM brain_events WHERE ${conditions.join(" AND ")}`,
+      params
+    );
+    return { deleted: result.rowCount ?? 0 };
+  }
+
   async queryEvents(
     repoRoot: string,
-    filter?: {
-      collection?: string;
-      kind?: string;
-      subject?: string;
-      tags?: string[];
-      since?: string;
-      until?: string;
+    filter?: BrainEventFilter & {
       limit?: number;
       order?: "asc" | "desc";
     }
@@ -778,30 +811,7 @@ export class BrainStore {
     const conditions: string[] = ["repo_root = $1"];
     const params: unknown[] = [repoRoot];
 
-    if (filter?.collection) {
-      params.push(filter.collection);
-      conditions.push(`collection = $${params.length}`);
-    }
-    if (filter?.kind) {
-      params.push(filter.kind);
-      conditions.push(`kind = $${params.length}`);
-    }
-    if (filter?.subject) {
-      params.push(filter.subject);
-      conditions.push(`subject = $${params.length}`);
-    }
-    if (filter?.tags && filter.tags.length > 0) {
-      params.push(filter.tags);
-      conditions.push(`tags @> $${params.length}`);
-    }
-    if (filter?.since) {
-      params.push(filter.since);
-      conditions.push(`created_at >= $${params.length}`);
-    }
-    if (filter?.until) {
-      params.push(filter.until);
-      conditions.push(`created_at <= $${params.length}`);
-    }
+    appendEventFilters(filter, conditions, params);
 
     const limit = clampLimit(filter?.limit);
     params.push(limit);
@@ -1170,6 +1180,48 @@ function objectColumns(): string {
 
 function mapObject(row: Record<string, unknown>): BrainObject {
   return row as BrainObject;
+}
+
+function hasEventFilter(filter: BrainEventFilter): boolean {
+  return Boolean(
+    filter.collection ||
+    filter.kind ||
+    filter.subject ||
+    (filter.tags && filter.tags.length > 0) ||
+    filter.since ||
+    filter.until
+  );
+}
+
+function appendEventFilters(
+  filter: BrainEventFilter | undefined,
+  conditions: string[],
+  params: unknown[]
+): void {
+  if (filter?.collection) {
+    params.push(filter.collection);
+    conditions.push(`collection = $${params.length}`);
+  }
+  if (filter?.kind) {
+    params.push(filter.kind);
+    conditions.push(`kind = $${params.length}`);
+  }
+  if (filter?.subject) {
+    params.push(filter.subject);
+    conditions.push(`subject = $${params.length}`);
+  }
+  if (filter?.tags && filter.tags.length > 0) {
+    params.push(filter.tags);
+    conditions.push(`tags @> $${params.length}`);
+  }
+  if (filter?.since) {
+    params.push(filter.since);
+    conditions.push(`created_at >= $${params.length}`);
+  }
+  if (filter?.until) {
+    params.push(filter.until);
+    conditions.push(`created_at <= $${params.length}`);
+  }
 }
 
 function eventColumns(): string {

@@ -306,6 +306,103 @@ describe("BrainStore events", () => {
   });
 });
 
+describe("BrainStore deleteEvents", () => {
+  async function seedPruneEvents(repo = REPO): Promise<string[]> {
+    const ids: string[] = [];
+    for (const kind of ["stale", "stale", "keep"]) {
+      const event = await store.appendEvent(repo, AGENT, {
+        collection: "prune",
+        kind,
+        value: { kind },
+        subject: kind,
+        tags: [kind],
+      });
+      ids.push(event.id);
+    }
+    return ids;
+  }
+
+  it("deletes events by id", async () => {
+    const ids = await seedPruneEvents();
+
+    const result = await store.deleteEvents(REPO, { ids: ids.slice(0, 2) });
+    expect(result).toEqual({ deleted: 2 });
+
+    const remaining = await store.queryEvents(REPO, { collection: "prune" });
+    expect(remaining.map((e) => e.id)).toEqual([ids[2]]);
+  });
+
+  it("ignores ids that do not exist", async () => {
+    const result = await store.deleteEvents(REPO, {
+      ids: ["11111111-1111-4111-8111-111111111111"],
+    });
+    expect(result).toEqual({ deleted: 0 });
+  });
+
+  it("deletes every event matching a filter", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    const result = await store.deleteEvents(REPO, {
+      collection: "prune",
+      kind: "stale",
+    });
+    expect(result).toEqual({ deleted: 2 });
+
+    const remaining = await store.queryEvents(REPO, { collection: "prune" });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].kind).toBe("keep");
+  });
+
+  it("filters by tags and time range", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    const future = new Date(Date.now() + 60000).toISOString();
+    const noMatch = await store.deleteEvents(REPO, {
+      tags: ["stale"],
+      since: future,
+    });
+    expect(noMatch).toEqual({ deleted: 0 });
+
+    const matched = await store.deleteEvents(REPO, {
+      tags: ["stale"],
+      until: future,
+    });
+    expect(matched).toEqual({ deleted: 2 });
+  });
+
+  it("does not delete events from other repos", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents(REPO_B);
+
+    const result = await store.deleteEvents(REPO, { collection: "prune" });
+    expect(result).toEqual({ deleted: 0 });
+
+    const other = await store.queryEvents(REPO_B, { collection: "prune" });
+    expect(other).toHaveLength(3);
+    await store.deleteEvents(REPO_B, { collection: "prune" });
+  });
+
+  it("rejects a delete with no ids and no filter", async () => {
+    await expect(store.deleteEvents(REPO, {})).rejects.toBeInstanceOf(
+      BrainValidationError
+    );
+    await expect(
+      store.deleteEvents(REPO, { ids: [], tags: [] })
+    ).rejects.toBeInstanceOf(BrainValidationError);
+  });
+
+  it("rejects combining ids with a filter", async () => {
+    await expect(
+      store.deleteEvents(REPO, {
+        ids: ["11111111-1111-4111-8111-111111111111"],
+        collection: "prune",
+      })
+    ).rejects.toBeInstanceOf(BrainValidationError);
+  });
+});
+
 // ── Lists ───────────────────────────────────────────────────────────
 
 describe("BrainStore lists", () => {
