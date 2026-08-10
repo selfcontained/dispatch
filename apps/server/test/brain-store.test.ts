@@ -8,7 +8,11 @@ import {
   BrainListItemNotFoundError,
   BrainRevisionConflictError,
   BrainValidationError,
+  BrainLimitExceededError,
   MAX_LIST_ITEMS_PER_PUSH,
+  MAX_EVENT_IDS_PER_DELETE,
+  isIsoInstant,
+  toEventDeleteSelector,
 } from "../src/brain/store.js";
 import { setupTestDb, teardownTestDb, runTestMigrations } from "./db/setup.js";
 
@@ -303,6 +307,302 @@ describe("BrainStore events", () => {
       kind: "isolated",
     });
     expect(repoB).toHaveLength(1);
+  });
+});
+
+describe("BrainStore deleteEvents", () => {
+  async function seedPruneEvents(repo = REPO): Promise<string[]> {
+    const ids: string[] = [];
+    for (const kind of ["stale", "stale", "keep"]) {
+      const event = await store.appendEvent(repo, AGENT, {
+        collection: "prune",
+        kind,
+        value: { kind },
+        subject: kind,
+        tags: [kind],
+      });
+      ids.push(event.id);
+    }
+    return ids;
+  }
+
+  it("deletes events by id", async () => {
+    const ids = await seedPruneEvents();
+
+    const result = await store.deleteEvents(REPO, { ids: ids.slice(0, 2) });
+    expect(result).toEqual({ deleted: 2, matched: 2 });
+
+    const remaining = await store.queryEvents(REPO, { collection: "prune" });
+    expect(remaining.map((e) => e.id)).toEqual([ids[2]]);
+  });
+
+  it("ignores ids that do not exist", async () => {
+    const result = await store.deleteEvents(REPO, {
+      ids: ["11111111-1111-4111-8111-111111111111"],
+    });
+    expect(result).toEqual({ deleted: 0, matched: 0 });
+  });
+
+  it("deletes every event matching a filter", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    const result = await store.deleteEvents(REPO, {
+      collection: "prune",
+      kind: "stale",
+    });
+    expect(result).toEqual({ deleted: 2, matched: 2 });
+
+    const remaining = await store.queryEvents(REPO, { collection: "prune" });
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0].kind).toBe("keep");
+  });
+
+  it("filters by tags and time range", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    const future = new Date(Date.now() + 60000).toISOString();
+    const noMatch = await store.deleteEvents(REPO, {
+      collection: "prune",
+      tags: ["stale"],
+      since: future,
+    });
+    expect(noMatch).toEqual({ deleted: 0, matched: 0 });
+
+    const matched = await store.deleteEvents(REPO, {
+      collection: "prune",
+      tags: ["stale"],
+      until: future,
+    });
+    expect(matched).toEqual({ deleted: 2, matched: 2 });
+  });
+
+  it("does not delete another repo's events by id", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    const ids = await seedPruneEvents(REPO_B);
+
+    const result = await store.deleteEvents(REPO, { ids });
+    expect(result).toEqual({ deleted: 0, matched: 0 });
+    expect(
+      await store.queryEvents(REPO_B, { collection: "prune" })
+    ).toHaveLength(3);
+
+    await store.deleteEvents(REPO_B, { collection: "prune" });
+  });
+
+  it("rejects more ids than the per-call cap", async () => {
+    const ids = Array.from(
+      { length: MAX_EVENT_IDS_PER_DELETE + 1 },
+      () => "11111111-1111-4111-8111-111111111111"
+    );
+    await expect(store.deleteEvents(REPO, { ids })).rejects.toBeInstanceOf(
+      BrainLimitExceededError
+    );
+  });
+
+  it("rejects timestamps Postgres would widen, like 'now' or 'epoch'", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    for (const value of [
+      "now",
+      "epoch",
+      "infinity",
+      "yesterday",
+      "not-a-date",
+    ]) {
+      await expect(
+        store.deleteEvents(REPO, { collection: "prune", until: value })
+      ).rejects.toBeInstanceOf(BrainValidationError);
+      await expect(
+        store.deleteEvents(REPO, { collection: "prune", since: value })
+      ).rejects.toBeInstanceOf(BrainValidationError);
+    }
+
+    expect(await store.queryEvents(REPO, { collection: "prune" })).toHaveLength(
+      3
+    );
+    await store.deleteEvents(REPO, { collection: "prune" });
+  });
+
+  it("rejects calendar-impossible timestamps before they reach pg", async () => {
+    for (const value of [
+      "2026-02-30T00:00:00Z",
+      "0000-01-01T00:00:00Z",
+      "2026-13-01T00:00:00Z",
+      "2026-01-32T00:00:00Z",
+      "2027-02-29T00:00:00Z",
+    ]) {
+      await expect(
+        store.deleteEvents(REPO, { collection: "prune", until: value })
+      ).rejects.toBeInstanceOf(BrainValidationError);
+    }
+
+    // Real leap days still pass (dry run so the check stays non-destructive).
+    await expect(
+      store.deleteEvents(REPO, {
+        collection: "prune",
+        until: "2028-02-29T00:00:00Z",
+        dryRun: true,
+      })
+    ).resolves.toEqual({ deleted: 0, matched: 0 });
+  });
+
+  it("exposes one instant rule for the schema and the store to share", async () => {
+    for (const value of [
+      "2026-01-01T00:00:00Z",
+      "2026-01-01T00:00:00+05:30",
+      "2026-01-01T00:00:00-08:00",
+      "2026-01-01T00:00:00+0500",
+      "2028-02-29T00:00:00Z",
+    ]) {
+      expect(isIsoInstant(value)).toBe(true);
+    }
+    for (const value of [
+      "now",
+      "epoch",
+      "infinity",
+      "yesterday",
+      "not-a-date",
+      "2026-01-01",
+      "2026-01-01T00:00:00",
+      "2026-02-30T00:00:00Z",
+      "0000-01-01T00:00:00Z",
+    ]) {
+      expect(isIsoInstant(value)).toBe(false);
+    }
+  });
+
+  it("narrows a loose selector to one legal mode, or throws", () => {
+    expect(toEventDeleteSelector({ ids: ["a"], dryRun: true })).toEqual({
+      ids: ["a"],
+      dryRun: true,
+    });
+    expect(
+      toEventDeleteSelector({ collection: "prune", kind: "stale" })
+    ).toMatchObject({ collection: "prune", kind: "stale" });
+
+    // The shapes the union makes unrepresentable at the call site.
+    expect(() =>
+      toEventDeleteSelector({ ids: [], collection: "prune" })
+    ).toThrow(BrainValidationError);
+    expect(() =>
+      toEventDeleteSelector({ ids: ["a"], collection: "p" })
+    ).toThrow(BrainValidationError);
+    expect(() => toEventDeleteSelector({ kind: "stale" })).toThrow(
+      BrainValidationError
+    );
+    expect(() => toEventDeleteSelector({})).toThrow(BrainValidationError);
+  });
+
+  it("counts without deleting on a dry run", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    const preview = await store.deleteEvents(REPO, {
+      collection: "prune",
+      kind: "stale",
+      dryRun: true,
+    });
+    expect(preview).toEqual({ deleted: 0, matched: 2 });
+    expect(await store.queryEvents(REPO, { collection: "prune" })).toHaveLength(
+      3
+    );
+
+    const deleted = await store.deleteEvents(REPO, {
+      collection: "prune",
+      kind: "stale",
+    });
+    expect(deleted).toEqual({ deleted: 2, matched: 2 });
+    await store.deleteEvents(REPO, { collection: "prune" });
+  });
+
+  it("does not delete events from other repos", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents(REPO_B);
+
+    const result = await store.deleteEvents(REPO, { collection: "prune" });
+    expect(result).toEqual({ deleted: 0, matched: 0 });
+
+    const other = await store.queryEvents(REPO_B, { collection: "prune" });
+    expect(other).toHaveLength(3);
+    await store.deleteEvents(REPO_B, { collection: "prune" });
+  });
+
+  it("rejects an empty ids array instead of widening to the filter", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    // The dangerous shape: a caller passes a collection plus a list that
+    // happened to come back empty.
+    await expect(
+      store.deleteEvents(REPO, {
+        collection: "prune",
+        ids: [],
+      } as never)
+    ).rejects.toBeInstanceOf(BrainValidationError);
+    await expect(store.deleteEvents(REPO, { ids: [] })).rejects.toBeInstanceOf(
+      BrainValidationError
+    );
+
+    expect(await store.queryEvents(REPO, { collection: "prune" })).toHaveLength(
+      3
+    );
+    await store.deleteEvents(REPO, { collection: "prune" });
+  });
+
+  it("deletes a single event through the deleteEvent convenience wrapper", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    const ids = await seedPruneEvents();
+
+    expect(await store.deleteEvent(REPO, ids[0])).toBe(true);
+    expect(await store.deleteEvent(REPO, ids[0])).toBe(false);
+    expect(await store.deleteEvent(REPO_B, ids[1])).toBe(false);
+    expect(await store.queryEvents(REPO, { collection: "prune" })).toHaveLength(
+      2
+    );
+
+    await store.deleteEvents(REPO, { collection: "prune" });
+  });
+
+  it("rejects a delete with no ids and no filter", async () => {
+    await expect(store.deleteEvents(REPO, {})).rejects.toBeInstanceOf(
+      BrainValidationError
+    );
+    await expect(
+      store.deleteEvents(REPO, { ids: [], tags: [] })
+    ).rejects.toBeInstanceOf(BrainValidationError);
+  });
+
+  it("rejects a filter delete that is not scoped to a collection", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    for (const selector of [
+      { kind: "stale" },
+      { subject: "stale" },
+      { tags: ["stale"] },
+      { until: "2099-01-01T00:00:00Z" },
+    ]) {
+      await expect(store.deleteEvents(REPO, selector)).rejects.toBeInstanceOf(
+        BrainValidationError
+      );
+    }
+
+    expect(await store.queryEvents(REPO, { collection: "prune" })).toHaveLength(
+      3
+    );
+    await store.deleteEvents(REPO, { collection: "prune" });
+  });
+
+  it("rejects combining ids with a filter", async () => {
+    await expect(
+      store.deleteEvents(REPO, {
+        ids: ["11111111-1111-4111-8111-111111111111"],
+        collection: "prune",
+      })
+    ).rejects.toBeInstanceOf(BrainValidationError);
   });
 });
 

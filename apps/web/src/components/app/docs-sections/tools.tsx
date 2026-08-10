@@ -235,8 +235,9 @@ export function ToolsContent() {
             rewriting whole arrays
           </li>
           <li>
-            <Code>brain_append_event</Code>, <Code>brain_query_events</Code> —
-            append to and query the Brain's immutable event log
+            <Code>brain_append_event</Code>, <Code>brain_query_events</Code>,{" "}
+            <Code>brain_delete_events</Code> — append to, query, and prune the
+            Brain's event log
           </li>
           <li>
             <Code>list_jobs</Code>, <Code>get_job</Code>,{" "}

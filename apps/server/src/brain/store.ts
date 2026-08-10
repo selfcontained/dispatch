@@ -68,6 +68,25 @@ export type BrainCollectionDeleteResult = {
 
 export type BrainDeleteResult = BrainCollectionDeleteResult;
 
+export type BrainEventFilter = {
+  collection?: string;
+  kind?: string;
+  subject?: string;
+  tags?: string[];
+  since?: string;
+  until?: string;
+};
+
+/**
+ * Deletes address either specific events or one collection — never both, and
+ * never an unscoped filter. Expressed as a union so illegal combinations fail
+ * at the call site; the store still checks what types can't say (empty ids
+ * array, id cap, timestamp format).
+ */
+export type BrainEventDeleteSelector =
+  | { ids: string[]; dryRun?: boolean }
+  | (BrainEventFilter & { collection: string; dryRun?: boolean });
+
 export type BrainAgentActivity = {
   objects: BrainObject[];
   lists: (BrainList & { itemCount: number })[];
@@ -138,6 +157,14 @@ export class BrainLimitExceededError extends Error {
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 export const MAX_LIST_ITEMS_PER_PUSH = 200;
+export const MAX_EVENT_IDS_PER_DELETE = 200;
+
+// Postgres accepts special timestamp literals ("now", "epoch", "infinity",
+// "yesterday", …) wherever a timestamptz is expected, so an unvalidated string
+// like "now" silently widens a delete to the whole log. Only accept explicit
+// ISO 8601 instants on destructive paths.
+const ISO_TIMESTAMP_RE =
+  /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})$/;
 
 function clampLimit(limit: number | undefined): number {
   const n = limit ?? DEFAULT_LIMIT;
@@ -754,23 +781,52 @@ export class BrainStore {
     return mapEvent(result.rows[0]);
   }
 
+  /** Single-event convenience for the HTTP route; delegates to deleteEvents. */
   async deleteEvent(repoRoot: string, id: string): Promise<boolean> {
+    const { deleted } = await this.deleteEvents(repoRoot, { ids: [id] });
+    return deleted > 0;
+  }
+
+  async deleteEvents(
+    repoRoot: string,
+    selector: BrainEventDeleteSelector
+  ): Promise<{ deleted: number; matched: number }> {
+    // Re-normalize even though the type says it is already legal: types are
+    // erased, and this is the gate untyped callers go through.
+    const normalized = toEventDeleteSelector(selector);
+    const { dryRun } = normalized;
+
+    const conditions: string[] = ["repo_root = $1"];
+    const params: unknown[] = [repoRoot];
+
+    if ("ids" in normalized) {
+      params.push(normalized.ids);
+      conditions.push(`id = ANY($${params.length}::uuid[])`);
+    } else {
+      appendEventFilters(normalized, conditions, params);
+    }
+
+    const where = conditions.join(" AND ");
+
+    if (dryRun) {
+      const preview = await this.pool.query(
+        `SELECT COUNT(*)::int AS matched FROM brain_events WHERE ${where}`,
+        params
+      );
+      return { deleted: 0, matched: preview.rows[0]?.matched ?? 0 };
+    }
+
     const result = await this.pool.query(
-      `DELETE FROM brain_events WHERE repo_root = $1 AND id = $2`,
-      [repoRoot, id]
+      `DELETE FROM brain_events WHERE ${where}`,
+      params
     );
-    return (result.rowCount ?? 0) > 0;
+    const deleted = result.rowCount ?? 0;
+    return { deleted, matched: deleted };
   }
 
   async queryEvents(
     repoRoot: string,
-    filter?: {
-      collection?: string;
-      kind?: string;
-      subject?: string;
-      tags?: string[];
-      since?: string;
-      until?: string;
+    filter?: BrainEventFilter & {
       limit?: number;
       order?: "asc" | "desc";
     }
@@ -778,30 +834,7 @@ export class BrainStore {
     const conditions: string[] = ["repo_root = $1"];
     const params: unknown[] = [repoRoot];
 
-    if (filter?.collection) {
-      params.push(filter.collection);
-      conditions.push(`collection = $${params.length}`);
-    }
-    if (filter?.kind) {
-      params.push(filter.kind);
-      conditions.push(`kind = $${params.length}`);
-    }
-    if (filter?.subject) {
-      params.push(filter.subject);
-      conditions.push(`subject = $${params.length}`);
-    }
-    if (filter?.tags && filter.tags.length > 0) {
-      params.push(filter.tags);
-      conditions.push(`tags @> $${params.length}`);
-    }
-    if (filter?.since) {
-      params.push(filter.since);
-      conditions.push(`created_at >= $${params.length}`);
-    }
-    if (filter?.until) {
-      params.push(filter.until);
-      conditions.push(`created_at <= $${params.length}`);
-    }
+    appendEventFilters(filter, conditions, params);
 
     const limit = clampLimit(filter?.limit);
     params.push(limit);
@@ -1170,6 +1203,124 @@ function objectColumns(): string {
 
 function mapObject(row: Record<string, unknown>): BrainObject {
   return row as BrainObject;
+}
+
+/**
+ * Turns a loose caller-supplied shape into a legal delete selector, or throws.
+ * This is the one place the "ids XOR collection-scoped filter" rule lives —
+ * the MCP handler calls it to narrow its args, and deleteEvents calls it again
+ * so untyped callers hit the same gate.
+ */
+export function toEventDeleteSelector(
+  input: BrainEventFilter & { ids?: string[]; dryRun?: boolean }
+): BrainEventDeleteSelector {
+  const { ids, dryRun, ...filter } = input;
+  // Presence, not length: `{ ids: [], collection }` must read as "both modes"
+  // and be rejected, never fall through to deleting the whole collection.
+  const hasIds = ids !== undefined;
+  const hasFilter = hasEventFilter(filter);
+  if (hasIds === hasFilter) {
+    throw new BrainValidationError(
+      "Provide either ids or a collection-scoped filter when deleting events."
+    );
+  }
+
+  if (hasIds) {
+    if (ids.length === 0) {
+      throw new BrainValidationError("ids must contain at least one event id.");
+    }
+    if (ids.length > MAX_EVENT_IDS_PER_DELETE) {
+      throw new BrainLimitExceededError(
+        `Event delete accepts at most ${MAX_EVENT_IDS_PER_DELETE} ids per call.`
+      );
+    }
+    return { ids, dryRun };
+  }
+
+  // kind/subject/tag vocabularies are reused across collections, so an
+  // unscoped filter delete reaches far wider than it reads.
+  if (!filter.collection) {
+    throw new BrainValidationError(
+      "Filter deletes must name a collection. Pass collection (optionally narrowed by kind, subject, tags, since, until), or pass ids to delete specific events. " +
+        "Run brain_query_events without a collection to see which collections exist."
+    );
+  }
+  assertIsoTimestamp("since", filter.since);
+  assertIsoTimestamp("until", filter.until);
+  return { ...filter, collection: filter.collection, dryRun };
+}
+
+/**
+ * The single definition of "an instant we will put in front of Postgres".
+ * The MCP schema refines against this rather than restating the rule, so the
+ * tool contract and the store enforcement cannot drift apart.
+ */
+export function isIsoInstant(value: string): boolean {
+  const match = ISO_TIMESTAMP_RE.exec(value);
+  // Date.parse rolls impossible dates over (Feb 30 becomes Mar 2) and accepts
+  // year 0, both of which Postgres rejects — so check the calendar directly
+  // rather than letting a raw pg error escape as an untyped failure.
+  return Boolean(
+    match && !Number.isNaN(Date.parse(value)) && isRealCalendarDate(match)
+  );
+}
+
+export const ISO_INSTANT_HINT =
+  "must be an ISO 8601 timestamp with a UTC offset (e.g. 2026-01-01T00:00:00Z)";
+
+function assertIsoTimestamp(field: string, value: string | undefined): void {
+  if (value === undefined) return;
+  if (!isIsoInstant(value)) {
+    throw new BrainValidationError(`"${field}" ${ISO_INSTANT_HINT}.`);
+  }
+}
+
+function isRealCalendarDate(match: RegExpExecArray): boolean {
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  if (year < 1 || month < 1 || month > 12 || day < 1) return false;
+  return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
+// Value-driven rather than field-by-field, so a new BrainEventFilter field is
+// picked up automatically instead of silently falling out of the decision.
+function hasEventFilter(filter: BrainEventFilter): boolean {
+  return Object.values(filter).some((value) => {
+    if (value === undefined || value === null || value === "") return false;
+    return Array.isArray(value) ? value.length > 0 : true;
+  });
+}
+
+function appendEventFilters(
+  filter: BrainEventFilter | undefined,
+  conditions: string[],
+  params: unknown[]
+): void {
+  if (filter?.collection) {
+    params.push(filter.collection);
+    conditions.push(`collection = $${params.length}`);
+  }
+  if (filter?.kind) {
+    params.push(filter.kind);
+    conditions.push(`kind = $${params.length}`);
+  }
+  if (filter?.subject) {
+    params.push(filter.subject);
+    conditions.push(`subject = $${params.length}`);
+  }
+  if (filter?.tags && filter.tags.length > 0) {
+    params.push(filter.tags);
+    conditions.push(`tags @> $${params.length}`);
+  }
+  if (filter?.since) {
+    params.push(filter.since);
+    conditions.push(`created_at >= $${params.length}`);
+  }
+  if (filter?.until) {
+    params.push(filter.until);
+    conditions.push(`created_at <= $${params.length}`);
+  }
 }
 
 function eventColumns(): string {

@@ -10,6 +10,10 @@ import {
   BrainValidationError,
   BrainLimitExceededError,
   MAX_LIST_ITEMS_PER_PUSH,
+  MAX_EVENT_IDS_PER_DELETE,
+  ISO_INSTANT_HINT,
+  isIsoInstant,
+  toEventDeleteSelector,
 } from "../../brain/store.js";
 import { toToolError } from "./tool-error.js";
 
@@ -74,6 +78,17 @@ const subjectSchema = z.string().min(1).max(255);
 const tagSchema = z.string().min(1).max(255);
 const tagsSchema = z.array(tagSchema).max(50);
 const jsonObjectSchema = z.record(z.string(), z.unknown());
+// Bare strings like "now" or "epoch" are valid timestamptz literals to Postgres,
+// so the destructive path only accepts explicit instants. The rule itself lives
+// in the store — refine against it rather than restating it here, or the two
+// definitions drift. `.refine` is the enforcement; `.meta` only advertises the
+// shape to clients reading the published schema, since a refine is opaque to
+// JSON Schema generation. Don't "tidy" this back into z.iso.datetime() — that
+// would reintroduce a second, subtly different rule.
+const eventTimestampSchema = z
+  .string()
+  .refine(isIsoInstant, { message: `Timestamp ${ISO_INSTANT_HINT}.` })
+  .meta({ format: "date-time" });
 const listOrderSchema = z.enum(["asc", "desc"]);
 
 export function registerBrainTools(
@@ -541,7 +556,8 @@ export function registerBrainTools(
       {
         description:
           "Append a structured event to the shared brain's event log. " +
-          "Events are immutable and append-only. Use events to record history, " +
+          "Events are append-only — they cannot be edited, only pruned with brain_delete_events. " +
+          "Use events to record history, " +
           "assessments, decisions, or any structured observation that other agents can query.",
         inputSchema: {
           collection: collectionSchema.describe(
@@ -578,6 +594,98 @@ export function registerBrainTools(
           return {
             content: [{ type: "text", text: JSON.stringify(event, null, 2) }],
             structuredContent: toStructuredContent(event),
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_delete_events ───────────────────────────────────────────
+  if (allowed.has("brain_delete_events")) {
+    server.registerTool(
+      "brain_delete_events",
+      {
+        description:
+          "Delete events from the shared brain's event log. " +
+          "Either pass explicit event ids (from brain_query_events), or pass a collection " +
+          "with optional narrowing filters (kind, subject, tags, since, until) to delete every " +
+          "matching event — not both. Filter deletes always require a collection: kinds and " +
+          "subjects are reused across collections, so an unscoped delete would reach much " +
+          "further than it reads. Run brain_query_events without a collection to see which " +
+          "collections exist. " +
+          "Deletion is permanent and there is no undo: run with dryRun first to see how many " +
+          "events the same selector matches.",
+        inputSchema: {
+          dryRun: z
+            .boolean()
+            .optional()
+            .describe(
+              "Report how many events this selector matches without deleting anything."
+            ),
+          ids: z
+            .array(z.uuid())
+            .min(1)
+            .max(MAX_EVENT_IDS_PER_DELETE)
+            .optional()
+            .describe(
+              `Event ids to delete (max ${MAX_EVENT_IDS_PER_DELETE}). Cannot be combined with filters.`
+            ),
+          collection: collectionSchema
+            .optional()
+            .describe(
+              "The collection to delete from. Required unless you pass ids."
+            ),
+          kind: kindSchema
+            .optional()
+            .describe("Narrow to events of this kind within the collection."),
+          subject: subjectSchema
+            .optional()
+            .describe("Narrow to events with this subject."),
+          tags: tagsSchema
+            .optional()
+            .describe("Narrow to events containing all of these tags."),
+          since: eventTimestampSchema
+            .optional()
+            .describe(
+              "Delete events created at or after this ISO 8601 timestamp (e.g. 2026-01-01T00:00:00Z)."
+            ),
+          until: eventTimestampSchema
+            .optional()
+            .describe(
+              "Delete events created at or before this ISO 8601 timestamp (e.g. 2026-01-01T00:00:00Z)."
+            ),
+        },
+      },
+      async (args) => {
+        try {
+          const result = await store.deleteEvents(
+            repoRoot,
+            toEventDeleteSelector({
+              ids: args.ids,
+              dryRun: args.dryRun,
+              collection: args.collection,
+              kind: args.kind,
+              subject: args.subject,
+              tags: args.tags,
+              since: args.since,
+              until: args.until,
+            })
+          );
+          if (result.deleted > 0) publishBrainChanged?.();
+          return {
+            content: [
+              {
+                type: "text",
+                text: args.dryRun
+                  ? `Dry run: ${result.matched} event(s) match. Nothing was deleted.`
+                  : result.deleted === 1
+                    ? "Deleted 1 event."
+                    : `Deleted ${result.deleted} events.`,
+              },
+            ],
+            structuredContent: toStructuredContent(result),
           };
         } catch (error) {
           return toBrainError(error);
