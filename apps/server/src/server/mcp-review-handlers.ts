@@ -9,6 +9,7 @@ import {
   getEnabledAgentTypes,
   isCliAgentType,
 } from "../agent-type-settings.js";
+import { getBuiltInPersona } from "../personas/built-in.js";
 import {
   loadPersonaBySlug,
   loadPersonas,
@@ -537,9 +538,11 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
           }
         } catch {}
       }
+      // Built-ins resolve last so a repo file of the same slug wins.
+      persona ??= getBuiltInPersona(opts.persona);
       if (!persona) {
         throw new Error(
-          `Persona "${opts.persona}" not found in .dispatch/personas/.`
+          `Persona "${opts.persona}" not found in .dispatch/personas/ and is not a built-in persona.`
         );
       }
 

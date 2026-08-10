@@ -3,6 +3,7 @@ import path from "node:path";
 
 import type { AgentType } from "../agents/types.js";
 import { buildCursorDispatchToolGuidance } from "../shared/mcp/cursor-dispatch-guidance.js";
+import { appendBuiltInPersonas, BUILT_IN_PERSONAS } from "./built-in.js";
 import type { ReviewDiffResult } from "./review-diff.js";
 
 export type PersonaDefinition = {
@@ -110,10 +111,13 @@ export async function loadPersonasFromRoots(input: {
   const repoPersonas =
     repoRoot && repoRoot !== worktreeRoot ? await loadPersonas(repoRoot) : [];
 
-  return mergePersonasWithWorktreePrecedence({
-    worktreePersonas,
-    repoPersonas,
-  });
+  return appendBuiltInPersonas(
+    mergePersonasWithWorktreePrecedence({
+      worktreePersonas,
+      repoPersonas,
+    }),
+    BUILT_IN_PERSONAS
+  );
 }
 
 export async function loadPersonaBySlug(

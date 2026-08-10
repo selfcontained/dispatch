@@ -26,6 +26,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -48,6 +49,9 @@ type PersonaSummary = {
   name: string;
   description: string;
 };
+
+/** Mirrors MAX_LAUNCH_REVIEW_NOTE_LENGTH on the server. */
+const MAX_NOTE_LENGTH = 2000;
 
 function defaultReviewAgentType(agent: Agent): AgentType {
   return (
@@ -77,6 +81,7 @@ export function PersonaLauncher({
   const showReviewAgentTypePicker = reviewerTypes.length > 1;
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedPersonas, setSelectedPersonas] = useState<string[]>([]);
+  const [note, setNote] = useState("");
   const [selectedAgentType, setSelectedAgentType] = useState<AgentType>(
     defaultReviewAgentType(agent)
   );
@@ -120,6 +125,7 @@ export function PersonaLauncher({
           model: modelOptions.some((option) => option.id === selectedModel)
             ? selectedModel
             : null,
+          note: note.trim() ? note.trim() : null,
         }),
       });
     },
@@ -128,6 +134,8 @@ export function PersonaLauncher({
     },
   });
 
+  // Dispatch ships built-in personas, so an empty list means the personas
+  // request itself failed rather than an unconfigured repo.
   if (personas.length === 0) {
     return (
       <Tooltip>
@@ -146,8 +154,7 @@ export function PersonaLauncher({
           </Button>
         </TooltipTrigger>
         <TooltipContent>
-          No persona files in this workspace. Add markdown files to
-          .dispatch/personas/ to enable reviews.
+          Could not load reviewer personas for this workspace.
         </TooltipContent>
       </Tooltip>
     );
@@ -156,6 +163,7 @@ export function PersonaLauncher({
   const openDialog = (agentType = defaultReviewAgentType(agent)) => {
     setSelectedAgentType(agentType);
     setSelectedPersonas([]);
+    setNote("");
     launchMutation.reset();
     setTypeDropdownOpen(false);
     setDialogOpen(true);
@@ -470,6 +478,32 @@ export function PersonaLauncher({
                         );
                       })}
                     </div>
+                  </div>
+
+                  <div className="space-y-1">
+                    <label
+                      htmlFor="launch-reviewer-note"
+                      className="text-sm text-muted-foreground"
+                    >
+                      What should they focus on?{" "}
+                      <span className="text-xs">(optional)</span>
+                    </label>
+                    <Textarea
+                      id="launch-reviewer-note"
+                      value={note}
+                      onChange={(e) => {
+                        setNote(e.target.value);
+                        launchMutation.reset();
+                      }}
+                      maxLength={MAX_NOTE_LENGTH}
+                      rows={3}
+                      placeholder="e.g. focus on the auth changes in session.ts — I'm unsure about the token refresh path"
+                      className="resize-none text-sm"
+                      data-testid="launch-reviewer-note"
+                    />
+                    <p className="text-xs text-muted-foreground">
+                      Added to the briefing each reviewer receives.
+                    </p>
                   </div>
                 </div>
               </div>

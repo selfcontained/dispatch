@@ -117,4 +117,72 @@ describe("PersonaLauncher", () => {
       )
     );
   });
+
+  it("sends the trimmed focus note with the launch request", async () => {
+    api.mockImplementation(async (path: string) => {
+      if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
+      if (path.includes("/launch-review")) return { ok: true };
+      if (path.includes("/review-agent-type")) return { agent };
+      return { models: { claude: [{ id: "opus", label: "Opus" }] } };
+    });
+    renderLauncher();
+
+    fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
+    fireEvent.click(
+      await screen.findByTestId("launch-reviewer-persona-ux-review")
+    );
+    fireEvent.change(screen.getByTestId("launch-reviewer-note"), {
+      target: { value: "  focus on the auth changes  " },
+    });
+
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("launch-reviewer-submit")).toHaveProperty(
+        "disabled",
+        false
+      )
+    );
+    fireEvent.click(screen.getByTestId("launch-reviewer-submit"));
+
+    await vi.waitFor(() => {
+      const call = api.mock.calls.find((args) =>
+        String(args[0]).includes("/launch-review")
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(call![1].body)).toMatchObject({
+        personas: ["ux-review"],
+        note: "focus on the auth changes",
+      });
+    });
+  });
+
+  it("sends note: null when the field is left empty", async () => {
+    api.mockImplementation(async (path: string) => {
+      if (path.startsWith("/api/v1/personas")) return { personas: PERSONAS };
+      if (path.includes("/launch-review")) return { ok: true };
+      if (path.includes("/review-agent-type")) return { agent };
+      return { models: { claude: [{ id: "opus", label: "Opus" }] } };
+    });
+    renderLauncher();
+
+    fireEvent.click(await screen.findByTestId("launch-reviewer-button"));
+    fireEvent.click(
+      await screen.findByTestId("launch-reviewer-persona-ux-review")
+    );
+
+    await vi.waitFor(() =>
+      expect(screen.getByTestId("launch-reviewer-submit")).toHaveProperty(
+        "disabled",
+        false
+      )
+    );
+    fireEvent.click(screen.getByTestId("launch-reviewer-submit"));
+
+    await vi.waitFor(() => {
+      const call = api.mock.calls.find((args) =>
+        String(args[0]).includes("/launch-review")
+      );
+      expect(call).toBeDefined();
+      expect(JSON.parse(call![1].body).note).toBeNull();
+    });
+  });
 });
