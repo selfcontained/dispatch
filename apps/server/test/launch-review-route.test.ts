@@ -178,6 +178,56 @@ describe("POST /api/v1/agents/:id/launch-review — input validation", () => {
     expect(response.statusCode).toBe(400);
   });
 
+  it("rejects a note that is not a string", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { personas: ["ux-review"], agentType: "claude", note: 42 },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: expect.stringMatching(/note must be a string/i),
+    });
+  });
+
+  it("rejects a note longer than the length cap", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: {
+        personas: ["ux-review"],
+        agentType: "claude",
+        note: "a".repeat(2001),
+      },
+    });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({
+      error: expect.stringMatching(/at most 2000 characters/i),
+    });
+  });
+
+  it("accepts a note within the cap", async () => {
+    const agentId = await insertParent();
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/launch-review`,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: {
+        personas: ["ux-review"],
+        agentType: "claude",
+        note: "focus on the auth changes",
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+  });
+
   it("rejects a model that is not in the catalog for the agent type", async () => {
     const agentId = await insertParent();
     const response = await ctx.app.inject({

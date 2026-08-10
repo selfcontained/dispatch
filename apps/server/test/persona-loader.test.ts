@@ -4,6 +4,12 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
+  appendBuiltInPersonas,
+  BUILT_IN_PERSONA_SUMMARIES,
+  GENERIC_REVIEW_PERSONA_SLUG,
+  getBuiltInPersona,
+} from "../src/personas/built-in.js";
+import {
   assemblePersonaPrompt,
   INLINE_DIFF_THRESHOLD_BYTES,
   loadPersonaBySlug,
@@ -539,6 +545,7 @@ name: Release
     expect(personas.map((p) => [p.slug, p.name])).toEqual([
       ["security", "Worktree Security"],
       ["release", "Release"],
+      [GENERIC_REVIEW_PERSONA_SLUG, "General Code Review"],
     ]);
   });
 
@@ -548,7 +555,79 @@ name: Release
       repoRoot,
     });
 
-    expect(personas.map((p) => p.slug)).toEqual(["release", "security"]);
+    expect(personas.map((p) => p.slug)).toEqual([
+      "release",
+      "security",
+      GENERIC_REVIEW_PERSONA_SLUG,
+    ]);
+  });
+
+  it("offers the built-in reviewer in a repo with no persona files", async () => {
+    const personas = await loadPersonasFromRoots({
+      worktreeRoot: "/tmp/dispatch-persona-roots-missing",
+      repoRoot: null,
+    });
+
+    expect(personas.map((p) => p.slug)).toEqual([GENERIC_REVIEW_PERSONA_SLUG]);
+    expect(personas[0]?.body).toContain("General Code Reviewer");
+    expect(personas[0]?.feedbackFormat).toBe("findings");
+  });
+
+  it("lets a repo file of the same slug replace the built-in", async () => {
+    const overrideRoot = path.join(tmpBase, "override");
+    mkdirSync(path.join(overrideRoot, ".dispatch", "personas"), {
+      recursive: true,
+    });
+    writeFileSync(
+      path.join(
+        overrideRoot,
+        ".dispatch",
+        "personas",
+        `${GENERIC_REVIEW_PERSONA_SLUG}.md`
+      ),
+      `---\nname: Repo Code Review\n---\n\n# Repo-specific reviewer`
+    );
+
+    const personas = await loadPersonasFromRoots({
+      worktreeRoot: overrideRoot,
+      repoRoot: overrideRoot,
+    });
+
+    expect(personas.map((p) => [p.slug, p.name])).toEqual([
+      [GENERIC_REVIEW_PERSONA_SLUG, "Repo Code Review"],
+    ]);
+  });
+});
+
+describe("built-in personas", () => {
+  it("resolves the generic reviewer by slug and nothing else", () => {
+    const persona = getBuiltInPersona(GENERIC_REVIEW_PERSONA_SLUG);
+    expect(persona?.name).toBe("General Code Review");
+    expect(persona?.description).not.toBe("");
+    expect(getBuiltInPersona("not-a-built-in")).toBeNull();
+  });
+
+  it("keeps repo personas ahead of the built-ins it does not override", () => {
+    const merged = appendBuiltInPersonas(
+      [{ slug: "security" }, { slug: GENERIC_REVIEW_PERSONA_SLUG }],
+      [{ slug: GENERIC_REVIEW_PERSONA_SLUG }, { slug: "other-built-in" }]
+    );
+
+    expect(merged.map((p) => p.slug)).toEqual([
+      "security",
+      GENERIC_REVIEW_PERSONA_SLUG,
+      "other-built-in",
+    ]);
+  });
+
+  it("exposes summaries without the persona body", () => {
+    for (const summary of BUILT_IN_PERSONA_SUMMARIES) {
+      expect(Object.keys(summary).sort()).toEqual([
+        "description",
+        "name",
+        "slug",
+      ]);
+    }
   });
 });
 

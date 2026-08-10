@@ -21,6 +21,27 @@ function escapeDispatchPromptMarkers(value: string): string {
   return value.replace(DISPATCH_PROMPT_MARKER_PATTERN, "[DISPATCH MARKER]");
 }
 
+export const MAX_LAUNCH_REVIEW_NOTE_LENGTH = 2000;
+
+/**
+ * The launch-review note is free text the author types in the browser, and it
+ * ends up inside a double-quoted span of a single-line prompt typed into the
+ * parent's tmux session. Newlines would submit the prompt early and a bare
+ * quote would let the note read as instructions to the parent, so both are
+ * neutralized here rather than trusted at the callsite.
+ */
+export function sanitizeLaunchReviewNote(
+  note: string | null | undefined
+): string | null {
+  if (typeof note !== "string") return null;
+  const collapsed = escapeDispatchPromptMarkers(note)
+    .replace(/["'`]/g, "'")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!collapsed) return null;
+  return collapsed.slice(0, MAX_LAUNCH_REVIEW_NOTE_LENGTH);
+}
+
 export function buildReviewPromptBlock(kind: string, lines: string[]): string {
   return [
     `--- DISPATCH: ${kind} ---`,
@@ -138,14 +159,17 @@ export function buildLaunchReviewPrompt({
   agentType,
   includeDiff,
   model,
+  note,
 }: {
   personas: string[];
   agentType: string;
   includeDiff: boolean;
   model?: string;
+  note?: string | null;
 }): string {
   const multiple = personas.length > 1;
   const personaList = personas.map((persona) => `"${persona}"`).join(", ");
+  const authorNote = sanitizeLaunchReviewNote(note);
   return [
     multiple
       ? `Use the dispatch_launch_persona MCP tool to launch all ${personas.length} of these personas on your current work: ${personaList}. Call the tool once per persona — one launch each, in that order — before ending your turn.`
@@ -161,5 +185,10 @@ export function buildLaunchReviewPrompt({
     multiple
       ? "Give each persona its own detailed context briefing covering what you built, key files changed, and any areas that need extra attention — tailor each briefing to what that persona reviews."
       : "Provide a detailed context briefing covering what you built, key files changed, and any areas that need extra attention.",
+    ...(authorNote
+      ? [
+          `The author added this note about what they want reviewed: "${authorNote}". Carry it into the context briefing you pass to ${multiple ? "every persona" : "the persona"} — quote or paraphrase it and describe the specific code it points at, so the reviewer weights that area first.`,
+        ]
+      : []),
   ].join(" ");
 }

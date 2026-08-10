@@ -124,6 +124,7 @@ import {
   assemblePersonaPrompt,
   loadPersonaBySlug,
 } from "../src/personas/loader.js";
+import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
 import { isMediaFile, isTextFile } from "../src/shared/media.js";
 import {
@@ -638,6 +639,28 @@ describe("createMcpHandlers", () => {
           context: "review",
         })
       ).rejects.toThrow('Persona "unknown" not found');
+    });
+
+    it("falls back to the built-in reviewer when no repo file defines it", async () => {
+      vi.mocked(loadPersonaBySlug).mockResolvedValue(null);
+
+      await handlers.launchPersona("agt_test1", {
+        persona: GENERIC_REVIEW_PERSONA_SLUG,
+        context: "review",
+      });
+
+      expect(assemblePersonaPrompt).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slug: GENERIC_REVIEW_PERSONA_SLUG,
+          name: "General Code Review",
+        }),
+        "review",
+        expect.anything(),
+        expect.anything()
+      );
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ persona: GENERIC_REVIEW_PERSONA_SLUG })
+      );
     });
 
     it("throws when agent type is disabled", async () => {

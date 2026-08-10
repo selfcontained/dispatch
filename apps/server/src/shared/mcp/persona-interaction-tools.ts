@@ -7,6 +7,11 @@ import {
   AGENT_REVIEW_SUMMARY_MAX_CHARS,
 } from "../review-limits.js";
 
+import {
+  appendBuiltInPersonas,
+  BUILT_IN_PERSONA_SUMMARIES,
+  GENERIC_REVIEW_PERSONA_SLUG,
+} from "../../personas/built-in.js";
 import { mergePersonasWithWorktreePrecedence } from "../../personas/loader.js";
 import {
   getPersonaTemplate,
@@ -58,10 +63,13 @@ export async function resolvePersonaList(
       ? await listPersonas(repoRoot).catch(() => [])
       : [];
 
-  return mergePersonasWithWorktreePrecedence({
-    worktreePersonas,
-    repoPersonas,
-  });
+  return appendBuiltInPersonas(
+    mergePersonasWithWorktreePrecedence({
+      worktreePersonas,
+      repoPersonas,
+    }),
+    BUILT_IN_PERSONA_SUMMARIES
+  );
 }
 
 export function registerPersonaInteractionTools(
@@ -323,7 +331,7 @@ export function registerPersonaInteractionTools(
       "list_personas",
       {
         description:
-          "List the persona reviewers available for this project. Returns each persona's slug, name, and description. Use this to decide which personas to launch via dispatch_launch_persona.",
+          "List the persona reviewers available for this project. Returns each persona's slug, name, and description — the repo's own personas plus Dispatch's built-in generalist reviewer, which is always available. Use this to decide which personas to launch via dispatch_launch_persona.",
         inputSchema: {},
       },
       async () => {
@@ -359,7 +367,7 @@ export function registerPersonaInteractionTools(
           persona: z
             .string()
             .describe(
-              "Name of the persona to launch (matches filename without .md extension, e.g. 'security-review')."
+              `Name of the persona to launch (matches filename without .md extension, e.g. 'security-review'). "${GENERIC_REVIEW_PERSONA_SLUG}" is Dispatch's built-in generalist reviewer and works in any repo, including ones with no persona files.`
             ),
           context: z
             .string()

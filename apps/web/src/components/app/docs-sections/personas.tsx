@@ -46,7 +46,10 @@ export function PersonasContent() {
           remembered per repo and agent type). Under the hood the parent agent
           still calls <Code>dispatch_launch_persona</Code> once per persona so
           it can tailor each context briefing, and the tool accepts the same
-          optional <Code>model</Code> id.
+          optional <Code>model</Code> id. The dialog also takes an optional{" "}
+          <strong>focus note</strong> — free text like "focus on the auth
+          changes" — which Dispatch folds into the briefing every selected
+          reviewer receives.
         </P>
         <P>
           Persona agents also have <Code>dispatch_pin</Code> and{" "}
@@ -59,6 +62,24 @@ export function PersonasContent() {
           <Code>whiteboard_get</Code> to read their own whiteboard tab — sketch
           on it to hand the reviewer a diagram — though unlike standard agents
           they cannot draw back.
+        </P>
+      </Section>
+
+      <Section>
+        <H3>The built-in reviewer</H3>
+        <P>
+          Dispatch ships one persona of its own:{" "}
+          <strong>General Code Review</strong> (slug <Code>code-review</Code>).
+          It is a repo-agnostic generalist — correctness, clarity, and fit with
+          the surrounding code — and it is available in every repository, so
+          review works before anyone writes a persona file. It also stays in the
+          picker next to repo-defined personas as the "just review this
+          generally" option.
+        </P>
+        <P>
+          A <Code>.dispatch/personas/code-review.md</Code> file replaces it
+          entirely, which is how a project specializes the generic reviewer
+          without changing the slug agents and the UI already use.
         </P>
       </Section>
 

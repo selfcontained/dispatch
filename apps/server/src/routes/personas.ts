@@ -4,7 +4,10 @@ import type { AgentManager } from "../agents/manager.js";
 import { CLI_AGENT_TYPES } from "../agent-type-settings.js";
 import { validateAgentModel } from "../shared/agent-models.js";
 import { loadPersonasFromRoots } from "../personas/loader.js";
-import { buildLaunchReviewPrompt } from "../reviews/injection-prompts.js";
+import {
+  buildLaunchReviewPrompt,
+  MAX_LAUNCH_REVIEW_NOTE_LENGTH,
+} from "../reviews/injection-prompts.js";
 import {
   resolveRepoRoot,
   resolveWorktreeRoot,
@@ -73,6 +76,7 @@ export async function registerPersonaRoutes(
       agentType?: unknown;
       includeDiff?: unknown;
       model?: unknown;
+      note?: unknown;
     } | null;
     const agentId = params.id ?? "";
 
@@ -135,6 +139,23 @@ export async function registerPersonaRoutes(
         .code(400)
         .send({ error: "model must be a string or null when provided." });
     }
+    if (
+      body.note !== undefined &&
+      body.note !== null &&
+      typeof body.note !== "string"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "note must be a string or null when provided." });
+    }
+    if (
+      typeof body.note === "string" &&
+      body.note.length > MAX_LAUNCH_REVIEW_NOTE_LENGTH
+    ) {
+      return reply.code(400).send({
+        error: `note must be at most ${MAX_LAUNCH_REVIEW_NOTE_LENGTH} characters.`,
+      });
+    }
     // The model id is interpolated into the injected prompt, so it has to clear
     // the catalog for this runtime before it gets anywhere near the terminal.
     let model: string | undefined;
@@ -162,6 +183,7 @@ export async function registerPersonaRoutes(
         agentType: body.agentType,
         includeDiff: body.includeDiff !== false,
         model,
+        note: typeof body.note === "string" ? body.note : null,
       });
 
       await deps.sendAgentPrompt(agentId, prompt);

@@ -7,10 +7,20 @@ import {
   resolvePersonaList,
 } from "../src/shared/mcp/persona-interaction-tools.js";
 import { AGENT_REVIEW_SUMMARY_MAX_CHARS } from "../src/shared/review-limits.js";
+import {
+  BUILT_IN_PERSONA_SUMMARIES,
+  GENERIC_REVIEW_PERSONA_SLUG,
+} from "../src/personas/built-in.js";
 
 // ─── resolvePersonaList ───────────────────────────────────────────────────────
 
 describe("resolvePersonaList", () => {
+  const builtInSlugs = new Set(BUILT_IN_PERSONA_SUMMARIES.map((p) => p.slug));
+  // Built-ins ride along on every listing; these cases assert the repo-defined
+  // slice, and the built-in cases live at the bottom of the block.
+  const defined = <T extends { slug: string }>(personas: T[]): T[] =>
+    personas.filter((p) => !builtInSlugs.has(p.slug));
+
   const security = { slug: "security", name: "Security", description: "sec" };
   const perf = { slug: "perf", name: "Perf", description: "perf" };
   const ux = { slug: "ux", name: "UX", description: "ux" };
@@ -18,7 +28,7 @@ describe("resolvePersonaList", () => {
   it("returns worktree personas when repoRoot is null", async () => {
     const listPersonas = vi.fn(async () => [security, perf]);
     const result = await resolvePersonaList(listPersonas, "/wt", null);
-    expect(result).toEqual([security, perf]);
+    expect(defined(result)).toEqual([security, perf]);
     expect(listPersonas).toHaveBeenCalledTimes(1);
     expect(listPersonas).toHaveBeenCalledWith("/wt");
   });
@@ -26,7 +36,7 @@ describe("resolvePersonaList", () => {
   it("returns repo personas when worktreeRoot is null", async () => {
     const listPersonas = vi.fn(async () => [security]);
     const result = await resolvePersonaList(listPersonas, null, "/repo");
-    expect(result).toEqual([security]);
+    expect(defined(result)).toEqual([security]);
     expect(listPersonas).toHaveBeenCalledTimes(1);
     expect(listPersonas).toHaveBeenCalledWith("/repo");
   });
@@ -43,20 +53,20 @@ describe("resolvePersonaList", () => {
     });
 
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
-    expect(result).toEqual([worktreeSecurity, perf, ux]);
+    expect(defined(result)).toEqual([worktreeSecurity, perf, ux]);
   });
 
   it("skips repo when repoRoot equals worktreeRoot", async () => {
     const listPersonas = vi.fn(async () => [security]);
     const result = await resolvePersonaList(listPersonas, "/same", "/same");
     expect(listPersonas).toHaveBeenCalledTimes(1);
-    expect(result).toEqual([security]);
+    expect(defined(result)).toEqual([security]);
   });
 
-  it("returns empty array when both roots are null", async () => {
+  it("returns only the built-ins when both roots are null", async () => {
     const listPersonas = vi.fn(async () => []);
     const result = await resolvePersonaList(listPersonas, null, null);
-    expect(result).toEqual([]);
+    expect(result.map((p) => p.slug)).toEqual([GENERIC_REVIEW_PERSONA_SLUG]);
     expect(listPersonas).not.toHaveBeenCalled();
   });
 
@@ -66,7 +76,7 @@ describe("resolvePersonaList", () => {
       return [security];
     });
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
-    expect(result).toEqual([security]);
+    expect(defined(result)).toEqual([security]);
   });
 
   it("handles repo listPersonas failure gracefully", async () => {
@@ -75,7 +85,16 @@ describe("resolvePersonaList", () => {
       return [security];
     });
     const result = await resolvePersonaList(listPersonas, "/wt", "/repo");
-    expect(result).toEqual([security]);
+    expect(defined(result)).toEqual([security]);
+  });
+
+  it("appends the built-in reviewer to every listing", async () => {
+    const listPersonas = vi.fn(async () => [security]);
+    const result = await resolvePersonaList(listPersonas, "/wt", null);
+    expect(result.map((p) => p.slug)).toEqual([
+      "security",
+      GENERIC_REVIEW_PERSONA_SLUG,
+    ]);
   });
 });
 
@@ -355,7 +374,10 @@ describe("registerPersonaInteractionTools", () => {
 
       const result = await server.tools[0].handler({});
       expect(result).toHaveProperty("structuredContent");
-      expect((result as any).structuredContent.personas).toEqual(personas);
+      expect((result as any).structuredContent.personas).toEqual([
+        ...personas,
+        ...BUILT_IN_PERSONA_SUMMARIES,
+      ]);
     });
 
     it("registers persona authoring tools for a workspace", async () => {
