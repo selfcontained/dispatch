@@ -81,10 +81,14 @@ const jsonObjectSchema = z.record(z.string(), z.unknown());
 // Bare strings like "now" or "epoch" are valid timestamptz literals to Postgres,
 // so the destructive path only accepts explicit instants. The rule itself lives
 // in the store — refine against it rather than restating it here, or the two
-// definitions drift.
-const eventTimestampSchema = z.string().refine(isIsoInstant, {
-  message: `Timestamp ${ISO_INSTANT_HINT}.`,
-});
+// definitions drift. `.refine` is the enforcement; `.meta` only advertises the
+// shape to clients reading the published schema, since a refine is opaque to
+// JSON Schema generation. Don't "tidy" this back into z.iso.datetime() — that
+// would reintroduce a second, subtly different rule.
+const eventTimestampSchema = z
+  .string()
+  .refine(isIsoInstant, { message: `Timestamp ${ISO_INSTANT_HINT}.` })
+  .meta({ format: "date-time" });
 const listOrderSchema = z.enum(["asc", "desc"]);
 
 export function registerBrainTools(
