@@ -6,6 +6,10 @@ import { createInterface } from "node:readline";
 
 import type { Pool } from "pg";
 
+import {
+  DISPATCH_TAG_RE,
+  discoverCodexRolloutFiles,
+} from "./codex-sessions.js";
 import type { AgentRecord } from "./manager.js";
 
 type ModelTokenTotals = {
@@ -181,45 +185,12 @@ async function harvestClaudeTokenUsage(
 
 // ── Codex harvesting ──────────────────────────────────────────────
 
-const CODEX_SESSIONS_DIR = path.join(os.homedir(), ".codex", "sessions");
-const DISPATCH_TAG_RE = /\[dispatch:(agt_[a-z0-9_]+)\]/;
-
 type CodexTokenUsage = {
   input_tokens: number;
   cached_input_tokens: number;
   output_tokens: number;
   total_tokens: number;
 };
-
-/**
- * Recursively discover all rollout JSONL files under ~/.codex/sessions/.
- * Files are organized as YYYY/MM/DD/rollout-*.jsonl.
- */
-async function discoverCodexRolloutFiles(): Promise<string[]> {
-  const files: string[] = [];
-
-  async function walk(dir: string): Promise<void> {
-    let entries: import("node:fs").Dirent[];
-    try {
-      entries = (await readdir(dir, {
-        withFileTypes: true,
-      })) as import("node:fs").Dirent[];
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const full = path.join(dir, entry.name);
-      if (entry.isDirectory()) {
-        await walk(full);
-      } else if (entry.name.endsWith(".jsonl")) {
-        files.push(full);
-      }
-    }
-  }
-
-  await walk(CODEX_SESSIONS_DIR);
-  return files;
-}
 
 /**
  * Parse a Codex rollout JSONL in a single pass: check for the agent tag

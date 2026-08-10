@@ -483,9 +483,20 @@ export function buildAgentCommand(
   ].join(" ");
   const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${shellEscape(dispatchMcpToken)}`;
   const modelFlag = model ? `--model ${shellEscape(model)}` : "";
-  // Codex resume: `codex resume <sessionId>` with MCP flags
+  // Codex resume: `codex resume [OPTIONS] <SESSION_ID>`. Options go before the
+  // session id so it always binds to SESSION_ID and never slides into the
+  // trailing [PROMPT] positional. Passthrough args are re-applied here too —
+  // they carry `--dangerously-bypass-approvals-and-sandbox` for full-access
+  // agents, which a resumed session would otherwise silently lose.
   if (resume && cliSessionId) {
-    return `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${shellEscape(cliSessionId)} ${modelFlag} ${codexMcpFlags}`;
+    const resumeFlags = [
+      codexMcpFlags,
+      modelFlag,
+      ...launchArgs.map((arg) => shellEscape(arg)),
+    ]
+      .filter(Boolean)
+      .join(" ");
+    return `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${resumeFlags} ${shellEscape(cliSessionId)}`;
   }
   const codexPromptParts = [
     launchGuidance,

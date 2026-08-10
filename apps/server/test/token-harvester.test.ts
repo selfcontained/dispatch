@@ -427,9 +427,12 @@ describe("token-harvester", () => {
 
     beforeEach(async () => {
       tmpDir = await mkdtemp(path.join(os.tmpdir(), "codex-harvest-test-"));
+      // Point Codex at a temp home so the test never touches the real ~/.codex.
+      process.env.CODEX_HOME = tmpDir;
     });
 
     afterEach(async () => {
+      delete process.env.CODEX_HOME;
       await rm(tmpDir, { recursive: true, force: true });
     });
 
@@ -438,13 +441,7 @@ describe("token-harvester", () => {
         await import("../src/agents/token-harvester.js");
       const { mkdir } = await import("node:fs/promises");
 
-      // Create a fake ~/.codex/sessions/ structure
-      const sessionsDir = path.join(
-        os.homedir(),
-        ".codex",
-        "sessions",
-        "test-harvest"
-      );
+      const sessionsDir = path.join(tmpDir, "sessions", "test-harvest");
       await mkdir(sessionsDir, { recursive: true });
 
       const rolloutFile = path.join(sessionsDir, "rollout-test-codex.jsonl");
@@ -528,9 +525,6 @@ describe("token-harvester", () => {
       expect(params[5]).toBe(8000); // cache_read_tokens (= cached_input_tokens)
       expect(params[6]).toBe(1200); // output_tokens
       expect(params[7]).toBe(1); // message_count (session-level)
-
-      // Clean up
-      await rm(sessionsDir, { recursive: true, force: true });
     });
   });
 });
