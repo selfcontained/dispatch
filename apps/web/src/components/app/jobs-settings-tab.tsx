@@ -15,10 +15,10 @@ import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import {
   cronError,
-  errorMessage,
   minutesFromMs,
   msFromMinutes,
 } from "@/components/app/jobs-helpers";
+import { errorMessage } from "@/lib/errors";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";

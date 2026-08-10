@@ -7,7 +7,6 @@ import { formatDateTime } from "@/lib/format";
 
 import {
   cronError,
-  errorMessage,
   formatDate,
   formatTimeUntil,
   formatTimeUntilDate,
@@ -124,18 +123,6 @@ describe("msFromMinutes", () => {
 
   it("round-trips with minutesFromMs", () => {
     expect(minutesFromMs(msFromMinutes("45"))).toBe("45");
-  });
-});
-
-describe("errorMessage", () => {
-  it("uses the message of Error instances", () => {
-    expect(errorMessage(new Error("boom"))).toBe("boom");
-  });
-
-  it("stringifies non-Error values", () => {
-    expect(errorMessage("plain")).toBe("plain");
-    expect(errorMessage(42)).toBe("42");
-    expect(errorMessage(undefined)).toBe("undefined");
   });
 });
 

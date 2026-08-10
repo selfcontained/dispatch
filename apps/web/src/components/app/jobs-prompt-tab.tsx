@@ -1,10 +1,10 @@
 import { useEffect, useState } from "react";
 
-import { errorMessage } from "@/components/app/jobs-helpers";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { SwitchToggle } from "@/components/app/jobs-form-fields";
 import { type AddJobConfig, type Job } from "@/hooks/use-jobs";
+import { errorMessage } from "@/lib/errors";
 
 export function PromptTab({
   job,

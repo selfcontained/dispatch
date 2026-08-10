@@ -14,11 +14,11 @@ import { JobsOverview } from "@/components/app/jobs-overview";
 import { PromptTab } from "@/components/app/jobs-prompt-tab";
 import { SettingsTab } from "@/components/app/jobs-settings-tab";
 import {
-  errorMessage,
   formatDate,
   statusClasses,
   statusIcon,
 } from "@/components/app/jobs-helpers";
+import { errorMessage } from "@/lib/errors";
 import { shortPath } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";

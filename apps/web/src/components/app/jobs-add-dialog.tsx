@@ -14,11 +14,8 @@ import {
   JobWorktreeOption,
   SwitchToggle,
 } from "@/components/app/jobs-form-fields";
-import {
-  cronError,
-  errorMessage,
-  msFromMinutes,
-} from "@/components/app/jobs-helpers";
+import { cronError, msFromMinutes } from "@/components/app/jobs-helpers";
+import { errorMessage } from "@/lib/errors";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
