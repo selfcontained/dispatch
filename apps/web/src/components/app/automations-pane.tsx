@@ -6,10 +6,8 @@ import { motion } from "framer-motion";
 import { JobsProvider } from "@/components/app/jobs-context";
 import { JobListContent } from "@/components/app/jobs-list-content";
 import { JobDetailPane } from "@/components/app/jobs-detail-pane";
-import {
-  BrainsListContent,
-  BrainsDetailPane,
-} from "@/components/app/brains-pane";
+import { BrainsListContent } from "@/components/app/brains-pane";
+import { BrainsDetailPane } from "@/components/app/brains-detail-pane";
 import { CreateTemplateDialog } from "@/components/app/automations-create-dialog";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import { TemplateDetailPane } from "@/components/app/automations-template-detail";
