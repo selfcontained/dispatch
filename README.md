@@ -149,67 +149,67 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 ### Interactive agents
 
-| Tool                            | Description                                                                                     |
-| ------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `create_pr`                     | Create a GitHub pull request                                                                    |
-| `get_pr_status`                 | Check PR CI status and reviews                                                                  |
-| `dispatch_event`                | Report agent status (`working`, `blocked`, `waiting_user`, `done`, `idle`)                      |
-| `dispatch_rename_session`       | Update the current session's display name                                                       |
-| `dispatch_notify`               | Send a Slack notification from the agent                                                        |
-| `dispatch_pin`                  | Surface key info in the sidebar (URLs, ports, PRs, files)                                       |
-| `dispatch_share`                | Upload screenshots and media to the agent's media pane                                          |
-| `dispatch_list_media`           | List media files shared with or by this agent                                                   |
-| `dispatch_delete_media`         | Permanently remove a shared media file                                                          |
-| `dispatch_list_pins`            | List current sidebar pins for this agent                                                        |
-| `dispatch_delete_pin`           | Permanently remove a pin by its listed stable ID                                                |
-| `list_personas`                 | List available persona reviewers for this project                                               |
-| `persona_templates`             | Get built-in starter templates for authoring review personas                                    |
-| `persona_upsert`                | Create or update a persona file in `.dispatch/personas/`                                        |
-| `persona_validate`              | Validate persona files for required metadata and instructions                                   |
-| `dispatch_launch_persona`       | Launch a persona child agent for automated review                                               |
-| `dispatch_review_list_feedback` | List human review feedback items with statuses and threads                                      |
-| `dispatch_review_resolve`       | Resolve a review feedback item as fixed or dismissed                                            |
-| `dispatch_review_reopen`        | Reopen a resolved review feedback item                                                          |
-| `dispatch_review_add_message`   | Reply to a review feedback thread                                                               |
-| `dispatch_launch_agent`         | Launch a new child agent to work on a subtask                                                   |
-| `dispatch_archive_agent`        | Archive an agent this session launched, with worktree cleanup control                           |
-| `list_agents`                   | List other agents in the same repo with IDs, names, statuses, and activity                      |
-| `dispatch_send_message`         | Send a message to another running agent by ID or name                                           |
-| `get_activity_summary`          | Summarize agent activity over a time range                                                      |
-| `get_agent_history`             | Get detailed agent session history                                                              |
-| `get_feedback_summary`          | Aggregate persona review feedback for pattern detection                                         |
-| `whiteboard_get`                | Read the agent's shared whiteboard (elements + PNG snapshot path)                               |
-| `whiteboard_update`             | Draw on the shared whiteboard (upsert Excalidraw elements by id)                                |
-| `whiteboard_clear`              | Clear the shared whiteboard                                                                     |
-| `brain_get_object`              | Read a shared object from the repo-scoped Brain                                                 |
-| `brain_store_object`            | Create or update a shared Brain object (optimistic concurrency)                                 |
-| `brain_list_objects`            | List Brain objects, optionally filtered by collection or prefix                                 |
-| `brain_delete_object`           | Delete a shared Brain object                                                                    |
-| `brain_list_push`               | Append one or more items to a shared Brain list                                                 |
-| `brain_list_remove`             | Remove one item from a shared Brain list by index or field match                                |
-| `brain_list_get`                | Read items from a shared Brain list with paging and ordering                                    |
-| `brain_list_set`                | Replace one item in a shared Brain list by index                                                |
-| `brain_list_delete`             | Delete a shared Brain list and all of its items                                                 |
-| `brain_append_event`            | Append a structured event to the Brain's append-only event log                                  |
-| `brain_query_events`            | Query Brain events by collection, kind, subject, tags, and time range                           |
-| `brain_delete_events`           | Delete Brain events by id, or prune every event matching a filter (`dryRun` previews the count) |
-| `list_jobs`                     | List jobs scoped to a directory                                                                 |
-| `get_job`                       | Get a single job by ID or name                                                                  |
-| `create_job`                    | Create a new job                                                                                |
-| `update_job`                    | Update an existing job's configuration                                                          |
-| `delete_job`                    | Delete a job                                                                                    |
-| `run_job`                       | Trigger an immediate run of a job                                                               |
-| `list_templates`                | List templates scoped to a directory                                                            |
-| `get_template`                  | Get a single template by ID or name                                                             |
-| `create_template`               | Create a new reusable agent launch template                                                     |
-| `update_template`               | Update an existing template                                                                     |
-| `delete_template`               | Delete a template                                                                               |
-| `list_personalities`            | List saved personalities and the active personality ID                                          |
-| `create_personality`            | Create a saved personality                                                                      |
-| `update_personality`            | Update a saved personality's name or prompt                                                     |
-| `delete_personality`            | Delete a saved personality (clears it if it was active)                                         |
-| `set_active_personality`        | Set the active personality for subsequently launched agents                                     |
-| `clear_active_personality`      | Clear the active personality                                                                    |
+| Tool                            | Description                                                                                          |
+| ------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `create_pr`                     | Create a GitHub pull request                                                                         |
+| `get_pr_status`                 | Check PR CI status and reviews                                                                       |
+| `dispatch_event`                | Report agent status (`working`, `blocked`, `waiting_user`, `done`, `idle`)                           |
+| `dispatch_rename_session`       | Update the current session's display name                                                            |
+| `dispatch_notify`               | Send a Slack notification from the agent                                                             |
+| `dispatch_pin`                  | Surface key info in the sidebar (URLs, ports, PRs, files)                                            |
+| `dispatch_share`                | Upload screenshots and media to the agent's media pane                                               |
+| `dispatch_list_media`           | List media files shared with or by this agent                                                        |
+| `dispatch_delete_media`         | Permanently remove a shared media file                                                               |
+| `dispatch_list_pins`            | List current sidebar pins for this agent                                                             |
+| `dispatch_delete_pin`           | Permanently remove a pin by its listed stable ID                                                     |
+| `list_personas`                 | List available persona reviewers for this project                                                    |
+| `persona_templates`             | Get built-in starter templates for authoring review personas                                         |
+| `persona_upsert`                | Create or update a persona file in `.dispatch/personas/`                                             |
+| `persona_validate`              | Validate persona files for required metadata and instructions                                        |
+| `dispatch_launch_persona`       | Launch a persona child agent for automated review                                                    |
+| `dispatch_review_list_feedback` | List human review feedback items with statuses and threads                                           |
+| `dispatch_review_resolve`       | Resolve a review feedback item as fixed or dismissed                                                 |
+| `dispatch_review_reopen`        | Reopen a resolved review feedback item                                                               |
+| `dispatch_review_add_message`   | Reply to a review feedback thread                                                                    |
+| `dispatch_launch_agent`         | Launch a new child agent to work on a subtask                                                        |
+| `dispatch_archive_agent`        | Archive an agent this session launched, with worktree cleanup control                                |
+| `list_agents`                   | List other agents in the same repo with IDs, names, statuses, and activity                           |
+| `dispatch_send_message`         | Send a message to another running agent by ID or name                                                |
+| `get_activity_summary`          | Summarize agent activity over a time range                                                           |
+| `get_agent_history`             | Get detailed agent session history                                                                   |
+| `get_feedback_summary`          | Aggregate persona review feedback for pattern detection                                              |
+| `whiteboard_get`                | Read the agent's shared whiteboard (elements + PNG snapshot path)                                    |
+| `whiteboard_update`             | Draw on the shared whiteboard (upsert Excalidraw elements by id)                                     |
+| `whiteboard_clear`              | Clear the shared whiteboard                                                                          |
+| `brain_get_object`              | Read a shared object from the repo-scoped Brain                                                      |
+| `brain_store_object`            | Create or update a shared Brain object (optimistic concurrency)                                      |
+| `brain_list_objects`            | List Brain objects, optionally filtered by collection or prefix                                      |
+| `brain_delete_object`           | Delete a shared Brain object                                                                         |
+| `brain_list_push`               | Append one or more items to a shared Brain list                                                      |
+| `brain_list_remove`             | Remove one item from a shared Brain list by index or field match                                     |
+| `brain_list_get`                | Read items from a shared Brain list with paging and ordering                                         |
+| `brain_list_set`                | Replace one item in a shared Brain list by index                                                     |
+| `brain_list_delete`             | Delete a shared Brain list and all of its items                                                      |
+| `brain_append_event`            | Append a structured event to the Brain's append-only event log                                       |
+| `brain_query_events`            | Query Brain events by collection, kind, subject, tags, and time range                                |
+| `brain_delete_events`           | Delete Brain events by id, or prune a collection with optional filters (`dryRun` previews the count) |
+| `list_jobs`                     | List jobs scoped to a directory                                                                      |
+| `get_job`                       | Get a single job by ID or name                                                                       |
+| `create_job`                    | Create a new job                                                                                     |
+| `update_job`                    | Update an existing job's configuration                                                               |
+| `delete_job`                    | Delete a job                                                                                         |
+| `run_job`                       | Trigger an immediate run of a job                                                                    |
+| `list_templates`                | List templates scoped to a directory                                                                 |
+| `get_template`                  | Get a single template by ID or name                                                                  |
+| `create_template`               | Create a new reusable agent launch template                                                          |
+| `update_template`               | Update an existing template                                                                          |
+| `delete_template`               | Delete a template                                                                                    |
+| `list_personalities`            | List saved personalities and the active personality ID                                               |
+| `create_personality`            | Create a saved personality                                                                           |
+| `update_personality`            | Update a saved personality's name or prompt                                                          |
+| `delete_personality`            | Delete a saved personality (clears it if it was active)                                              |
+| `set_active_personality`        | Set the active personality for subsequently launched agents                                          |
+| `clear_active_personality`      | Clear the active personality                                                                         |
 
 ### Persona agents
 

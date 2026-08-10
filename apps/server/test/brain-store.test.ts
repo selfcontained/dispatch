@@ -362,12 +362,14 @@ describe("BrainStore deleteEvents", () => {
 
     const future = new Date(Date.now() + 60000).toISOString();
     const noMatch = await store.deleteEvents(REPO, {
+      collection: "prune",
       tags: ["stale"],
       since: future,
     });
     expect(noMatch).toEqual({ deleted: 0, matched: 0 });
 
     const matched = await store.deleteEvents(REPO, {
+      collection: "prune",
       tags: ["stale"],
       until: future,
     });
@@ -409,10 +411,10 @@ describe("BrainStore deleteEvents", () => {
       "not-a-date",
     ]) {
       await expect(
-        store.deleteEvents(REPO, { until: value })
+        store.deleteEvents(REPO, { collection: "prune", until: value })
       ).rejects.toBeInstanceOf(BrainValidationError);
       await expect(
-        store.deleteEvents(REPO, { since: value })
+        store.deleteEvents(REPO, { collection: "prune", since: value })
       ).rejects.toBeInstanceOf(BrainValidationError);
     }
 
@@ -431,7 +433,7 @@ describe("BrainStore deleteEvents", () => {
       "2027-02-29T00:00:00Z",
     ]) {
       await expect(
-        store.deleteEvents(REPO, { until: value })
+        store.deleteEvents(REPO, { collection: "prune", until: value })
       ).rejects.toBeInstanceOf(BrainValidationError);
     }
 
@@ -486,6 +488,27 @@ describe("BrainStore deleteEvents", () => {
     await expect(
       store.deleteEvents(REPO, { ids: [], tags: [] })
     ).rejects.toBeInstanceOf(BrainValidationError);
+  });
+
+  it("rejects a filter delete that is not scoped to a collection", async () => {
+    await store.deleteEvents(REPO, { collection: "prune" });
+    await seedPruneEvents();
+
+    for (const selector of [
+      { kind: "stale" },
+      { subject: "stale" },
+      { tags: ["stale"] },
+      { until: "2099-01-01T00:00:00Z" },
+    ]) {
+      await expect(store.deleteEvents(REPO, selector)).rejects.toBeInstanceOf(
+        BrainValidationError
+      );
+    }
+
+    expect(await store.queryEvents(REPO, { collection: "prune" })).toHaveLength(
+      3
+    );
+    await store.deleteEvents(REPO, { collection: "prune" });
   });
 
   it("rejects combining ids with a filter", async () => {

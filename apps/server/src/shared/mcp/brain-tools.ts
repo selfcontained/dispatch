@@ -598,9 +598,11 @@ export function registerBrainTools(
       {
         description:
           "Delete events from the shared brain's event log. " +
-          "Either pass explicit event ids (from brain_query_events), or pass filters " +
-          "(collection, kind, subject, tags, since, until) to delete every matching event — not both. " +
-          "At least one id or filter is required so the whole log cannot be wiped by accident. " +
+          "Either pass explicit event ids (from brain_query_events), or pass a collection " +
+          "with optional narrowing filters (kind, subject, tags, since, until) to delete every " +
+          "matching event — not both. Filter deletes always require a collection: kinds and " +
+          "subjects are reused across collections, so an unscoped delete would reach much " +
+          "further than it reads. " +
           "Deletion is permanent and there is no undo: run with dryRun first to see how many " +
           "events the same selector matches.",
         inputSchema: {
@@ -620,14 +622,18 @@ export function registerBrainTools(
             ),
           collection: collectionSchema
             .optional()
-            .describe("Delete events in this collection."),
-          kind: kindSchema.optional().describe("Delete events of this kind."),
+            .describe(
+              "The collection to delete from. Required unless you pass ids."
+            ),
+          kind: kindSchema
+            .optional()
+            .describe("Narrow to events of this kind within the collection."),
           subject: subjectSchema
             .optional()
-            .describe("Delete events with this subject."),
+            .describe("Narrow to events with this subject."),
           tags: tagsSchema
             .optional()
-            .describe("Delete events containing all of these tags."),
+            .describe("Narrow to events containing all of these tags."),
           since: eventTimestampSchema
             .optional()
             .describe(

@@ -788,7 +788,14 @@ export class BrainStore {
     const hasFilter = hasEventFilter(filter);
     if (hasIds === hasFilter) {
       throw new BrainValidationError(
-        "Provide either ids or at least one filter (collection, kind, subject, tags, since, until) when deleting events."
+        "Provide either ids or a collection-scoped filter when deleting events."
+      );
+    }
+    // kind/subject/tag vocabularies are reused across collections, so an
+    // unscoped filter delete reaches far wider than it reads.
+    if (hasFilter && !filter.collection) {
+      throw new BrainValidationError(
+        "Filter deletes must name a collection. Pass collection (optionally narrowed by kind, subject, tags, since, until), or pass ids to delete specific events."
       );
     }
     if (ids && ids.length > MAX_EVENT_IDS_PER_DELETE) {

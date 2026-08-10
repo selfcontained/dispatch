@@ -928,6 +928,7 @@ describe("registerBrainTools", () => {
         server,
         "brain_delete_events"
       )({
+        collection: "c",
         kind: "run",
       })) as { content: Array<{ text: string }> };
 
