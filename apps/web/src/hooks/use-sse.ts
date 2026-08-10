@@ -23,6 +23,8 @@ import {
 /** Backoff bounds for self-driven reconnects after a fatal EventSource error. */
 const INITIAL_RECONNECT_DELAY_MS = 1_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
+/** How long a connection must last before it counts as healthy for the backoff. */
+const STABLE_CONNECTION_MS = 10_000;
 
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
@@ -162,12 +164,25 @@ export function useSSE(authState: AuthState): void {
     // We drive our own capped backoff for that case.
     let reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let connectedAt = 0;
 
     const handleSSEMessage = (event: MessageEvent) => {
-      // Any delivered event means the stream is healthy again — the server
-      // sends a snapshot on every connect, so this doubles as the success
-      // signal for the backoff.
-      reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+      // Clearing the backoff needs proof the stream is actually healthy, and a
+      // delivered event alone isn't that: the server writes a snapshot the
+      // moment it accepts the connection, so the first one only proves the
+      // *connect* succeeded. Resetting on it lets a flapping server pin every
+      // tab at the 1s floor forever — connect, snapshot, reset, drop, repeat —
+      // so the cap never engages in exactly the case it exists for. Require
+      // the connection to have lasted a while first.
+      //
+      // Still keyed on a delivered event rather than a bare timer, so a hung
+      // proxy that holds the socket open without sending anything can't clear
+      // the backoff. The tradeoff: a connection that stays healthy but silent
+      // for its whole life fails with an elevated delay (capped at 30s, and
+      // reset on tab foreground) — acceptable for a stream this chatty.
+      if (Date.now() - connectedAt >= STABLE_CONNECTION_MS) {
+        reconnectDelayMs = INITIAL_RECONNECT_DELAY_MS;
+      }
       try {
         recordSSEEvent();
         const payload = JSON.parse(event.data) as UiEvent;
@@ -391,6 +406,7 @@ export function useSSE(authState: AuthState): void {
       const source = new EventSource("/api/v1/events", {
         withCredentials: true,
       });
+      connectedAt = Date.now();
       eventSourceRef.current = source;
       source.onmessage = handleSSEMessage;
       source.onerror = () => {
