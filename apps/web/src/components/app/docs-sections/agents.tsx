@@ -283,6 +283,36 @@ export function AgentsContent() {
       </Section>
 
       <Section>
+        <H3 id="prompt-delivery">Prompt delivery</H3>
+        <P>
+          Dispatch types automated prompts — review feedback and diff comments,
+          agent-to-agent messages, the auto-rename request, browser feedback —
+          straight into the agent's terminal, the same input you type into. Turn
+          on <strong>Hold automated prompts while you type</strong> in{" "}
+          <strong>Settings → Agents</strong> to stop them landing mid-sentence.
+          It's off by default, and the setting applies to every agent on the
+          server.
+        </P>
+        <P>
+          With it on, an automated prompt waits for a 10-second pause in your
+          terminal activity (keystrokes, clicks, and scrolls all reset the
+          timer) before it's delivered. While one is waiting, a blue envelope
+          badge appears in the bottom-right of the terminal; its ring fills as
+          the pause elapses, and a count appears when more than one prompt is
+          queued. Hover it for an explanation and click to send immediately — on
+          touch devices, tap it for a <strong>Send now</strong> button. Sending
+          now releases everything queued for that agent. Nothing waits forever:
+          after 60 seconds a prompt is delivered even if you're still typing.
+        </P>
+        <P>
+          Things you send yourself — quick phrases, dropped or pasted files —
+          never wait; they're meant to land where your cursor is. They still
+          take their turn behind a prompt that is actively being typed in, so
+          the two can't interleave.
+        </P>
+      </Section>
+
+      <Section>
         <H3 id="quick-phrases">Quick Phrases</H3>
         <P>
           The <strong>Quick Phrases</strong> button (speech-bubble icon) in the

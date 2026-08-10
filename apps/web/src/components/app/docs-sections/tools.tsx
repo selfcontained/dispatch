@@ -199,12 +199,19 @@ export function ToolsContent() {
             template
           </li>
           <li>
+            <Code>dispatch_archive_agent</Code> — archive an agent this session
+            launched, once its output has been consumed; optionally keeping or
+            force-removing its worktree
+          </li>
+          <li>
             <Code>list_agents</Code> — list other agents in the same repo with
             their IDs, names, statuses, and latest activity
           </li>
           <li>
             <Code>dispatch_send_message</Code> — send a message to another
-            running agent by ID or name; the target can reply the same way
+            running agent by ID or name; the target can reply the same way. The
+            call returns once the message is queued for the target's terminal,
+            not once it has been typed in
           </li>
           <li>
             <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,{" "}

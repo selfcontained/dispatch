@@ -130,19 +130,21 @@ export function AutomationsContent() {
           <li>
             <strong>Inline play button</strong> — each template in the list has
             a play icon that opens a launch dialog where you can override the
-            agent type and fill in any arguments before launching.
+            agent type and model and fill in any arguments before launching.
           </li>
           <li>
             <strong>Command palette</strong> (<Code>Mod+K</Code>) — callable
             templates appear under a "Templates" group. Selecting one opens a
-            launch dialog where you can override the agent type and fill in
-            arguments.
+            launch dialog where you can override the agent type and model and
+            fill in arguments.
           </li>
         </ul>
         <P>
           Every launch dialog includes an <strong>Agent type</strong> selector
-          that defaults to the template's configured type. This lets you run the
-          same template with a different CLI without editing the template
+          that defaults to the template's configured type, and — for types with
+          a curated model catalog — a <strong>Model</strong> selector that
+          defaults to the template's saved model. This lets you run the same
+          template with a different CLI or model without editing the template
           itself.
         </P>
         <P>

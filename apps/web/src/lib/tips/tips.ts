@@ -244,6 +244,14 @@ export const tips: Tip[] = [
     since: "0.33.0",
     surfaces: ["ambient"],
   },
+  {
+    id: "prompt-delivery-hold",
+    title: "Hold Prompts While You Type",
+    body: "Tired of review feedback and agent messages landing mid-sentence? Settings → Agents can hold automated prompts until you pause typing — a badge over the terminal lets you send them early.",
+    docsSection: "agents#prompt-delivery",
+    since: "0.33.4",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {
