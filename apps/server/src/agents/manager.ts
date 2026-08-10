@@ -22,6 +22,7 @@ import {
   probeGitContext,
 } from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
+import { findCodexSessionId } from "./codex-sessions.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
@@ -815,6 +816,25 @@ export class AgentManager {
     }
   }
 
+  /**
+   * Persist a CLI session id, tolerating a concurrent start request that got
+   * there first. Returns whichever id ended up stored.
+   */
+  private async claimCliSessionId(
+    id: string,
+    cliSessionId: string
+  ): Promise<string | null> {
+    const { rowCount } = await this.pool.query(
+      `UPDATE agents SET cli_session_id = $2 WHERE id = $1 AND cli_session_id IS NULL`,
+      [id, cliSessionId]
+    );
+    if (rowCount === 0) {
+      const fresh = await this.getRequiredAgent(id);
+      return fresh.cliSessionId;
+    }
+    return cliSessionId;
+  }
+
   async startAgent(id: string): Promise<AgentRecord> {
     const agent = await this.getRequiredAgent(id);
     const tmuxSession =
@@ -837,17 +857,21 @@ export class AgentManager {
     // If not (legacy agent), assign one now so future restarts can resume.
     // Use a conditional UPDATE to avoid races from concurrent start requests.
     let cliSessionId = agent.cliSessionId;
-    const shouldResume = !!cliSessionId;
+    let shouldResume = !!cliSessionId;
     if (!cliSessionId && agent.type === "claude") {
       cliSessionId = randomUUID();
-      const { rowCount } = await this.pool.query(
-        `UPDATE agents SET cli_session_id = $2 WHERE id = $1 AND cli_session_id IS NULL`,
-        [id, cliSessionId]
-      );
-      if (rowCount === 0) {
-        // Another request already assigned a session ID — use that one
-        const fresh = await this.getRequiredAgent(id);
-        cliSessionId = fresh.cliSessionId;
+      cliSessionId = await this.claimCliSessionId(id, cliSessionId);
+    }
+    // Codex mints its own session id at launch, so it can't be pre-assigned the
+    // way Claude's is — recover it from the rollout logs instead. Without this,
+    // every Codex restart silently started a brand-new session.
+    if (!cliSessionId && agent.type === "codex") {
+      const discovered = await findCodexSessionId(id, {
+        notBefore: agent.createdAt ? new Date(agent.createdAt) : null,
+      });
+      if (discovered) {
+        cliSessionId = await this.claimCliSessionId(id, discovered);
+        shouldResume = !!cliSessionId;
       }
     }
 

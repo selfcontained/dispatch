@@ -320,7 +320,7 @@ describe("buildAgentCommand", () => {
     expect(cmd).toContain("DISPATCH_AUTH_TOKEN=");
   });
 
-  it("for codex resume, emits 'codex resume <sessionId>'", () => {
+  it("for codex resume, emits 'codex resume <flags> <sessionId>' with the session id last", () => {
     const cmd = buildAgentCommand(
       baseConfig,
       "codex",
@@ -331,7 +331,60 @@ describe("buildAgentCommand", () => {
       false,
       { cliSessionId: "codex-session", resume: true }
     );
-    expect(cmd).toContain("'/opt/codex' resume 'codex-session'");
+    expect(cmd).toContain("'/opt/codex' resume ");
+    expect(cmd).toContain("mcp_servers.dispatch.url=");
+    // Session id must be the trailing positional so codex binds it to
+    // SESSION_ID rather than the optional PROMPT argument.
+    expect(cmd.endsWith("'codex-session'")).toBe(true);
+  });
+
+  it("for codex resume, re-applies passthrough args so full access survives a restart", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "codex",
+      "standard",
+      ["--dangerously-bypass-approvals-and-sandbox"],
+      "/tmp/media",
+      SESSION,
+      true,
+      { cliSessionId: "codex-session", resume: true }
+    );
+    expect(cmd).toContain("'--dangerously-bypass-approvals-and-sandbox'");
+    expect(cmd.endsWith("'codex-session'")).toBe(true);
+  });
+
+  it("for codex resume with a model, passes --model before the session id", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "codex",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      { cliSessionId: "codex-session", resume: true, model: "gpt-5.6-terra" }
+    );
+    expect(cmd).toContain("--model 'gpt-5.6-terra'");
+    expect(cmd.indexOf("--model")).toBeLessThan(cmd.indexOf("'codex-session'"));
+  });
+
+  it("for codex resume, does not re-send the startup prompt", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "codex",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      {
+        cliSessionId: "codex-session",
+        resume: true,
+        initialPrompt: "do the thing",
+      }
+    );
+    expect(cmd).not.toContain("do the thing");
+    expect(cmd).not.toContain("Dispatch startup rules");
   });
 
   it("for opencode with fullAccess=true, sets OPENCODE_PERMISSION env", () => {
