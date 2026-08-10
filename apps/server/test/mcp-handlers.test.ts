@@ -1205,6 +1205,23 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    // The `as never` is the point: it exercises the path an untyped MCP payload
+    // would take, so this stays a runtime guard rather than a compile-time one.
+    it("ignores a caller-supplied worktreeLocation", async () => {
+      deps.pool.query.mockResolvedValue({ rows: [{ value: "nested" }] });
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "work",
+        useWorktree: true,
+        worktreeLocation: "sibling",
+      } as never);
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ worktreeLocation: "nested" })
+      );
+    });
+
     it("publishes UI event on success", async () => {
       await handlers.launchAgent("agt_test1", {
         name: "child",
