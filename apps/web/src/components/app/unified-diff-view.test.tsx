@@ -165,7 +165,15 @@ function rowFor(container: HTMLElement, code: string): HTMLTableRowElement {
   return row as HTMLTableRowElement;
 }
 
-/** The widget row react-diff-view renders directly beneath a given code line. */
+/**
+ * The widget row react-diff-view renders directly beneath a given code line.
+ *
+ * The strict adjacency is the point, not an accident: "this annotation is
+ * anchored to this line" is exactly what useDiffWidgets' change-key mapping is
+ * responsible for, and immediate succession is how react-diff-view expresses
+ * it. Searching a window of nearby rows instead would let a widget anchored one
+ * line off still satisfy every assertion below.
+ */
 function widgetAfter(container: HTMLElement, code: string): HTMLElement {
   const next = rowFor(container, code).nextElementSibling;
   if (!next?.classList.contains("diff-widget")) {
@@ -189,13 +197,30 @@ function clickGutter(
 }
 
 /**
- * The floating "add a comment" affordance. It is the only button rendered as a
- * direct child of the view root — every other button lives inside the diff
- * table's widget rows.
+ * The floating "add a comment" affordance. The view renders it outside the diff
+ * table, so it is the only button that is a direct child of the view root. If
+ * that ever stops being unique this throws rather than silently returning the
+ * wrong button and turning these assertions into false negatives.
  */
 function commentButton(container: HTMLElement): HTMLElement | null {
-  return container.querySelector(".changes-diff-view > button");
+  const buttons = Array.from(
+    container.querySelectorAll<HTMLElement>(".changes-diff-view > button")
+  );
+  if (buttons.length > 1) {
+    throw new Error(
+      `expected at most one floating affordance, found ${buttons.length}`
+    );
+  }
+  return buttons[0] ?? null;
 }
+
+// jsdom does not implement scrollIntoView at all, so there is no property for
+// vi.spyOn to wrap — it has to be assigned. Capture whatever was there first so
+// afterEach can put the prototype back exactly as it was found.
+const originalScrollIntoView = Object.getOwnPropertyDescriptor(
+  Element.prototype,
+  "scrollIntoView"
+);
 
 beforeEach(() => {
   apiMock.mockReset();
@@ -207,14 +232,20 @@ beforeEach(() => {
       disconnect() {}
     }
   );
-  // jsdom does not implement scrollIntoView at all, so there is no property for
-  // vi.spyOn to wrap — assign it directly. Safe per file: each test file gets
-  // its own jsdom environment.
   Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterEach(() => {
   cleanup();
+  if (originalScrollIntoView) {
+    Object.defineProperty(
+      Element.prototype,
+      "scrollIntoView",
+      originalScrollIntoView
+    );
+  } else {
+    delete (Element.prototype as { scrollIntoView?: unknown }).scrollIntoView;
+  }
   vi.unstubAllGlobals();
   vi.clearAllMocks();
 });
