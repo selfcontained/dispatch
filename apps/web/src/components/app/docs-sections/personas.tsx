@@ -66,7 +66,7 @@ export function PersonasContent() {
       </Section>
 
       <Section>
-        <H3>The built-in reviewer</H3>
+        <H3 id="built-in-reviewer">The built-in reviewer</H3>
         <P>
           Dispatch ships one persona of its own:{" "}
           <strong>General Code Review</strong> (slug <Code>code-review</Code>).

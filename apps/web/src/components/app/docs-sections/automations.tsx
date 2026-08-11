@@ -376,8 +376,9 @@ export function AutomationsContent() {
             <Code>brain_list_objects</Code>, <Code>brain_delete_object</Code>,{" "}
             <Code>brain_list_push</Code>, <Code>brain_list_remove</Code>,{" "}
             <Code>brain_list_get</Code>, <Code>brain_list_set</Code>,{" "}
-            <Code>brain_list_delete</Code>, <Code>brain_append_event</Code>, and{" "}
-            <Code>brain_query_events</Code>. Same tools as standard agents.
+            <Code>brain_list_delete</Code>, <Code>brain_append_event</Code>,{" "}
+            <Code>brain_query_events</Code>, and{" "}
+            <Code>brain_delete_events</Code>. Same tools as standard agents.
           </li>
           <li>
             <strong>Automation CRUD</strong> — <Code>list_jobs</Code>,{" "}
@@ -453,6 +454,21 @@ export function AutomationsContent() {
           template for quick launch. The <strong>Brains</strong> tab shows a
           collection-first browser for the repo-scoped Brain — select a project
           to browse its collections, objects, lists, and events.
+        </P>
+        <P>
+          Brain data can also be cleaned up from here. Every object, list, and
+          event card has its own delete button, and each section header has a{" "}
+          <strong>Delete all</strong> action that clears just that entry type in
+          the current scope — the selected collection, or every collection in
+          the project when the <strong>All</strong> pill is active. Clearing
+          only the events is the usual fix when one noisy job floods the log but
+          the objects and lists around it are still worth keeping. Broader
+          resets live one level up: <strong>Clear collection</strong> removes
+          everything in the selected collection, and{" "}
+          <strong>Clear project</strong> removes every entry for the project.
+          All of them confirm first, and the confirmation quotes the scope's
+          real totals — not the rows on screen, which are capped at 100 per
+          section and narrowed further by the filter box.
         </P>
       </Section>
     </>

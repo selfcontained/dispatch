@@ -32,7 +32,7 @@ replace the fixed executable and restart the service.
 - Git worktree isolation for parallel agent work on separate branches.
 - MCP-based tooling with repo-specific custom tools (`.dispatch/tools.json`).
 - Jobs — scheduled, repo-scoped agent tasks with structured reporting and interactive recovery.
-- Personas — reusable agent roles for automated code review with structured feedback (`.dispatch/personas/`).
+- Personas — reusable agent roles for automated code review with structured feedback (`.dispatch/personas/`), plus a built-in General Code Review persona so review works with no repo setup.
 - Personalities — short system-prompt blocks appended to every agent for voice or standing preferences.
 - Keyboard shortcuts and a command palette (`Mod+K`) for fast navigation and actions.
 - GitHub integration — PR creation and CI status checks via MCP tools.
