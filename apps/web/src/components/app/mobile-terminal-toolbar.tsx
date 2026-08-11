@@ -1,5 +1,6 @@
 import { Keyboard } from "lucide-react";
 import { useAtomValue } from "jotai";
+import { useMutation } from "@tanstack/react-query";
 import {
   type MutableRefObject,
   useCallback,
@@ -7,14 +8,17 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { type TerminalCopyMode } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 import { soundCuesEnabledAtom } from "@/lib/store";
 import { playTapCue } from "@/lib/sound-cues";
 import { cn } from "@/lib/utils";
 
 type MobileTerminalToolbarProps = {
+  agentId: string | null;
   onSendInput: (data: string) => void;
   onExitCopyMode: () => void;
   ctrlPendingRef: MutableRefObject<boolean>;
@@ -23,6 +27,7 @@ type MobileTerminalToolbarProps = {
 };
 
 export function MobileTerminalToolbar({
+  agentId,
   onSendInput,
   onExitCopyMode,
   ctrlPendingRef,
@@ -117,16 +122,52 @@ export function MobileTerminalToolbar({
     });
   }, [isConnected, playTap, triggerFlash]);
 
-  const submitInput = useCallback(() => {
-    if (!isConnected) return;
-    playTap();
-    const text = inputRef.current?.value;
-    if (text) {
-      onSendInput(text + "\r");
-      if (inputRef.current) inputRef.current.value = "";
-    }
-    setInputOpen(false);
-  }, [isConnected, onSendInput, playTap]);
+  // Injection goes through the server API (tmux paste-buffer) rather than
+  // writing straight to the pty over the terminal WS — that's what makes
+  // multi-line/pasted text land reliably instead of racing raw keystrokes.
+  const injectText = useMutation({
+    mutationFn: (input: { text: string; submit: boolean }) =>
+      api<null>(`/api/v1/agents/${agentId}/terminal/inject-text`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onError: () => toast.error("Failed to send input"),
+  });
+
+  const sendFullscreenInput = useCallback(
+    (submit: boolean) => {
+      if (!isConnected || !agentId) return;
+      playTap();
+      const text = inputRef.current?.value;
+      if (!text) {
+        setInputOpen(false);
+        return;
+      }
+      // Keep the overlay and draft text in place until the request succeeds —
+      // clearing/closing eagerly would drop the draft with no way to retry
+      // if the request fails (network blip, expired session, etc).
+      injectText.mutate(
+        { text, submit },
+        {
+          onSuccess: () => {
+            if (inputRef.current) inputRef.current.value = "";
+            setInputOpen(false);
+          },
+          onError: () => inputRef.current?.focus(),
+        }
+      );
+    },
+    [agentId, injectText, isConnected, playTap]
+  );
+
+  const submitInput = useCallback(
+    () => sendFullscreenInput(true),
+    [sendFullscreenInput]
+  );
+  const pasteInput = useCallback(
+    () => sendFullscreenInput(false),
+    [sendFullscreenInput]
+  );
 
   const pausedInput = copyMode === "copy" || copyMode === "exiting";
 
@@ -303,25 +344,42 @@ export function MobileTerminalToolbar({
       {/* Full-screen text input modal */}
       {inputOpen ? (
         <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
-            <button
-              className="text-sm text-muted-foreground"
+          {/* Cancel top-left; Paste/Submit top-right — bigger tap targets
+              matching the keyboard control bar. */}
+          <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-11 shrink-0 px-3 text-sm"
               onClick={() => {
                 playTap();
                 setInputOpen(false);
               }}
             >
               Cancel
-            </button>
-            <span className="text-sm font-medium text-foreground">
-              Terminal Input
-            </span>
-            <button
-              className="text-sm font-medium text-primary"
-              onClick={submitInput}
-            >
-              Send
-            </button>
+            </Button>
+            <div className="flex items-stretch gap-2">
+              <Button
+                type="button"
+                variant="default"
+                className="h-11 px-4 text-sm font-medium"
+                aria-label="Paste without submitting"
+                onClick={pasteInput}
+                disabled={!isConnected || injectText.isPending}
+              >
+                Paste
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="h-11 px-4 text-sm font-medium"
+                aria-label="Submit with Enter"
+                onClick={submitInput}
+                disabled={!isConnected || injectText.isPending}
+              >
+                Submit
+              </Button>
+            </div>
           </div>
           <div className="flex-1 p-4">
             <textarea
@@ -330,32 +388,6 @@ export function MobileTerminalToolbar({
               placeholder="Type command here..."
               autoCapitalize="off"
             />
-          </div>
-          <div className="flex gap-3 border-t border-border px-4 py-3">
-            <Button
-              type="button"
-              variant="default"
-              className="flex-1"
-              onClick={submitInput}
-            >
-              Send + Enter
-            </Button>
-            <Button
-              type="button"
-              variant="ghost"
-              className="flex-1"
-              onClick={() => {
-                playTap();
-                const text = inputRef.current?.value;
-                if (text) {
-                  onSendInput(text);
-                  if (inputRef.current) inputRef.current.value = "";
-                }
-                setInputOpen(false);
-              }}
-            >
-              Send Raw
-            </Button>
           </div>
         </div>
       ) : null}

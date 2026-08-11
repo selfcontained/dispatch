@@ -668,6 +668,7 @@ export function AgentsView({
 
             {isMobile ? (
               <MobileTerminalToolbar
+                agentId={connectedAgentId}
                 onSendInput={sendTerminalInput}
                 onExitCopyMode={() => {
                   void exitCopyMode();
