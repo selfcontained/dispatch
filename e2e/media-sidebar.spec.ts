@@ -577,13 +577,13 @@ test.describe("Media sidebar", () => {
     });
     await setAgentPinsViaDB(agent.id, [
       {
-        id: "pin_action_plain",
+        id: "pin_shortcut_plain",
         label: "Re-run E2E suite",
         type: "shortcut",
         value: "Re-run the full Playwright suite and report failures.",
       },
       {
-        id: "pin_action_captioned",
+        id: "pin_shortcut_captioned",
         label: "Work on sse-reconnect",
         type: "shortcut",
         variant: "primary",
@@ -591,7 +591,7 @@ test.describe("Media sidebar", () => {
         caption: "High priority · 3 files",
       },
       {
-        id: "pin_action_confirm",
+        id: "pin_shortcut_confirm",
         label: "Reset the dev database",
         type: "shortcut",
         variant: "destructive",
@@ -604,15 +604,9 @@ test.describe("Media sidebar", () => {
     await openMediaSidebarForAgent(page, agent);
     const mediaSidebar = page.getByTestId("media-sidebar");
 
-    // The label is the button text; the caption renders beneath it.
-    await expect(
-      mediaSidebar.getByRole("button", { name: "Work on sse-reconnect" })
-    ).toBeVisible();
-    await expect(
-      mediaSidebar.getByText("High priority · 3 files", { exact: true })
-    ).toBeVisible();
-
-    // confirm: true shows the exact prompt and sends nothing until confirmed.
+    // Render details (label, caption, variants, disabled states) are covered by
+    // pins-panel unit tests. What only E2E can prove is the wiring: a click in
+    // the real sidebar reaches the run endpoint for the right pin.
     await mediaSidebar
       .getByRole("button", { name: "Reset the dev database" })
       .click();
@@ -621,11 +615,10 @@ test.describe("Media sidebar", () => {
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await expect(dialog).toBeHidden();
 
-    // A pin without confirm fires straight through to the run endpoint.
     const runResponse = page.waitForResponse((response) =>
       response
         .url()
-        .includes(`/api/v1/agents/${agent.id}/pins/pin_action_plain/run`)
+        .includes(`/api/v1/agents/${agent.id}/pins/pin_shortcut_plain/run`)
     );
     await mediaSidebar
       .getByRole("button", { name: "Re-run E2E suite" })
