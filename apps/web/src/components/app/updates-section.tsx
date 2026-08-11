@@ -43,9 +43,9 @@ import type {
 } from "@/hooks/use-release-stream";
 import { useReleaseUpdates } from "@/hooks/use-release-updates";
 import { cn } from "@/lib/utils";
+import { formatShortDateTime } from "@/lib/format";
 import {
   UPDATE_PHASES,
-  formatDate,
   formatInlineProgress,
   progressPercent,
   describeForceTriggers,
@@ -134,7 +134,7 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
             </span>
             {status.deployedAt ? (
               <span className="text-xs text-muted-foreground">
-                {formatDate(status.deployedAt)}
+                {formatShortDateTime(status.deployedAt)}
               </span>
             ) : null}
           </div>
@@ -344,7 +344,10 @@ export function UpdatesSection({ stream }: UpdatesSectionProps): JSX.Element {
                   </span>
                   {displayInfo.latestRelease?.publishedAt && (
                     <span className="text-xs text-muted-foreground">
-                      · {formatDate(displayInfo.latestRelease.publishedAt)}
+                      ·{" "}
+                      {formatShortDateTime(
+                        displayInfo.latestRelease.publishedAt
+                      )}
                     </span>
                   )}
                 </div>

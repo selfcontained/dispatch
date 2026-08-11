@@ -14,7 +14,7 @@ import { JobsOverview } from "@/components/app/jobs-overview";
 import { PromptTab } from "@/components/app/jobs-prompt-tab";
 import { SettingsTab } from "@/components/app/jobs-settings-tab";
 import {
-  formatDate,
+  formatJobDateTime,
   statusClasses,
   statusIcon,
 } from "@/components/app/jobs-helpers";
@@ -230,7 +230,7 @@ function JobDetail({
           </div>
           <div className="mt-1 text-sm text-muted-foreground">
             {job.enabled && job.nextRun
-              ? `Scheduled next run: ${formatDate(job.nextRun)}.`
+              ? `Scheduled next run: ${formatJobDateTime(job.nextRun)}.`
               : job.schedule
                 ? "This job is saved but not enabled on a schedule yet."
                 : "This job is on-demand — use Run now to start it."}

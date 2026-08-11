@@ -51,7 +51,7 @@ export function statusDotColor(status: JobRunStatus | null): string {
   return "bg-muted-foreground";
 }
 
-export function formatDate(iso: string | null | undefined): string {
+export function formatJobDateTime(iso: string | null | undefined): string {
   if (!iso) return "Not scheduled";
   const date = new Date(iso);
   if (Number.isNaN(date.getTime())) return "Unknown";

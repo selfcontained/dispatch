@@ -4,7 +4,6 @@ import type {
   ReleaseProgress,
 } from "@/hooks/use-release-stream";
 import type { ReleaseInfoSnapshot } from "@/hooks/use-cached-release-info";
-import { formatShortDateTime } from "@/lib/format";
 import { formatBytes } from "../../../../server/src/shared/lib/format-bytes";
 
 export { formatBytes };
@@ -23,10 +22,6 @@ export const UPDATE_PHASES = [
   "restarting",
   "done",
 ] as const;
-
-export function formatDate(iso: string): string {
-  return formatShortDateTime(iso);
-}
 
 export function cleanError(raw: string): string {
   const stderrMatch = raw.match(/stderr=(.+)$/s);

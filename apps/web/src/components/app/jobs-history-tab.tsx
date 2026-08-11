@@ -1,7 +1,7 @@
 import { MessageSquareText } from "lucide-react";
 
 import {
-  formatDate,
+  formatJobDateTime,
   statusDotColor,
   statusTextColor,
   triggerSourceLabel,
@@ -68,7 +68,7 @@ export function HistoryTab({
                     {run.status}
                   </span>
                   <span className="min-w-0 truncate font-mono tabular-nums">
-                    {formatDate(run.startedAt)}
+                    {formatJobDateTime(run.startedAt)}
                   </span>
                   <span className="font-mono tabular-nums opacity-50">
                     {formatDuration(run.durationMs)}
@@ -156,7 +156,7 @@ function RunReport({ run }: { run: JobRun | null }) {
       )}
       {run.completedAt && (
         <div className="pt-1 font-mono text-[11px] text-muted-foreground/50">
-          Completed {formatDate(run.completedAt)}
+          Completed {formatJobDateTime(run.completedAt)}
         </div>
       )}
       {!run.report && !run.pendingQuestion && (
