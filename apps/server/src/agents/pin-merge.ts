@@ -4,7 +4,12 @@ import type { AgentPin } from "./types.js";
 const CLEARABLE_FIELDS = ["caption", "group", "icon"] as const;
 
 /** Decorations that only mean anything on a shortcut pin. */
-const SHORTCUT_ONLY_FIELDS = ["icon", "variant", "confirm"] as const;
+const SHORTCUT_ONLY_FIELDS = [
+  "icon",
+  "variant",
+  "confirm",
+  "disabled",
+] as const;
 
 /**
  * Optional pin decorations are cleared by passing an empty string — there is
@@ -36,9 +41,9 @@ export function mergePin(existing: AgentPin, incoming: AgentPin): AgentPin {
   });
 
   // Omitting a field means "keep it", which would otherwise let a shortcut's
-  // icon/variant/confirm ride along when the pin is re-typed as something
-  // else — stale state an agent could see in dispatch_list_pins and have no
-  // way to clear.
+  // icon/variant/confirm/disabled ride along when the pin is re-typed as
+  // something else — stale state an agent could see in dispatch_list_pins
+  // and have no way to clear.
   if (merged.type !== "shortcut") {
     for (const field of SHORTCUT_ONLY_FIELDS) delete merged[field];
   }

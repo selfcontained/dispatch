@@ -18,6 +18,14 @@ const pins: AgentPin[] = [
     type: "shortcut",
   },
   { id: "p3", label: "Notes", value: "rm -rf /", type: "string" },
+  {
+    id: "p4",
+    label: "Launch",
+    value: "Launch the build.",
+    type: "shortcut",
+    disabled: true,
+    caption: "already building — agt_abc123",
+  },
 ];
 
 describe("resolveShortcutRun", () => {
@@ -65,5 +73,15 @@ describe("resolveShortcutRun", () => {
   it("refuses when the agent has no pins at all", () => {
     expect(resolveShortcutRun(undefined, "p1").ok).toBe(false);
     expect(resolveShortcutRun([], "p1").ok).toBe(false);
+  });
+
+  it("refuses a pin marked disabled", () => {
+    // The button already renders inert client-side; this is the server-side
+    // trust boundary that has to hold even if that fails or is bypassed.
+    expect(resolveShortcutRun(pins, "p4")).toEqual({
+      ok: false,
+      status: 400,
+      error: "This pin is disabled.",
+    });
   });
 });

@@ -38,6 +38,14 @@ export type AgentPin = {
   variant?: PinShortcutVariant;
   /** When true, clicking a shortcut pin asks for confirmation first. */
   confirm?: boolean;
+  /**
+   * When true, the shortcut renders non-interactive instead of being
+   * deleted — for an action that has become temporarily or permanently
+   * unavailable but is still worth showing (e.g. a launch pin once its
+   * builder is already running). `caption` doubles as the reason shown in
+   * place of its normal subtitle. Shortcut pins only.
+   */
+  disabled?: boolean;
 };
 
 export type Agent = {

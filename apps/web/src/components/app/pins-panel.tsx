@@ -311,7 +311,9 @@ function PinValueRow({
 /**
  * Shortcut pins are a button, not a value: `label` is the button text, `value`
  * is the prompt delivered to the owning agent on click, and `caption` is an
- * optional one-line caption for context a human wants before clicking.
+ * optional one-line caption for context a human wants before clicking. On a
+ * `disabled` shortcut the same slot doubles as the reason it's unavailable
+ * (e.g. "already building — agt_...") — there's no separate reason field.
  */
 function PinCaption({ value }: { value: string }): JSX.Element {
   return (
@@ -347,12 +349,17 @@ function ShortcutPinItem({
       ? AlertTriangle
       : resolvePinShortcutIcon(pin.icon);
   // No ID means the run endpoint has nothing to address; render it inert
-  // rather than as a button that silently does nothing on click.
-  const unavailable = disabled || !pin.id;
+  // rather than as a button that silently does nothing on click. An
+  // agent-set `disabled` is a third, independent reason a shortcut can't
+  // fire — checked here rather than folded into the `disabled` prop so its
+  // tooltip copy stays distinct from "agent not running".
+  const unavailable = disabled || !pin.id || Boolean(pin.disabled);
   const blocked = unavailable || pending;
   const disabledReason = !pin.id
     ? "This pin has no stable ID, so it cannot be run."
-    : `${agentName ?? "This agent"} has no active session — shortcuts are unavailable.`;
+    : pin.disabled
+      ? "This action is currently unavailable."
+      : `${agentName ?? "This agent"} has no active session — shortcuts are unavailable.`;
 
   return (
     <div
@@ -364,6 +371,7 @@ function ShortcutPinItem({
       data-testid="pin-item"
       data-pin-label={pin.label}
       data-pin-type="shortcut"
+      data-pin-disabled={pin.disabled ? "true" : undefined}
     >
       <TooltipProvider delayDuration={200}>
         <Tooltip>
@@ -382,7 +390,7 @@ function ShortcutPinItem({
                   "border-foreground/25 bg-[color-mix(in_srgb,hsl(var(--card))_90%,hsl(var(--foreground)))] text-foreground hover:bg-[color-mix(in_srgb,hsl(var(--card))_82%,hsl(var(--foreground)))]",
                 // 32px is below the 44px touch minimum, and these stack.
                 coarsePointer && "h-11",
-                blocked && "opacity-50"
+                blocked && "cursor-not-allowed opacity-50"
               )}
               // aria-disabled rather than `disabled`: the native attribute
               // drops the button out of the tab order, which is where the
