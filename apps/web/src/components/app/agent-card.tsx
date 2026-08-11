@@ -213,7 +213,7 @@ export function AgentCard({
                 ) : null}
                 {childAgents.length > 0 ? (
                   <div className="space-y-1.5 border-t border-border/50 pt-2">
-                    <div className="flex items-center justify-between px-0.5">
+                    <div className="flex items-center justify-between pl-0.5 pr-2">
                       <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground/75">
                         Sub Agents
                       </span>
@@ -221,7 +221,7 @@ export function AgentCard({
                         {childAgents.length}
                       </span>
                     </div>
-                    <ScrollArea className="max-h-56">
+                    <ScrollArea className="max-h-56" type="always">
                       <div className="space-y-1 pr-2">
                         {childAgents.map((child) => (
                           <ChildAgentRow
