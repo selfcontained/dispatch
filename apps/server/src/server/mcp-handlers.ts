@@ -5,7 +5,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import type { AgentManager, AgentPin, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
 import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
@@ -50,6 +50,18 @@ import {
 } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { getWorktreeLocation } from "../worktree-location-settings.js";
+
+type PinListing = {
+  id: string;
+  label: string;
+  value: string;
+  type: string;
+  caption?: string;
+  group?: string;
+  icon?: string;
+  variant?: string;
+  confirm?: boolean;
+};
 
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
@@ -193,7 +205,7 @@ async function handleUpsertPin(
     variant?: string;
     confirm?: boolean;
   }
-): Promise<void> {
+): Promise<{ pin: AgentPin; created: boolean }> {
   if (!isPinType(pin.type)) {
     throw new Error(`Invalid pin type: ${pin.type}`);
   }
@@ -210,7 +222,7 @@ async function handleUpsertPin(
     validatePinShortcutFields(pin);
   }
 
-  const agent = await deps.agentManager.upsertPin(agentId, {
+  const result = await deps.agentManager.upsertPin(agentId, {
     label: pin.label,
     value: pin.value,
     type: pin.type,
@@ -224,8 +236,9 @@ async function handleUpsertPin(
   });
   deps.publishUiEvent({
     type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
+    agent: deps.withStreamFlag(result.agent),
   });
+  return { pin: result.pin, created: result.created };
 }
 
 async function handleDeletePin(
@@ -255,12 +268,24 @@ async function handleDeletePinByLabel(
 async function handleListPins(
   deps: CreateMcpHandlersDeps,
   agentId: string
-): Promise<Array<{ id: string; label: string; value: string; type: string }>> {
+): Promise<PinListing[]> {
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
+  // Decorations are listed too, so an agent can see what a pin already has
+  // (its group, caption, icon) before deciding what to change.
   return (agent.pins ?? []).map((pin) => {
     if (!pin.id) throw new Error("Pin is missing its stable ID.");
-    return { id: pin.id, label: pin.label, value: pin.value, type: pin.type };
+    return {
+      id: pin.id,
+      label: pin.label,
+      value: pin.value,
+      type: pin.type,
+      ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
+      ...(pin.group !== undefined ? { group: pin.group } : {}),
+      ...(pin.icon !== undefined ? { icon: pin.icon } : {}),
+      ...(pin.variant !== undefined ? { variant: pin.variant } : {}),
+      ...(pin.confirm !== undefined ? { confirm: pin.confirm } : {}),
+    };
   });
 }
 

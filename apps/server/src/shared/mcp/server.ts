@@ -257,10 +257,18 @@ export type McpRequestContext = {
     }>
   >;
   deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
-  listPins?: (
-    agentId: string
-  ) => Promise<
-    Array<{ id: string; label: string; value: string; type: string }>
+  listPins?: (agentId: string) => Promise<
+    Array<{
+      id: string;
+      label: string;
+      value: string;
+      type: string;
+      caption?: string;
+      group?: string;
+      icon?: string;
+      variant?: string;
+      confirm?: boolean;
+    }>
   >;
   listPersonas?: (
     agentCwd: string
@@ -421,7 +429,7 @@ export type McpRequestContext = {
       variant?: string;
       confirm?: boolean;
     }
-  ) => Promise<void>;
+  ) => Promise<{ pin: Record<string, unknown>; created: boolean }>;
   deletePin?: (agentId: string, pinId: string) => Promise<void>;
   deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
   getWhiteboard?: (agentId: string) => Promise<WhiteboardGetResult>;
@@ -695,7 +703,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
     "dispatch_pin",
     {
       description:
-        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
+        "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label — fields you omit keep their current value, so you can add a group or change a value without restating the rest; pass an empty string to clear caption, group, or icon. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
         "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string). " +
         "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert.",
       inputSchema: {
@@ -781,17 +789,25 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
             new Error("value is required when creating or updating a pin.")
           );
         }
-        await upsertPin(agentId, {
+        const { pin, created } = await upsertPin(agentId, {
           label: args.label,
           value: args.value,
           type: args.type ?? "string",
           ...(args.caption !== undefined ? { caption: args.caption } : {}),
+          ...(args.group !== undefined ? { group: args.group } : {}),
+          ...(args.icon !== undefined ? { icon: args.icon } : {}),
           ...(args.variant !== undefined ? { variant: args.variant } : {}),
           ...(args.confirm !== undefined ? { confirm: args.confirm } : {}),
         });
+        // Echo the stored pin, not the request: the agent can then see what an
+        // update actually produced — including fields it did not send that
+        // were carried over — instead of assuming its input round-tripped.
         return {
           content: [
-            { type: "text", text: `Pinned "${args.label}": ${args.value}` },
+            {
+              type: "text",
+              text: `${created ? "Created" : "Updated"} pin "${args.label}". Stored as: ${JSON.stringify(pin)}`,
+            },
           ],
         };
       } catch (error) {

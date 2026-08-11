@@ -38,6 +38,7 @@ import {
   writeLatestEventIfCurrent,
 } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
+import { clearBlankPinFields, mergePin } from "./pin-merge.js";
 import { seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
@@ -1121,23 +1122,42 @@ export class AgentManager {
    * update relocated a member. An agent that wants a pin moved deletes it and
    * pins it again.
    */
-  async upsertPin(id: string, pin: AgentPin): Promise<AgentRecord> {
+  async upsertPin(
+    id: string,
+    pin: AgentPin
+  ): Promise<{ agent: AgentRecord; pin: AgentPin; created: boolean }> {
+    let stored: AgentPin = pin;
+    let created = true;
     await this.mutatePins(id, (currentPins) => {
       const index = currentPins.findIndex(
         (p) => p.label.toLowerCase() === pin.label.toLowerCase()
       );
       if (index !== -1) {
         const pins = [...currentPins];
-        pins[index] = { ...pin, id: currentPins[index]!.id ?? randomUUID() };
+        stored = mergePin(
+          {
+            ...currentPins[index]!,
+            id: currentPins[index]!.id ?? randomUUID(),
+          },
+          pin
+        );
+        created = false;
+        pins[index] = stored;
         return pins;
       }
       if (currentPins.length >= MAX_PINS) {
         throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
       }
-      return [...currentPins, { ...pin, id: pin.id ?? randomUUID() }];
+      stored = clearBlankPinFields({ ...pin, id: pin.id ?? randomUUID() });
+      created = true;
+      return [...currentPins, stored];
     });
 
-    return (await this.getAgent(id)) as AgentRecord;
+    return {
+      agent: (await this.getAgent(id)) as AgentRecord,
+      pin: stored,
+      created,
+    };
   }
 
   async deletePinById(id: string, pinId: string): Promise<AgentRecord> {
