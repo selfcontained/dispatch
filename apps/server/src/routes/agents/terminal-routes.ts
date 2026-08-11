@@ -7,6 +7,7 @@ import { spawn as spawnPty } from "../../shared/terminal/bun-pty.js";
 import { substituteArgs } from "../../templates/arg-parser.js";
 import { TmuxTerminal } from "../../terminal/tmux-terminal.js";
 import { errorMessage } from "../../shared/lib/error-message.js";
+import { resolveShortcutRun } from "../../agents/pin-run.js";
 import { decodeClientMessage, type AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentTerminalRoutes(
@@ -195,6 +196,47 @@ export async function registerAgentTerminalRoutes(
           agentId,
           () =>
             submit ? terminal.sendCommand(text) : terminal.pasteText(text),
+          { gate: false }
+        );
+        return reply.code(204).send();
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
+
+  // Shortcut pins: the click delivers the pin's stored prompt to the owning
+  // agent's session. The prompt is looked up server-side by pin ID so the
+  // client can only fire prompts the agent itself pinned. Like quick phrases,
+  // the click IS the user acting, so it skips the quiet gate but still
+  // serializes against in-flight injections.
+  app.post(
+    "/api/v1/agents/:id/terminal/inject-pin/:pinId",
+    async (request, reply) => {
+      const params = request.params as { id?: string; pinId?: string };
+      const agentId = params.id ?? "";
+      const pinId = params.pinId ?? "";
+
+      try {
+        const agent = await deps.agentManager.getAgent(agentId);
+        if (!agent) {
+          return reply.code(404).send({ error: "Agent not found." });
+        }
+
+        const target = resolveShortcutRun(agent.pins, pinId);
+        if (!target.ok) {
+          return reply.code(target.status).send({ error: target.error });
+        }
+
+        const access = await deps.agentManager.getTerminalAccess(agentId);
+        if (access.mode !== "tmux") {
+          return reply.code(409).send({ error: access.message });
+        }
+
+        const terminal = new TmuxTerminal(access.sessionName);
+        await deps.injectionCoordinator.inject(
+          agentId,
+          () => terminal.sendCommand(target.prompt),
           { gate: false }
         );
         return reply.code(204).send();

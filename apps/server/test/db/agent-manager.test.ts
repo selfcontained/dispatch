@@ -2250,7 +2250,7 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
 
-      const updated = await manager.upsertPin(agent.id, {
+      const { agent: updated } = await manager.upsertPin(agent.id, {
         label: "URL",
         type: "url",
         value: "https://example.com",
@@ -2276,7 +2276,7 @@ describe("AgentManager", () => {
         value: "https://old.com",
       });
 
-      const updated = await manager.upsertPin(agent.id, {
+      const { agent: updated } = await manager.upsertPin(agent.id, {
         label: "url",
         type: "url",
         value: "https://new.com",
@@ -2284,6 +2284,92 @@ describe("AgentManager", () => {
 
       expect(updated.pins).toHaveLength(1);
       expect(updated.pins![0]!.value).toBe("https://new.com");
+    });
+
+    it("merges into an existing pin instead of replacing it", async () => {
+      // Regression: adding a group to an existing shortcut wiped its icon,
+      // caption, and variant, because the agent had to restate every field.
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      const first = await manager.upsertPin(agent.id, {
+        label: "What day is it?",
+        type: "shortcut",
+        value: "What day is it today?",
+        caption: "Day-related",
+        icon: "clock",
+        variant: "primary",
+      });
+      expect(first.created).toBe(true);
+
+      const second = await manager.upsertPin(agent.id, {
+        label: "What day is it?",
+        type: "shortcut",
+        value: "What day is it today?",
+        group: "Day quick actions",
+      });
+
+      expect(second.created).toBe(false);
+      expect(second.agent.pins).toHaveLength(1);
+      expect(second.agent.pins![0]).toMatchObject({
+        id: first.pin.id,
+        group: "Day quick actions",
+        caption: "Day-related",
+        icon: "clock",
+        variant: "primary",
+      });
+    });
+
+    it("clears a decoration when it is sent as an empty string", async () => {
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.upsertPin(agent.id, {
+        label: "Status",
+        type: "string",
+        value: "green",
+        caption: "from CI",
+      });
+      const cleared = await manager.upsertPin(agent.id, {
+        label: "Status",
+        type: "string",
+        value: "green",
+        caption: "",
+      });
+
+      expect(cleared.agent.pins![0]).not.toHaveProperty("caption");
+    });
+
+    it("keeps a pin in place when it is updated", async () => {
+      // Position stability matters for grouping: a re-pinned member must not
+      // jump to the end of the list.
+      const agent = await manager.createAgent({
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      await manager.upsertPin(agent.id, {
+        label: "First",
+        type: "string",
+        value: "a",
+      });
+      await manager.upsertPin(agent.id, {
+        label: "Second",
+        type: "string",
+        value: "b",
+      });
+      const { agent: updated } = await manager.upsertPin(agent.id, {
+        label: "First",
+        type: "string",
+        value: "changed",
+      });
+
+      expect(updated.pins!.map((p) => p.label)).toEqual(["First", "Second"]);
+      expect(updated.pins![0]!.value).toBe("changed");
     });
 
     it("should keep distinct labels as separate pins", async () => {
@@ -2298,7 +2384,7 @@ describe("AgentManager", () => {
         value: "#42",
       });
 
-      const updated = await manager.upsertPin(agent.id, {
+      const { agent: updated } = await manager.upsertPin(agent.id, {
         label: "URL",
         type: "url",
         value: "https://example.com",
@@ -2348,7 +2434,7 @@ describe("AgentManager", () => {
         JSON.stringify(pins),
       ]);
 
-      const updated = await manager.upsertPin(agent.id, {
+      const { agent: updated } = await manager.upsertPin(agent.id, {
         label: "pin-0",
         type: "string",
         value: "updated",

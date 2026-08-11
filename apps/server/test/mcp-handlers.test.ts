@@ -102,9 +102,20 @@ vi.mock("../src/shared/media.js", () => ({
 
 vi.mock("../src/pins.js", () => ({
   isPinType: vi.fn((t: string) =>
-    ["url", "port", "code", "string", "pr", "filename", "markdown"].includes(t)
+    [
+      "url",
+      "port",
+      "code",
+      "string",
+      "pr",
+      "filename",
+      "markdown",
+      "shortcut",
+    ].includes(t)
   ),
   validatePinValue: vi.fn(),
+  validatePinCaption: vi.fn(),
+  validatePinShortcutFields: vi.fn(),
 }));
 
 vi.mock("node:fs/promises", () => ({
@@ -203,17 +214,16 @@ function createMockDeps() {
           callbacks.onComplete([id]);
         }
       ),
-      upsertPin: vi.fn(async (id: string) => ({
-        id,
-        name: "test-agent",
-        pins: [
-          {
-            id: "pin_url",
-            label: "URL",
-            value: "http://localhost",
-            type: "url",
-          },
-        ],
+      // Mirrors the manager contract: the record, plus the pin as stored and
+      // whether it was created, so the tool can echo it back.
+      upsertPin: vi.fn(async (id: string, pin: Record<string, unknown>) => ({
+        agent: {
+          id,
+          name: "test-agent",
+          pins: [{ id: "pin_url", ...pin }],
+        },
+        pin: { id: "pin_url", ...pin },
+        created: true,
       })),
       deletePinById: vi.fn(async (id: string) => ({
         id,
@@ -374,6 +384,53 @@ describe("createMcpHandlers", () => {
       expect(deps.publishUiEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: "agent.upsert" })
       );
+    });
+
+    // Regression: group and icon were accepted by the tool schema but never
+    // forwarded, so agents silently lost them.
+    it("forwards every shortcut decoration to the manager", async () => {
+      vi.mocked(isPinType).mockReturnValue(true);
+      await handlers.upsertPin("agt_test1", {
+        label: "Work on X",
+        value: "work on x",
+        type: "shortcut",
+        caption: "**High priority**",
+        group: "Ready to build",
+        icon: "rocket",
+        variant: "primary",
+        confirm: true,
+      });
+      expect(deps.agentManager.upsertPin).toHaveBeenCalledWith("agt_test1", {
+        label: "Work on X",
+        value: "work on x",
+        type: "shortcut",
+        caption: "**High priority**",
+        group: "Ready to build",
+        icon: "rocket",
+        variant: "primary",
+        confirm: true,
+      });
+    });
+
+    it("drops shortcut-only decorations on other pin types", async () => {
+      vi.mocked(isPinType).mockReturnValue(true);
+      await handlers.upsertPin("agt_test1", {
+        label: "Dev Server",
+        value: "http://localhost",
+        type: "url",
+        caption: "Vite",
+        group: "Dev stack",
+        icon: "rocket",
+        variant: "primary",
+        confirm: true,
+      });
+      expect(deps.agentManager.upsertPin).toHaveBeenCalledWith("agt_test1", {
+        label: "Dev Server",
+        value: "http://localhost",
+        type: "url",
+        caption: "Vite",
+        group: "Dev stack",
+      });
     });
 
     it("rejects invalid pin type", async () => {

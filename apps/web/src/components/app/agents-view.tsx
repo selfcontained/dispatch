@@ -692,6 +692,7 @@ export function AgentsView({
               focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
             }
             selectedAgentPins={focusedAgent?.pins ?? []}
+            selectedAgentIsRunning={focusedAgent?.status === "running"}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             unreadMessageCount={unreadMessageCount}
@@ -730,6 +731,8 @@ export function AgentsView({
               focusedAgent?.worktreePath ?? focusedAgent?.cwd ?? null
             }
             selectedAgentPins={focusedAgent?.pins ?? []}
+            selectedAgentIsRunning={focusedAgent?.status === "running"}
+            onShortcutRun={() => setMobileMediaOpen(false)}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             unreadMessageCount={unreadMessageCount}

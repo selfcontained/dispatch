@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { isPinType, validatePinValue } from "../src/pins.js";
+import {
+  isPinType,
+  validatePinShortcutFields,
+  validatePinCaption,
+  validatePinValue,
+} from "../src/pins.js";
 
 describe("pin validation", () => {
   it("recognizes valid pin types", () => {
@@ -8,6 +13,7 @@ describe("pin validation", () => {
     expect(isPinType("url")).toBe(true);
     expect(isPinType("port")).toBe(true);
     expect(isPinType("markdown")).toBe(true);
+    expect(isPinType("shortcut")).toBe(true);
     expect(isPinType("bogus")).toBe(false);
   });
 
@@ -96,5 +102,70 @@ describe("pin validation", () => {
   it("does not validate other pin types specially", () => {
     expect(() => validatePinValue("string", "line 1\nline 2")).not.toThrow();
     expect(() => validatePinValue("filename", "a.ts,\nb.ts")).not.toThrow();
+  });
+
+  it("accepts shortcut pins carrying a prompt", () => {
+    expect(() =>
+      validatePinValue("shortcut", "work on sse-eventsource-reconnect")
+    ).not.toThrow();
+  });
+
+  it("rejects shortcut pins with an empty prompt", () => {
+    expect(() => validatePinValue("shortcut", "   ")).toThrow(
+      /non-empty prompt/i
+    );
+  });
+
+  it("rejects shortcut prompts over the length cap", () => {
+    expect(() => validatePinValue("shortcut", "x".repeat(2001))).toThrow(
+      /2000 characters or fewer/i
+    );
+  });
+
+  it("accepts supported shortcut variants", () => {
+    expect(() =>
+      validatePinShortcutFields({ variant: "primary" })
+    ).not.toThrow();
+    expect(() => validatePinShortcutFields({})).not.toThrow();
+  });
+
+  it("accepts inline-markdown captions", () => {
+    expect(() =>
+      validatePinCaption("**High priority** · touched `store.ts`")
+    ).not.toThrow();
+  });
+
+  it("accepts a known shortcut icon", () => {
+    expect(() => validatePinShortcutFields({ icon: "rocket" })).not.toThrow();
+  });
+
+  it("rejects an unknown shortcut icon", () => {
+    expect(() => validatePinShortcutFields({ icon: "banana" })).toThrow(
+      /icon must be one of/i
+    );
+  });
+
+  it("rejects prototype keys as icons", () => {
+    expect(() => validatePinShortcutFields({ icon: "constructor" })).toThrow(
+      /icon must be one of/i
+    );
+    expect(() => validatePinShortcutFields({ icon: "__proto__" })).toThrow(
+      /icon must be one of/i
+    );
+  });
+
+  it("rejects unknown shortcut variants", () => {
+    expect(() => validatePinShortcutFields({ variant: "warning" })).toThrow(
+      /variant must be one of/i
+    );
+  });
+
+  it("rejects multi-line or oversized captions", () => {
+    expect(() => validatePinCaption("line one\nline two")).toThrow(
+      /single line/i
+    );
+    expect(() => validatePinCaption("x".repeat(161))).toThrow(
+      /160 characters or fewer/i
+    );
   });
 });

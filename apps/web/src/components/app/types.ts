@@ -7,10 +7,37 @@ export type AgentStatus =
   | "error"
   | "unknown";
 
+export type PinShortcutVariant = "default" | "primary" | "destructive";
+
 export type AgentPin = {
+  id?: string;
   label: string;
   value: string;
-  type: "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
+  type:
+    | "string"
+    | "url"
+    | "port"
+    | "code"
+    | "pr"
+    | "filename"
+    | "markdown"
+    | "shortcut";
+  /**
+   * Caption rendered under a shortcut pin's button — inline markdown.
+   * Shortcut pins only.
+   */
+  caption?: string;
+  /** Icon name for a shortcut pin's button. Shortcut pins only. */
+  icon?: string;
+  /**
+   * Renders this pin under a shared heading with every other pin carrying the
+   * same group name. Any pin type may set it.
+   */
+  group?: string;
+  /** Button styling for a shortcut pin. Shortcut pins only. */
+  variant?: PinShortcutVariant;
+  /** When true, clicking a shortcut pin asks for confirmation first. */
+  confirm?: boolean;
 };
 
 export type Agent = {

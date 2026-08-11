@@ -566,4 +566,65 @@ test.describe("Media sidebar", () => {
       mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })
     ).toBeVisible();
   });
+
+  test("renders shortcut pins as buttons that send their prompt to the agent", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-shortcut-pins-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+    await setAgentPinsViaDB(agent.id, [
+      {
+        id: "pin_shortcut_plain",
+        label: "Re-run E2E suite",
+        type: "shortcut",
+        value: "Re-run the full Playwright suite and report failures.",
+      },
+      {
+        id: "pin_shortcut_captioned",
+        label: "Work on sse-reconnect",
+        type: "shortcut",
+        variant: "primary",
+        value: "work on sse-eventsource-reconnect",
+        caption: "High priority · 3 files",
+      },
+      {
+        id: "pin_shortcut_confirm",
+        label: "Reset the dev database",
+        type: "shortcut",
+        variant: "destructive",
+        confirm: true,
+        value: "Drop and reseed the dev database.",
+      },
+    ]);
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, agent);
+    const mediaSidebar = page.getByTestId("media-sidebar");
+
+    // Render details (label, caption, variants, disabled states) are covered by
+    // pins-panel unit tests. What only E2E can prove is the wiring: a click in
+    // the real sidebar reaches the run endpoint for the right pin.
+    await mediaSidebar
+      .getByRole("button", { name: "Reset the dev database" })
+      .click();
+    const dialog = page.getByTestId("pin-shortcut-confirm-dialog");
+    await expect(dialog).toContainText("Drop and reseed the dev database.");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+
+    const runResponse = page.waitForResponse((response) =>
+      response
+        .url()
+        .includes(
+          `/api/v1/agents/${agent.id}/terminal/inject-pin/pin_shortcut_plain`
+        )
+    );
+    await mediaSidebar
+      .getByRole("button", { name: "Re-run E2E suite" })
+      .click();
+    expect((await runResponse).request().method()).toBe("POST");
+  });
 });

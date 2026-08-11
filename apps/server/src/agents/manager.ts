@@ -38,6 +38,12 @@ import {
   writeLatestEventIfCurrent,
 } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
+import { clearBlankPinFields, mergePin } from "./pin-merge.js";
+import {
+  validatePinCaption,
+  validatePinShortcutFields,
+  validatePinValue,
+} from "../pins.js";
 import { seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
@@ -102,6 +108,20 @@ const MAX_PINS = 50;
 function normalizeInitialPins(pins: AgentPin[]): AgentPin[] {
   const byLabel = new Map<string, AgentPin>();
   for (const pin of pins) {
+    // Seeding is the second write path into agents.pins; it has to accept the
+    // same shapes as dispatch_pin, or a template could seed a pin the MCP tool
+    // would have rejected — which now matters, since a shortcut's value is
+    // delivered to a terminal rather than just displayed.
+    try {
+      validatePinValue(pin.type, pin.value);
+      if (pin.caption !== undefined) validatePinCaption(pin.caption);
+      if (pin.type === "shortcut") validatePinShortcutFields(pin);
+    } catch (error) {
+      // The validators throw plain Errors; surface them as 400s so a bad
+      // initialPins payload reads as a client error rather than a crash.
+      throw new AgentError(errorMessage(error), 400);
+    }
+
     byLabel.set(pin.label.toLowerCase(), {
       ...pin,
       id: pin.id ?? randomUUID(),
@@ -1114,22 +1134,49 @@ export class AgentManager {
     return agent;
   }
 
-  async upsertPin(id: string, pin: AgentPin): Promise<AgentRecord> {
+  /**
+   * Update in place when the label already exists, append otherwise. Position
+   * is deliberately stable: re-pinning to refresh a value must not shuffle the
+   * sidebar out from under the user, and grouped pins would tear apart if an
+   * update relocated a member. An agent that wants a pin moved deletes it and
+   * pins it again.
+   */
+  async upsertPin(
+    id: string,
+    pin: AgentPin
+  ): Promise<{ agent: AgentRecord; pin: AgentPin; created: boolean }> {
+    let stored: AgentPin = pin;
+    let created = true;
     await this.mutatePins(id, (currentPins) => {
-      const existing = currentPins.find(
+      const index = currentPins.findIndex(
         (p) => p.label.toLowerCase() === pin.label.toLowerCase()
       );
-      const pins = currentPins.filter(
-        (p) => p.label.toLowerCase() !== pin.label.toLowerCase()
-      );
-      if (pins.length >= MAX_PINS) {
+      if (index !== -1) {
+        const pins = [...currentPins];
+        stored = mergePin(
+          {
+            ...currentPins[index]!,
+            id: currentPins[index]!.id ?? randomUUID(),
+          },
+          pin
+        );
+        created = false;
+        pins[index] = stored;
+        return pins;
+      }
+      if (currentPins.length >= MAX_PINS) {
         throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
       }
-      pins.push({ ...pin, id: existing?.id ?? pin.id ?? randomUUID() });
-      return pins;
+      stored = clearBlankPinFields({ ...pin, id: pin.id ?? randomUUID() });
+      created = true;
+      return [...currentPins, stored];
     });
 
-    return (await this.getAgent(id)) as AgentRecord;
+    return {
+      agent: (await this.getAgent(id)) as AgentRecord,
+      pin: stored,
+      created,
+    };
   }
 
   async deletePinById(id: string, pinId: string): Promise<AgentRecord> {

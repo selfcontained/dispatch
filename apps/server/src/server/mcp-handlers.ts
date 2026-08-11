@@ -5,7 +5,7 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import type { AgentManager, AgentPin, AgentRecord } from "../agents/manager.js";
 import { AgentError } from "../agents/errors.js";
 import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
@@ -26,7 +26,14 @@ import {
   AGENT_LATEST_EVENT_TYPES,
   isAgentLatestEventType,
 } from "../agents/latest-event.js";
-import { isPinType, validatePinValue } from "../pins.js";
+import {
+  isPinType,
+  validatePinShortcutFields,
+  validatePinCaption,
+  validatePinValue,
+  type PinShortcutVariant,
+} from "../pins.js";
+import { toPinListing, type PinListing } from "./pin-listing.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
@@ -177,21 +184,52 @@ async function handleSendNotify(
 async function handleUpsertPin(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  pin: { label: string; value: string; type: string }
-): Promise<void> {
+  pin: {
+    label: string;
+    value: string;
+    type: string;
+    caption?: string;
+    group?: string;
+    icon?: string;
+    variant?: string;
+    confirm?: boolean;
+  }
+): Promise<{ pin: PinListing; created: boolean }> {
   if (!isPinType(pin.type)) {
     throw new Error(`Invalid pin type: ${pin.type}`);
   }
   validatePinValue(pin.type, pin.value);
-  const agent = await deps.agentManager.upsertPin(agentId, {
+
+  // Captions and grouping are generic; button styling and confirmation only
+  // mean anything for shortcut pins — silently dropping those elsewhere keeps
+  // stored pins honest.
+  if (pin.caption !== undefined) {
+    validatePinCaption(pin.caption);
+  }
+  const isShortcut = pin.type === "shortcut";
+  if (isShortcut) {
+    validatePinShortcutFields(pin);
+  }
+
+  const result = await deps.agentManager.upsertPin(agentId, {
     label: pin.label,
     value: pin.value,
     type: pin.type,
+    ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
+    ...(pin.group !== undefined ? { group: pin.group } : {}),
+    ...(isShortcut && pin.icon !== undefined ? { icon: pin.icon } : {}),
+    ...(isShortcut && pin.variant !== undefined
+      ? { variant: pin.variant as PinShortcutVariant }
+      : {}),
+    ...(isShortcut && pin.confirm !== undefined
+      ? { confirm: pin.confirm }
+      : {}),
   });
   deps.publishUiEvent({
     type: "agent.upsert",
-    agent: deps.withStreamFlag(agent),
+    agent: deps.withStreamFlag(result.agent),
   });
+  return { pin: toPinListing(result.pin), created: result.created };
 }
 
 async function handleDeletePin(
@@ -221,13 +259,12 @@ async function handleDeletePinByLabel(
 async function handleListPins(
   deps: CreateMcpHandlersDeps,
   agentId: string
-): Promise<Array<{ id: string; label: string; value: string; type: string }>> {
+): Promise<PinListing[]> {
   const agent = await deps.agentManager.getAgent(agentId);
   if (!agent) throw new Error("Agent not found.");
-  return (agent.pins ?? []).map((pin) => {
-    if (!pin.id) throw new Error("Pin is missing its stable ID.");
-    return { id: pin.id, label: pin.label, value: pin.value, type: pin.type };
-  });
+  // Decorations are listed too, so an agent can see what a pin already has
+  // (its group, caption, icon) before deciding what to change.
+  return (agent.pins ?? []).map(toPinListing);
 }
 
 async function handleRenameSession(
@@ -889,7 +926,16 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     upsertPin: (
       agentId: string,
-      pin: { label: string; value: string; type: string }
+      pin: {
+        label: string;
+        value: string;
+        type: string;
+        caption?: string;
+        group?: string;
+        icon?: string;
+        variant?: string;
+        confirm?: boolean;
+      }
     ) => handleUpsertPin(deps, agentId, pin),
 
     deletePin: (agentId: string, pinId: string) =>

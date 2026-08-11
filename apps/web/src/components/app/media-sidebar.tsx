@@ -8,6 +8,7 @@ import { MessagesPanel } from "@/components/app/messages-panel";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { ReviewsSidebarContent } from "@/components/app/reviews-sidebar";
 import { useAgentReviews } from "@/hooks/use-agent-reviews";
+import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ type MediaSidebarSharedProps = {
   selectedAgentName: string | null;
   selectedAgentWorkspaceRoot: string | null;
   selectedAgentPins: AgentPin[];
+  selectedAgentIsRunning?: boolean;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   openLightbox: (file: MediaFile) => void;
@@ -41,6 +43,8 @@ type MediaSidebarSharedProps = {
     lineStart: number | null,
     feedbackItemId?: number
   ) => void;
+  /** Called after a shortcut successfully fires (mobile closes the sheet). */
+  onShortcutRun?: () => void;
 };
 
 type MediaSidebarProps = MediaSidebarSharedProps & {
@@ -69,6 +73,7 @@ export function MediaSidebarContent({
   selectedAgentName,
   selectedAgentWorkspaceRoot,
   selectedAgentPins,
+  selectedAgentIsRunning,
   animatingMediaKeys,
   mediaViewportRef,
   openLightbox,
@@ -85,11 +90,13 @@ export function MediaSidebarContent({
   unreadMessageCount,
   onUploadFile,
   onNavigateToFile,
+  onShortcutRun,
 }: MediaSidebarContentProps & {
   unseenMediaCount: number;
   unreadMessageCount: number;
 }): JSX.Element {
   const { reviews } = useAgentReviews(selectedAgentId, !!selectedAgentId);
+  const runPinShortcut = useRunPinShortcut();
   const reviewUnresolvedCount = reviews.reduce(
     (sum, r) => sum + (r.itemCount - r.resolvedCount),
     0
@@ -231,6 +238,30 @@ export function MediaSidebarContent({
           pins={selectedAgentPins}
           selectedAgentName={selectedAgentName}
           selectedAgentWorkspaceRoot={selectedAgentWorkspaceRoot}
+          agentIsRunning={selectedAgentIsRunning}
+          // A shortcut fires a real prompt into a live session, so an
+          // in-flight run blocks its own button until it settles — a
+          // double-click would otherwise send the prompt twice.
+          pendingPinId={
+            runPinShortcut.isPending
+              ? (runPinShortcut.variables?.pinId ?? null)
+              : null
+          }
+          onRunShortcut={
+            selectedAgentId
+              ? (pin) => {
+                  if (!pin.id || runPinShortcut.isPending) return;
+                  runPinShortcut.mutate(
+                    {
+                      agentId: selectedAgentId,
+                      pinId: pin.id,
+                      label: pin.label,
+                    },
+                    { onSuccess: () => onShortcutRun?.() }
+                  );
+                }
+              : undefined
+          }
         />
       </div>
       <div

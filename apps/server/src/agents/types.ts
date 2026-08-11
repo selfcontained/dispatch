@@ -27,20 +27,24 @@ export type ArchivePhase =
   | "finalizing"
   | null;
 
-export type PinType =
-  | "string"
-  | "url"
-  | "port"
-  | "code"
-  | "pr"
-  | "filename"
-  | "markdown";
+export type { PinShortcutVariant, PinType } from "../pins.js";
+import type { PinShortcutVariant, PinType } from "../pins.js";
 
 export type AgentPin = {
   id?: string;
   label: string;
   value: string;
   type: PinType;
+  /** Inline-markdown caption rendered under the pin. Any pin type. */
+  caption?: string;
+  /** Renders this pin under a shared heading with pins of the same group. */
+  group?: string;
+  /** Icon name for a shortcut pin's button. Shortcut pins only. */
+  icon?: string;
+  /** Button styling for a shortcut pin. Shortcut pins only. */
+  variant?: PinShortcutVariant;
+  /** When true, clicking a shortcut pin asks for confirmation first. */
+  confirm?: boolean;
 };
 
 export type AgentLatestEvent = {

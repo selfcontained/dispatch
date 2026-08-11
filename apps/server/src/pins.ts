@@ -6,7 +6,51 @@ const VALID_PIN_TYPES = [
   "pr",
   "filename",
   "markdown",
+  "shortcut",
 ] as const;
+const VALID_PIN_SHORTCUT_VARIANTS = [
+  "default",
+  "primary",
+  "destructive",
+] as const;
+/**
+ * Icons a shortcut pin may use. Mirrored by the web icon map
+ * (apps/web/src/lib/pin-shortcut-icons.ts); a guard test asserts the two stay
+ * in lockstep, since a drifted name silently renders as the fallback.
+ */
+export const VALID_PIN_SHORTCUT_ICONS = [
+  "zap",
+  "play",
+  "rocket",
+  "refresh",
+  "check",
+  "x",
+  "pause",
+  "trash",
+  "bug",
+  "search",
+  "database",
+  "terminal",
+  "file",
+  "branch",
+  "pull-request",
+  "message",
+  "flag",
+  "clock",
+  "checklist",
+  "sparkles",
+  "wrench",
+  "shield",
+  "upload",
+  "download",
+  "arrow",
+] as const;
+const MAX_SHORTCUT_PROMPT_LENGTH = 2000;
+// A caption is a subtitle, not a body. Measured in the ~400px rail: 160 plain
+// characters fill the three-line clamp exactly, 180 clips. Markdown markup
+// spends from the same budget, so the visible text is shorter still — the cap
+// is the point where a caption is guaranteed not to be silently cut.
+const MAX_PIN_CAPTION_LENGTH = 160;
 const MAX_MARKDOWN_LENGTH = 2000;
 const MAX_MARKDOWN_CODE_BLOCK_LINES = 20;
 
@@ -75,9 +119,54 @@ function validateMarkdownPinValue(value: string): void {
 }
 
 export type PinType = (typeof VALID_PIN_TYPES)[number];
+export type PinShortcutVariant = (typeof VALID_PIN_SHORTCUT_VARIANTS)[number];
+export type PinShortcutIcon = (typeof VALID_PIN_SHORTCUT_ICONS)[number];
 
 export function isPinType(value: string): value is PinType {
   return VALID_PIN_TYPES.includes(value as PinType);
+}
+
+export function isPinShortcutVariant(
+  value: string
+): value is PinShortcutVariant {
+  return VALID_PIN_SHORTCUT_VARIANTS.includes(value as PinShortcutVariant);
+}
+
+export function isPinShortcutIcon(value: string): value is PinShortcutIcon {
+  return VALID_PIN_SHORTCUT_ICONS.includes(value as PinShortcutIcon);
+}
+
+/**
+ * The caption rendered under any pin. Inline markdown only (enforced at
+ * render), single line of source, and short enough to stay a subtitle.
+ */
+export function validatePinCaption(caption: string): void {
+  if (caption.length > MAX_PIN_CAPTION_LENGTH) {
+    throw new Error(
+      `Pin captions must be ${MAX_PIN_CAPTION_LENGTH} characters or fewer.`
+    );
+  }
+  if (/[\r\n]/.test(caption)) {
+    throw new Error("Pin captions must be a single line.");
+  }
+}
+
+/** Button styling and icon for a shortcut pin. */
+export function validatePinShortcutFields(pin: {
+  variant?: string;
+  icon?: string;
+}): void {
+  if (pin.variant !== undefined && !isPinShortcutVariant(pin.variant)) {
+    throw new Error(
+      `Shortcut pin variant must be one of: ${VALID_PIN_SHORTCUT_VARIANTS.join(", ")}.`
+    );
+  }
+
+  if (pin.icon !== undefined && !isPinShortcutIcon(pin.icon)) {
+    throw new Error(
+      `Shortcut pin icon must be one of: ${VALID_PIN_SHORTCUT_ICONS.join(", ")}.`
+    );
+  }
 }
 
 export function validatePinValue(type: PinType, value: string): void {
@@ -115,5 +204,16 @@ export function validatePinValue(type: PinType, value: string): void {
 
   if (type === "markdown") {
     validateMarkdownPinValue(value);
+  }
+
+  if (type === "shortcut") {
+    if (!value.trim()) {
+      throw new Error("Shortcut pins must carry a non-empty prompt.");
+    }
+    if (value.length > MAX_SHORTCUT_PROMPT_LENGTH) {
+      throw new Error(
+        `Shortcut prompts must be ${MAX_SHORTCUT_PROMPT_LENGTH} characters or fewer.`
+      );
+    }
   }
 }
