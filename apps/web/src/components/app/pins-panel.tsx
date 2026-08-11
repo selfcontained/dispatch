@@ -375,12 +375,14 @@ function ShortcutPinItem({
                 are unavailable.
               </p>
             ) : (
-              <div className="flex flex-col gap-1">
-                <p className="m-0 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  Injects this prompt into{" "}
-                  {agentName ? `“${agentName}”` : "this agent"}
+              <div className="flex flex-col">
+                <p className="m-0 truncate text-xs font-semibold text-foreground">
+                  {agentName ?? "This agent"}
                 </p>
-                <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-sans text-xs text-foreground">
+                <p className="m-0 text-[11px] text-muted-foreground">
+                  will receive the following:
+                </p>
+                <pre className="m-0 mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-sans text-xs text-foreground">
                   {pin.value}
                 </pre>
               </div>
