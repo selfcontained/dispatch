@@ -1161,6 +1161,113 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("renders the template's prompt instead of only the caller's prompt", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          prompt: "Build this idea:\n\n{{D:Idea|required|textarea}}",
+        })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "fix the launch bug",
+        templateId: "tmpl_123",
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("Build this idea:");
+      expect(initialPrompt).toContain("fix the launch bug");
+      expect(initialPrompt).not.toContain("{{D:");
+      expect(result.note).toContain('"Idea" placeholder');
+    });
+
+    it("appends the caller's prompt when the template has no placeholders", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: "Run the nightly checks." })
+      );
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "skip the slow suite",
+        templateId: "tmpl_123",
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("Run the nightly checks.");
+      expect(initialPrompt).toContain(
+        "## Additional instructions from the launching agent"
+      );
+      expect(initialPrompt).toContain("skip the slow suite");
+    });
+
+    it("fills placeholders from templateArgs", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          prompt: "Review {{D:Target}} for {{D:Concern|required}}.",
+        })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "be thorough",
+        templateId: "tmpl_123",
+        templateArgs: { Target: "the diff", Concern: "security" },
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("Review the diff for security.");
+      expect(result.note).not.toContain("no value");
+    });
+
+    it("warns instead of failing when placeholders have no value", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          prompt: "Review {{D:Target|required}} for {{D:Concern|required}}.",
+        })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "have a look",
+        templateId: "tmpl_123",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalled();
+      expect(result.note).toContain("Target, Concern");
+    });
+
+    it("appends self-improvement guidance when the template opts in", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: "Do the thing.", selfImprove: true })
+      );
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "now",
+        templateId: "tmpl_123",
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("Self-improvement:");
+      expect(initialPrompt).toContain('templateId "tmpl_123"');
+    });
+
+    it("uses the caller's prompt alone when the template has no prompt", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: null })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "just do it",
+        templateId: "tmpl_123",
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("just do it");
+      expect(result.note).toBeUndefined();
+    });
+
     it("takes worktree config from the template when the caller omits it", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({

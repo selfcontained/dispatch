@@ -17,6 +17,11 @@ import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
+import {
+  renderTemplateLaunchPrompt,
+  type RenderedTemplatePrompt,
+} from "../templates/launch-prompt.js";
+import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
 import type {
   NotifyInput,
   NotifyResult,
@@ -338,9 +343,10 @@ async function handleLaunchAgent(
     worktreeBranch?: string;
     fullAccess?: boolean;
     templateId?: string;
+    templateArgs?: Record<string, string>;
     cwd?: string;
   }
-): Promise<{ agentId: string; name: string }> {
+): Promise<{ agentId: string; name: string; note?: string }> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
 
@@ -360,7 +366,8 @@ async function handleLaunchAgent(
     throw new Error(`${agentType} agents are disabled in settings.`);
   }
 
-  // A templateId means "launch this the way the template says to". Its
+  // A templateId means "launch this the way the template says to". Its prompt
+  // is rendered the same way the web UI's launch form renders it, and its
   // worktree config fills in whatever the caller left unset; anything passed
   // explicitly at the call site still wins.
   const template = input.templateId
@@ -396,6 +403,26 @@ async function handleLaunchAgent(
     input.model
   );
 
+  // Launching a template is a request for the template's own instructions —
+  // without this the caller's short prompt was the agent's entire prompt and
+  // every one of the template's instructions was silently dropped.
+  const rendered =
+    template?.prompt != null && template.prompt.trim() !== ""
+      ? renderTemplateLaunchPrompt({
+          templatePrompt: template.prompt,
+          callerPrompt: input.prompt,
+          args: input.templateArgs,
+        })
+      : null;
+
+  let prompt = rendered?.prompt ?? input.prompt;
+  if (rendered && template?.selfImprove) {
+    prompt += buildSelfImprovementGuidance({
+      kind: "template",
+      templateId: template.id,
+    });
+  }
+
   const agent = await deps.agentManager.createAgent({
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
@@ -409,7 +436,7 @@ async function handleLaunchAgent(
     worktreeLocation,
     parentAgentId: agentId,
     cliSessionId,
-    initialPrompt: buildChildAgentInitialPrompt(agentId, input.prompt),
+    initialPrompt: buildChildAgentInitialPrompt(agentId, prompt),
     templateId: input.templateId,
   });
 
@@ -418,7 +445,32 @@ async function handleLaunchAgent(
     agent: deps.withStreamFlag(agent),
   });
 
-  return { agentId: agent.id, name: agent.name };
+  const note = rendered
+    ? describeTemplateRendering(template!.name, rendered)
+    : undefined;
+  return { agentId: agent.id, name: agent.name, ...(note ? { note } : {}) };
+}
+
+/** Tells the caller how their free-text prompt was folded into the template, so
+ * a template needing structured templateArgs does not fail quietly. */
+function describeTemplateRendering(
+  templateName: string,
+  rendered: RenderedTemplatePrompt
+): string | undefined {
+  const parts: string[] = [];
+  if (rendered.filledFromPrompt) {
+    parts.push(
+      `Your prompt was substituted into the "${rendered.filledFromPrompt}" placeholder.`
+    );
+  } else if (rendered.appendedCallerPrompt) {
+    parts.push("Your prompt was appended to the template's prompt.");
+  }
+  if (rendered.unfilled.length > 0) {
+    parts.push(
+      `Template "${templateName}" has placeholders with no value: ${rendered.unfilled.join(", ")} — they rendered empty. Pass templateArgs to fill them.`
+    );
+  }
+  return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
 async function handleArchiveAgent(
@@ -985,6 +1037,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         worktreeBranch?: string;
         fullAccess?: boolean;
         templateId?: string;
+        templateArgs?: Record<string, string>;
         cwd?: string;
       }
     ) => handleLaunchAgent(deps, agentId, input),

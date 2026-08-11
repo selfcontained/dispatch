@@ -327,9 +327,10 @@ export type McpRequestContext = {
       fullAccess?: boolean;
       agentArgs?: string;
       templateId?: string;
+      templateArgs?: Record<string, string>;
       cwd?: string;
     }
-  ) => Promise<{ agentId: string; name: string }>;
+  ) => Promise<{ agentId: string; name: string; note?: string }>;
   archiveAgent?: (
     agentId: string,
     input: { agentId: string; cleanupWorktree?: "auto" | "keep" | "force" }

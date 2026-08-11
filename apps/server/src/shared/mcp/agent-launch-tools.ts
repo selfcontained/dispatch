@@ -8,6 +8,9 @@ import { toToolError } from "./tool-error.js";
 export type LaunchAgentResult = {
   agentId: string;
   name: string;
+  /** How a template's prompt absorbed the caller's prompt, when templateId was
+   * given and the template's prompt has placeholders. */
+  note?: string;
 };
 
 export type LaunchAgentInput = {
@@ -21,6 +24,7 @@ export type LaunchAgentInput = {
   worktreeBranch?: string;
   fullAccess?: boolean;
   templateId?: string;
+  templateArgs?: Record<string, string>;
   cwd?: string;
 };
 
@@ -58,7 +62,9 @@ export function registerAgentLaunchTools(
           .string()
           .min(1)
           .max(100000)
-          .describe("Initial prompt describing what the agent should do."),
+          .describe(
+            "Initial prompt describing what the agent should do. With templateId, this fills the template's single placeholder when it has one, and is otherwise appended to the template's prompt."
+          ),
         type: z
           .enum(CLI_AGENT_TYPES)
           .optional()
@@ -106,7 +112,13 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. Only its worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) are applied, filling in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+            "Template to apply to the new agent. The template's own prompt is always used — your prompt fills its single {{D:...}} placeholder if it has exactly one, and is otherwise appended to it. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+          ),
+        templateArgs: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            "Values for the template's {{D:Name|...}} placeholders, keyed by placeholder name. Only needed for templates with more than one placeholder — use get_template to see them. Unfilled placeholders render empty."
           ),
         cwd: z
           .string()
@@ -133,14 +145,17 @@ export function registerAgentLaunchTools(
           input.worktreeBranch = args.worktreeBranch;
         if (args.fullAccess !== undefined) input.fullAccess = args.fullAccess;
         if (args.templateId !== undefined) input.templateId = args.templateId;
+        if (args.templateArgs !== undefined)
+          input.templateArgs = args.templateArgs;
         if (args.cwd !== undefined) input.cwd = args.cwd;
 
         const result = await launchAgent(agentId, input);
+        const text = `Launched agent "${result.name}" (${result.agentId}).`;
         return {
           content: [
             {
               type: "text",
-              text: `Launched agent "${result.name}" (${result.agentId}).`,
+              text: result.note ? `${text} ${result.note}` : text,
             },
           ],
           structuredContent: result,
