@@ -332,9 +332,13 @@ export function MobileTerminalToolbar({
       {/* Full-screen text input modal */}
       {inputOpen ? (
         <div className="fixed inset-0 z-50 flex flex-col bg-background/95 backdrop-blur-sm">
-          <div className="flex items-center justify-between border-b border-border px-4 py-3">
+          {/* Cancel top-left; Paste/Submit top-right — bigger tap targets
+              matching the keyboard control bar, with an exaggerated
+              outside-top-corner radius on Submit so it's easy to hit and
+              doesn't clip on curved-screen devices. */}
+          <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
             <button
-              className="text-sm text-muted-foreground"
+              className="shrink-0 px-2 text-sm text-muted-foreground"
               onClick={() => {
                 playTap();
                 setInputOpen(false);
@@ -342,17 +346,28 @@ export function MobileTerminalToolbar({
             >
               Cancel
             </button>
-            <span className="text-sm font-medium text-foreground">
-              Terminal Input
-            </span>
-            {/* Invisible twin of the Cancel label so the title stays centered
-                now that there's no header action on this side. */}
-            <span
-              className="invisible text-sm text-muted-foreground"
-              aria-hidden="true"
-            >
-              Cancel
-            </span>
+            <div className="flex items-stretch gap-2">
+              <Button
+                type="button"
+                variant="default"
+                className="h-11 rounded-lg px-4 text-sm font-medium"
+                aria-label="Paste without submitting"
+                onClick={pasteInput}
+                disabled={!isConnected || injectText.isPending}
+              >
+                Paste
+              </Button>
+              <Button
+                type="button"
+                variant="primary"
+                className="h-11 rounded-l-lg rounded-r-[20px] px-4 text-sm font-medium"
+                aria-label="Submit with Enter"
+                onClick={submitInput}
+                disabled={!isConnected || injectText.isPending}
+              >
+                Submit
+              </Button>
+            </div>
           </div>
           <div className="flex-1 p-4">
             <textarea
@@ -361,36 +376,6 @@ export function MobileTerminalToolbar({
               placeholder="Type command here..."
               autoCapitalize="off"
             />
-          </div>
-          {/* Bigger tap targets matching the keyboard control bar below, with
-              an exaggerated outside-bottom-corner radius so the row is easy
-              to hit and doesn't clip on curved-screen devices. */}
-          <div
-            className="flex gap-3 border-t border-border px-3 pt-3"
-            style={{
-              paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
-            }}
-          >
-            <Button
-              type="button"
-              variant="default"
-              className="h-16 flex-1 rounded-t-lg rounded-bl-[28px] rounded-br-lg text-base font-medium"
-              aria-label="Paste without submitting"
-              onClick={pasteInput}
-              disabled={!isConnected || injectText.isPending}
-            >
-              Paste
-            </Button>
-            <Button
-              type="button"
-              variant="primary"
-              className="h-16 flex-1 rounded-t-lg rounded-br-[28px] rounded-bl-lg text-base font-medium"
-              aria-label="Submit with Enter"
-              onClick={submitInput}
-              disabled={!isConnected || injectText.isPending}
-            >
-              Submit
-            </Button>
           </div>
         </div>
       ) : null}
