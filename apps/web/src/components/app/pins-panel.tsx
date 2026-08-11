@@ -370,11 +370,12 @@ function ShortcutPinItem({
           </TooltipTrigger>
           <TooltipContent
             side="left"
-            // chart-4 (purple) is the one accent in the palette that no button
-            // variant claims, and it is defined in every theme — so the tooltip
-            // reads as its own surface without colliding with a shortcut's own
-            // primary/destructive styling.
-            className="max-w-[320px] border-[hsl(var(--chart-4)/0.4)] bg-[color-mix(in_srgb,hsl(var(--popover))_86%,hsl(var(--chart-4)))] p-2.5"
+            // A lighter neutral surface rather than an accent: every accent
+            // token in the palette maps onto a button variant's hue. Mixing
+            // the popover token toward the foreground lifts it off the card
+            // behind it in dark themes and deepens it in light ones, so the
+            // separation holds either way.
+            className="max-w-[320px] border-[hsl(var(--border))] bg-[color-mix(in_srgb,hsl(var(--popover))_88%,hsl(var(--foreground)))] p-2.5"
           >
             {disabled ? (
               <p className="m-0 text-xs text-muted-foreground">
@@ -393,7 +394,7 @@ function ShortcutPinItem({
                 </div>
                 {/* The prompt reads as a quoted payload, not prose — same
                     monospace treatment the terminal will show it in. */}
-                <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[hsl(var(--chart-4)/0.25)] bg-[hsl(var(--background))] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground">
+                <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground">
                   {pin.value}
                 </pre>
               </div>
