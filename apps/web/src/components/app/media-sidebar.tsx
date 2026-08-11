@@ -43,6 +43,8 @@ type MediaSidebarSharedProps = {
     lineStart: number | null,
     feedbackItemId?: number
   ) => void;
+  /** Called after a shortcut successfully fires (mobile closes the sheet). */
+  onShortcutRun?: () => void;
 };
 
 type MediaSidebarProps = MediaSidebarSharedProps & {
@@ -88,6 +90,7 @@ export function MediaSidebarContent({
   unreadMessageCount,
   onUploadFile,
   onNavigateToFile,
+  onShortcutRun,
 }: MediaSidebarContentProps & {
   unseenMediaCount: number;
   unreadMessageCount: number;
@@ -236,14 +239,26 @@ export function MediaSidebarContent({
           selectedAgentName={selectedAgentName}
           selectedAgentWorkspaceRoot={selectedAgentWorkspaceRoot}
           agentIsRunning={selectedAgentIsRunning}
+          // A shortcut fires a real prompt into a live session, so an
+          // in-flight run blocks its own button until it settles — a
+          // double-click would otherwise send the prompt twice.
+          pendingPinId={
+            runPinShortcut.isPending
+              ? (runPinShortcut.variables?.pinId ?? null)
+              : null
+          }
           onRunShortcut={
             selectedAgentId
               ? (pin) => {
-                  if (!pin.id) return;
-                  runPinShortcut.mutate({
-                    agentId: selectedAgentId,
-                    pinId: pin.id,
-                  });
+                  if (!pin.id || runPinShortcut.isPending) return;
+                  runPinShortcut.mutate(
+                    {
+                      agentId: selectedAgentId,
+                      pinId: pin.id,
+                      label: pin.label,
+                    },
+                    { onSuccess: () => onShortcutRun?.() }
+                  );
                 }
               : undefined
           }

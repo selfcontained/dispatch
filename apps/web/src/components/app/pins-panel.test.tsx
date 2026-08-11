@@ -84,28 +84,35 @@ describe("shortcut pins", () => {
     expect(screen.queryByTestId("pin-shortcut-confirm-dialog")).toBeNull();
   });
 
-  it("disables the shortcut while the agent is not running", () => {
-    renderPanel([shortcutPin], {
-      agentIsRunning: false,
-      onRunShortcut: vi.fn(),
-    });
+  it("marks the shortcut unavailable while the agent is not running", () => {
+    // aria-disabled rather than the native attribute: the button stays
+    // focusable so its tooltip can explain why it cannot be used.
+    const onRunShortcut = vi.fn();
+    renderPanel([shortcutPin], { agentIsRunning: false, onRunShortcut });
 
     const button = screen.getByRole("button", {
       name: /work on sse-reconnect/i,
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+
+    fireEvent.click(button);
+    expect(onRunShortcut).not.toHaveBeenCalled();
   });
 
   it("disables a shortcut that has no stable ID", () => {
     // Legacy/seeded rows without an ID cannot be addressed by the run
     // endpoint; a live-looking button that no-ops on click is worse.
     const { id: _id, ...withoutId } = shortcutPin;
-    renderPanel([withoutId as AgentPin], { onRunShortcut: vi.fn() });
+    const onRunShortcut = vi.fn();
+    renderPanel([withoutId as AgentPin], { onRunShortcut });
 
     const button = screen.getByRole("button", {
       name: /work on sse-reconnect/i,
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+
+    fireEvent.click(button);
+    expect(onRunShortcut).not.toHaveBeenCalled();
   });
 
   it("forces confirmation on a coarse pointer, where the tooltip is unreachable", () => {
@@ -167,12 +174,23 @@ describe("shortcut pins", () => {
     expect(within(groups[0]!).getAllByRole("button")).toHaveLength(2);
   });
 
-  it("disables the shortcut when no run handler is wired (e.g. agent history)", () => {
+  it("marks the shortcut unavailable when no run handler is wired (e.g. agent history)", () => {
     renderPanel([shortcutPin]);
 
     const button = screen.getByRole("button", {
       name: /work on sse-reconnect/i,
-    }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+  });
+
+  it("blocks a second send while the first is still in flight", () => {
+    const onRunShortcut = vi.fn();
+    renderPanel([shortcutPin], { onRunShortcut, pendingPinId: "pin_1" });
+
+    const button = screen.getByRole("button", { name: /work on/i });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+
+    fireEvent.click(button);
+    expect(onRunShortcut).not.toHaveBeenCalled();
   });
 });

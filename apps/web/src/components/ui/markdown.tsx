@@ -369,8 +369,10 @@ function MarkdownCaption({
     <span
       className={cn(
         // Hard clamp as a backstop to the server-side length cap: a caption is
-        // a subtitle, never a paragraph.
-        "line-clamp-2 text-[11px] leading-tight text-muted-foreground",
+        // a subtitle, never a paragraph. Three lines matches the budget
+        // MAX_PIN_CAPTION_LENGTH is sized against, so a caption within the cap
+        // is never silently cut.
+        "line-clamp-3 text-[11px] leading-tight text-muted-foreground",
         "[&_strong]:font-semibold [&_strong]:text-foreground/80 [&_em]:italic",
         "[&_del]:line-through",
         "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-[10px]",

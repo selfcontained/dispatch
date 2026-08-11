@@ -732,6 +732,7 @@ export function AgentsView({
             }
             selectedAgentPins={focusedAgent?.pins ?? []}
             selectedAgentIsRunning={focusedAgent?.status === "running"}
+            onShortcutRun={() => setMobileMediaOpen(false)}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             unreadMessageCount={unreadMessageCount}

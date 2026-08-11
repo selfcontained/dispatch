@@ -1,12 +1,14 @@
 import {
+  AlertTriangle,
   Check,
   CornerDownLeft,
   Copy,
   FileText,
   GitPullRequest,
+  Loader2,
   Pin,
 } from "lucide-react";
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
@@ -313,7 +315,7 @@ function PinValueRow({
  */
 function PinCaption({ value }: { value: string }): JSX.Element {
   return (
-    <div className="mt-2" data-testid="pin-caption">
+    <div className="mt-1" data-testid="pin-caption">
       <Markdown variant="caption">{value}</Markdown>
     </div>
   );
@@ -322,26 +324,41 @@ function PinCaption({ value }: { value: string }): JSX.Element {
 function ShortcutPinItem({
   pin,
   disabled,
+  pending,
   onRun,
   inGroup,
   agentName,
+  buttonRef,
 }: {
   pin: AgentPin;
   disabled: boolean;
+  pending: boolean;
   onRun: (pointerType: string) => void;
   inGroup: boolean;
   agentName: string | null;
+  buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
 }): JSX.Element {
-  const Icon = resolvePinShortcutIcon(pin.icon);
-  // No ID means the run endpoint has nothing to address; render it disabled
+  const coarsePointer = useCoarsePointer();
+  // A destructive shortcut's colour is its only pre-click warning, and some
+  // themes render primary and destructive almost identically — so carry the
+  // warning in the glyph too, which no palette can wash out.
+  const Icon =
+    pin.variant === "destructive"
+      ? AlertTriangle
+      : resolvePinShortcutIcon(pin.icon);
+  // No ID means the run endpoint has nothing to address; render it inert
   // rather than as a button that silently does nothing on click.
   const unavailable = disabled || !pin.id;
+  const blocked = unavailable || pending;
+  const disabledReason = !pin.id
+    ? "This pin has no stable ID, so it cannot be run."
+    : `${agentName ?? "This agent"} has no active session — shortcuts are unavailable.`;
 
   return (
     <div
       className={cn(
         inGroup
-          ? "py-1 first:pt-0 last:pb-0"
+          ? "py-1.5 first:pt-0 last:pb-0"
           : "px-4 py-2.5 border-b border-border last:border-b-0"
       )}
       data-testid="pin-item"
@@ -351,33 +368,45 @@ function ShortcutPinItem({
       <TooltipProvider delayDuration={200}>
         <Tooltip>
           <TooltipTrigger asChild>
-            {/* A disabled button emits no pointer events, so the tooltip needs
-                a live wrapper to hang off when the agent isn't running. */}
-            <span className="block">
-              <Button
-                variant={pin.variant ?? "default"}
-                size="sm"
-                className="relative w-full gap-1.5 pl-2 pr-7"
-                disabled={unavailable}
-                // pointerType distinguishes a finger tap from a mouse click on
-                // hybrid devices, which report `pointer: fine` and so would
-                // otherwise skip disclosure.
-                onClick={(event) =>
-                  onRun(
-                    (event.nativeEvent as PointerEvent).pointerType ?? "mouse"
-                  )
-                }
-              >
+            <Button
+              ref={(element) => buttonRef?.(pin, element)}
+              variant={pin.variant ?? "default"}
+              size="sm"
+              className={cn(
+                "relative w-full gap-1.5 pl-2 pr-7",
+                // The shared `default` variant is dark-theme glass — white at
+                // 6% over a light sidebar is invisible. Shortcuts are buttons
+                // first, so paint them from theme tokens instead.
+                (pin.variant ?? "default") === "default" &&
+                  "border-border bg-muted text-foreground hover:bg-muted/70",
+                // 32px is below the 44px touch minimum, and these stack.
+                coarsePointer && "h-11",
+                blocked && "opacity-50"
+              )}
+              // aria-disabled rather than `disabled`: the native attribute
+              // drops the button out of the tab order, which is where the
+              // explanation for why it is unavailable lives.
+              aria-disabled={blocked}
+              onClick={(event) => {
+                if (blocked) return;
+                onRun(
+                  (event.nativeEvent as PointerEvent).pointerType ?? "mouse"
+                );
+              }}
+            >
+              {pending ? (
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin" />
+              ) : (
                 <Icon className="h-3 w-3 shrink-0" />
-                <span className="min-w-0 truncate">{pin.label}</span>
-                {/* Constant send glyph: every shortcut pin delivers a prompt,
-                    whatever icon the agent chose for it. */}
-                <CornerDownLeft
-                  className="absolute right-2 h-3 w-3 shrink-0 opacity-50"
-                  aria-hidden
-                />
-              </Button>
-            </span>
+              )}
+              <span className="min-w-0 truncate">{pin.label}</span>
+              {/* Constant send glyph: every shortcut pin delivers a prompt,
+                  whatever icon the agent chose for it. */}
+              <CornerDownLeft
+                className="absolute right-2 h-3 w-3 shrink-0 opacity-50"
+                aria-hidden
+              />
+            </Button>
           </TooltipTrigger>
           <TooltipContent
             side="left"
@@ -390,18 +419,18 @@ function ShortcutPinItem({
           >
             {unavailable ? (
               <p className="m-0 text-xs text-muted-foreground">
-                {!pin.id
-                  ? "This pin has no stable ID, so it cannot be run."
-                  : `${agentName ?? "This agent"} has no active session — shortcuts are unavailable.`}
+                {disabledReason}
               </p>
             ) : (
               <div className="flex flex-col gap-2">
                 <div>
-                  <div className="truncate font-mono text-xs font-semibold text-foreground">
-                    {agentName ?? "this agent"}
+                  {/* The label is truncated in the button, so the tooltip is
+                      the only place it can be read in full. */}
+                  <div className="text-xs font-semibold text-foreground">
+                    {pin.label}
                   </div>
                   <div className="text-[11px] text-muted-foreground">
-                    will receive the following:
+                    {agentName ?? "this agent"} will receive the following:
                   </div>
                 </div>
                 {/* The prompt reads as a quoted payload, not prose — same
@@ -409,6 +438,11 @@ function ShortcutPinItem({
                 <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[hsl(var(--border))] bg-[hsl(var(--background))] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground">
                   {pin.value}
                 </pre>
+                {pin.value.length > 400 ? (
+                  <div className="text-[11px] text-muted-foreground">
+                    Scroll for the full prompt ({pin.value.length} characters).
+                  </div>
+                ) : null}
               </div>
             )}
           </TooltipContent>
@@ -426,6 +460,8 @@ export function PinItem({
   onRunShortcut,
   inGroup = false,
   agentName = null,
+  pendingPinId = null,
+  buttonRef,
 }: {
   pin: AgentPin;
   workspaceRoot: string | null;
@@ -433,15 +469,19 @@ export function PinItem({
   onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
   inGroup?: boolean;
   agentName?: string | null;
+  pendingPinId?: string | null;
+  buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
 }): JSX.Element {
   if (pin.type === "shortcut") {
     return (
       <ShortcutPinItem
         pin={pin}
         disabled={!agentIsRunning || !onRunShortcut}
+        pending={Boolean(pin.id) && pin.id === pendingPinId}
         onRun={(pointerType) => onRunShortcut?.(pin, pointerType)}
         inGroup={inGroup}
         agentName={agentName}
+        buttonRef={buttonRef}
       />
     );
   }
@@ -498,7 +538,7 @@ type PinRow =
   | { kind: "pin"; pin: AgentPin }
   | { kind: "group"; name: string; pins: AgentPin[] };
 
-export function layoutPins(pins: AgentPin[]): PinRow[] {
+function layoutPins(pins: AgentPin[]): PinRow[] {
   const rows: PinRow[] = [];
   const groupRows = new Map<string, Extract<PinRow, { kind: "group" }>>();
 
@@ -536,12 +576,16 @@ export function PinList({
   agentIsRunning,
   onRunShortcut,
   agentName = null,
+  pendingPinId = null,
+  buttonRef,
 }: {
   pins: AgentPin[];
   workspaceRoot: string | null;
   agentIsRunning?: boolean;
   onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
   agentName?: string | null;
+  pendingPinId?: string | null;
+  buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
 }): JSX.Element {
   return (
     <>
@@ -554,6 +598,8 @@ export function PinList({
             agentIsRunning={agentIsRunning}
             onRunShortcut={onRunShortcut}
             agentName={agentName}
+            pendingPinId={pendingPinId}
+            buttonRef={buttonRef}
           />
         ) : (
           <div
@@ -561,11 +607,18 @@ export function PinList({
             className="px-4 py-2.5 border-b border-border last:border-b-0"
             data-testid="pin-group"
             data-pin-group={row.name}
+            // The heading is often the question these shortcuts answer, so it
+            // has to be announced with them rather than as loose text above.
+            role="group"
+            aria-labelledby={`pin-group-${row.name.toLowerCase().replace(/\s+/g, "-")}`}
           >
-            <div className="text-[11px] font-medium leading-snug text-muted-foreground">
+            <div
+              id={`pin-group-${row.name.toLowerCase().replace(/\s+/g, "-")}`}
+              className="text-[11px] font-medium leading-snug text-muted-foreground"
+            >
               {row.name}
             </div>
-            <div className="mt-1.5 flex flex-col">
+            <div className="mt-1.5 flex flex-col gap-1">
               {row.pins.map((pin) => (
                 <PinItem
                   key={pin.label.toLowerCase()}
@@ -575,6 +628,8 @@ export function PinList({
                   onRunShortcut={onRunShortcut}
                   inGroup
                   agentName={agentName}
+                  pendingPinId={pendingPinId}
+                  buttonRef={buttonRef}
                 />
               ))}
             </div>
@@ -591,6 +646,7 @@ type PinsPanelProps = {
   selectedAgentWorkspaceRoot: string | null;
   agentIsRunning?: boolean;
   onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
+  pendingPinId?: string | null;
 };
 
 /**
@@ -601,14 +657,23 @@ function ConfirmShortcutDialog({
   pin,
   onOpenChange,
   onConfirm,
+  onRestoreFocus,
 }: {
   pin: AgentPin | null;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
+  onRestoreFocus?: () => void;
 }): JSX.Element {
   return (
     <Dialog open={pin !== null} onOpenChange={onOpenChange}>
-      <DialogContent data-testid="pin-shortcut-confirm-dialog">
+      <DialogContent
+        data-testid="pin-shortcut-confirm-dialog"
+        onCloseAutoFocus={(event) => {
+          if (!onRestoreFocus) return;
+          event.preventDefault();
+          onRestoreFocus();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>{pin?.label ?? "Run action"}?</DialogTitle>
           <DialogDescription>
@@ -646,11 +711,26 @@ export function PinsPanel({
   selectedAgentWorkspaceRoot,
   agentIsRunning,
   onRunShortcut,
+  pendingPinId = null,
 }: PinsPanelProps): JSX.Element {
   const [pendingShortcutPin, setPendingShortcutPin] = useState<AgentPin | null>(
     null
   );
   const coarsePointer = useCoarsePointer();
+  // This dialog has no DialogTrigger (one instance serves the whole panel), so
+  // Radix has nothing to hand focus back to on close — track the button that
+  // opened it and restore focus there ourselves.
+  const shortcutButtons = useRef(new Map<string, HTMLButtonElement>());
+  const lastTrigger = useRef<HTMLButtonElement | null>(null);
+
+  const registerShortcutButton = (
+    pin: AgentPin,
+    element: HTMLButtonElement | null
+  ): void => {
+    if (!pin.id) return;
+    if (element) shortcutButtons.current.set(pin.id, element);
+    else shortcutButtons.current.delete(pin.id);
+  };
 
   // On a touch device the hover tooltip never opens — a tap fires the click —
   // so the prompt would be delivered having shown the user only the label.
@@ -658,6 +738,9 @@ export function PinsPanel({
   // through it there regardless of the pin's own `confirm` setting.
   const handleRunShortcut = (pin: AgentPin, pointerType?: string): void => {
     if (pin.confirm || coarsePointer || pointerType === "touch") {
+      lastTrigger.current = pin.id
+        ? (shortcutButtons.current.get(pin.id) ?? null)
+        : null;
       setPendingShortcutPin(pin);
       return;
     }
@@ -690,8 +773,11 @@ export function PinsPanel({
         agentIsRunning={agentIsRunning}
         onRunShortcut={onRunShortcut ? handleRunShortcut : undefined}
         agentName={selectedAgentName}
+        pendingPinId={pendingPinId}
+        buttonRef={registerShortcutButton}
       />
       <ConfirmShortcutDialog
+        onRestoreFocus={() => lastTrigger.current?.focus()}
         pin={pendingShortcutPin}
         onOpenChange={(open) => {
           if (!open) setPendingShortcutPin(null);
