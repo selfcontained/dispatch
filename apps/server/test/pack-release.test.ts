@@ -62,6 +62,24 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     expect(files).toContain("bin/dispatch-launchd-wrapper");
   });
 
+  it("does NOT embed macOS xattr/pax metadata (e.g. com.apple.provenance)", () => {
+    // BSD tar on macOS otherwise writes LIBARCHIVE.xattr.*/SCHILY.xattr.* pax
+    // headers for extended attributes such as the notarization-stamped
+    // com.apple.provenance xattr. GNU tar on Linux doesn't understand those
+    // keywords and prints an "Ignoring unknown extended header keyword"
+    // warning per entry when extracting — see bin/pack-release's --no-xattrs
+    // --no-mac-metadata flags.
+    // Match the pax extended-header record shape ("<len> KEYWORD=value"),
+    // not just the bare keyword text — bin/pack-release's own source (packed
+    // as part of bin/) mentions "LIBARCHIVE.xattr" in a comment, which would
+    // otherwise false-positive a plain substring check.
+    const raw = execSync(`gzip -dc "${OUTPUT}" | strings`, {
+      encoding: "utf8",
+      maxBuffer: 1024 * 1024 * 64,
+    });
+    expect(raw).not.toMatch(/^\d+ (LIBARCHIVE|SCHILY)\.xattr\./m);
+  });
+
   it("does NOT include node_modules", () => {
     const files = tarList();
     expect(files.some((f) => f.includes("node_modules"))).toBe(false);
