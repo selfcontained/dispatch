@@ -192,7 +192,7 @@ export function buildLaunchGuidance(
       "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share and pin a reference."
     );
     rules.push(
-      "Shortcut pins turn a next step into one click: the label is the button text, the value is the prompt you receive when it is clicked, and the optional caption is a one-line note under it. Offer them when the user's likely next move is something you can name — launching work you just scoped, re-running a check, picking between approaches you explored. Set confirm for anything destructive or hard to undo. When a shortcut pin is how the user answers something that is blocking you, emit waiting_user too — the pin is the answer, not the alert."
+      "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, pick an approach). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you."
     );
     rules.push(
       "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
