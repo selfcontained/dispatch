@@ -193,6 +193,7 @@ async function handleUpsertPin(
     icon?: string;
     variant?: string;
     confirm?: boolean;
+    disabled?: boolean;
   }
 ): Promise<{ pin: PinListing; created: boolean }> {
   if (!isPinType(pin.type)) {
@@ -200,9 +201,9 @@ async function handleUpsertPin(
   }
   validatePinValue(pin.type, pin.value);
 
-  // Captions and grouping are generic; button styling and confirmation only
-  // mean anything for shortcut pins — silently dropping those elsewhere keeps
-  // stored pins honest.
+  // Captions and grouping are generic; button styling, confirmation, and the
+  // disabled state only mean anything for shortcut pins — silently dropping
+  // those elsewhere keeps stored pins honest.
   if (pin.caption !== undefined) {
     validatePinCaption(pin.caption);
   }
@@ -223,6 +224,9 @@ async function handleUpsertPin(
       : {}),
     ...(isShortcut && pin.confirm !== undefined
       ? { confirm: pin.confirm }
+      : {}),
+    ...(isShortcut && pin.disabled !== undefined
+      ? { disabled: pin.disabled }
       : {}),
   });
   deps.publishUiEvent({
@@ -935,6 +939,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         icon?: string;
         variant?: string;
         confirm?: boolean;
+        disabled?: boolean;
       }
     ) => handleUpsertPin(deps, agentId, pin),
 

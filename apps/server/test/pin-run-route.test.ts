@@ -85,6 +85,26 @@ describe("POST /api/v1/agents/:id/terminal/inject-pin/:pinId", () => {
     expect(res.json().error).toMatch(/not a shortcut pin/i);
   });
 
+  it("refuses to run a pin marked disabled", async () => {
+    const agent = await createAgent();
+    await setPins(agent.id, [
+      {
+        id: "p1",
+        label: "Launch",
+        value: "do the thing",
+        type: "shortcut",
+        disabled: true,
+      },
+    ]);
+
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/terminal/inject-pin/p1`
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toMatch(/disabled/i);
+  });
+
   it("returns 409 when the agent has no live session to inject into", async () => {
     // Agents run inert in tests, which is the same state as a stopped agent:
     // the lookup and type check pass, then delivery has nowhere to go.

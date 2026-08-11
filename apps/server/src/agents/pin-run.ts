@@ -22,5 +22,11 @@ export function resolveShortcutRun(
   if (pin.type !== "shortcut") {
     return { ok: false, status: 400, error: "Pin is not a shortcut pin." };
   }
+  // The client-side button already renders inert, but the pin is the trust
+  // boundary — a disabled pin must refuse delivery even if a stale UI, or a
+  // direct request, tries to fire it anyway.
+  if (pin.disabled) {
+    return { ok: false, status: 400, error: "This pin is disabled." };
+  }
   return { ok: true, prompt: pin.value };
 }

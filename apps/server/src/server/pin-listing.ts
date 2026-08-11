@@ -16,6 +16,7 @@ export type PinListing = {
   icon?: string;
   variant?: string;
   confirm?: boolean;
+  disabled?: boolean;
 };
 
 export function toPinListing(pin: AgentPin): PinListing {
@@ -30,5 +31,6 @@ export function toPinListing(pin: AgentPin): PinListing {
     ...(pin.icon !== undefined ? { icon: pin.icon } : {}),
     ...(pin.variant !== undefined ? { variant: pin.variant } : {}),
     ...(pin.confirm !== undefined ? { confirm: pin.confirm } : {}),
+    ...(pin.disabled !== undefined ? { disabled: pin.disabled } : {}),
   };
 }

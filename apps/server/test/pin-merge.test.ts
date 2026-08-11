@@ -66,17 +66,46 @@ describe("mergePin", () => {
   });
 
   it("drops shortcut-only fields when the pin is re-typed", () => {
-    // Omission means "keep", which would otherwise strand icon/variant/confirm
-    // on a pin that can no longer use them.
+    // Omission means "keep", which would otherwise strand
+    // icon/variant/confirm/disabled on a pin that can no longer use them.
     const merged = mergePin(
-      { ...existing, confirm: true },
+      { ...existing, confirm: true, disabled: true },
       { label: "What day is it?", value: "https://example.com", type: "url" }
     );
 
     expect(merged).not.toHaveProperty("icon");
     expect(merged).not.toHaveProperty("variant");
     expect(merged).not.toHaveProperty("confirm");
+    expect(merged).not.toHaveProperty("disabled");
     expect(merged.caption).toBe("Day-related");
+  });
+
+  it("keeps disabled when the agent re-pins without resending it", () => {
+    const merged = mergePin(
+      { ...existing, disabled: true },
+      {
+        label: "What day is it?",
+        value: "What day is it today?",
+        type: "shortcut",
+        group: "Day quick actions",
+      }
+    );
+
+    expect(merged.disabled).toBe(true);
+  });
+
+  it("re-enables a disabled shortcut when the agent sends disabled: false", () => {
+    const merged = mergePin(
+      { ...existing, disabled: true },
+      {
+        label: "What day is it?",
+        value: "What day is it today?",
+        type: "shortcut",
+        disabled: false,
+      }
+    );
+
+    expect(merged.disabled).toBe(false);
   });
 
   it("keeps the stored ID so the run endpoint stays addressable", () => {

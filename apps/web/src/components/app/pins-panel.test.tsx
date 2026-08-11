@@ -183,6 +183,43 @@ describe("shortcut pins", () => {
     expect(button.getAttribute("aria-disabled")).toBe("true");
   });
 
+  it("renders a disabled shortcut as non-interactive with its caption as the reason", () => {
+    // Disabling retires an action without deleting the pin — the caption
+    // slot doubles as the reason (e.g. "already building — agt_...").
+    const onRunShortcut = vi.fn();
+    const pin = {
+      ...shortcutPin,
+      disabled: true,
+      caption: "already building — agt_abc123",
+    };
+    renderPanel([pin], { onRunShortcut });
+
+    const button = screen.getByRole("button", {
+      name: /work on sse-reconnect/i,
+    });
+    expect(button.getAttribute("aria-disabled")).toBe("true");
+    expect(screen.getByTestId("pin-caption").textContent).toBe(
+      "already building — agt_abc123"
+    );
+
+    fireEvent.click(button);
+    expect(onRunShortcut).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a generic reason caption when a disabled shortcut has none of its own", () => {
+    // The tooltip needs a hover, which touch devices can't reach — a
+    // disabled pin must still show *some* explanation without one.
+    const { caption: _caption, ...withoutCaption } = shortcutPin;
+    const onRunShortcut = vi.fn();
+    renderPanel([{ ...withoutCaption, disabled: true } as AgentPin], {
+      onRunShortcut,
+    });
+
+    expect(screen.getByTestId("pin-caption").textContent).toBe(
+      "This action is currently unavailable."
+    );
+  });
+
   it("blocks a second send while the first is still in flight", () => {
     const onRunShortcut = vi.fn();
     renderPanel([shortcutPin], { onRunShortcut, pendingPinId: "pin_1" });

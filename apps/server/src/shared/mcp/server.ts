@@ -429,6 +429,7 @@ export type McpRequestContext = {
       icon?: string;
       variant?: string;
       confirm?: boolean;
+      disabled?: boolean;
     }
   ) => Promise<{ pin: PinListing; created: boolean }>;
   deletePin?: (agentId: string, pinId: string) => Promise<void>;
@@ -706,7 +707,8 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
       description:
         "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label — fields you omit keep their current value, so you can add a group or change a value without restating the rest; pass an empty string to clear caption, group, or icon. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
         "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string). " +
-        "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert.",
+        "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert. " +
+        "When a shortcut's action becomes temporarily or permanently unavailable but is still worth showing (e.g. its build already started elsewhere), set disabled: true instead of deleting it — the button greys out and stops accepting clicks. Set the caption to explain why (e.g. 'already building — agt_...'); it renders in place of the normal caption. Send disabled: false to re-enable it later.",
       inputSchema: {
         label: z
           .string()
@@ -766,6 +768,12 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           .describe(
             "Shortcut pins only: when true, clicking asks the user to confirm and shows them the prompt first. Use for destructive or hard-to-undo actions."
           ),
+        disabled: z
+          .boolean()
+          .optional()
+          .describe(
+            "Shortcut pins only: when true, the button renders non-interactive instead of being deleted — for an action that's temporarily or permanently unavailable but still worth showing. Pair with a caption explaining why. Send false to re-enable."
+          ),
         delete: z
           .boolean()
           .optional()
@@ -799,6 +807,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           ...(args.icon !== undefined ? { icon: args.icon } : {}),
           ...(args.variant !== undefined ? { variant: args.variant } : {}),
           ...(args.confirm !== undefined ? { confirm: args.confirm } : {}),
+          ...(args.disabled !== undefined ? { disabled: args.disabled } : {}),
         });
         // Echo the stored pin, not the request: the agent can then see what an
         // update actually produced — including fields it did not send that
