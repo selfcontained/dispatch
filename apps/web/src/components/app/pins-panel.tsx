@@ -375,10 +375,11 @@ function ShortcutPinItem({
               className={cn(
                 "relative w-full gap-1.5 pl-2 pr-7",
                 // The shared `default` variant is dark-theme glass — white at
-                // 6% over a light sidebar is invisible. Shortcuts are buttons
-                // first, so paint them from theme tokens instead.
+                // 6% over a light sidebar is invisible. Mix off the surface
+                // the sidebar actually paints (--card) toward the foreground:
+                // keying off --muted fails on themes where it equals --card.
                 (pin.variant ?? "default") === "default" &&
-                  "border-border bg-muted text-foreground hover:bg-muted/70",
+                  "border-foreground/25 bg-[color-mix(in_srgb,hsl(var(--card))_90%,hsl(var(--foreground)))] text-foreground hover:bg-[color-mix(in_srgb,hsl(var(--card))_82%,hsl(var(--foreground)))]",
                 // 32px is below the 44px touch minimum, and these stack.
                 coarsePointer && "h-11",
                 blocked && "opacity-50"

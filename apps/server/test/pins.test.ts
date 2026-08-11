@@ -164,8 +164,8 @@ describe("pin validation", () => {
     expect(() => validatePinCaption("line one\nline two")).toThrow(
       /single line/i
     );
-    expect(() => validatePinCaption("x".repeat(201))).toThrow(
-      /200 characters or fewer/i
+    expect(() => validatePinCaption("x".repeat(161))).toThrow(
+      /160 characters or fewer/i
     );
   });
 });

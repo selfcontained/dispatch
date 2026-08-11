@@ -738,7 +738,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           ),
         caption: z
           .string()
-          .max(200)
+          .max(160)
           .optional()
           .describe(
             "A one-line caption rendered under the pin, supporting inline markdown (bold, italic, `code`, strikethrough). Works on any pin type. On shortcut pins it is context for the click, not part of the injected prompt."

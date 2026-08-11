@@ -46,10 +46,11 @@ export const VALID_PIN_SHORTCUT_ICONS = [
   "arrow",
 ] as const;
 const MAX_SHORTCUT_PROMPT_LENGTH = 2000;
-// A caption is a subtitle, not a body: three clamped lines in a ~400px rail is
-// roughly 165 visible characters, and markdown markup spends from the same
-// budget. Well short of the 2000 a markdown pin gets, deliberately.
-const MAX_PIN_CAPTION_LENGTH = 200;
+// A caption is a subtitle, not a body. Measured in the ~400px rail: 160 plain
+// characters fill the three-line clamp exactly, 180 clips. Markdown markup
+// spends from the same budget, so the visible text is shorter still — the cap
+// is the point where a caption is guaranteed not to be silently cut.
+const MAX_PIN_CAPTION_LENGTH = 160;
 const MAX_MARKDOWN_LENGTH = 2000;
 const MAX_MARKDOWN_CODE_BLOCK_LINES = 20;
 
