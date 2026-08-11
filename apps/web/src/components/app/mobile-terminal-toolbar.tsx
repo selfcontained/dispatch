@@ -1,5 +1,6 @@
 import { Keyboard } from "lucide-react";
 import { useAtomValue } from "jotai";
+import { useMutation } from "@tanstack/react-query";
 import {
   type MutableRefObject,
   useCallback,
@@ -7,14 +8,17 @@ import {
   useRef,
   useState,
 } from "react";
+import { toast } from "sonner";
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { type TerminalCopyMode } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
+import { api } from "@/lib/api";
 import { soundCuesEnabledAtom } from "@/lib/store";
 import { playTapCue } from "@/lib/sound-cues";
 import { cn } from "@/lib/utils";
 
 type MobileTerminalToolbarProps = {
+  agentId: string | null;
   onSendInput: (data: string) => void;
   onExitCopyMode: () => void;
   ctrlPendingRef: MutableRefObject<boolean>;
@@ -23,6 +27,7 @@ type MobileTerminalToolbarProps = {
 };
 
 export function MobileTerminalToolbar({
+  agentId,
   onSendInput,
   onExitCopyMode,
   ctrlPendingRef,
@@ -117,16 +122,40 @@ export function MobileTerminalToolbar({
     });
   }, [isConnected, playTap, triggerFlash]);
 
-  const submitInput = useCallback(() => {
-    if (!isConnected) return;
-    playTap();
-    const text = inputRef.current?.value;
-    if (text) {
-      onSendInput(text + "\r");
-      if (inputRef.current) inputRef.current.value = "";
-    }
-    setInputOpen(false);
-  }, [isConnected, onSendInput, playTap]);
+  // Injection goes through the server API (tmux paste-buffer) rather than
+  // writing straight to the pty over the terminal WS — that's what makes
+  // multi-line/pasted text land reliably instead of racing raw keystrokes.
+  const injectText = useMutation({
+    mutationFn: (input: { text: string; submit: boolean }) =>
+      api<null>(`/api/v1/agents/${agentId}/terminal/inject-text`, {
+        method: "POST",
+        body: JSON.stringify(input),
+      }),
+    onError: () => toast.error("Failed to send input"),
+  });
+
+  const sendFullscreenInput = useCallback(
+    (submit: boolean) => {
+      if (!isConnected || !agentId) return;
+      playTap();
+      const text = inputRef.current?.value;
+      if (text) {
+        injectText.mutate({ text, submit });
+        if (inputRef.current) inputRef.current.value = "";
+      }
+      setInputOpen(false);
+    },
+    [agentId, injectText, isConnected, playTap]
+  );
+
+  const submitInput = useCallback(
+    () => sendFullscreenInput(true),
+    [sendFullscreenInput]
+  );
+  const pasteInput = useCallback(
+    () => sendFullscreenInput(false),
+    [sendFullscreenInput]
+  );
 
   const pausedInput = copyMode === "copy" || copyMode === "exiting";
 
@@ -316,12 +345,14 @@ export function MobileTerminalToolbar({
             <span className="text-sm font-medium text-foreground">
               Terminal Input
             </span>
-            <button
-              className="text-sm font-medium text-primary"
-              onClick={submitInput}
+            {/* Invisible twin of the Cancel label so the title stays centered
+                now that there's no header action on this side. */}
+            <span
+              className="invisible text-sm text-muted-foreground"
+              aria-hidden="true"
             >
-              Send
-            </button>
+              Cancel
+            </span>
           </div>
           <div className="flex-1 p-4">
             <textarea
@@ -331,30 +362,34 @@ export function MobileTerminalToolbar({
               autoCapitalize="off"
             />
           </div>
-          <div className="flex gap-3 border-t border-border px-4 py-3">
+          {/* Bigger tap targets matching the keyboard control bar below, with
+              an exaggerated outside-bottom-corner radius so the row is easy
+              to hit and doesn't clip on curved-screen devices. */}
+          <div
+            className="flex gap-3 border-t border-border px-3 pt-3"
+            style={{
+              paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+            }}
+          >
             <Button
               type="button"
               variant="default"
-              className="flex-1"
-              onClick={submitInput}
+              className="h-16 flex-1 rounded-t-lg rounded-bl-[28px] rounded-br-lg text-base font-medium"
+              aria-label="Paste without submitting"
+              onClick={pasteInput}
+              disabled={!isConnected || injectText.isPending}
             >
-              Send + Enter
+              Paste
             </Button>
             <Button
               type="button"
-              variant="ghost"
-              className="flex-1"
-              onClick={() => {
-                playTap();
-                const text = inputRef.current?.value;
-                if (text) {
-                  onSendInput(text);
-                  if (inputRef.current) inputRef.current.value = "";
-                }
-                setInputOpen(false);
-              }}
+              variant="primary"
+              className="h-16 flex-1 rounded-t-lg rounded-br-[28px] rounded-bl-lg text-base font-medium"
+              aria-label="Submit with Enter"
+              onClick={submitInput}
+              disabled={!isConnected || injectText.isPending}
             >
-              Send Raw
+              Submit
             </Button>
           </div>
         </div>

@@ -205,6 +205,53 @@ export async function registerAgentTerminalRoutes(
     }
   );
 
+  // Mobile fullscreen keyboard input: the client sends raw typed text here
+  // instead of writing it straight to the pty over the terminal WS, so it
+  // goes through the same tmux paste-buffer path as quick phrases/pins
+  // (bracketed paste), which is what makes multi-line text land as a single
+  // paste instead of one line at a time.
+  app.post(
+    "/api/v1/agents/:id/terminal/inject-text",
+    async (request, reply) => {
+      const params = request.params as { id?: string };
+      const body = request.body as { text?: unknown; submit?: unknown } | null;
+      const agentId = params.id ?? "";
+      const text = typeof body?.text === "string" ? body.text : "";
+      const submit = body?.submit !== false;
+
+      if (!text) {
+        return reply.code(400).send({ error: "text is required." });
+      }
+
+      const TEXT_INJECT_MAX = 10_000;
+      if (text.length > TEXT_INJECT_MAX) {
+        return reply.code(400).send({
+          error: `text must be ${TEXT_INJECT_MAX} characters or fewer.`,
+        });
+      }
+
+      try {
+        const access = await deps.agentManager.getTerminalAccess(agentId);
+        if (access.mode !== "tmux") {
+          return reply.code(409).send({ error: access.message });
+        }
+
+        const terminal = new TmuxTerminal(access.sessionName);
+        // User-initiated: skip the quiet gate (the click IS the user acting)
+        // but serialize against any in-flight automated injection.
+        await deps.injectionCoordinator.inject(
+          agentId,
+          () =>
+            submit ? terminal.sendCommand(text) : terminal.pasteText(text),
+          { gate: false }
+        );
+        return reply.code(204).send();
+      } catch (error) {
+        return deps.handleAgentError(reply, error);
+      }
+    }
+  );
+
   // Shortcut pins: the click delivers the pin's stored prompt to the owning
   // agent's session. The prompt is looked up server-side by pin ID so the
   // client can only fire prompts the agent itself pinned. Like quick phrases,
