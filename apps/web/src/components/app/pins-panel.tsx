@@ -1,12 +1,36 @@
-import { Check, Copy, FileText, GitPullRequest, Pin } from "lucide-react";
+import {
+  Check,
+  CornerDownLeft,
+  Copy,
+  FileText,
+  GitPullRequest,
+  Pin,
+} from "lucide-react";
+import { useState } from "react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
+import { Button } from "@/components/ui/button";
+import { resolvePinShortcutIcon } from "@/lib/pin-shortcut-icons";
+import { cn } from "@/lib/utils";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
 import { splitPinValues } from "@/lib/pins";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 
 const SAFE_URL_RE = /^https?:\/\//i;
 const GH_PR_RE = /^https?:\/\/github\.com\/([^/]+\/[^/]+)\/pull\/(\d+)/i;
@@ -281,13 +305,156 @@ function PinValueRow({
   );
 }
 
+/**
+ * Shortcut pins are a button, not a value: `label` is the button text, `value`
+ * is the prompt delivered to the owning agent on click, and `metadata` is an
+ * optional one-line caption for context a human wants before clicking.
+ */
+function PinCaption({ value }: { value: string }): JSX.Element {
+  return (
+    <div className="mt-2" title={value} data-testid="pin-caption">
+      <Markdown variant="caption">{value}</Markdown>
+    </div>
+  );
+}
+
+function ShortcutPinItem({
+  pin,
+  disabled,
+  onRun,
+  inGroup,
+  agentName,
+}: {
+  pin: AgentPin;
+  disabled: boolean;
+  onRun: () => void;
+  inGroup: boolean;
+  agentName: string | null;
+}): JSX.Element {
+  const Icon = resolvePinShortcutIcon(pin.icon);
+
+  return (
+    <div
+      className={cn(
+        inGroup
+          ? "py-1 first:pt-0 last:pb-0"
+          : "px-4 py-2.5 border-b border-border last:border-b-0"
+      )}
+      data-testid="pin-item"
+      data-pin-label={pin.label}
+      data-pin-type="shortcut"
+    >
+      <TooltipProvider delayDuration={200}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            {/* A disabled button emits no pointer events, so the tooltip needs
+                a live wrapper to hang off when the agent isn't running. */}
+            <span className="block">
+              <Button
+                variant={pin.variant ?? "default"}
+                size="sm"
+                className="relative w-full gap-1.5 pl-2 pr-7"
+                disabled={disabled}
+                onClick={onRun}
+              >
+                <Icon className="h-3 w-3 shrink-0" />
+                <span className="min-w-0 truncate">{pin.label}</span>
+                {/* Constant send glyph: every shortcut pin delivers a prompt,
+                    whatever icon the agent chose for it. */}
+                <CornerDownLeft
+                  className="absolute right-2 h-3 w-3 shrink-0 opacity-50"
+                  aria-hidden
+                />
+              </Button>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="left" className="max-w-[320px]">
+            {disabled ? (
+              <p className="m-0 text-xs text-muted-foreground">
+                {agentName ?? "This agent"} has no active session — shortcuts
+                are unavailable.
+              </p>
+            ) : (
+              <div className="flex flex-col gap-1">
+                <p className="m-0 text-[11px] uppercase tracking-wide text-muted-foreground">
+                  Injects this prompt into{" "}
+                  {agentName ? `“${agentName}”` : "this agent"}
+                </p>
+                <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-sans text-xs text-foreground">
+                  {pin.value}
+                </pre>
+              </div>
+            )}
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+      {pin.metadata ? <PinCaption value={pin.metadata} /> : null}
+    </div>
+  );
+}
+
+/**
+ * Lays pins out into render order, collapsing every pin that shares a `group`
+ * name into a single block. The group is anchored where its *first* member
+ * sits, so a later member being re-pinned can never relocate the block.
+ */
+type PinRow =
+  | { kind: "pin"; pin: AgentPin }
+  | { kind: "group"; name: string; pins: AgentPin[] };
+
+export function layoutPins(pins: AgentPin[]): PinRow[] {
+  const rows: PinRow[] = [];
+  const groupRows = new Map<string, Extract<PinRow, { kind: "group" }>>();
+
+  for (const pin of pins) {
+    const name = pin.group?.trim();
+    if (!name) {
+      rows.push({ kind: "pin", pin });
+      continue;
+    }
+
+    const key = name.toLowerCase();
+    const existing = groupRows.get(key);
+    if (existing) {
+      existing.pins.push(pin);
+      continue;
+    }
+
+    const row = { kind: "group" as const, name, pins: [pin] };
+    groupRows.set(key, row);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
 export function PinItem({
   pin,
   workspaceRoot,
+  agentIsRunning = true,
+  onRunShortcut,
+  inGroup = false,
+  agentName = null,
 }: {
   pin: AgentPin;
   workspaceRoot: string | null;
+  agentIsRunning?: boolean;
+  onRunShortcut?: (pin: AgentPin) => void;
+  inGroup?: boolean;
+  agentName?: string | null;
 }): JSX.Element {
+  if (pin.type === "shortcut") {
+    return (
+      <ShortcutPinItem
+        pin={pin}
+        disabled={!agentIsRunning || !onRunShortcut}
+        onRun={() => onRunShortcut?.(pin)}
+        inGroup={inGroup}
+        agentName={agentName}
+      />
+    );
+  }
+
   const effectiveValue =
     pin.type === "url"
       ? rewritePinUrl(pin.value, window.location.host)
@@ -297,7 +464,11 @@ export function PinItem({
 
   return (
     <div
-      className="px-4 py-2.5 border-b border-border last:border-b-0"
+      className={cn(
+        inGroup
+          ? "py-1.5 first:pt-0 last:pb-0"
+          : "px-4 py-2.5 border-b border-border last:border-b-0"
+      )}
       data-testid="pin-item"
       data-pin-label={pin.label}
     >
@@ -322,6 +493,7 @@ export function PinItem({
           />
         ))}
       </div>
+      {pin.metadata ? <PinCaption value={pin.metadata} /> : null}
     </div>
   );
 }
@@ -330,13 +502,76 @@ type PinsPanelProps = {
   pins: AgentPin[];
   selectedAgentName: string | null;
   selectedAgentWorkspaceRoot: string | null;
+  agentIsRunning?: boolean;
+  onRunShortcut?: (pin: AgentPin) => void;
 };
+
+/**
+ * Confirmation is opt-in per shortcut pin (`confirm: true`) — the owning agent
+ * decides which of its own actions deserve a second look before firing.
+ */
+function ConfirmShortcutDialog({
+  pin,
+  onOpenChange,
+  onConfirm,
+}: {
+  pin: AgentPin | null;
+  onOpenChange: (open: boolean) => void;
+  onConfirm: () => void;
+}): JSX.Element {
+  return (
+    <Dialog open={pin !== null} onOpenChange={onOpenChange}>
+      <DialogContent data-testid="pin-shortcut-confirm-dialog">
+        <DialogHeader>
+          <DialogTitle>{pin?.label ?? "Run action"}?</DialogTitle>
+          <DialogDescription>
+            This sends the following prompt to the agent:
+          </DialogDescription>
+        </DialogHeader>
+        <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-background/40 p-2 font-sans text-xs text-foreground">
+          {pin?.value}
+        </pre>
+        <div className="flex justify-end gap-2">
+          <Button
+            type="button"
+            variant="ghost"
+            onClick={() => onOpenChange(false)}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="button"
+            variant={pin?.variant === "destructive" ? "destructive" : "primary"}
+            onClick={onConfirm}
+            data-testid="pin-shortcut-confirm"
+          >
+            Send
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  );
+}
 
 export function PinsPanel({
   pins,
   selectedAgentName,
   selectedAgentWorkspaceRoot,
+  agentIsRunning,
+  onRunShortcut,
 }: PinsPanelProps): JSX.Element {
+  const [pendingShortcutPin, setPendingActionPin] = useState<AgentPin | null>(
+    null
+  );
+
+  const handleRunShortcut = (pin: AgentPin): void => {
+    if (pin.confirm) {
+      setPendingActionPin(pin);
+      return;
+    }
+    onRunShortcut?.(pin);
+  };
+
   if (pins.length === 0) {
     return (
       <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
@@ -357,13 +592,52 @@ export function PinsPanel({
       data-testid="pins-panel-scroll"
       className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
     >
-      {pins.map((pin) => (
-        <PinItem
-          key={pin.label.toLowerCase()}
-          pin={pin}
-          workspaceRoot={selectedAgentWorkspaceRoot}
-        />
-      ))}
+      {layoutPins(pins).map((row) =>
+        row.kind === "pin" ? (
+          <PinItem
+            key={row.pin.label.toLowerCase()}
+            pin={row.pin}
+            workspaceRoot={selectedAgentWorkspaceRoot}
+            agentIsRunning={agentIsRunning}
+            onRunShortcut={onRunShortcut ? handleRunShortcut : undefined}
+            agentName={selectedAgentName}
+          />
+        ) : (
+          <div
+            key={`group:${row.name.toLowerCase()}`}
+            className="px-4 py-2.5 border-b border-border last:border-b-0"
+            data-testid="pin-group"
+            data-pin-group={row.name}
+          >
+            <div className="text-[11px] font-medium leading-snug text-muted-foreground">
+              {row.name}
+            </div>
+            <div className="mt-1.5 flex flex-col">
+              {row.pins.map((pin) => (
+                <PinItem
+                  key={pin.label.toLowerCase()}
+                  pin={pin}
+                  workspaceRoot={selectedAgentWorkspaceRoot}
+                  agentIsRunning={agentIsRunning}
+                  onRunShortcut={onRunShortcut ? handleRunShortcut : undefined}
+                  inGroup
+                  agentName={selectedAgentName}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      )}
+      <ConfirmShortcutDialog
+        pin={pendingShortcutPin}
+        onOpenChange={(open) => {
+          if (!open) setPendingActionPin(null);
+        }}
+        onConfirm={() => {
+          if (pendingShortcutPin) onRunShortcut?.(pendingShortcutPin);
+          setPendingActionPin(null);
+        }}
+      />
     </div>
   );
 }

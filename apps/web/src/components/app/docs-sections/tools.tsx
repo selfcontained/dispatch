@@ -133,7 +133,9 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>dispatch_pin</Code> — pin a label/value pair to the sidebar
-            (URLs, ports, filenames, PRs, markdown summaries)
+            (URLs, ports, filenames, PRs, markdown summaries), or a{" "}
+            <Code>shortcut</Code> button that injects a prompt into the agent’s
+            session when clicked
           </li>
           <li>
             <Code>dispatch_share</Code> — publish a screenshot, image, video, or

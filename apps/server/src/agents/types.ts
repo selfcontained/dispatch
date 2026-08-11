@@ -34,13 +34,26 @@ export type PinType =
   | "code"
   | "pr"
   | "filename"
-  | "markdown";
+  | "markdown"
+  | "shortcut";
+
+export type PinShortcutVariant = "default" | "primary" | "destructive";
 
 export type AgentPin = {
   id?: string;
   label: string;
   value: string;
   type: PinType;
+  /** Inline-markdown caption rendered under the pin. Any pin type. */
+  metadata?: string;
+  /** Renders this pin under a shared heading with pins of the same group. */
+  group?: string;
+  /** Icon name for a shortcut pin's button. Shortcut pins only. */
+  icon?: string;
+  /** Button styling for a shortcut pin. Shortcut pins only. */
+  variant?: PinShortcutVariant;
+  /** When true, clicking a shortcut pin asks for confirmation first. */
+  confirm?: boolean;
 };
 
 export type AgentLatestEvent = {

@@ -29,6 +29,7 @@ import {
 } from "./persona-interaction-tools.js";
 import { registerPrTools } from "./pr-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
+import { PIN_SHORTCUT_ICON_NAMES } from "./pin-shortcut-icons.js";
 import { toToolError } from "./tool-error.js";
 
 export type McpAgent = {
@@ -410,7 +411,16 @@ export type McpRequestContext = {
   >;
   upsertPin?: (
     agentId: string,
-    pin: { label: string; value: string; type: string }
+    pin: {
+      label: string;
+      value: string;
+      type: string;
+      metadata?: string;
+      group?: string;
+      icon?: string;
+      variant?: string;
+      confirm?: boolean;
+    }
   ) => Promise<void>;
   deletePin?: (agentId: string, pinId: string) => Promise<void>;
   deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
@@ -686,24 +696,66 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
     {
       description:
         "Pin a key-value pair to the Dispatch UI for this agent. Pins are displayed in the sidebar so users can quickly find important info. To update a pin, set it again with the same label. To remove a pin, use dispatch_list_pins followed by dispatch_delete_pin. The delete parameter is retained temporarily only for agents that initialized before this tool upgrade. " +
-        "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string).",
+        "Good things to pin: dev server URLs (url), PR links (pr), key files changed (filename), test/build result summaries (string), DB migration names (string), relevant doc or issue links (url), architecture decisions or assumptions (string), short structured summaries (markdown), the specific blocking question when in waiting_user state (string). " +
+        "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert.",
       inputSchema: {
         label: z
           .string()
           .max(100)
           .describe(
-            "Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port')."
+            "Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port'). For shortcut pins this is the button text."
           ),
         value: z
           .string()
           .max(2000)
           .optional()
-          .describe("The value to display."),
+          .describe(
+            "The value to display. For shortcut pins this is the prompt delivered to your session when the button is clicked."
+          ),
         type: z
-          .enum(["string", "url", "port", "code", "pr", "filename", "markdown"])
+          .enum([
+            "string",
+            "url",
+            "port",
+            "code",
+            "pr",
+            "filename",
+            "markdown",
+            "shortcut",
+          ])
           .default("string")
           .describe(
-            "Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."
+            "Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. 'shortcut' renders a button that sends `value` to your session when clicked. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."
+          ),
+        metadata: z
+          .string()
+          .max(200)
+          .optional()
+          .describe(
+            "A one-line caption rendered under the pin, supporting inline markdown (bold, italic, `code`, strikethrough). Works on any pin type. On shortcut pins it is context for the click, not part of the injected prompt."
+          ),
+        group: z
+          .string()
+          .max(100)
+          .optional()
+          .describe(
+            "Renders this pin under a shared heading with every other pin using the same group name — use it to present a set of related actions, or the question they answer, as one block."
+          ),
+        icon: z
+          .enum(PIN_SHORTCUT_ICON_NAMES)
+          .optional()
+          .describe("Shortcut pins only: icon shown on the button."),
+        variant: z
+          .enum(["default", "primary", "destructive"])
+          .optional()
+          .describe(
+            "Shortcut pins only: button styling. 'primary' for the main suggested action, 'destructive' for dangerous ones, 'default' otherwise."
+          ),
+        confirm: z
+          .boolean()
+          .optional()
+          .describe(
+            "Shortcut pins only: when true, clicking asks the user to confirm and shows them the prompt first. Use for destructive or hard-to-undo actions."
           ),
         delete: z
           .boolean()
@@ -733,6 +785,9 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           label: args.label,
           value: args.value,
           type: args.type ?? "string",
+          ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
+          ...(args.variant !== undefined ? { variant: args.variant } : {}),
+          ...(args.confirm !== undefined ? { confirm: args.confirm } : {}),
         });
         return {
           content: [

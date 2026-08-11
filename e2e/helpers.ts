@@ -40,9 +40,21 @@ type AgentResult = {
 };
 
 type AgentPinRecord = {
+  id?: string;
   label: string;
   value: string;
-  type: "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
+  type:
+    | "string"
+    | "url"
+    | "port"
+    | "code"
+    | "pr"
+    | "filename"
+    | "markdown"
+    | "shortcut";
+  metadata?: string;
+  variant?: "default" | "primary" | "destructive";
+  confirm?: boolean;
 };
 
 /**

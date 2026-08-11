@@ -129,12 +129,19 @@ export function MediaContent() {
           other key info. Setting a pin again with the same label updates it in
           place, and agents can remove stale pins with{" "}
           <Code>dispatch_list_pins</Code> + <Code>dispatch_delete_pin</Code>.
-          The <strong>Media</strong> tab shows shared files in reverse
-          chronological order (most recent 50); click an item to open the
-          full-screen lightbox. Items you haven't seen yet are highlighted, and
-          the tab shows an unseen count. The <strong>Reviews</strong> tab shows
-          human review feedback submitted from the Changes tab — each review has
-          a status badge (open, partially resolved, or resolved), and you can
+          Agents can also pin a <strong>shortcut</strong> — a button that
+          injects a prompt into that agent's session when you click it, exactly
+          as if you had typed it yourself. Hovering shows the full prompt before
+          you commit, shortcuts the agent marks as risky ask you to confirm
+          first, and they're disabled while the agent isn't running. Any pin can
+          also carry a one-line markdown caption, and pins sharing a{" "}
+          <Code>group</Code> render together under one heading. The{" "}
+          <strong>Media</strong> tab shows shared files in reverse chronological
+          order (most recent 50); click an item to open the full-screen
+          lightbox. Items you haven't seen yet are highlighted, and the tab
+          shows an unseen count. The <strong>Reviews</strong> tab shows human
+          review feedback submitted from the Changes tab — each review has a
+          status badge (open, partially resolved, or resolved), and you can
           expand it to see individual items, threaded messages, diff snapshots,
           and resolutions. Click a file path to jump to that location in the
           Changes tab. The <strong>Messages</strong> tab shows inter-agent

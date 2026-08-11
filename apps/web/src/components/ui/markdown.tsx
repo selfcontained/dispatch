@@ -337,7 +337,7 @@ function getCodeBlock(
 type MarkdownProps = {
   children: string;
   className?: string;
-  variant?: "default" | "pin";
+  variant?: "default" | "pin" | "caption";
 };
 
 export function Markdown({
@@ -349,7 +349,43 @@ export function Markdown({
     return <MarkdownPin className={className}>{children}</MarkdownPin>;
   }
 
+  if (variant === "caption") {
+    return <MarkdownCaption className={className}>{children}</MarkdownCaption>;
+  }
+
   return <MarkdownDefault className={className}>{children}</MarkdownDefault>;
+}
+
+/**
+ * Single-line muted markdown for subtitles (e.g. a shortcut pin's caption).
+ * Inline marks only — block elements are unwrapped so the caption can never
+ * grow into a second paragraph or a list.
+ */
+function MarkdownCaption({
+  children,
+  className,
+}: Pick<MarkdownProps, "children" | "className">): JSX.Element {
+  return (
+    <span
+      className={cn(
+        // Hard clamp as a backstop to the server-side length cap: a caption is
+        // a subtitle, never a paragraph.
+        "line-clamp-2 text-[11px] leading-tight text-muted-foreground",
+        "[&_strong]:font-semibold [&_strong]:text-foreground/80 [&_em]:italic",
+        "[&_del]:line-through",
+        "[&_code]:rounded [&_code]:bg-muted [&_code]:px-1 [&_code]:font-mono [&_code]:text-[10px]",
+        className
+      )}
+    >
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        allowedElements={["strong", "em", "code", "del"]}
+        unwrapDisallowed
+      >
+        {children}
+      </ReactMarkdown>
+    </span>
+  );
 }
 
 function MarkdownPin({

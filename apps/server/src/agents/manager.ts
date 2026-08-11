@@ -1114,19 +1114,27 @@ export class AgentManager {
     return agent;
   }
 
+  /**
+   * Update in place when the label already exists, append otherwise. Position
+   * is deliberately stable: re-pinning to refresh a value must not shuffle the
+   * sidebar out from under the user, and grouped pins would tear apart if an
+   * update relocated a member. An agent that wants a pin moved deletes it and
+   * pins it again.
+   */
   async upsertPin(id: string, pin: AgentPin): Promise<AgentRecord> {
     await this.mutatePins(id, (currentPins) => {
-      const existing = currentPins.find(
+      const index = currentPins.findIndex(
         (p) => p.label.toLowerCase() === pin.label.toLowerCase()
       );
-      const pins = currentPins.filter(
-        (p) => p.label.toLowerCase() !== pin.label.toLowerCase()
-      );
-      if (pins.length >= MAX_PINS) {
+      if (index !== -1) {
+        const pins = [...currentPins];
+        pins[index] = { ...pin, id: currentPins[index]!.id ?? randomUUID() };
+        return pins;
+      }
+      if (currentPins.length >= MAX_PINS) {
         throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
       }
-      pins.push({ ...pin, id: existing?.id ?? pin.id ?? randomUUID() });
-      return pins;
+      return [...currentPins, { ...pin, id: pin.id ?? randomUUID() }];
     });
 
     return (await this.getAgent(id)) as AgentRecord;

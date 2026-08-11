@@ -26,7 +26,13 @@ import {
   AGENT_LATEST_EVENT_TYPES,
   isAgentLatestEventType,
 } from "../agents/latest-event.js";
-import { isPinType, validatePinValue } from "../pins.js";
+import {
+  isPinType,
+  validatePinShortcutFields,
+  validatePinCaption,
+  validatePinValue,
+  type PinShortcutVariant,
+} from "../pins.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
@@ -177,16 +183,44 @@ async function handleSendNotify(
 async function handleUpsertPin(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  pin: { label: string; value: string; type: string }
+  pin: {
+    label: string;
+    value: string;
+    type: string;
+    metadata?: string;
+    group?: string;
+    icon?: string;
+    variant?: string;
+    confirm?: boolean;
+  }
 ): Promise<void> {
   if (!isPinType(pin.type)) {
     throw new Error(`Invalid pin type: ${pin.type}`);
   }
   validatePinValue(pin.type, pin.value);
+
+  // Captions and grouping are generic; button styling and confirmation only
+  // mean anything for shortcut pins — silently dropping those elsewhere keeps
+  // stored pins honest.
+  if (pin.metadata !== undefined) {
+    validatePinCaption(pin.metadata);
+  }
+  const isAction = pin.type === "shortcut";
+  if (isAction) {
+    validatePinShortcutFields(pin);
+  }
+
   const agent = await deps.agentManager.upsertPin(agentId, {
     label: pin.label,
     value: pin.value,
     type: pin.type,
+    ...(pin.metadata !== undefined ? { metadata: pin.metadata } : {}),
+    ...(pin.group !== undefined ? { group: pin.group } : {}),
+    ...(isAction && pin.icon !== undefined ? { icon: pin.icon } : {}),
+    ...(isAction && pin.variant !== undefined
+      ? { variant: pin.variant as PinShortcutVariant }
+      : {}),
+    ...(isAction && pin.confirm !== undefined ? { confirm: pin.confirm } : {}),
   });
   deps.publishUiEvent({
     type: "agent.upsert",
@@ -889,7 +923,16 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     upsertPin: (
       agentId: string,
-      pin: { label: string; value: string; type: string }
+      pin: {
+        label: string;
+        value: string;
+        type: string;
+        metadata?: string;
+        group?: string;
+        icon?: string;
+        variant?: string;
+        confirm?: boolean;
+      }
     ) => handleUpsertPin(deps, agentId, pin),
 
     deletePin: (agentId: string, pinId: string) =>

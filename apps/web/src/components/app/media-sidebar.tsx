@@ -8,6 +8,7 @@ import { MessagesPanel } from "@/components/app/messages-panel";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { ReviewsSidebarContent } from "@/components/app/reviews-sidebar";
 import { useAgentReviews } from "@/hooks/use-agent-reviews";
+import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
@@ -28,6 +29,7 @@ type MediaSidebarSharedProps = {
   selectedAgentName: string | null;
   selectedAgentWorkspaceRoot: string | null;
   selectedAgentPins: AgentPin[];
+  selectedAgentIsRunning?: boolean;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   openLightbox: (file: MediaFile) => void;
@@ -69,6 +71,7 @@ export function MediaSidebarContent({
   selectedAgentName,
   selectedAgentWorkspaceRoot,
   selectedAgentPins,
+  selectedAgentIsRunning,
   animatingMediaKeys,
   mediaViewportRef,
   openLightbox,
@@ -90,6 +93,7 @@ export function MediaSidebarContent({
   unreadMessageCount: number;
 }): JSX.Element {
   const { reviews } = useAgentReviews(selectedAgentId, !!selectedAgentId);
+  const runPinShortcut = useRunPinShortcut();
   const reviewUnresolvedCount = reviews.reduce(
     (sum, r) => sum + (r.itemCount - r.resolvedCount),
     0
@@ -231,6 +235,18 @@ export function MediaSidebarContent({
           pins={selectedAgentPins}
           selectedAgentName={selectedAgentName}
           selectedAgentWorkspaceRoot={selectedAgentWorkspaceRoot}
+          agentIsRunning={selectedAgentIsRunning}
+          onRunShortcut={
+            selectedAgentId
+              ? (pin) => {
+                  if (!pin.id) return;
+                  runPinShortcut.mutate({
+                    agentId: selectedAgentId,
+                    pinId: pin.id,
+                  });
+                }
+              : undefined
+          }
         />
       </div>
       <div

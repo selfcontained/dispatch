@@ -21,8 +21,21 @@ type ArchivePhase =
 
 type AgentPin = {
   label: string;
-  type: "string" | "url" | "port" | "code" | "pr" | "filename" | "markdown";
+  type:
+    | "string"
+    | "url"
+    | "port"
+    | "code"
+    | "pr"
+    | "filename"
+    | "markdown"
+    | "shortcut";
   value: string;
+  metadata?: string;
+  group?: string;
+  icon?: string;
+  variant?: "default" | "primary" | "destructive";
+  confirm?: boolean;
 };
 
 type SeedAgentInput = {
@@ -76,6 +89,33 @@ const allPinTypesSample: AgentPin[] = [
     type: "markdown",
     value:
       "- Wired migration + seed\n- Covered all agent states\n- Jobs disabled by default",
+  },
+  {
+    label: "Work on sse-reconnect",
+    type: "shortcut",
+    variant: "primary",
+    icon: "rocket",
+    group: "Ready to build",
+    value: "work on sse-eventsource-reconnect",
+    metadata: "**High priority** · idea since Aug 4",
+  },
+  {
+    label: "Re-run E2E suite",
+    type: "shortcut",
+    icon: "refresh",
+    group: "Ready to build",
+    value: "Re-run the full Playwright suite and report failures.",
+    metadata: "Last run touched `e2e/media-sidebar.spec.ts`",
+  },
+  {
+    label: "Reset the dev database",
+    type: "shortcut",
+    variant: "destructive",
+    icon: "trash",
+    confirm: true,
+    group: "Housekeeping",
+    value: "Drop and reseed the dev database, then confirm migrations applied.",
+    metadata: "*Destructive* · wipes local seed data",
   },
 ];
 

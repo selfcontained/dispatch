@@ -566,4 +566,70 @@ test.describe("Media sidebar", () => {
       mediaSidebar.getByText("DISPATCH_AGENT_ID=agt_123", { exact: true })
     ).toBeVisible();
   });
+
+  test("renders shortcut pins as buttons that send their prompt to the agent", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-action-pins-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+    await setAgentPinsViaDB(agent.id, [
+      {
+        id: "pin_action_plain",
+        label: "Re-run E2E suite",
+        type: "shortcut",
+        value: "Re-run the full Playwright suite and report failures.",
+      },
+      {
+        id: "pin_action_captioned",
+        label: "Work on sse-reconnect",
+        type: "shortcut",
+        variant: "primary",
+        value: "work on sse-eventsource-reconnect",
+        metadata: "High priority · 3 files",
+      },
+      {
+        id: "pin_action_confirm",
+        label: "Reset the dev database",
+        type: "shortcut",
+        variant: "destructive",
+        confirm: true,
+        value: "Drop and reseed the dev database.",
+      },
+    ]);
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, agent);
+    const mediaSidebar = page.getByTestId("media-sidebar");
+
+    // The label is the button text; metadata renders as a caption beside it.
+    await expect(
+      mediaSidebar.getByRole("button", { name: "Work on sse-reconnect" })
+    ).toBeVisible();
+    await expect(
+      mediaSidebar.getByText("High priority · 3 files", { exact: true })
+    ).toBeVisible();
+
+    // confirm: true shows the exact prompt and sends nothing until confirmed.
+    await mediaSidebar
+      .getByRole("button", { name: "Reset the dev database" })
+      .click();
+    const dialog = page.getByTestId("pin-shortcut-confirm-dialog");
+    await expect(dialog).toContainText("Drop and reseed the dev database.");
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await expect(dialog).toBeHidden();
+
+    // A pin without confirm fires straight through to the run endpoint.
+    const runResponse = page.waitForResponse((response) =>
+      response
+        .url()
+        .includes(`/api/v1/agents/${agent.id}/pins/pin_action_plain/run`)
+    );
+    await mediaSidebar
+      .getByRole("button", { name: "Re-run E2E suite" })
+      .click();
+    expect((await runResponse).request().method()).toBe("POST");
+  });
 });
