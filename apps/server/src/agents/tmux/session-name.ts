@@ -57,10 +57,19 @@ export function toSessionName(
  * - Persona agents: never suggest (the persona name is the meaningful one).
  * - Job runs: suggest only when the name still matches the auto-generated
  *   `job-…-<jobRunIdPrefix>` shape.
- * - Template-launched agents: always suggest — the template name is a
- *   launch-source label, not a user-chosen session name.
- * - Standard agents: suggest only when the name still matches the
- *   `agent-<last6>` placeholder generated when no name is supplied.
+ * - Everything else — including template-launched agents: suggest only when
+ *   the name still matches the `agent-<last6>` placeholder generated when no
+ *   name is supplied.
+ *
+ * Template launches are deliberately not special-cased. They are created with
+ * the template's own (human-authored) name, so they never match the
+ * placeholder and are never nudged. An earlier version returned `true` for any
+ * `templateId`, with no name check — which re-nagged long-lived templated
+ * agents on every server restart even once they carried a real, intentional
+ * name. Every branch here now keys off the name alone, which makes the check
+ * self-limiting: once an agent is named, it stays named, with no cross-restart
+ * state to remember. This matches the web sidebar's manual rename-prompt
+ * button, which has always gated on the placeholder name alone.
  */
 export function shouldSuggestSessionRename(
   agentName: string | null | undefined,
@@ -68,7 +77,6 @@ export function shouldSuggestSessionRename(
   opts: {
     persona?: string | null;
     jobRunId?: string;
-    templateId?: string | null;
   }
 ): boolean {
   if (opts.persona) {
@@ -81,10 +89,6 @@ export function shouldSuggestSessionRename(
     return (
       !!trimmed && trimmed.startsWith("job-") && trimmed.endsWith(jobNameSuffix)
     );
-  }
-
-  if (opts.templateId) {
-    return true;
   }
 
   return trimmed === `agent-${agentId.slice(-6)}`;

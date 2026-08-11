@@ -25,9 +25,14 @@ type AutoRenamePrompterDeps = {
 /**
  * Returns an `onLatestEvent` listener that auto-injects the rename prompt
  * the first time an agent emits a "working" event while its session name
- * is still the default placeholder. One-shot per agent (per process
- * lifetime). Terminal-type and persona agents are skipped — they have no
- * Claude session to receive the prompt or already carry a meaningful name.
+ * is still the default placeholder. Terminal-type and persona agents are
+ * skipped — they have no Claude session to receive the prompt or already
+ * carry a meaningful name.
+ *
+ * The `prompted` set is a same-process guard against re-injecting while the
+ * agent is mid-rename; the durable one is the placeholder name check itself,
+ * which stops matching for good once the agent renames. Nothing here should
+ * fire for an agent that already carries a real name, restart or not.
  *
  * Agents start with an `idle` system event, so the first agent-initiated
  * "working" event naturally triggers the prompt.
@@ -42,7 +47,6 @@ export function createAutoRenamePrompter(deps: AutoRenamePrompterDeps) {
     if (
       !shouldSuggestSessionRename(agent.name, agent.id, {
         persona: agent.persona,
-        templateId: agent.templateId,
       })
     ) {
       return;

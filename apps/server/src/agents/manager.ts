@@ -711,7 +711,6 @@ export class AgentManager {
           suggestSessionRename: shouldSuggestSessionRename(name, id, {
             persona: opts.persona,
             jobRunId: opts.jobRunId,
-            templateId: opts.templateId,
           }),
           autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
           initialPrompt: startupPrompt,
@@ -921,7 +920,6 @@ export class AgentManager {
           resume: shouldResume,
           suggestSessionRename: shouldSuggestSessionRename(agent.name, id, {
             persona: agent.persona,
-            templateId: agent.templateId,
           }),
           autoReview: !agent.persona && (agent.autoReview ?? false),
           personalityPrompt: personality?.prompt ?? null,
