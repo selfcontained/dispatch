@@ -1,5 +1,5 @@
 ## What's Changed
-* Add a disabled state to shortcut pins by @selfcontained in https://github.com/selfcontained/dispatch/pull/937
+* Bolder pin sidebar group headers by @selfcontained in https://github.com/selfcontained/dispatch/pull/938
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.33.8...v0.33.9
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.33.9...v0.33.10
