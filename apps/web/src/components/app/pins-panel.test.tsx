@@ -132,6 +132,23 @@ describe("shortcut pins", () => {
     }
   });
 
+  it("forces confirmation on a touch tap from a fine-pointer device", () => {
+    // Hybrid laptops report `pointer: fine`, so the media query alone would
+    // let a finger tap fire without ever showing the prompt.
+    const onRunShortcut = vi.fn();
+    renderPanel([shortcutPin], { onRunShortcut });
+
+    const button = screen.getByRole("button", { name: /work on/i });
+    // jsdom's fireEvent.click builds a MouseEvent, which has no pointerType,
+    // so dispatch a native event carrying it.
+    const tap = new MouseEvent("click", { bubbles: true });
+    Object.defineProperty(tap, "pointerType", { value: "touch" });
+    fireEvent(button, tap);
+
+    expect(onRunShortcut).not.toHaveBeenCalled();
+    expect(screen.getByTestId("pin-shortcut-confirm-dialog")).toBeTruthy();
+  });
+
   it("renders pins sharing a group under one heading", () => {
     const other: AgentPin = {
       id: "pin_2",

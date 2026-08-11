@@ -112,9 +112,15 @@ function normalizeInitialPins(pins: AgentPin[]): AgentPin[] {
     // same shapes as dispatch_pin, or a template could seed a pin the MCP tool
     // would have rejected — which now matters, since a shortcut's value is
     // delivered to a terminal rather than just displayed.
-    validatePinValue(pin.type, pin.value);
-    if (pin.caption !== undefined) validatePinCaption(pin.caption);
-    if (pin.type === "shortcut") validatePinShortcutFields(pin);
+    try {
+      validatePinValue(pin.type, pin.value);
+      if (pin.caption !== undefined) validatePinCaption(pin.caption);
+      if (pin.type === "shortcut") validatePinShortcutFields(pin);
+    } catch (error) {
+      // The validators throw plain Errors; surface them as 400s so a bad
+      // initialPins payload reads as a client error rather than a crash.
+      throw new AgentError(errorMessage(error), 400);
+    }
 
     byLabel.set(pin.label.toLowerCase(), {
       ...pin,

@@ -328,7 +328,7 @@ function ShortcutPinItem({
 }: {
   pin: AgentPin;
   disabled: boolean;
-  onRun: () => void;
+  onRun: (pointerType: string) => void;
   inGroup: boolean;
   agentName: string | null;
 }): JSX.Element {
@@ -359,7 +359,14 @@ function ShortcutPinItem({
                 size="sm"
                 className="relative w-full gap-1.5 pl-2 pr-7"
                 disabled={unavailable}
-                onClick={onRun}
+                // pointerType distinguishes a finger tap from a mouse click on
+                // hybrid devices, which report `pointer: fine` and so would
+                // otherwise skip disclosure.
+                onClick={(event) =>
+                  onRun(
+                    (event.nativeEvent as PointerEvent).pointerType ?? "mouse"
+                  )
+                }
               >
                 <Icon className="h-3 w-3 shrink-0" />
                 <span className="min-w-0 truncate">{pin.label}</span>
@@ -423,7 +430,7 @@ export function PinItem({
   pin: AgentPin;
   workspaceRoot: string | null;
   agentIsRunning?: boolean;
-  onRunShortcut?: (pin: AgentPin) => void;
+  onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
   inGroup?: boolean;
   agentName?: string | null;
 }): JSX.Element {
@@ -432,7 +439,7 @@ export function PinItem({
       <ShortcutPinItem
         pin={pin}
         disabled={!agentIsRunning || !onRunShortcut}
-        onRun={() => onRunShortcut?.(pin)}
+        onRun={(pointerType) => onRunShortcut?.(pin, pointerType)}
         inGroup={inGroup}
         agentName={agentName}
       />
@@ -533,7 +540,7 @@ export function PinList({
   pins: AgentPin[];
   workspaceRoot: string | null;
   agentIsRunning?: boolean;
-  onRunShortcut?: (pin: AgentPin) => void;
+  onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
   agentName?: string | null;
 }): JSX.Element {
   return (
@@ -583,7 +590,7 @@ type PinsPanelProps = {
   selectedAgentName: string | null;
   selectedAgentWorkspaceRoot: string | null;
   agentIsRunning?: boolean;
-  onRunShortcut?: (pin: AgentPin) => void;
+  onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
 };
 
 /**
@@ -649,8 +656,8 @@ export function PinsPanel({
   // so the prompt would be delivered having shown the user only the label.
   // The confirm dialog already renders the full prompt, so route everything
   // through it there regardless of the pin's own `confirm` setting.
-  const handleRunShortcut = (pin: AgentPin): void => {
-    if (pin.confirm || coarsePointer) {
+  const handleRunShortcut = (pin: AgentPin, pointerType?: string): void => {
+    if (pin.confirm || coarsePointer || pointerType === "touch") {
       setPendingShortcutPin(pin);
       return;
     }

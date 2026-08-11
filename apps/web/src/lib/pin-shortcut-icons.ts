@@ -62,10 +62,6 @@ export const PIN_SHORTCUT_ICONS = {
 
 export type PinShortcutIcon = keyof typeof PIN_SHORTCUT_ICONS;
 
-export const PIN_SHORTCUT_ICON_NAMES = Object.keys(
-  PIN_SHORTCUT_ICONS
-) as PinShortcutIcon[];
-
 export function resolvePinShortcutIcon(name: string | undefined): LucideIcon {
   // Own-property check: `in` would match inherited keys, so "constructor" or
   // "__proto__" would resolve to something that is not a component and throw
