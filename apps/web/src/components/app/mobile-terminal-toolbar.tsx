@@ -139,11 +139,23 @@ export function MobileTerminalToolbar({
       if (!isConnected || !agentId) return;
       playTap();
       const text = inputRef.current?.value;
-      if (text) {
-        injectText.mutate({ text, submit });
-        if (inputRef.current) inputRef.current.value = "";
+      if (!text) {
+        setInputOpen(false);
+        return;
       }
-      setInputOpen(false);
+      // Keep the overlay and draft text in place until the request succeeds —
+      // clearing/closing eagerly would drop the draft with no way to retry
+      // if the request fails (network blip, expired session, etc).
+      injectText.mutate(
+        { text, submit },
+        {
+          onSuccess: () => {
+            if (inputRef.current) inputRef.current.value = "";
+            setInputOpen(false);
+          },
+          onError: () => inputRef.current?.focus(),
+        }
+      );
     },
     [agentId, injectText, isConnected, playTap]
   );
@@ -335,15 +347,17 @@ export function MobileTerminalToolbar({
           {/* Cancel top-left; Paste/Submit top-right — bigger tap targets
               matching the keyboard control bar. */}
           <div className="flex items-center justify-between gap-3 border-b border-border px-3 py-2">
-            <button
-              className="shrink-0 px-2 text-sm text-muted-foreground"
+            <Button
+              type="button"
+              variant="ghost"
+              className="h-11 shrink-0 px-3 text-sm"
               onClick={() => {
                 playTap();
                 setInputOpen(false);
               }}
             >
               Cancel
-            </button>
+            </Button>
             <div className="flex items-stretch gap-2">
               <Button
                 type="button"
