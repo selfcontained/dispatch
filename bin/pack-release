@@ -83,12 +83,14 @@ if [[ -d "update-migrations" ]]; then
 fi
 
 # BSD tar on macOS otherwise stores Finder/xattr metadata (e.g. the
-# com.apple.provenance xattr as a LIBARCHIVE.xattr.* pax header). COPYFILE_DISABLE
-# stops the ._ AppleDouble sidecar files; --no-xattrs/--no-mac-metadata stop the
-# xattrs from being embedded in the tar stream itself. Without both, GNU tar on
-# a Linux host prints an "Ignoring unknown extended header keyword" warning per
-# entry when it extracts or verifies an otherwise perfectly valid release.
-COPYFILE_DISABLE=1 tar --no-xattrs --no-mac-metadata -czf "$OUTPUT" --exclude='bin/embed-assisted-update.ts' -T "$MANIFEST"
+# com.apple.provenance xattr) as LIBARCHIVE.xattr.*/SCHILY.xattr.* pax headers
+# in the tar stream. --no-xattrs stops that (modern bsdtar routes Finder/mac
+# metadata through the same xattr path, so this alone is sufficient — no need
+# for --no-mac-metadata, which GNU tar doesn't even recognize). Without it,
+# GNU tar on a Linux host prints an "Ignoring unknown extended header keyword"
+# warning per entry when it extracts or verifies an otherwise perfectly valid
+# release. COPYFILE_DISABLE=1 separately stops ._ AppleDouble sidecar files.
+COPYFILE_DISABLE=1 tar --no-xattrs -czf "$OUTPUT" --exclude='bin/embed-assisted-update.ts' -T "$MANIFEST"
 
 # Print summary
 SIZE=$(wc -c < "$OUTPUT" | tr -d ' ')

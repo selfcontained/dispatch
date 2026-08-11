@@ -68,16 +68,27 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     // com.apple.provenance xattr. GNU tar on Linux doesn't understand those
     // keywords and prints an "Ignoring unknown extended header keyword"
     // warning per entry when extracting — see bin/pack-release's --no-xattrs
-    // --no-mac-metadata flags.
+    // flag.
+    //
+    // Sanity-check the tarball is actually intact first: execSync runs the
+    // pipeline below via `sh` without `pipefail`, so a failed/empty `gzip -dc`
+    // wouldn't fail the shell and the grep could pass vacuously on no input.
+    expect(tarList()).toContain("dist/bun/SHA256SUMS.txt");
+
     // Match the pax extended-header record shape ("<len> KEYWORD=value"),
     // not just the bare keyword text — bin/pack-release's own source (packed
     // as part of bin/) mentions "LIBARCHIVE.xattr" in a comment, which would
-    // otherwise false-positive a plain substring check.
-    const raw = execSync(`gzip -dc "${OUTPUT}" | strings`, {
-      encoding: "utf8",
-      maxBuffer: 1024 * 1024 * 64,
-    });
-    expect(raw).not.toMatch(/^\d+ (LIBARCHIVE|SCHILY)\.xattr\./m);
+    // otherwise false-positive a plain substring check. Filter in the shell
+    // rather than capturing full binary-strings output into Node (avoids
+    // execSync's maxBuffer on a large tarball), and use `tr` instead of
+    // `strings` since binutils isn't guaranteed on a minimal Linux host —
+    // it turns the NUL padding ahead of each pax block into a line break so
+    // the "^<len> KEYWORD" anchor still holds.
+    const hits = execSync(
+      `gzip -dc "${OUTPUT}" | tr '\\0' '\\n' | grep -aE '^[0-9]+ (LIBARCHIVE|SCHILY)\\.xattr\\.' | head -5; exit 0`,
+      { encoding: "utf8" }
+    ).trim();
+    expect(hits).toBe("");
   });
 
   it("does NOT include node_modules", () => {
