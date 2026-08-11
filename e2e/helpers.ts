@@ -53,6 +53,8 @@ type AgentPinRecord = {
     | "markdown"
     | "shortcut";
   caption?: string;
+  group?: string;
+  icon?: string;
   variant?: "default" | "primary" | "destructive";
   confirm?: boolean;
 };

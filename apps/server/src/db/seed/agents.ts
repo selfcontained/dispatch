@@ -20,6 +20,9 @@ type ArchivePhase =
   | null;
 
 type AgentPin = {
+  // Pins need a stable ID: the shortcut run endpoint addresses them by it, so
+  // a seeded pin without one renders as a button that does nothing.
+  id: string;
   label: string;
   type:
     | "string"
@@ -62,35 +65,51 @@ type SeedAgentInput = {
 };
 
 const allPinTypesSample: AgentPin[] = [
-  { label: "Dev Server", type: "url", value: "http://localhost:5173" },
-  { label: "API Port", type: "port", value: "6767, 5432" },
   {
+    id: "seed-pin-dev-server",
+    label: "Dev Server",
+    type: "url",
+    value: "http://localhost:5173",
+  },
+  {
+    id: "seed-pin-api-port",
+    label: "API Port",
+    type: "port",
+    value: "6767, 5432",
+  },
+  {
+    id: "seed-pin-draft-pr",
     label: "Draft PR",
     type: "pr",
     value: "https://github.com/example/dispatch/pull/1234",
   },
   {
+    id: "seed-pin-primary-file",
     label: "Primary File",
     type: "filename",
     value: "apps/web/src/components/AgentSidebar.tsx",
   },
   {
+    id: "seed-pin-simulator-udid",
     label: "Simulator UDID",
     type: "code",
     value: "7A9F33E2-1234-ABCD-EF00-0123456789AB",
   },
   {
+    id: "seed-pin-decision",
     label: "Decision",
     type: "string",
     value: "Going with shadcn Sheet for the mobile slide-over",
   },
   {
+    id: "seed-pin-summary",
     label: "Summary",
     type: "markdown",
     value:
       "- Wired migration + seed\n- Covered all agent states\n- Jobs disabled by default",
   },
   {
+    id: "seed-pin-work-sse",
     label: "Work on sse-reconnect",
     type: "shortcut",
     variant: "primary",
@@ -100,6 +119,7 @@ const allPinTypesSample: AgentPin[] = [
     caption: "**High priority** · idea since Aug 4",
   },
   {
+    id: "seed-pin-rerun-e2e",
     label: "Re-run E2E suite",
     type: "shortcut",
     icon: "refresh",
@@ -108,6 +128,7 @@ const allPinTypesSample: AgentPin[] = [
     caption: "Last run touched `e2e/media-sidebar.spec.ts`",
   },
   {
+    id: "seed-pin-reset-db",
     label: "Reset the dev database",
     type: "shortcut",
     variant: "destructive",
@@ -144,8 +165,14 @@ export async function seedAgents(client: PoolClient): Promise<void> {
         ageMinutes: 2,
       },
       pins: [
-        { label: "Dev Server", type: "url", value: "http://localhost:5173" },
         {
+          id: "seed-pin-theme-dev-server",
+          label: "Dev Server",
+          type: "url",
+          value: "http://localhost:5173",
+        },
+        {
+          id: "seed-pin-theme-primary-file",
           label: "Primary File",
           type: "filename",
           value: "apps/web/src/components/layout/Sidebar.tsx",

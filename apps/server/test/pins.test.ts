@@ -116,13 +116,13 @@ describe("pin validation", () => {
     );
   });
 
-  it("rejects action prompts over the length cap", () => {
+  it("rejects shortcut prompts over the length cap", () => {
     expect(() => validatePinValue("shortcut", "x".repeat(2001))).toThrow(
       /2000 characters or fewer/i
     );
   });
 
-  it("accepts supported action variants", () => {
+  it("accepts supported shortcut variants", () => {
     expect(() =>
       validatePinShortcutFields({ variant: "primary" })
     ).not.toThrow();
@@ -135,7 +135,26 @@ describe("pin validation", () => {
     ).not.toThrow();
   });
 
-  it("rejects unknown action variants", () => {
+  it("accepts a known shortcut icon", () => {
+    expect(() => validatePinShortcutFields({ icon: "rocket" })).not.toThrow();
+  });
+
+  it("rejects an unknown shortcut icon", () => {
+    expect(() => validatePinShortcutFields({ icon: "banana" })).toThrow(
+      /icon must be one of/i
+    );
+  });
+
+  it("rejects prototype keys as icons", () => {
+    expect(() => validatePinShortcutFields({ icon: "constructor" })).toThrow(
+      /icon must be one of/i
+    );
+    expect(() => validatePinShortcutFields({ icon: "__proto__" })).toThrow(
+      /icon must be one of/i
+    );
+  });
+
+  it("rejects unknown shortcut variants", () => {
     expect(() => validatePinShortcutFields({ variant: "warning" })).toThrow(
       /variant must be one of/i
     );

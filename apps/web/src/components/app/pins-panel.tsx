@@ -21,6 +21,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Markdown } from "@/components/ui/markdown";
+import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useCopyText } from "@/hooks/use-copy";
 import { splitPinValues } from "@/lib/pins";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
@@ -312,7 +313,7 @@ function PinValueRow({
  */
 function PinCaption({ value }: { value: string }): JSX.Element {
   return (
-    <div className="mt-2" title={value} data-testid="pin-caption">
+    <div className="mt-2" data-testid="pin-caption">
       <Markdown variant="caption">{value}</Markdown>
     </div>
   );
@@ -332,6 +333,9 @@ function ShortcutPinItem({
   agentName: string | null;
 }): JSX.Element {
   const Icon = resolvePinShortcutIcon(pin.icon);
+  // No ID means the run endpoint has nothing to address; render it disabled
+  // rather than as a button that silently does nothing on click.
+  const unavailable = disabled || !pin.id;
 
   return (
     <div
@@ -354,7 +358,7 @@ function ShortcutPinItem({
                 variant={pin.variant ?? "default"}
                 size="sm"
                 className="relative w-full gap-1.5 pl-2 pr-7"
-                disabled={disabled}
+                disabled={unavailable}
                 onClick={onRun}
               >
                 <Icon className="h-3 w-3 shrink-0" />
@@ -377,10 +381,11 @@ function ShortcutPinItem({
             // separation holds either way.
             className="max-w-[320px] border-[hsl(var(--border))] bg-[color-mix(in_srgb,hsl(var(--popover))_88%,hsl(var(--foreground)))] p-2.5"
           >
-            {disabled ? (
+            {unavailable ? (
               <p className="m-0 text-xs text-muted-foreground">
-                {agentName ?? "This agent"} has no active session — shortcuts
-                are unavailable.
+                {!pin.id
+                  ? "This pin has no stable ID, so it cannot be run."
+                  : `${agentName ?? "This agent"} has no active session — shortcuts are unavailable.`}
               </p>
             ) : (
               <div className="flex flex-col gap-2">
@@ -405,41 +410,6 @@ function ShortcutPinItem({
       {pin.caption ? <PinCaption value={pin.caption} /> : null}
     </div>
   );
-}
-
-/**
- * Lays pins out into render order, collapsing every pin that shares a `group`
- * name into a single block. The group is anchored where its *first* member
- * sits, so a later member being re-pinned can never relocate the block.
- */
-type PinRow =
-  | { kind: "pin"; pin: AgentPin }
-  | { kind: "group"; name: string; pins: AgentPin[] };
-
-export function layoutPins(pins: AgentPin[]): PinRow[] {
-  const rows: PinRow[] = [];
-  const groupRows = new Map<string, Extract<PinRow, { kind: "group" }>>();
-
-  for (const pin of pins) {
-    const name = pin.group?.trim();
-    if (!name) {
-      rows.push({ kind: "pin", pin });
-      continue;
-    }
-
-    const key = name.toLowerCase();
-    const existing = groupRows.get(key);
-    if (existing) {
-      existing.pins.push(pin);
-      continue;
-    }
-
-    const row = { kind: "group" as const, name, pins: [pin] };
-    groupRows.set(key, row);
-    rows.push(row);
-  }
-
-  return rows;
 }
 
 export function PinItem({
@@ -512,6 +482,102 @@ export function PinItem({
   );
 }
 
+/**
+ * Lays pins out into render order, collapsing every pin that shares a `group`
+ * name into a single block. The group is anchored where its *first* member
+ * sits, so a later member being re-pinned can never relocate the block.
+ */
+type PinRow =
+  | { kind: "pin"; pin: AgentPin }
+  | { kind: "group"; name: string; pins: AgentPin[] };
+
+export function layoutPins(pins: AgentPin[]): PinRow[] {
+  const rows: PinRow[] = [];
+  const groupRows = new Map<string, Extract<PinRow, { kind: "group" }>>();
+
+  for (const pin of pins) {
+    const name = pin.group?.trim();
+    if (!name) {
+      rows.push({ kind: "pin", pin });
+      continue;
+    }
+
+    const key = name.toLowerCase();
+    const existing = groupRows.get(key);
+    if (existing) {
+      existing.pins.push(pin);
+      continue;
+    }
+
+    const row = { kind: "group" as const, name, pins: [pin] };
+    groupRows.set(key, row);
+    rows.push(row);
+  }
+
+  return rows;
+}
+
+/**
+ * The rendering unit for a set of pins: grouping policy and `PinItem` travel
+ * together, so every consumer gets group headings without re-implementing the
+ * layout. Omit `onRunShortcut` (e.g. agent history) and shortcuts render
+ * disabled.
+ */
+export function PinList({
+  pins,
+  workspaceRoot,
+  agentIsRunning,
+  onRunShortcut,
+  agentName = null,
+}: {
+  pins: AgentPin[];
+  workspaceRoot: string | null;
+  agentIsRunning?: boolean;
+  onRunShortcut?: (pin: AgentPin) => void;
+  agentName?: string | null;
+}): JSX.Element {
+  return (
+    <>
+      {layoutPins(pins).map((row) =>
+        row.kind === "pin" ? (
+          <PinItem
+            key={row.pin.label.toLowerCase()}
+            pin={row.pin}
+            workspaceRoot={workspaceRoot}
+            agentIsRunning={agentIsRunning}
+            onRunShortcut={onRunShortcut}
+            agentName={agentName}
+          />
+        ) : (
+          <div
+            key={`group:${row.name.toLowerCase()}`}
+            className="px-4 py-2.5 border-b border-border last:border-b-0"
+            data-testid="pin-group"
+            data-pin-group={row.name}
+          >
+            <div className="text-[11px] font-medium leading-snug text-muted-foreground">
+              {row.name}
+            </div>
+            <div className="mt-1.5 flex flex-col">
+              {row.pins.map((pin) => (
+                <PinItem
+                  key={pin.label.toLowerCase()}
+                  pin={pin}
+                  workspaceRoot={workspaceRoot}
+                  agentIsRunning={agentIsRunning}
+                  onRunShortcut={onRunShortcut}
+                  inGroup
+                  agentName={agentName}
+                />
+              ))}
+            </div>
+          </div>
+        )
+      )}
+    </>
+  );
+}
+
 type PinsPanelProps = {
   pins: AgentPin[];
   selectedAgentName: string | null;
@@ -574,13 +640,18 @@ export function PinsPanel({
   agentIsRunning,
   onRunShortcut,
 }: PinsPanelProps): JSX.Element {
-  const [pendingShortcutPin, setPendingActionPin] = useState<AgentPin | null>(
+  const [pendingShortcutPin, setPendingShortcutPin] = useState<AgentPin | null>(
     null
   );
+  const coarsePointer = useCoarsePointer();
 
+  // On a touch device the hover tooltip never opens — a tap fires the click —
+  // so the prompt would be delivered having shown the user only the label.
+  // The confirm dialog already renders the full prompt, so route everything
+  // through it there regardless of the pin's own `confirm` setting.
   const handleRunShortcut = (pin: AgentPin): void => {
-    if (pin.confirm) {
-      setPendingActionPin(pin);
+    if (pin.confirm || coarsePointer) {
+      setPendingShortcutPin(pin);
       return;
     }
     onRunShortcut?.(pin);
@@ -606,50 +677,21 @@ export function PinsPanel({
       data-testid="pins-panel-scroll"
       className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
     >
-      {layoutPins(pins).map((row) =>
-        row.kind === "pin" ? (
-          <PinItem
-            key={row.pin.label.toLowerCase()}
-            pin={row.pin}
-            workspaceRoot={selectedAgentWorkspaceRoot}
-            agentIsRunning={agentIsRunning}
-            onRunShortcut={onRunShortcut ? handleRunShortcut : undefined}
-            agentName={selectedAgentName}
-          />
-        ) : (
-          <div
-            key={`group:${row.name.toLowerCase()}`}
-            className="px-4 py-2.5 border-b border-border last:border-b-0"
-            data-testid="pin-group"
-            data-pin-group={row.name}
-          >
-            <div className="text-[11px] font-medium leading-snug text-muted-foreground">
-              {row.name}
-            </div>
-            <div className="mt-1.5 flex flex-col">
-              {row.pins.map((pin) => (
-                <PinItem
-                  key={pin.label.toLowerCase()}
-                  pin={pin}
-                  workspaceRoot={selectedAgentWorkspaceRoot}
-                  agentIsRunning={agentIsRunning}
-                  onRunShortcut={onRunShortcut ? handleRunShortcut : undefined}
-                  inGroup
-                  agentName={selectedAgentName}
-                />
-              ))}
-            </div>
-          </div>
-        )
-      )}
+      <PinList
+        pins={pins}
+        workspaceRoot={selectedAgentWorkspaceRoot}
+        agentIsRunning={agentIsRunning}
+        onRunShortcut={onRunShortcut ? handleRunShortcut : undefined}
+        agentName={selectedAgentName}
+      />
       <ConfirmShortcutDialog
         pin={pendingShortcutPin}
         onOpenChange={(open) => {
-          if (!open) setPendingActionPin(null);
+          if (!open) setPendingShortcutPin(null);
         }}
         onConfirm={() => {
           if (pendingShortcutPin) onRunShortcut?.(pendingShortcutPin);
-          setPendingActionPin(null);
+          setPendingShortcutPin(null);
         }}
       />
     </div>

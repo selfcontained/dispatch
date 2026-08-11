@@ -1,5 +1,11 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentPin } from "@/components/app/types";
@@ -88,6 +94,60 @@ describe("shortcut pins", () => {
       name: /work on sse-reconnect/i,
     }) as HTMLButtonElement;
     expect(button.disabled).toBe(true);
+  });
+
+  it("disables a shortcut that has no stable ID", () => {
+    // Legacy/seeded rows without an ID cannot be addressed by the run
+    // endpoint; a live-looking button that no-ops on click is worse.
+    const { id: _id, ...withoutId } = shortcutPin;
+    renderPanel([withoutId as AgentPin], { onRunShortcut: vi.fn() });
+
+    const button = screen.getByRole("button", {
+      name: /work on sse-reconnect/i,
+    }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+  });
+
+  it("forces confirmation on a coarse pointer, where the tooltip is unreachable", () => {
+    const original = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query.includes("coarse"),
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+
+    try {
+      const onRunShortcut = vi.fn();
+      renderPanel([shortcutPin], { onRunShortcut });
+
+      fireEvent.click(screen.getByRole("button", { name: /work on/i }));
+
+      expect(onRunShortcut).not.toHaveBeenCalled();
+      expect(
+        screen.getByTestId("pin-shortcut-confirm-dialog").textContent
+      ).toContain("work on sse-eventsource-reconnect");
+    } finally {
+      window.matchMedia = original;
+    }
+  });
+
+  it("renders pins sharing a group under one heading", () => {
+    const other: AgentPin = {
+      id: "pin_2",
+      label: "Re-scan",
+      value: "re-scan the inbox",
+      type: "shortcut",
+      group: "Ready to build",
+    };
+    renderPanel([{ ...shortcutPin, group: "Ready to build" }, other], {
+      onRunShortcut: vi.fn(),
+    });
+
+    const groups = screen.getAllByTestId("pin-group");
+    expect(groups).toHaveLength(1);
+    expect(groups[0]!.getAttribute("data-pin-group")).toBe("Ready to build");
+    expect(within(groups[0]!).getAllByRole("button")).toHaveLength(2);
   });
 
   it("disables the shortcut when no run handler is wired (e.g. agent history)", () => {

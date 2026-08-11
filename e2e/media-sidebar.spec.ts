@@ -572,7 +572,7 @@ test.describe("Media sidebar", () => {
     request,
   }) => {
     const agent = await createAgentViaAPI(request, {
-      name: `e2e-agent-action-pins-${Date.now()}`,
+      name: `e2e-agent-shortcut-pins-${Date.now()}`,
       cwd: process.cwd(),
     });
     await setAgentPinsViaDB(agent.id, [
@@ -618,7 +618,9 @@ test.describe("Media sidebar", () => {
     const runResponse = page.waitForResponse((response) =>
       response
         .url()
-        .includes(`/api/v1/agents/${agent.id}/pins/pin_shortcut_plain/run`)
+        .includes(
+          `/api/v1/agents/${agent.id}/terminal/inject-pin/pin_shortcut_plain`
+        )
     );
     await mediaSidebar
       .getByRole("button", { name: "Re-run E2E suite" })

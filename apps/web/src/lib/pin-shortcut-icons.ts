@@ -67,7 +67,10 @@ export const PIN_SHORTCUT_ICON_NAMES = Object.keys(
 ) as PinShortcutIcon[];
 
 export function resolvePinShortcutIcon(name: string | undefined): LucideIcon {
-  if (name && name in PIN_SHORTCUT_ICONS) {
+  // Own-property check: `in` would match inherited keys, so "constructor" or
+  // "__proto__" would resolve to something that is not a component and throw
+  // during render instead of falling back.
+  if (name && Object.hasOwn(PIN_SHORTCUT_ICONS, name)) {
     return PIN_SHORTCUT_ICONS[name as PinShortcutIcon];
   }
   return Zap;

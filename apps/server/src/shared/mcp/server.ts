@@ -23,13 +23,14 @@ import type {
   WhiteboardGetResult,
   WhiteboardUpdateResult,
 } from "../whiteboard.js";
+import type { PinListing } from "../../server/pin-listing.js";
 import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
 } from "./persona-interaction-tools.js";
 import { registerPrTools } from "./pr-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
-import { PIN_SHORTCUT_ICON_NAMES } from "./pin-shortcut-icons.js";
+import { VALID_PIN_SHORTCUT_ICONS } from "../../pins.js";
 import { toToolError } from "./tool-error.js";
 
 export type McpAgent = {
@@ -429,7 +430,7 @@ export type McpRequestContext = {
       variant?: string;
       confirm?: boolean;
     }
-  ) => Promise<{ pin: Record<string, unknown>; created: boolean }>;
+  ) => Promise<{ pin: PinListing; created: boolean }>;
   deletePin?: (agentId: string, pinId: string) => Promise<void>;
   deletePinByLabel?: (agentId: string, label: string) => Promise<void>;
   getWhiteboard?: (agentId: string) => Promise<WhiteboardGetResult>;
@@ -750,7 +751,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
             "Renders this pin under a shared heading with every other pin using the same group name — use it to present a set of related actions, or the question they answer, as one block."
           ),
         icon: z
-          .enum(PIN_SHORTCUT_ICON_NAMES)
+          .enum(VALID_PIN_SHORTCUT_ICONS)
           .optional()
           .describe("Shortcut pins only: icon shown on the button."),
         variant: z

@@ -65,6 +65,20 @@ describe("mergePin", () => {
     expect(merged.variant).toBe("primary");
   });
 
+  it("drops shortcut-only fields when the pin is re-typed", () => {
+    // Omission means "keep", which would otherwise strand icon/variant/confirm
+    // on a pin that can no longer use them.
+    const merged = mergePin(
+      { ...existing, confirm: true },
+      { label: "What day is it?", value: "https://example.com", type: "url" }
+    );
+
+    expect(merged).not.toHaveProperty("icon");
+    expect(merged).not.toHaveProperty("variant");
+    expect(merged).not.toHaveProperty("confirm");
+    expect(merged.caption).toBe("Day-related");
+  });
+
   it("keeps the stored ID so the run endpoint stays addressable", () => {
     const merged = mergePin(existing, {
       id: "some-other-id",

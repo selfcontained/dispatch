@@ -3,7 +3,7 @@ import { useMemo, useState } from "react";
 import { cn } from "@/lib/utils";
 import { MediaLightbox } from "@/components/app/media-lightbox";
 import { stripTimestamp } from "@/components/app/media-file-utils";
-import { PinItem } from "@/components/app/pins-panel";
+import { PinList } from "@/components/app/pins-panel";
 import { type AgentPin } from "@/components/app/types";
 import {
   type HistoryEvent,
@@ -147,13 +147,7 @@ export function DetailTabs({
 
           {tab === "pins" && pins.length > 0 && (
             <div className="divide-y divide-border rounded-md border border-border">
-              {pins.map((pin) => (
-                <PinItem
-                  key={pin.label.toLowerCase()}
-                  pin={pin}
-                  workspaceRoot={workspaceRoot}
-                />
-              ))}
+              <PinList pins={pins} workspaceRoot={workspaceRoot} />
             </div>
           )}
           {tab === "pins" && pins.length === 0 && (

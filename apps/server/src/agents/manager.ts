@@ -39,6 +39,11 @@ import {
 } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
 import { clearBlankPinFields, mergePin } from "./pin-merge.js";
+import {
+  validatePinCaption,
+  validatePinShortcutFields,
+  validatePinValue,
+} from "../pins.js";
 import { seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
@@ -103,6 +108,14 @@ const MAX_PINS = 50;
 function normalizeInitialPins(pins: AgentPin[]): AgentPin[] {
   const byLabel = new Map<string, AgentPin>();
   for (const pin of pins) {
+    // Seeding is the second write path into agents.pins; it has to accept the
+    // same shapes as dispatch_pin, or a template could seed a pin the MCP tool
+    // would have rejected — which now matters, since a shortcut's value is
+    // delivered to a terminal rather than just displayed.
+    validatePinValue(pin.type, pin.value);
+    if (pin.caption !== undefined) validatePinCaption(pin.caption);
+    if (pin.type === "shortcut") validatePinShortcutFields(pin);
+
     byLabel.set(pin.label.toLowerCase(), {
       ...pin,
       id: pin.id ?? randomUUID(),

@@ -13,6 +13,38 @@ const VALID_PIN_SHORTCUT_VARIANTS = [
   "primary",
   "destructive",
 ] as const;
+/**
+ * Icons a shortcut pin may use. Mirrored by the web icon map
+ * (apps/web/src/lib/pin-shortcut-icons.ts); a guard test asserts the two stay
+ * in lockstep, since a drifted name silently renders as the fallback.
+ */
+export const VALID_PIN_SHORTCUT_ICONS = [
+  "zap",
+  "play",
+  "rocket",
+  "refresh",
+  "check",
+  "x",
+  "pause",
+  "trash",
+  "bug",
+  "search",
+  "database",
+  "terminal",
+  "file",
+  "branch",
+  "pull-request",
+  "message",
+  "flag",
+  "clock",
+  "checklist",
+  "sparkles",
+  "wrench",
+  "shield",
+  "upload",
+  "download",
+  "arrow",
+] as const;
 const MAX_SHORTCUT_PROMPT_LENGTH = 2000;
 // A caption is a subtitle, not a body: three clamped lines in a ~400px rail is
 // roughly 165 visible characters, and markdown markup spends from the same
@@ -87,6 +119,7 @@ function validateMarkdownPinValue(value: string): void {
 
 export type PinType = (typeof VALID_PIN_TYPES)[number];
 export type PinShortcutVariant = (typeof VALID_PIN_SHORTCUT_VARIANTS)[number];
+export type PinShortcutIcon = (typeof VALID_PIN_SHORTCUT_ICONS)[number];
 
 export function isPinType(value: string): value is PinType {
   return VALID_PIN_TYPES.includes(value as PinType);
@@ -96,6 +129,10 @@ export function isPinShortcutVariant(
   value: string
 ): value is PinShortcutVariant {
   return VALID_PIN_SHORTCUT_VARIANTS.includes(value as PinShortcutVariant);
+}
+
+export function isPinShortcutIcon(value: string): value is PinShortcutIcon {
+  return VALID_PIN_SHORTCUT_ICONS.includes(value as PinShortcutIcon);
 }
 
 /**
@@ -113,11 +150,20 @@ export function validatePinCaption(caption: string): void {
   }
 }
 
-/** Button styling for a shortcut pin. */
-export function validatePinShortcutFields(pin: { variant?: string }): void {
+/** Button styling and icon for a shortcut pin. */
+export function validatePinShortcutFields(pin: {
+  variant?: string;
+  icon?: string;
+}): void {
   if (pin.variant !== undefined && !isPinShortcutVariant(pin.variant)) {
     throw new Error(
       `Shortcut pin variant must be one of: ${VALID_PIN_SHORTCUT_VARIANTS.join(", ")}.`
+    );
+  }
+
+  if (pin.icon !== undefined && !isPinShortcutIcon(pin.icon)) {
+    throw new Error(
+      `Shortcut pin icon must be one of: ${VALID_PIN_SHORTCUT_ICONS.join(", ")}.`
     );
   }
 }

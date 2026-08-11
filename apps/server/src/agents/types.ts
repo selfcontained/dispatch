@@ -27,17 +27,8 @@ export type ArchivePhase =
   | "finalizing"
   | null;
 
-export type PinType =
-  | "string"
-  | "url"
-  | "port"
-  | "code"
-  | "pr"
-  | "filename"
-  | "markdown"
-  | "shortcut";
-
-export type PinShortcutVariant = "default" | "primary" | "destructive";
+export type { PinShortcutVariant, PinType } from "../pins.js";
+import type { PinShortcutVariant, PinType } from "../pins.js";
 
 export type AgentPin = {
   id?: string;

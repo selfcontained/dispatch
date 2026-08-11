@@ -214,17 +214,16 @@ function createMockDeps() {
           callbacks.onComplete([id]);
         }
       ),
-      upsertPin: vi.fn(async (id: string) => ({
-        id,
-        name: "test-agent",
-        pins: [
-          {
-            id: "pin_url",
-            label: "URL",
-            value: "http://localhost",
-            type: "url",
-          },
-        ],
+      // Mirrors the manager contract: the record, plus the pin as stored and
+      // whether it was created, so the tool can echo it back.
+      upsertPin: vi.fn(async (id: string, pin: Record<string, unknown>) => ({
+        agent: {
+          id,
+          name: "test-agent",
+          pins: [{ id: "pin_url", ...pin }],
+        },
+        pin: { id: "pin_url", ...pin },
+        created: true,
       })),
       deletePinById: vi.fn(async (id: string) => ({
         id,

@@ -46,11 +46,11 @@ beforeEach(async () => {
 // The prompt is looked up server-side by pin ID, so this route is the boundary
 // that decides what a click is allowed to inject. Every rejection path matters:
 // a client must not be able to fire text the agent never pinned.
-describe("POST /api/v1/agents/:id/pins/:pinId/run", () => {
+describe("POST /api/v1/agents/:id/terminal/inject-pin/:pinId", () => {
   it("returns 404 for an unknown agent", async () => {
     const res = await authedInject(
       "POST",
-      "/api/v1/agents/agt_missing/pins/p1/run"
+      "/api/v1/agents/agt_missing/terminal/inject-pin/p1"
     );
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toMatch(/agent not found/i);
@@ -64,7 +64,7 @@ describe("POST /api/v1/agents/:id/pins/:pinId/run", () => {
 
     const res = await authedInject(
       "POST",
-      `/api/v1/agents/${agent.id}/pins/not-a-real-pin/run`
+      `/api/v1/agents/${agent.id}/terminal/inject-pin/not-a-real-pin`
     );
     expect(res.statusCode).toBe(404);
     expect(res.json().error).toMatch(/pin not found/i);
@@ -79,7 +79,7 @@ describe("POST /api/v1/agents/:id/pins/:pinId/run", () => {
 
     const res = await authedInject(
       "POST",
-      `/api/v1/agents/${agent.id}/pins/p1/run`
+      `/api/v1/agents/${agent.id}/terminal/inject-pin/p1`
     );
     expect(res.statusCode).toBe(400);
     expect(res.json().error).toMatch(/not a shortcut pin/i);
@@ -95,7 +95,7 @@ describe("POST /api/v1/agents/:id/pins/:pinId/run", () => {
 
     const res = await authedInject(
       "POST",
-      `/api/v1/agents/${agent.id}/pins/p1/run`
+      `/api/v1/agents/${agent.id}/terminal/inject-pin/p1`
     );
     expect(res.statusCode).toBe(409);
   });
@@ -108,7 +108,7 @@ describe("POST /api/v1/agents/:id/pins/:pinId/run", () => {
 
     const res = await ctx.app.inject({
       method: "POST",
-      url: `/api/v1/agents/${agent.id}/pins/p1/run`,
+      url: `/api/v1/agents/${agent.id}/terminal/inject-pin/p1`,
     });
     expect(res.statusCode).toBe(401);
   });

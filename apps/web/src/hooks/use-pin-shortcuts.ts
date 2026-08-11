@@ -10,13 +10,16 @@ import { api } from "@/lib/api";
 export function useRunPinShortcut() {
   return useMutation({
     mutationFn: (input: { agentId: string; pinId: string }) =>
-      api<null>(`/api/v1/agents/${input.agentId}/pins/${input.pinId}/run`, {
-        method: "POST",
-      }),
+      api<null>(
+        `/api/v1/agents/${input.agentId}/terminal/inject-pin/${input.pinId}`,
+        {
+          method: "POST",
+        }
+      ),
     onSuccess: () => toast.success("Sent to agent"),
     onError: (error: unknown) =>
       toast.error(
-        error instanceof Error ? error.message : "Failed to send action"
+        error instanceof Error ? error.message : "Failed to send shortcut"
       ),
   });
 }

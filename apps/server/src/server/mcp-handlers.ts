@@ -33,6 +33,7 @@ import {
   validatePinValue,
   type PinShortcutVariant,
 } from "../pins.js";
+import { toPinListing, type PinListing } from "./pin-listing.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
@@ -50,18 +51,6 @@ import {
 } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { getWorktreeLocation } from "../worktree-location-settings.js";
-
-type PinListing = {
-  id: string;
-  label: string;
-  value: string;
-  type: string;
-  caption?: string;
-  group?: string;
-  icon?: string;
-  variant?: string;
-  confirm?: boolean;
-};
 
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
@@ -205,7 +194,7 @@ async function handleUpsertPin(
     variant?: string;
     confirm?: boolean;
   }
-): Promise<{ pin: AgentPin; created: boolean }> {
+): Promise<{ pin: PinListing; created: boolean }> {
   if (!isPinType(pin.type)) {
     throw new Error(`Invalid pin type: ${pin.type}`);
   }
@@ -217,8 +206,8 @@ async function handleUpsertPin(
   if (pin.caption !== undefined) {
     validatePinCaption(pin.caption);
   }
-  const isAction = pin.type === "shortcut";
-  if (isAction) {
+  const isShortcut = pin.type === "shortcut";
+  if (isShortcut) {
     validatePinShortcutFields(pin);
   }
 
@@ -228,17 +217,19 @@ async function handleUpsertPin(
     type: pin.type,
     ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
     ...(pin.group !== undefined ? { group: pin.group } : {}),
-    ...(isAction && pin.icon !== undefined ? { icon: pin.icon } : {}),
-    ...(isAction && pin.variant !== undefined
+    ...(isShortcut && pin.icon !== undefined ? { icon: pin.icon } : {}),
+    ...(isShortcut && pin.variant !== undefined
       ? { variant: pin.variant as PinShortcutVariant }
       : {}),
-    ...(isAction && pin.confirm !== undefined ? { confirm: pin.confirm } : {}),
+    ...(isShortcut && pin.confirm !== undefined
+      ? { confirm: pin.confirm }
+      : {}),
   });
   deps.publishUiEvent({
     type: "agent.upsert",
     agent: deps.withStreamFlag(result.agent),
   });
-  return { pin: result.pin, created: result.created };
+  return { pin: toPinListing(result.pin), created: result.created };
 }
 
 async function handleDeletePin(
@@ -273,20 +264,7 @@ async function handleListPins(
   if (!agent) throw new Error("Agent not found.");
   // Decorations are listed too, so an agent can see what a pin already has
   // (its group, caption, icon) before deciding what to change.
-  return (agent.pins ?? []).map((pin) => {
-    if (!pin.id) throw new Error("Pin is missing its stable ID.");
-    return {
-      id: pin.id,
-      label: pin.label,
-      value: pin.value,
-      type: pin.type,
-      ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
-      ...(pin.group !== undefined ? { group: pin.group } : {}),
-      ...(pin.icon !== undefined ? { icon: pin.icon } : {}),
-      ...(pin.variant !== undefined ? { variant: pin.variant } : {}),
-      ...(pin.confirm !== undefined ? { confirm: pin.confirm } : {}),
-    };
-  });
+  return (agent.pins ?? []).map(toPinListing);
 }
 
 async function handleRenameSession(
