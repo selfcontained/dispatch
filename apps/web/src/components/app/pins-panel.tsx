@@ -630,7 +630,7 @@ export function PinList({
         ) : (
           <div
             key={`group:${row.name.toLowerCase()}`}
-            className="px-4 py-2.5 border-b border-border last:border-b-0"
+            className="px-4 py-4 border-b border-border last:border-b-0"
             data-testid="pin-group"
             data-pin-group={row.name}
             // The heading is often the question these shortcuts answer, so it
@@ -640,11 +640,11 @@ export function PinList({
           >
             <div
               id={`pin-group-${row.name.toLowerCase().replace(/\s+/g, "-")}`}
-              className="text-xs font-semibold leading-snug text-foreground/90"
+              className="mb-4 text-base font-semibold leading-snug text-foreground"
             >
               {row.name}
             </div>
-            <div className="mt-1.5 flex flex-col gap-1">
+            <div className="flex flex-col gap-1">
               {row.pins.map((pin) => (
                 <PinItem
                   key={pin.label.toLowerCase()}
