@@ -132,7 +132,9 @@ test.describe("Automations Brains page", () => {
     await expect(projectRow(page)).toBeVisible({ timeout: 10_000 });
     await projectRow(page).click();
 
-    await expect(page.getByRole("button", { name: "All" })).toBeVisible({
+    await expect(
+      page.getByRole("button", { name: "All", exact: true })
+    ).toBeVisible({
       timeout: 5_000,
     });
 

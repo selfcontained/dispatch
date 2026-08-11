@@ -45,6 +45,36 @@ export type BrainListItem = {
   updatedAt: string;
 };
 
+/** Matches the brain entry-type segment in the bulk-delete API paths. */
+export type BrainEntryType = "objects" | "lists" | "events";
+
+/**
+ * Unfiltered counts for a scope. Derived so it cannot drift from the payloads
+ * it is read out of; a collection summary and a project summary both carry
+ * exactly these counts.
+ */
+export type ScopeTotals = Pick<
+  BrainCollectionSummary,
+  "objectCount" | "listCount" | "eventCount"
+>;
+
+const ENTRY_TYPE_COUNT_KEYS = {
+  objects: "objectCount",
+  lists: "listCount",
+  events: "eventCount",
+} as const satisfies Record<BrainEntryType, keyof ScopeTotals>;
+
+export const BRAIN_ENTRY_TYPES = Object.keys(
+  ENTRY_TYPE_COUNT_KEYS
+) as BrainEntryType[];
+
+export function scopeCount(
+  totals: ScopeTotals,
+  entryType: BrainEntryType
+): number {
+  return totals[ENTRY_TYPE_COUNT_KEYS[entryType]];
+}
+
 export type BrainEvent = {
   id: string;
   collection: string;
@@ -170,6 +200,26 @@ export function useBrainEvents(
   });
 }
 
+/**
+ * Unfiltered totals for the active scope — one collection, or the whole
+ * project. Which query answers that is this module's business, not a
+ * component's; both are already cached by the sidebar and the pane header, and
+ * this is the seam a server-side scope-summary endpoint would land behind.
+ * Returns undefined until the totals are known.
+ */
+export function useBrainScopeTotals(
+  repoRoot: string | null,
+  collection: string | null
+): ScopeTotals | undefined {
+  const { data: collections = [] } = useBrainCollections(repoRoot);
+  const { data: projects = [] } = useBrainProjects();
+
+  if (!repoRoot) return undefined;
+  return collection
+    ? collections.find((c) => c.collection === collection)
+    : projects.find((p) => p.repoRoot === repoRoot);
+}
+
 export function useBrainActions() {
   const queryClient = useQueryClient();
   const invalidate = () =>
@@ -233,6 +283,28 @@ export function useBrainActions() {
     onSuccess: invalidate,
   });
 
+  const deleteEntriesOfType = useMutation({
+    mutationFn: ({
+      repoRoot,
+      entryType,
+      collection,
+    }: {
+      repoRoot: string;
+      entryType: BrainEntryType;
+      /** null clears the entry type across every collection in the project. */
+      collection: string | null;
+    }) => {
+      const params = new URLSearchParams({ repoRoot });
+      if (collection === null) params.set("allCollections", "true");
+      else params.set("collection", collection);
+      return api<{ deleted: number }>(
+        `/api/v1/brain/${entryType}?${params.toString()}`,
+        { method: "DELETE" }
+      );
+    },
+    onSuccess: invalidate,
+  });
+
   const deleteProject = useMutation({
     mutationFn: ({ repoRoot }: { repoRoot: string }) =>
       api<{ objects: number; lists: number; events: number }>(
@@ -246,6 +318,7 @@ export function useBrainActions() {
     deleteObject,
     deleteList,
     deleteEvent,
+    deleteEntriesOfType,
     deleteCollection,
     deleteProject,
   };

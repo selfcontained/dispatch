@@ -606,6 +606,158 @@ describe("BrainStore deleteEvents", () => {
   });
 });
 
+describe("BrainStore deleteEntriesOfType", () => {
+  const COLLECTIONS = ["bulk-a", "bulk-b"];
+  // Dedicated repos: the allCollections cases delete everything of a type in
+  // the repo, so they cannot share a repo root with the rest of the file.
+  const REPO_BULK = "/repo/bulk";
+  const REPO_BULK_B = "/repo/bulk-other";
+
+  async function seedBulk(repo: string): Promise<void> {
+    for (const collection of COLLECTIONS) {
+      await store.storeObject(repo, AGENT, {
+        collection,
+        name: "obj",
+        value: {},
+      });
+      await store.pushListItems(repo, AGENT, {
+        collection,
+        name: "lst",
+        items: [{ n: 1 }, { n: 2 }],
+      });
+      await store.appendEvent(repo, AGENT, {
+        collection,
+        kind: "run",
+        value: {},
+      });
+    }
+  }
+
+  async function clearBulk(repo: string): Promise<void> {
+    for (const collection of COLLECTIONS) {
+      await store.deleteCollection(repo, collection);
+    }
+  }
+
+  it("deletes one type in one collection and nothing else", async () => {
+    await clearBulk(REPO_BULK);
+    await seedBulk(REPO_BULK);
+
+    expect(
+      await store.deleteEntriesOfType(REPO_BULK, "objects", {
+        collection: "bulk-a",
+      })
+    ).toEqual({ deleted: 1 });
+
+    expect(await store.getObject(REPO_BULK, "bulk-a", "obj")).toBeNull();
+    expect(await store.getObject(REPO_BULK, "bulk-b", "obj")).not.toBeNull();
+    expect(await store.getList(REPO_BULK, "bulk-a", "lst")).not.toBeNull();
+    expect(
+      await store.queryEvents(REPO_BULK, { collection: "bulk-a" })
+    ).toHaveLength(1);
+  });
+
+  it("deletes one type across every collection with allCollections", async () => {
+    await clearBulk(REPO_BULK);
+    await seedBulk(REPO_BULK);
+
+    expect(
+      await store.deleteEntriesOfType(REPO_BULK, "events", {
+        allCollections: true,
+      })
+    ).toEqual({ deleted: 2 });
+
+    for (const collection of COLLECTIONS) {
+      expect(await store.queryEvents(REPO_BULK, { collection })).toEqual([]);
+      expect(
+        await store.getObject(REPO_BULK, collection, "obj")
+      ).not.toBeNull();
+    }
+  });
+
+  it("cascades list items when deleting lists", async () => {
+    await clearBulk(REPO_BULK);
+    await seedBulk(REPO_BULK);
+
+    expect(
+      await store.deleteEntriesOfType(REPO_BULK, "lists", {
+        collection: "bulk-a",
+      })
+    ).toEqual({ deleted: 1 });
+
+    const items = await store.getListItems(REPO_BULK, {
+      collection: "bulk-a",
+      name: "lst",
+    });
+    expect(items).toEqual({ items: [], totalCount: 0, revision: 0 });
+    const orphans = await pool.query(
+      "SELECT 1 FROM brain_list_items WHERE repo_root = $1 AND collection = $2",
+      [REPO_BULK, "bulk-a"]
+    );
+    expect(orphans.rowCount).toBe(0);
+  });
+
+  it("leaves other repos untouched", async () => {
+    await clearBulk(REPO_BULK);
+    await clearBulk(REPO_BULK_B);
+    await seedBulk(REPO_BULK);
+    await seedBulk(REPO_BULK_B);
+
+    await store.deleteEntriesOfType(REPO_BULK, "objects", {
+      allCollections: true,
+    });
+
+    expect(await store.getObject(REPO_BULK_B, "bulk-a", "obj")).not.toBeNull();
+    expect(await store.getObject(REPO_BULK_B, "bulk-b", "obj")).not.toBeNull();
+  });
+
+  it("rejects an empty collection instead of reading it as everything", async () => {
+    await clearBulk(REPO_BULK);
+    await seedBulk(REPO_BULK);
+
+    await expect(
+      store.deleteEntriesOfType(REPO_BULK, "objects", { collection: "  " })
+    ).rejects.toBeInstanceOf(BrainValidationError);
+    expect(await store.getObject(REPO_BULK, "bulk-a", "obj")).not.toBeNull();
+  });
+
+  it("rejects an unknown entry type", async () => {
+    await expect(
+      store.deleteEntriesOfType(
+        REPO,
+        "agents" as unknown as Parameters<typeof store.deleteEntriesOfType>[1],
+        { allCollections: true }
+      )
+    ).rejects.toBeInstanceOf(BrainValidationError);
+  });
+
+  it("applies the same blank-collection rule to deleteCollection", async () => {
+    // Both bulk paths build their WHERE clause through one helper, so the rule
+    // cannot hold on deleteEntriesOfType while deleteCollection ignores it.
+    await clearBulk(REPO_BULK);
+    await seedBulk(REPO_BULK);
+
+    await expect(
+      store.deleteCollection(REPO_BULK, "  ")
+    ).rejects.toBeInstanceOf(BrainValidationError);
+    expect(await store.getObject(REPO_BULK, "bulk-a", "obj")).not.toBeNull();
+  });
+
+  it("rejects inherited object keys as entry types", async () => {
+    // A plain lookup returns a truthy value for these, so the table guard has
+    // to test own-keys or they reach the DELETE as a stringified object.
+    for (const key of ["__proto__", "constructor", "toString"]) {
+      await expect(
+        store.deleteEntriesOfType(
+          REPO,
+          key as unknown as Parameters<typeof store.deleteEntriesOfType>[1],
+          { allCollections: true }
+        )
+      ).rejects.toBeInstanceOf(BrainValidationError);
+    }
+  });
+});
+
 // ── Lists ───────────────────────────────────────────────────────────
 
 describe("BrainStore lists", () => {

@@ -1,10 +1,45 @@
-import type { FastifyInstance } from "fastify";
+import type { FastifyInstance, FastifyReply } from "fastify";
 
-import type { BrainStore } from "../brain/store.js";
+import {
+  BRAIN_ENTRY_TYPES,
+  BrainValidationError,
+  toEntryTypeDeleteScope,
+  type BrainStore,
+} from "../brain/store.js";
 
 type BrainRouteDeps = {
   brainStore: BrainStore;
 };
+
+/**
+ * Duplicate query keys ("?collection=a&collection=b") parse into arrays, so a
+ * querystring value is not the string its type claims until this says so.
+ */
+function isSingleValue(
+  value: string | string[] | undefined
+): value is string | undefined {
+  return value === undefined || typeof value === "string";
+}
+
+/**
+ * Runs a store call, answering 400 when the store rejects the request as
+ * invalid. Every route reaching a store method that can throw
+ * BrainValidationError goes through here — there is no app-level error handler,
+ * so an unmapped throw surfaces as a 500 with the raw message.
+ */
+async function mapBrainValidation<T>(
+  reply: FastifyReply,
+  run: () => Promise<T>
+): Promise<T | FastifyReply> {
+  try {
+    return await run();
+  } catch (error) {
+    if (error instanceof BrainValidationError) {
+      return reply.code(400).send({ error: error.message });
+    }
+    throw error;
+  }
+}
 
 export async function registerBrainRoutes(
   app: FastifyInstance,
@@ -101,9 +136,8 @@ export async function registerBrainRoutes(
     if (!repoRoot) {
       return reply.code(400).send({ error: "repoRoot is required." });
     }
-    return await brainStore.deleteCollection(
-      repoRoot,
-      request.params.collection
+    return await mapBrainValidation(reply, () =>
+      brainStore.deleteCollection(repoRoot, request.params.collection)
     );
   });
 
@@ -214,4 +248,47 @@ export async function registerBrainRoutes(
       limit ? parseInt(limit, 10) : undefined
     );
   });
+
+  /**
+   * Bulk delete for one entry type — registers DELETE /api/v1/brain/objects,
+   * /api/v1/brain/lists, and /api/v1/brain/events.
+   *
+   * Only the HTTP-shaped rules live here: rejecting array-valued query keys,
+   * requiring repoRoot, and coercing allCollections from a string. What counts
+   * as a legal scope is toEntryTypeDeleteScope's call, so the route and the
+   * store cannot drift on it.
+   */
+  for (const entryType of BRAIN_ENTRY_TYPES) {
+    app.delete<{
+      // Typed as the values Fastify can actually produce, not the ones we want.
+      Querystring: {
+        repoRoot?: string | string[];
+        collection?: string | string[];
+        allCollections?: string | string[];
+      };
+    }>(`/api/v1/brain/${entryType}`, async (request, reply) => {
+      const { repoRoot, collection, allCollections } = request.query;
+      if (
+        !isSingleValue(repoRoot) ||
+        !isSingleValue(collection) ||
+        !isSingleValue(allCollections)
+      ) {
+        return reply.code(400).send({
+          error:
+            "repoRoot, collection, and allCollections each accept a single value.",
+        });
+      }
+      if (!repoRoot) {
+        return reply.code(400).send({ error: "repoRoot is required." });
+      }
+
+      return await mapBrainValidation(reply, () => {
+        const scope = toEntryTypeDeleteScope({
+          collection,
+          allCollections: allCollections === "true",
+        });
+        return brainStore.deleteEntriesOfType(repoRoot, entryType, scope);
+      });
+    });
+  }
 }
