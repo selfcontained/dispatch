@@ -240,12 +240,14 @@ Live Playwright browser streaming via Chrome DevTools Protocol.
 
 | Method | Path                        | Description                                                                               |
 | ------ | --------------------------- | ----------------------------------------------------------------------------------------- |
-| GET    | `/personas`                 | List available personas (reads from `.dispatch/personas/` in the repo at `cwd`)           |
+| GET    | `/personas`                 | List available personas (`.dispatch/personas/` in the repo at `cwd`, plus the built-ins)  |
 | POST   | `/agents/:id/launch-review` | Tell a CLI agent (via its tmux session) to call `dispatch_launch_persona` on its own work |
 
 ### `GET /personas`
 
 Query params: `cwd=/path/to/repo`. The server tries the worktree root first, then the repo root.
+
+Dispatch's built-in personas are appended after the repo's own, so the list is never empty — currently just `code-review` ("General Code Review"). A repo persona with the same slug replaces the built-in rather than appearing alongside it.
 
 ### `POST /agents/:id/launch-review`
 
@@ -254,11 +256,12 @@ Query params: `cwd=/path/to/repo`. The server tries the worktree root first, the
   "personas": ["backend-security-review", "frontend-ux-review"],
   "agentType": "claude",
   "includeDiff": true,
-  "model": "opus"
+  "model": "opus",
+  "note": "focus on the auth changes"
 }
 ```
 
-Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool once per persona so it can tailor each context briefing. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. Each launched agent creates its review through `dispatch_review_submit` after completing its initial pass.
+Sends a server-built prompt into the parent agent's tmux session asking it to call the `dispatch_launch_persona` MCP tool once per persona so it can tailor each context briefing. Requires the parent to be in `tmux` access mode; returns 409 otherwise. `personas` is an array of 1–20 unique slugs, each matching `[a-zA-Z0-9_-]+` (max 100 chars); the legacy singular `persona` field is still accepted but deprecated. `agentType` must be one of the CLI types (`claude`, `codex`, `cursor`, `opencode`). `model` is optional and must come from the curated catalog for `agentType` (`GET /agent-models`); omit or pass `null` for the CLI default. `includeDiff` defaults to `true`; set to `false` for non-code reviews (PRDs, docs, media) where the git diff is not the review target. `note` is optional free text (max 2,000 characters, `null` allowed) describing what to focus on; the server collapses it to one line, strips quote characters and DISPATCH markers, and folds it into the briefing instruction for every selected persona. Each launched agent creates its review through `dispatch_review_submit` after completing its initial pass.
 
 ### `PATCH /agents/:id/feedback/:feedbackId`
 
@@ -638,6 +641,44 @@ When `allowMedia` is enabled on the template, the launch endpoint accepts `multi
 - `startupLinks` — JSON array of URLs to pin for the agent
 
 Returns `{ agent }` with the newly created agent record.
+
+## Brain (Shared Memory)
+
+Repo-scoped shared memory for agents. Writes go through the MCP tools (`brain_store_object`, `brain_list_push`, `brain_append_event`, …) — this HTTP API is what the **Brains** tab on the Automations page uses, so it covers reads and deletes only.
+
+Every endpoint requires a `repoRoot` query param naming the project; omitting it returns `400`. Listing endpoints accept `limit` (default 50, max 200).
+
+| Method | Path                               | Description                                                                            |
+| ------ | ---------------------------------- | -------------------------------------------------------------------------------------- |
+| GET    | `/brain/projects`                  | List projects with Brain data and their per-type entry counts                          |
+| DELETE | `/brain/projects`                  | Delete every object, list, and event for `repoRoot`                                    |
+| GET    | `/brain/collections`               | List collections with `objectCount` / `listCount` / `eventCount`                       |
+| DELETE | `/brain/collections/:collection`   | Delete every entry in one collection                                                   |
+| GET    | `/brain/objects`                   | List objects; optional `collection`, `prefix`                                          |
+| GET    | `/brain/objects/:collection/:name` | Read one object (`404` when missing)                                                   |
+| DELETE | `/brain/objects/:collection/:name` | Delete one object                                                                      |
+| DELETE | `/brain/objects`                   | Bulk-delete objects in one scope                                                       |
+| GET    | `/brain/lists`                     | List lists; optional `collection`                                                      |
+| GET    | `/brain/lists/:collection/:name`   | Read list items; `limit`, `offset`, `order` (`asc` / `desc`, default `desc`)           |
+| DELETE | `/brain/lists/:collection/:name`   | Delete one list and its items                                                          |
+| DELETE | `/brain/lists`                     | Bulk-delete lists in one scope                                                         |
+| GET    | `/brain/events`                    | Query events; optional `collection`, `kind`, `subject`, `tags` (CSV), `since`, `until` |
+| DELETE | `/brain/events/:id`                | Delete one event                                                                       |
+| DELETE | `/brain/events`                    | Bulk-delete events in one scope                                                        |
+| GET    | `/brain/agent-activity/:agentId`   | Objects, lists, and events one agent created or last updated                           |
+
+Single-entry deletes return `{ "deleted": true | false }`. `DELETE /brain/collections/:collection` and `DELETE /brain/projects` return per-type counts: `{ "objects": 3, "lists": 1, "events": 42 }`.
+
+### Bulk delete by entry type
+
+`DELETE /brain/objects`, `/brain/lists`, and `/brain/events` each clear one entry type within one scope, selected with exactly one of `collection=<name>` or `allCollections=true`:
+
+```
+DELETE /api/v1/brain/events?repoRoot=/Users/me/dev/app&collection=docs-audit
+DELETE /api/v1/brain/lists?repoRoot=/Users/me/dev/app&allCollections=true
+```
+
+Passing both, neither, or a blank `collection` returns `400` — a dropped `collection` must never widen a targeted prune into a project-wide one. Each query key takes a single value; a repeated key (`?collection=a&collection=b`) also returns `400`. The response is `{ "deleted": <count> }`, and deleting lists cascades to their items.
 
 ## MCP (Model Context Protocol)
 

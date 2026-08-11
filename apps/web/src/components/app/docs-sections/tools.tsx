@@ -281,8 +281,13 @@ export function ToolsContent() {
           rolling history than stuffing arrays into objects. Positional list
           updates require the current revision because removals reindex later
           items. List pushes are capped per call, and bounded list sizes keep
-          remove/reindex work predictable. Events are append-only and can be
-          filtered by collection, kind, subject, tags, and time range.
+          remove/reindex work predictable. Events are append-only — never
+          edited, only added to — and can be filtered by collection, kind,
+          subject, tags, and time range. They can still be pruned:{" "}
+          <Code>brain_delete_events</Code> deletes either explicit event ids or
+          every event matching a filter within one collection, and{" "}
+          <Code>dryRun</Code> reports how many the same selector would remove
+          before anything is deleted.
         </P>
         <P>
           Brain tools are available to both standard agents and job agents.
@@ -290,8 +295,9 @@ export function ToolsContent() {
           findings or assessments between recurring job runs, sharing
           configuration between agents working in the same repo, and recording
           structured observations that other agents can query. You can inspect
-          Brain activity from the <strong>Brains</strong> tab on the Automations
-          page.
+          Brain activity — and delete individual entries or clear a whole
+          collection, entry type, or project — from the <strong>Brains</strong>{" "}
+          tab on the Automations page.
         </P>
       </Section>
 

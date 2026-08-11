@@ -252,6 +252,14 @@ export const tips: Tip[] = [
     since: "0.33.4",
     surfaces: ["ambient"],
   },
+  {
+    id: "built-in-reviewer",
+    title: "Review With No Setup",
+    body: "Every repo now has a built-in General Code Review persona, so you can launch a reviewer before writing a single persona file. Add .dispatch/personas/code-review.md to specialize it.",
+    docsSection: "personas#built-in-reviewer",
+    since: "0.33.6",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {
