@@ -13,7 +13,7 @@ const shortcutPin: AgentPin = {
   label: "Work on sse-reconnect",
   value: "work on sse-eventsource-reconnect",
   type: "shortcut",
-  metadata: "High priority",
+  caption: "High priority",
 };
 
 function renderPanel(
@@ -32,7 +32,7 @@ function renderPanel(
 }
 
 describe("shortcut pins", () => {
-  it("renders the label as the button and metadata as a caption", () => {
+  it("renders the label as the button and the caption beneath it", () => {
     renderPanel([shortcutPin], { onRunShortcut: vi.fn() });
 
     expect(

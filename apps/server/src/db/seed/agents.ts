@@ -31,7 +31,7 @@ type AgentPin = {
     | "markdown"
     | "shortcut";
   value: string;
-  metadata?: string;
+  caption?: string;
   group?: string;
   icon?: string;
   variant?: "default" | "primary" | "destructive";
@@ -97,7 +97,7 @@ const allPinTypesSample: AgentPin[] = [
     icon: "rocket",
     group: "Ready to build",
     value: "work on sse-eventsource-reconnect",
-    metadata: "**High priority** · idea since Aug 4",
+    caption: "**High priority** · idea since Aug 4",
   },
   {
     label: "Re-run E2E suite",
@@ -105,7 +105,7 @@ const allPinTypesSample: AgentPin[] = [
     icon: "refresh",
     group: "Ready to build",
     value: "Re-run the full Playwright suite and report failures.",
-    metadata: "Last run touched `e2e/media-sidebar.spec.ts`",
+    caption: "Last run touched `e2e/media-sidebar.spec.ts`",
   },
   {
     label: "Reset the dev database",
@@ -115,7 +115,7 @@ const allPinTypesSample: AgentPin[] = [
     confirm: true,
     group: "Housekeeping",
     value: "Drop and reseed the dev database, then confirm migrations applied.",
-    metadata: "*Destructive* · wipes local seed data",
+    caption: "*Destructive* · wipes local seed data",
   },
 ];
 

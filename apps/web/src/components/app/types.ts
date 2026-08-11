@@ -26,7 +26,7 @@ export type AgentPin = {
    * Caption rendered under a shortcut pin's button — inline markdown.
    * Shortcut pins only.
    */
-  metadata?: string;
+  caption?: string;
   /** Icon name for a shortcut pin's button. Shortcut pins only. */
   icon?: string;
   /**

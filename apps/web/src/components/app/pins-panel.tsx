@@ -307,7 +307,7 @@ function PinValueRow({
 
 /**
  * Shortcut pins are a button, not a value: `label` is the button text, `value`
- * is the prompt delivered to the owning agent on click, and `metadata` is an
+ * is the prompt delivered to the owning agent on click, and `caption` is an
  * optional one-line caption for context a human wants before clicking.
  */
 function PinCaption({ value }: { value: string }): JSX.Element {
@@ -388,7 +388,7 @@ function ShortcutPinItem({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      {pin.metadata ? <PinCaption value={pin.metadata} /> : null}
+      {pin.caption ? <PinCaption value={pin.caption} /> : null}
     </div>
   );
 }
@@ -493,7 +493,7 @@ export function PinItem({
           />
         ))}
       </div>
-      {pin.metadata ? <PinCaption value={pin.metadata} /> : null}
+      {pin.caption ? <PinCaption value={pin.caption} /> : null}
     </div>
   );
 }

@@ -588,7 +588,7 @@ test.describe("Media sidebar", () => {
         type: "shortcut",
         variant: "primary",
         value: "work on sse-eventsource-reconnect",
-        metadata: "High priority · 3 files",
+        caption: "High priority · 3 files",
       },
       {
         id: "pin_action_confirm",
@@ -604,7 +604,7 @@ test.describe("Media sidebar", () => {
     await openMediaSidebarForAgent(page, agent);
     const mediaSidebar = page.getByTestId("media-sidebar");
 
-    // The label is the button text; metadata renders as a caption beside it.
+    // The label is the button text; the caption renders beneath it.
     await expect(
       mediaSidebar.getByRole("button", { name: "Work on sse-reconnect" })
     ).toBeVisible();

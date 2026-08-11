@@ -415,7 +415,7 @@ export type McpRequestContext = {
       label: string;
       value: string;
       type: string;
-      metadata?: string;
+      caption?: string;
       group?: string;
       icon?: string;
       variant?: string;
@@ -727,7 +727,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           .describe(
             "Value type. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. 'shortcut' renders a button that sends `value` to your session when clicked. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."
           ),
-        metadata: z
+        caption: z
           .string()
           .max(200)
           .optional()
@@ -785,7 +785,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           label: args.label,
           value: args.value,
           type: args.type ?? "string",
-          ...(args.metadata !== undefined ? { metadata: args.metadata } : {}),
+          ...(args.caption !== undefined ? { caption: args.caption } : {}),
           ...(args.variant !== undefined ? { variant: args.variant } : {}),
           ...(args.confirm !== undefined ? { confirm: args.confirm } : {}),
         });

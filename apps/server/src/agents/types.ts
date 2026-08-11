@@ -45,7 +45,7 @@ export type AgentPin = {
   value: string;
   type: PinType;
   /** Inline-markdown caption rendered under the pin. Any pin type. */
-  metadata?: string;
+  caption?: string;
   /** Renders this pin under a shared heading with pins of the same group. */
   group?: string;
   /** Icon name for a shortcut pin's button. Shortcut pins only. */

@@ -102,13 +102,13 @@ export function isPinShortcutVariant(
  * The caption rendered under any pin. Inline markdown only (enforced at
  * render), single line of source, and short enough to stay a subtitle.
  */
-export function validatePinCaption(metadata: string): void {
-  if (metadata.length > MAX_PIN_CAPTION_LENGTH) {
+export function validatePinCaption(caption: string): void {
+  if (caption.length > MAX_PIN_CAPTION_LENGTH) {
     throw new Error(
       `Pin captions must be ${MAX_PIN_CAPTION_LENGTH} characters or fewer.`
     );
   }
-  if (/[\r\n]/.test(metadata)) {
+  if (/[\r\n]/.test(caption)) {
     throw new Error("Pin captions must be a single line.");
   }
 }

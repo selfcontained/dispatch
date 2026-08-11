@@ -52,7 +52,7 @@ type AgentPinRecord = {
     | "filename"
     | "markdown"
     | "shortcut";
-  metadata?: string;
+  caption?: string;
   variant?: "default" | "primary" | "destructive";
   confirm?: boolean;
 };

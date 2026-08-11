@@ -187,7 +187,7 @@ async function handleUpsertPin(
     label: string;
     value: string;
     type: string;
-    metadata?: string;
+    caption?: string;
     group?: string;
     icon?: string;
     variant?: string;
@@ -202,8 +202,8 @@ async function handleUpsertPin(
   // Captions and grouping are generic; button styling and confirmation only
   // mean anything for shortcut pins — silently dropping those elsewhere keeps
   // stored pins honest.
-  if (pin.metadata !== undefined) {
-    validatePinCaption(pin.metadata);
+  if (pin.caption !== undefined) {
+    validatePinCaption(pin.caption);
   }
   const isAction = pin.type === "shortcut";
   if (isAction) {
@@ -214,7 +214,7 @@ async function handleUpsertPin(
     label: pin.label,
     value: pin.value,
     type: pin.type,
-    ...(pin.metadata !== undefined ? { metadata: pin.metadata } : {}),
+    ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
     ...(pin.group !== undefined ? { group: pin.group } : {}),
     ...(isAction && pin.icon !== undefined ? { icon: pin.icon } : {}),
     ...(isAction && pin.variant !== undefined
@@ -927,7 +927,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         label: string;
         value: string;
         type: string;
-        metadata?: string;
+        caption?: string;
         group?: string;
         icon?: string;
         variant?: string;
