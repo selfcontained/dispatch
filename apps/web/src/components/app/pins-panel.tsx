@@ -640,7 +640,7 @@ export function PinList({
           >
             <div
               id={`pin-group-${row.name.toLowerCase().replace(/\s+/g, "-")}`}
-              className="text-[11px] font-medium leading-snug text-muted-foreground"
+              className="text-xs font-semibold leading-snug text-foreground/90"
             >
               {row.name}
             </div>
