@@ -368,21 +368,28 @@ function ShortcutPinItem({
               </Button>
             </span>
           </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-[320px]">
+          <TooltipContent
+            side="left"
+            className="max-w-[320px] border-white/[0.18] bg-[hsl(var(--popover))] p-0"
+          >
             {disabled ? (
-              <p className="m-0 text-xs text-muted-foreground">
+              <p className="m-0 px-2.5 py-2 text-xs text-muted-foreground">
                 {agentName ?? "This agent"} has no active session — shortcuts
                 are unavailable.
               </p>
             ) : (
               <div className="flex flex-col">
-                <p className="m-0 truncate text-xs font-semibold text-foreground">
-                  {agentName ?? "This agent"}
-                </p>
-                <p className="m-0 text-[11px] text-muted-foreground">
-                  will receive the following:
-                </p>
-                <pre className="m-0 mt-1.5 max-h-40 overflow-y-auto whitespace-pre-wrap break-words font-sans text-xs text-foreground">
+                <div className="px-2.5 pb-1.5 pt-2">
+                  <div className="truncate font-mono text-xs font-semibold text-primary">
+                    {agentName ?? "this agent"}
+                  </div>
+                  <div className="text-[11px] text-muted-foreground">
+                    will receive the following:
+                  </div>
+                </div>
+                {/* The prompt reads as a quoted payload, not prose — same
+                    monospace treatment the terminal will show it in. */}
+                <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words border-t border-white/[0.10] bg-[hsl(var(--background))] px-2.5 py-2 font-mono text-[11px] leading-relaxed text-foreground">
                   {pin.value}
                 </pre>
               </div>
