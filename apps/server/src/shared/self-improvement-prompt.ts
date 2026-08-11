@@ -18,8 +18,8 @@ export function buildSelfImprovementGuidance(
   return [
     "\nSelf-improvement:",
     "Before you finish, briefly reflect on whether the saved launch prompt could make the next run more effective.",
-    "Only if you identify a clear, durable improvement, update the source prompt directly: " +
+    "Only if you identify a clear, durable improvement, make a small, targeted addition to the source prompt: " +
       updateInstruction,
-    "Preserve the prompt's intent and task-specific details. Do not change it for a one-off preference, and do not add this self-improvement guidance to the saved prompt.",
+    "Default to grafting in a line or two onto the existing structure, not restructuring or rewriting it. Preserve the prompt's intent, existing wording, and task-specific details. Do not change it for a one-off preference, and do not add this self-improvement guidance to the saved prompt.",
   ].join("\n");
 }
