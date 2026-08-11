@@ -10,7 +10,8 @@ import {
   Zap,
 } from "lucide-react";
 import { OperationTakeover } from "@/components/app/release-operation-takeover";
-import { cleanError, formatDate } from "@/components/app/release-utils";
+import { cleanError } from "@/components/app/release-utils";
+import { formatShortDateTime } from "@/lib/format";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import {
@@ -582,7 +583,7 @@ export function ReleasesAdmin(): JSX.Element {
                   {r.isPrerelease ? "pre-release" : "stable"}
                 </span>
                 <span className="text-xs text-muted-foreground">
-                  {formatDate(r.publishedAt)}
+                  {formatShortDateTime(r.publishedAt)}
                 </span>
                 <div className="ml-auto flex max-w-full flex-wrap items-center justify-end gap-2">
                   {r.isPrerelease && confirmPromoteTag !== r.tag && (

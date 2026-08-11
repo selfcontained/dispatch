@@ -1,10 +1,6 @@
 import { formatShortDate } from "@/lib/format";
 import type { ActivityGranularity } from "@/hooks/use-activity";
 
-export function formatDate(iso: string): string {
-  return formatShortDate(iso);
-}
-
 export function formatBucketLabel(
   iso: string,
   granularity: ActivityGranularity
@@ -24,7 +20,7 @@ export function formatBucketLabel(
   if (granularity === "week") {
     return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
   }
-  return formatDate(iso);
+  return formatShortDate(iso);
 }
 
 export function msToMinutes(ms: number): number {

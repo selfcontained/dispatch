@@ -7,7 +7,7 @@ import { formatDateTime } from "@/lib/format";
 
 import {
   cronError,
-  formatDate,
+  formatJobDateTime,
   formatTimeUntil,
   formatTimeUntilDate,
   humanSchedule,
@@ -67,21 +67,21 @@ describe("status mappers", () => {
   });
 });
 
-describe("formatDate", () => {
+describe("formatJobDateTime", () => {
   it("returns Not scheduled for null or undefined", () => {
-    expect(formatDate(null)).toBe("Not scheduled");
-    expect(formatDate(undefined)).toBe("Not scheduled");
-    expect(formatDate("")).toBe("Not scheduled");
+    expect(formatJobDateTime(null)).toBe("Not scheduled");
+    expect(formatJobDateTime(undefined)).toBe("Not scheduled");
+    expect(formatJobDateTime("")).toBe("Not scheduled");
   });
 
   it("returns Unknown for an unparseable date", () => {
-    expect(formatDate("not-a-date")).toBe("Unknown");
+    expect(formatJobDateTime("not-a-date")).toBe("Unknown");
   });
 
   it("delegates valid dates to formatDateTime", () => {
     const iso = "2026-03-15T14:30:00Z";
-    expect(formatDate(iso)).toBe(formatDateTime(iso));
-    expect(formatDate(iso)).toMatch(/2026/);
+    expect(formatJobDateTime(iso)).toBe(formatDateTime(iso));
+    expect(formatJobDateTime(iso)).toMatch(/2026/);
   });
 });
 

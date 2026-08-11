@@ -16,7 +16,11 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { formatDuration, formatTokenCount } from "@/lib/format";
+import {
+  formatDuration,
+  formatShortDate,
+  formatTokenCount,
+} from "@/lib/format";
 import { StatCard } from "@/components/app/stat-card";
 import {
   ACTIVITY_RANGES,
@@ -40,7 +44,6 @@ import {
   ModelBreakdown,
   ProjectBreakdown,
 } from "@/components/app/activity-breakdowns";
-import { formatDate } from "@/components/app/activity-chart-utils";
 import { ActiveHoursGrid, Heatmap } from "@/components/app/activity-heatmaps";
 import type { TokenStats } from "@/hooks/use-activity";
 
@@ -331,7 +334,9 @@ export function ActivityPane({
                 />
                 <StatCard
                   label="Busiest day"
-                  value={stats.busiestDay ? formatDate(stats.busiestDay) : "—"}
+                  value={
+                    stats.busiestDay ? formatShortDate(stats.busiestDay) : "—"
+                  }
                   sub={
                     stats.busiestDayCount > 0
                       ? `${stats.busiestDayCount} events`
