@@ -67,6 +67,28 @@ describe("renderTemplateLaunchPrompt", () => {
     expect(result.appendedCallerPrompt).toBe(true);
   });
 
+  it("does not treat placeholders named after Object members as supplied", () => {
+    const result = renderTemplateLaunchPrompt({
+      templatePrompt: "Call {{D:toString}} then {{D:constructor}}.",
+      callerPrompt: "go",
+    });
+
+    expect(result.prompt).toBe(
+      "Call  then .\n\n## Additional instructions from the launching agent\n\ngo"
+    );
+    expect(result.unfilled).toEqual(["toString", "constructor"]);
+  });
+
+  it("fills an Object-member-named placeholder from the caller's prompt", () => {
+    const result = renderTemplateLaunchPrompt({
+      templatePrompt: "Call {{D:toString}}.",
+      callerPrompt: "go",
+    });
+
+    expect(result.prompt).toBe("Call go.");
+    expect(result.filledFromPrompt).toBe("toString");
+  });
+
   it("keeps the template prompt intact when the caller sends no prompt", () => {
     const result = renderTemplateLaunchPrompt({
       templatePrompt: "Run the nightly checks.",

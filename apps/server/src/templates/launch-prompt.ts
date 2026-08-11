@@ -32,7 +32,13 @@ export function renderTemplateLaunchPrompt(input: {
   args?: Record<string, string>;
 }): RenderedTemplatePrompt {
   const parsed = parseTemplateArgs(input.templatePrompt);
-  const args: Record<string, string> = { ...(input.args ?? {}) };
+  // A null-prototype dictionary, so a placeholder named after an Object member
+  // ({{D:toString}}, {{D:constructor}}) does not read as already supplied and
+  // interpolate a built-in into the prompt.
+  const args: Record<string, string> = Object.create(null);
+  for (const [key, value] of Object.entries(input.args ?? {})) {
+    args[key] = value;
+  }
   const hasValue = (arg: (typeof parsed)[number]): boolean =>
     args[arg.key] != null || args[arg.name] != null;
 
