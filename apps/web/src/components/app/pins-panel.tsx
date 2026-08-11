@@ -1,5 +1,6 @@
 import {
   AlertTriangle,
+  Ban,
   Check,
   CornerDownLeft,
   Copy,
@@ -323,9 +324,16 @@ function PinCaption({ value }: { value: string }): JSX.Element {
   );
 }
 
+/**
+ * Shown both as the tooltip explanation and — when the agent didn't supply a
+ * caption — as the caption fallback for a pin it explicitly disabled. Kept as
+ * one constant so the two surfaces can't drift apart.
+ */
+const DISABLED_PIN_REASON = "This action is currently unavailable.";
+
 function ShortcutPinItem({
   pin,
-  disabled,
+  agentUnavailable,
   pending,
   onRun,
   inGroup,
@@ -333,7 +341,7 @@ function ShortcutPinItem({
   buttonRef,
 }: {
   pin: AgentPin;
-  disabled: boolean;
+  agentUnavailable: boolean;
   pending: boolean;
   onRun: (pointerType: string) => void;
   inGroup: boolean;
@@ -343,23 +351,32 @@ function ShortcutPinItem({
   const coarsePointer = useCoarsePointer();
   // A destructive shortcut's colour is its only pre-click warning, and some
   // themes render primary and destructive almost identically — so carry the
-  // warning in the glyph too, which no palette can wash out.
-  const Icon =
-    pin.variant === "destructive"
+  // warning in the glyph too, which no palette can wash out. An agent-disabled
+  // pin outranks both: it's a deliberate, semi-durable state (not a passing
+  // "agent isn't running yet"), and needs to read differently at a glance
+  // from the other blocked states below, which share the same dimmed styling.
+  const Icon = pin.disabled
+    ? Ban
+    : pin.variant === "destructive"
       ? AlertTriangle
       : resolvePinShortcutIcon(pin.icon);
   // No ID means the run endpoint has nothing to address; render it inert
   // rather than as a button that silently does nothing on click. An
   // agent-set `disabled` is a third, independent reason a shortcut can't
-  // fire — checked here rather than folded into the `disabled` prop so its
+  // fire — checked here rather than folded into `agentUnavailable` so its
   // tooltip copy stays distinct from "agent not running".
-  const unavailable = disabled || !pin.id || Boolean(pin.disabled);
+  const unavailable = agentUnavailable || !pin.id || Boolean(pin.disabled);
   const blocked = unavailable || pending;
   const disabledReason = !pin.id
     ? "This pin has no stable ID, so it cannot be run."
     : pin.disabled
-      ? "This action is currently unavailable."
+      ? DISABLED_PIN_REASON
       : `${agentName ?? "This agent"} has no active session — shortcuts are unavailable.`;
+  // The tooltip needs a hover, which touch devices can't reach — so a
+  // disabled pin with no caption of its own falls back to the same reason
+  // text there, and a stale pre-disable caption never masks it.
+  const captionValue =
+    pin.caption ?? (pin.disabled ? DISABLED_PIN_REASON : undefined);
 
   return (
     <div
@@ -457,7 +474,7 @@ function ShortcutPinItem({
           </TooltipContent>
         </Tooltip>
       </TooltipProvider>
-      {pin.caption ? <PinCaption value={pin.caption} /> : null}
+      {captionValue ? <PinCaption value={captionValue} /> : null}
     </div>
   );
 }
@@ -485,7 +502,7 @@ export function PinItem({
     return (
       <ShortcutPinItem
         pin={pin}
-        disabled={!agentIsRunning || !onRunShortcut}
+        agentUnavailable={!agentIsRunning || !onRunShortcut}
         pending={Boolean(pin.id) && pin.id === pendingPinId}
         onRun={(pointerType) => onRunShortcut?.(pin, pointerType)}
         inGroup={inGroup}
