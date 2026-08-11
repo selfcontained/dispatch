@@ -370,17 +370,21 @@ function ShortcutPinItem({
           </TooltipTrigger>
           <TooltipContent
             side="left"
-            className="max-w-[320px] border-white/[0.18] bg-[hsl(var(--popover))] p-0"
+            // chart-4 (purple) is the one accent in the palette that no button
+            // variant claims, and it is defined in every theme — so the tooltip
+            // reads as its own surface without colliding with a shortcut's own
+            // primary/destructive styling.
+            className="max-w-[320px] border-[hsl(var(--chart-4)/0.4)] bg-[color-mix(in_srgb,hsl(var(--popover))_86%,hsl(var(--chart-4)))] p-2.5"
           >
             {disabled ? (
-              <p className="m-0 px-2.5 py-2 text-xs text-muted-foreground">
+              <p className="m-0 text-xs text-muted-foreground">
                 {agentName ?? "This agent"} has no active session — shortcuts
                 are unavailable.
               </p>
             ) : (
-              <div className="flex flex-col">
-                <div className="px-2.5 pb-1.5 pt-2">
-                  <div className="truncate font-mono text-xs font-semibold text-primary">
+              <div className="flex flex-col gap-2">
+                <div>
+                  <div className="truncate font-mono text-xs font-semibold text-foreground">
                     {agentName ?? "this agent"}
                   </div>
                   <div className="text-[11px] text-muted-foreground">
@@ -389,7 +393,7 @@ function ShortcutPinItem({
                 </div>
                 {/* The prompt reads as a quoted payload, not prose — same
                     monospace treatment the terminal will show it in. */}
-                <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words border-t border-white/[0.10] bg-[hsl(var(--background))] px-2.5 py-2 font-mono text-[11px] leading-relaxed text-foreground">
+                <pre className="m-0 max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-[hsl(var(--chart-4)/0.25)] bg-[hsl(var(--background))] px-2 py-1.5 font-mono text-[11px] leading-relaxed text-foreground">
                   {pin.value}
                 </pre>
               </div>
