@@ -322,6 +322,215 @@ describe("DELETE /api/v1/brain/collections/:collection", () => {
   });
 });
 
+describe("DELETE /api/v1/brain/:entryType (bulk by type)", () => {
+  const OTHER_REPO = "/tmp/brain-route-test-other";
+
+  async function seedBothCollections(repoRoot: string): Promise<void> {
+    for (const collection of ["alpha", "beta"]) {
+      await brainStore.storeObject(repoRoot, "agt_test", {
+        collection,
+        name: "object",
+        value: {},
+      });
+      await brainStore.pushListItems(repoRoot, "agt_test", {
+        collection,
+        name: "list",
+        items: [{ value: 1 }],
+      });
+      await brainStore.appendEvent(repoRoot, "agt_test", {
+        collection,
+        kind: "event",
+        value: {},
+      });
+    }
+  }
+
+  it("returns 400 without repoRoot", async () => {
+    const res = await authedInject(
+      "DELETE",
+      "/api/v1/brain/events?collection=alpha"
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("repoRoot");
+  });
+
+  it("returns 400 when neither collection nor allCollections is given", async () => {
+    await seedBothCollections(REPO_ROOT);
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/events?repoRoot=${encodeURIComponent(REPO_ROOT)}`
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("collection is required");
+    expect(await brainStore.queryEvents(REPO_ROOT)).toHaveLength(2);
+  });
+
+  it("returns 400 when both collection and allCollections are given", async () => {
+    await seedBothCollections(REPO_ROOT);
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/events?repoRoot=${encodeURIComponent(REPO_ROOT)}&collection=alpha&allCollections=true`
+    );
+    expect(res.statusCode).toBe(400);
+    expect(await brainStore.queryEvents(REPO_ROOT)).toHaveLength(2);
+  });
+
+  it("returns 400 for a blank collection instead of widening the delete", async () => {
+    await seedBothCollections(REPO_ROOT);
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/events?repoRoot=${encodeURIComponent(REPO_ROOT)}&collection=%20%20`
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("blank");
+    expect(await brainStore.queryEvents(REPO_ROOT)).toHaveLength(2);
+  });
+
+  it("returns 400 when a query key is repeated into an array", async () => {
+    await seedBothCollections(REPO_ROOT);
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/events?repoRoot=${encodeURIComponent(REPO_ROOT)}&collection=alpha&collection=beta`
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("single value");
+    expect(await brainStore.queryEvents(REPO_ROOT)).toHaveLength(2);
+  });
+
+  it("returns 400 when allCollections is repeated", async () => {
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/lists?repoRoot=${encodeURIComponent(REPO_ROOT)}&allCollections=true&allCollections=true`
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("single value");
+  });
+
+  it("rejects every malformed selector with a 4xx, never a 500", async () => {
+    const malformed = [
+      "",
+      "&collection=%20",
+      "&collection=a&collection=b",
+      "&collection=a&allCollections=true",
+      "&allCollections=1",
+      "&allCollections=true&allCollections=false",
+    ];
+    for (const suffix of malformed) {
+      const res = await authedInject(
+        "DELETE",
+        `/api/v1/brain/events?repoRoot=${encodeURIComponent(REPO_ROOT)}${suffix}`
+      );
+      expect(res.statusCode, `selector "${suffix}"`).toBe(400);
+    }
+  });
+
+  it("deletes one entry type in one collection, leaving the rest", async () => {
+    await seedBothCollections(REPO_ROOT);
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/events?repoRoot=${encodeURIComponent(REPO_ROOT)}&collection=alpha`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: 1 });
+
+    expect(
+      await brainStore.queryEvents(REPO_ROOT, { collection: "alpha" })
+    ).toEqual([]);
+    expect(
+      await brainStore.queryEvents(REPO_ROOT, { collection: "beta" })
+    ).toHaveLength(1);
+    // Sibling types in the same collection survive.
+    expect(
+      await brainStore.getObject(REPO_ROOT, "alpha", "object")
+    ).not.toBeNull();
+    expect(await brainStore.getList(REPO_ROOT, "alpha", "list")).not.toBeNull();
+  });
+
+  it("deletes one entry type across every collection with allCollections", async () => {
+    await seedBothCollections(REPO_ROOT);
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/objects?repoRoot=${encodeURIComponent(REPO_ROOT)}&allCollections=true`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: 2 });
+
+    expect(await brainStore.listObjects(REPO_ROOT)).toEqual([]);
+    expect(await brainStore.listLists(REPO_ROOT)).toHaveLength(2);
+    expect(await brainStore.queryEvents(REPO_ROOT)).toHaveLength(2);
+  });
+
+  it("takes list items with the lists it deletes", async () => {
+    await seedBothCollections(REPO_ROOT);
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/lists?repoRoot=${encodeURIComponent(REPO_ROOT)}&collection=alpha`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: 1 });
+
+    const items = await brainStore.getListItems(REPO_ROOT, {
+      collection: "alpha",
+      name: "list",
+    });
+    expect(items.totalCount).toBe(0);
+    const remaining = await ctx.pool.query(
+      "SELECT 1 FROM brain_list_items WHERE repo_root = $1 AND collection = $2",
+      [REPO_ROOT, "alpha"]
+    );
+    expect(remaining.rowCount).toBe(0);
+  });
+
+  it("never crosses into another repo, even with allCollections", async () => {
+    await seedBothCollections(REPO_ROOT);
+    await seedBothCollections(OTHER_REPO);
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/events?repoRoot=${encodeURIComponent(REPO_ROOT)}&allCollections=true`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: 2 });
+    expect(await brainStore.queryEvents(OTHER_REPO)).toHaveLength(2);
+  });
+
+  it("reports zero when the scope is already empty", async () => {
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/objects?repoRoot=${encodeURIComponent(REPO_ROOT)}&collection=missing`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toEqual({ deleted: 0 });
+  });
+});
+
+describe("DELETE /api/v1/brain/collections/:collection blank guard", () => {
+  it("answers 400, not 500, for a blank collection path segment", async () => {
+    await brainStore.storeObject(REPO_ROOT, "agt_test", {
+      collection: "keep",
+      name: "object",
+      value: {},
+    });
+
+    const res = await authedInject(
+      "DELETE",
+      `/api/v1/brain/collections/%20?repoRoot=${encodeURIComponent(REPO_ROOT)}`
+    );
+    expect(res.statusCode).toBe(400);
+    expect(res.json().error).toContain("blank");
+    expect(
+      await brainStore.getObject(REPO_ROOT, "keep", "object")
+    ).not.toBeNull();
+  });
+});
+
 describe("GET /api/v1/brain/lists", () => {
   it("returns 400 without repoRoot", async () => {
     const res = await authedInject("GET", "/api/v1/brain/lists");

@@ -7,9 +7,14 @@ import {
   useBrainLists,
   useBrainEvents,
   useBrainActions,
+  useBrainScopeTotals,
+  scopeCount,
+  BRAIN_ENTRY_TYPES,
   type BrainObject,
   type BrainList,
   type BrainEvent,
+  type BrainEntryType,
+  type ScopeTotals,
 } from "@/hooks/use-brain";
 import {
   CollapsibleSection,
@@ -30,7 +35,66 @@ type DeleteTarget =
   | { type: "object"; object: BrainObject }
   | { type: "list"; list: BrainList }
   | { type: "event"; event: BrainEvent }
-  | { type: "collection"; collection: string };
+  | { type: "collection"; collection: string }
+  | {
+      type: "bulk";
+      entryType: BrainEntryType;
+      /** null means every collection in the project. */
+      collection: string | null;
+    };
+
+const ENTRY_TYPE_NOUNS: Record<BrainEntryType, [string, string]> = {
+  objects: ["object", "objects"],
+  lists: ["list", "lists"],
+  events: ["event", "events"],
+};
+
+function entryTypeNoun(entryType: BrainEntryType, count: number): string {
+  const [singular, plural] = ENTRY_TYPE_NOUNS[entryType];
+  return count === 1 ? singular : plural;
+}
+
+/** Entries left in scope once `entryType` is cleared. */
+function remainingAfterBulk(
+  totals: ScopeTotals,
+  entryType: BrainEntryType
+): number {
+  return BRAIN_ENTRY_TYPES.filter((t) => t !== entryType).reduce(
+    (sum, t) => sum + scopeCount(totals, t),
+    0
+  );
+}
+
+function DeleteAllButton({
+  label,
+  onClick,
+}: {
+  label: string;
+  onClick: () => void;
+}): JSX.Element {
+  return (
+    <Button
+      type="button"
+      variant="ghost-destructive"
+      size="sm"
+      className="h-7 shrink-0 px-2 text-[11px]"
+      onClick={onClick}
+      aria-label={label}
+      title={label}
+    >
+      <Trash2 className="mr-1 h-3 w-3" />
+      Delete all
+    </Button>
+  );
+}
+
+function FilteredEmptyNote({ noun }: { noun: string }): JSX.Element {
+  return (
+    <div className="px-3 py-2 text-xs text-muted-foreground">
+      No {noun} match the current filter.
+    </div>
+  );
+}
 
 export function BrainCollectionView({
   repoRoot,
@@ -59,9 +123,21 @@ export function BrainCollectionView({
     repoRoot,
     eventFilters
   );
-  const { deleteObject, deleteList, deleteEvent, deleteCollection } =
-    useBrainActions();
+  const {
+    deleteObject,
+    deleteList,
+    deleteEvent,
+    deleteEntriesOfType,
+    deleteCollection,
+  } = useBrainActions();
   const [deleteTarget, setDeleteTarget] = useState<DeleteTarget | null>(null);
+
+  // Bulk deletes clear the whole scope, so the confirmation has to quote the
+  // scope's real totals — the rendered lists are capped at 100 and narrowed by
+  // the search box. Without them there is no honest count and no way to tell
+  // whether a delete empties the collection, so bulk delete is simply not
+  // offered until they load rather than running on a best-effort guess.
+  const scopeTotals = useBrainScopeTotals(repoRoot, collection);
 
   const isLoading = objectsLoading || listsLoading || eventsLoading;
 
@@ -97,10 +173,17 @@ export function BrainCollectionView({
     );
   }
 
+  // Only bail out when the scope is genuinely empty. If a filter merely hides
+  // every row, the sections stay so their delete-all actions remain reachable.
+  const scopeHasEntries = scopeTotals
+    ? BRAIN_ENTRY_TYPES.some((t) => scopeCount(scopeTotals, t) > 0)
+    : false;
+
   if (
     filteredObjects.length === 0 &&
     filteredLists.length === 0 &&
-    filteredEvents.length === 0
+    filteredEvents.length === 0 &&
+    !scopeHasEntries
   ) {
     return (
       <div className="flex flex-1 items-center justify-center p-8 text-center text-sm text-muted-foreground">
@@ -119,6 +202,22 @@ export function BrainCollectionView({
   const isCapped =
     !collection &&
     (objects.length >= 100 || lists.length >= 100 || events.length >= 100);
+
+  const scopeLabel = collection ? `“${collection}”` : "every collection";
+
+  /**
+   * Rendered only once totals are known: without them the dialog cannot quote
+   * an honest count and the empty-collection redirect cannot be decided.
+   */
+  const deleteAllAction = (
+    entryType: BrainEntryType
+  ): JSX.Element | undefined =>
+    scopeTotals ? (
+      <DeleteAllButton
+        label={`Delete all ${entryType} in ${scopeLabel}`}
+        onClick={() => setDeleteTarget({ type: "bulk", entryType, collection })}
+      />
+    ) : undefined;
 
   const confirmDelete = async () => {
     if (!deleteTarget) return;
@@ -140,6 +239,26 @@ export function BrainCollectionView({
       } else if (deleteTarget.type === "event") {
         await deleteEvent.mutateAsync({ repoRoot, id: deleteTarget.event.id });
         toast.success("Event deleted.");
+      } else if (deleteTarget.type === "bulk") {
+        const { entryType } = deleteTarget;
+        const { deleted } = await deleteEntriesOfType.mutateAsync({
+          repoRoot,
+          entryType,
+          collection: deleteTarget.collection,
+        });
+        toast.success(
+          `Deleted ${deleted} ${entryTypeNoun(entryType, deleted)}.`
+        );
+        // The collection stops existing once its last entry is gone, so its
+        // pill and route go with it. scopeTotals is non-null here: the action
+        // that opened this dialog is not offered without it.
+        if (
+          deleteTarget.collection &&
+          scopeTotals &&
+          remainingAfterBulk(scopeTotals, entryType) === 0
+        ) {
+          onCollectionCleared();
+        }
       } else {
         const result = await deleteCollection.mutateAsync({
           repoRoot,
@@ -160,6 +279,7 @@ export function BrainCollectionView({
     deleteObject.isPending ||
     deleteList.isPending ||
     deleteEvent.isPending ||
+    deleteEntriesOfType.isPending ||
     deleteCollection.isPending;
 
   return (
@@ -191,52 +311,85 @@ export function BrainCollectionView({
         <CollapsibleSection
           title="Objects"
           icon={Database}
-          count={filteredObjects.length}
+          visibleCount={filteredObjects.length}
+          totalCount={
+            scopeTotals ? scopeCount(scopeTotals, "objects") : undefined
+          }
+          headerAction={deleteAllAction("objects")}
         >
-          {filteredObjects.map((obj) => (
-            <ObjectCard
-              key={`${obj.collection}/${obj.name}`}
-              obj={obj}
-              agentId={obj.updatedByAgentId}
-              revision={obj.revision}
-              onDelete={() => setDeleteTarget({ type: "object", object: obj })}
-            />
-          ))}
+          {filteredObjects.length === 0 ? (
+            <FilteredEmptyNote noun="objects" />
+          ) : (
+            <>
+              {filteredObjects.map((obj) => (
+                <ObjectCard
+                  key={`${obj.collection}/${obj.name}`}
+                  obj={obj}
+                  agentId={obj.updatedByAgentId}
+                  revision={obj.revision}
+                  onDelete={() =>
+                    setDeleteTarget({ type: "object", object: obj })
+                  }
+                />
+              ))}
+            </>
+          )}
         </CollapsibleSection>
 
         <CollapsibleSection
           title="Lists"
           icon={List}
-          count={filteredLists.length}
+          visibleCount={filteredLists.length}
+          totalCount={
+            scopeTotals ? scopeCount(scopeTotals, "lists") : undefined
+          }
+          headerAction={deleteAllAction("lists")}
         >
-          {filteredLists.map((list) => (
-            <ListCard
-              key={`${list.collection}/${list.name}`}
-              list={list}
-              repoRoot={repoRoot}
-              agentId={list.updatedByAgentId}
-              onDelete={() => setDeleteTarget({ type: "list", list })}
-            />
-          ))}
+          {filteredLists.length === 0 ? (
+            <FilteredEmptyNote noun="lists" />
+          ) : (
+            <>
+              {filteredLists.map((list) => (
+                <ListCard
+                  key={`${list.collection}/${list.name}`}
+                  list={list}
+                  repoRoot={repoRoot}
+                  agentId={list.updatedByAgentId}
+                  onDelete={() => setDeleteTarget({ type: "list", list })}
+                />
+              ))}
+            </>
+          )}
         </CollapsibleSection>
 
         <CollapsibleSection
           title="Events"
           icon={Radio}
-          count={filteredEvents.length}
+          visibleCount={filteredEvents.length}
+          totalCount={
+            scopeTotals ? scopeCount(scopeTotals, "events") : undefined
+          }
+          headerAction={deleteAllAction("events")}
         >
-          {filteredEvents.map((event) => (
-            <EventCard
-              key={event.id}
-              event={event}
-              agentId={event.agentId}
-              onDelete={() => setDeleteTarget({ type: "event", event })}
-            />
-          ))}
+          {filteredEvents.length === 0 ? (
+            <FilteredEmptyNote noun="events" />
+          ) : (
+            <>
+              {filteredEvents.map((event) => (
+                <EventCard
+                  key={event.id}
+                  event={event}
+                  agentId={event.agentId}
+                  onDelete={() => setDeleteTarget({ type: "event", event })}
+                />
+              ))}
+            </>
+          )}
         </CollapsibleSection>
       </div>
       <DeleteBrainDialog
         target={deleteTarget}
+        scopeTotals={scopeTotals}
         onOpenChange={(open) => !open && setDeleteTarget(null)}
         onConfirm={() => void confirmDelete()}
         deleting={deleting}
@@ -247,15 +400,23 @@ export function BrainCollectionView({
 
 function DeleteBrainDialog({
   target,
+  scopeTotals,
   onOpenChange,
   onConfirm,
   deleting,
 }: {
   target: DeleteTarget | null;
+  /** Read live, so an agent writing entries while this is open moves the count. */
+  scopeTotals: ScopeTotals | undefined;
   onOpenChange: (open: boolean) => void;
   onConfirm: () => void;
   deleting: boolean;
 }): JSX.Element {
+  const bulkCount =
+    target?.type === "bulk" && scopeTotals
+      ? scopeCount(scopeTotals, target.entryType)
+      : undefined;
+
   const title =
     target?.type === "object"
       ? `Delete ${target.object.name}?`
@@ -263,11 +424,21 @@ function DeleteBrainDialog({
         ? `Delete ${target.list.name}?`
         : target?.type === "event"
           ? `Delete ${target.event.kind} event?`
-          : `Clear ${target?.collection ?? "collection"}?`;
+          : target?.type === "bulk"
+            ? bulkCount === undefined
+              ? `Delete all ${entryTypeNoun(target.entryType, 2)}?`
+              : `Delete ${bulkCount} ${entryTypeNoun(target.entryType, bulkCount)}?`
+            : `Clear ${target?.collection ?? "collection"}?`;
   const description =
     target?.type === "collection"
       ? `This permanently deletes all objects, lists, and events in “${target.collection}” for this project.`
-      : "This permanently deletes shared brain data for this project.";
+      : target?.type === "bulk"
+        ? `This permanently deletes every ${entryTypeNoun(target.entryType, 1)} in ${
+            target.collection
+              ? `“${target.collection}”`
+              : "every collection of this project"
+          }, including any hidden by the current filter. Other entry types are left alone.`
+        : "This permanently deletes shared brain data for this project.";
 
   return (
     <Dialog open={target !== null} onOpenChange={onOpenChange}>

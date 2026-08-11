@@ -60,13 +60,23 @@ export type BrainCollectionSummary = {
   eventCount: number;
 };
 
-export type BrainCollectionDeleteResult = {
-  objects: number;
-  lists: number;
-  events: number;
-};
+/** The three brain entry kinds, named as they appear in the UI and API paths. */
+export type BrainEntryType = "objects" | "lists" | "events";
+
+/** One count per entry kind, so a new kind cannot be added to only one of them. */
+export type BrainCollectionDeleteResult = Record<BrainEntryType, number>;
 
 export type BrainDeleteResult = BrainCollectionDeleteResult;
+
+/**
+ * A bulk delete covers one entry type, scoped either to a single collection or
+ * to every collection in the project. `allCollections` has to be asked for by
+ * name so a dropped `collection` cannot silently widen a targeted prune into a
+ * project-wide one — the same reason brain_delete_events requires a collection.
+ */
+export type BrainEntryTypeDeleteScope =
+  | { collection: string }
+  | { allCollections: true };
 
 export type BrainEventFilter = {
   collection?: string;
@@ -158,6 +168,18 @@ const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 export const MAX_LIST_ITEMS_PER_PUSH = 200;
 export const MAX_EVENT_IDS_PER_DELETE = 200;
+
+// Entry type → table. A lookup rather than a derived name so the only table
+// names that can reach a DELETE statement are the three written here.
+const ENTRY_TYPE_TABLES: Record<BrainEntryType, string> = {
+  objects: "brain_objects",
+  lists: "brain_lists",
+  events: "brain_events",
+};
+
+export const BRAIN_ENTRY_TYPES = Object.keys(
+  ENTRY_TYPE_TABLES
+) as BrainEntryType[];
 
 // Postgres accepts special timestamp literals ("now", "epoch", "infinity",
 // "yesterday", …) wherever a timestamptz is expected, so an unvalidated string
@@ -320,11 +342,36 @@ export class BrainStore {
     repoRoot: string,
     collection: string
   ): Promise<BrainCollectionDeleteResult> {
-    return this.deleteEntries(repoRoot, "AND collection = $2", [collection]);
+    return this.deleteEntries(repoRoot, collection);
   }
 
   async deleteProject(repoRoot: string): Promise<BrainDeleteResult> {
-    return this.deleteEntries(repoRoot, "", []);
+    return this.deleteEntries(repoRoot, null);
+  }
+
+  /**
+   * Deletes every entry of one type in the given scope. Lists take their items
+   * with them via the brain_list_items foreign key cascade.
+   */
+  async deleteEntriesOfType(
+    repoRoot: string,
+    type: BrainEntryType,
+    scope: BrainEntryTypeDeleteScope
+  ): Promise<{ deleted: number }> {
+    // Re-normalize even though the type says it is already legal: types are
+    // erased, and this is the gate untyped callers go through.
+    const normalized = toEntryTypeDeleteScope(
+      "collection" in scope
+        ? { collection: scope.collection }
+        : { allCollections: true }
+    );
+    const deleted = await this.deleteFromEntryTable(
+      this.pool,
+      type,
+      repoRoot,
+      "collection" in normalized ? normalized.collection : null
+    );
+    return { deleted };
   }
 
   // ── Lists ────────────────────────────────────────────────────────
@@ -851,30 +898,62 @@ export class BrainStore {
     return result.rows.map(mapEvent);
   }
 
+  /**
+   * The one place a brain entry table is scoped and deleted from. Every bulk
+   * path routes through here so the WHERE clause, the table lookup, and the
+   * blank-collection rule have a single author. `collection: null` means every
+   * collection in the repo.
+   */
+  private async deleteFromEntryTable(
+    db: Pool | PoolClient,
+    type: BrainEntryType,
+    repoRoot: string,
+    collection: string | null
+  ): Promise<number> {
+    // hasOwn, not a plain lookup: "__proto__" and "constructor" resolve to
+    // truthy inherited values that would sail past the guard below.
+    const table = Object.hasOwn(ENTRY_TYPE_TABLES, type)
+      ? ENTRY_TYPE_TABLES[type]
+      : undefined;
+    if (!table) {
+      throw new BrainValidationError(
+        `Unknown brain entry type "${type}". Expected one of: ${BRAIN_ENTRY_TYPES.join(
+          ", "
+        )}.`
+      );
+    }
+    if (collection !== null) assertScopeCollection(collection);
+
+    const params: unknown[] = [repoRoot];
+    let condition = "";
+    if (collection !== null) {
+      params.push(collection);
+      condition = ` AND collection = $${params.length}`;
+    }
+
+    const result = await db.query(
+      `DELETE FROM ${table} WHERE repo_root = $1${condition}`,
+      params
+    );
+    return result.rowCount ?? 0;
+  }
+
+  /** Clears every entry type in one scope, atomically. */
   private async deleteEntries(
     repoRoot: string,
-    condition: string,
-    extraParams: unknown[]
+    collection: string | null
   ): Promise<BrainDeleteResult> {
     return this.withTransaction(async (client) => {
-      const params = [repoRoot, ...extraParams];
-      const objects = await client.query(
-        `DELETE FROM brain_objects WHERE repo_root = $1 ${condition}`,
-        params
-      );
-      const lists = await client.query(
-        `DELETE FROM brain_lists WHERE repo_root = $1 ${condition}`,
-        params
-      );
-      const events = await client.query(
-        `DELETE FROM brain_events WHERE repo_root = $1 ${condition}`,
-        params
-      );
-      return {
-        objects: objects.rowCount ?? 0,
-        lists: lists.rowCount ?? 0,
-        events: events.rowCount ?? 0,
-      };
+      const deleted = {} as BrainDeleteResult;
+      for (const type of BRAIN_ENTRY_TYPES) {
+        deleted[type] = await this.deleteFromEntryTable(
+          client,
+          type,
+          repoRoot,
+          collection
+        );
+      }
+      return deleted;
     });
   }
 
@@ -1203,6 +1282,48 @@ function objectColumns(): string {
 
 function mapObject(row: Record<string, unknown>): BrainObject {
   return row as BrainObject;
+}
+
+/**
+ * The one rule for what a scoping collection may be. Shared so the selector
+ * normalizer and the delete query builder cannot disagree about it.
+ */
+function assertScopeCollection(collection: string): void {
+  if (collection.trim() === "") {
+    throw new BrainValidationError(
+      "collection must not be blank — pass a collection name, or allCollections to span the whole project."
+    );
+  }
+}
+
+/**
+ * Turns a loose caller-supplied shape into a legal bulk-delete scope, or
+ * throws. This is the one place the "collection XOR allCollections" rule
+ * lives — the route calls it to narrow its querystring, and
+ * deleteEntriesOfType calls it again so untyped callers hit the same gate.
+ */
+export function toEntryTypeDeleteScope(input: {
+  collection?: string;
+  allCollections?: boolean;
+}): BrainEntryTypeDeleteScope {
+  const wantsAll = input.allCollections === true;
+  const { collection } = input;
+
+  if (collection !== undefined && wantsAll) {
+    throw new BrainValidationError(
+      "Pass either collection or allCollections, not both."
+    );
+  }
+  if (collection === undefined && !wantsAll) {
+    throw new BrainValidationError(
+      "collection is required, or pass allCollections to delete across every collection."
+    );
+  }
+  if (collection !== undefined) {
+    assertScopeCollection(collection);
+    return { collection };
+  }
+  return { allCollections: true };
 }
 
 /**
