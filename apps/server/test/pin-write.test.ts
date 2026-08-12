@@ -160,6 +160,21 @@ describe("applyPinSpec", () => {
     expect(result.stored).toMatchObject({ icon: "zap", confirm: true });
   });
 
+  it("clears a pin's own group when sent an empty string", () => {
+    // A pin's own `group` is clearable by "" — distinct from the group *named
+    // as a target* by a bulk op, where blank must be rejected. Sharing one
+    // constraint between the two made clearing impossible.
+    const grouped: AgentPin[] = [
+      { id: "pin_g", label: "Thing", value: "v", type: "string", group: "Old" },
+    ];
+    const result = applyPinSpec(grouped, {
+      id: "pin_g",
+      label: "Thing",
+      group: "",
+    });
+    expect(result.stored.group).toBeUndefined();
+  });
+
   it("still requires a value when there is nothing to inherit from", () => {
     expect(() => applyPinSpec([], { label: "Fresh" })).toThrow(
       /value is required/i

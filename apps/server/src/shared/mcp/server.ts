@@ -23,7 +23,7 @@ import type {
   WhiteboardGetResult,
   WhiteboardUpdateResult,
 } from "../whiteboard.js";
-import type { PinListing } from "../../server/pin-listing.js";
+import type { PinListing, PinSummary } from "../../server/pin-listing.js";
 import {
   registerPersonaInteractionTools,
   type LaunchPersonaAgentType,
@@ -70,7 +70,14 @@ const pinFields = {
     "shortcut",
   ]),
   caption: z.string().max(160),
-  group: z.string().trim().min(1).max(100),
+  /** A pin's own group. Must accept "" — that is how an agent clears it. */
+  group: z.string().max(100),
+  /**
+   * A group named as the *target* of a bulk operation. Blank is rejected here
+   * because a missing group compares equal to "", so an empty name would widen
+   * "clear this group" into "delete every ungrouped pin".
+   */
+  scopingGroup: z.string().trim().min(1).max(100),
   icon: z.enum(VALID_PIN_SHORTCUT_ICONS),
   variant: z.enum(["default", "primary", "destructive"]),
   confirm: z.boolean(),
@@ -472,7 +479,7 @@ export type McpRequestContext = {
   upsertPins?: (
     agentId: string,
     input: { pins: McpPinInput[]; mode?: "merge" | "replace"; group?: string }
-  ) => Promise<PinListing[]>;
+  ) => Promise<PinSummary[]>;
   deletePin?: (
     agentId: string,
     input: { id?: string; ids?: string[]; group?: string }
@@ -908,7 +915,7 @@ function registerBatchPinTool(
           .describe(
             "'merge' updates or creates each entry and touches nothing else. 'replace' rebuilds the named group to be exactly these entries."
           ),
-        group: pinFields.group
+        group: pinFields.scopingGroup
           .optional()
           .describe(
             "Required by mode 'replace': the only group the call may delete from. Entries are filed under it automatically."
@@ -965,7 +972,7 @@ function registerDeletePinTool(
           .describe(
             "Several exact pin ids, removed together. Every id must exist."
           ),
-        group: pinFields.group
+        group: pinFields.scopingGroup
           .optional()
           .describe("Remove every pin filed under this group heading."),
       },
