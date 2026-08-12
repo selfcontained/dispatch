@@ -13,37 +13,46 @@ export type AnalyticsCallbacks = Partial<
  * A summary answers "where are the patterns"; the finding descriptions behind
  * each group are the bulk of the payload (85% of it on a small dataset, and
  * they grow with the corpus) and are only wanted for the one group a caller is
- * digging into. So the default response counts them, and naming a group in
- * `group` returns that group's findings in full.
+ * digging into. So the default response omits them — reporting the group's own
+ * `distinctFindings` count, which the aggregate computes before topFindings is
+ * capped — and naming a group in `group` returns that group's findings.
+ *
+ * Both helpers take the callback's `Record<string, unknown>` at face value, so
+ * they validate rather than assume: a result without a well-formed `groups`
+ * array is an error the caller can see, not a silently empty response.
  */
-function toGroupSummary(
+function readGroups(
   result: Record<string, unknown>
-): Record<string, unknown> {
+): Array<Record<string, unknown>> | null {
   const groups = result.groups;
-  if (!Array.isArray(groups)) return result;
+  if (!Array.isArray(groups)) return null;
+  if (
+    !groups.every(
+      (group) =>
+        group !== null && typeof group === "object" && !Array.isArray(group)
+    )
+  ) {
+    return null;
+  }
+  return groups as Array<Record<string, unknown>>;
+}
+
+function toGroupSummary(
+  result: Record<string, unknown>,
+  groups: Array<Record<string, unknown>>
+): Record<string, unknown> {
   return {
     ...result,
-    groups: groups.map((group) => {
-      const { topFindings, ...rest } = group as {
-        topFindings?: unknown[];
-      } & Record<string, unknown>;
-      return {
-        ...rest,
-        topFindingCount: Array.isArray(topFindings) ? topFindings.length : 0,
-      };
-    }),
+    groups: groups.map(({ topFindings: _topFindings, ...rest }) => rest),
   };
 }
 
 function selectGroup(
   result: Record<string, unknown>,
+  groups: Array<Record<string, unknown>>,
   key: string
 ): Record<string, unknown> | null {
-  const groups = result.groups;
-  if (!Array.isArray(groups)) return null;
-  const match = groups.find(
-    (group) => (group as { key?: unknown }).key === key
-  );
+  const match = groups.find((group) => group.key === key);
   if (!match) return null;
   const { groups: _groups, ...context } = result;
   return { ...context, group: match };
@@ -111,7 +120,7 @@ export function registerAnalyticsTools(
       {
         description:
           "Aggregate review feedback to surface patterns — recurring issue types and hot spots in the codebase. Use for feedback pattern tracking and coaching check-ins. " +
-          "Each group reports how many distinct findings it has, not their text; pass `group` with a group's key to get that one group's findings in full.",
+          "Each group reports its `distinctFindings` count rather than the finding text; pass `group` with a group's key to get that group's most common findings (top 5).",
         inputSchema: {
           start: z
             .string()
@@ -157,12 +166,23 @@ export function registerAnalyticsTools(
             project: args.project,
             groupBy: args.group_by,
           });
+          const groups = readGroups(result);
+          if (!groups) {
+            return toToolError(
+              new Error("Feedback summary came back without usable groups.")
+            );
+          }
           if (args.group !== undefined) {
-            const detail = selectGroup(result, args.group);
+            const detail = selectGroup(result, groups, args.group);
             if (!detail) {
+              const keys = groups
+                .map((group) => group.key)
+                .filter((key): key is string => typeof key === "string");
               return toToolError(
                 new Error(
-                  `No group "${args.group}" in this summary. Call without \`group\` to see the keys.`
+                  `No group "${args.group}" in this ${args.group_by} summary. Available: ${
+                    keys.length > 0 ? keys.join(", ") : "(none)"
+                  }.`
                 )
               );
             }
@@ -171,7 +191,7 @@ export function registerAnalyticsTools(
               structuredContent: detail,
             };
           }
-          const summary = toGroupSummary(result);
+          const summary = toGroupSummary(result, groups);
           return {
             content: [{ type: "text", text: jsonText(summary) }],
             structuredContent: summary,

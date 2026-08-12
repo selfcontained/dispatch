@@ -35,7 +35,9 @@ const SUMMARY = {
   groups: [
     {
       key: "security-review",
-      count: 5,
+      count: 40,
+      // 40 distinct descriptions, of which telemetry returns only the top 5.
+      distinctFindings: 40,
       bySeverity: { critical: 0, high: 1, medium: 2, low: 2, info: 0 },
       topFindings: [
         {
@@ -55,6 +57,7 @@ const SUMMARY = {
     {
       key: "ux-review",
       count: 2,
+      distinctFindings: 1,
       bySeverity: { critical: 0, high: 0, medium: 0, low: 1, info: 1 },
       topFindings: [
         {
@@ -87,11 +90,14 @@ describe("get_feedback_summary", () => {
 
     expect(groups.map((g) => g.key)).toEqual(["security-review", "ux-review"]);
     expect(groups[0]!.topFindings).toBeUndefined();
-    expect(groups[0]!.topFindingCount).toBe(2);
-    expect(groups[1]!.topFindingCount).toBe(1);
+    // The count reported is the true number of distinct findings, not the
+    // length of the capped topFindings slice — 40 must not read as 2.
+    expect(groups[0]!.distinctFindings).toBe(40);
+    expect(groups[1]!.distinctFindings).toBe(1);
     // The aggregate itself survives — it is what the summary is for.
     expect(groups[0]!.bySeverity).toEqual(SUMMARY.groups[0]!.bySeverity);
     expect(result.structuredContent!.totalFindings).toBe(7);
+    expect(groups[0]!.count).toBe(40);
     expect(result.structuredContent!.reviewVerdicts).toEqual(
       SUMMARY.reviewVerdicts
     );
@@ -113,5 +119,22 @@ describe("get_feedback_summary", () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0]!.text).toContain('No group "nope"');
+    // The error names the keys that do exist, so a typo is recoverable.
+    expect(result.content[0]!.text).toContain("security-review");
+  });
+
+  it("errors instead of emitting an empty response when groups are malformed", async () => {
+    for (const bad of [{}, { groups: "nope" }, { groups: [null] }]) {
+      const local = createMockServer();
+      registerAnalyticsTools(
+        local as never,
+        new Set(["get_feedback_summary"]),
+        { getFeedbackSummary: vi.fn(async () => bad) } as never
+      );
+
+      const result = await local.tools[0]!.handler({});
+      expect(result.isError).toBe(true);
+      expect(result.content[0]!.text).toContain("without usable groups");
+    }
   });
 });

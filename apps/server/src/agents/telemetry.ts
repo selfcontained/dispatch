@@ -95,6 +95,8 @@ export type FeedbackSummaryResult = {
   groups: Array<{
     key: string;
     count: number;
+    /** Distinct finding descriptions in the group — not the length of topFindings, which is capped. */
+    distinctFindings: number;
     bySeverity: {
       critical: number;
       high: number;
@@ -496,7 +498,13 @@ export async function getFeedbackSummary(
           exampleFilePath: data.filePath,
         }));
 
-      return { key, count: items.length, bySeverity: groupSev, topFindings };
+      return {
+        key,
+        count: items.length,
+        distinctFindings: descCounts.size,
+        bySeverity: groupSev,
+        topFindings,
+      };
     })
     .sort((a, b) => b.count - a.count);
 
