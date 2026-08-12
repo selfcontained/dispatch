@@ -225,7 +225,27 @@ function createMockDeps() {
         pin: { id: "pin_url", ...pin },
         created: true,
       })),
+      upsertPins: vi.fn(
+        async (id: string, specs: Array<Record<string, unknown>>) => ({
+          agent: {
+            id,
+            name: "test-agent",
+            pins: specs.map((pin, index) => ({ id: `pin_${index}`, ...pin })),
+          },
+          pins: specs.map((pin, index) => ({ id: `pin_${index}`, ...pin })),
+        })
+      ),
       deletePinById: vi.fn(async (id: string) => ({
+        id,
+        name: "test-agent",
+        pins: [],
+      })),
+      deletePinsByIds: vi.fn(async (id: string) => ({
+        id,
+        name: "test-agent",
+        pins: [],
+      })),
+      deletePinsByGroup: vi.fn(async (id: string) => ({
         id,
         name: "test-agent",
         pins: [],
@@ -457,13 +477,93 @@ describe("createMcpHandlers", () => {
 
   describe("deletePin", () => {
     it("deletes pin and publishes event", async () => {
-      await handlers.deletePin("agt_test1", "pin_123");
-      expect(deps.agentManager.deletePinById).toHaveBeenCalledWith(
+      await handlers.deletePin("agt_test1", { id: "pin_123" });
+      expect(deps.agentManager.deletePinsByIds).toHaveBeenCalledWith(
         "agt_test1",
-        "pin_123"
+        ["pin_123"]
       );
       expect(deps.publishUiEvent).toHaveBeenCalledWith(
         expect.objectContaining({ type: "agent.upsert" })
+      );
+    });
+
+    it("deletes several pins in one call", async () => {
+      await handlers.deletePin("agt_test1", { ids: ["pin_1", "pin_2"] });
+      expect(deps.agentManager.deletePinsByIds).toHaveBeenCalledWith(
+        "agt_test1",
+        ["pin_1", "pin_2"]
+      );
+    });
+
+    it("clears a group", async () => {
+      await handlers.deletePin("agt_test1", { group: "Ready to build" });
+      expect(deps.agentManager.deletePinsByGroup).toHaveBeenCalledWith(
+        "agt_test1",
+        "Ready to build"
+      );
+    });
+
+    it("rejects an ambiguous target", async () => {
+      // Accepting both would leave it unclear which one actually applied.
+      await expect(
+        handlers.deletePin("agt_test1", { id: "pin_1", group: "Group" })
+      ).rejects.toThrow(/exactly one/i);
+      await expect(handlers.deletePin("agt_test1", {})).rejects.toThrow(
+        /exactly one/i
+      );
+    });
+  });
+
+  describe("upsertPins", () => {
+    it("writes a batch through one manager call", async () => {
+      await handlers.upsertPins("agt_test1", {
+        pins: [
+          { label: "One", value: "1", type: "string" },
+          { label: "Two", value: "2", type: "string" },
+        ],
+      });
+      expect(deps.agentManager.upsertPins).toHaveBeenCalledWith(
+        "agt_test1",
+        [
+          { label: "One", value: "1", type: "string" },
+          { label: "Two", value: "2", type: "string" },
+        ],
+        {}
+      );
+      // One event for the whole batch, not one per pin.
+      expect(deps.publishUiEvent).toHaveBeenCalledTimes(1);
+    });
+
+    it("validates every entry before writing any", async () => {
+      vi.mocked(validatePinValue).mockImplementation((type, value) => {
+        if (value === "bad") throw new Error("Invalid pin value");
+      });
+      await expect(
+        handlers.upsertPins("agt_test1", {
+          pins: [
+            { label: "One", value: "1", type: "string" },
+            { label: "Two", value: "bad", type: "string" },
+          ],
+        })
+      ).rejects.toThrow(/Invalid pin value/);
+      expect(deps.agentManager.upsertPins).not.toHaveBeenCalled();
+    });
+
+    it("passes the scoping group through as an option, not per entry", async () => {
+      // Filing entries under the group is `replacePinGroup`'s own job — the
+      // handler compensating for it here is what let the primitive drift from
+      // its own contract. Covered end-to-end in pin-write.test.ts.
+      await handlers.upsertPins("agt_test1", {
+        mode: "replace",
+        group: "Ready to build",
+        pins: [
+          { label: "One", value: "1", type: "string", group: "Elsewhere" },
+        ],
+      });
+      expect(deps.agentManager.upsertPins).toHaveBeenCalledWith(
+        "agt_test1",
+        [{ label: "One", value: "1", type: "string", group: "Elsewhere" }],
+        { mode: "replace", group: "Ready to build" }
       );
     });
   });

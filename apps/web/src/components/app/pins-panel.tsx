@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Ban,
   Check,
+  ChevronRight,
   CornerDownLeft,
   Copy,
   FileText,
@@ -9,7 +10,8 @@ import {
   Loader2,
   Pin,
 } from "lucide-react";
-import { useRef, useState } from "react";
+import { useAtom } from "jotai";
+import { useId, useRef, useState } from "react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
@@ -27,6 +29,7 @@ import { Markdown } from "@/components/ui/markdown";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useCopyText } from "@/hooks/use-copy";
 import { splitPinValues } from "@/lib/pins";
+import { pinGroupCollapsedAtomFamily } from "@/lib/store";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -591,6 +594,167 @@ function layoutPins(pins: AgentPin[]): PinRow[] {
 }
 
 /**
+ * Groups past this size start collapsed. A sidebar full of one agent's pins
+ * pushes every other group off screen, and a long group is exactly the case
+ * where the heading and count are more useful than the members.
+ */
+const AUTO_COLLAPSE_THRESHOLD = 8;
+
+type PinGroupProps = {
+  name: string;
+  pins: AgentPin[];
+  collapseScope: string | null;
+  workspaceRoot: string | null;
+  agentIsRunning?: boolean;
+  onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
+  agentName?: string | null;
+  pendingPinId?: string | null;
+  buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
+};
+
+type PinGroupViewProps = Omit<PinGroupProps, "collapseScope"> & {
+  collapsed: boolean;
+  onToggle: () => void;
+};
+
+function PinGroupView({
+  name,
+  pins,
+  collapsed,
+  onToggle,
+  workspaceRoot,
+  agentIsRunning,
+  onRunShortcut,
+  agentName = null,
+  pendingPinId = null,
+  buttonRef,
+}: PinGroupViewProps): JSX.Element {
+  // Ids must be unique per document, not per list: the desktop and mobile
+  // sidebars are both always mounted, so a name-derived id would appear twice
+  // and `aria-controls` would resolve to the other instance's region.
+  const uid = useId();
+  const headingId = `pin-group-${uid}`;
+  const regionId = `pin-group-members-${uid}`;
+
+  return (
+    <div
+      className="px-4 py-4 border-b border-border last:border-b-0"
+      data-testid="pin-group"
+      data-pin-group={name}
+      data-pin-group-collapsed={collapsed ? "true" : "false"}
+      // The heading is often the question these shortcuts answer, so it
+      // has to be announced with them rather than as loose text above.
+      role="group"
+      // Points at the name span, not the button: the group's accessible name
+      // is the heading text, not "collapse Ready to build, 12".
+      aria-labelledby={headingId}
+    >
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-expanded={!collapsed}
+        aria-controls={regionId}
+        data-testid="pin-group-toggle"
+        className={cn(
+          "flex w-full items-center gap-1.5 text-left text-base font-semibold leading-snug text-foreground",
+          !collapsed && "mb-4"
+        )}
+      >
+        <ChevronRight
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            !collapsed && "rotate-90"
+          )}
+          aria-hidden
+        />
+        <span id={headingId} className="min-w-0 flex-1 truncate">
+          {name}
+        </span>
+        <span
+          className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
+          data-testid="pin-group-count"
+        >
+          {pins.length}
+        </span>
+      </button>
+      {/* The region stays in the tree so `aria-controls` always resolves and
+          `hidden` carries the state; its members unmount while collapsed. */}
+      <div
+        id={regionId}
+        hidden={collapsed}
+        className="flex flex-col gap-1"
+        data-testid="pin-group-members"
+      >
+        {collapsed
+          ? null
+          : pins.map((pin) => (
+              <PinItem
+                key={pin.id ?? pin.label.toLowerCase()}
+                pin={pin}
+                workspaceRoot={workspaceRoot}
+                agentIsRunning={agentIsRunning}
+                onRunShortcut={onRunShortcut}
+                inGroup
+                agentName={agentName}
+                pendingPinId={pendingPinId}
+                buttonRef={buttonRef}
+              />
+            ))}
+      </div>
+    </div>
+  );
+}
+
+/** An explicit choice always beats the size-based default. */
+function resolveCollapsed(choice: boolean | null, count: number): boolean {
+  return choice ?? count > AUTO_COLLAPSE_THRESHOLD;
+}
+
+function PersistedPinGroup(
+  props: PinGroupProps & { collapseScope: string }
+): JSX.Element {
+  const [choice, setChoice] = useAtom(
+    pinGroupCollapsedAtomFamily(
+      `${props.collapseScope}::${props.name.toLowerCase()}`
+    )
+  );
+  const collapsed = resolveCollapsed(choice, props.pins.length);
+  return (
+    <PinGroupView
+      {...props}
+      collapsed={collapsed}
+      onToggle={() => setChoice(!collapsed)}
+    />
+  );
+}
+
+function EphemeralPinGroup(props: PinGroupProps): JSX.Element {
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const collapsed = resolveCollapsed(choice, props.pins.length);
+  return (
+    <PinGroupView
+      {...props}
+      collapsed={collapsed}
+      onToggle={() => setChoice(!collapsed)}
+    />
+  );
+}
+
+/**
+ * Branch above the hooks rather than calling both: with no scope there is
+ * nothing to namespace by, and persisting to a shared fallback key would leak
+ * one list's collapse choices onto every other unscoped list. `collapseScope`
+ * is stable per mount site, so this never swaps a component mid-life.
+ */
+function PinGroup(props: PinGroupProps): JSX.Element {
+  return props.collapseScope === null ? (
+    <EphemeralPinGroup {...props} />
+  ) : (
+    <PersistedPinGroup {...props} collapseScope={props.collapseScope} />
+  );
+}
+
+/**
  * The rendering unit for a set of pins: grouping policy and `PinItem` travel
  * together, so every consumer gets group headings without re-implementing the
  * layout. Omit `onRunShortcut` (e.g. agent history) and shortcuts render
@@ -604,6 +768,7 @@ export function PinList({
   agentName = null,
   pendingPinId = null,
   buttonRef,
+  collapseScope = null,
 }: {
   pins: AgentPin[];
   workspaceRoot: string | null;
@@ -612,13 +777,19 @@ export function PinList({
   agentName?: string | null;
   pendingPinId?: string | null;
   buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
+  /**
+   * Namespaces persisted collapse state — an agent id, so it survives a
+   * session rename. `null` means don't persist at all: a shared fallback
+   * bucket would leak one list's collapse choices onto every other list.
+   */
+  collapseScope?: string | null;
 }): JSX.Element {
   return (
     <>
       {layoutPins(pins).map((row) =>
         row.kind === "pin" ? (
           <PinItem
-            key={row.pin.label.toLowerCase()}
+            key={row.pin.id ?? row.pin.label.toLowerCase()}
             pin={row.pin}
             workspaceRoot={workspaceRoot}
             agentIsRunning={agentIsRunning}
@@ -628,38 +799,18 @@ export function PinList({
             buttonRef={buttonRef}
           />
         ) : (
-          <div
+          <PinGroup
             key={`group:${row.name.toLowerCase()}`}
-            className="px-4 py-4 border-b border-border last:border-b-0"
-            data-testid="pin-group"
-            data-pin-group={row.name}
-            // The heading is often the question these shortcuts answer, so it
-            // has to be announced with them rather than as loose text above.
-            role="group"
-            aria-labelledby={`pin-group-${row.name.toLowerCase().replace(/\s+/g, "-")}`}
-          >
-            <div
-              id={`pin-group-${row.name.toLowerCase().replace(/\s+/g, "-")}`}
-              className="mb-4 text-base font-semibold leading-snug text-foreground"
-            >
-              {row.name}
-            </div>
-            <div className="flex flex-col gap-1">
-              {row.pins.map((pin) => (
-                <PinItem
-                  key={pin.label.toLowerCase()}
-                  pin={pin}
-                  workspaceRoot={workspaceRoot}
-                  agentIsRunning={agentIsRunning}
-                  onRunShortcut={onRunShortcut}
-                  inGroup
-                  agentName={agentName}
-                  pendingPinId={pendingPinId}
-                  buttonRef={buttonRef}
-                />
-              ))}
-            </div>
-          </div>
+            name={row.name}
+            pins={row.pins}
+            collapseScope={collapseScope}
+            workspaceRoot={workspaceRoot}
+            agentIsRunning={agentIsRunning}
+            onRunShortcut={onRunShortcut}
+            agentName={agentName}
+            pendingPinId={pendingPinId}
+            buttonRef={buttonRef}
+          />
         )
       )}
     </>
@@ -673,6 +824,8 @@ type PinsPanelProps = {
   agentIsRunning?: boolean;
   onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
   pendingPinId?: string | null;
+  /** Agent id, so persisted group collapse survives a session rename. Omit to keep collapse ephemeral. */
+  collapseScope?: string | null;
 };
 
 /**
@@ -738,6 +891,7 @@ export function PinsPanel({
   agentIsRunning,
   onRunShortcut,
   pendingPinId = null,
+  collapseScope,
 }: PinsPanelProps): JSX.Element {
   const [pendingShortcutPin, setPendingShortcutPin] = useState<AgentPin | null>(
     null
@@ -801,6 +955,7 @@ export function PinsPanel({
         agentName={selectedAgentName}
         pendingPinId={pendingPinId}
         buttonRef={registerShortcutButton}
+        collapseScope={collapseScope ?? null}
       />
       <ConfirmShortcutDialog
         onRestoreFocus={() => lastTrigger.current?.focus()}

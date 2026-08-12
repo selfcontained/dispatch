@@ -147,7 +147,11 @@ export function DetailTabs({
 
           {tab === "pins" && pins.length > 0 && (
             <div className="divide-y divide-border rounded-md border border-border">
-              <PinList pins={pins} workspaceRoot={workspaceRoot} />
+              <PinList
+                pins={pins}
+                workspaceRoot={workspaceRoot}
+                collapseScope={agentId}
+              />
             </div>
           )}
           {tab === "pins" && pins.length === 0 && (
