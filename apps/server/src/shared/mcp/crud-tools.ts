@@ -54,6 +54,30 @@ function toJobListing(job: unknown) {
   return withoutPrompt(rest as { prompt: string | null });
 }
 
+/**
+ * Write confirmation for a create/update/delete. The caller sent every field it
+ * set and holds the identifier afterwards, so echoing the stored entity back
+ * mostly re-transmits its own request — worst on templates and jobs, whose
+ * prompt can run to several KB. A create still reports the server-assigned ids
+ * (a job's auto-created backing template among them) because those are the one
+ * thing the caller could not know; get_template / get_job return the rest.
+ */
+function toWriteAck(record: unknown) {
+  if (!record || typeof record !== "object") return record;
+  const { id, name, templateId, updatedAt } = record as {
+    id?: unknown;
+    name?: unknown;
+    templateId?: unknown;
+    updatedAt?: unknown;
+  };
+  return {
+    ...(id !== undefined ? { id } : {}),
+    ...(name !== undefined ? { name } : {}),
+    ...(templateId !== undefined && templateId !== null ? { templateId } : {}),
+    ...(updatedAt !== undefined ? { updatedAt } : {}),
+  };
+}
+
 const JOB_AGENT_TYPES = ["claude", "codex", "opencode", "cursor"] as const;
 const TEMPLATE_AGENT_TYPES = [...JOB_AGENT_TYPES, "terminal"] as const;
 
@@ -338,7 +362,7 @@ export function registerCrudTools(
             directory: resolveDir(args.directory),
           });
           return {
-            content: [{ type: "text", text: jsonText(result) }],
+            content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -434,7 +458,7 @@ export function registerCrudTools(
             directory: resolveDir(args.directory),
           });
           return {
-            content: [{ type: "text", text: jsonText(result) }],
+            content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -462,7 +486,7 @@ export function registerCrudTools(
             resolveDir(args.directory)
           );
           return {
-            content: [{ type: "text", text: jsonText(result) }],
+            content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -633,7 +657,7 @@ export function registerCrudTools(
             directory: resolveDir(args.directory),
           });
           return {
-            content: [{ type: "text", text: jsonText(result) }],
+            content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -701,7 +725,7 @@ export function registerCrudTools(
           const { templateId, ...updates } = args;
           const result = await callbacks.updateTemplate(templateId, updates);
           return {
-            content: [{ type: "text", text: jsonText(result) }],
+            content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -724,7 +748,7 @@ export function registerCrudTools(
         try {
           const result = await callbacks.deleteTemplate(args.templateId);
           return {
-            content: [{ type: "text", text: jsonText(result) }],
+            content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
           };
         } catch (error) {
           return toToolError(error);

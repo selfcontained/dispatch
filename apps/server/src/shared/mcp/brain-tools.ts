@@ -434,9 +434,15 @@ export function registerBrainTools(
             expectedRevision: args.expectedRevision,
           });
           publishBrainChanged?.();
+          // Confirm the position and new revision, not the item just sent.
+          const ack = {
+            index: args.index,
+            length: result.length,
+            revision: result.revision,
+          };
           return {
-            content: [{ type: "text", text: jsonText(result) }],
-            structuredContent: toStructuredContent(result),
+            content: [{ type: "text", text: jsonText(ack) }],
+            structuredContent: toStructuredContent(ack),
           };
         } catch (error) {
           return toBrainError(error);
@@ -630,9 +636,17 @@ export function registerBrainTools(
             tags: args.tags,
           });
           publishBrainChanged?.();
+          // The value is the caller's own payload; brain_query_events reads it
+          // back. What it cannot know is the id the append was assigned.
+          const ack = {
+            id: event.id,
+            collection: event.collection,
+            kind: event.kind,
+            createdAt: event.createdAt,
+          };
           return {
-            content: [{ type: "text", text: jsonText(event) }],
-            structuredContent: toStructuredContent(event),
+            content: [{ type: "text", text: jsonText(ack) }],
+            structuredContent: toStructuredContent(ack),
           };
         } catch (error) {
           return toBrainError(error);

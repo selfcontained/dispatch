@@ -82,7 +82,10 @@ export function registerPersonalityTools(
                 text: `Created personality \"${personality.name}\" (${personality.id}).`,
               },
             ],
-            structuredContent: { personality },
+            // The prompt is the caller's own input; list_personalities has it.
+            structuredContent: {
+              personality: { id: personality.id, name: personality.name },
+            },
           };
         } catch (error) {
           return toToolError(error);
@@ -126,7 +129,9 @@ export function registerPersonalityTools(
                 text: `Updated personality \"${personality.name}\" (${personality.id}).`,
               },
             ],
-            structuredContent: { personality },
+            structuredContent: {
+              personality: { id: personality.id, name: personality.name },
+            },
           };
         } catch (error) {
           return toToolError(error);

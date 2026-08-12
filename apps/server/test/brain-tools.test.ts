@@ -633,7 +633,7 @@ describe("registerBrainTools", () => {
 
   describe("brain_list_set", () => {
     it("replaces an item and calls publishBrainChanged", async () => {
-      const setResult = { totalCount: 3, revision: 5 };
+      const setResult = { length: 3, revision: 5 };
       store.setListItem.mockResolvedValue(setResult);
       registerAll();
 
@@ -649,7 +649,12 @@ describe("registerBrainTools", () => {
       })) as { structuredContent: unknown; isError?: true };
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toEqual(setResult);
+      // Confirms the write; the item itself is what the caller just sent.
+      expect(result.structuredContent).toEqual({
+        index: 1,
+        length: 3,
+        revision: 5,
+      });
       expect(publishBrainChanged).toHaveBeenCalledOnce();
       expect(store.setListItem).toHaveBeenCalledWith(REPO_ROOT, AGENT_ID, {
         collection: "c",
@@ -839,7 +844,14 @@ describe("registerBrainTools", () => {
       })) as { structuredContent: unknown; isError?: true };
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toEqual(event);
+      // The appended value is the caller's own payload; only the assigned id
+      // and its placement come back.
+      expect(result.structuredContent).toEqual({
+        id: event.id,
+        collection: event.collection,
+        kind: event.kind,
+        createdAt: event.createdAt,
+      });
       expect(publishBrainChanged).toHaveBeenCalledOnce();
       expect(store.appendEvent).toHaveBeenCalledWith(REPO_ROOT, AGENT_ID, {
         collection: "test-col",
