@@ -41,7 +41,7 @@ If the core state object is not found (first run), fall through to the bootstrap
 Do a broad assessment to seed the Brain. The goal is to produce a baseline for future runs, not to fix everything at once.
 
 1. **Inventory personas.** List all files in `.dispatch/personas/`. For each, record the latest commit SHA touching that file (`git log -1 --format=%H -- .dispatch/personas/<file>`).
-2. **Gather recent data.** Call `get_feedback_summary` for the last 14 days to get aggregate patterns, and `get_activity_summary` for the same range for volume and outcomes.
+2. **Gather recent data.** Call `get_feedback_summary` for the last 14 days to get aggregate patterns, then call it again with `group` set to each persona's key to read that group's findings in full. Call `get_activity_summary` for the same range for volume and outcomes.
 3. **Baseline each persona.** For each persona, determine:
    - How many reviews were run and completed
    - How many feedback items were produced
@@ -55,7 +55,7 @@ Do a broad assessment to seed the Brain. The goal is to produce a baseline for f
 
 For normal runs, collect the data needed to evaluate the personas in scope:
 
-1. **Call MCP tools.** Use `get_feedback_summary` for the last 7 days for aggregate patterns, and `get_activity_summary` for volume and outcomes.
+1. **Call MCP tools.** Use `get_feedback_summary` for the last 7 days for aggregate patterns, re-calling it with `group` for each persona whose findings you need in detail. Use `get_activity_summary` for volume and outcomes.
 2. **Check for prompt changes.** For each persona in scope, compare the current latest commit SHA on the persona file to the `prompt_sha` stored in the core state object. If it changed:
    - Read the commit message and diff to understand what the change was trying to improve
    - Reset that persona's evaluation window — only score reviews produced after the new prompt

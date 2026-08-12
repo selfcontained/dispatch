@@ -9,6 +9,46 @@ export type AnalyticsCallbacks = Partial<
   Pick<JobTools, "getActivitySummary" | "getFeedbackSummary">
 >;
 
+/**
+ * A summary answers "where are the patterns"; the finding descriptions behind
+ * each group are the bulk of the payload (85% of it on a small dataset, and
+ * they grow with the corpus) and are only wanted for the one group a caller is
+ * digging into. So the default response counts them, and naming a group in
+ * `group` returns that group's findings in full.
+ */
+function toGroupSummary(
+  result: Record<string, unknown>
+): Record<string, unknown> {
+  const groups = result.groups;
+  if (!Array.isArray(groups)) return result;
+  return {
+    ...result,
+    groups: groups.map((group) => {
+      const { topFindings, ...rest } = group as {
+        topFindings?: unknown[];
+      } & Record<string, unknown>;
+      return {
+        ...rest,
+        topFindingCount: Array.isArray(topFindings) ? topFindings.length : 0,
+      };
+    }),
+  };
+}
+
+function selectGroup(
+  result: Record<string, unknown>,
+  key: string
+): Record<string, unknown> | null {
+  const groups = result.groups;
+  if (!Array.isArray(groups)) return null;
+  const match = groups.find(
+    (group) => (group as { key?: unknown }).key === key
+  );
+  if (!match) return null;
+  const { groups: _groups, ...context } = result;
+  return { ...context, group: match };
+}
+
 export function registerAnalyticsTools(
   server: McpServer,
   allowed: Set<string>,
@@ -70,7 +110,8 @@ export function registerAnalyticsTools(
       "get_feedback_summary",
       {
         description:
-          "Aggregate review feedback to surface patterns — recurring issue types and hot spots in the codebase. Use for feedback pattern tracking and coaching check-ins.",
+          "Aggregate review feedback to surface patterns — recurring issue types and hot spots in the codebase. Use for feedback pattern tracking and coaching check-ins. " +
+          "Each group reports how many distinct findings it has, not their text; pass `group` with a group's key to get that one group's findings in full.",
         inputSchema: {
           start: z
             .string()
@@ -94,6 +135,12 @@ export function registerAnalyticsTools(
             .enum(["persona", "severity", "directory"])
             .default("persona")
             .describe("Primary grouping for the summary."),
+          group: z
+            .string()
+            .optional()
+            .describe(
+              "Return this one group's findings in full instead of the counts-only summary. Use a `key` from a previous call."
+            ),
         },
       },
       async (args) => {
@@ -110,9 +157,24 @@ export function registerAnalyticsTools(
             project: args.project,
             groupBy: args.group_by,
           });
+          if (args.group !== undefined) {
+            const detail = selectGroup(result, args.group);
+            if (!detail) {
+              return toToolError(
+                new Error(
+                  `No group "${args.group}" in this summary. Call without \`group\` to see the keys.`
+                )
+              );
+            }
+            return {
+              content: [{ type: "text", text: jsonText(detail) }],
+              structuredContent: detail,
+            };
+          }
+          const summary = toGroupSummary(result);
           return {
-            content: [{ type: "text", text: jsonText(result) }],
-            structuredContent: result,
+            content: [{ type: "text", text: jsonText(summary) }],
+            structuredContent: summary,
           };
         } catch (error) {
           return toToolError(error);
