@@ -54,6 +54,17 @@ if [ "$DISPATCH_AGENT_RUNTIME" = "tmux" ] && ! command -v tmux &>/dev/null; then
   echo "Error: E2E_AGENT_RUNTIME=tmux but tmux is not on PATH." >&2
   exit 1
 fi
+
+# `pnpm install` does not fetch Playwright browser binaries, so a Playwright
+# version bump in the lockfile leaves the newly pinned revision missing and
+# every browser test fails at launch with "Executable doesn't exist at
+# ~/Library/Caches/ms-playwright/...". CI installs chromium as its own step;
+# do the same here so a local run cannot fail that way. Already-installed is a
+# sub-second no-op that touches no network, and running it before the database
+# and web build means a genuinely missing browser fails fast.
+echo "==> Ensuring the pinned Playwright chromium build is installed"
+pnpm exec playwright install chromium
+
 export DATABASE_URL="postgres://dispatch:dispatch@127.0.0.1:${DB_PORT}/dispatch_${RUN_ID}"
 export MEDIA_ROOT="/tmp/dispatch-media-${RUN_ID}"
 # Keep the release store out of the host's ~/.dispatch/ — a stale version
