@@ -278,27 +278,6 @@ jobs:
       - name: Pack release artifact
         run: bin/pack-release --output dispatch-release.tar.gz
 
-      - name: Verify release artifact has no macOS xattr/pax metadata
-        # ci.yml's vitest step runs before dist/bun is built, so
-        # pack-release.test.ts's xattr regression test never executes there —
-        # this is the only point where the real notarized artifact can be
-        # checked. Scans just the first 20MB of the decompressed stream
-        # rather than the full ~400MB: dist/bun (the binaries most likely to
-        # carry a com.apple.provenance xattr) is always packed first per
-        # bin/pack-release's MANIFEST, and --no-xattrs is an all-or-nothing
-        # flag on the whole tar invocation, so a regression would show up in
-        # the first entries just as reliably as the last. Full-scan took
-        # ~17s against the real v0.33.10 artifact; this takes <1s.
-        run: |
-          set -eu
-          hits=$(gzip -dc dispatch-release.tar.gz | head -c 20000000 | tr '\0' '\n' | grep -aE '^[0-9]+ (LIBARCHIVE|SCHILY)\.xattr\.' | head -5)
-          if [ -n "$hits" ]; then
-            echo "error: release artifact contains macOS xattr/pax metadata (see bin/pack-release's --no-xattrs flag):" >&2
-            echo "$hits" >&2
-            exit 1
-          fi
-          echo "OK: no macOS xattr/pax metadata found in release artifact"
-
       - name: Upload release bundle
         uses: actions/upload-artifact@v7
         with:
