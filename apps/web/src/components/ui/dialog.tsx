@@ -5,6 +5,10 @@ import { glassOverlay } from "@/lib/glass";
 import { cn } from "@/lib/utils";
 
 const Dialog = DialogPrimitive.Root;
+// DialogTrigger and DialogClose have no importers today. They are kept on
+// purpose: this is a vendored shadcn primitive whose API surface is meant to
+// mirror Radix's, and dropping parts of it makes the next `Dialog` consumer
+// reach for DialogPrimitive directly. Do not flag them as dead code.
 const DialogTrigger = DialogPrimitive.Trigger;
 const DialogPortal = DialogPrimitive.Portal;
 const DialogClose = DialogPrimitive.Close;

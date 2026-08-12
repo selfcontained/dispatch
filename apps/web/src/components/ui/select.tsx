@@ -7,6 +7,10 @@ import { cn } from "@/lib/utils";
 
 const Select = SelectPrimitive.Root;
 
+// SelectGroup, SelectLabel and SelectSeparator have no importers today. They
+// are kept on purpose: this is a vendored shadcn primitive whose API surface is
+// meant to mirror Radix's, and a grouped select is the first thing that needs
+// them back. Do not flag them as dead code.
 const SelectGroup = SelectPrimitive.Group;
 
 const SelectValue = SelectPrimitive.Value;
