@@ -549,9 +549,10 @@ describe("createMcpHandlers", () => {
       expect(deps.agentManager.upsertPins).not.toHaveBeenCalled();
     });
 
-    it("stamps the scoping group onto every entry in replace mode", async () => {
-      // The top-level group is the safety boundary; an entry must not be able
-      // to disagree with it and land outside the group being replaced.
+    it("passes the scoping group through as an option, not per entry", async () => {
+      // Filing entries under the group is `replacePinGroup`'s own job — the
+      // handler compensating for it here is what let the primitive drift from
+      // its own contract. Covered end-to-end in pin-write.test.ts.
       await handlers.upsertPins("agt_test1", {
         mode: "replace",
         group: "Ready to build",
@@ -561,14 +562,7 @@ describe("createMcpHandlers", () => {
       });
       expect(deps.agentManager.upsertPins).toHaveBeenCalledWith(
         "agt_test1",
-        [
-          {
-            label: "One",
-            value: "1",
-            type: "string",
-            group: "Ready to build",
-          },
-        ],
+        [{ label: "One", value: "1", type: "string", group: "Elsewhere" }],
         { mode: "replace", group: "Ready to build" }
       );
     });

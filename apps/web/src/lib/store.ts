@@ -117,20 +117,13 @@ export const whiteboardAgentDrewAtomFamily = atomFamily((_agentId: string) =>
 );
 
 /**
- * Whether one pin group is collapsed, keyed by `<agent>::<group>`.
+ * Whether one pin group is collapsed, keyed by `<agentId>::<group>`.
  *
- * `null` means the user has never touched this group, which is distinct from
- * having chosen "expanded": large groups start collapsed, and that default has
- * to keep applying until the user overrides it — otherwise expanding a group
- * and then gaining a pin would silently re-collapse it.
+ * Stores the user's *choice*, not the rendered state: `null` means they have
+ * never touched this group, which is distinct from having chosen "expanded".
+ * The size-based default is applied at render, so a group the user expanded
+ * stays expanded when it later grows past the auto-collapse threshold.
  */
-/**
- * Placeholder key for a pin list with no scope. `PinGroup` never writes
- * through this atom — it falls back to ephemeral state — but the hook still
- * has to be called unconditionally, so it needs a key.
- */
-export const UNSCOPED_COLLAPSE_KEY = "__unscoped__";
-
 export const pinGroupCollapsedAtomFamily = atomFamily((key: string) =>
   atomWithLocalStorage<boolean | null>(
     `dispatch:pinGroupCollapsed:${key}`,

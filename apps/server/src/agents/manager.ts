@@ -99,12 +99,6 @@ const CODEX_FULL_ACCESS_ARG = "--dangerously-bypass-approvals-and-sandbox";
 const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
 /**
- * Maximum number of pins per agent. Enforced by `upsertPin` when adding
- * one at a time and by `normalizeInitialPins` when seeding via
- * `createAgent({ initialPins })`. Pins also flow into the startup
- * prompt via `buildStartupPrompt`, so the cap also bounds prompt size.
- */
-/**
  * Validate + de-duplicate the `initialPins` array supplied to
  * `createAgent`. De-dup is case-insensitive on label with last-write-wins
  * semantics — same rule `upsertPin` applies for incremental adds. Throws
@@ -1187,7 +1181,7 @@ export class AgentManager {
     id: string,
     specs: PinSpec[],
     options: { mode?: "merge" | "replace"; group?: string } = {}
-  ): Promise<{ agent: AgentRecord; pins: AgentPin[] }> {
+  ): Promise<{ agent: AgentRecord }> {
     const mode = options.mode ?? "merge";
     if (mode === "replace" && !options.group?.trim()) {
       throw new AgentError(
@@ -1196,17 +1190,13 @@ export class AgentManager {
       );
     }
 
-    let stored: AgentPin[] = [];
-    await this.mutatePins(id, (currentPins) => {
-      const result =
-        mode === "replace"
-          ? replacePinGroup(currentPins, options.group!, specs)
-          : applyPinSpecs(currentPins, specs);
-      stored = result.stored;
-      return result.pins;
-    });
+    await this.mutatePins(id, (currentPins) =>
+      mode === "replace"
+        ? replacePinGroup(currentPins, options.group!, specs).pins
+        : applyPinSpecs(currentPins, specs).pins
+    );
 
-    return { agent: (await this.getAgent(id)) as AgentRecord, pins: stored };
+    return { agent: (await this.getAgent(id)) as AgentRecord };
   }
 
   async deletePinById(id: string, pinId: string): Promise<AgentRecord> {

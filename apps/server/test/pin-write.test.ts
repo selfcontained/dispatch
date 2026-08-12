@@ -130,6 +130,36 @@ describe("applyPinSpec", () => {
     });
   });
 
+  it("strips shortcut-only fields from a newly created non-shortcut pin", () => {
+    // The strip used to live only on the update branch, so a create could
+    // store `confirm`/`variant` on a plain pin — and neither is clearable by
+    // empty string, so the agent could never remove them afterwards.
+    const result = applyPinSpec([], {
+      label: "Plain",
+      value: "v",
+      icon: "zap",
+      variant: "destructive",
+      confirm: true,
+      disabled: true,
+    });
+    expect(result.stored.type).toBe("string");
+    expect(result.stored.icon).toBeUndefined();
+    expect(result.stored.variant).toBeUndefined();
+    expect(result.stored.confirm).toBeUndefined();
+    expect(result.stored.disabled).toBeUndefined();
+  });
+
+  it("keeps shortcut-only fields on a newly created shortcut pin", () => {
+    const result = applyPinSpec([], {
+      label: "Go",
+      value: "do it",
+      type: "shortcut",
+      icon: "zap",
+      confirm: true,
+    });
+    expect(result.stored).toMatchObject({ icon: "zap", confirm: true });
+  });
+
   it("still requires a value when there is nothing to inherit from", () => {
     expect(() => applyPinSpec([], { label: "Fresh" })).toThrow(
       /value is required/i
@@ -276,6 +306,25 @@ describe("replacePinGroup", () => {
       pin({ label: "charlie", group: "Build" }),
     ]);
     expect(result.pins.map((p) => p.id)).toEqual(["pin_c"]);
+    expect(result.pins[0]!.group).toBe("Build");
+  });
+
+  it("files members under the group without the caller pre-setting it", () => {
+    // The primitive owns group membership. Leaving it to a compensating map in
+    // the handler made this pass only because the caller remembered — and a
+    // member stored without `group` renders under no heading yet sits in the
+    // block, invisible to the next replace of that same group.
+    const result = replacePinGroup([], "Build", [
+      { label: "a", value: "1" },
+      { label: "b", value: "2" },
+    ]);
+    expect(result.pins.map((p) => p.group)).toEqual(["Build", "Build"]);
+  });
+
+  it("overrides an entry's own group with the scoping group", () => {
+    const result = replacePinGroup([], "Build", [
+      { label: "a", value: "1", group: "Elsewhere" },
+    ]);
     expect(result.pins[0]!.group).toBe("Build");
   });
 

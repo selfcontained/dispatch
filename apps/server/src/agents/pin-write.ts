@@ -4,11 +4,18 @@ import {
   isPinType,
   validatePinShortcutFields,
   validatePinValue,
+  type PinType,
 } from "../pins.js";
 import { AgentError } from "./errors.js";
-import { clearBlankPinFields, mergePin, type DraftPin } from "./pin-merge.js";
+import { finalizePin, mergePin, type DraftPin } from "./pin-merge.js";
 import type { AgentPin } from "./types.js";
 
+/**
+ * Maximum number of pins per agent. Enforced by every write path here and by
+ * `normalizeInitialPins` when seeding via `createAgent({ initialPins })`. Pins
+ * also flow into the startup prompt via `buildStartupPrompt`, so the cap also
+ * bounds prompt size.
+ */
 export const MAX_PINS = 50;
 
 /**
@@ -21,7 +28,7 @@ export const MAX_PINS = 50;
  * required in effect when creating, enforced in `toStorablePin`.
  */
 export type PinSpec = Omit<AgentPin, "type" | "value"> & {
-  type?: string;
+  type?: PinType;
   value?: string;
 };
 
@@ -156,9 +163,11 @@ export function applyPinSpec(pins: AgentPin[], spec: PinSpec): ApplyPinResult {
     assertLabelFree(pins, spec.label, index);
     const existing = pins[index]!;
     const stored = validateStoredPin(
-      mergePin(
-        { ...existing, id: existing.id ?? randomUUID() },
-        toStorablePin(spec, existing)
+      finalizePin(
+        mergePin(
+          { ...existing, id: existing.id ?? randomUUID() },
+          toStorablePin(spec, existing)
+        )
       )
     );
     const next = [...pins];
@@ -170,7 +179,7 @@ export function applyPinSpec(pins: AgentPin[], spec: PinSpec): ApplyPinResult {
     throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
   }
   const stored = validateStoredPin(
-    clearBlankPinFields({ ...toStorablePin(spec), id: spec.id ?? randomUUID() })
+    finalizePin({ ...toStorablePin(spec), id: spec.id ?? randomUUID() })
   );
   return { pins: [...pins, stored], stored, created: true };
 }
@@ -213,12 +222,17 @@ export function replacePinGroup(
   const claimed = new Set<number>();
   const stored: AgentPin[] = [];
 
-  for (const spec of specs) {
+  for (const rawSpec of specs) {
+    // Filing members under the group is this function's own job — leaving it
+    // to the caller means the primitive cannot honour its name, and a member
+    // stored without `group` renders under no heading yet sits in the block,
+    // invisible to the next replace of that same group.
+    const spec: PinSpec = { ...rawSpec, group };
     const index = findTarget(pins, spec);
     if (index === -1) {
       stored.push(
         validateStoredPin(
-          clearBlankPinFields({
+          finalizePin({
             ...toStorablePin(spec),
             id: spec.id ?? randomUUID(),
           })
@@ -236,9 +250,11 @@ export function replacePinGroup(
     const existing = pins[index]!;
     stored.push(
       validateStoredPin(
-        mergePin(
-          { ...existing, id: existing.id ?? randomUUID() },
-          toStorablePin(spec, existing)
+        finalizePin(
+          mergePin(
+            { ...existing, id: existing.id ?? randomUUID() },
+            toStorablePin(spec, existing)
+          )
         )
       )
     );

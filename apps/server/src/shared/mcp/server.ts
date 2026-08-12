@@ -49,6 +49,34 @@ type McpPinInput = {
   disabled?: boolean;
 };
 
+/**
+ * The constrained field types every pin write shares. `dispatch_pin` and
+ * `dispatch_pins` build their schemas from these and override only the
+ * `.describe()` text — duplicating the *constraints* is how a raised cap ends
+ * up enforced on one tool and silently not the other.
+ */
+const pinFields = {
+  id: z.string().min(1),
+  label: z.string().max(100),
+  value: z.string().max(2000),
+  type: z.enum([
+    "string",
+    "url",
+    "port",
+    "code",
+    "pr",
+    "filename",
+    "markdown",
+    "shortcut",
+  ]),
+  caption: z.string().max(160),
+  group: z.string().trim().min(1).max(100),
+  icon: z.enum(VALID_PIN_SHORTCUT_ICONS),
+  variant: z.enum(["default", "primary", "destructive"]),
+  confirm: z.boolean(),
+  disabled: z.boolean(),
+} as const;
+
 export type McpAgent = {
   id: string;
   cwd: string;
@@ -727,73 +755,48 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
         "Use type 'shortcut' to give the user a one-click button that sends a prompt back to you — the label is the button text and the value is the prompt you receive when it is clicked. Good for offering the user a concrete next step (launch this work, re-run that check, pick this approach) instead of asking them to type it. When a shortcut pin is how the user answers a question that is blocking you, also emit a waiting_user event so the agent surfaces as needing attention — the pin is the answer mechanism, not the alert. " +
         "When a shortcut's action becomes temporarily or permanently unavailable but is still worth showing (e.g. its build already started elsewhere), set disabled: true instead of deleting it — the button greys out and stops accepting clicks. Set the caption to explain why (e.g. 'already building — agt_...'); it renders in place of the normal caption. Send disabled: false to re-enable it later.",
       inputSchema: {
-        id: z
-          .string()
-          .min(1)
+        id: pinFields.id
           .optional()
           .describe(
             "Exact pin id from dispatch_list_pins. Pass it to edit that pin specifically — this is the only way to change a pin's label, since without an id the label is what identifies the pin. Omit to match by label."
           ),
-        label: z
-          .string()
-          .max(100)
-          .describe(
-            "Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port'). For shortcut pins this is the button text."
-          ),
-        value: z
-          .string()
-          .max(2000)
+        label: pinFields.label.describe(
+          "Display label for the pin (e.g. 'API Server', 'Vite Dev', 'DB Port'). For shortcut pins this is the button text."
+        ),
+        value: pinFields.value
           .optional()
           .describe(
             "The value to display. For shortcut pins this is the prompt delivered to your session when the button is clicked. Required on a new pin; omit on an update to keep the stored value."
           ),
-        type: z
-          .enum([
-            "string",
-            "url",
-            "port",
-            "code",
-            "pr",
-            "filename",
-            "markdown",
-            "shortcut",
-          ])
+        type: pinFields.type
           .optional()
           .describe(
             "Value type, defaulting to 'string' on a new pin. Omit when updating an existing pin and its stored type is kept. 'url' renders as a clickable link. 'port' renders as a monospace badge. 'code' renders as a monospace badge. 'pr' renders as a pull request link with a PR icon. 'filename' renders with a file icon in monospace. 'markdown' renders constrained markdown for short summaries. 'shortcut' renders a button that sends `value` to your session when clicked. For list-like types (filename, url, string, port), separate multiple values with commas or newlines."
           ),
-        caption: z
-          .string()
-          .max(160)
+        caption: pinFields.caption
           .optional()
           .describe(
             "A one-line caption rendered under the pin, supporting inline markdown (bold, italic, `code`, strikethrough). Works on any pin type. On shortcut pins it is context for the click, not part of the injected prompt."
           ),
-        group: z
-          .string()
-          .max(100)
+        group: pinFields.group
           .optional()
           .describe(
             "Renders this pin under a shared heading with every other pin using the same group name — use it to present a set of related actions, or the question they answer, as one block."
           ),
-        icon: z
-          .enum(VALID_PIN_SHORTCUT_ICONS)
+        icon: pinFields.icon
           .optional()
           .describe("Shortcut pins only: icon shown on the button."),
-        variant: z
-          .enum(["default", "primary", "destructive"])
+        variant: pinFields.variant
           .optional()
           .describe(
             "Shortcut pins only: button styling. 'primary' for the main suggested action, 'destructive' for dangerous ones, 'default' otherwise."
           ),
-        confirm: z
-          .boolean()
+        confirm: pinFields.confirm
           .optional()
           .describe(
             "Shortcut pins only: when true, clicking asks the user to confirm and shows them the prompt first. Use for destructive or hard-to-undo actions."
           ),
-        disabled: z
-          .boolean()
+        disabled: pinFields.disabled
           .optional()
           .describe(
             "Shortcut pins only: when true, the button renders non-interactive instead of being deleted — for an action that's temporarily or permanently unavailable but still worth showing. Pair with a caption explaining why. Send false to re-enable."
@@ -853,46 +856,30 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
  * context for the pin toolset, so this stays terse and points there.
  */
 const batchPinEntrySchema = z.object({
-  id: z
-    .string()
-    .min(1)
+  id: pinFields.id
     .optional()
     .describe("Pin id from dispatch_list_pins. Required to change a label."),
-  label: z.string().max(100).describe("Display label, or button text."),
-  value: z
-    .string()
-    .max(2000)
+  label: pinFields.label.describe("Display label, or button text."),
+  value: pinFields.value
     .optional()
     .describe(
       "Value, or the prompt for a shortcut. Required on a new pin; omit on an update to keep the stored value."
     ),
-  type: z
-    .enum([
-      "string",
-      "url",
-      "port",
-      "code",
-      "pr",
-      "filename",
-      "markdown",
-      "shortcut",
-    ])
+  type: pinFields.type
     .optional()
     .describe(
       "Defaults to 'string' on a new pin; omit on an update to keep the stored type. See dispatch_pin."
     ),
-  caption: z.string().max(160).optional().describe("One-line caption."),
-  group: z.string().max(100).optional().describe("Shared heading."),
-  icon: z
-    .enum(VALID_PIN_SHORTCUT_ICONS)
+  caption: pinFields.caption.optional().describe("One-line caption."),
+  group: pinFields.group
     .optional()
-    .describe("Shortcut pins only."),
-  variant: z
-    .enum(["default", "primary", "destructive"])
-    .optional()
-    .describe("Shortcut pins only."),
-  confirm: z.boolean().optional().describe("Shortcut pins only."),
-  disabled: z.boolean().optional().describe("Shortcut pins only."),
+    .describe(
+      "Shared heading. Ignored in replace mode, which files entries under its own group."
+    ),
+  icon: pinFields.icon.optional().describe("Shortcut pins only."),
+  variant: pinFields.variant.optional().describe("Shortcut pins only."),
+  confirm: pinFields.confirm.optional().describe("Shortcut pins only."),
+  disabled: pinFields.disabled.optional().describe("Shortcut pins only."),
 });
 
 function registerBatchPinTool(
@@ -921,11 +908,7 @@ function registerBatchPinTool(
           .describe(
             "'merge' updates or creates each entry and touches nothing else. 'replace' rebuilds the named group to be exactly these entries."
           ),
-        group: z
-          .string()
-          .trim()
-          .min(1)
-          .max(100)
+        group: pinFields.group
           .optional()
           .describe(
             "Required by mode 'replace': the only group the call may delete from. Entries are filed under it automatically."
@@ -982,11 +965,7 @@ function registerDeletePinTool(
           .describe(
             "Several exact pin ids, removed together. Every id must exist."
           ),
-        group: z
-          .string()
-          .trim()
-          .min(1)
-          .max(100)
+        group: pinFields.group
           .optional()
           .describe("Remove every pin filed under this group heading."),
       },

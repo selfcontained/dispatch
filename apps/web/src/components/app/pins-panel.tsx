@@ -11,7 +11,7 @@ import {
   Pin,
 } from "lucide-react";
 import { useAtom } from "jotai";
-import { useRef, useState } from "react";
+import { useId, useRef, useState } from "react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
 import { type AgentPin } from "@/components/app/types";
@@ -29,10 +29,7 @@ import { Markdown } from "@/components/ui/markdown";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useCopyText } from "@/hooks/use-copy";
 import { splitPinValues } from "@/lib/pins";
-import {
-  UNSCOPED_COLLAPSE_KEY,
-  pinGroupCollapsedAtomFamily,
-} from "@/lib/store";
+import { pinGroupCollapsedAtomFamily } from "@/lib/store";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -615,36 +612,29 @@ type PinGroupProps = {
   buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
 };
 
-function PinGroup({
+type PinGroupViewProps = Omit<PinGroupProps, "collapseScope"> & {
+  collapsed: boolean;
+  onToggle: () => void;
+};
+
+function PinGroupView({
   name,
   pins,
-  collapseScope,
+  collapsed,
+  onToggle,
   workspaceRoot,
   agentIsRunning,
   onRunShortcut,
   agentName = null,
   pendingPinId = null,
   buttonRef,
-}: PinGroupProps): JSX.Element {
-  const slug = name.toLowerCase().replace(/\s+/g, "-");
-  const headingId = `pin-group-${slug}`;
-  const regionId = `pin-group-members-${slug}`;
-
-  // Persist only when the caller named a scope. Without one there is nothing
-  // to namespace by, and a shared fallback bucket would leak one list's
-  // collapse choices onto every other unscoped list.
-  const persisted = useAtom(
-    pinGroupCollapsedAtomFamily(
-      collapseScope === null
-        ? UNSCOPED_COLLAPSE_KEY
-        : `${collapseScope}::${name.toLowerCase()}`
-    )
-  );
-  const ephemeral = useState<boolean | null>(null);
-  const [choice, setChoice] = collapseScope === null ? ephemeral : persisted;
-
-  // An explicit choice always beats the size-based default.
-  const collapsed = choice ?? pins.length > AUTO_COLLAPSE_THRESHOLD;
+}: PinGroupViewProps): JSX.Element {
+  // Ids must be unique per document, not per list: the desktop and mobile
+  // sidebars are both always mounted, so a name-derived id would appear twice
+  // and `aria-controls` would resolve to the other instance's region.
+  const uid = useId();
+  const headingId = `pin-group-${uid}`;
+  const regionId = `pin-group-members-${uid}`;
 
   return (
     <div
@@ -661,7 +651,7 @@ function PinGroup({
     >
       <button
         type="button"
-        onClick={() => setChoice(!collapsed)}
+        onClick={onToggle}
         aria-expanded={!collapsed}
         aria-controls={regionId}
         data-testid="pin-group-toggle"
@@ -712,6 +702,55 @@ function PinGroup({
             ))}
       </div>
     </div>
+  );
+}
+
+/** An explicit choice always beats the size-based default. */
+function resolveCollapsed(choice: boolean | null, count: number): boolean {
+  return choice ?? count > AUTO_COLLAPSE_THRESHOLD;
+}
+
+function PersistedPinGroup(
+  props: PinGroupProps & { collapseScope: string }
+): JSX.Element {
+  const [choice, setChoice] = useAtom(
+    pinGroupCollapsedAtomFamily(
+      `${props.collapseScope}::${props.name.toLowerCase()}`
+    )
+  );
+  const collapsed = resolveCollapsed(choice, props.pins.length);
+  return (
+    <PinGroupView
+      {...props}
+      collapsed={collapsed}
+      onToggle={() => setChoice(!collapsed)}
+    />
+  );
+}
+
+function EphemeralPinGroup(props: PinGroupProps): JSX.Element {
+  const [choice, setChoice] = useState<boolean | null>(null);
+  const collapsed = resolveCollapsed(choice, props.pins.length);
+  return (
+    <PinGroupView
+      {...props}
+      collapsed={collapsed}
+      onToggle={() => setChoice(!collapsed)}
+    />
+  );
+}
+
+/**
+ * Branch above the hooks rather than calling both: with no scope there is
+ * nothing to namespace by, and persisting to a shared fallback key would leak
+ * one list's collapse choices onto every other unscoped list. `collapseScope`
+ * is stable per mount site, so this never swaps a component mid-life.
+ */
+function PinGroup(props: PinGroupProps): JSX.Element {
+  return props.collapseScope === null ? (
+    <EphemeralPinGroup {...props} />
+  ) : (
+    <PersistedPinGroup {...props} collapseScope={props.collapseScope} />
   );
 }
 

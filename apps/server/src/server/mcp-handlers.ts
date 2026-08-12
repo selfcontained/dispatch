@@ -34,7 +34,12 @@ import {
   validatePinValue,
   type PinShortcutVariant,
 } from "../pins.js";
-import { toPinListing, type PinListing } from "./pin-listing.js";
+import {
+  toPinListing,
+  toPinSummary,
+  type PinListing,
+  type PinSummary,
+} from "./pin-listing.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
@@ -275,27 +280,25 @@ async function handleUpsertPins(
     mode?: "merge" | "replace";
     group?: string;
   }
-): Promise<PinListing[]> {
+): Promise<PinSummary[]> {
   // Validate the whole batch before opening the transaction: a bad entry at
   // position 19 should fail the call outright rather than leave the first
-  // eighteen applied.
-  const specs = input.pins.map((pin) =>
-    toValidatedPin(
-      // The top-level group is authoritative in replace mode, so an entry
-      // cannot disagree with the scope it was submitted under.
-      input.mode === "replace" ? { ...pin, group: input.group } : pin
-    )
-  );
+  // eighteen applied. Replace mode files entries under the scoping group
+  // itself, so nothing needs stamping here.
+  const specs = input.pins.map(toValidatedPin);
 
-  const result = await deps.agentManager.upsertPins(agentId, specs, {
+  const { agent } = await deps.agentManager.upsertPins(agentId, specs, {
     ...(input.mode !== undefined ? { mode: input.mode } : {}),
     ...(input.group !== undefined ? { group: input.group } : {}),
   });
   deps.publishUiEvent({
     type: "agent.upsert",
-    agent: deps.withStreamFlag(result.agent),
+    agent: deps.withStreamFlag(agent),
   });
-  return (result.agent.pins ?? []).map(toPinListing);
+  // A thin projection, not the full listing: the point of the echo is to show
+  // what the batch produced and in what order, and 50 pins' worth of values
+  // (2000 chars each) would dwarf that. dispatch_list_pins serves full state.
+  return (agent.pins ?? []).map(toPinSummary);
 }
 
 async function handleDeletePin(
