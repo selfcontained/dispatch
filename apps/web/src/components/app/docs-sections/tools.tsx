@@ -216,9 +216,8 @@ export function ToolsContent() {
             not once it has been typed in
           </li>
           <li>
-            <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,{" "}
-            <Code>get_feedback_summary</Code> — analytics queries over recent
-            Dispatch activity
+            <Code>get_activity_summary</Code>, <Code>get_feedback_summary</Code>{" "}
+            — analytics queries over recent Dispatch activity
           </li>
           <li>
             <Code>whiteboard_get</Code>, <Code>whiteboard_update</Code>,{" "}

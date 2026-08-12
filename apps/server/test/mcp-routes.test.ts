@@ -22,7 +22,6 @@ vi.mock("../src/shared/git/git-context.js", () => ({
 
 vi.mock("../src/agents/telemetry.js", () => ({
   getActivitySummary: vi.fn(async () => ({})),
-  getAgentHistory: vi.fn(async () => ({})),
   getFeedbackSummary: vi.fn(async () => ({})),
 }));
 

@@ -176,7 +176,6 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `list_agents`                   | List other agents in the same repo with IDs, names, statuses, and activity |
 | `dispatch_send_message`         | Send a message to another running agent by ID or name                      |
 | `get_activity_summary`          | Summarize agent activity over a time range                                 |
-| `get_agent_history`             | Get detailed agent session history                                         |
 | `get_feedback_summary`          | Aggregate persona review feedback for pattern detection                    |
 | `whiteboard_get`                | Read the agent's shared whiteboard (elements + PNG snapshot path)          |
 | `whiteboard_update`             | Draw on the shared whiteboard (upsert Excalidraw elements by id)           |

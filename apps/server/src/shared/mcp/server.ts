@@ -86,7 +86,6 @@ const AGENT_TOOLS = new Set([
   "dispatch_launch_agent",
   "dispatch_archive_agent",
   "get_activity_summary",
-  "get_agent_history",
   "get_feedback_summary",
   "whiteboard_get",
   "whiteboard_update",
@@ -146,7 +145,6 @@ const JOB_TOOLS = new Set([
   "persona_upsert",
   "persona_validate",
   "get_activity_summary",
-  "get_agent_history",
   "get_feedback_summary",
   "brain_get_object",
   "brain_store_object",
@@ -467,17 +465,6 @@ export type McpRequestContext = {
     end: Date;
     project?: string;
   }) => Promise<Record<string, unknown>>;
-  getAgentHistory?: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    limit: number;
-    offset: number;
-    includeEvents: boolean;
-    includeFeedback: boolean;
-    includeReviews: boolean;
-    includeChildren: boolean;
-  }) => Promise<Record<string, unknown>>;
   getFeedbackSummary?: (params: {
     start: Date;
     end: Date;
@@ -638,8 +625,6 @@ async function createDispatchMcpServer(
   registerAnalyticsTools(server, allowed, {
     getActivitySummary:
       context.getActivitySummary ?? context.jobTools?.getActivitySummary,
-    getAgentHistory:
-      context.getAgentHistory ?? context.jobTools?.getAgentHistory,
     getFeedbackSummary:
       context.getFeedbackSummary ?? context.jobTools?.getFeedbackSummary,
   });
@@ -679,9 +664,19 @@ async function createDispatchMcpServer(
               repoRoot: toolsRoot,
               params: args as Record<string, unknown>,
             });
+            // `message` is the command's stdout, which is already the text
+            // content — carrying it in the structured payload too sent every
+            // repo tool's output twice. Drop it, along with the agent id and
+            // repo root the caller supplied in the first place.
+            const {
+              message,
+              agentId: _agentId,
+              repoRoot: _repoRoot,
+              ...data
+            } = result;
             return {
-              content: [{ type: "text", text: result.message }],
-              structuredContent: result,
+              content: [{ type: "text", text: message }],
+              structuredContent: data,
             };
           } catch (error) {
             return toToolError(error);

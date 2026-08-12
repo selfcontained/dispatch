@@ -33,17 +33,6 @@ export type JobTools = {
     end: Date;
     project?: string;
   }) => Promise<Record<string, unknown>>;
-  getAgentHistory: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    limit: number;
-    offset: number;
-    includeEvents: boolean;
-    includeFeedback: boolean;
-    includeReviews: boolean;
-    includeChildren: boolean;
-  }) => Promise<Record<string, unknown>>;
   getFeedbackSummary: (params: {
     start: Date;
     end: Date;

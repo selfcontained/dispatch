@@ -184,8 +184,6 @@ export async function registerMcpRoutes(
           },
           getActivitySummary: (params: Record<string, unknown>) =>
             telemetry.getActivitySummary(deps.pool, params as never),
-          getAgentHistory: (params: Record<string, unknown>) =>
-            telemetry.getAgentHistory(deps.pool, params as never),
           getFeedbackSummary: (params: Record<string, unknown>) =>
             telemetry.getFeedbackSummary(deps.pool, params as never),
         }
@@ -237,10 +235,6 @@ export async function registerMcpRoutes(
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
-          Record<string, unknown>
-        >,
-      getAgentHistory: (params: Record<string, unknown>) =>
-        telemetry.getAgentHistory(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
@@ -334,10 +328,6 @@ export async function registerMcpRoutes(
       getParentContext: deps.mcpGetParentContext,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
-          Record<string, unknown>
-        >,
-      getAgentHistory: (params: Record<string, unknown>) =>
-        telemetry.getAgentHistory(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
