@@ -1168,7 +1168,7 @@ describe("createMcpHandlers", () => {
         })
       );
 
-      const result = await handlers.launchAgent("agt_test1", {
+      await handlers.launchAgent("agt_test1", {
         name: "child",
         prompt: "fix the launch bug",
         templateId: "tmpl_123",
@@ -1178,10 +1178,9 @@ describe("createMcpHandlers", () => {
       expect(initialPrompt).toContain("Build this idea:");
       expect(initialPrompt).toContain("fix the launch bug");
       expect(initialPrompt).not.toContain("{{D:");
-      expect(result.note).toContain('"Idea" placeholder');
     });
 
-    it("appends the caller's prompt when the template has no placeholders", async () => {
+    it("appends the caller's prompt to the template's prompt", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({ prompt: "Run the nightly checks." })
       );
@@ -1193,14 +1192,12 @@ describe("createMcpHandlers", () => {
       });
 
       const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
-      expect(initialPrompt).toContain("Run the nightly checks.");
       expect(initialPrompt).toContain(
-        "## Additional instructions from the launching agent"
+        "Run the nightly checks.\n\nskip the slow suite"
       );
-      expect(initialPrompt).toContain("skip the slow suite");
     });
 
-    it("fills placeholders from templateArgs", async () => {
+    it("fills template variables from templateArgs", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({
           prompt: "Review {{D:Target}} for {{D:Concern|required}}.",
@@ -1216,10 +1213,10 @@ describe("createMcpHandlers", () => {
 
       const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
       expect(initialPrompt).toContain("Review the diff for security.");
-      expect(result.note).not.toContain("no value");
+      expect(result.note).toBeUndefined();
     });
 
-    it("warns instead of failing when placeholders have no value", async () => {
+    it("launches and reports back when variables are left unset", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({
           prompt: "Review {{D:Target|required}} for {{D:Concern|required}}.",

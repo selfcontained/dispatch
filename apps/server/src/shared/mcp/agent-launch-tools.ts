@@ -8,8 +8,7 @@ import { toToolError } from "./tool-error.js";
 export type LaunchAgentResult = {
   agentId: string;
   name: string;
-  /** How a template's prompt absorbed the caller's prompt, when templateId was
-   * given and the template's prompt has placeholders. */
+  /** Set when a template variable was left empty. */
   note?: string;
 };
 
@@ -63,7 +62,7 @@ export function registerAgentLaunchTools(
           .min(1)
           .max(100000)
           .describe(
-            "Initial prompt describing what the agent should do. With templateId, this fills the template's single placeholder when it has one, and is otherwise appended to the template's prompt."
+            "Initial prompt describing what the agent should do. With templateId, it fills the template's one remaining variable if exactly one is left unset, and otherwise follows the template's own prompt."
           ),
         type: z
           .enum(CLI_AGENT_TYPES)
@@ -112,13 +111,13 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. The template's own prompt is always used — your prompt fills its single {{D:...}} placeholder if it has exactly one, and is otherwise appended to it. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+            "Template to apply to the new agent. The agent gets the template's own prompt, rendered the same way the UI renders it. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
           ),
         templateArgs: z
           .record(z.string(), z.string())
           .optional()
           .describe(
-            "Values for the template's {{D:Name|...}} placeholders, keyed by placeholder name. Only needed for templates with more than one placeholder — use get_template to see them. Unfilled placeholders render empty."
+            "Values for the template's variables, keyed by variable name. Call get_template first — its `args` field lists the template's variables. Skip this when the template has one variable (your prompt fills it) or none. Variables left unset render empty."
           ),
         cwd: z
           .string()

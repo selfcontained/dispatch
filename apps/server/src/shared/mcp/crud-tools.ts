@@ -3,7 +3,20 @@ import * as z from "zod/v4";
 
 import { describeAgentModelCatalog } from "../agent-models.js";
 import type { AgentType } from "../agent-types.js";
+import { parseTemplateArgs } from "../../templates/arg-parser.js";
 import { toToolError } from "./tool-error.js";
+
+/**
+ * Annotates a template with the variables parsed out of its prompt, so a caller
+ * can see what to pass as dispatch_launch_agent's templateArgs without having
+ * to recognise `{{D:...}}` syntax in the prompt text itself.
+ */
+function withTemplateArgs(template: unknown): unknown {
+  if (!template || typeof template !== "object") return template;
+  const prompt = (template as { prompt?: unknown }).prompt;
+  if (typeof prompt !== "string") return template;
+  return { ...template, args: parseTemplateArgs(prompt) };
+}
 
 const JOB_AGENT_TYPES = ["claude", "codex", "opencode", "cursor"] as const;
 const TEMPLATE_AGENT_TYPES = [...JOB_AGENT_TYPES, "terminal"] as const;
@@ -449,7 +462,7 @@ export function registerCrudTools(
       "list_templates",
       {
         description:
-          "List templates, scoped to a directory. Defaults to the agent's working directory.",
+          "List templates, scoped to a directory. Defaults to the agent's working directory. Each template's `args` field lists the variables its prompt expects.",
         inputSchema: { directory: dirSchema() },
       },
       async (args) => {
@@ -457,8 +470,13 @@ export function registerCrudTools(
           const result = await callbacks.listTemplates(
             args.directory?.trim() || defaultCwd
           );
+          const annotated = Array.isArray(result)
+            ? result.map(withTemplateArgs)
+            : result;
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [
+              { type: "text", text: JSON.stringify(annotated, null, 2) },
+            ],
           };
         } catch (error) {
           return toToolError(error);
@@ -473,7 +491,7 @@ export function registerCrudTools(
       "get_template",
       {
         description:
-          "Get a single template by ID or name. When using name, directory defaults to the agent's working directory.",
+          "Get a single template by ID or name. When using name, directory defaults to the agent's working directory. The `args` field lists the variables its prompt expects — pass values for them as dispatch_launch_agent's templateArgs.",
         inputSchema: {
           templateId: z
             .string()
@@ -499,7 +517,12 @@ export function registerCrudTools(
               );
           if (!result) return toToolError(new Error("Template not found."));
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify(withTemplateArgs(result), null, 2),
+              },
+            ],
           };
         } catch (error) {
           return toToolError(error);

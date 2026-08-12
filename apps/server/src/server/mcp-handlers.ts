@@ -17,10 +17,7 @@ import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
-import {
-  renderTemplateLaunchPrompt,
-  type RenderedTemplatePrompt,
-} from "../templates/launch-prompt.js";
+import { renderTemplateLaunchPrompt } from "../templates/launch-prompt.js";
 import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
 import type {
   NotifyInput,
@@ -406,21 +403,22 @@ async function handleLaunchAgent(
   // Launching a template is a request for the template's own instructions —
   // without this the caller's short prompt was the agent's entire prompt and
   // every one of the template's instructions was silently dropped.
-  const rendered =
-    template?.prompt != null && template.prompt.trim() !== ""
-      ? renderTemplateLaunchPrompt({
-          templatePrompt: template.prompt,
-          callerPrompt: input.prompt,
-          args: input.templateArgs,
-        })
-      : null;
-
-  let prompt = rendered?.prompt ?? input.prompt;
-  if (rendered && template?.selfImprove) {
-    prompt += buildSelfImprovementGuidance({
-      kind: "template",
-      templateId: template.id,
-    });
+  let prompt = input.prompt;
+  let unfilled: string[] = [];
+  if (template?.prompt) {
+    const rendered = renderTemplateLaunchPrompt(
+      template.prompt,
+      input.prompt,
+      input.templateArgs
+    );
+    prompt = rendered.prompt;
+    unfilled = rendered.unfilled;
+    if (template.selfImprove) {
+      prompt += buildSelfImprovementGuidance({
+        kind: "template",
+        templateId: template.id,
+      });
+    }
   }
 
   const agent = await deps.agentManager.createAgent({
@@ -445,32 +443,13 @@ async function handleLaunchAgent(
     agent: deps.withStreamFlag(agent),
   });
 
-  const note = rendered
-    ? describeTemplateRendering(template!.name, rendered)
-    : undefined;
+  // Empty variables are the quiet failure mode of this path, so say so rather
+  // than letting the caller assume the template rendered in full.
+  const note =
+    unfilled.length > 0
+      ? `Template variables left empty: ${unfilled.join(", ")}. Pass templateArgs to fill them.`
+      : undefined;
   return { agentId: agent.id, name: agent.name, ...(note ? { note } : {}) };
-}
-
-/** Tells the caller how their free-text prompt was folded into the template, so
- * a template needing structured templateArgs does not fail quietly. */
-function describeTemplateRendering(
-  templateName: string,
-  rendered: RenderedTemplatePrompt
-): string | undefined {
-  const parts: string[] = [];
-  if (rendered.filledFromPrompt) {
-    parts.push(
-      `Your prompt was substituted into the "${rendered.filledFromPrompt}" placeholder.`
-    );
-  } else if (rendered.appendedCallerPrompt) {
-    parts.push("Your prompt was appended to the template's prompt.");
-  }
-  if (rendered.unfilled.length > 0) {
-    parts.push(
-      `Template "${templateName}" has placeholders with no value: ${rendered.unfilled.join(", ")} — they rendered empty. Pass templateArgs to fill them.`
-    );
-  }
-  return parts.length > 0 ? parts.join(" ") : undefined;
 }
 
 async function handleArchiveAgent(
