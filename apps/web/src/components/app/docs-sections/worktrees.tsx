@@ -21,7 +21,9 @@ export function WorktreesContent() {
           When enabled, Dispatch creates a linked worktree directory, copies{" "}
           <Code>.env</Code> if it exists, and auto-installs dependencies if it
           detects a <Code>pnpm-lock.yaml</Code>, <Code>yarn.lock</Code>,{" "}
-          <Code>package-lock.json</Code>, or <Code>bun.lockb</Code>.
+          <Code>package-lock.json</Code>, or <Code>bun.lockb</Code>. Plain
+          terminal sessions get the worktree and the <Code>.env</Code> copy but
+          skip the dependency install.
         </P>
       </Section>
 
@@ -32,10 +34,10 @@ export function WorktreesContent() {
           fall back to running in the main checkout. If the worktree can't be
           created — a name collision, a missing starting branch, or another git
           error — the agent is marked <Code>stopped</Code> with the underlying
-          git error in its <strong>Last error</strong>, and its card shows an{" "}
-          <strong>Attention</strong> badge. Any partially-created worktree or
-          branch is cleaned up, so fixing the cause and relaunching starts from
-          a clean slate.
+          git error in its <strong>Last error</strong>, and its card's status
+          line flips to <strong>Blocked</strong> carrying the same message. Any
+          partially-created worktree or branch is cleaned up, so fixing the
+          cause and relaunching starts from a clean slate.
         </P>
       </Section>
 
@@ -62,6 +64,15 @@ export function WorktreesContent() {
           </li>
         </ul>
         <P>
+          Either way, Dispatch fetches the starting branch from{" "}
+          <Code>origin</Code> first. A new branch forks from the fetched{" "}
+          <Code>origin/&lt;starting branch&gt;</Code>, so it starts at the
+          latest pushed commit rather than wherever your local checkout is
+          sitting; checking out the starting branch directly uses your local
+          copy of it. Repos with no <Code>origin</Code> — or no matching remote
+          branch — fall back to the local branch.
+        </P>
+        <P>
           The new-branch preference is remembered per working directory, so
           review and authoring repos each keep their own default.
         </P>
@@ -86,6 +97,14 @@ export function WorktreesContent() {
           commits and uncommitted changes. If the worktree is clean, it's
           removed automatically. If there are outstanding changes, you're asked
           whether to keep the worktree for manual review or remove it.
+        </P>
+        <P>
+          Removing the worktree also deletes the branch Dispatch created for it.
+          On the automatic path that only happens when there was nothing
+          unmerged or uncommitted left to lose. Answering{" "}
+          <strong>Archive and remove worktree</strong> at the prompt above
+          deletes the branch anyway, commits you never pushed included — choose{" "}
+          <strong>Archive, keep worktree</strong> if you might still want them.
         </P>
         <P>
           If the worktree was checked out on an existing branch (the new-branch

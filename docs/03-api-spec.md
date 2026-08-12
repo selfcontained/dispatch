@@ -186,9 +186,13 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 | GET    | `/agents/:id/terminal/state`              | Current tmux terminal state (copy mode / live)                     |
 | POST   | `/agents/:id/terminal/copy-mode/exit`     | Leave tmux copy mode and return the pane to live input             |
 | POST   | `/agents/:id/terminal/interaction`        | Record a user terminal interaction (`{ "interaction": "scroll" }`) |
+| POST   | `/agents/:id/terminal/inject-text`        | Paste typed text into the session (mobile fullscreen input)        |
+| POST   | `/agents/:id/terminal/inject-pin/:pinId`  | Run a shortcut pin — delivers the prompt stored on that pin        |
 | POST   | `/agents/:id/terminal/release-injections` | Deliver every prompt currently held by the quiet gate              |
 
-The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session. Keystrokes and `interaction` messages also feed the injection quiet gate — see `/app/settings/injection-hold`. The state, copy-mode, interaction, and inject-phrase endpoints return `409` when the agent has no tmux session.
+The WebSocket provides bidirectional terminal I/O with resize support, bridging to the agent's tmux session. Keystrokes and `interaction` messages also feed the injection quiet gate — see `/app/settings/injection-hold`. The state, copy-mode, interaction, and injection endpoints return `409` when the agent has no tmux session.
+
+`inject-text` takes `text` (required, max 10,000 characters) and optional `submit` (default `true` — sends Enter after pasting). `inject-pin` takes no body: the prompt is read server-side from the agent's own pin, so a client can only fire prompts the agent pinned. It returns `404` for an unknown pin id and `400` when the pin isn't a shortcut or has been disabled. Both deliver through the tmux paste buffer and, being user-initiated, skip the quiet gate while still serializing against in-flight automated injections.
 
 ## Quick Phrases
 

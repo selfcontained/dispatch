@@ -260,6 +260,14 @@ export const tips: Tip[] = [
     since: "0.33.6",
     surfaces: ["ambient"],
   },
+  {
+    id: "shortcut-pins",
+    title: "One-Click Agent Shortcuts",
+    body: "Agents can pin a button to the Pins tab that sends a prompt back to them when you click it — approve a plan, kick off the next step, re-run a check without typing it out.",
+    docsSection: "media#media-sidebar",
+    since: "0.33.7",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {
