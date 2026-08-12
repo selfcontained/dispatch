@@ -397,9 +397,24 @@ export class BrainStore {
    */
   async getListItem(
     repoRoot: string,
-    input: { collection: string; name: string; index: number }
+    input: {
+      collection: string;
+      name: string;
+      index: number;
+      expectedRevision?: number;
+    }
   ): Promise<BrainListItem | null> {
-    const { collection, name, index } = input;
+    const { collection, name, index, expectedRevision } = input;
+    // An index is a position, not an identity: removing an item reindexes the
+    // ones after it. A caller that read an index from brain_list_get can pass
+    // the revision it saw and get a conflict instead of a different item.
+    if (expectedRevision !== undefined) {
+      const list = await this.getList(repoRoot, collection, name);
+      if (!list) throw new BrainListNotFoundError(collection, name);
+      if (list.revision !== expectedRevision) {
+        throw new BrainRevisionConflictError(list);
+      }
+    }
     const result = await this.pool.query(
       `SELECT ${listItemColumns()}
        FROM brain_list_items
