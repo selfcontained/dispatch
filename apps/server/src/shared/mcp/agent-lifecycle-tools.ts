@@ -48,7 +48,7 @@ export type AgentLifecycleContext = {
  * ports, file lists) are far shorter; this only bites on shortcut pins, whose
  * value is a whole prompt the caller wrote in the first place.
  */
-export const PIN_VALUE_MAX = 500;
+const PIN_VALUE_MAX = 500;
 
 export function registerAgentLifecycleTools(
   server: McpServer,
@@ -265,12 +265,31 @@ export function registerAgentLifecycleTools(
       {
         description:
           "List this agent's current Dispatch sidebar pins. Use dispatch_delete_pin with a returned id to remove a stale pin. " +
-          `Pin values longer than ${PIN_VALUE_MAX} characters are truncated (marked with the number of characters dropped); a shortcut pin's full prompt is visible in the Dispatch UI.`,
-        inputSchema: {},
+          `Pin values longer than ${PIN_VALUE_MAX} characters are truncated (marked with the number of characters dropped). ` +
+          "Pass an id to get that one pin back in full instead — that is how you read a long shortcut pin's whole prompt.",
+        inputSchema: {
+          id: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              "Return only this pin, untruncated. Omit to list every pin."
+            ),
+        },
       },
-      async () => {
+      async (args) => {
         try {
           const pins = await listPins(agentId);
+          if (args.id !== undefined) {
+            const pin = pins.find((candidate) => candidate.id === args.id);
+            if (!pin) {
+              return toToolError(new Error(`Pin ${args.id} not found.`));
+            }
+            // A request for one pin is the detail read, so it is not truncated.
+            return {
+              content: [{ type: "text" as const, text: jsonText(pin) }],
+            };
+          }
           return {
             content: [
               {

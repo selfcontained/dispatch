@@ -190,7 +190,6 @@ describe("registerPersonaInteractionTools", () => {
     const callbacks: PersonaInteractionCallbacks = {
       agentId,
       parentAgentId: "agt_parent",
-      getParentContext: vi.fn(async () => ({ pins: [], media: [] })),
       listReviewFeedback: vi.fn(async () => []),
       submitReview: vi.fn(async () => ({ review: { id: 1 } })),
       addReviewFeedback: vi.fn(async () => ({ item: { id: 2 } })),
@@ -216,7 +215,6 @@ describe("registerPersonaInteractionTools", () => {
       "dispatch_review_resolve",
       "dispatch_review_reopen",
       "dispatch_review_add_message",
-      "get_parent_context",
     ]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
@@ -226,7 +224,6 @@ describe("registerPersonaInteractionTools", () => {
     expect(names).toContain("dispatch_review_resolve");
     expect(names).toContain("dispatch_review_reopen");
     expect(names).toContain("dispatch_review_add_message");
-    expect(names).toContain("get_parent_context");
   });
 
   it("normalizes summary whitespace before enforcing its length", () => {
@@ -290,33 +287,6 @@ describe("registerPersonaInteractionTools", () => {
   });
 
   describe("tool handlers", () => {
-    it("get_parent_context returns the parent's pins and media", async () => {
-      const getParentContext = vi.fn(async () => ({
-        pins: [{ label: "Dev", value: "http://localhost", type: "url" }],
-        media: [
-          {
-            fileName: "screen.png",
-            filePath: "/tmp/screen.png",
-            description: "Current UI",
-            source: "screenshot",
-            sizeBytes: 42,
-            createdAt: "2026-07-16T00:00:00Z",
-          },
-        ],
-      }));
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["get_parent_context"]),
-        { agentId, parentAgentId: "agt_parent", getParentContext }
-      );
-
-      const result = (await server.tools[0].handler({})) as any;
-      expect(getParentContext).toHaveBeenCalledWith("agt_parent");
-      expect(result.content[0].text).toContain("Dev (url)");
-      expect(result.content[0].text).toContain("screen.png");
-      expect(result.structuredContent.media).toHaveLength(1);
-    });
-
     it("requires a summary only when dispatch_review_submit has no feedback", async () => {
       const submitReview = vi.fn(async () => ({
         review: {

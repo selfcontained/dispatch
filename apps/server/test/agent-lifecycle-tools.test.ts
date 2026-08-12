@@ -440,6 +440,39 @@ describe("registerAgentLifecycleTools", () => {
   });
 
   describe("dispatch_list_pins handler", () => {
+    it("returns one pin untruncated when given its id", async () => {
+      const value = "z".repeat(1200);
+      const pins = [
+        { id: "pin_1", label: "Short", value: "ok", type: "string" },
+        { id: "pin_2", label: "Shortcut", value, type: "shortcut" },
+      ];
+      const ctx = baseContext();
+      ctx.listPins = vi.fn(async () => pins);
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["dispatch_list_pins"]),
+        ctx
+      );
+
+      const one = (await server.tools[0]!.handler({ id: "pin_2" })) as {
+        content: Array<{ text: string }>;
+      };
+      expect(JSON.parse(one.content[0]!.text).value).toBe(value);
+
+      // ...while the unfiltered listing still caps it.
+      const all = (await server.tools[0]!.handler({})) as {
+        content: Array<{ text: string }>;
+      };
+      expect(JSON.parse(all.content[0]!.text)[1].value).toBe(
+        `${"z".repeat(500)}…[+700 chars]`
+      );
+
+      const missing = (await server.tools[0]!.handler({ id: "nope" })) as {
+        isError?: true;
+      };
+      expect(missing.isError).toBe(true);
+    });
+
     it("returns the current pins", async () => {
       const pins = [
         { label: "Dev", value: "http://localhost:5173", type: "url" },

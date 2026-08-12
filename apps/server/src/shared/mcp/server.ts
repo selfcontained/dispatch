@@ -11,10 +11,7 @@ import type {
 import type { BrainStore } from "../../brain/store.js";
 import { registerAgentArchiveTools } from "./agent-archive-tools.js";
 import { registerAgentLaunchTools } from "./agent-launch-tools.js";
-import {
-  PIN_VALUE_MAX,
-  registerAgentLifecycleTools,
-} from "./agent-lifecycle-tools.js";
+import { registerAgentLifecycleTools } from "./agent-lifecycle-tools.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
@@ -34,7 +31,7 @@ import {
 import { registerPrTools } from "./pr-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { VALID_PIN_SHORTCUT_ICONS } from "../../pins.js";
-import { jsonText, truncateLongStrings } from "./response.js";
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 /** One pin spec as an agent supplies it, shared by the single and batch tools. */
@@ -247,7 +244,6 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_review_get_feedback",
   "dispatch_review_add_message",
   "dispatch_review_resolve",
-  "get_parent_context",
   "whiteboard_get",
 ]);
 
@@ -256,18 +252,6 @@ const TOOL_SETS: Record<AgentCapabilityType, Set<string>> = {
   agent: AGENT_TOOLS,
   job: JOB_TOOLS,
   review: REVIEW_AGENT_TOOLS,
-};
-
-export type ParentContextResult = {
-  pins: Array<{ id?: string; label: string; value: string; type: string }>;
-  media: Array<{
-    fileName: string;
-    filePath: string;
-    description: string | null;
-    source: string;
-    sizeBytes: number;
-    createdAt: string;
-  }>;
 };
 
 export type NotifyInput = {
@@ -504,7 +488,6 @@ export type McpRequestContext = {
     deleteIds: string[]
   ) => Promise<WhiteboardUpdateResult>;
   clearWhiteboard?: (agentId: string) => Promise<void>;
-  getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
   sendMessage?: (
     agentId: string,
     input: { target: string; message: string; senderRepoRoot: string | null }
@@ -631,7 +614,6 @@ async function createDispatchMcpServer(
       addReviewThreadMessage: context.addReviewThreadMessage,
       listReviewFeedback: context.listReviewFeedback,
       getReviewFeedbackItem: context.getReviewFeedbackItem,
-      getParentContext: context.getParentContext,
     });
   }
 
@@ -943,16 +925,14 @@ function registerBatchPinTool(
         });
         // Echo the resulting list, not the request: an agent can then see what
         // the batch actually produced — order included — rather than assuming
-        // its input round-tripped. Values are capped the way dispatch_list_pins
-        // caps them, so a sidebar full of long shortcut prompts cannot turn
-        // every batch write into a multi-KB response.
+        // its input round-tripped. upsertPins returns summaries (id, label,
+        // group), so this stays thin however long the stored values are; read
+        // one back in full with dispatch_list_pins and its id.
         return {
           content: [
             {
               type: "text",
-              text: `Wrote ${args.pins.length} pin(s). Pins are now: ${jsonText(
-                truncateLongStrings(pins, PIN_VALUE_MAX)
-              )}`,
+              text: `Wrote ${args.pins.length} pin(s). Pins are now: ${jsonText(pins)}`,
             },
           ],
         };

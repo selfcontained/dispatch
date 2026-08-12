@@ -21,7 +21,7 @@ import {
 } from "../../personas/authoring.js";
 import { describeAgentModelCatalog } from "../agent-models.js";
 import type { McpRequestContext } from "./server.js";
-import { jsonText, truncateLongStrings } from "./response.js";
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export const LAUNCH_PERSONA_AGENT_TYPES = [
@@ -47,11 +47,7 @@ export type PersonaInteractionCallbacks = {
   addReviewThreadMessage?: McpRequestContext["addReviewThreadMessage"];
   listReviewFeedback?: McpRequestContext["listReviewFeedback"];
   getReviewFeedbackItem?: McpRequestContext["getReviewFeedbackItem"];
-  getParentContext?: McpRequestContext["getParentContext"];
 };
-
-/** Matches dispatch_list_pins: only a shortcut pin's prompt runs this long. */
-const PARENT_PIN_VALUE_MAX = 500;
 
 type PersonaSummary = { slug: string; name: string; description: string };
 
@@ -239,55 +235,6 @@ export function registerPersonaInteractionTools(
                     : `Review #${result.review.id} submitted with ${count} feedback item(s).`,
               },
             ],
-            structuredContent: result,
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  if (
-    allowed.has("get_parent_context") &&
-    callbacks.parentAgentId &&
-    callbacks.getParentContext
-  ) {
-    const parentAgentId = callbacks.parentAgentId;
-    const getParentContext = callbacks.getParentContext;
-    server.registerTool(
-      "get_parent_context",
-      {
-        description:
-          "Retrieve the parent agent's pins and shared media. Use this to discover dev server URLs, key files, screenshots, and other context the parent agent has surfaced. Shared media includes an absolute filePath for direct inspection.",
-        inputSchema: {},
-      },
-      async () => {
-        try {
-          const raw = await getParentContext(parentAgentId);
-          const result = {
-            ...raw,
-            pins: truncateLongStrings(raw.pins, PARENT_PIN_VALUE_MAX),
-          };
-          const parts: string[] = [];
-          if (result.pins.length > 0) {
-            parts.push("Pins:");
-            for (const pin of result.pins) {
-              parts.push(`  ${pin.label} (${pin.type}): ${pin.value}`);
-            }
-          } else {
-            parts.push("No pins set by parent agent.");
-          }
-          if (result.media.length > 0) {
-            parts.push("\nShared media:");
-            for (const media of result.media) {
-              parts.push(
-                `  ${media.fileName} (${media.sizeBytes} bytes) at ${media.filePath}: ${media.description ?? "(no description)"}`
-              );
-            }
-          }
-          return {
-            content: [{ type: "text", text: parts.join("\n") }],
             structuredContent: result,
           };
         } catch (error) {

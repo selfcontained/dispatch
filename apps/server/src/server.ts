@@ -640,7 +640,6 @@ async function registerRoutes() {
     mcpDeletePin: mcpHandlers.deletePin,
     mcpDeletePinByLabel: mcpHandlers.deletePinByLabel,
     mcpListPins: mcpHandlers.listPins,
-    mcpGetParentContext: mcpHandlers.getParentContext,
     mcpJobComplete: mcpHandlers.jobComplete,
     mcpJobFailed: mcpHandlers.jobFailed,
     mcpJobNeedsInput: mcpHandlers.jobNeedsInput,

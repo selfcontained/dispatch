@@ -73,7 +73,6 @@ type McpRouteDeps = {
   mcpUpsertPins: unknown;
   mcpDeletePin: unknown;
   mcpDeletePinByLabel: unknown;
-  mcpGetParentContext: unknown;
   mcpJobComplete: unknown;
   mcpJobFailed: unknown;
   mcpJobNeedsInput: unknown;
@@ -331,7 +330,6 @@ export async function registerMcpRoutes(
       deletePin: deps.mcpDeletePin,
       deletePinByLabel: deps.mcpDeletePinByLabel,
       listPins: deps.mcpListPins,
-      getParentContext: deps.mcpGetParentContext,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
           Record<string, unknown>
