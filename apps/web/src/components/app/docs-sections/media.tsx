@@ -114,7 +114,7 @@ export function MediaContent() {
       </Section>
 
       <Section>
-        <H3>Media sidebar</H3>
+        <H3 id="media-sidebar">Media sidebar</H3>
         <P>
           Click the media sidebar button at the right of the terminal's top bar
           (or press <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The button
@@ -133,21 +133,23 @@ export function MediaContent() {
           injects a prompt into that agent's session when you click it, exactly
           as if you had typed it yourself. Hovering shows the full prompt before
           you commit, shortcuts the agent marks as risky ask you to confirm
-          first, and they're disabled while the agent isn't running. Any pin can
-          also carry a one-line markdown caption, and pins sharing a{" "}
-          <Code>group</Code> render together under one heading. The{" "}
-          <strong>Media</strong> tab shows shared files in reverse chronological
-          order (most recent 50); click an item to open the full-screen
-          lightbox. Items you haven't seen yet are highlighted, and the tab
-          shows an unseen count. The <strong>Reviews</strong> tab shows human
-          review feedback submitted from the Changes tab — each review has a
-          status badge (open, partially resolved, or resolved), and you can
-          expand it to see individual items, threaded messages, diff snapshots,
-          and resolutions. Click a file path to jump to that location in the
-          Changes tab. The <strong>Messages</strong> tab shows inter-agent
-          messages grouped by conversation partner — sent and received messages
-          appear in chat-style bubbles with timestamps and delivery status.
-          Unread messages show a badge count on the tab.
+          first, and they're disabled while the agent isn't running. An agent
+          can also grey out a shortcut of its own once the action no longer
+          applies, leaving the caption to explain why. Any pin can also carry a
+          one-line markdown caption, and pins sharing a <Code>group</Code>{" "}
+          render together under one heading. The <strong>Media</strong> tab
+          shows shared files in reverse chronological order (most recent 50);
+          click an item to open the full-screen lightbox. Items you haven't seen
+          yet are highlighted, and the tab shows an unseen count. The{" "}
+          <strong>Reviews</strong> tab shows human review feedback submitted
+          from the Changes tab — each review has a status badge (open, partially
+          resolved, or resolved), and you can expand it to see individual items,
+          threaded messages, diff snapshots, and resolutions. Click a file path
+          to jump to that location in the Changes tab. The{" "}
+          <strong>Messages</strong> tab shows inter-agent messages grouped by
+          conversation partner — sent and received messages appear in chat-style
+          bubbles with timestamps and delivery status. Unread messages show a
+          badge count on the tab.
         </P>
         <P>
           The sidebar opens in <strong>drawer</strong> mode by default —
