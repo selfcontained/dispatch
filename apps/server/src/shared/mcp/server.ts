@@ -37,7 +37,8 @@ import { toToolError } from "./tool-error.js";
 type McpPinInput = {
   id?: string;
   label: string;
-  value: string;
+  /** Omitted on an update means "keep the stored value". */
+  value?: string;
   /** Omitted on an update means "keep the stored type". */
   type?: string;
   caption?: string;
@@ -744,7 +745,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           .max(2000)
           .optional()
           .describe(
-            "The value to display. For shortcut pins this is the prompt delivered to your session when the button is clicked."
+            "The value to display. For shortcut pins this is the prompt delivered to your session when the button is clicked. Required on a new pin; omit on an update to keep the stored value."
           ),
         type: z
           .enum([
@@ -816,15 +817,10 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
             content: [{ type: "text", text: `Removed pin \"${args.label}\".` }],
           };
         }
-        if (args.value === undefined) {
-          return toToolError(
-            new Error("value is required when creating or updating a pin.")
-          );
-        }
         const { pin, created } = await upsertPin(agentId, {
           ...(args.id !== undefined ? { id: args.id } : {}),
           label: args.label,
-          value: args.value,
+          ...(args.value !== undefined ? { value: args.value } : {}),
           ...(args.type !== undefined ? { type: args.type } : {}),
           ...(args.caption !== undefined ? { caption: args.caption } : {}),
           ...(args.group !== undefined ? { group: args.group } : {}),
@@ -863,7 +859,13 @@ const batchPinEntrySchema = z.object({
     .optional()
     .describe("Pin id from dispatch_list_pins. Required to change a label."),
   label: z.string().max(100).describe("Display label, or button text."),
-  value: z.string().max(2000).describe("Value, or the prompt for a shortcut."),
+  value: z
+    .string()
+    .max(2000)
+    .optional()
+    .describe(
+      "Value, or the prompt for a shortcut. Required on a new pin; omit on an update to keep the stored value."
+    ),
   type: z
     .enum([
       "string",

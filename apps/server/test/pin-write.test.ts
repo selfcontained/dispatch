@@ -106,6 +106,47 @@ describe("applyPinSpec", () => {
     expect(result.stored.type).toBe("string");
   });
 
+  it("inherits the stored value when an update omits it", () => {
+    // The point of id matching is a one-field patch; making a relabel restate
+    // the prompt it is not changing would undercut that.
+    const shortcuts: AgentPin[] = [
+      {
+        id: "pin_s",
+        label: "Run it",
+        value: "do the thing",
+        type: "shortcut",
+        icon: "zap",
+      },
+    ];
+    const result = applyPinSpec(shortcuts, {
+      id: "pin_s",
+      label: "Run it now",
+    });
+    expect(result.stored).toMatchObject({
+      label: "Run it now",
+      value: "do the thing",
+      type: "shortcut",
+      icon: "zap",
+    });
+  });
+
+  it("still requires a value when there is nothing to inherit from", () => {
+    expect(() => applyPinSpec([], { label: "Fresh" })).toThrow(
+      /value is required/i
+    );
+  });
+
+  it("validates an inherited value against a newly given type", () => {
+    // Changing only the type has to re-check the value it kept, or a url pin
+    // could be retyped without its value ever being checked as a url.
+    const strings: AgentPin[] = [
+      { id: "pin_x", label: "Thing", value: "not a url", type: "string" },
+    ];
+    expect(() =>
+      applyPinSpec(strings, { id: "pin_x", label: "Thing", type: "url" })
+    ).toThrow();
+  });
+
   it("still strips shortcut-only fields when a pin is retyped", () => {
     const shortcuts: AgentPin[] = [
       {

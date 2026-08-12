@@ -12,11 +12,18 @@ import type { AgentPin } from "./types.js";
 export const MAX_PINS = 50;
 
 /**
- * A pin as an agent submits it. `type` is optional because an update that
- * omits it inherits the stored one — defaulting it to "string" would make a
- * pure relabel silently demote a shortcut pin and drop its icon.
+ * A pin as an agent submits it.
+ *
+ * `type` and `value` are optional because an update that omits either
+ * inherits the stored one. Defaulting `type` to "string" would make a pure
+ * relabel silently demote a shortcut pin and drop its icon; requiring `value`
+ * would make the same relabel restate the prompt it is not changing. Both are
+ * required in effect when creating, enforced in `toStorablePin`.
  */
-export type PinSpec = Omit<AgentPin, "type"> & { type?: string };
+export type PinSpec = Omit<AgentPin, "type" | "value"> & {
+  type?: string;
+  value?: string;
+};
 
 /**
  * Validate the pin that is actually about to be stored, narrowing it.
@@ -42,9 +49,17 @@ function validateStoredPin(pin: DraftPin): AgentPin {
   return stored;
 }
 
-/** Resolve a spec against the pin it is updating, inheriting an omitted type. */
-function toStorablePin(spec: PinSpec, inheritedType?: string): DraftPin {
-  return { ...spec, type: spec.type ?? inheritedType ?? "string" };
+/**
+ * Resolve a spec against the pin it is updating, inheriting an omitted type or
+ * value. With nothing to inherit from we are creating, and a pin with no value
+ * has nothing to display — so that is the one case where value is mandatory.
+ */
+function toStorablePin(spec: PinSpec, existing?: AgentPin): DraftPin {
+  const value = spec.value ?? existing?.value;
+  if (value === undefined) {
+    throw new AgentError("value is required when creating a pin.", 400);
+  }
+  return { ...spec, value, type: spec.type ?? existing?.type ?? "string" };
 }
 
 /** Case-insensitive label equality — the historical uniqueness rule. */
@@ -143,7 +158,7 @@ export function applyPinSpec(pins: AgentPin[], spec: PinSpec): ApplyPinResult {
     const stored = validateStoredPin(
       mergePin(
         { ...existing, id: existing.id ?? randomUUID() },
-        toStorablePin(spec, existing.type)
+        toStorablePin(spec, existing)
       )
     );
     const next = [...pins];
@@ -223,7 +238,7 @@ export function replacePinGroup(
       validateStoredPin(
         mergePin(
           { ...existing, id: existing.id ?? randomUUID() },
-          toStorablePin(spec, existing.type)
+          toStorablePin(spec, existing)
         )
       )
     );

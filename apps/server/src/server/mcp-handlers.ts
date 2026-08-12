@@ -185,7 +185,7 @@ async function handleSendNotify(
 type PinInput = {
   id?: string;
   label: string;
-  value: string;
+  value?: string;
   type?: string;
   caption?: string;
   group?: string;
@@ -211,7 +211,9 @@ function toValidatedPin(pin: PinInput): PinSpec {
   if (pin.type !== undefined && !isPinType(pin.type)) {
     throw new Error(`Invalid pin type: ${pin.type}`);
   }
-  if (pin.type !== undefined) {
+  // Only a spec carrying both can be checked here; anything relying on an
+  // inherited type or value is validated in `pin-write` once merged.
+  if (pin.type !== undefined && pin.value !== undefined) {
     validatePinValue(pin.type, pin.value);
   }
 
@@ -232,7 +234,7 @@ function toValidatedPin(pin: PinInput): PinSpec {
   return {
     ...(pin.id !== undefined ? { id: pin.id } : {}),
     label: pin.label,
-    value: pin.value,
+    ...(pin.value !== undefined ? { value: pin.value } : {}),
     ...(pin.type !== undefined ? { type: pin.type } : {}),
     ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
     ...(pin.group !== undefined ? { group: pin.group } : {}),
