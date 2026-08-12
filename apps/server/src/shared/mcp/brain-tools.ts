@@ -348,8 +348,9 @@ export function registerBrainTools(
       {
         description:
           "Read items from a shared brain list. Returns the selected items, total count, and current revision. " +
-          `Strings longer than ${LIST_VALUE_STRING_MAX} characters are truncated (marked with the number dropped) — ` +
-          "narrow the window with offset and limit to read one item in full.",
+          `Strings longer than ${LIST_VALUE_STRING_MAX} characters are truncated (marked with the number dropped), ` +
+          "except when limit is 1 — a single-item window is returned in full, so use limit 1 with an offset " +
+          "to read one item whole.",
         inputSchema: {
           collection: collectionSchema.describe(
             "The collection the list belongs to."
@@ -384,9 +385,13 @@ export function registerBrainTools(
             offset: args.offset,
             order: args.order,
           });
-          // Same reasoning as brain_list_objects; here the per-item read is a
-          // narrower window on this tool rather than a separate one.
-          const result = truncateLongStrings(raw, LIST_VALUE_STRING_MAX);
+          // Same reasoning as brain_list_objects, except the per-item read is a
+          // narrower window on this same tool rather than a separate one — so
+          // asking for exactly one item is the full read, and must not truncate.
+          const result =
+            args.limit === 1
+              ? raw
+              : truncateLongStrings(raw, LIST_VALUE_STRING_MAX);
           return {
             content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),

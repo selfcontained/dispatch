@@ -422,6 +422,10 @@ export type McpRequestContext = {
       }>;
     }>
   >;
+  getReviewFeedbackItem?: (
+    agentId: string,
+    itemId: number
+  ) => Promise<Record<string, unknown> | null>;
   upsertPin?: (
     agentId: string,
     pin: {
@@ -570,6 +574,7 @@ async function createDispatchMcpServer(
       addReviewFeedback: context.addReviewFeedback,
       addReviewThreadMessage: context.addReviewThreadMessage,
       listReviewFeedback: context.listReviewFeedback,
+      getReviewFeedbackItem: context.getReviewFeedbackItem,
       getParentContext: context.getParentContext,
     });
   }

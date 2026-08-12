@@ -46,6 +46,7 @@ export type PersonaInteractionCallbacks = {
   addReviewFeedback?: McpRequestContext["addReviewFeedback"];
   addReviewThreadMessage?: McpRequestContext["addReviewThreadMessage"];
   listReviewFeedback?: McpRequestContext["listReviewFeedback"];
+  getReviewFeedbackItem?: McpRequestContext["getReviewFeedbackItem"];
   getParentContext?: McpRequestContext["getParentContext"];
 };
 
@@ -428,9 +429,9 @@ export function registerPersonaInteractionTools(
   // ── dispatch_review_get_feedback ─────────────────────────────────
   if (
     allowed.has("dispatch_review_get_feedback") &&
-    callbacks.listReviewFeedback
+    callbacks.getReviewFeedbackItem
   ) {
-    const listReviewFeedback = callbacks.listReviewFeedback;
+    const getReviewFeedbackItem = callbacks.getReviewFeedbackItem;
 
     server.registerTool(
       "dispatch_review_get_feedback",
@@ -447,8 +448,10 @@ export function registerPersonaInteractionTools(
       },
       async (args) => {
         try {
-          const items = await listReviewFeedback(agentId);
-          const item = items.find((candidate) => candidate.id === args.itemId);
+          // Scoped to the reviews this agent is party to by the same predicate
+          // the listing uses, and fetched as one row rather than by scanning
+          // every item of every review.
+          const item = await getReviewFeedbackItem(agentId, args.itemId);
           if (!item) {
             return toToolError(
               new Error(

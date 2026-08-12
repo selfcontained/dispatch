@@ -632,6 +632,7 @@ async function registerRoutes() {
     mcpAddReviewFeedback: mcpHandlers.addReviewFeedback,
     mcpAddReviewThreadMessage: mcpHandlers.addReviewThreadMessage,
     mcpListReviewFeedback: mcpHandlers.listReviewFeedback,
+    mcpGetReviewFeedbackItem: mcpHandlers.getReviewFeedbackItem,
     mcpSendMessage: mcpHandlers.sendMessage,
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
     mcpUpsertPin: mcpHandlers.upsertPin,

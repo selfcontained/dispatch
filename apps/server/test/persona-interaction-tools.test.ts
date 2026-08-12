@@ -459,10 +459,12 @@ describe("registerPersonaInteractionTools", () => {
         diffSnapshot: "@@ -1 +1 @@",
         messages: [{ id: 1, authorType: "agent", content: { body: "first" } }],
       };
-      const listReviewFeedback = vi.fn(async () => [item]);
+      const getReviewFeedbackItem = vi.fn(
+        async (_agentId: string, id: number) => (id === 7 ? item : null)
+      );
       const callbacks: PersonaInteractionCallbacks = {
         agentId,
-        listReviewFeedback: listReviewFeedback as never,
+        getReviewFeedbackItem: getReviewFeedbackItem as never,
       };
       registerPersonaInteractionTools(
         server as any,
@@ -472,6 +474,8 @@ describe("registerPersonaInteractionTools", () => {
 
       const found = (await server.tools[0].handler({ itemId: 7 })) as any;
       expect(found.structuredContent.item).toEqual(item);
+      // Fetched by id, not by scanning the agent's whole feedback list.
+      expect(getReviewFeedbackItem).toHaveBeenCalledWith(agentId, 7);
 
       const missing = (await server.tools[0].handler({ itemId: 99 })) as any;
       expect(missing.isError).toBe(true);

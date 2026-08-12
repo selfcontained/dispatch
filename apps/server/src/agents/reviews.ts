@@ -567,6 +567,51 @@ export async function addThreadMessage(
   };
 }
 
+/**
+ * Read one feedback item and its thread, scoped by the same ownership predicate
+ * listFeedbackItemsForAgent uses. Kept as its own query rather than a filter over
+ * that listing so serving a detail read costs one item, not every item of every
+ * review the agent is party to.
+ */
+export async function getFeedbackItemForAgent(
+  pool: Pool,
+  agentId: string,
+  itemId: number
+): Promise<
+  | (ReviewFeedbackItemRecord & {
+      reviewId: number;
+      messages: ReviewThreadMessageRecord[];
+    })
+  | null
+> {
+  const itemResult = await pool.query<
+    ReviewFeedbackItemRecord & { reviewId: number }
+  >(
+    `SELECT fi.id, fi.review_id AS "reviewId", fi.file_path AS "filePath",
+            fi.line_start AS "lineStart", fi.line_end AS "lineEnd",
+            fi.diff_snapshot AS "diffSnapshot", fi.base_ref AS "baseRef",
+            fi.status, fi.resolution, fi.resolution_note AS "resolutionNote",
+            fi.resolved_by AS "resolvedBy", fi.resolved_at AS "resolvedAt",
+            fi.created_at AS "createdAt", fi.updated_at AS "updatedAt"
+     FROM review_feedback_items fi
+     JOIN reviews r ON r.id = fi.review_id
+     WHERE fi.id = $2
+       AND (r.agent_id = $1 OR r.assigned_agent_id = $1 OR r.reviewer_agent_id = $1)`,
+    [agentId, itemId]
+  );
+  const item = itemResult.rows[0];
+  if (!item) return null;
+
+  const messagesResult = await pool.query<ReviewThreadMessageRecord>(
+    `SELECT ${THREAD_MESSAGE_SELECT}
+     FROM review_thread_messages
+     WHERE feedback_item_id = $1
+     ORDER BY created_at ASC`,
+    [item.id]
+  );
+  return { ...item, messages: messagesResult.rows };
+}
+
 export async function listFeedbackItemsForAgent(
   pool: Pool,
   agentId: string,

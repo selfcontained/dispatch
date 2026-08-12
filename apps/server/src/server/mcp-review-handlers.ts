@@ -42,6 +42,7 @@ import {
   resolveReviewFeedbackItem,
   reopenReviewFeedbackItem,
   addThreadMessage,
+  getFeedbackItemForAgent,
   listFeedbackItemsForAgent,
 } from "../agents/reviews.js";
 import type { ParentContextResult } from "../shared/mcp/server.js";
@@ -293,6 +294,10 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
 
     async listReviewFeedback(agentId: string, reviewId?: number) {
       return listFeedbackItemsForAgent(pool, agentId, reviewId);
+    },
+
+    async getReviewFeedbackItem(agentId: string, itemId: number) {
+      return getFeedbackItemForAgent(pool, agentId, itemId);
     },
 
     async resolveReviewFeedback(

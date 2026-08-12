@@ -68,6 +68,7 @@ type McpRouteDeps = {
   mcpAddReviewFeedback: unknown;
   mcpAddReviewThreadMessage: unknown;
   mcpListReviewFeedback: unknown;
+  mcpGetReviewFeedbackItem: unknown;
   mcpUpsertPin: unknown;
   mcpDeletePin: unknown;
   mcpDeletePinByLabel: unknown;
@@ -231,6 +232,7 @@ export async function registerMcpRoutes(
       addReviewFeedback: deps.mcpAddReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
+      getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
@@ -319,6 +321,7 @@ export async function registerMcpRoutes(
       addReviewFeedback: deps.mcpAddReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
+      getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       upsertPin: deps.mcpUpsertPin,

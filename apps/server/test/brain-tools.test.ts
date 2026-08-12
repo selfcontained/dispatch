@@ -634,6 +634,55 @@ describe("registerBrainTools", () => {
 
   // ── brain_list_set ─────────────────────────────────────────────
 
+  describe("brain_list_get", () => {
+    it("truncates long strings across a multi-item window", async () => {
+      store.getListItems.mockResolvedValue({
+        items: [{ index: 0, value: { body: "b".repeat(900) } }],
+        totalCount: 3,
+        revision: 2,
+      });
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_list_get"
+      )({
+        collection: "c",
+        name: "l",
+      })) as {
+        structuredContent: { items: Array<{ value: { body: string } }> };
+      };
+
+      expect(result.structuredContent.items[0]!.value.body).toBe(
+        `${"b".repeat(400)}…[+500 chars]`
+      );
+    });
+
+    it("returns a single-item window in full", async () => {
+      const body = "b".repeat(900);
+      store.getListItems.mockResolvedValue({
+        items: [{ index: 2, value: { body } }],
+        totalCount: 3,
+        revision: 2,
+      });
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_list_get"
+      )({
+        collection: "c",
+        name: "l",
+        offset: 2,
+        limit: 1,
+      })) as {
+        structuredContent: { items: Array<{ value: { body: string } }> };
+      };
+
+      expect(result.structuredContent.items[0]!.value.body).toBe(body);
+    });
+  });
+
   describe("brain_list_set", () => {
     it("replaces an item and calls publishBrainChanged", async () => {
       const setResult = { length: 3, revision: 5 };
