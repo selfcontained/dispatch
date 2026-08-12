@@ -128,7 +128,7 @@ describe("renderTemplatePromptFromFreeText", () => {
       { prUrl: "https://example.com/pr/1" }
     );
 
-    expect(result.unknown).toEqual(["prUrl"]);
+    expect(result.unknownArgs).toEqual(["prUrl"]);
     expect(result.unfilled).toEqual(["PR URL"]);
     expect(result.prompt).toBe("Review .\n\nreview it please");
   });
@@ -142,7 +142,7 @@ describe("renderTemplatePromptFromFreeText", () => {
 
     expect(result.prompt).toBe("Repo: dispatch\nAgain: dispatch");
     expect(result.unfilled).toEqual([]);
-    expect(result.unknown).toEqual([]);
+    expect(result.unknownArgs).toEqual([]);
   });
 
   it("does not substitute arg syntax that came from a caller's value", () => {

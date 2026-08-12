@@ -11,7 +11,7 @@ export type RenderedTemplatePrompt = {
   /** Args nothing supplied a value for — they rendered empty. */
   unfilled: string[];
   /** Supplied keys matching no arg in the template — nothing consumed them. */
-  unknown: string[];
+  unknownArgs: string[];
 };
 
 /**
@@ -44,8 +44,10 @@ export function renderTemplatePrompt(
  *
  * Its job is resolving that free text into args; the assembly itself belongs to
  * renderTemplatePrompt. A single arg left unset after `callerArgs` takes the
- * free text, the unambiguous case; otherwise the free text follows the rendered
- * template. Args nobody supplies render empty and come back in `unfilled`, so a
+ * free text, the unambiguous case — unless some `callerArgs` key matched no arg
+ * at all, which is evidence the caller was aiming a different value at that
+ * slot. Free text that fills nothing follows the rendered template instead.
+ * Args nobody supplies render empty and come back in `unfilled`, so a
  * partly-specified launch degrades visibly rather than failing or leaking
  * `{{D:...}}` into the agent's prompt.
  */
@@ -65,7 +67,7 @@ export function renderTemplatePromptFromFreeText(
     args[arg.key] != null || args[arg.name] != null;
 
   const known = new Set(parsed.flatMap((arg) => [arg.key, arg.name]));
-  const unknown = Object.keys(callerArgs ?? {}).filter(
+  const unknownArgs = Object.keys(callerArgs ?? {}).filter(
     (key) => !known.has(key)
   );
 
@@ -74,7 +76,8 @@ export function renderTemplatePromptFromFreeText(
   // An unmatched key is evidence the caller meant to supply that value, so the
   // free text must not take the slot they were aiming at — leaving the arg
   // unfilled is what makes the mistake visible in the note.
-  const fillsArg = text !== "" && missing.length === 1 && unknown.length === 0;
+  const fillsArg =
+    text !== "" && missing.length === 1 && unknownArgs.length === 0;
   if (fillsArg) args[missing[0].key] = text;
 
   const unfilled = parsed.filter((arg) => !hasValue(arg));
@@ -92,6 +95,6 @@ export function renderTemplatePromptFromFreeText(
       fillsArg || text === "" ? undefined : text
     ),
     unfilled: unfilled.map((arg) => arg.name),
-    unknown,
+    unknownArgs,
   };
 }

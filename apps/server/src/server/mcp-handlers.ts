@@ -413,7 +413,7 @@ async function handleLaunchAgent(
     );
     prompt = rendered.prompt;
     unfilled = rendered.unfilled;
-    unknownArgs = rendered.unknown;
+    unknownArgs = rendered.unknownArgs;
   }
 
   const agent = await deps.agentManager.createAgent({
