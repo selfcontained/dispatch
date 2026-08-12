@@ -395,9 +395,7 @@ export function registerBrainTools(
       {
         description:
           "Get one item from a shared brain list by index, with its value untruncated. " +
-          "brain_list_get reports the indexes. An index is a position, not an id — removing an " +
-          "item shifts the ones after it — so pass the revision brain_list_get returned as " +
-          "expectedRevision to be told the list moved instead of reading a different item.",
+          "brain_list_get reports the indexes.",
         inputSchema: {
           collection: collectionSchema.describe(
             "The collection the list belongs to."
@@ -410,14 +408,6 @@ export function registerBrainTools(
             .int()
             .min(0)
             .describe("The 0-based index reported by brain_list_get."),
-          expectedRevision: z
-            .number()
-            .int()
-            .positive()
-            .optional()
-            .describe(
-              "The revision brain_list_get returned. Fails with a conflict if the list changed since."
-            ),
         },
       },
       async (args) => {
@@ -426,7 +416,6 @@ export function registerBrainTools(
             collection: args.collection,
             name: args.name,
             index: args.index,
-            expectedRevision: args.expectedRevision,
           });
           if (!item) {
             return toToolError(

@@ -711,33 +711,6 @@ describe("registerBrainTools", () => {
       });
     });
 
-    it("surfaces a revision conflict when the list moved under the caller", async () => {
-      store.getListItem.mockRejectedValue(
-        new BrainRevisionConflictError({
-          collection: "c",
-          name: "l",
-          revision: 7,
-        } as never)
-      );
-      registerAll();
-
-      const result = (await findHandler(
-        server,
-        "brain_get_list_item"
-      )({
-        collection: "c",
-        name: "l",
-        index: 2,
-        expectedRevision: 6,
-      })) as {
-        isError?: true;
-        structuredContent: { error: { code: string } };
-      };
-
-      expect(result.isError).toBe(true);
-      expect(result.structuredContent.error.code).toBe("revision_conflict");
-    });
-
     it("errors when the index is empty", async () => {
       store.getListItem.mockResolvedValue(null);
       registerAll();
