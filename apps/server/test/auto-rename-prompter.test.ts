@@ -147,14 +147,42 @@ describe("createAutoRenamePrompter", () => {
     await vi.waitFor(() => expect(inject).toHaveBeenCalledOnce());
   });
 
-  it("injects for agents with template IDs and working event", async () => {
+  it("does not inject for a template-launched agent carrying the template name", () => {
     const inject = vi.fn().mockResolvedValue(undefined);
     const handler = createAutoRenamePrompter({
       injectAgentPrompt: inject,
       log: fakeLogger,
     });
 
-    handler(makeAgent({ name: "some-template-name", templateId: "tmpl_123" }));
+    handler(makeAgent({ name: "Idea Inbox", templateId: "tmpl_123" }));
+
+    expect(inject).not.toHaveBeenCalled();
+  });
+
+  // The repeat-forever case: a long-lived templated agent used to be re-nagged
+  // on its next working event after every server restart (fresh process, empty
+  // dedupe set). The name check has to hold on its own, with no prior state.
+  it("does not inject for a named templated agent even on a fresh process", () => {
+    const inject = vi.fn().mockResolvedValue(undefined);
+    const agent = makeAgent({ name: "Idea Inbox", templateId: "tmpl_123" });
+
+    for (let restart = 0; restart < 3; restart++) {
+      createAutoRenamePrompter({ injectAgentPrompt: inject, log: fakeLogger })(
+        agent
+      );
+    }
+
+    expect(inject).not.toHaveBeenCalled();
+  });
+
+  it("still injects for a template launch left on the placeholder name", async () => {
+    const inject = vi.fn().mockResolvedValue(undefined);
+    const handler = createAutoRenamePrompter({
+      injectAgentPrompt: inject,
+      log: fakeLogger,
+    });
+
+    handler(makeAgent({ templateId: "tmpl_123" }));
 
     await vi.waitFor(() => expect(inject).toHaveBeenCalledOnce());
   });

@@ -135,20 +135,14 @@ describe("shouldSuggestSessionRename", () => {
     );
   });
 
-  it("suggests rename for template-launched agents regardless of name", () => {
-    expect(
-      shouldSuggestSessionRename("my_template", id, {
-        templateId: "tmpl_abc123",
-      })
-    ).toBe(true);
+  // Template launches name the agent after the template, so they never match
+  // the placeholder and are never nudged — the fix for long-lived templated
+  // agents being re-nagged on every server restart despite a real name.
+  it("does not suggest rename for a template-named agent", () => {
+    expect(shouldSuggestSessionRename("Idea Inbox", id, {})).toBe(false);
   });
 
-  it("does not suggest rename for template-launched persona agents", () => {
-    expect(
-      shouldSuggestSessionRename("my_template", id, {
-        templateId: "tmpl_abc123",
-        persona: "security-review",
-      })
-    ).toBe(false);
+  it("still suggests rename when a template launch left the placeholder name", () => {
+    expect(shouldSuggestSessionRename(placeholder, id, {})).toBe(true);
   });
 });

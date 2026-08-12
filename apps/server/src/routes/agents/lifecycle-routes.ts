@@ -292,7 +292,6 @@ export async function registerAgentLifecycleRoutes(
       if (
         !shouldSuggestSessionRename(agent.name, agent.id, {
           persona: agent.persona,
-          templateId: agent.templateId,
         })
       ) {
         return reply
