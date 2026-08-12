@@ -8,7 +8,7 @@ import { toToolError } from "./tool-error.js";
 export type LaunchAgentResult = {
   agentId: string;
   name: string;
-  /** Set when a template variable was left empty. */
+  /** Set when a template arg was left empty. */
   note?: string;
 };
 
@@ -62,7 +62,7 @@ export function registerAgentLaunchTools(
           .min(1)
           .max(100000)
           .describe(
-            "Initial prompt describing what the agent should do. With templateId, it fills the template's one remaining variable if exactly one is left unset, and otherwise follows the template's own prompt."
+            "Initial prompt describing what the agent should do. With templateId: if exactly one of the template's args is still unset, this text fills it; otherwise this text is appended after the rendered template prompt."
           ),
         type: z
           .enum(CLI_AGENT_TYPES)
@@ -111,13 +111,13 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. The agent gets the template's own prompt, rendered the same way the UI renders it. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
           ),
         templateArgs: z
           .record(z.string(), z.string())
           .optional()
           .describe(
-            "Values for the template's variables, keyed by variable name. Call get_template first — its `args` field lists the template's variables. Skip this when the template has one variable (your prompt fills it) or none. Variables left unset render empty."
+            "Values for the template's args, keyed by arg name. Call get_template first — its `promptArgs` field lists them. Skip this when the template has one arg (your prompt fills it) or none. Args left unset render empty."
           ),
         cwd: z
           .string()

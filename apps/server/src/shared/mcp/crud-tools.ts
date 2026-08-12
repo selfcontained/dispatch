@@ -4,18 +4,19 @@ import * as z from "zod/v4";
 import { describeAgentModelCatalog } from "../agent-models.js";
 import type { AgentType } from "../agent-types.js";
 import { parseTemplateArgs } from "../../templates/arg-parser.js";
+import type { TemplateRecord } from "../../templates/store.js";
 import { toToolError } from "./tool-error.js";
 
 /**
- * Annotates a template with the variables parsed out of its prompt, so a caller
- * can see what to pass as dispatch_launch_agent's templateArgs without having
- * to recognise `{{D:...}}` syntax in the prompt text itself.
+ * Annotates a template with the args parsed out of its prompt, so a caller can
+ * see what to pass as dispatch_launch_agent's templateArgs without having to
+ * recognise `{{D:...}}` syntax in the prompt text itself. Named promptArgs
+ * rather than args so it cannot be shadowed by a future column of that name.
  */
-function withTemplateArgs(template: unknown): unknown {
-  if (!template || typeof template !== "object") return template;
-  const prompt = (template as { prompt?: unknown }).prompt;
-  if (typeof prompt !== "string") return template;
-  return { ...template, args: parseTemplateArgs(prompt) };
+function withPromptArgs<T extends { prompt: string | null }>(template: T) {
+  return template.prompt
+    ? { ...template, promptArgs: parseTemplateArgs(template.prompt) }
+    : template;
 }
 
 const JOB_AGENT_TYPES = ["claude", "codex", "opencode", "cursor"] as const;
@@ -87,9 +88,12 @@ export type CrudToolCallbacks = {
   }) => Promise<unknown>;
   deleteJob: (name: string, directory: string) => Promise<unknown>;
   runJob: (name: string, directory: string) => Promise<unknown>;
-  listTemplates: (directory?: string) => Promise<unknown>;
-  getTemplateById: (templateId: string) => Promise<unknown>;
-  getTemplateByName: (directory: string, name: string) => Promise<unknown>;
+  listTemplates: (directory?: string) => Promise<TemplateRecord[]>;
+  getTemplateById: (templateId: string) => Promise<TemplateRecord | null>;
+  getTemplateByName: (
+    directory: string,
+    name: string
+  ) => Promise<TemplateRecord | null>;
   createTemplate: (input: {
     name: string;
     directory: string;
@@ -462,7 +466,7 @@ export function registerCrudTools(
       "list_templates",
       {
         description:
-          "List templates, scoped to a directory. Defaults to the agent's working directory. Each template's `args` field lists the variables its prompt expects.",
+          "List templates, scoped to a directory. Defaults to the agent's working directory. Each template's `promptArgs` field lists the args its prompt expects.",
         inputSchema: { directory: dirSchema() },
       },
       async (args) => {
@@ -470,12 +474,12 @@ export function registerCrudTools(
           const result = await callbacks.listTemplates(
             args.directory?.trim() || defaultCwd
           );
-          const annotated = Array.isArray(result)
-            ? result.map(withTemplateArgs)
-            : result;
           return {
             content: [
-              { type: "text", text: JSON.stringify(annotated, null, 2) },
+              {
+                type: "text",
+                text: JSON.stringify(result.map(withPromptArgs), null, 2),
+              },
             ],
           };
         } catch (error) {
@@ -491,7 +495,7 @@ export function registerCrudTools(
       "get_template",
       {
         description:
-          "Get a single template by ID or name. When using name, directory defaults to the agent's working directory. The `args` field lists the variables its prompt expects — pass values for them as dispatch_launch_agent's templateArgs.",
+          "Get a single template by ID or name. When using name, directory defaults to the agent's working directory. The `promptArgs` field lists the args its prompt expects — pass values for them as dispatch_launch_agent's templateArgs.",
         inputSchema: {
           templateId: z
             .string()
@@ -520,7 +524,7 @@ export function registerCrudTools(
             content: [
               {
                 type: "text",
-                text: JSON.stringify(withTemplateArgs(result), null, 2),
+                text: JSON.stringify(withPromptArgs(result), null, 2),
               },
             ],
           };

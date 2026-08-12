@@ -1197,7 +1197,7 @@ describe("createMcpHandlers", () => {
       );
     });
 
-    it("fills template variables from templateArgs", async () => {
+    it("fills template args from templateArgs", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({
           prompt: "Review {{D:Target}} for {{D:Concern|required}}.",
@@ -1216,7 +1216,7 @@ describe("createMcpHandlers", () => {
       expect(result.note).toBeUndefined();
     });
 
-    it("launches and reports back when variables are left unset", async () => {
+    it("launches and reports back when args are left unset", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({
           prompt: "Review {{D:Target|required}} for {{D:Concern|required}}.",
@@ -1231,6 +1231,25 @@ describe("createMcpHandlers", () => {
 
       expect(deps.agentManager.createAgent).toHaveBeenCalled();
       expect(result.note).toContain("Target, Concern");
+    });
+
+    it("reports templateArgs keys that matched no arg", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: "Review {{D:PR URL|required}}." })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "review it please",
+        templateId: "tmpl_123",
+        templateArgs: { prUrl: "https://example.com/pr/1" },
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("review it please");
+      expect(result.note).toContain("Unrecognized templateArgs");
+      expect(result.note).toContain("prUrl");
+      expect(result.note).toContain("PR URL");
     });
 
     it("appends self-improvement guidance when the template opts in", async () => {

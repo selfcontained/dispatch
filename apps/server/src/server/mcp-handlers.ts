@@ -17,8 +17,7 @@ import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
-import { renderTemplateLaunchPrompt } from "../templates/launch-prompt.js";
-import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
+import { renderTemplatePromptFromFreeText } from "../templates/launch-prompt.js";
 import type {
   NotifyInput,
   NotifyResult,
@@ -405,20 +404,16 @@ async function handleLaunchAgent(
   // every one of the template's instructions was silently dropped.
   let prompt = input.prompt;
   let unfilled: string[] = [];
+  let unknownArgs: string[] = [];
   if (template?.prompt) {
-    const rendered = renderTemplateLaunchPrompt(
-      template.prompt,
+    const rendered = renderTemplatePromptFromFreeText(
+      { ...template, prompt: template.prompt },
       input.prompt,
       input.templateArgs
     );
     prompt = rendered.prompt;
     unfilled = rendered.unfilled;
-    if (template.selfImprove) {
-      prompt += buildSelfImprovementGuidance({
-        kind: "template",
-        templateId: template.id,
-      });
-    }
+    unknownArgs = rendered.unknown;
   }
 
   const agent = await deps.agentManager.createAgent({
@@ -443,12 +438,20 @@ async function handleLaunchAgent(
     agent: deps.withStreamFlag(agent),
   });
 
-  // Empty variables are the quiet failure mode of this path, so say so rather
-  // than letting the caller assume the template rendered in full.
-  const note =
-    unfilled.length > 0
-      ? `Template variables left empty: ${unfilled.join(", ")}. Pass templateArgs to fill them.`
-      : undefined;
+  // Empty args and misspelled keys are the quiet failure modes of this path, so
+  // say so rather than letting the caller assume the template rendered in full.
+  const notes: string[] = [];
+  if (unknownArgs.length > 0) {
+    notes.push(
+      `Unrecognized templateArgs, nothing used them: ${unknownArgs.join(", ")}. get_template lists the template's promptArgs.`
+    );
+  }
+  if (unfilled.length > 0) {
+    notes.push(
+      `Template args left empty: ${unfilled.join(", ")}. Pass templateArgs to fill them.`
+    );
+  }
+  const note = notes.length > 0 ? notes.join(" ") : undefined;
   return { agentId: agent.id, name: agent.name, ...(note ? { note } : {}) };
 }
 
