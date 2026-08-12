@@ -38,6 +38,38 @@ describe("truncateLongStrings", () => {
     expect(truncateLongStrings(value, 2)).toEqual(value);
   });
 
+  it("preserves key order", () => {
+    const value = { z: "last", a: "first", m: "middle" };
+    expect(Object.keys(truncateLongStrings(value, 100))).toEqual([
+      "z",
+      "a",
+      "m",
+    ]);
+  });
+
+  it("walks nesting far deeper than the call stack allows", () => {
+    // Nothing bounds how deeply an agent can nest a stored brain object, so a
+    // recursive walk here would fail the whole list request. 50k deep is well
+    // past the point recursion dies.
+    const depth = 50_000;
+    const root: Record<string, unknown> = {};
+    let node = root;
+    for (let i = 0; i < depth; i++) {
+      const next: Record<string, unknown> = {};
+      node.child = next;
+      node = next;
+    }
+    node.note = "y".repeat(20);
+
+    const copy = truncateLongStrings(root, 5) as Record<string, unknown>;
+
+    let walked: Record<string, unknown> = copy;
+    for (let i = 0; i < depth; i++) {
+      walked = walked.child as Record<string, unknown>;
+    }
+    expect(walked.note).toBe("yyyyy…[+15 chars]");
+  });
+
   it("does not mutate its input", () => {
     const value = { note: "z".repeat(20) };
     truncateLongStrings(value, 5);

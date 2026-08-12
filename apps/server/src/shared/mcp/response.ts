@@ -28,20 +28,67 @@ export function truncateLongStrings<T>(value: T, maxChars: number): T {
   return truncate(value, maxChars) as T;
 }
 
-function truncate(value: unknown, maxChars: number): unknown {
-  if (typeof value === "string") {
-    if (value.length <= maxChars) return value;
-    return `${value.slice(0, maxChars)}…[+${value.length - maxChars} chars]`;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => truncate(item, maxChars));
-  }
-  if (value && typeof value === "object") {
-    const out: Record<string, unknown> = {};
-    for (const [key, item] of Object.entries(value)) {
-      out[key] = truncate(item, maxChars);
+type CopySlot = { target: Record<PropertyKey, unknown>; key: PropertyKey };
+
+/**
+ * Iterative rather than recursive: the values passed here are agent-supplied
+ * (a stored brain object, a pin) and their nesting depth is not bounded by
+ * anything this server enforces, so a recursive walk would let one deeply
+ * nested object blow the call stack and fail the whole list request. An
+ * explicit work stack has no such ceiling.
+ *
+ * Every input reaches this function via JSON.parse (jsonb columns, request
+ * bodies), so the graph is a tree — no cycle guard is needed, and a shared
+ * reference cannot make the loop revisit a node.
+ */
+function truncate(root: unknown, maxChars: number): unknown {
+  const holder: Record<PropertyKey, unknown> = {};
+  const stack: Array<CopySlot & { source: unknown }> = [
+    { target: holder, key: "root", source: root },
+  ];
+
+  while (stack.length > 0) {
+    const { target, key, source } = stack.pop()!;
+
+    if (typeof source === "string") {
+      target[key] =
+        source.length <= maxChars
+          ? source
+          : `${source.slice(0, maxChars)}…[+${source.length - maxChars} chars]`;
+      continue;
     }
-    return out;
+
+    if (Array.isArray(source)) {
+      const copy = new Array(source.length);
+      target[key] = copy;
+      // Push in reverse so popping visits entries in their original order,
+      // which keeps the serialized copy's key order matching the input's.
+      for (let i = source.length - 1; i >= 0; i--) {
+        stack.push({
+          target: copy as unknown as CopySlot["target"],
+          key: i,
+          source: source[i],
+        });
+      }
+      continue;
+    }
+
+    if (source && typeof source === "object") {
+      const copy: Record<string, unknown> = {};
+      target[key] = copy;
+      const entries = Object.entries(source);
+      for (let i = entries.length - 1; i >= 0; i--) {
+        stack.push({
+          target: copy,
+          key: entries[i]![0],
+          source: entries[i]![1],
+        });
+      }
+      continue;
+    }
+
+    target[key] = source;
   }
-  return value;
+
+  return holder.root;
 }
