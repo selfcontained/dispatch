@@ -296,6 +296,62 @@ describe("shortcut pins", () => {
     ).toBe("false");
   });
 
+  it("ties the toggle to the member region and names the group by its text", () => {
+    renderPanel(groupOf("Wired", 2), { onRunShortcut: vi.fn() });
+
+    const toggle = screen.getByTestId("pin-group-toggle");
+    const region = screen.getByTestId("pin-group-members");
+    // aria-controls must resolve, so the region stays mounted while collapsed.
+    expect(toggle.getAttribute("aria-controls")).toBe(region.id);
+    // The group's accessible name is the heading text, not the whole button
+    // (which also reads out the count and the collapse action).
+    const group = screen.getByTestId("pin-group");
+    const labelId = group.getAttribute("aria-labelledby")!;
+    expect(document.getElementById(labelId)!.textContent).toBe("Wired");
+  });
+
+  it("keeps the member region mounted and marked hidden when collapsed", () => {
+    renderPanel(groupOf("HiddenRegion", 12), { onRunShortcut: vi.fn() });
+
+    const region = screen.getByTestId("pin-group-members");
+    expect(region.hasAttribute("hidden")).toBe(true);
+    expect(within(region).queryAllByTestId("pin-item")).toHaveLength(0);
+  });
+
+  it("keeps collapse ephemeral when no scope is given", () => {
+    // Without a scope there is nothing to namespace by; persisting under a
+    // shared fallback key would leak one list's state onto every other.
+    const { unmount } = renderPanel(groupOf("Unscoped", 2));
+    fireEvent.click(screen.getByTestId("pin-group-toggle"));
+    expect(
+      screen.getByTestId("pin-group").getAttribute("data-pin-group-collapsed")
+    ).toBe("true");
+    expect(
+      Object.keys(localStorage).filter(
+        (k) => k.includes("__unscoped__") || k.includes("unscoped::")
+      )
+    ).toHaveLength(0);
+    unmount();
+
+    renderPanel(groupOf("Unscoped", 2));
+    expect(
+      screen.getByTestId("pin-group").getAttribute("data-pin-group-collapsed")
+    ).toBe("false");
+  });
+
+  it("does not share collapse state between two scopes", () => {
+    const { unmount } = renderPanel(groupOf("Shared", 2), {
+      collapseScope: "agt_one",
+    });
+    fireEvent.click(screen.getByTestId("pin-group-toggle"));
+    unmount();
+
+    renderPanel(groupOf("Shared", 2), { collapseScope: "agt_two" });
+    expect(
+      screen.getByTestId("pin-group").getAttribute("data-pin-group-collapsed")
+    ).toBe("false");
+  });
+
   it("blocks a second send while the first is still in flight", () => {
     const onRunShortcut = vi.fn();
     renderPanel([shortcutPin], { onRunShortcut, pendingPinId: "pin_1" });

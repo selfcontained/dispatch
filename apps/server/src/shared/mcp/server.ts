@@ -921,6 +921,8 @@ function registerBatchPinTool(
           ),
         group: z
           .string()
+          .trim()
+          .min(1)
           .max(100)
           .optional()
           .describe(
@@ -980,6 +982,8 @@ function registerDeletePinTool(
           ),
         group: z
           .string()
+          .trim()
+          .min(1)
           .max(100)
           .optional()
           .describe("Remove every pin filed under this group heading."),

@@ -215,6 +215,35 @@ describe("replacePinGroup", () => {
     expect(result.pins[0]!.group).toBe("Build");
   });
 
+  it("rejects two new entries that would share a label", () => {
+    // Each spec resolves against the original array, so two creates sharing a
+    // label both look unmatched — the uniqueness check has to run on the
+    // finished array, not per spec.
+    expect(() =>
+      replacePinGroup(existing, "Build", [
+        pin({ label: "Duplicate", group: "Build" }),
+        pin({ label: "duplicate", group: "Build" }),
+      ])
+    ).toThrow(/share the label/i);
+  });
+
+  it("treats a label matching an outside pin as a move, not a duplicate", () => {
+    // Label matching resolves against the whole array, so naming an existing
+    // pin pulls it into the group rather than creating a second one with the
+    // same label — which is also why this can't break label uniqueness.
+    const result = replacePinGroup(existing, "Build", [
+      pin({ label: "charlie", group: "Build" }),
+    ]);
+    expect(result.pins.map((p) => p.id)).toEqual(["pin_c"]);
+    expect(result.pins[0]!.group).toBe("Build");
+  });
+
+  it("refuses a blank group rather than treating it as 'ungrouped'", () => {
+    expect(() => replacePinGroup(existing, "   ", [])).toThrow(
+      /group name is required/i
+    );
+  });
+
   it("rejects two entries addressing the same pin", () => {
     expect(() =>
       replacePinGroup(existing, "Build", [
@@ -250,5 +279,17 @@ describe("removePinGroup", () => {
 
   it("rejects an empty group", () => {
     expect(() => removePinGroup(existing, "Nothing")).toThrow(/no pins/i);
+  });
+
+  it("refuses a blank group name instead of deleting every ungrouped pin", () => {
+    // sameGroup() treats a missing group as "", so a blank name would match
+    // every ungrouped pin and quietly turn this into a mass delete.
+    for (const blank of ["", "   "]) {
+      expect(() => removePinGroup(existing, blank)).toThrow(
+        /group name is required/i
+      );
+    }
+    // The ungrouped pin is still there.
+    expect(existing.some((p) => p.id === "pin_c")).toBe(true);
   });
 });

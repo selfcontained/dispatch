@@ -29,7 +29,10 @@ import { Markdown } from "@/components/ui/markdown";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useCopyText } from "@/hooks/use-copy";
 import { splitPinValues } from "@/lib/pins";
-import { pinGroupCollapsedAtomFamily } from "@/lib/store";
+import {
+  UNSCOPED_COLLAPSE_KEY,
+  pinGroupCollapsedAtomFamily,
+} from "@/lib/store";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -603,7 +606,7 @@ const AUTO_COLLAPSE_THRESHOLD = 8;
 type PinGroupProps = {
   name: string;
   pins: AgentPin[];
-  collapseScope: string;
+  collapseScope: string | null;
   workspaceRoot: string | null;
   agentIsRunning?: boolean;
   onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
@@ -623,10 +626,23 @@ function PinGroup({
   pendingPinId = null,
   buttonRef,
 }: PinGroupProps): JSX.Element {
-  const headingId = `pin-group-${name.toLowerCase().replace(/\s+/g, "-")}`;
-  const [choice, setChoice] = useAtom(
-    pinGroupCollapsedAtomFamily(`${collapseScope}::${name.toLowerCase()}`)
+  const slug = name.toLowerCase().replace(/\s+/g, "-");
+  const headingId = `pin-group-${slug}`;
+  const regionId = `pin-group-members-${slug}`;
+
+  // Persist only when the caller named a scope. Without one there is nothing
+  // to namespace by, and a shared fallback bucket would leak one list's
+  // collapse choices onto every other unscoped list.
+  const persisted = useAtom(
+    pinGroupCollapsedAtomFamily(
+      collapseScope === null
+        ? UNSCOPED_COLLAPSE_KEY
+        : `${collapseScope}::${name.toLowerCase()}`
+    )
   );
+  const ephemeral = useState<boolean | null>(null);
+  const [choice, setChoice] = collapseScope === null ? ephemeral : persisted;
+
   // An explicit choice always beats the size-based default.
   const collapsed = choice ?? pins.length > AUTO_COLLAPSE_THRESHOLD;
 
@@ -639,13 +655,15 @@ function PinGroup({
       // The heading is often the question these shortcuts answer, so it
       // has to be announced with them rather than as loose text above.
       role="group"
+      // Points at the name span, not the button: the group's accessible name
+      // is the heading text, not "collapse Ready to build, 12".
       aria-labelledby={headingId}
     >
       <button
         type="button"
-        id={headingId}
         onClick={() => setChoice(!collapsed)}
         aria-expanded={!collapsed}
+        aria-controls={regionId}
         data-testid="pin-group-toggle"
         className={cn(
           "flex w-full items-center gap-1.5 text-left text-base font-semibold leading-snug text-foreground",
@@ -659,7 +677,9 @@ function PinGroup({
           )}
           aria-hidden
         />
-        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <span id={headingId} className="min-w-0 flex-1 truncate">
+          {name}
+        </span>
         <span
           className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
           data-testid="pin-group-count"
@@ -667,23 +687,30 @@ function PinGroup({
           {pins.length}
         </span>
       </button>
-      {collapsed ? null : (
-        <div className="flex flex-col gap-1">
-          {pins.map((pin) => (
-            <PinItem
-              key={pin.id ?? pin.label.toLowerCase()}
-              pin={pin}
-              workspaceRoot={workspaceRoot}
-              agentIsRunning={agentIsRunning}
-              onRunShortcut={onRunShortcut}
-              inGroup
-              agentName={agentName}
-              pendingPinId={pendingPinId}
-              buttonRef={buttonRef}
-            />
-          ))}
-        </div>
-      )}
+      {/* The region stays in the tree so `aria-controls` always resolves and
+          `hidden` carries the state; its members unmount while collapsed. */}
+      <div
+        id={regionId}
+        hidden={collapsed}
+        className="flex flex-col gap-1"
+        data-testid="pin-group-members"
+      >
+        {collapsed
+          ? null
+          : pins.map((pin) => (
+              <PinItem
+                key={pin.id ?? pin.label.toLowerCase()}
+                pin={pin}
+                workspaceRoot={workspaceRoot}
+                agentIsRunning={agentIsRunning}
+                onRunShortcut={onRunShortcut}
+                inGroup
+                agentName={agentName}
+                pendingPinId={pendingPinId}
+                buttonRef={buttonRef}
+              />
+            ))}
+      </div>
     </div>
   );
 }
@@ -702,7 +729,7 @@ export function PinList({
   agentName = null,
   pendingPinId = null,
   buttonRef,
-  collapseScope = "default",
+  collapseScope = null,
 }: {
   pins: AgentPin[];
   workspaceRoot: string | null;
@@ -711,8 +738,12 @@ export function PinList({
   agentName?: string | null;
   pendingPinId?: string | null;
   buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
-  /** Namespaces persisted collapse state — an agent id, so it survives renames. */
-  collapseScope?: string;
+  /**
+   * Namespaces persisted collapse state — an agent id, so it survives a
+   * session rename. `null` means don't persist at all: a shared fallback
+   * bucket would leak one list's collapse choices onto every other list.
+   */
+  collapseScope?: string | null;
 }): JSX.Element {
   return (
     <>
@@ -754,8 +785,8 @@ type PinsPanelProps = {
   agentIsRunning?: boolean;
   onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
   pendingPinId?: string | null;
-  /** Agent id, so persisted group collapse survives a session rename. */
-  collapseScope?: string;
+  /** Agent id, so persisted group collapse survives a session rename. Omit to keep collapse ephemeral. */
+  collapseScope?: string | null;
 };
 
 /**
@@ -885,7 +916,7 @@ export function PinsPanel({
         agentName={selectedAgentName}
         pendingPinId={pendingPinId}
         buttonRef={registerShortcutButton}
-        {...(collapseScope !== undefined ? { collapseScope } : {})}
+        collapseScope={collapseScope ?? null}
       />
       <ConfirmShortcutDialog
         onRestoreFocus={() => lastTrigger.current?.focus()}

@@ -57,6 +57,33 @@ function sameGroup(pin: AgentPin, group: string): boolean {
 }
 
 /**
+ * A blank group name matches every *ungrouped* pin, so accepting one would
+ * turn "clear this group" into "delete everything without a heading". Group
+ * targeting is the safety boundary for the destructive paths — it has to name
+ * something.
+ */
+function assertNamedGroup(group: string): void {
+  if (group.trim() === "") {
+    throw new AgentError("A group name is required.", 400);
+  }
+}
+
+/** Enforce case-insensitive label uniqueness across a finished pin array. */
+function assertUniqueLabels(pins: AgentPin[]): void {
+  const seen = new Set<string>();
+  for (const pin of pins) {
+    const key = pin.label.toLowerCase();
+    if (seen.has(key)) {
+      throw new AgentError(
+        `Two pins would share the label "${pin.label}".`,
+        400
+      );
+    }
+    seen.add(key);
+  }
+}
+
+/**
  * Locate the pin a spec addresses.
  *
  * `id` wins when present: it is the only handle that survives a relabel, so
@@ -167,6 +194,7 @@ export function replacePinGroup(
   group: string,
   specs: PinSpec[]
 ): { pins: AgentPin[]; stored: AgentPin[] } {
+  assertNamedGroup(group);
   const claimed = new Set<number>();
   const stored: AgentPin[] = [];
 
@@ -219,6 +247,11 @@ export function replacePinGroup(
   }
   if (!inserted) next.push(...stored);
 
+  // Each spec resolves against the *original* array, so two creates sharing a
+  // new label would both look unmatched and slip through — check the finished
+  // array instead. This also catches a create colliding with a survivor.
+  assertUniqueLabels(next);
+
   if (next.length > MAX_PINS) {
     throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
   }
@@ -235,8 +268,9 @@ export function removePinsByIds(pins: AgentPin[], ids: string[]): AgentPin[] {
   return pins.filter((pin) => !wanted.has(pin.id ?? ""));
 }
 
-/** Remove every pin in a group. An empty group is a 404, matching delete-by-id. */
+/** Remove every pin in a group. A group with no members is a 404, matching delete-by-id. */
 export function removePinGroup(pins: AgentPin[], group: string): AgentPin[] {
+  assertNamedGroup(group);
   const next = pins.filter((pin) => !sameGroup(pin, group));
   if (next.length === pins.length) {
     throw new AgentError(`No pins in group "${group}".`, 404);
