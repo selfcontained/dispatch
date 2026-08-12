@@ -22,6 +22,18 @@ const shortcutPin: AgentPin = {
   caption: "High priority",
 };
 
+/** N shortcut pins sharing one group. Group names are unique per test so the
+ * persisted collapse atoms cannot leak between them. */
+function groupOf(group: string, count: number): AgentPin[] {
+  return Array.from({ length: count }, (_, index) => ({
+    id: `${group}_${index}`,
+    label: `${group} pin ${index}`,
+    value: `prompt ${index}`,
+    type: "shortcut" as const,
+    group,
+  }));
+}
+
 function renderPanel(
   pins: AgentPin[],
   props: Partial<Parameters<typeof PinsPanel>[0]> = {}
@@ -171,7 +183,8 @@ describe("shortcut pins", () => {
     const groups = screen.getAllByTestId("pin-group");
     expect(groups).toHaveLength(1);
     expect(groups[0]!.getAttribute("data-pin-group")).toBe("Ready to build");
-    expect(within(groups[0]!).getAllByRole("button")).toHaveLength(2);
+    // Two shortcuts plus the heading's own collapse toggle.
+    expect(within(groups[0]!).getAllByRole("button")).toHaveLength(3);
   });
 
   it("marks the shortcut unavailable when no run handler is wired (e.g. agent history)", () => {
@@ -218,6 +231,69 @@ describe("shortcut pins", () => {
     expect(screen.getByTestId("pin-caption").textContent).toBe(
       "This action is currently unavailable."
     );
+  });
+
+  it("shows the member count on the group heading", () => {
+    renderPanel(groupOf("Counted", 3), { onRunShortcut: vi.fn() });
+
+    expect(screen.getByTestId("pin-group-count").textContent).toBe("3");
+  });
+
+  it("leaves a small group expanded", () => {
+    renderPanel(groupOf("Small", 3), { onRunShortcut: vi.fn() });
+
+    const group = screen.getByTestId("pin-group");
+    expect(group.getAttribute("data-pin-group-collapsed")).toBe("false");
+    expect(within(group).getAllByTestId("pin-item")).toHaveLength(3);
+  });
+
+  it("starts a large group collapsed, hiding its members but not its count", () => {
+    // A long group otherwise pushes every other group off screen.
+    renderPanel(groupOf("Large", 12), { onRunShortcut: vi.fn() });
+
+    const group = screen.getByTestId("pin-group");
+    expect(group.getAttribute("data-pin-group-collapsed")).toBe("true");
+    expect(within(group).queryAllByTestId("pin-item")).toHaveLength(0);
+    expect(screen.getByTestId("pin-group-count").textContent).toBe("12");
+  });
+
+  it("toggles a group in both directions", () => {
+    renderPanel(groupOf("Toggled", 2), { onRunShortcut: vi.fn() });
+
+    const toggle = screen.getByTestId("pin-group-toggle");
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+
+    fireEvent.click(toggle);
+    expect(
+      screen.getByTestId("pin-group-toggle").getAttribute("aria-expanded")
+    ).toBe("false");
+    expect(screen.queryAllByTestId("pin-item")).toHaveLength(0);
+
+    fireEvent.click(screen.getByTestId("pin-group-toggle"));
+    expect(
+      screen.getByTestId("pin-group-toggle").getAttribute("aria-expanded")
+    ).toBe("true");
+    expect(screen.getAllByTestId("pin-item")).toHaveLength(2);
+  });
+
+  it("keeps an expanded large group expanded when it gains a pin", () => {
+    // The size default must not override a choice the user already made, or
+    // expanding a big group would silently undo itself on the next pin.
+    const { unmount } = renderPanel(groupOf("Sticky", 12), {
+      onRunShortcut: vi.fn(),
+      collapseScope: "agt_sticky",
+    });
+    fireEvent.click(screen.getByTestId("pin-group-toggle"));
+    expect(screen.getAllByTestId("pin-item")).toHaveLength(12);
+    unmount();
+
+    renderPanel(groupOf("Sticky", 13), {
+      onRunShortcut: vi.fn(),
+      collapseScope: "agt_sticky",
+    });
+    expect(
+      screen.getByTestId("pin-group").getAttribute("data-pin-group-collapsed")
+    ).toBe("false");
   });
 
   it("blocks a second send while the first is still in flight", () => {

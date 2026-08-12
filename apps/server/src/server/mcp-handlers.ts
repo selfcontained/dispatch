@@ -5,7 +5,8 @@ import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
-import type { AgentManager, AgentPin, AgentRecord } from "../agents/manager.js";
+import type { AgentManager, AgentRecord } from "../agents/manager.js";
+import type { PinSpec } from "../agents/pin-write.js";
 import { AgentError } from "../agents/errors.js";
 import type { WorktreeCleanupMode } from "../agents/types.js";
 import {
@@ -181,29 +182,44 @@ async function handleSendNotify(
   return deps.slackNotifier.sendNotification(agent, input);
 }
 
-async function handleUpsertPin(
-  deps: CreateMcpHandlersDeps,
-  agentId: string,
-  pin: {
-    label: string;
-    value: string;
-    type: string;
-    caption?: string;
-    group?: string;
-    icon?: string;
-    variant?: string;
-    confirm?: boolean;
-    disabled?: boolean;
-  }
-): Promise<{ pin: PinListing; created: boolean }> {
-  if (!isPinType(pin.type)) {
+type PinInput = {
+  id?: string;
+  label: string;
+  value: string;
+  type?: string;
+  caption?: string;
+  group?: string;
+  icon?: string;
+  variant?: string;
+  confirm?: boolean;
+  disabled?: boolean;
+};
+
+/**
+ * Narrow one pin spec to a storable shape.
+ *
+ * Shared by the single and batch write paths so a pin the batch tool accepts
+ * is exactly a pin `dispatch_pin` would have accepted — a batch must not
+ * become a way to smuggle in a shape the single-pin validator rejects.
+ *
+ * An omitted `type` stays omitted rather than defaulting: the write layer
+ * inherits the stored pin's type, so relabelling a shortcut cannot silently
+ * demote it to a plain string and strip its icon. Validation of the value
+ * happens there too, once the effective type is known.
+ */
+function toValidatedPin(pin: PinInput): PinSpec {
+  if (pin.type !== undefined && !isPinType(pin.type)) {
     throw new Error(`Invalid pin type: ${pin.type}`);
   }
-  validatePinValue(pin.type, pin.value);
+  if (pin.type !== undefined) {
+    validatePinValue(pin.type, pin.value);
+  }
 
   // Captions and grouping are generic; button styling, confirmation, and the
   // disabled state only mean anything for shortcut pins — silently dropping
-  // those elsewhere keeps stored pins honest.
+  // those elsewhere keeps stored pins honest. With no type given we cannot
+  // tell yet, so they ride along and `mergePin` strips them if the resolved
+  // type turns out not to be shortcut.
   if (pin.caption !== undefined) {
     validatePinCaption(pin.caption);
   }
@@ -211,24 +227,37 @@ async function handleUpsertPin(
   if (isShortcut) {
     validatePinShortcutFields(pin);
   }
+  const keepShortcutFields = pin.type === undefined || isShortcut;
 
-  const result = await deps.agentManager.upsertPin(agentId, {
+  return {
+    ...(pin.id !== undefined ? { id: pin.id } : {}),
     label: pin.label,
     value: pin.value,
-    type: pin.type,
+    ...(pin.type !== undefined ? { type: pin.type } : {}),
     ...(pin.caption !== undefined ? { caption: pin.caption } : {}),
     ...(pin.group !== undefined ? { group: pin.group } : {}),
-    ...(isShortcut && pin.icon !== undefined ? { icon: pin.icon } : {}),
-    ...(isShortcut && pin.variant !== undefined
+    ...(keepShortcutFields && pin.icon !== undefined ? { icon: pin.icon } : {}),
+    ...(keepShortcutFields && pin.variant !== undefined
       ? { variant: pin.variant as PinShortcutVariant }
       : {}),
-    ...(isShortcut && pin.confirm !== undefined
+    ...(keepShortcutFields && pin.confirm !== undefined
       ? { confirm: pin.confirm }
       : {}),
-    ...(isShortcut && pin.disabled !== undefined
+    ...(keepShortcutFields && pin.disabled !== undefined
       ? { disabled: pin.disabled }
       : {}),
-  });
+  };
+}
+
+async function handleUpsertPin(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  pin: PinInput
+): Promise<{ pin: PinListing; created: boolean }> {
+  const result = await deps.agentManager.upsertPin(
+    agentId,
+    toValidatedPin(pin)
+  );
   deps.publishUiEvent({
     type: "agent.upsert",
     agent: deps.withStreamFlag(result.agent),
@@ -236,12 +265,55 @@ async function handleUpsertPin(
   return { pin: toPinListing(result.pin), created: result.created };
 }
 
+async function handleUpsertPins(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  input: {
+    pins: PinInput[];
+    mode?: "merge" | "replace";
+    group?: string;
+  }
+): Promise<PinListing[]> {
+  // Validate the whole batch before opening the transaction: a bad entry at
+  // position 19 should fail the call outright rather than leave the first
+  // eighteen applied.
+  const specs = input.pins.map((pin) =>
+    toValidatedPin(
+      // The top-level group is authoritative in replace mode, so an entry
+      // cannot disagree with the scope it was submitted under.
+      input.mode === "replace" ? { ...pin, group: input.group } : pin
+    )
+  );
+
+  const result = await deps.agentManager.upsertPins(agentId, specs, {
+    ...(input.mode !== undefined ? { mode: input.mode } : {}),
+    ...(input.group !== undefined ? { group: input.group } : {}),
+  });
+  deps.publishUiEvent({
+    type: "agent.upsert",
+    agent: deps.withStreamFlag(result.agent),
+  });
+  return (result.agent.pins ?? []).map(toPinListing);
+}
+
 async function handleDeletePin(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  pinId: string
+  input: { id?: string; ids?: string[]; group?: string }
 ): Promise<void> {
-  const agent = await deps.agentManager.deletePinById(agentId, pinId);
+  const targets = [input.id, input.ids, input.group].filter(
+    (target) => target !== undefined
+  );
+  if (targets.length !== 1) {
+    throw new Error("Pass exactly one of id, ids, or group.");
+  }
+
+  const agent = input.group
+    ? await deps.agentManager.deletePinsByGroup(agentId, input.group)
+    : await deps.agentManager.deletePinsByIds(
+        agentId,
+        input.ids ?? [input.id!]
+      );
   deps.publishUiEvent({
     type: "agent.upsert",
     agent: deps.withStreamFlag(agent),
@@ -928,23 +1000,18 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     sendNotify: (agentId: string, input: NotifyInput) =>
       handleSendNotify(deps, agentId, input),
 
-    upsertPin: (
-      agentId: string,
-      pin: {
-        label: string;
-        value: string;
-        type: string;
-        caption?: string;
-        group?: string;
-        icon?: string;
-        variant?: string;
-        confirm?: boolean;
-        disabled?: boolean;
-      }
-    ) => handleUpsertPin(deps, agentId, pin),
+    upsertPin: (agentId: string, pin: PinInput) =>
+      handleUpsertPin(deps, agentId, pin),
 
-    deletePin: (agentId: string, pinId: string) =>
-      handleDeletePin(deps, agentId, pinId),
+    upsertPins: (
+      agentId: string,
+      input: { pins: PinInput[]; mode?: "merge" | "replace"; group?: string }
+    ) => handleUpsertPins(deps, agentId, input),
+
+    deletePin: (
+      agentId: string,
+      input: { id?: string; ids?: string[]; group?: string }
+    ) => handleDeletePin(deps, agentId, input),
 
     deletePinByLabel: (agentId: string, label: string) =>
       handleDeletePinByLabel(deps, agentId, label),

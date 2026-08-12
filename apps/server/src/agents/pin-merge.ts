@@ -1,5 +1,13 @@
 import type { AgentPin } from "./types.js";
 
+/**
+ * A pin whose type has been resolved to a concrete string but not yet checked
+ * against the allowed set. Merging happens before validation — the effective
+ * type can come from the stored pin — so these helpers work at this width and
+ * the caller narrows to `AgentPin` afterwards.
+ */
+export type DraftPin = Omit<AgentPin, "type"> & { type: string };
+
 /** Decorations that an agent clears by sending an empty string. */
 const CLEARABLE_FIELDS = ["caption", "group", "icon"] as const;
 
@@ -15,7 +23,7 @@ const SHORTCUT_ONLY_FIELDS = [
  * Optional pin decorations are cleared by passing an empty string — there is
  * no other way to remove one, since an omitted field means "leave as-is".
  */
-export function clearBlankPinFields(pin: AgentPin): AgentPin {
+export function clearBlankPinFields<T extends DraftPin>(pin: T): T {
   const cleared = { ...pin };
   for (const field of CLEARABLE_FIELDS) {
     if (cleared[field] !== undefined && cleared[field]!.trim() === "") {
@@ -33,7 +41,7 @@ export function clearBlankPinFields(pin: AgentPin): AgentPin {
  * silently lose it. Fields the agent omits keep their stored value; fields it
  * sends as an empty string are removed.
  */
-export function mergePin(existing: AgentPin, incoming: AgentPin): AgentPin {
+export function mergePin(existing: AgentPin, incoming: DraftPin): DraftPin {
   const merged = clearBlankPinFields({
     ...existing,
     ...incoming,

@@ -2,6 +2,7 @@ import {
   AlertTriangle,
   Ban,
   Check,
+  ChevronRight,
   CornerDownLeft,
   Copy,
   FileText,
@@ -9,6 +10,7 @@ import {
   Loader2,
   Pin,
 } from "lucide-react";
+import { useAtom } from "jotai";
 import { useRef, useState } from "react";
 
 import { FrontTruncatedValue } from "@/components/app/agent-meta";
@@ -27,6 +29,7 @@ import { Markdown } from "@/components/ui/markdown";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useCopyText } from "@/hooks/use-copy";
 import { splitPinValues } from "@/lib/pins";
+import { pinGroupCollapsedAtomFamily } from "@/lib/store";
 import { rewritePinUrl } from "@/lib/rewrite-pin-url";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import {
@@ -591,6 +594,101 @@ function layoutPins(pins: AgentPin[]): PinRow[] {
 }
 
 /**
+ * Groups past this size start collapsed. A sidebar full of one agent's pins
+ * pushes every other group off screen, and a long group is exactly the case
+ * where the heading and count are more useful than the members.
+ */
+const AUTO_COLLAPSE_THRESHOLD = 8;
+
+type PinGroupProps = {
+  name: string;
+  pins: AgentPin[];
+  collapseScope: string;
+  workspaceRoot: string | null;
+  agentIsRunning?: boolean;
+  onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
+  agentName?: string | null;
+  pendingPinId?: string | null;
+  buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
+};
+
+function PinGroup({
+  name,
+  pins,
+  collapseScope,
+  workspaceRoot,
+  agentIsRunning,
+  onRunShortcut,
+  agentName = null,
+  pendingPinId = null,
+  buttonRef,
+}: PinGroupProps): JSX.Element {
+  const headingId = `pin-group-${name.toLowerCase().replace(/\s+/g, "-")}`;
+  const [choice, setChoice] = useAtom(
+    pinGroupCollapsedAtomFamily(`${collapseScope}::${name.toLowerCase()}`)
+  );
+  // An explicit choice always beats the size-based default.
+  const collapsed = choice ?? pins.length > AUTO_COLLAPSE_THRESHOLD;
+
+  return (
+    <div
+      className="px-4 py-4 border-b border-border last:border-b-0"
+      data-testid="pin-group"
+      data-pin-group={name}
+      data-pin-group-collapsed={collapsed ? "true" : "false"}
+      // The heading is often the question these shortcuts answer, so it
+      // has to be announced with them rather than as loose text above.
+      role="group"
+      aria-labelledby={headingId}
+    >
+      <button
+        type="button"
+        id={headingId}
+        onClick={() => setChoice(!collapsed)}
+        aria-expanded={!collapsed}
+        data-testid="pin-group-toggle"
+        className={cn(
+          "flex w-full items-center gap-1.5 text-left text-base font-semibold leading-snug text-foreground",
+          !collapsed && "mb-4"
+        )}
+      >
+        <ChevronRight
+          className={cn(
+            "h-4 w-4 shrink-0 text-muted-foreground transition-transform",
+            !collapsed && "rotate-90"
+          )}
+          aria-hidden
+        />
+        <span className="min-w-0 flex-1 truncate">{name}</span>
+        <span
+          className="shrink-0 rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground"
+          data-testid="pin-group-count"
+        >
+          {pins.length}
+        </span>
+      </button>
+      {collapsed ? null : (
+        <div className="flex flex-col gap-1">
+          {pins.map((pin) => (
+            <PinItem
+              key={pin.id ?? pin.label.toLowerCase()}
+              pin={pin}
+              workspaceRoot={workspaceRoot}
+              agentIsRunning={agentIsRunning}
+              onRunShortcut={onRunShortcut}
+              inGroup
+              agentName={agentName}
+              pendingPinId={pendingPinId}
+              buttonRef={buttonRef}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
  * The rendering unit for a set of pins: grouping policy and `PinItem` travel
  * together, so every consumer gets group headings without re-implementing the
  * layout. Omit `onRunShortcut` (e.g. agent history) and shortcuts render
@@ -604,6 +702,7 @@ export function PinList({
   agentName = null,
   pendingPinId = null,
   buttonRef,
+  collapseScope = "default",
 }: {
   pins: AgentPin[];
   workspaceRoot: string | null;
@@ -612,13 +711,15 @@ export function PinList({
   agentName?: string | null;
   pendingPinId?: string | null;
   buttonRef?: (pin: AgentPin, element: HTMLButtonElement | null) => void;
+  /** Namespaces persisted collapse state — an agent id, so it survives renames. */
+  collapseScope?: string;
 }): JSX.Element {
   return (
     <>
       {layoutPins(pins).map((row) =>
         row.kind === "pin" ? (
           <PinItem
-            key={row.pin.label.toLowerCase()}
+            key={row.pin.id ?? row.pin.label.toLowerCase()}
             pin={row.pin}
             workspaceRoot={workspaceRoot}
             agentIsRunning={agentIsRunning}
@@ -628,38 +729,18 @@ export function PinList({
             buttonRef={buttonRef}
           />
         ) : (
-          <div
+          <PinGroup
             key={`group:${row.name.toLowerCase()}`}
-            className="px-4 py-4 border-b border-border last:border-b-0"
-            data-testid="pin-group"
-            data-pin-group={row.name}
-            // The heading is often the question these shortcuts answer, so it
-            // has to be announced with them rather than as loose text above.
-            role="group"
-            aria-labelledby={`pin-group-${row.name.toLowerCase().replace(/\s+/g, "-")}`}
-          >
-            <div
-              id={`pin-group-${row.name.toLowerCase().replace(/\s+/g, "-")}`}
-              className="mb-4 text-base font-semibold leading-snug text-foreground"
-            >
-              {row.name}
-            </div>
-            <div className="flex flex-col gap-1">
-              {row.pins.map((pin) => (
-                <PinItem
-                  key={pin.label.toLowerCase()}
-                  pin={pin}
-                  workspaceRoot={workspaceRoot}
-                  agentIsRunning={agentIsRunning}
-                  onRunShortcut={onRunShortcut}
-                  inGroup
-                  agentName={agentName}
-                  pendingPinId={pendingPinId}
-                  buttonRef={buttonRef}
-                />
-              ))}
-            </div>
-          </div>
+            name={row.name}
+            pins={row.pins}
+            collapseScope={collapseScope}
+            workspaceRoot={workspaceRoot}
+            agentIsRunning={agentIsRunning}
+            onRunShortcut={onRunShortcut}
+            agentName={agentName}
+            pendingPinId={pendingPinId}
+            buttonRef={buttonRef}
+          />
         )
       )}
     </>
@@ -673,6 +754,8 @@ type PinsPanelProps = {
   agentIsRunning?: boolean;
   onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
   pendingPinId?: string | null;
+  /** Agent id, so persisted group collapse survives a session rename. */
+  collapseScope?: string;
 };
 
 /**
@@ -738,6 +821,7 @@ export function PinsPanel({
   agentIsRunning,
   onRunShortcut,
   pendingPinId = null,
+  collapseScope,
 }: PinsPanelProps): JSX.Element {
   const [pendingShortcutPin, setPendingShortcutPin] = useState<AgentPin | null>(
     null
@@ -801,6 +885,7 @@ export function PinsPanel({
         agentName={selectedAgentName}
         pendingPinId={pendingPinId}
         buttonRef={registerShortcutButton}
+        {...(collapseScope !== undefined ? { collapseScope } : {})}
       />
       <ConfirmShortcutDialog
         onRestoreFocus={() => lastTrigger.current?.focus()}

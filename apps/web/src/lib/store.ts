@@ -116,6 +116,21 @@ export const whiteboardAgentDrewAtomFamily = atomFamily((_agentId: string) =>
   atom(false)
 );
 
+/**
+ * Whether one pin group is collapsed, keyed by `<agent>::<group>`.
+ *
+ * `null` means the user has never touched this group, which is distinct from
+ * having chosen "expanded": large groups start collapsed, and that default has
+ * to keep applying until the user overrides it — otherwise expanding a group
+ * and then gaining a pin would silently re-collapse it.
+ */
+export const pinGroupCollapsedAtomFamily = atomFamily((key: string) =>
+  atomWithLocalStorage<boolean | null>(
+    `dispatch:pinGroupCollapsed:${key}`,
+    null
+  )
+);
+
 export type DiffViewType = "unified" | "split";
 
 export const diffViewTypeAtom = atomWithLocalStorage<DiffViewType>(

@@ -38,7 +38,15 @@ import {
   writeLatestEventIfCurrent,
 } from "./events.js";
 import { runLifecycleHook } from "./lifecycle-hooks.js";
-import { clearBlankPinFields, mergePin } from "./pin-merge.js";
+import {
+  MAX_PINS,
+  type PinSpec,
+  applyPinSpec,
+  applyPinSpecs,
+  removePinGroup,
+  removePinsByIds,
+  replacePinGroup,
+} from "./pin-write.js";
 import {
   validatePinCaption,
   validatePinShortcutFields,
@@ -96,8 +104,6 @@ const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
  * `createAgent({ initialPins })`. Pins also flow into the startup
  * prompt via `buildStartupPrompt`, so the cap also bounds prompt size.
  */
-const MAX_PINS = 50;
-
 /**
  * Validate + de-duplicate the `initialPins` array supplied to
  * `createAgent`. De-dup is case-insensitive on label with last-write-wins
@@ -1135,41 +1141,27 @@ export class AgentManager {
   }
 
   /**
-   * Update in place when the label already exists, append otherwise. Position
+   * Update in place when the pin already exists, append otherwise. Position
    * is deliberately stable: re-pinning to refresh a value must not shuffle the
    * sidebar out from under the user, and grouped pins would tear apart if an
-   * update relocated a member. An agent that wants a pin moved deletes it and
-   * pins it again.
+   * update relocated a member.
+   *
+   * The pin is addressed by `id` when the caller supplies one and by label
+   * otherwise — see `applyPinSpec`, which both this and the batch path share
+   * so the two cannot drift apart.
    */
   async upsertPin(
     id: string,
-    pin: AgentPin
+    pin: PinSpec
   ): Promise<{ agent: AgentRecord; pin: AgentPin; created: boolean }> {
-    let stored: AgentPin = pin;
+    // Assigned by the mutation below, which always runs before we read it.
+    let stored!: AgentPin;
     let created = true;
     await this.mutatePins(id, (currentPins) => {
-      const index = currentPins.findIndex(
-        (p) => p.label.toLowerCase() === pin.label.toLowerCase()
-      );
-      if (index !== -1) {
-        const pins = [...currentPins];
-        stored = mergePin(
-          {
-            ...currentPins[index]!,
-            id: currentPins[index]!.id ?? randomUUID(),
-          },
-          pin
-        );
-        created = false;
-        pins[index] = stored;
-        return pins;
-      }
-      if (currentPins.length >= MAX_PINS) {
-        throw new AgentError(`Maximum of ${MAX_PINS} pins reached.`, 400);
-      }
-      stored = clearBlankPinFields({ ...pin, id: pin.id ?? randomUUID() });
-      created = true;
-      return [...currentPins, stored];
+      const result = applyPinSpec(currentPins, pin);
+      stored = result.stored;
+      created = result.created;
+      return result.pins;
     });
 
     return {
@@ -1179,14 +1171,66 @@ export class AgentManager {
     };
   }
 
-  async deletePinById(id: string, pinId: string): Promise<AgentRecord> {
+  /**
+   * Write many pins in one transaction.
+   *
+   * The point is atomicity and a single round trip: applying N pins through
+   * `upsertPin` costs N transactions, N `getAgent` reads and N sidebar
+   * re-renders, and a failure halfway leaves the set half-applied.
+   *
+   * In `replace` mode the named group is rebuilt to contain exactly `specs`,
+   * in order. There is deliberately no whole-list replace: every destructive
+   * batch has to name the group it is allowed to clear, so no call can remove
+   * a pin the agent forgot to restate.
+   */
+  async upsertPins(
+    id: string,
+    specs: PinSpec[],
+    options: { mode?: "merge" | "replace"; group?: string } = {}
+  ): Promise<{ agent: AgentRecord; pins: AgentPin[] }> {
+    const mode = options.mode ?? "merge";
+    if (mode === "replace" && !options.group?.trim()) {
+      throw new AgentError(
+        "Replace mode requires a group to scope the replacement to.",
+        400
+      );
+    }
+
+    let stored: AgentPin[] = [];
     await this.mutatePins(id, (currentPins) => {
-      const pins = currentPins.filter((p) => p.id !== pinId);
-      if (pins.length === currentPins.length) {
-        throw new AgentError("Pin not found.", 404);
-      }
-      return pins;
+      const result =
+        mode === "replace"
+          ? replacePinGroup(currentPins, options.group!, specs)
+          : applyPinSpecs(currentPins, specs);
+      stored = result.stored;
+      return result.pins;
     });
+
+    return { agent: (await this.getAgent(id)) as AgentRecord, pins: stored };
+  }
+
+  async deletePinById(id: string, pinId: string): Promise<AgentRecord> {
+    await this.mutatePins(id, (currentPins) =>
+      removePinsByIds(currentPins, [pinId])
+    );
+
+    return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  /** Delete several pins by id in one transaction; every id must exist. */
+  async deletePinsByIds(id: string, pinIds: string[]): Promise<AgentRecord> {
+    await this.mutatePins(id, (currentPins) =>
+      removePinsByIds(currentPins, pinIds)
+    );
+
+    return (await this.getAgent(id)) as AgentRecord;
+  }
+
+  /** Clear an entire group in one transaction. */
+  async deletePinsByGroup(id: string, group: string): Promise<AgentRecord> {
+    await this.mutatePins(id, (currentPins) =>
+      removePinGroup(currentPins, group)
+    );
 
     return (await this.getAgent(id)) as AgentRecord;
   }
