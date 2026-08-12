@@ -17,6 +17,7 @@ import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
 import { templateWorktreeConfig } from "../templates/worktree-config.js";
+import { renderTemplatePromptFromFreeText } from "../templates/launch-prompt.js";
 import type {
   NotifyInput,
   NotifyResult,
@@ -338,9 +339,10 @@ async function handleLaunchAgent(
     worktreeBranch?: string;
     fullAccess?: boolean;
     templateId?: string;
+    templateArgs?: Record<string, string>;
     cwd?: string;
   }
-): Promise<{ agentId: string; name: string }> {
+): Promise<{ agentId: string; name: string; note?: string }> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
 
@@ -360,7 +362,8 @@ async function handleLaunchAgent(
     throw new Error(`${agentType} agents are disabled in settings.`);
   }
 
-  // A templateId means "launch this the way the template says to". Its
+  // A templateId means "launch this the way the template says to". Its prompt
+  // is rendered the same way the web UI's launch form renders it, and its
   // worktree config fills in whatever the caller left unset; anything passed
   // explicitly at the call site still wins.
   const template = input.templateId
@@ -396,6 +399,23 @@ async function handleLaunchAgent(
     input.model
   );
 
+  // Launching a template is a request for the template's own instructions —
+  // without this the caller's short prompt was the agent's entire prompt and
+  // every one of the template's instructions was silently dropped.
+  let prompt = input.prompt;
+  let unfilled: string[] = [];
+  let unknownArgs: string[] = [];
+  if (template?.prompt) {
+    const rendered = renderTemplatePromptFromFreeText(
+      { ...template, prompt: template.prompt },
+      input.prompt,
+      input.templateArgs
+    );
+    prompt = rendered.prompt;
+    unfilled = rendered.unfilled;
+    unknownArgs = rendered.unknownArgs;
+  }
+
   const agent = await deps.agentManager.createAgent({
     name: input.name,
     type: agentType as (typeof CLI_AGENT_TYPES)[number],
@@ -409,7 +429,7 @@ async function handleLaunchAgent(
     worktreeLocation,
     parentAgentId: agentId,
     cliSessionId,
-    initialPrompt: buildChildAgentInitialPrompt(agentId, input.prompt),
+    initialPrompt: buildChildAgentInitialPrompt(agentId, prompt),
     templateId: input.templateId,
   });
 
@@ -418,7 +438,21 @@ async function handleLaunchAgent(
     agent: deps.withStreamFlag(agent),
   });
 
-  return { agentId: agent.id, name: agent.name };
+  // Empty args and misspelled keys are the quiet failure modes of this path, so
+  // say so rather than letting the caller assume the template rendered in full.
+  const notes: string[] = [];
+  if (unknownArgs.length > 0) {
+    notes.push(
+      `Unrecognized templateArgs, nothing used them: ${unknownArgs.join(", ")}. get_template lists the template's promptArgs.`
+    );
+  }
+  if (unfilled.length > 0) {
+    notes.push(
+      `Template args left empty: ${unfilled.join(", ")}. Pass templateArgs to fill them.`
+    );
+  }
+  const note = notes.length > 0 ? notes.join(" ") : undefined;
+  return { agentId: agent.id, name: agent.name, ...(note ? { note } : {}) };
 }
 
 async function handleArchiveAgent(
@@ -985,6 +1019,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         worktreeBranch?: string;
         fullAccess?: boolean;
         templateId?: string;
+        templateArgs?: Record<string, string>;
         cwd?: string;
       }
     ) => handleLaunchAgent(deps, agentId, input),

@@ -8,6 +8,8 @@ import { toToolError } from "./tool-error.js";
 export type LaunchAgentResult = {
   agentId: string;
   name: string;
+  /** Set when a template arg was left empty. */
+  note?: string;
 };
 
 export type LaunchAgentInput = {
@@ -21,6 +23,7 @@ export type LaunchAgentInput = {
   worktreeBranch?: string;
   fullAccess?: boolean;
   templateId?: string;
+  templateArgs?: Record<string, string>;
   cwd?: string;
 };
 
@@ -58,7 +61,9 @@ export function registerAgentLaunchTools(
           .string()
           .min(1)
           .max(100000)
-          .describe("Initial prompt describing what the agent should do."),
+          .describe(
+            "Initial prompt describing what the agent should do. With templateId: if exactly one of the template's args is still unset and every templateArgs key was recognized, this text fills it; otherwise this text is appended after the rendered template prompt."
+          ),
         type: z
           .enum(CLI_AGENT_TYPES)
           .optional()
@@ -106,7 +111,13 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Template to apply to the new agent. Only its worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) are applied, filling in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+            "Template to apply to the new agent. The agent gets the template's own prompt with its args filled in. Worktree settings (useWorktree/createNewBranch/baseBranch/worktreeBranch) fill in whatever you don't pass explicitly; model, fullAccess, and cwd are inherited from the launching agent regardless of the template."
+          ),
+        templateArgs: z
+          .record(z.string(), z.string())
+          .optional()
+          .describe(
+            "Values for the template's args, keyed by arg name. Call get_template first — its `promptArgs` field lists them. Skip this when the template has one arg (your prompt fills it) or none. Args left unset render empty, and an unrecognized key suppresses the prompt-fills-one-arg shortcut."
           ),
         cwd: z
           .string()
@@ -133,14 +144,17 @@ export function registerAgentLaunchTools(
           input.worktreeBranch = args.worktreeBranch;
         if (args.fullAccess !== undefined) input.fullAccess = args.fullAccess;
         if (args.templateId !== undefined) input.templateId = args.templateId;
+        if (args.templateArgs !== undefined)
+          input.templateArgs = args.templateArgs;
         if (args.cwd !== undefined) input.cwd = args.cwd;
 
         const result = await launchAgent(agentId, input);
+        const text = `Launched agent "${result.name}" (${result.agentId}).`;
         return {
           content: [
             {
               type: "text",
-              text: `Launched agent "${result.name}" (${result.agentId}).`,
+              text: result.note ? `${text} ${result.note}` : text,
             },
           ],
           structuredContent: result,

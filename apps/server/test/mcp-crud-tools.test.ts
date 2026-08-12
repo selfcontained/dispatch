@@ -446,6 +446,71 @@ describe("MCP CRUD tools", () => {
       expect(getDeletedRes.body).toContain("not found");
     });
 
+    it("reports a template's prompt args so callers know what templateArgs to pass", async () => {
+      const created = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "create_template", {
+              name: "args-template",
+              directory: "/tmp",
+              prompt: "Review {{D:Target}} for {{D:Concern|required}}.",
+            })
+          ).body
+        )
+      );
+
+      const gotById = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "get_template", {
+              templateId: created.id,
+            })
+          ).body
+        )
+      );
+      expect(gotById.promptArgs).toEqual([
+        expect.objectContaining({ name: "Target", required: false }),
+        expect.objectContaining({ name: "Concern", required: true }),
+      ]);
+
+      const listed = JSON.parse(
+        parseToolText(
+          (await mcpToolCall(agentId, "list_templates", { directory: "/tmp" }))
+            .body
+        )
+      ) as Array<{ name: string; promptArgs?: Array<{ name: string }> }>;
+      const fromList = listed.find((t) => t.name === "args-template");
+      expect(fromList?.promptArgs?.map((a) => a.name)).toEqual([
+        "Target",
+        "Concern",
+      ]);
+    });
+
+    it("omits prompt args for a template with no prompt", async () => {
+      const created = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "create_template", {
+              name: "promptless-template",
+              directory: "/tmp",
+            })
+          ).body
+        )
+      );
+
+      const got = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "get_template", {
+              templateId: created.id,
+            })
+          ).body
+        )
+      );
+      expect(got.prompt).toBeNull();
+      expect(got.promptArgs).toBeUndefined();
+    });
+
     it("returns error when get_template has neither templateId nor name", async () => {
       const res = await mcpToolCall(agentId, "get_template", {});
       expect(res.statusCode).toBe(200);

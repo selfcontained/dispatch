@@ -1161,6 +1161,129 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("renders the template's prompt instead of only the caller's prompt", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          prompt: "Build this idea:\n\n{{D:Idea|required|textarea}}",
+        })
+      );
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "fix the launch bug",
+        templateId: "tmpl_123",
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("Build this idea:");
+      expect(initialPrompt).toContain("fix the launch bug");
+      expect(initialPrompt).not.toContain("{{D:");
+    });
+
+    it("appends the caller's prompt to the template's prompt", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: "Run the nightly checks." })
+      );
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "skip the slow suite",
+        templateId: "tmpl_123",
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain(
+        "Run the nightly checks.\n\nskip the slow suite"
+      );
+    });
+
+    it("fills template args from templateArgs", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          prompt: "Review {{D:Target}} for {{D:Concern|required}}.",
+        })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "be thorough",
+        templateId: "tmpl_123",
+        templateArgs: { Target: "the diff", Concern: "security" },
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("Review the diff for security.");
+      expect(result.note).toBeUndefined();
+    });
+
+    it("launches and reports back when args are left unset", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({
+          prompt: "Review {{D:Target|required}} for {{D:Concern|required}}.",
+        })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "have a look",
+        templateId: "tmpl_123",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalled();
+      expect(result.note).toContain("Target, Concern");
+    });
+
+    it("reports templateArgs keys that matched no arg", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: "Review {{D:PR URL|required}}." })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "review it please",
+        templateId: "tmpl_123",
+        templateArgs: { prUrl: "https://example.com/pr/1" },
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("review it please");
+      expect(result.note).toContain("Unrecognized templateArgs");
+      expect(result.note).toContain("prUrl");
+      expect(result.note).toContain("PR URL");
+    });
+
+    it("appends self-improvement guidance when the template opts in", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: "Do the thing.", selfImprove: true })
+      );
+
+      await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "now",
+        templateId: "tmpl_123",
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("Self-improvement:");
+      expect(initialPrompt).toContain('templateId "tmpl_123"');
+    });
+
+    it("uses the caller's prompt alone when the template has no prompt", async () => {
+      deps.templateService.getTemplate.mockResolvedValue(
+        templateRecord({ prompt: null })
+      );
+
+      const result = await handlers.launchAgent("agt_test1", {
+        name: "child",
+        prompt: "just do it",
+        templateId: "tmpl_123",
+      });
+
+      const { initialPrompt } = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(initialPrompt).toContain("just do it");
+      expect(result.note).toBeUndefined();
+    });
+
     it("takes worktree config from the template when the caller omits it", async () => {
       deps.templateService.getTemplate.mockResolvedValue(
         templateRecord({

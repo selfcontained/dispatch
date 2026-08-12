@@ -5,7 +5,7 @@ import type { AgentManager } from "../agents/manager.js";
 import type { AgentPin, AgentRecord } from "../agents/types.js";
 import type { AgentType } from "../agent-type-settings.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
-import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
+import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
   getAgentModelOptions,
   validateAgentModel,
@@ -13,7 +13,6 @@ import {
 import {
   TemplateStore,
   parseTemplateArgs,
-  substituteArgs,
   type TemplateRecord,
 } from "./store.js";
 import { templateWorktreeConfig } from "./worktree-config.js";
@@ -213,16 +212,10 @@ export class TemplateService {
       const parsedArgs = parseTemplateArgs(template.prompt);
       const args = input.args ?? {};
 
-      finalPrompt =
-        parsedArgs.length > 0
-          ? substituteArgs(template.prompt, args)
-          : template.prompt;
-      if (template.selfImprove) {
-        finalPrompt += buildSelfImprovementGuidance({
-          kind: "template",
-          templateId: template.id,
-        });
-      }
+      finalPrompt = renderTemplatePrompt(
+        { ...template, prompt: template.prompt },
+        args
+      );
 
       const argPins = parsedArgs
         .filter((a) => args[a.key] != null || args[a.name] != null)
