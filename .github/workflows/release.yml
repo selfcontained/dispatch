@@ -275,6 +275,14 @@ jobs:
           DISPATCH_NOTARIZE_MACOS_BINARIES: "1"
           DISPATCH_NOTARY_KEYCHAIN_PROFILE: dispatch-release-notary
 
+      - name: Validate release packaging
+        # dist/bun exists here with real (notarized) binaries, so this is the
+        # only point in CI where pack-release.test.ts's describe.skipIf(!BUILDS_EXIST)
+        # block actually runs — including the xattr/pax-header regression test.
+        # ci.yml never builds dist/bun before its vitest step, so that suite
+        # always skips this coverage.
+        run: pnpm --filter @dispatch/server exec vitest run test/pack-release.test.ts
+
       - name: Pack release artifact
         run: bin/pack-release --output dispatch-release.tar.gz
 
