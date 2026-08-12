@@ -48,7 +48,7 @@ export type AgentLifecycleContext = {
  * ports, file lists) are far shorter; this only bites on shortcut pins, whose
  * value is a whole prompt the caller wrote in the first place.
  */
-const PIN_VALUE_MAX = 500;
+export const PIN_VALUE_MAX = 500;
 
 export function registerAgentLifecycleTools(
   server: McpServer,

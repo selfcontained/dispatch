@@ -239,6 +239,7 @@ export function MediaSidebarContent({
           selectedAgentName={selectedAgentName}
           selectedAgentWorkspaceRoot={selectedAgentWorkspaceRoot}
           agentIsRunning={selectedAgentIsRunning}
+          collapseScope={selectedAgentId}
           // A shortcut fires a real prompt into a live session, so an
           // in-flight run blocks its own button until it settles — a
           // double-click would otherwise send the prompt twice.

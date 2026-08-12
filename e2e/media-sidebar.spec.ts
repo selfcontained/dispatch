@@ -627,4 +627,50 @@ test.describe("Media sidebar", () => {
       .click();
     expect((await runResponse).request().method()).toBe("POST");
   });
+
+  test("remembers a collapsed pin group across a reload", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-pin-groups-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+    await setAgentPinsViaDB(
+      agent.id,
+      Array.from({ length: 3 }, (_, index) => ({
+        id: `pin_group_${index}`,
+        label: `Grouped pin ${index}`,
+        type: "shortcut" as const,
+        value: `prompt ${index}`,
+        group: "Ready to build",
+      }))
+    );
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, agent);
+    const group = page.getByTestId("pin-group");
+
+    // The default and the toggle are unit-tested; only a real reload can show
+    // that the choice actually round-trips through localStorage.
+    await expect(group).toHaveAttribute("data-pin-group-collapsed", "false");
+    await expect(page.getByTestId("pin-group-count")).toHaveText("3");
+    await page.getByTestId("pin-group-toggle").click();
+    await expect(group).toHaveAttribute("data-pin-group-collapsed", "true");
+
+    // Collapsed hides the members but must keep the group findable.
+    await expect(page.getByTestId("pin-item")).toHaveCount(0);
+    await expect(page.getByTestId("pin-group-count")).toHaveText("3");
+
+    // What only a reload can prove is that the choice round-trips through
+    // localStorage rather than living in component state. Reopening the panel
+    // afterwards is its own can of worms (two sidebar instances, remembered
+    // tab), so assert the stored value directly — how a collapsed group
+    // renders is already covered by the pins-panel unit tests.
+    const key = `dispatch:pinGroupCollapsed:${agent.id}::ready to build`;
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect
+      .poll(() => page.evaluate((k) => localStorage.getItem(k), key))
+      .toBe("true");
+  });
 });

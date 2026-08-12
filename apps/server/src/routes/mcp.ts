@@ -70,6 +70,7 @@ type McpRouteDeps = {
   mcpListReviewFeedback: unknown;
   mcpGetReviewFeedbackItem: unknown;
   mcpUpsertPin: unknown;
+  mcpUpsertPins: unknown;
   mcpDeletePin: unknown;
   mcpDeletePinByLabel: unknown;
   mcpGetParentContext: unknown;
@@ -213,6 +214,7 @@ export async function registerMcpRoutes(
       updateWhiteboard: deps.mcpUpdateWhiteboard,
       clearWhiteboard: deps.mcpClearWhiteboard,
       upsertPin: deps.mcpUpsertPin,
+      upsertPins: deps.mcpUpsertPins,
       deletePin: deps.mcpDeletePin,
       deletePinByLabel: deps.mcpDeletePinByLabel,
       listPins: deps.mcpListPins,
@@ -325,6 +327,7 @@ export async function registerMcpRoutes(
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       upsertPin: deps.mcpUpsertPin,
+      upsertPins: deps.mcpUpsertPins,
       deletePin: deps.mcpDeletePin,
       deletePinByLabel: deps.mcpDeletePinByLabel,
       listPins: deps.mcpListPins,

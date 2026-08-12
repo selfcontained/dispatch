@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { clearBlankPinFields, mergePin } from "../src/agents/pin-merge.js";
+import {
+  clearBlankPinFields,
+  finalizePin,
+  mergePin,
+} from "../src/agents/pin-merge.js";
 import type { AgentPin } from "../src/agents/types.js";
 
 const existing: AgentPin = {
@@ -52,13 +56,17 @@ describe("mergePin", () => {
   });
 
   it("clears a decoration when the agent sends an empty string", () => {
-    const merged = mergePin(existing, {
-      label: "What day is it?",
-      value: "What day is it today?",
-      type: "shortcut",
-      caption: "",
-      icon: "   ",
-    });
+    // Blank-clearing and the shortcut-field strip moved to `finalizePin`, so
+    // that every write path gets them — not just updates.
+    const merged = finalizePin(
+      mergePin(existing, {
+        label: "What day is it?",
+        value: "What day is it today?",
+        type: "shortcut",
+        caption: "",
+        icon: "   ",
+      })
+    );
 
     expect(merged).not.toHaveProperty("caption");
     expect(merged).not.toHaveProperty("icon");
@@ -68,9 +76,11 @@ describe("mergePin", () => {
   it("drops shortcut-only fields when the pin is re-typed", () => {
     // Omission means "keep", which would otherwise strand
     // icon/variant/confirm/disabled on a pin that can no longer use them.
-    const merged = mergePin(
-      { ...existing, confirm: true, disabled: true },
-      { label: "What day is it?", value: "https://example.com", type: "url" }
+    const merged = finalizePin(
+      mergePin(
+        { ...existing, confirm: true, disabled: true },
+        { label: "What day is it?", value: "https://example.com", type: "url" }
+      )
     );
 
     expect(merged).not.toHaveProperty("icon");

@@ -636,6 +636,7 @@ async function registerRoutes() {
     mcpSendMessage: mcpHandlers.sendMessage,
     mcpListAgentsForAgent: mcpHandlers.listAgentsForAgent,
     mcpUpsertPin: mcpHandlers.upsertPin,
+    mcpUpsertPins: mcpHandlers.upsertPins,
     mcpDeletePin: mcpHandlers.deletePin,
     mcpDeletePinByLabel: mcpHandlers.deletePinByLabel,
     mcpListPins: mcpHandlers.listPins,
