@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
 import type { Personality } from "../../db/personalities.js";
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 const NAME_MAX = 80;
@@ -43,7 +44,7 @@ export function registerPersonalityTools(
         try {
           const result = await listPersonalities();
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: result,
           };
         } catch (error) {

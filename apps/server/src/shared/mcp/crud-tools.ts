@@ -5,6 +5,7 @@ import { describeAgentModelCatalog } from "../agent-models.js";
 import type { AgentType } from "../agent-types.js";
 import { parseTemplateArgs } from "../../templates/arg-parser.js";
 import type { TemplateRecord } from "../../templates/store.js";
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 /**
@@ -17,6 +18,40 @@ function withPromptArgs<T extends { prompt: string | null }>(template: T) {
   return template.prompt
     ? { ...template, promptArgs: parseTemplateArgs(template.prompt) }
     : template;
+}
+
+/**
+ * List projection for a record that carries a prompt. A prompt is the largest
+ * field on both templates and jobs — several KB is normal — and listing them all
+ * has overflowed the tool-output limit outright. A caller listing is picking one;
+ * it gets everything needed to pick (including the args the prompt expects and
+ * how big it is) and calls get_template / get_job for the prompt itself.
+ */
+function withoutPrompt<T extends { prompt: string | null }>(record: T) {
+  const { prompt, ...rest } = record;
+  return { ...rest, ...(prompt ? { promptChars: prompt.length } : {}) };
+}
+
+/** Template listing: no prompt body, but the args it expects and its size. */
+function toTemplateListing(template: TemplateRecord) {
+  const base = withoutPrompt(template);
+  return template.prompt
+    ? { ...base, promptArgs: parseTemplateArgs(template.prompt) }
+    : base;
+}
+
+/**
+ * Job listing: same prompt trim, minus the webhook secret. A listing is for
+ * picking a job to inspect or run; the secret is a credential the caller has no
+ * use for there, and get_job still returns the full record.
+ */
+function toJobListing(job: unknown) {
+  if (!job || typeof job !== "object") return job;
+  const { webhookSecret: _webhookSecret, ...rest } = job as Record<
+    string,
+    unknown
+  > & { webhookSecret?: unknown };
+  return withoutPrompt(rest as { prompt: string | null });
 }
 
 const JOB_AGENT_TYPES = ["claude", "codex", "opencode", "cursor"] as const;
@@ -161,7 +196,8 @@ export function registerCrudTools(
       "list_jobs",
       {
         description:
-          "List jobs, scoped to a directory. Defaults to the agent's working directory.",
+          "List jobs, scoped to a directory. Defaults to the agent's working directory. " +
+          "Prompts are omitted (only their length is reported) — call get_job for a job's full record.",
         inputSchema: { directory: dirSchema() },
       },
       async (args) => {
@@ -169,8 +205,11 @@ export function registerCrudTools(
           const result = await callbacks.listJobs(
             args.directory?.trim() || defaultCwd
           );
+          const listing = Array.isArray(result)
+            ? result.map(toJobListing)
+            : result;
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(listing) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -211,7 +250,7 @@ export function registerCrudTools(
               );
           if (!result) return toToolError(new Error("Job not found."));
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -299,7 +338,7 @@ export function registerCrudTools(
             directory: resolveDir(args.directory),
           });
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -395,7 +434,7 @@ export function registerCrudTools(
             directory: resolveDir(args.directory),
           });
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -423,7 +462,7 @@ export function registerCrudTools(
             resolveDir(args.directory)
           );
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -451,7 +490,7 @@ export function registerCrudTools(
             resolveDir(args.directory)
           );
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -466,7 +505,7 @@ export function registerCrudTools(
       "list_templates",
       {
         description:
-          "List templates, scoped to a directory. Defaults to the agent's working directory. Each template's `promptArgs` field lists the args its prompt expects.",
+          "List templates, scoped to a directory. Defaults to the agent's working directory. Each template's `promptArgs` field lists the args its prompt expects and `promptChars` its size. Prompt bodies are omitted — call get_template for the one you want.",
         inputSchema: { directory: dirSchema() },
       },
       async (args) => {
@@ -478,7 +517,7 @@ export function registerCrudTools(
             content: [
               {
                 type: "text",
-                text: JSON.stringify(result.map(withPromptArgs), null, 2),
+                text: jsonText(result.map(toTemplateListing)),
               },
             ],
           };
@@ -524,7 +563,7 @@ export function registerCrudTools(
             content: [
               {
                 type: "text",
-                text: JSON.stringify(withPromptArgs(result), null, 2),
+                text: jsonText(withPromptArgs(result)),
               },
             ],
           };
@@ -594,7 +633,7 @@ export function registerCrudTools(
             directory: resolveDir(args.directory),
           });
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -662,7 +701,7 @@ export function registerCrudTools(
           const { templateId, ...updates } = args;
           const result = await callbacks.updateTemplate(templateId, updates);
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -685,7 +724,7 @@ export function registerCrudTools(
         try {
           const result = await callbacks.deleteTemplate(args.templateId);
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
           };
         } catch (error) {
           return toToolError(error);

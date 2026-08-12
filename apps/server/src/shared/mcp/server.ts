@@ -799,7 +799,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
             new Error("value is required when creating or updating a pin.")
           );
         }
-        const { pin, created } = await upsertPin(agentId, {
+        const { created } = await upsertPin(agentId, {
           label: args.label,
           value: args.value,
           type: args.type ?? "string",
@@ -810,14 +810,16 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           ...(args.confirm !== undefined ? { confirm: args.confirm } : {}),
           ...(args.disabled !== undefined ? { disabled: args.disabled } : {}),
         });
-        // Echo the stored pin, not the request: the agent can then see what an
-        // update actually produced — including fields it did not send that
-        // were carried over — instead of assuming its input round-tripped.
+        // Acknowledge the write without echoing the stored pin: the caller just
+        // sent every field it set, and an update merges rather than replaces, so
+        // the only thing it cannot infer is whether this created or updated —
+        // which is exactly what it gets back. dispatch_list_pins remains the way
+        // to check what an update actually carried over.
         return {
           content: [
             {
               type: "text",
-              text: `${created ? "Created" : "Updated"} pin "${args.label}". Stored as: ${JSON.stringify(pin)}`,
+              text: `${created ? "Created" : "Updated"} pin "${args.label}".`,
             },
           ],
         };

@@ -21,6 +21,7 @@ import {
 } from "../../personas/authoring.js";
 import { describeAgentModelCatalog } from "../agent-models.js";
 import type { McpRequestContext } from "./server.js";
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export const LAUNCH_PERSONA_AGENT_TYPES = [
@@ -93,7 +94,7 @@ export function registerPersonaInteractionTools(
         content: [
           {
             type: "text",
-            text: JSON.stringify({ templates: PERSONA_TEMPLATES }, null, 2),
+            text: jsonText({ templates: PERSONA_TEMPLATES }),
           },
         ],
         structuredContent: { templates: PERSONA_TEMPLATES },
@@ -342,9 +343,7 @@ export function registerPersonaInteractionTools(
             repoRoot
           );
           return {
-            content: [
-              { type: "text", text: JSON.stringify({ personas }, null, 2) },
-            ],
+            content: [{ type: "text", text: jsonText({ personas }) }],
             structuredContent: { personas },
           };
         } catch (error) {
@@ -430,7 +429,7 @@ export function registerPersonaInteractionTools(
       "dispatch_review_list_feedback",
       {
         description:
-          "List review feedback items for reviews this agent participates in. Returns item IDs, file locations, status, resolution, and the complete tracked thread. Optionally filter by reviewId.",
+          "List review feedback items for reviews this agent participates in. Returns item IDs, file locations, status, resolution, and the complete tracked thread. Optionally filter by reviewId. The stored diff hunk for each item is not included — read the file at the reported path and lines instead.",
         inputSchema: {
           reviewId: z.number().int().positive().optional(),
         },
@@ -442,9 +441,12 @@ export function registerPersonaInteractionTools(
             items.length === 0
               ? "No review feedback items found."
               : `Found ${items.length} review feedback item(s).`;
+          // diffSnapshot is a copy of code the caller can read at filePath, and
+          // it repeats per item — the one field here worth dropping wholesale.
+          const listing = items.map(({ diffSnapshot: _diff, ...item }) => item);
           return {
             content: [{ type: "text", text: summary }],
-            structuredContent: { items },
+            structuredContent: { items: listing },
           };
         } catch (error) {
           return toToolError(error);

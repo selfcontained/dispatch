@@ -15,6 +15,7 @@ import {
   isIsoInstant,
   toEventDeleteSelector,
 } from "../../brain/store.js";
+import { jsonText, truncateLongStrings } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 type BrainToolContext = {
@@ -91,6 +92,34 @@ const eventTimestampSchema = z
   .meta({ format: "date-time" });
 const listOrderSchema = z.enum(["asc", "desc"]);
 
+/**
+ * Longest string kept intact inside a listed object's value. Enough for a title,
+ * a summary, or a status line; short enough that a multi-KB write-up in one
+ * object cannot crowd out the rest of the collection. brain_get_object returns
+ * the untruncated value.
+ */
+const LIST_VALUE_STRING_MAX = 400;
+
+/**
+ * A write confirms what changed, not what was written — the caller already has
+ * the value it just sent, and echoing a multi-KB object back doubles the cost of
+ * a one-field update. brain_get_object is there for callers that want to
+ * re-read what landed.
+ */
+function toWriteAck(obj: {
+  collection: string;
+  name: string;
+  revision: number;
+  updatedAt: string;
+}): { collection: string; name: string; revision: number; updatedAt: string } {
+  return {
+    collection: obj.collection,
+    name: obj.name,
+    revision: obj.revision,
+    updatedAt: obj.updatedAt,
+  };
+}
+
 export function registerBrainTools(
   server: McpServer,
   allowed: Set<string>,
@@ -128,7 +157,7 @@ export function registerBrainTools(
             );
           }
           return {
-            content: [{ type: "text", text: JSON.stringify(obj, null, 2) }],
+            content: [{ type: "text", text: jsonText(obj) }],
             structuredContent: toStructuredContent(obj),
           };
         } catch (error) {
@@ -147,7 +176,9 @@ export function registerBrainTools(
           "Create or update an object in the shared brain. " +
           "To create: omit expectedRevision. " +
           "To update: pass expectedRevision matching the current revision (optimistic concurrency). " +
-          "Blind overwrites of existing objects are rejected — you must read first.",
+          "Blind overwrites of existing objects are rejected — you must read first. " +
+          "Returns a confirmation of what changed (name, new revision, timestamp), not the stored value — " +
+          "re-read with brain_get_object if you need it.",
         inputSchema: {
           collection: collectionSchema.describe(
             "The collection the object belongs to."
@@ -178,9 +209,10 @@ export function registerBrainTools(
             expectedRevision: args.expectedRevision,
           });
           publishBrainChanged?.();
+          const ack = toWriteAck(obj);
           return {
-            content: [{ type: "text", text: JSON.stringify(obj, null, 2) }],
-            structuredContent: toStructuredContent(obj),
+            content: [{ type: "text", text: jsonText(ack) }],
+            structuredContent: toStructuredContent(ack),
           };
         } catch (error) {
           return toBrainError(error);
@@ -239,7 +271,7 @@ export function registerBrainTools(
           });
           publishBrainChanged?.();
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {
@@ -299,7 +331,7 @@ export function registerBrainTools(
           });
           publishBrainChanged?.();
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {
@@ -351,7 +383,7 @@ export function registerBrainTools(
             order: args.order,
           });
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {
@@ -403,7 +435,7 @@ export function registerBrainTools(
           });
           publishBrainChanged?.();
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {
@@ -463,7 +495,9 @@ export function registerBrainTools(
       {
         description:
           "List objects in the shared brain. Optionally filter by collection, name prefix, " +
-          "or updated-after timestamp. Returns up to `limit` objects ordered by most recently updated.",
+          "or updated-after timestamp. Returns up to `limit` objects ordered by most recently updated. " +
+          `Strings inside each object's value are truncated to ${LIST_VALUE_STRING_MAX} characters (marked with the ` +
+          "number of characters dropped) — call brain_get_object for an object's full value.",
         inputSchema: {
           collection: collectionSchema
             .optional()
@@ -494,9 +528,14 @@ export function registerBrainTools(
             updatedAfter: args.updatedAfter,
             limit: args.limit,
           });
-          const result = { objects };
+          const result = {
+            objects: objects.map((obj) => ({
+              ...obj,
+              value: truncateLongStrings(obj.value, LIST_VALUE_STRING_MAX),
+            })),
+          };
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {
@@ -592,7 +631,7 @@ export function registerBrainTools(
           });
           publishBrainChanged?.();
           return {
-            content: [{ type: "text", text: JSON.stringify(event, null, 2) }],
+            content: [{ type: "text", text: jsonText(event) }],
             structuredContent: toStructuredContent(event),
           };
         } catch (error) {
@@ -754,7 +793,7 @@ export function registerBrainTools(
           });
           const result = { events };
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {

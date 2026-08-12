@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import type {
   WhiteboardGetResult,
@@ -238,7 +239,7 @@ export function registerWhiteboardTools(
             content: [
               {
                 type: "text",
-                text: JSON.stringify(summary, null, 2) + snapshotNote,
+                text: jsonText(summary) + snapshotNote,
               },
             ],
             structuredContent: summary,
@@ -310,7 +311,7 @@ export function registerWhiteboardTools(
             elements: result.elements,
           };
           return {
-            content: [{ type: "text", text: JSON.stringify(summary, null, 2) }],
+            content: [{ type: "text", text: jsonText(summary) }],
             structuredContent: summary,
           };
         } catch (error) {

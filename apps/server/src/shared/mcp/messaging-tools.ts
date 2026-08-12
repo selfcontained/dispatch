@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export type MessagingToolsContext = {
@@ -48,9 +49,7 @@ export function registerMessagingTools(
         try {
           const agents = await listAgentsForAgent(agentId, context.repoRoot);
           return {
-            content: [
-              { type: "text", text: JSON.stringify({ agents }, null, 2) },
-            ],
+            content: [{ type: "text", text: jsonText({ agents }) }],
             structuredContent: { agents },
           };
         } catch (error) {

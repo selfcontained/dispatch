@@ -249,7 +249,13 @@ describe("registerBrainTools", () => {
       })) as { structuredContent: unknown; isError?: true };
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toEqual(obj);
+      // A write acknowledges what changed; it does not echo the stored value.
+      expect(result.structuredContent).toEqual({
+        collection: obj.collection,
+        name: obj.name,
+        revision: obj.revision,
+        updatedAt: obj.updatedAt,
+      });
       expect(publishBrainChanged).toHaveBeenCalledOnce();
       expect(store.storeObject).toHaveBeenCalledWith(REPO_ROOT, AGENT_ID, {
         collection: "test-col",
@@ -334,6 +340,42 @@ describe("registerBrainTools", () => {
 
       expect(result.isError).toBe(true);
       expect(result.structuredContent.error.code).toBe("validation_error");
+    });
+  });
+
+  // ── brain_list_objects ─────────────────────────────────────────
+
+  describe("brain_list_objects", () => {
+    it("truncates long strings in listed values but keeps short ones intact", async () => {
+      const details = "x".repeat(1000);
+      store.listObjects.mockResolvedValue([
+        makeBrainObject({
+          value: { title: "An idea", details, tags: ["a", "b"] },
+        }),
+      ]);
+      registerAll();
+
+      const result = (await findHandler(server, "brain_list_objects")({})) as {
+        structuredContent: {
+          objects: Array<{ value: { title: string; details: string } }>;
+        };
+      };
+
+      const listed = result.structuredContent.objects[0]!.value;
+      expect(listed.title).toBe("An idea");
+      expect(listed.details).toBe(`${"x".repeat(400)}…[+600 chars]`);
+    });
+
+    it("leaves values alone when nothing exceeds the cap", async () => {
+      const value = { title: "Short", status: "idea" };
+      store.listObjects.mockResolvedValue([makeBrainObject({ value })]);
+      registerAll();
+
+      const result = (await findHandler(server, "brain_list_objects")({})) as {
+        structuredContent: { objects: Array<{ value: unknown }> };
+      };
+
+      expect(result.structuredContent.objects[0]!.value).toEqual(value);
     });
   });
 

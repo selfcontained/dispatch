@@ -381,7 +381,7 @@ describe("registerAgentLifecycleTools", () => {
         source: "screenshot",
       });
       expect(result).toEqual({
-        content: [{ type: "text", text: JSON.stringify(items, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(items) }],
       });
     });
 
@@ -456,7 +456,7 @@ describe("registerAgentLifecycleTools", () => {
 
       expect(ctx.listPins).toHaveBeenCalledWith(AGENT_ID);
       expect(result).toEqual({
-        content: [{ type: "text", text: JSON.stringify(pins, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify(pins) }],
       });
     });
   });

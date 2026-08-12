@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
 import type { JobTools } from "./job-tools.js";
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export type AnalyticsCallbacks = Partial<
@@ -56,7 +57,7 @@ export function registerAnalyticsTools(
             return toToolError(new Error("start must be before end"));
           const result = await fn({ start, end, project: args.project });
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: result,
           };
         } catch (error) {
@@ -151,7 +152,7 @@ export function registerAnalyticsTools(
             includeChildren: args.include_children,
           });
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: result,
           };
         } catch (error) {
@@ -208,7 +209,7 @@ export function registerAnalyticsTools(
             groupBy: args.group_by,
           });
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: result,
           };
         } catch (error) {

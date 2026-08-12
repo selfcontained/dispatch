@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
 import type { NotifyInput } from "./server.js";
+import { jsonText, truncateLongStrings } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export type AgentLifecycleContext = {
@@ -41,6 +42,13 @@ export type AgentLifecycleContext = {
     Array<{ id: string; label: string; value: string; type: string }>
   >;
 };
+
+/**
+ * Longest pin value returned intact by dispatch_list_pins. Ordinary pins (URLs,
+ * ports, file lists) are far shorter; this only bites on shortcut pins, whose
+ * value is a whole prompt the caller wrote in the first place.
+ */
+const PIN_VALUE_MAX = 500;
 
 export function registerAgentLifecycleTools(
   server: McpServer,
@@ -213,9 +221,7 @@ export function registerAgentLifecycleTools(
         try {
           const items = await listMedia(agentId, { source: args.source });
           return {
-            content: [
-              { type: "text" as const, text: JSON.stringify(items, null, 2) },
-            ],
+            content: [{ type: "text" as const, text: jsonText(items) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -258,7 +264,8 @@ export function registerAgentLifecycleTools(
       "dispatch_list_pins",
       {
         description:
-          "List this agent's current Dispatch sidebar pins. Use dispatch_delete_pin with a returned id to remove a stale pin.",
+          "List this agent's current Dispatch sidebar pins. Use dispatch_delete_pin with a returned id to remove a stale pin. " +
+          `Pin values longer than ${PIN_VALUE_MAX} characters are truncated (marked with the number of characters dropped); a shortcut pin's full prompt is visible in the Dispatch UI.`,
         inputSchema: {},
       },
       async () => {
@@ -266,7 +273,10 @@ export function registerAgentLifecycleTools(
           const pins = await listPins(agentId);
           return {
             content: [
-              { type: "text" as const, text: JSON.stringify(pins, null, 2) },
+              {
+                type: "text" as const,
+                text: jsonText(truncateLongStrings(pins, PIN_VALUE_MAX)),
+              },
             ],
           };
         } catch (error) {

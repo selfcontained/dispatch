@@ -284,6 +284,15 @@ describe("MCP CRUD tools", () => {
         true
       );
 
+      // A job listing carries neither the prompt body nor the webhook secret;
+      // get_job is the full record.
+      const listedJob = jobs.find(
+        (j: { name: string }) => j.name === "test-job"
+      );
+      expect(listedJob.prompt).toBeUndefined();
+      expect(listedJob.promptChars).toBe("Do a thing".length);
+      expect("webhookSecret" in listedJob).toBe(false);
+
       // list_jobs — different directory returns empty
       const listOtherRes = await mcpToolCall(agentId, "list_jobs", {
         directory: "/nonexistent",
@@ -484,6 +493,39 @@ describe("MCP CRUD tools", () => {
         "Target",
         "Concern",
       ]);
+    });
+
+    it("omits prompt bodies from list_templates, reporting their size instead", async () => {
+      const prompt = "P".repeat(4000);
+      await mcpToolCall(agentId, "create_template", {
+        name: "bulky-template",
+        directory: "/tmp",
+        prompt,
+      });
+
+      const listed = JSON.parse(
+        parseToolText(
+          (await mcpToolCall(agentId, "list_templates", { directory: "/tmp" }))
+            .body
+        )
+      ) as Array<{ name: string; prompt?: string; promptChars?: number }>;
+      const fromList = listed.find((t) => t.name === "bulky-template");
+      expect(fromList).toBeTruthy();
+      expect(fromList!.prompt).toBeUndefined();
+      expect(fromList!.promptChars).toBe(4000);
+
+      // ...and the full prompt is still one get_template away.
+      const got = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "get_template", {
+              name: "bulky-template",
+              directory: "/tmp",
+            })
+          ).body
+        )
+      );
+      expect(got.prompt).toBe(prompt);
     });
 
     it("omits prompt args for a template with no prompt", async () => {
