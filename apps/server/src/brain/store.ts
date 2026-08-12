@@ -389,6 +389,26 @@ export class BrainStore {
     return result.rows[0] ? mapList(result.rows[0]) : null;
   }
 
+  /**
+   * Read one list item by index, untruncated. Separate from getListItems
+   * because `limit` bounds a page — a caller passing limit 1 is asking for a
+   * small response, not for one item in full, and conflating the two makes the
+   * response budget depend on a pagination knob.
+   */
+  async getListItem(
+    repoRoot: string,
+    input: { collection: string; name: string; index: number }
+  ): Promise<BrainListItem | null> {
+    const { collection, name, index } = input;
+    const result = await this.pool.query(
+      `SELECT ${listItemColumns()}
+       FROM brain_list_items
+       WHERE repo_root = $1 AND collection = $2 AND name = $3 AND item_index = $4`,
+      [repoRoot, collection, name, index]
+    );
+    return result.rows[0] ? (result.rows[0] as BrainListItem) : null;
+  }
+
   async getListItems(
     repoRoot: string,
     input: {

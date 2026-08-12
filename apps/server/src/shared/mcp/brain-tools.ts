@@ -15,7 +15,7 @@ import {
   isIsoInstant,
   toEventDeleteSelector,
 } from "../../brain/store.js";
-import { jsonText, truncateLongStrings } from "./response.js";
+import { jsonText, LIST_STRING_MAX, truncateLongStrings } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 type BrainToolContext = {
@@ -91,14 +91,6 @@ const eventTimestampSchema = z
   .refine(isIsoInstant, { message: `Timestamp ${ISO_INSTANT_HINT}.` })
   .meta({ format: "date-time" });
 const listOrderSchema = z.enum(["asc", "desc"]);
-
-/**
- * Longest string kept intact inside a listed object's value. Enough for a title,
- * a summary, or a status line; short enough that a multi-KB write-up in one
- * object cannot crowd out the rest of the collection. brain_get_object returns
- * the untruncated value.
- */
-const LIST_VALUE_STRING_MAX = 400;
 
 /**
  * A write confirms what changed, not what was written — the caller already has
@@ -348,9 +340,8 @@ export function registerBrainTools(
       {
         description:
           "Read items from a shared brain list. Returns the selected items, total count, and current revision. " +
-          `Strings longer than ${LIST_VALUE_STRING_MAX} characters are truncated (marked with the number dropped), ` +
-          "except when limit is 1 — a single-item window is returned in full, so use limit 1 with an offset " +
-          "to read one item whole.",
+          `Strings longer than ${LIST_STRING_MAX} characters are truncated (marked with the number dropped) — ` +
+          "call brain_get_list_item for one item in full.",
         inputSchema: {
           collection: collectionSchema.describe(
             "The collection the list belongs to."
@@ -385,16 +376,57 @@ export function registerBrainTools(
             offset: args.offset,
             order: args.order,
           });
-          // Same reasoning as brain_list_objects, except the per-item read is a
-          // narrower window on this same tool rather than a separate one — so
-          // asking for exactly one item is the full read, and must not truncate.
-          const result =
-            args.limit === 1
-              ? raw
-              : truncateLongStrings(raw, LIST_VALUE_STRING_MAX);
+          const result = truncateLongStrings(raw, LIST_STRING_MAX);
           return {
             content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_get_list_item ──────────────────────────────────────────
+  if (allowed.has("brain_get_list_item")) {
+    server.registerTool(
+      "brain_get_list_item",
+      {
+        description:
+          "Get one item from a shared brain list by index, with its value untruncated. " +
+          "brain_list_get reports the indexes.",
+        inputSchema: {
+          collection: collectionSchema.describe(
+            "The collection the list belongs to."
+          ),
+          name: nameSchema.describe(
+            "The unique name of the list within the collection."
+          ),
+          index: z
+            .number()
+            .int()
+            .min(0)
+            .describe("The 0-based index reported by brain_list_get."),
+        },
+      },
+      async (args) => {
+        try {
+          const item = await store.getListItem(repoRoot, {
+            collection: args.collection,
+            name: args.name,
+            index: args.index,
+          });
+          if (!item) {
+            return toToolError(
+              new Error(
+                `No item at index ${args.index} in "${args.collection}/${args.name}".`
+              )
+            );
+          }
+          return {
+            content: [{ type: "text", text: jsonText(item) }],
+            structuredContent: toStructuredContent(item),
           };
         } catch (error) {
           return toBrainError(error);
@@ -512,7 +544,7 @@ export function registerBrainTools(
         description:
           "List objects in the shared brain. Optionally filter by collection, name prefix, " +
           "or updated-after timestamp. Returns up to `limit` objects ordered by most recently updated. " +
-          `Strings inside each object's value are truncated to ${LIST_VALUE_STRING_MAX} characters (marked with the ` +
+          `Strings inside each object's value are truncated to ${LIST_STRING_MAX} characters (marked with the ` +
           "number of characters dropped) — call brain_get_object for an object's full value.",
         inputSchema: {
           collection: collectionSchema
@@ -547,7 +579,7 @@ export function registerBrainTools(
           const result = {
             objects: objects.map((obj) => ({
               ...obj,
-              value: truncateLongStrings(obj.value, LIST_VALUE_STRING_MAX),
+              value: truncateLongStrings(obj.value, LIST_STRING_MAX),
             })),
           };
           return {
@@ -794,7 +826,7 @@ export function registerBrainTools(
         description:
           "Query the shared brain's event log. Filter by collection, kind, subject, " +
           "tags, and time range. Returns up to `limit` events. " +
-          `Strings inside each event's value are truncated to ${LIST_VALUE_STRING_MAX} characters ` +
+          `Strings inside each event's value are truncated to ${LIST_STRING_MAX} characters ` +
           "(marked with the number of characters dropped) — call brain_get_event for one event in full.",
         inputSchema: {
           collection: collectionSchema
@@ -849,7 +881,7 @@ export function registerBrainTools(
           const result = {
             events: events.map((event) => ({
               ...event,
-              value: truncateLongStrings(event.value, LIST_VALUE_STRING_MAX),
+              value: truncateLongStrings(event.value, LIST_STRING_MAX),
             })),
           };
           return {

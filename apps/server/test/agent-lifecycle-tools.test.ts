@@ -464,7 +464,7 @@ describe("registerAgentLifecycleTools", () => {
         content: Array<{ text: string }>;
       };
       expect(JSON.parse(all.content[0]!.text)[1].value).toBe(
-        `${"z".repeat(500)}…[+700 chars]`
+        `${"z".repeat(400)}…[+800 chars]`
       );
 
       const missing = (await server.tools[0]!.handler({ id: "nope" })) as {

@@ -3,13 +3,38 @@
  *
  * Every byte a tool returns is held in the calling agent's context for the rest
  * of its session, so responses are shaped for the caller's next decision rather
- * than for completeness. Two rules keep that consistent across the tool surface:
+ * than for completeness.
+ *
+ * ## The policy
  *
  * 1. JSON is emitted compact. Pretty-printing costs tokens for indentation the
  *    model does not need.
- * 2. List-shaped tools return a lean projection; the matching single-item tool
- *    (get_template, get_job, brain_get_object) is the way to get everything.
+ * 2. A list-shaped tool returns a lean projection, and there is always an
+ *    explicit way to read one entry in full. Exactly two shapes are sanctioned:
+ *      - a separate single-item tool (`get_template`, `brain_get_object`,
+ *        `brain_get_event`, `brain_get_list_item`, `dispatch_review_get_feedback`);
+ *      - an **identity selector** on the list tool itself — an input that names
+ *        one entry and can mean nothing else (`dispatch_list_pins` with `id`,
+ *        `get_feedback_summary` with `group`). This costs no extra tool.
+ *    A *cardinality* control must never double as a detail read: `limit: 1`
+ *    asks for a small response, not an unbounded one, and overloading it makes
+ *    the response budget depend on a pagination knob.
+ * 3. A write confirms what changed — ids, revision, timestamp — instead of
+ *    echoing back the entity the caller just sent.
+ *
+ * Trimming a listing means dropping a field outright (preferred when a detail
+ * read covers it) or truncating long strings with `truncateLongStrings` at
+ * `LIST_STRING_MAX` (preferred when the field's shape is still useful at a
+ * glance). Truncation is a primitive, not a policy: use the shared cap so the
+ * surface stays predictable rather than picking a new number per tool.
  */
+
+/**
+ * Longest string a list-shaped response keeps intact. Enough for a title, a
+ * summary line, or a short prompt; short enough that one multi-KB entry cannot
+ * crowd out the rest of the page. The matching detail read returns it whole.
+ */
+export const LIST_STRING_MAX = 400;
 
 /** Serialize a tool payload as compact JSON — never pretty-printed. */
 export function jsonText(value: unknown): string {

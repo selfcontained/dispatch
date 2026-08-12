@@ -71,6 +71,7 @@ function createMockStore() {
     listObjects: vi.fn(),
     deleteObject: vi.fn(),
     getListItems: vi.fn(),
+    getListItem: vi.fn(),
     pushListItems: vi.fn(),
     removeListItem: vi.fn(),
     setListItem: vi.fn(),
@@ -88,6 +89,7 @@ const ALL_BRAIN_TOOLS = new Set([
   "brain_list_push",
   "brain_list_remove",
   "brain_list_get",
+  "brain_get_list_item",
   "brain_list_set",
   "brain_list_delete",
   "brain_list_objects",
@@ -130,7 +132,7 @@ describe("registerBrainTools", () => {
   // ── Conditional registration ────────────────────────────────────
 
   describe("conditional registration", () => {
-    it("registers all 13 tools when all are allowed", () => {
+    it("registers all 14 tools when all are allowed", () => {
       registerAll();
       const names = server.tools.map((t) => t.name);
       expect(names).toEqual([
@@ -139,6 +141,7 @@ describe("registerBrainTools", () => {
         "brain_list_push",
         "brain_list_remove",
         "brain_list_get",
+        "brain_get_list_item",
         "brain_list_set",
         "brain_list_delete",
         "brain_list_objects",
@@ -658,10 +661,9 @@ describe("registerBrainTools", () => {
       );
     });
 
-    it("returns a single-item window in full", async () => {
-      const body = "b".repeat(900);
+    it("truncates a one-item page too — limit bounds the page, it is not a detail read", async () => {
       store.getListItems.mockResolvedValue({
-        items: [{ index: 2, value: { body } }],
+        items: [{ index: 2, value: { body: "b".repeat(900) } }],
         totalCount: 3,
         revision: 2,
       });
@@ -679,7 +681,50 @@ describe("registerBrainTools", () => {
         structuredContent: { items: Array<{ value: { body: string } }> };
       };
 
-      expect(result.structuredContent.items[0]!.value.body).toBe(body);
+      expect(result.structuredContent.items[0]!.value.body).toBe(
+        `${"b".repeat(400)}…[+500 chars]`
+      );
+    });
+  });
+
+  describe("brain_get_list_item", () => {
+    it("returns one item untruncated", async () => {
+      const body = "b".repeat(900);
+      store.getListItem.mockResolvedValue({ index: 2, value: { body } });
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_get_list_item"
+      )({
+        collection: "c",
+        name: "l",
+        index: 2,
+      })) as { structuredContent: { value: { body: string } }; isError?: true };
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent.value.body).toBe(body);
+      expect(store.getListItem).toHaveBeenCalledWith(REPO_ROOT, {
+        collection: "c",
+        name: "l",
+        index: 2,
+      });
+    });
+
+    it("errors when the index is empty", async () => {
+      store.getListItem.mockResolvedValue(null);
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_get_list_item"
+      )({
+        collection: "c",
+        name: "l",
+        index: 9,
+      })) as { isError?: true };
+
+      expect(result.isError).toBe(true);
     });
   });
 
