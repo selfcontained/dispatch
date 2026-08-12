@@ -828,6 +828,20 @@ export class BrainStore {
     return mapEvent(result.rows[0]);
   }
 
+  /**
+   * Read one event in full. brain_query_events truncates long strings inside
+   * event values so a single large event cannot crowd out the rest of a query;
+   * this is how a caller gets the whole thing back.
+   */
+  async getEvent(repoRoot: string, id: string): Promise<BrainEvent | null> {
+    const result = await this.pool.query(
+      `SELECT ${eventColumns()} FROM brain_events
+       WHERE repo_root = $1 AND id = $2`,
+      [repoRoot, id]
+    );
+    return result.rows[0] ? mapEvent(result.rows[0]) : null;
+  }
+
   /** Single-event convenience for the HTTP route; delegates to deleteEvents. */
   async deleteEvent(repoRoot: string, id: string): Promise<boolean> {
     const { deleted } = await this.deleteEvents(repoRoot, { ids: [id] });

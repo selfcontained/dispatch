@@ -347,7 +347,9 @@ export function registerBrainTools(
       "brain_list_get",
       {
         description:
-          "Read items from a shared brain list. Returns the selected items, total count, and current revision.",
+          "Read items from a shared brain list. Returns the selected items, total count, and current revision. " +
+          `Strings longer than ${LIST_VALUE_STRING_MAX} characters are truncated (marked with the number dropped) — ` +
+          "narrow the window with offset and limit to read one item in full.",
         inputSchema: {
           collection: collectionSchema.describe(
             "The collection the list belongs to."
@@ -375,13 +377,16 @@ export function registerBrainTools(
       },
       async (args) => {
         try {
-          const result = await store.getListItems(repoRoot, {
+          const raw = await store.getListItems(repoRoot, {
             collection: args.collection,
             name: args.name,
             limit: args.limit,
             offset: args.offset,
             order: args.order,
           });
+          // Same reasoning as brain_list_objects; here the per-item read is a
+          // narrower window on this tool rather than a separate one.
+          const result = truncateLongStrings(raw, LIST_VALUE_STRING_MAX);
           return {
             content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
@@ -747,6 +752,35 @@ export function registerBrainTools(
     );
   }
 
+  // ── brain_get_event ───────────────────────────────────────────────
+  if (allowed.has("brain_get_event")) {
+    server.registerTool(
+      "brain_get_event",
+      {
+        description:
+          "Get a single event from the shared brain's event log by id, with its value untruncated. " +
+          "brain_query_events reports the ids.",
+        inputSchema: {
+          id: z.uuid().describe("Event id from brain_query_events."),
+        },
+      },
+      async (args) => {
+        try {
+          const event = await store.getEvent(repoRoot, args.id);
+          if (!event) {
+            return toToolError(new Error(`Event ${args.id} not found.`));
+          }
+          return {
+            content: [{ type: "text", text: jsonText(event) }],
+            structuredContent: toStructuredContent(event),
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
   // ── brain_query_events ────────────────────────────────────────────
   if (allowed.has("brain_query_events")) {
     server.registerTool(
@@ -754,7 +788,9 @@ export function registerBrainTools(
       {
         description:
           "Query the shared brain's event log. Filter by collection, kind, subject, " +
-          "tags, and time range. Returns up to `limit` events.",
+          "tags, and time range. Returns up to `limit` events. " +
+          `Strings inside each event's value are truncated to ${LIST_VALUE_STRING_MAX} characters ` +
+          "(marked with the number of characters dropped) — call brain_get_event for one event in full.",
         inputSchema: {
           collection: collectionSchema
             .optional()
@@ -805,7 +841,12 @@ export function registerBrainTools(
             limit: args.limit,
             order: args.order,
           });
-          const result = { events };
+          const result = {
+            events: events.map((event) => ({
+              ...event,
+              value: truncateLongStrings(event.value, LIST_VALUE_STRING_MAX),
+            })),
+          };
           return {
             content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),

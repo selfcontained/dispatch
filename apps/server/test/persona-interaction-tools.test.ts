@@ -418,6 +418,65 @@ describe("registerPersonaInteractionTools", () => {
       );
     });
 
+    it("dispatch_review_list_feedback replaces threads with a count", async () => {
+      const listReviewFeedback = vi.fn(async () => [
+        {
+          id: 7,
+          reviewId: 2,
+          filePath: "src/a.ts",
+          status: "open",
+          diffSnapshot: "@@ -1 +1 @@\n-old\n+new",
+          messages: [
+            { id: 1, authorType: "agent", content: { body: "first" } },
+            { id: 2, authorType: "agent", content: { body: "second" } },
+          ],
+        },
+      ]);
+      const callbacks: PersonaInteractionCallbacks = {
+        agentId,
+        listReviewFeedback: listReviewFeedback as never,
+      };
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["dispatch_review_list_feedback"]),
+        callbacks
+      );
+
+      const result = (await server.tools[0].handler({})) as any;
+      const item = result.structuredContent.items[0];
+      expect(item.messageCount).toBe(2);
+      expect(item.messages).toBeUndefined();
+      expect(item.diffSnapshot).toBeUndefined();
+      expect(item.filePath).toBe("src/a.ts");
+    });
+
+    it("dispatch_review_get_feedback returns one item in full", async () => {
+      const item = {
+        id: 7,
+        reviewId: 2,
+        filePath: "src/a.ts",
+        status: "open",
+        diffSnapshot: "@@ -1 +1 @@",
+        messages: [{ id: 1, authorType: "agent", content: { body: "first" } }],
+      };
+      const listReviewFeedback = vi.fn(async () => [item]);
+      const callbacks: PersonaInteractionCallbacks = {
+        agentId,
+        listReviewFeedback: listReviewFeedback as never,
+      };
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["dispatch_review_get_feedback"]),
+        callbacks
+      );
+
+      const found = (await server.tools[0].handler({ itemId: 7 })) as any;
+      expect(found.structuredContent.item).toEqual(item);
+
+      const missing = (await server.tools[0].handler({ itemId: 99 })) as any;
+      expect(missing.isError).toBe(true);
+    });
+
     it("dispatch_review_resolve calls resolveReviewFeedback", async () => {
       const resolveReviewFeedback = vi.fn(async () => ({
         item: { id: 7 },

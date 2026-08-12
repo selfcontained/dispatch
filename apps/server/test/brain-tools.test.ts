@@ -76,6 +76,7 @@ function createMockStore() {
     setListItem: vi.fn(),
     deleteList: vi.fn(),
     appendEvent: vi.fn(),
+    getEvent: vi.fn(),
     queryEvents: vi.fn(),
     deleteEvents: vi.fn(),
   };
@@ -93,6 +94,7 @@ const ALL_BRAIN_TOOLS = new Set([
   "brain_delete_object",
   "brain_append_event",
   "brain_delete_events",
+  "brain_get_event",
   "brain_query_events",
 ]);
 
@@ -128,7 +130,7 @@ describe("registerBrainTools", () => {
   // ── Conditional registration ────────────────────────────────────
 
   describe("conditional registration", () => {
-    it("registers all 12 tools when all are allowed", () => {
+    it("registers all 13 tools when all are allowed", () => {
       registerAll();
       const names = server.tools.map((t) => t.name);
       expect(names).toEqual([
@@ -143,6 +145,7 @@ describe("registerBrainTools", () => {
         "brain_delete_object",
         "brain_append_event",
         "brain_delete_events",
+        "brain_get_event",
         "brain_query_events",
       ]);
     });
@@ -1055,7 +1058,56 @@ describe("registerBrainTools", () => {
 
   // ── brain_query_events ─────────────────────────────────────────
 
+  describe("brain_get_event", () => {
+    it("returns one event with its value untruncated", async () => {
+      const body = "b".repeat(1000);
+      store.getEvent.mockResolvedValue(makeBrainEvent({ value: { body } }));
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_get_event"
+      )({ id: "evt_123" })) as {
+        structuredContent: { value: { body: string } };
+        isError?: true;
+      };
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent.value.body).toBe(body);
+      expect(store.getEvent).toHaveBeenCalledWith(REPO_ROOT, "evt_123");
+    });
+
+    it("errors when the event does not exist", async () => {
+      store.getEvent.mockResolvedValue(null);
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_get_event"
+      )({ id: "evt_missing" })) as { isError?: true };
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
   describe("brain_query_events", () => {
+    it("truncates long strings inside event values", async () => {
+      store.queryEvents.mockResolvedValue([
+        makeBrainEvent({ value: { note: "n".repeat(900), kind: "short" } }),
+      ]);
+      registerAll();
+
+      const result = (await findHandler(server, "brain_query_events")({})) as {
+        structuredContent: {
+          events: Array<{ value: { note: string; kind: string } }>;
+        };
+      };
+
+      const value = result.structuredContent.events[0]!.value;
+      expect(value.note).toBe(`${"n".repeat(400)}…[+500 chars]`);
+      expect(value.kind).toBe("short");
+    });
+
     it("returns events with filter params", async () => {
       const events = [makeBrainEvent()];
       store.queryEvents.mockResolvedValue(events);
