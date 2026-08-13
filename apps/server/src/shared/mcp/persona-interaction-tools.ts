@@ -20,18 +20,16 @@ import {
   validatePersonas,
 } from "../../personas/authoring.js";
 import { describeAgentModelCatalog } from "../agent-models.js";
+import { CLI_AGENT_TYPES, type CliAgentType } from "../agent-types.js";
 import type { McpRequestContext } from "./server.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
-export const LAUNCH_PERSONA_AGENT_TYPES = [
-  "claude",
-  "codex",
-  "cursor",
-  "opencode",
-] as const;
-export type LaunchPersonaAgentType =
-  (typeof LAUNCH_PERSONA_AGENT_TYPES)[number];
+// A persona launch runs an AI CLI, so it takes the shared CLI subset. Aliased
+// rather than re-exported directly because both names are already part of this
+// module's surface (server.ts imports the type).
+export const LAUNCH_PERSONA_AGENT_TYPES = CLI_AGENT_TYPES;
+export type LaunchPersonaAgentType = CliAgentType;
 
 export type PersonaInteractionCallbacks = {
   agentId: string;

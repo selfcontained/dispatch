@@ -2,7 +2,11 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
 import { describeAgentModelCatalog } from "../agent-models.js";
-import type { AgentType } from "../agent-types.js";
+import {
+  AGENT_TYPES,
+  CLI_AGENT_TYPES,
+  type AgentType,
+} from "../agent-types.js";
 import { parseTemplateArgs } from "../../templates/arg-parser.js";
 import type { TemplateRecord } from "../../templates/store.js";
 import { jsonText } from "./response.js";
@@ -78,8 +82,10 @@ function toWriteAck(record: unknown) {
   };
 }
 
-const JOB_AGENT_TYPES = ["claude", "codex", "opencode", "cursor"] as const;
-const TEMPLATE_AGENT_TYPES = [...JOB_AGENT_TYPES, "terminal"] as const;
+// Jobs run an AI CLI, so they take the CLI subset; templates also back terminal
+// agents, so they take the full table. Both are aliases of the shared tables.
+const JOB_AGENT_TYPES = CLI_AGENT_TYPES;
+const TEMPLATE_AGENT_TYPES = AGENT_TYPES;
 
 const jobAgentTypeEnum = z.enum(JOB_AGENT_TYPES);
 const templateAgentTypeEnum = z.enum(TEMPLATE_AGENT_TYPES);
