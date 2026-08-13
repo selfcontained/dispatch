@@ -58,6 +58,12 @@ import {
 } from "../db/personalities.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { getWorktreeLocation } from "../worktree-location-settings.js";
+import {
+  fetchPeerRepos,
+  launchAgentOnPeer,
+  resolvePeerLocation,
+} from "../peers/launch.js";
+import { getOrCreateInstanceId } from "../peers/identity.js";
 
 function buildChildAgentInitialPrompt(
   parentAgentId: string,
@@ -86,6 +92,12 @@ type CreateMcpHandlersDeps = {
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
   appLog: FastifyBaseLogger;
+  /** Durable cross-instance prompt delivery (peer outbox). */
+  sendPeerPrompt?: (
+    peerId: string,
+    targetAgentId: string,
+    prompt: string
+  ) => Promise<{ delivered: boolean }>;
 };
 
 function normalizePersonalityDuplicateName(error: unknown): never {
@@ -418,10 +430,15 @@ async function handleLaunchAgent(
     templateId?: string;
     templateArgs?: Record<string, string>;
     cwd?: string;
+    location?: string;
   }
 ): Promise<{ agentId: string; name: string; note?: string }> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+
+  if (input.location) {
+    return await handleLaunchAgentOnPeer(deps, agentId, parent, input);
+  }
 
   const agentType = input.type ?? parent.type ?? "claude";
   if (
@@ -530,6 +547,73 @@ async function handleLaunchAgent(
   }
   const note = notes.length > 0 ? notes.join(" ") : undefined;
   return { agentId: agent.id, name: agent.name, ...(note ? { note } : {}) };
+}
+
+/**
+ * Remote branch of handleLaunchAgent: the same tool, pointed at a linked
+ * instance. Parent-derived defaults become explicit on the wire, the peer
+ * runs its own normal launch path, and the local shadow row keeps the rest
+ * of Dispatch unchanged.
+ */
+async function handleLaunchAgentOnPeer(
+  deps: CreateMcpHandlersDeps,
+  agentId: string,
+  parent: AgentRecord,
+  input: {
+    name: string;
+    prompt: string;
+    type?: string;
+    model?: string;
+    fullAccess?: boolean;
+    templateId?: string;
+    cwd?: string;
+    location?: string;
+  }
+): Promise<{ agentId: string; name: string; note?: string }> {
+  if (input.templateId) {
+    throw new Error(
+      "Templates are not supported for remote launches yet — pass the full prompt instead."
+    );
+  }
+  const resolved = await resolvePeerLocation(deps.pool, input.location!);
+  if (!resolved.ok) throw new Error(resolved.error);
+
+  // cwd cannot be inherited from a parent on another machine.
+  if (!input.cwd) {
+    const repos = await fetchPeerRepos(resolved.peer).catch(() => []);
+    const listing =
+      repos.map((repo) => `${repo.name} (${repo.root})`).join(", ") ||
+      "none advertised";
+    throw new Error(
+      `A launch on "${resolved.peer.name}" needs an explicit cwd. Repos there: ${listing}.`
+    );
+  }
+
+  const result = await launchAgentOnPeer(
+    { pool: deps.pool, agentManager: deps.agentManager },
+    resolved.peer,
+    {
+      name: input.name,
+      prompt: input.prompt,
+      type: input.type ?? parent.type ?? "claude",
+      model: input.model,
+      cwd: input.cwd,
+      fullAccess: input.fullAccess,
+      parentAgentId: agentId,
+    }
+  );
+  const shadow = await deps.agentManager.getAgent(result.shadowAgentId);
+  if (shadow) {
+    deps.publishUiEvent({
+      type: "agent.upsert",
+      agent: deps.withStreamFlag(shadow),
+    });
+  }
+  return {
+    agentId: result.shadowAgentId,
+    name: result.name,
+    note: `Launched on linked instance "${resolved.peer.name}" (remote id ${result.remoteAgentId}).`,
+  };
 }
 
 async function handleArchiveAgent(
@@ -701,6 +785,38 @@ async function handleSendMessage(
   const sender = await deps.agentManager.getAgent(agentId);
   if (!sender) throw new Error("Sender agent not found.");
 
+  // Qualified address ("<instance>:<agt_id>") — an agent on a linked instance
+  // that has no shadow row here. Forward through the peer outbox; the peer's
+  // own injector delivers it.
+  if (!input.target.startsWith("agt_") && input.target.includes(":")) {
+    const colon = input.target.indexOf(":");
+    const location = input.target.slice(0, colon);
+    const remoteAgentId = input.target.slice(colon + 1);
+    const resolved = await resolvePeerLocation(deps.pool, location);
+    if (!resolved.ok) throw new Error(resolved.error);
+    if (!deps.sendPeerPrompt) {
+      throw new Error("Cross-instance messaging is not available.");
+    }
+    const instanceId = await getOrCreateInstanceId(deps.pool);
+    const envelope = JSON.stringify({
+      from: sender.name,
+      senderId: `${instanceId}:${agentId}`,
+      message: input.message,
+      replyTarget: `${instanceId}:${agentId}`,
+    });
+    const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
+    const { delivered } = await deps.sendPeerPrompt(
+      resolved.peer.id,
+      remoteAgentId,
+      prompt
+    );
+    return {
+      delivered,
+      targetAgentId: input.target,
+      targetAgentName: `${resolved.peer.name}:${remoteAgentId}`,
+    };
+  }
+
   const senderRepoRoot = input.senderRepoRoot;
   const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
 
@@ -748,11 +864,16 @@ async function handleSendMessage(
     );
   }
 
+  // A shadow target's reply comes from another instance, so the reply address
+  // must be qualified — a bare local id means nothing over there.
+  const replyTarget = target.peerId
+    ? `${await getOrCreateInstanceId(deps.pool)}:${agentId}`
+    : agentId;
   const envelope = JSON.stringify({
     from: sender.name,
-    senderId: agentId,
+    senderId: replyTarget,
     message: input.message,
-    replyTarget: agentId,
+    replyTarget,
   });
   const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
 

@@ -1,2 +1,7 @@
 packages:
   - "apps/*"
+shamefullyHoist: true
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true

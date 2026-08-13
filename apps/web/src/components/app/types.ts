@@ -58,6 +58,9 @@ export type Agent = {
   worktreePath: string | null;
   worktreeBranch: string | null;
   tmuxSession: string | null;
+  /** Set on shadow rows for agents running on a linked instance. */
+  peerId?: string | null;
+  remoteId?: string | null;
   agentArgs: string[];
   model: string | null;
   fullAccess: boolean;

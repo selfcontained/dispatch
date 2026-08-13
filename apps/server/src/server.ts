@@ -134,6 +134,11 @@ import {
   loadInjectionHoldEnabled,
 } from "./injection-hold-settings.js";
 import { createAuthRuntime } from "./server/auth-runtime.js";
+import { TailnetListener } from "./peers/tailnet-listener.js";
+import { PeerRuntime } from "./peers/runtime.js";
+import { PeerMessenger } from "./peers/messages.js";
+import { PeerEventSubscriber } from "./peers/events.js";
+import { registerPeerRoutes } from "./routes/peers.js";
 import { getBearerToken, handleAgentError } from "./server/http-helpers.js";
 import {
   createReleaseRuntime,
@@ -393,10 +398,17 @@ const injectionCoordinator = new InjectionCoordinator({
       holdState,
     }),
 });
+const peerMessenger = new PeerMessenger({ pool, log: app.log });
 const injectAgentPrompt = createPromptInjector(
   agentManager,
   app.log,
-  injectionCoordinator
+  injectionCoordinator,
+  async (peerId, remoteAgentId, prompt) => {
+    await peerMessenger.sendPrompt(peerId, {
+      targetAgentId: remoteAgentId,
+      prompt,
+    });
+  }
 );
 agentManager.onLatestEvent(
   createAutoRenamePrompter({ injectAgentPrompt, log: app.log })
@@ -411,6 +423,27 @@ const authRuntime = createAuthRuntime({
   pool,
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
+const tailnetListener = new TailnetListener({
+  appServer: () => app.server,
+  port: config.port,
+  tls: config.tls,
+  log: app.log,
+});
+const peerRuntime = new PeerRuntime({
+  pool,
+  listener: tailnetListener,
+  isPasswordSet: () => authRuntime.isPasswordSetCached(),
+  log: app.log,
+});
+const peerEventSubscriber = new PeerEventSubscriber({
+  pool,
+  agentManager,
+  publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  withStreamFlag,
+  // The laptop-reopens moment: the peer is reachable again, ship queued mail.
+  onPeerReachable: () => void peerMessenger.drain(),
+  log: app.log,
+});
 const brainStore = new BrainStore(pool);
 const mcpHandlers = createMcpHandlers({
   pool,
@@ -423,6 +456,8 @@ const mcpHandlers = createMcpHandlers({
   withStreamFlag,
   sendAgentPrompt: injectAgentPrompt,
   appLog: app.log,
+  sendPeerPrompt: (peerId, targetAgentId, prompt) =>
+    peerMessenger.sendPrompt(peerId, { targetAgentId, prompt }),
 });
 const jobTerminalStatuses = new Set([
   "completed",
@@ -525,6 +560,9 @@ async function registerRoutes() {
     // bearer shortcut so the server auth token is never accepted as an
     // extension credential.
     if (request.routeOptions.config.browserExtensionBearer) return;
+    // Peer-federation routes authenticate with their own peer bearer token
+    // (and a tailscale whois pin) in a route-local preHandler.
+    if (request.routeOptions.config.peerBearer) return;
     if (/^\/api\/v1\/agents\/[^/]+\/terminal\/ws$/.test(url)) return;
     // The assisted-update phase endpoint authenticates via a per-job nonce
     // embedded in the launched agent's prompt — see assisted-update.ts. The
@@ -532,8 +570,16 @@ async function registerRoutes() {
     // session cookie or bearer token.
     if (url === "/api/v1/release/assisted/phase") return;
 
-    // If no password is set, all routes are open (first-run mode).
-    if (!(await authRuntime.isPasswordSetCached())) return;
+    // If no password is set, all routes are open (first-run mode) — except on
+    // the tailnet interface, where open mode would expose the API to every
+    // node on the tailnet. Belt-and-braces: the listener refuses to start
+    // without a password, but the password can be cleared while it runs.
+    if (!(await authRuntime.isPasswordSetCached())) {
+      if (tailnetListener.isBoundAddress(request.socket.localAddress)) {
+        return reply.code(401).send({ error: "Authentication required." });
+      }
+      return;
+    }
 
     // Bearer token is accepted on all API routes (for MCP agents, scripts, etc.)
     const authHeader = request.headers.authorization;
@@ -645,6 +691,20 @@ async function registerRoutes() {
     mcpJobNeedsInput: mcpHandlers.jobNeedsInput,
     mcpJobLog: mcpHandlers.jobLog,
     mcpMethodNotAllowed,
+  });
+
+  await registerPeerRoutes(app, {
+    pool,
+    peerRuntime,
+    isPasswordSet: () => authRuntime.isPasswordSetCached(),
+    port: config.port,
+    agentManager,
+    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    withStreamFlag,
+    injectAgentPrompt,
+    subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
+    sendUiSnapshot: (stream, agents) =>
+      uiEventBroker.sendSnapshot(stream, agents as AgentRecord[]),
   });
 
   await registerSystemRoutes(app, {
@@ -860,6 +920,8 @@ export async function initializeApp(options?: {
     agentLifecycleRuntime.startReconcileLoop();
     authRuntime.startSessionCleanupTimer();
     autoCheckRuntime.startScheduler();
+    peerMessenger.start();
+    peerEventSubscriber.start();
   }
   if (!routesRegistered) {
     await registerRoutes();
@@ -885,6 +947,12 @@ export async function start() {
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
 
+  try {
+    await peerRuntime.applyTailnetBind();
+  } catch (err) {
+    app.log.error({ err }, "Failed to bind tailnet peer listener");
+  }
+
   // The process that activated a new binary exits during the service restart,
   // so only this newly healthy process can truthfully promote the candidate.
   try {
@@ -908,6 +976,9 @@ async function cleanupAppResources(): Promise<void> {
   shuttingDown = true;
 
   streamManager.stopAll();
+  peerMessenger.stop();
+  peerEventSubscriber.stop();
+  await peerRuntime.shutdown().catch(() => null);
   agentLifecycleRuntime.stopReconcileLoop();
   authRuntime.stopSessionCleanupTimer();
   autoCheckRuntime.stopScheduler();

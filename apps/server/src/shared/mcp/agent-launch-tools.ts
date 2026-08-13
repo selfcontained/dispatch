@@ -25,6 +25,7 @@ export type LaunchAgentInput = {
   templateId?: string;
   templateArgs?: Record<string, string>;
   cwd?: string;
+  location?: string;
 };
 
 export type AgentLaunchToolsContext = {
@@ -123,7 +124,13 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Working directory for the new agent. Defaults to the parent's working directory."
+            "Working directory for the new agent. Defaults to the parent's working directory. Required with location (the remote instance's path — it cannot be inherited across machines)."
+          ),
+        location: z
+          .string()
+          .optional()
+          .describe(
+            "Name (or instance id) of a linked Dispatch instance to launch the agent on. Omit to launch locally. Requires an explicit cwd; calling without cwd returns the repos available there. Templates are not supported remotely."
           ),
       },
     },
@@ -147,6 +154,7 @@ export function registerAgentLaunchTools(
         if (args.templateArgs !== undefined)
           input.templateArgs = args.templateArgs;
         if (args.cwd !== undefined) input.cwd = args.cwd;
+        if (args.location !== undefined) input.location = args.location;
 
         const result = await launchAgent(agentId, input);
         const text = `Launched agent "${result.name}" (${result.agentId}).`;

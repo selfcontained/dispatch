@@ -7,7 +7,12 @@ import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 export function createPromptInjector(
   agentManager: AgentManager,
   appLog: FastifyBaseLogger,
-  coordinator: InjectionCoordinator
+  coordinator: InjectionCoordinator,
+  forwardToPeer?: (
+    peerId: string,
+    remoteAgentId: string,
+    prompt: string
+  ) => Promise<void>
 ) {
   return async function injectAgentPrompt(
     agentId: string,
@@ -15,6 +20,13 @@ export function createPromptInjector(
     opts: { swallowFailure?: boolean; awaitDelivery?: boolean } = {}
   ): Promise<void> {
     try {
+      // Shadow rows have no pane here — the peer service intercepts and the
+      // prompt is injected by the instance that actually runs the agent.
+      const record = await agentManager.getAgent(agentId);
+      if (record?.peerId && record.remoteId && forwardToPeer) {
+        await forwardToPeer(record.peerId, record.remoteId, prompt);
+        return;
+      }
       const access = await agentManager.getTerminalAccess(agentId);
       if (access.mode !== "tmux") {
         const err = new Error(
