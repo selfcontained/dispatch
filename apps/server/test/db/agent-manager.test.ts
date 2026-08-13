@@ -1483,26 +1483,31 @@ describe("AgentManager", () => {
       });
 
       const newSessionArgs: string[][] = [];
+      // The restart command is written to disk and run via `bash <path>`
+      // (same file-backed launch as a fresh session), not embedded inline
+      // in the tmux argv — and startAgent unlinks that script right after a
+      // successful launch (see manager.ts), so capture its content here,
+      // inside the mock, while it's still guaranteed to exist on disk.
+      let launchCommand = "";
       vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
           if (newSessionArgs.length === 0)
             return { exitCode: 1, stdout: "", stderr: "" };
           return { exitCode: 0, stdout: "", stderr: "" };
         }
-        if (args.includes("new-session")) newSessionArgs.push(args);
+        if (args.includes("new-session")) {
+          newSessionArgs.push(args);
+          launchCommand = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+        }
         return { exitCode: 0, stdout: "", stderr: "" };
       });
 
       await manager.startAgent(agent.id);
 
       expect(newSessionArgs.length).toBe(1);
-      // The restart command is written to disk and run via `bash <path>`
-      // (same file-backed launch as a fresh session), not embedded inline
-      // in the tmux argv — so assert against the written script content.
-      const launchCommand = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
       expect(launchCommand).toContain("--resume");
       expect(launchCommand).toContain(sessionId);
     });
@@ -1519,23 +1524,26 @@ describe("AgentManager", () => {
       );
 
       const newSessionArgs: string[][] = [];
+      let launchCommand = "";
       vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
         if (args[0] === "has-session") {
           if (newSessionArgs.length === 0)
             return { exitCode: 1, stdout: "", stderr: "" };
           return { exitCode: 0, stdout: "", stderr: "" };
         }
-        if (args.includes("new-session")) newSessionArgs.push(args);
+        if (args.includes("new-session")) {
+          newSessionArgs.push(args);
+          launchCommand = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+        }
         return { exitCode: 0, stdout: "", stderr: "" };
       });
 
       await manager.startAgent(agent.id);
 
       expect(newSessionArgs.length).toBe(1);
-      const launchCommand = await readFile(
-        `/tmp/dispatch_setup_${agent.id}.sh`,
-        "utf-8"
-      );
       expect(launchCommand).not.toContain("--resume");
     });
   });

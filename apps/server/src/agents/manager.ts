@@ -933,6 +933,17 @@ export class AgentManager {
         agentId: id,
         payload: { kind: "agent-command", command: agentCommand },
       });
+      // The tmux runtime writes agentCommand to /tmp/dispatch_setup_<id>.sh
+      // and runs `bash <path>` (see prepareLaunch) rather than embedding it
+      // inline, so a restart doesn't hit tmux's ~16KB argv limit. Fresh
+      // launches clean up their equivalent script in completeSetup once the
+      // setup script's own callback fires; a restart has no such callback,
+      // so clean up here instead — by the time launch() resolves, the
+      // fast-fail check has already confirmed the pane didn't die, meaning
+      // bash is already past reading the script into the long-running CLI
+      // process. Left otherwise, every restart of a persona/review agent
+      // would leave its full identity/task prompt sitting in /tmp.
+      await unlink(`/tmp/dispatch_setup_${id}.sh`).catch(() => {});
 
       await this.setAgentStatus(id, "running", null, tmuxSession);
       // Re-populate gitContext on every restart so existing agents that
