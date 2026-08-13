@@ -1,0 +1,13 @@
+{
+  "name": "dispatch",
+  "displayName": "Dispatch",
+  "version": "0.1.0",
+  "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, sharing artifacts, review workflow, whiteboard, jobs, and templates.",
+  "author": {
+    "name": "Dispatch",
+    "url": "https://github.com/selfcontained/dispatch"
+  },
+  "homepage": "https://github.com/selfcontained/dispatch",
+  "repository": "https://github.com/selfcontained/dispatch",
+  "keywords": ["dispatch", "agents", "orchestration", "mcp", "review"]
+}
