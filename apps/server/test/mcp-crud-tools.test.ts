@@ -269,8 +269,9 @@ describe("MCP CRUD tools", () => {
       const createText = parseToolText(createRes.body);
       const created = JSON.parse(createText);
       expect(created.name).toBe("test-job");
-      expect(created.directory).toBe("/tmp");
       expect(created.id).toBeTruthy();
+      // A create acknowledges ids and name; get_job has the rest.
+      expect(created.prompt).toBeUndefined();
 
       // list_jobs — scoped to /tmp
       const listRes = await mcpToolCall(agentId, "list_jobs", {
@@ -283,6 +284,15 @@ describe("MCP CRUD tools", () => {
       expect(jobs.some((j: { name: string }) => j.name === "test-job")).toBe(
         true
       );
+
+      // A job listing carries neither the prompt body nor the webhook secret;
+      // get_job is the full record.
+      const listedJob = jobs.find(
+        (j: { name: string }) => j.name === "test-job"
+      );
+      expect(listedJob.prompt).toBeUndefined();
+      expect(listedJob.promptChars).toBe("Do a thing".length);
+      expect("webhookSecret" in listedJob).toBe(false);
 
       // list_jobs — different directory returns empty
       const listOtherRes = await mcpToolCall(agentId, "list_jobs", {
@@ -377,9 +387,21 @@ describe("MCP CRUD tools", () => {
       const createText = parseToolText(createRes.body);
       const created = JSON.parse(createText);
       expect(created.name).toBe("test-template");
-      expect(created.callable).toBe(true);
-      expect(created.allowMedia).toBe(true);
       expect(created.id).toBeTruthy();
+      expect(created.prompt).toBeUndefined();
+
+      // Server-applied defaults are one get_template away.
+      const afterCreate = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "get_template", {
+              templateId: created.id,
+            })
+          ).body
+        )
+      );
+      expect(afterCreate.callable).toBe(true);
+      expect(afterCreate.allowMedia).toBe(true);
 
       // list_templates — scoped to /tmp
       const listRes = await mcpToolCall(agentId, "list_templates", {
@@ -425,10 +447,22 @@ describe("MCP CRUD tools", () => {
       });
       expect(updateRes.statusCode).toBe(200);
       const updated = JSON.parse(parseToolText(updateRes.body));
-      expect(updated.description).toBe("Updated description");
-      expect(updated.callable).toBe(false);
+      expect(updated.id).toBe(created.id);
+      expect(updated.prompt).toBeUndefined();
+
+      const afterUpdate = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "get_template", {
+              templateId: created.id,
+            })
+          ).body
+        )
+      );
+      expect(afterUpdate.description).toBe("Updated description");
+      expect(afterUpdate.callable).toBe(false);
       // prompt should be unchanged
-      expect(updated.prompt).toBe("Hello {{name}}");
+      expect(afterUpdate.prompt).toBe("Hello {{name}}");
 
       // delete_template
       const deleteRes = await mcpToolCall(agentId, "delete_template", {
@@ -484,6 +518,39 @@ describe("MCP CRUD tools", () => {
         "Target",
         "Concern",
       ]);
+    });
+
+    it("omits prompt bodies from list_templates, reporting their size instead", async () => {
+      const prompt = "P".repeat(4000);
+      await mcpToolCall(agentId, "create_template", {
+        name: "bulky-template",
+        directory: "/tmp",
+        prompt,
+      });
+
+      const listed = JSON.parse(
+        parseToolText(
+          (await mcpToolCall(agentId, "list_templates", { directory: "/tmp" }))
+            .body
+        )
+      ) as Array<{ name: string; prompt?: string; promptChars?: number }>;
+      const fromList = listed.find((t) => t.name === "bulky-template");
+      expect(fromList).toBeTruthy();
+      expect(fromList!.prompt).toBeUndefined();
+      expect(fromList!.promptChars).toBe(4000);
+
+      // ...and the full prompt is still one get_template away.
+      const got = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "get_template", {
+              name: "bulky-template",
+              directory: "/tmp",
+            })
+          ).body
+        )
+      );
+      expect(got.prompt).toBe(prompt);
     });
 
     it("omits prompt args for a template with no prompt", async () => {
@@ -542,7 +609,16 @@ describe("MCP CRUD tools", () => {
       });
       expect(createRes.statusCode).toBe(200);
       const created = JSON.parse(parseToolText(createRes.body));
-      expect(created.directory).toBe("/tmp");
+      const got = JSON.parse(
+        parseToolText(
+          (
+            await mcpToolCall(agentId, "get_template", {
+              templateId: created.id,
+            })
+          ).body
+        )
+      );
+      expect(got.directory).toBe("/tmp");
     });
   });
 });

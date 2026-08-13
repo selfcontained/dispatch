@@ -108,7 +108,7 @@ export function ToolsContent() {
           regardless of repo configuration. Standard agents see the set below.
           Persona reviewers and scheduled jobs get tailored subsets — for
           example, review agents get <Code>dispatch_review_submit</Code> and{" "}
-          <Code>get_parent_context</Code>, and jobs get{" "}
+          <Code>dispatch_review_add_feedback</Code>, and jobs get{" "}
           <Code>job_complete</Code>, <Code>job_failed</Code>,{" "}
           <Code>job_needs_input</Code>, and <Code>job_log</Code>.
         </P>
@@ -216,9 +216,8 @@ export function ToolsContent() {
             not once it has been typed in
           </li>
           <li>
-            <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,{" "}
-            <Code>get_feedback_summary</Code> — analytics queries over recent
-            Dispatch activity
+            <Code>get_activity_summary</Code>, <Code>get_feedback_summary</Code>{" "}
+            — analytics queries over recent Dispatch activity
           </li>
           <li>
             <Code>whiteboard_get</Code>, <Code>whiteboard_update</Code>,{" "}

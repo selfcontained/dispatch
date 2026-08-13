@@ -104,57 +104,6 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
 }
 
 describe("createReviewHandlers", () => {
-  describe("getParentContext", () => {
-    it("returns pins and media for parent agent", async () => {
-      const deps = makeDeps({
-        agentManager: {
-          ...makeDeps().agentManager,
-          getAgent: vi.fn().mockResolvedValue({
-            id: "agt_parent",
-            name: "parent",
-            cwd: "/repo",
-            pins: [{ label: "URL", value: "http://x", type: "url" }],
-          }),
-          listMedia: vi.fn().mockResolvedValue([
-            {
-              fileName: "shot.png",
-              filePath: "/tmp/shot.png",
-              description: "Screenshot",
-              source: "dispatch_share",
-              sizeBytes: 1024,
-              createdAt: "2026-07-10T00:00:00Z",
-            },
-          ]),
-        },
-      });
-      const handlers = createReviewHandlers(deps as never);
-      const result = await handlers.getParentContext("agt_parent");
-
-      expect(result.pins).toHaveLength(1);
-      expect(result.pins[0]).toEqual({
-        label: "URL",
-        value: "http://x",
-        type: "url",
-      });
-      expect(result.media).toHaveLength(1);
-      expect(result.media[0].fileName).toBe("shot.png");
-    });
-
-    it("throws when parent not found", async () => {
-      const deps = makeDeps({
-        agentManager: {
-          ...makeDeps().agentManager,
-          getAgent: vi.fn().mockResolvedValue(null),
-        },
-      });
-      const handlers = createReviewHandlers(deps as never);
-
-      await expect(handlers.getParentContext("agt_missing")).rejects.toThrow(
-        "Parent agent not found."
-      );
-    });
-  });
-
   describe("resolveReviewFeedback", () => {
     it("throws when item not found", async () => {
       const { resolveReviewFeedbackItem } =

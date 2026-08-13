@@ -614,47 +614,6 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("getParentContext", () => {
-    it("returns pins and media for parent agent", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_parent1",
-        pins: [{ label: "PR", value: "#123", type: "pr" }],
-      });
-      deps.agentManager.listMedia.mockResolvedValue([
-        {
-          fileName: "shot.png",
-          filePath: "/media/shot.png",
-          description: "screenshot",
-          source: "screenshot",
-          sizeBytes: 1024,
-          createdAt: "2026-01-01T00:00:00Z",
-        },
-      ]);
-      const result = await handlers.getParentContext("agt_parent1");
-      expect(result.pins).toEqual([{ label: "PR", value: "#123", type: "pr" }]);
-      expect(result.media).toHaveLength(1);
-      expect(result.media[0]).toHaveProperty("fileName", "shot.png");
-    });
-
-    it("throws when parent not found", async () => {
-      deps.agentManager.getAgent.mockResolvedValue(null);
-      await expect(handlers.getParentContext("agt_missing")).rejects.toThrow(
-        "Parent agent not found."
-      );
-    });
-
-    it("returns empty arrays for agent with no pins or media", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_parent1",
-        pins: null,
-      });
-      deps.agentManager.listMedia.mockResolvedValue([]);
-      const result = await handlers.getParentContext("agt_parent1");
-      expect(result.pins).toEqual([]);
-      expect(result.media).toEqual([]);
-    });
-  });
-
   describe("renameSession", () => {
     it("renames agent and publishes event", async () => {
       const result = await handlers.renameSession("agt_test1", "new-name");

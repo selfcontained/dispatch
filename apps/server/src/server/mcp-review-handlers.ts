@@ -42,9 +42,9 @@ import {
   resolveReviewFeedbackItem,
   reopenReviewFeedbackItem,
   addThreadMessage,
+  getFeedbackItemForAgent,
   listFeedbackItemsForAgent,
 } from "../agents/reviews.js";
-import type { ParentContextResult } from "../shared/mcp/server.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { AGENT_REVIEW_SUMMARY_MAX_CHARS } from "../shared/review-limits.js";
 
@@ -127,32 +127,6 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
   };
 
   return {
-    async getParentContext(
-      parentAgentId: string
-    ): Promise<ParentContextResult> {
-      const parent = await agentManager.getAgent(parentAgentId);
-      if (!parent) throw new Error("Parent agent not found.");
-
-      const pins = (parent.pins ?? []).map((p) => ({
-        label: p.label,
-        value: p.value,
-        type: p.type,
-      }));
-      const media = await agentManager.listMedia(parentAgentId);
-
-      return {
-        pins,
-        media: media.map((m) => ({
-          fileName: m.fileName,
-          filePath: m.filePath,
-          description: m.description,
-          source: m.source,
-          sizeBytes: m.sizeBytes,
-          createdAt: m.createdAt,
-        })),
-      };
-    },
-
     async submitReview(
       agentId: string,
       input: {
@@ -293,6 +267,10 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
 
     async listReviewFeedback(agentId: string, reviewId?: number) {
       return listFeedbackItemsForAgent(pool, agentId, reviewId);
+    },
+
+    async getReviewFeedbackItem(agentId: string, itemId: number) {
+      return getFeedbackItemForAgent(pool, agentId, itemId);
     },
 
     async resolveReviewFeedback(

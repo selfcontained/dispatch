@@ -21,6 +21,7 @@ import {
 } from "../../personas/authoring.js";
 import { describeAgentModelCatalog } from "../agent-models.js";
 import type { McpRequestContext } from "./server.js";
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export const LAUNCH_PERSONA_AGENT_TYPES = [
@@ -45,7 +46,7 @@ export type PersonaInteractionCallbacks = {
   addReviewFeedback?: McpRequestContext["addReviewFeedback"];
   addReviewThreadMessage?: McpRequestContext["addReviewThreadMessage"];
   listReviewFeedback?: McpRequestContext["listReviewFeedback"];
-  getParentContext?: McpRequestContext["getParentContext"];
+  getReviewFeedbackItem?: McpRequestContext["getReviewFeedbackItem"];
 };
 
 type PersonaSummary = { slug: string; name: string; description: string };
@@ -93,7 +94,7 @@ export function registerPersonaInteractionTools(
         content: [
           {
             type: "text",
-            text: JSON.stringify({ templates: PERSONA_TEMPLATES }, null, 2),
+            text: jsonText({ templates: PERSONA_TEMPLATES }),
           },
         ],
         structuredContent: { templates: PERSONA_TEMPLATES },
@@ -244,51 +245,6 @@ export function registerPersonaInteractionTools(
   }
 
   if (
-    allowed.has("get_parent_context") &&
-    callbacks.parentAgentId &&
-    callbacks.getParentContext
-  ) {
-    const parentAgentId = callbacks.parentAgentId;
-    const getParentContext = callbacks.getParentContext;
-    server.registerTool(
-      "get_parent_context",
-      {
-        description:
-          "Retrieve the parent agent's pins and shared media. Use this to discover dev server URLs, key files, screenshots, and other context the parent agent has surfaced. Shared media includes an absolute filePath for direct inspection.",
-        inputSchema: {},
-      },
-      async () => {
-        try {
-          const result = await getParentContext(parentAgentId);
-          const parts: string[] = [];
-          if (result.pins.length > 0) {
-            parts.push("Pins:");
-            for (const pin of result.pins) {
-              parts.push(`  ${pin.label} (${pin.type}): ${pin.value}`);
-            }
-          } else {
-            parts.push("No pins set by parent agent.");
-          }
-          if (result.media.length > 0) {
-            parts.push("\nShared media:");
-            for (const media of result.media) {
-              parts.push(
-                `  ${media.fileName} (${media.sizeBytes} bytes) at ${media.filePath}: ${media.description ?? "(no description)"}`
-              );
-            }
-          }
-          return {
-            content: [{ type: "text", text: parts.join("\n") }],
-            structuredContent: result,
-          };
-        } catch (error) {
-          return toToolError(error);
-        }
-      }
-    );
-  }
-
-  if (
     allowed.has("dispatch_review_add_feedback") &&
     callbacks.addReviewFeedback
   ) {
@@ -342,9 +298,7 @@ export function registerPersonaInteractionTools(
             repoRoot
           );
           return {
-            content: [
-              { type: "text", text: JSON.stringify({ personas }, null, 2) },
-            ],
+            content: [{ type: "text", text: jsonText({ personas }) }],
             structuredContent: { personas },
           };
         } catch (error) {
@@ -419,6 +373,50 @@ export function registerPersonaInteractionTools(
     );
   }
 
+  // ── dispatch_review_get_feedback ─────────────────────────────────
+  if (
+    allowed.has("dispatch_review_get_feedback") &&
+    callbacks.getReviewFeedbackItem
+  ) {
+    const getReviewFeedbackItem = callbacks.getReviewFeedbackItem;
+
+    server.registerTool(
+      "dispatch_review_get_feedback",
+      {
+        description:
+          "Get one review feedback item in full — its complete message thread and the diff hunk captured when it was filed. Use this on the item you are about to work; dispatch_review_list_feedback is how you find its id.",
+        inputSchema: {
+          itemId: z
+            .number()
+            .int()
+            .positive()
+            .describe("Item id returned by dispatch_review_list_feedback."),
+        },
+      },
+      async (args) => {
+        try {
+          // Scoped to the reviews this agent is party to by the same predicate
+          // the listing uses, and fetched as one row rather than by scanning
+          // every item of every review.
+          const item = await getReviewFeedbackItem(agentId, args.itemId);
+          if (!item) {
+            return toToolError(
+              new Error(
+                `Review feedback item #${args.itemId} not found among this agent's reviews.`
+              )
+            );
+          }
+          return {
+            content: [{ type: "text", text: jsonText(item) }],
+            structuredContent: { item },
+          };
+        } catch (error) {
+          return toToolError(error);
+        }
+      }
+    );
+  }
+
   // ── dispatch_review_list_feedback ────────────────────────────────
   if (
     allowed.has("dispatch_review_list_feedback") &&
@@ -430,7 +428,7 @@ export function registerPersonaInteractionTools(
       "dispatch_review_list_feedback",
       {
         description:
-          "List review feedback items for reviews this agent participates in. Returns item IDs, file locations, status, resolution, and the complete tracked thread. Optionally filter by reviewId.",
+          "List review feedback items for reviews this agent participates in. Returns item IDs, file locations, status, resolution, and each item's message count. Optionally filter by reviewId. Message threads and the stored diff hunk are not included — call dispatch_review_get_feedback with an item id for the full item.",
         inputSchema: {
           reviewId: z.number().int().positive().optional(),
         },
@@ -442,9 +440,20 @@ export function registerPersonaInteractionTools(
             items.length === 0
               ? "No review feedback items found."
               : `Found ${items.length} review feedback item(s).`;
+          // Two things get dropped here. diffSnapshot is a copy of code the
+          // caller can read at filePath. Message threads are the bulk of a
+          // listing — 71% of it on a five-item review — and an agent listing is
+          // deciding which item to work, not reading every discussion; the one
+          // it picks comes back in full from dispatch_review_get_feedback.
+          const listing = items.map(
+            ({ diffSnapshot: _diff, messages, ...item }) => ({
+              ...item,
+              messageCount: messages.length,
+            })
+          );
           return {
             content: [{ type: "text", text: summary }],
-            structuredContent: { items },
+            structuredContent: { items: listing },
           };
         } catch (error) {
           return toToolError(error);

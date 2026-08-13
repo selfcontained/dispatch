@@ -2,6 +2,7 @@ import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
 import type { NotifyInput } from "./server.js";
+import { jsonText, LIST_STRING_MAX, truncateLongStrings } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export type AgentLifecycleContext = {
@@ -213,9 +214,7 @@ export function registerAgentLifecycleTools(
         try {
           const items = await listMedia(agentId, { source: args.source });
           return {
-            content: [
-              { type: "text" as const, text: JSON.stringify(items, null, 2) },
-            ],
+            content: [{ type: "text" as const, text: jsonText(items) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -258,15 +257,38 @@ export function registerAgentLifecycleTools(
       "dispatch_list_pins",
       {
         description:
-          "List this agent's current Dispatch sidebar pins. Use dispatch_delete_pin with a returned id to remove a stale pin.",
-        inputSchema: {},
+          "List this agent's current Dispatch sidebar pins. Use dispatch_delete_pin with a returned id to remove a stale pin. " +
+          `Pin values longer than ${LIST_STRING_MAX} characters are truncated (marked with the number of characters dropped). ` +
+          "Pass an id to get that one pin back in full instead — that is how you read a long shortcut pin's whole prompt.",
+        inputSchema: {
+          id: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              "Return only this pin, untruncated. Omit to list every pin."
+            ),
+        },
       },
-      async () => {
+      async (args) => {
         try {
           const pins = await listPins(agentId);
+          if (args.id !== undefined) {
+            const pin = pins.find((candidate) => candidate.id === args.id);
+            if (!pin) {
+              return toToolError(new Error(`Pin ${args.id} not found.`));
+            }
+            // A request for one pin is the detail read, so it is not truncated.
+            return {
+              content: [{ type: "text" as const, text: jsonText(pin) }],
+            };
+          }
           return {
             content: [
-              { type: "text" as const, text: JSON.stringify(pins, null, 2) },
+              {
+                type: "text" as const,
+                text: jsonText(truncateLongStrings(pins, LIST_STRING_MAX)),
+              },
             ],
           };
         } catch (error) {

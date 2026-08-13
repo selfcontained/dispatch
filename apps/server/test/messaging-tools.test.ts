@@ -121,7 +121,7 @@ describe("registerMessagingTools", () => {
         "/home/user/project"
       );
       expect(result).toEqual({
-        content: [{ type: "text", text: JSON.stringify({ agents }, null, 2) }],
+        content: [{ type: "text", text: JSON.stringify({ agents }) }],
         structuredContent: { agents },
       });
     });

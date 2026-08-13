@@ -176,7 +176,6 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `list_agents`                   | List other agents in the same repo with IDs, names, statuses, and activity |
 | `dispatch_send_message`         | Send a message to another running agent by ID or name                      |
 | `get_activity_summary`          | Summarize agent activity over a time range                                 |
-| `get_agent_history`             | Get detailed agent session history                                         |
 | `get_feedback_summary`          | Aggregate persona review feedback for pattern detection                    |
 | `whiteboard_get`                | Read the agent's shared whiteboard (elements + PNG snapshot path)          |
 | `whiteboard_update`             | Draw on the shared whiteboard (upsert Excalidraw elements by id)           |
@@ -213,7 +212,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 ### Persona agents
 
-Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_delete_pin`, `dispatch_list_pins`, `dispatch_share`, `dispatch_list_media`, `dispatch_delete_media`, `get_parent_context`, and `whiteboard_get`. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
+Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_delete_pin`, `dispatch_list_pins`, `dispatch_share`, `dispatch_list_media`, `dispatch_delete_media`, and `whiteboard_get`. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
 
 ### Job agents
 

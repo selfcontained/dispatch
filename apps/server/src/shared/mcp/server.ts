@@ -31,6 +31,7 @@ import {
 import { registerPrTools } from "./pr-tools.js";
 import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { VALID_PIN_SHORTCUT_ICONS } from "../../pins.js";
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 /** One pin spec as an agent supplies it, shared by the single and batch tools. */
@@ -130,6 +131,7 @@ const AGENT_TOOLS = new Set([
   "set_active_personality",
   "clear_active_personality",
   "dispatch_review_list_feedback",
+  "dispatch_review_get_feedback",
   "dispatch_review_resolve",
   "dispatch_review_reopen",
   "dispatch_review_add_message",
@@ -138,10 +140,10 @@ const AGENT_TOOLS = new Set([
   "dispatch_launch_agent",
   "dispatch_archive_agent",
   "get_activity_summary",
-  "get_agent_history",
   "get_feedback_summary",
   "whiteboard_get",
   "whiteboard_update",
+  "whiteboard_howto",
   "whiteboard_clear",
   "brain_get_object",
   "brain_store_object",
@@ -150,10 +152,12 @@ const AGENT_TOOLS = new Set([
   "brain_list_push",
   "brain_list_remove",
   "brain_list_get",
+  "brain_get_list_item",
   "brain_list_set",
   "brain_list_delete",
   "brain_append_event",
   "brain_query_events",
+  "brain_get_event",
   "brain_delete_events",
   "list_jobs",
   "get_job",
@@ -183,6 +187,7 @@ const JOB_TOOLS = new Set([
   "dispatch_list_pins",
   "dispatch_launch_persona",
   "dispatch_review_list_feedback",
+  "dispatch_review_get_feedback",
   "dispatch_review_resolve",
   "dispatch_review_reopen",
   "dispatch_review_add_message",
@@ -199,7 +204,6 @@ const JOB_TOOLS = new Set([
   "persona_upsert",
   "persona_validate",
   "get_activity_summary",
-  "get_agent_history",
   "get_feedback_summary",
   "brain_get_object",
   "brain_store_object",
@@ -208,10 +212,12 @@ const JOB_TOOLS = new Set([
   "brain_list_push",
   "brain_list_remove",
   "brain_list_get",
+  "brain_get_list_item",
   "brain_list_set",
   "brain_list_delete",
   "brain_append_event",
   "brain_query_events",
+  "brain_get_event",
   "brain_delete_events",
   "list_jobs",
   "get_job",
@@ -238,9 +244,9 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_review_submit",
   "dispatch_review_add_feedback",
   "dispatch_review_list_feedback",
+  "dispatch_review_get_feedback",
   "dispatch_review_add_message",
   "dispatch_review_resolve",
-  "get_parent_context",
   "whiteboard_get",
 ]);
 
@@ -249,18 +255,6 @@ const TOOL_SETS: Record<AgentCapabilityType, Set<string>> = {
   agent: AGENT_TOOLS,
   job: JOB_TOOLS,
   review: REVIEW_AGENT_TOOLS,
-};
-
-export type ParentContextResult = {
-  pins: Array<{ id?: string; label: string; value: string; type: string }>;
-  media: Array<{
-    fileName: string;
-    filePath: string;
-    description: string | null;
-    source: string;
-    sizeBytes: number;
-    createdAt: string;
-  }>;
 };
 
 export type NotifyInput = {
@@ -473,6 +467,10 @@ export type McpRequestContext = {
       }>;
     }>
   >;
+  getReviewFeedbackItem?: (
+    agentId: string,
+    itemId: number
+  ) => Promise<Record<string, unknown> | null>;
   upsertPin?: (
     agentId: string,
     pin: McpPinInput
@@ -493,7 +491,6 @@ export type McpRequestContext = {
     deleteIds: string[]
   ) => Promise<WhiteboardUpdateResult>;
   clearWhiteboard?: (agentId: string) => Promise<void>;
-  getParentContext?: (parentAgentId: string) => Promise<ParentContextResult>;
   sendMessage?: (
     agentId: string,
     input: { target: string; message: string; senderRepoRoot: string | null }
@@ -517,17 +514,6 @@ export type McpRequestContext = {
     start: Date;
     end: Date;
     project?: string;
-  }) => Promise<Record<string, unknown>>;
-  getAgentHistory?: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    limit: number;
-    offset: number;
-    includeEvents: boolean;
-    includeFeedback: boolean;
-    includeReviews: boolean;
-    includeChildren: boolean;
   }) => Promise<Record<string, unknown>>;
   getFeedbackSummary?: (params: {
     start: Date;
@@ -630,7 +616,7 @@ async function createDispatchMcpServer(
       addReviewFeedback: context.addReviewFeedback,
       addReviewThreadMessage: context.addReviewThreadMessage,
       listReviewFeedback: context.listReviewFeedback,
-      getParentContext: context.getParentContext,
+      getReviewFeedbackItem: context.getReviewFeedbackItem,
     });
   }
 
@@ -690,8 +676,6 @@ async function createDispatchMcpServer(
   registerAnalyticsTools(server, allowed, {
     getActivitySummary:
       context.getActivitySummary ?? context.jobTools?.getActivitySummary,
-    getAgentHistory:
-      context.getAgentHistory ?? context.jobTools?.getAgentHistory,
     getFeedbackSummary:
       context.getFeedbackSummary ?? context.jobTools?.getFeedbackSummary,
   });
@@ -731,9 +715,19 @@ async function createDispatchMcpServer(
               repoRoot: toolsRoot,
               params: args as Record<string, unknown>,
             });
+            // `message` is the command's stdout, which is already the text
+            // content — carrying it in the structured payload too sent every
+            // repo tool's output twice. Drop it, along with the agent id and
+            // repo root the caller supplied in the first place.
+            const {
+              message,
+              agentId: _agentId,
+              repoRoot: _repoRoot,
+              ...data
+            } = result;
             return {
-              content: [{ type: "text", text: result.message }],
-              structuredContent: result,
+              content: [{ type: "text", text: message }],
+              structuredContent: data,
             };
           } catch (error) {
             return toToolError(error);
@@ -828,7 +822,7 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
             content: [{ type: "text", text: `Removed pin \"${args.label}\".` }],
           };
         }
-        const { pin, created } = await upsertPin(agentId, {
+        const { created } = await upsertPin(agentId, {
           ...(args.id !== undefined ? { id: args.id } : {}),
           label: args.label,
           ...(args.value !== undefined ? { value: args.value } : {}),
@@ -840,14 +834,16 @@ function registerPinTool(server: McpServer, context: McpRequestContext): void {
           ...(args.confirm !== undefined ? { confirm: args.confirm } : {}),
           ...(args.disabled !== undefined ? { disabled: args.disabled } : {}),
         });
-        // Echo the stored pin, not the request: the agent can then see what an
-        // update actually produced — including fields it did not send that
-        // were carried over — instead of assuming its input round-tripped.
+        // Acknowledge the write without echoing the stored pin: the caller just
+        // sent every field it set, and an update merges rather than replaces, so
+        // the only thing it cannot infer is whether this created or updated —
+        // which is exactly what it gets back. dispatch_list_pins remains the way
+        // to check what an update actually carried over.
         return {
           content: [
             {
               type: "text",
-              text: `${created ? "Created" : "Updated"} pin "${args.label}". Stored as: ${JSON.stringify(pin)}`,
+              text: `${created ? "Created" : "Updated"} pin "${args.label}".`,
             },
           ],
         };
@@ -932,12 +928,14 @@ function registerBatchPinTool(
         });
         // Echo the resulting list, not the request: an agent can then see what
         // the batch actually produced — order included — rather than assuming
-        // its input round-tripped.
+        // its input round-tripped. upsertPins returns summaries (id, label,
+        // group), so this stays thin however long the stored values are; read
+        // one back in full with dispatch_list_pins and its id.
         return {
           content: [
             {
               type: "text",
-              text: `Wrote ${args.pins.length} pin(s). Pins are now: ${JSON.stringify(pins)}`,
+              text: `Wrote ${args.pins.length} pin(s). Pins are now: ${jsonText(pins)}`,
             },
           ],
         };

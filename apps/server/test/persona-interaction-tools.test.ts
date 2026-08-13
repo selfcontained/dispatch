@@ -190,7 +190,6 @@ describe("registerPersonaInteractionTools", () => {
     const callbacks: PersonaInteractionCallbacks = {
       agentId,
       parentAgentId: "agt_parent",
-      getParentContext: vi.fn(async () => ({ pins: [], media: [] })),
       listReviewFeedback: vi.fn(async () => []),
       submitReview: vi.fn(async () => ({ review: { id: 1 } })),
       addReviewFeedback: vi.fn(async () => ({ item: { id: 2 } })),
@@ -216,7 +215,6 @@ describe("registerPersonaInteractionTools", () => {
       "dispatch_review_resolve",
       "dispatch_review_reopen",
       "dispatch_review_add_message",
-      "get_parent_context",
     ]);
     registerPersonaInteractionTools(server as any, allowed, callbacks);
     const names = server.tools.map((t) => t.name);
@@ -226,7 +224,6 @@ describe("registerPersonaInteractionTools", () => {
     expect(names).toContain("dispatch_review_resolve");
     expect(names).toContain("dispatch_review_reopen");
     expect(names).toContain("dispatch_review_add_message");
-    expect(names).toContain("get_parent_context");
   });
 
   it("normalizes summary whitespace before enforcing its length", () => {
@@ -290,33 +287,6 @@ describe("registerPersonaInteractionTools", () => {
   });
 
   describe("tool handlers", () => {
-    it("get_parent_context returns the parent's pins and media", async () => {
-      const getParentContext = vi.fn(async () => ({
-        pins: [{ label: "Dev", value: "http://localhost", type: "url" }],
-        media: [
-          {
-            fileName: "screen.png",
-            filePath: "/tmp/screen.png",
-            description: "Current UI",
-            source: "screenshot",
-            sizeBytes: 42,
-            createdAt: "2026-07-16T00:00:00Z",
-          },
-        ],
-      }));
-      registerPersonaInteractionTools(
-        server as any,
-        new Set(["get_parent_context"]),
-        { agentId, parentAgentId: "agt_parent", getParentContext }
-      );
-
-      const result = (await server.tools[0].handler({})) as any;
-      expect(getParentContext).toHaveBeenCalledWith("agt_parent");
-      expect(result.content[0].text).toContain("Dev (url)");
-      expect(result.content[0].text).toContain("screen.png");
-      expect(result.structuredContent.media).toHaveLength(1);
-    });
-
     it("requires a summary only when dispatch_review_submit has no feedback", async () => {
       const submitReview = vi.fn(async () => ({
         review: {
@@ -416,6 +386,69 @@ describe("registerPersonaInteractionTools", () => {
       expect(result.content[0].text).toContain(
         "No review feedback items found"
       );
+    });
+
+    it("dispatch_review_list_feedback replaces threads with a count", async () => {
+      const listReviewFeedback = vi.fn(async () => [
+        {
+          id: 7,
+          reviewId: 2,
+          filePath: "src/a.ts",
+          status: "open",
+          diffSnapshot: "@@ -1 +1 @@\n-old\n+new",
+          messages: [
+            { id: 1, authorType: "agent", content: { body: "first" } },
+            { id: 2, authorType: "agent", content: { body: "second" } },
+          ],
+        },
+      ]);
+      const callbacks: PersonaInteractionCallbacks = {
+        agentId,
+        listReviewFeedback: listReviewFeedback as never,
+      };
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["dispatch_review_list_feedback"]),
+        callbacks
+      );
+
+      const result = (await server.tools[0].handler({})) as any;
+      const item = result.structuredContent.items[0];
+      expect(item.messageCount).toBe(2);
+      expect(item.messages).toBeUndefined();
+      expect(item.diffSnapshot).toBeUndefined();
+      expect(item.filePath).toBe("src/a.ts");
+    });
+
+    it("dispatch_review_get_feedback returns one item in full", async () => {
+      const item = {
+        id: 7,
+        reviewId: 2,
+        filePath: "src/a.ts",
+        status: "open",
+        diffSnapshot: "@@ -1 +1 @@",
+        messages: [{ id: 1, authorType: "agent", content: { body: "first" } }],
+      };
+      const getReviewFeedbackItem = vi.fn(
+        async (_agentId: string, id: number) => (id === 7 ? item : null)
+      );
+      const callbacks: PersonaInteractionCallbacks = {
+        agentId,
+        getReviewFeedbackItem: getReviewFeedbackItem as never,
+      };
+      registerPersonaInteractionTools(
+        server as any,
+        new Set(["dispatch_review_get_feedback"]),
+        callbacks
+      );
+
+      const found = (await server.tools[0].handler({ itemId: 7 })) as any;
+      expect(found.structuredContent.item).toEqual(item);
+      // Fetched by id, not by scanning the agent's whole feedback list.
+      expect(getReviewFeedbackItem).toHaveBeenCalledWith(agentId, 7);
+
+      const missing = (await server.tools[0].handler({ itemId: 99 })) as any;
+      expect(missing.isError).toBe(true);
     });
 
     it("dispatch_review_resolve calls resolveReviewFeedback", async () => {

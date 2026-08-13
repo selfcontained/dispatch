@@ -145,11 +145,11 @@ describe("MCP personality tools", () => {
           prompt: "Be concise, practical, and verify details.",
         })
       ).body
-    ).personality as { name: string; prompt: string };
-    expect(updated).toMatchObject({
-      name: "Focused builder",
-      prompt: "Be concise, practical, and verify details.",
-    });
+    ).personality as { name: string; prompt?: string };
+    // The write confirms identity; the prompt is the caller's own input and
+    // comes back from list_personalities.
+    expect(updated).toMatchObject({ name: "Focused builder" });
+    expect(updated.prompt).toBeUndefined();
 
     expect(
       parseToolResult(

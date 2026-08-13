@@ -71,11 +71,13 @@ function createMockStore() {
     listObjects: vi.fn(),
     deleteObject: vi.fn(),
     getListItems: vi.fn(),
+    getListItem: vi.fn(),
     pushListItems: vi.fn(),
     removeListItem: vi.fn(),
     setListItem: vi.fn(),
     deleteList: vi.fn(),
     appendEvent: vi.fn(),
+    getEvent: vi.fn(),
     queryEvents: vi.fn(),
     deleteEvents: vi.fn(),
   };
@@ -87,12 +89,14 @@ const ALL_BRAIN_TOOLS = new Set([
   "brain_list_push",
   "brain_list_remove",
   "brain_list_get",
+  "brain_get_list_item",
   "brain_list_set",
   "brain_list_delete",
   "brain_list_objects",
   "brain_delete_object",
   "brain_append_event",
   "brain_delete_events",
+  "brain_get_event",
   "brain_query_events",
 ]);
 
@@ -128,7 +132,7 @@ describe("registerBrainTools", () => {
   // ── Conditional registration ────────────────────────────────────
 
   describe("conditional registration", () => {
-    it("registers all 12 tools when all are allowed", () => {
+    it("registers all 14 tools when all are allowed", () => {
       registerAll();
       const names = server.tools.map((t) => t.name);
       expect(names).toEqual([
@@ -137,12 +141,14 @@ describe("registerBrainTools", () => {
         "brain_list_push",
         "brain_list_remove",
         "brain_list_get",
+        "brain_get_list_item",
         "brain_list_set",
         "brain_list_delete",
         "brain_list_objects",
         "brain_delete_object",
         "brain_append_event",
         "brain_delete_events",
+        "brain_get_event",
         "brain_query_events",
       ]);
     });
@@ -249,7 +255,13 @@ describe("registerBrainTools", () => {
       })) as { structuredContent: unknown; isError?: true };
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toEqual(obj);
+      // A write acknowledges what changed; it does not echo the stored value.
+      expect(result.structuredContent).toEqual({
+        collection: obj.collection,
+        name: obj.name,
+        revision: obj.revision,
+        updatedAt: obj.updatedAt,
+      });
       expect(publishBrainChanged).toHaveBeenCalledOnce();
       expect(store.storeObject).toHaveBeenCalledWith(REPO_ROOT, AGENT_ID, {
         collection: "test-col",
@@ -334,6 +346,42 @@ describe("registerBrainTools", () => {
 
       expect(result.isError).toBe(true);
       expect(result.structuredContent.error.code).toBe("validation_error");
+    });
+  });
+
+  // ── brain_list_objects ─────────────────────────────────────────
+
+  describe("brain_list_objects", () => {
+    it("truncates long strings in listed values but keeps short ones intact", async () => {
+      const details = "x".repeat(1000);
+      store.listObjects.mockResolvedValue([
+        makeBrainObject({
+          value: { title: "An idea", details, tags: ["a", "b"] },
+        }),
+      ]);
+      registerAll();
+
+      const result = (await findHandler(server, "brain_list_objects")({})) as {
+        structuredContent: {
+          objects: Array<{ value: { title: string; details: string } }>;
+        };
+      };
+
+      const listed = result.structuredContent.objects[0]!.value;
+      expect(listed.title).toBe("An idea");
+      expect(listed.details).toBe(`${"x".repeat(400)}…[+600 chars]`);
+    });
+
+    it("leaves values alone when nothing exceeds the cap", async () => {
+      const value = { title: "Short", status: "idea" };
+      store.listObjects.mockResolvedValue([makeBrainObject({ value })]);
+      registerAll();
+
+      const result = (await findHandler(server, "brain_list_objects")({})) as {
+        structuredContent: { objects: Array<{ value: unknown }> };
+      };
+
+      expect(result.structuredContent.objects[0]!.value).toEqual(value);
     });
   });
 
@@ -589,9 +637,100 @@ describe("registerBrainTools", () => {
 
   // ── brain_list_set ─────────────────────────────────────────────
 
+  describe("brain_list_get", () => {
+    it("truncates long strings across a multi-item window", async () => {
+      store.getListItems.mockResolvedValue({
+        items: [{ index: 0, value: { body: "b".repeat(900) } }],
+        totalCount: 3,
+        revision: 2,
+      });
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_list_get"
+      )({
+        collection: "c",
+        name: "l",
+      })) as {
+        structuredContent: { items: Array<{ value: { body: string } }> };
+      };
+
+      expect(result.structuredContent.items[0]!.value.body).toBe(
+        `${"b".repeat(400)}…[+500 chars]`
+      );
+    });
+
+    it("truncates a one-item page too — limit bounds the page, it is not a detail read", async () => {
+      store.getListItems.mockResolvedValue({
+        items: [{ index: 2, value: { body: "b".repeat(900) } }],
+        totalCount: 3,
+        revision: 2,
+      });
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_list_get"
+      )({
+        collection: "c",
+        name: "l",
+        offset: 2,
+        limit: 1,
+      })) as {
+        structuredContent: { items: Array<{ value: { body: string } }> };
+      };
+
+      expect(result.structuredContent.items[0]!.value.body).toBe(
+        `${"b".repeat(400)}…[+500 chars]`
+      );
+    });
+  });
+
+  describe("brain_get_list_item", () => {
+    it("returns one item untruncated", async () => {
+      const body = "b".repeat(900);
+      store.getListItem.mockResolvedValue({ index: 2, value: { body } });
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_get_list_item"
+      )({
+        collection: "c",
+        name: "l",
+        index: 2,
+      })) as { structuredContent: { value: { body: string } }; isError?: true };
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent.value.body).toBe(body);
+      expect(store.getListItem).toHaveBeenCalledWith(REPO_ROOT, {
+        collection: "c",
+        name: "l",
+        index: 2,
+      });
+    });
+
+    it("errors when the index is empty", async () => {
+      store.getListItem.mockResolvedValue(null);
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_get_list_item"
+      )({
+        collection: "c",
+        name: "l",
+        index: 9,
+      })) as { isError?: true };
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
   describe("brain_list_set", () => {
     it("replaces an item and calls publishBrainChanged", async () => {
-      const setResult = { totalCount: 3, revision: 5 };
+      const setResult = { length: 3, revision: 5 };
       store.setListItem.mockResolvedValue(setResult);
       registerAll();
 
@@ -607,7 +746,12 @@ describe("registerBrainTools", () => {
       })) as { structuredContent: unknown; isError?: true };
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toEqual(setResult);
+      // Confirms the write; the item itself is what the caller just sent.
+      expect(result.structuredContent).toEqual({
+        index: 1,
+        length: 3,
+        revision: 5,
+      });
       expect(publishBrainChanged).toHaveBeenCalledOnce();
       expect(store.setListItem).toHaveBeenCalledWith(REPO_ROOT, AGENT_ID, {
         collection: "c",
@@ -797,7 +941,14 @@ describe("registerBrainTools", () => {
       })) as { structuredContent: unknown; isError?: true };
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toEqual(event);
+      // The appended value is the caller's own payload; only the assigned id
+      // and its placement come back.
+      expect(result.structuredContent).toEqual({
+        id: event.id,
+        collection: event.collection,
+        kind: event.kind,
+        createdAt: event.createdAt,
+      });
       expect(publishBrainChanged).toHaveBeenCalledOnce();
       expect(store.appendEvent).toHaveBeenCalledWith(REPO_ROOT, AGENT_ID, {
         collection: "test-col",
@@ -1001,7 +1152,56 @@ describe("registerBrainTools", () => {
 
   // ── brain_query_events ─────────────────────────────────────────
 
+  describe("brain_get_event", () => {
+    it("returns one event with its value untruncated", async () => {
+      const body = "b".repeat(1000);
+      store.getEvent.mockResolvedValue(makeBrainEvent({ value: { body } }));
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_get_event"
+      )({ id: "evt_123" })) as {
+        structuredContent: { value: { body: string } };
+        isError?: true;
+      };
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent.value.body).toBe(body);
+      expect(store.getEvent).toHaveBeenCalledWith(REPO_ROOT, "evt_123");
+    });
+
+    it("errors when the event does not exist", async () => {
+      store.getEvent.mockResolvedValue(null);
+      registerAll();
+
+      const result = (await findHandler(
+        server,
+        "brain_get_event"
+      )({ id: "evt_missing" })) as { isError?: true };
+
+      expect(result.isError).toBe(true);
+    });
+  });
+
   describe("brain_query_events", () => {
+    it("truncates long strings inside event values", async () => {
+      store.queryEvents.mockResolvedValue([
+        makeBrainEvent({ value: { note: "n".repeat(900), kind: "short" } }),
+      ]);
+      registerAll();
+
+      const result = (await findHandler(server, "brain_query_events")({})) as {
+        structuredContent: {
+          events: Array<{ value: { note: string; kind: string } }>;
+        };
+      };
+
+      const value = result.structuredContent.events[0]!.value;
+      expect(value.note).toBe(`${"n".repeat(400)}…[+500 chars]`);
+      expect(value.kind).toBe("short");
+    });
+
     it("returns events with filter params", async () => {
       const events = [makeBrainEvent()];
       store.queryEvents.mockResolvedValue(events);

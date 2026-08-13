@@ -68,11 +68,11 @@ type McpRouteDeps = {
   mcpAddReviewFeedback: unknown;
   mcpAddReviewThreadMessage: unknown;
   mcpListReviewFeedback: unknown;
+  mcpGetReviewFeedbackItem: unknown;
   mcpUpsertPin: unknown;
   mcpUpsertPins: unknown;
   mcpDeletePin: unknown;
   mcpDeletePinByLabel: unknown;
-  mcpGetParentContext: unknown;
   mcpJobComplete: unknown;
   mcpJobFailed: unknown;
   mcpJobNeedsInput: unknown;
@@ -185,8 +185,6 @@ export async function registerMcpRoutes(
           },
           getActivitySummary: (params: Record<string, unknown>) =>
             telemetry.getActivitySummary(deps.pool, params as never),
-          getAgentHistory: (params: Record<string, unknown>) =>
-            telemetry.getAgentHistory(deps.pool, params as never),
           getFeedbackSummary: (params: Record<string, unknown>) =>
             telemetry.getFeedbackSummary(deps.pool, params as never),
         }
@@ -235,14 +233,11 @@ export async function registerMcpRoutes(
       addReviewFeedback: deps.mcpAddReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
+      getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
-          Record<string, unknown>
-        >,
-      getAgentHistory: (params: Record<string, unknown>) =>
-        telemetry.getAgentHistory(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       getFeedbackSummary: (params: Record<string, unknown>) =>
@@ -327,6 +322,7 @@ export async function registerMcpRoutes(
       addReviewFeedback: deps.mcpAddReviewFeedback,
       addReviewThreadMessage: deps.mcpAddReviewThreadMessage,
       listReviewFeedback: deps.mcpListReviewFeedback,
+      getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
       upsertPin: deps.mcpUpsertPin,
@@ -334,13 +330,8 @@ export async function registerMcpRoutes(
       deletePin: deps.mcpDeletePin,
       deletePinByLabel: deps.mcpDeletePinByLabel,
       listPins: deps.mcpListPins,
-      getParentContext: deps.mcpGetParentContext,
       getActivitySummary: (params: Record<string, unknown>) =>
         telemetry.getActivitySummary(deps.pool, params as never) as Promise<
-          Record<string, unknown>
-        >,
-      getAgentHistory: (params: Record<string, unknown>) =>
-        telemetry.getAgentHistory(deps.pool, params as never) as Promise<
           Record<string, unknown>
         >,
       getFeedbackSummary: (params: Record<string, unknown>) =>

@@ -351,8 +351,8 @@ export function AutomationsContent() {
             <strong>Discovery &amp; messaging</strong> —{" "}
             <Code>list_agents</Code>, <Code>dispatch_send_message</Code>,{" "}
             <Code>dispatch_launch_agent</Code>, <Code>list_personas</Code>,{" "}
-            <Code>get_activity_summary</Code>, <Code>get_agent_history</Code>,
-            and <Code>get_feedback_summary</Code> let a job sweep over recent
+            <Code>get_activity_summary</Code> and{" "}
+            <Code>get_feedback_summary</Code> let a job sweep over recent
             activity, coordinate with other agents, or post a summary.
           </li>
           <li>

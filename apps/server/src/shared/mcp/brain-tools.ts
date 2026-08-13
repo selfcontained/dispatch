@@ -15,6 +15,7 @@ import {
   isIsoInstant,
   toEventDeleteSelector,
 } from "../../brain/store.js";
+import { jsonText, LIST_STRING_MAX, truncateLongStrings } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 type BrainToolContext = {
@@ -91,6 +92,26 @@ const eventTimestampSchema = z
   .meta({ format: "date-time" });
 const listOrderSchema = z.enum(["asc", "desc"]);
 
+/**
+ * A write confirms what changed, not what was written — the caller already has
+ * the value it just sent, and echoing a multi-KB object back doubles the cost of
+ * a one-field update. brain_get_object is there for callers that want to
+ * re-read what landed.
+ */
+function toWriteAck(obj: {
+  collection: string;
+  name: string;
+  revision: number;
+  updatedAt: string;
+}): { collection: string; name: string; revision: number; updatedAt: string } {
+  return {
+    collection: obj.collection,
+    name: obj.name,
+    revision: obj.revision,
+    updatedAt: obj.updatedAt,
+  };
+}
+
 export function registerBrainTools(
   server: McpServer,
   allowed: Set<string>,
@@ -128,7 +149,7 @@ export function registerBrainTools(
             );
           }
           return {
-            content: [{ type: "text", text: JSON.stringify(obj, null, 2) }],
+            content: [{ type: "text", text: jsonText(obj) }],
             structuredContent: toStructuredContent(obj),
           };
         } catch (error) {
@@ -147,7 +168,9 @@ export function registerBrainTools(
           "Create or update an object in the shared brain. " +
           "To create: omit expectedRevision. " +
           "To update: pass expectedRevision matching the current revision (optimistic concurrency). " +
-          "Blind overwrites of existing objects are rejected — you must read first.",
+          "Blind overwrites of existing objects are rejected — you must read first. " +
+          "Returns a confirmation of what changed (name, new revision, timestamp), not the stored value — " +
+          "re-read with brain_get_object if you need it.",
         inputSchema: {
           collection: collectionSchema.describe(
             "The collection the object belongs to."
@@ -178,9 +201,10 @@ export function registerBrainTools(
             expectedRevision: args.expectedRevision,
           });
           publishBrainChanged?.();
+          const ack = toWriteAck(obj);
           return {
-            content: [{ type: "text", text: JSON.stringify(obj, null, 2) }],
-            structuredContent: toStructuredContent(obj),
+            content: [{ type: "text", text: jsonText(ack) }],
+            structuredContent: toStructuredContent(ack),
           };
         } catch (error) {
           return toBrainError(error);
@@ -239,7 +263,7 @@ export function registerBrainTools(
           });
           publishBrainChanged?.();
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {
@@ -299,7 +323,7 @@ export function registerBrainTools(
           });
           publishBrainChanged?.();
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {
@@ -315,7 +339,9 @@ export function registerBrainTools(
       "brain_list_get",
       {
         description:
-          "Read items from a shared brain list. Returns the selected items, total count, and current revision.",
+          "Read items from a shared brain list. Returns the selected items, total count, and current revision. " +
+          `Strings longer than ${LIST_STRING_MAX} characters are truncated (marked with the number dropped) — ` +
+          "call brain_get_list_item for one item in full.",
         inputSchema: {
           collection: collectionSchema.describe(
             "The collection the list belongs to."
@@ -343,16 +369,64 @@ export function registerBrainTools(
       },
       async (args) => {
         try {
-          const result = await store.getListItems(repoRoot, {
+          const raw = await store.getListItems(repoRoot, {
             collection: args.collection,
             name: args.name,
             limit: args.limit,
             offset: args.offset,
             order: args.order,
           });
+          const result = truncateLongStrings(raw, LIST_STRING_MAX);
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
+  // ── brain_get_list_item ──────────────────────────────────────────
+  if (allowed.has("brain_get_list_item")) {
+    server.registerTool(
+      "brain_get_list_item",
+      {
+        description:
+          "Get one item from a shared brain list by index, with its value untruncated. " +
+          "brain_list_get reports the indexes.",
+        inputSchema: {
+          collection: collectionSchema.describe(
+            "The collection the list belongs to."
+          ),
+          name: nameSchema.describe(
+            "The unique name of the list within the collection."
+          ),
+          index: z
+            .number()
+            .int()
+            .min(0)
+            .describe("The 0-based index reported by brain_list_get."),
+        },
+      },
+      async (args) => {
+        try {
+          const item = await store.getListItem(repoRoot, {
+            collection: args.collection,
+            name: args.name,
+            index: args.index,
+          });
+          if (!item) {
+            return toToolError(
+              new Error(
+                `No item at index ${args.index} in "${args.collection}/${args.name}".`
+              )
+            );
+          }
+          return {
+            content: [{ type: "text", text: jsonText(item) }],
+            structuredContent: toStructuredContent(item),
           };
         } catch (error) {
           return toBrainError(error);
@@ -402,9 +476,15 @@ export function registerBrainTools(
             expectedRevision: args.expectedRevision,
           });
           publishBrainChanged?.();
+          // Confirm the position and new revision, not the item just sent.
+          const ack = {
+            index: args.index,
+            length: result.length,
+            revision: result.revision,
+          };
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
-            structuredContent: toStructuredContent(result),
+            content: [{ type: "text", text: jsonText(ack) }],
+            structuredContent: toStructuredContent(ack),
           };
         } catch (error) {
           return toBrainError(error);
@@ -463,7 +543,9 @@ export function registerBrainTools(
       {
         description:
           "List objects in the shared brain. Optionally filter by collection, name prefix, " +
-          "or updated-after timestamp. Returns up to `limit` objects ordered by most recently updated.",
+          "or updated-after timestamp. Returns up to `limit` objects ordered by most recently updated. " +
+          `Strings inside each object's value are truncated to ${LIST_STRING_MAX} characters (marked with the ` +
+          "number of characters dropped) — call brain_get_object for an object's full value.",
         inputSchema: {
           collection: collectionSchema
             .optional()
@@ -494,9 +576,14 @@ export function registerBrainTools(
             updatedAfter: args.updatedAfter,
             limit: args.limit,
           });
-          const result = { objects };
+          const result = {
+            objects: objects.map((obj) => ({
+              ...obj,
+              value: truncateLongStrings(obj.value, LIST_STRING_MAX),
+            })),
+          };
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {
@@ -591,9 +678,17 @@ export function registerBrainTools(
             tags: args.tags,
           });
           publishBrainChanged?.();
+          // The value is the caller's own payload; brain_query_events reads it
+          // back. What it cannot know is the id the append was assigned.
+          const ack = {
+            id: event.id,
+            collection: event.collection,
+            kind: event.kind,
+            createdAt: event.createdAt,
+          };
           return {
-            content: [{ type: "text", text: JSON.stringify(event, null, 2) }],
-            structuredContent: toStructuredContent(event),
+            content: [{ type: "text", text: jsonText(ack) }],
+            structuredContent: toStructuredContent(ack),
           };
         } catch (error) {
           return toBrainError(error);
@@ -694,6 +789,35 @@ export function registerBrainTools(
     );
   }
 
+  // ── brain_get_event ───────────────────────────────────────────────
+  if (allowed.has("brain_get_event")) {
+    server.registerTool(
+      "brain_get_event",
+      {
+        description:
+          "Get a single event from the shared brain's event log by id, with its value untruncated. " +
+          "brain_query_events reports the ids.",
+        inputSchema: {
+          id: z.uuid().describe("Event id from brain_query_events."),
+        },
+      },
+      async (args) => {
+        try {
+          const event = await store.getEvent(repoRoot, args.id);
+          if (!event) {
+            return toToolError(new Error(`Event ${args.id} not found.`));
+          }
+          return {
+            content: [{ type: "text", text: jsonText(event) }],
+            structuredContent: toStructuredContent(event),
+          };
+        } catch (error) {
+          return toBrainError(error);
+        }
+      }
+    );
+  }
+
   // ── brain_query_events ────────────────────────────────────────────
   if (allowed.has("brain_query_events")) {
     server.registerTool(
@@ -701,7 +825,9 @@ export function registerBrainTools(
       {
         description:
           "Query the shared brain's event log. Filter by collection, kind, subject, " +
-          "tags, and time range. Returns up to `limit` events.",
+          "tags, and time range. Returns up to `limit` events. " +
+          `Strings inside each event's value are truncated to ${LIST_STRING_MAX} characters ` +
+          "(marked with the number of characters dropped) — call brain_get_event for one event in full.",
         inputSchema: {
           collection: collectionSchema
             .optional()
@@ -752,9 +878,14 @@ export function registerBrainTools(
             limit: args.limit,
             order: args.order,
           });
-          const result = { events };
+          const result = {
+            events: events.map((event) => ({
+              ...event,
+              value: truncateLongStrings(event.value, LIST_STRING_MAX),
+            })),
+          };
           return {
-            content: [{ type: "text", text: JSON.stringify(result, null, 2) }],
+            content: [{ type: "text", text: jsonText(result) }],
             structuredContent: toStructuredContent(result),
           };
         } catch (error) {

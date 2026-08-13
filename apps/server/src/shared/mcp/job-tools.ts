@@ -1,6 +1,7 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 
+import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
 export type JobTools = {
@@ -31,17 +32,6 @@ export type JobTools = {
     start: Date;
     end: Date;
     project?: string;
-  }) => Promise<Record<string, unknown>>;
-  getAgentHistory: (params: {
-    start: Date;
-    end: Date;
-    project?: string;
-    limit: number;
-    offset: number;
-    includeEvents: boolean;
-    includeFeedback: boolean;
-    includeReviews: boolean;
-    includeChildren: boolean;
   }) => Promise<Record<string, unknown>>;
   getFeedbackSummary: (params: {
     start: Date;
@@ -210,9 +200,7 @@ export function registerJobTools(
       try {
         const agents = await jobTools.listAgents();
         return {
-          content: [
-            { type: "text", text: JSON.stringify({ agents }, null, 2) },
-          ],
+          content: [{ type: "text", text: jsonText({ agents }) }],
           structuredContent: { agents },
         };
       } catch (error) {
