@@ -1,0 +1,17 @@
+{
+  "name": "dispatch",
+  "owner": {
+    "name": "Dispatch",
+    "url": "https://github.com/selfcontained/dispatch"
+  },
+  "description": "Official plugin marketplace for Dispatch — skills that teach agents how to use Dispatch's own capabilities.",
+  "plugins": [
+    {
+      "name": "dispatch",
+      "source": "./plugins/dispatch",
+      "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, sharing artifacts, review workflow, whiteboard, jobs, and templates.",
+      "category": "workflow",
+      "keywords": ["dispatch", "agents", "orchestration", "mcp", "review"]
+    }
+  ]
+}

@@ -229,6 +229,24 @@ Repos can define custom tools in `.dispatch/tools.json` — these are exposed to
 
 These tools only work inside running agent sessions (they require agent-scoped MCP context which Dispatch provides automatically).
 
+## Dispatch plugin (Claude Code + Codex)
+
+This repo doubles as a plugin marketplace. The **Dispatch plugin** ships skills that teach agents how to use the capabilities above — the Brain, subagents, `.dispatch/tools.json`, artifact sharing, the review workflow, the whiteboard, jobs, and templates — so agents discover them instead of having to be told.
+
+**Before you install:** plugins on Claude Code and Codex are **unsigned and unsandboxed, and run with your full local user privileges** — this one and every other self-hosted plugin. This plugin ships no executable components (no hooks, no `bin/`, no bundled MCP servers), only markdown skills; [plugins/dispatch/README.md](plugins/dispatch/README.md#trust) shows how to verify that for yourself before running the commands below.
+
+```bash
+# Claude Code
+claude plugin marketplace add selfcontained/dispatch
+claude plugin install dispatch@dispatch
+
+# Codex
+codex plugin marketplace add selfcontained/dispatch
+codex plugin add dispatch@dispatch
+```
+
+See [plugins/dispatch/README.md](plugins/dispatch/README.md) for what each skill covers and for update mechanics — notably that Codex has no update command, so upgrading means re-running `codex plugin add`.
+
 ## Operations
 
 - Update production from the Dispatch UI: **Settings → Updates**
