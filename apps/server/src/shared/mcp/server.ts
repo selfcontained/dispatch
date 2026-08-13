@@ -143,6 +143,7 @@ const AGENT_TOOLS = new Set([
   "get_feedback_summary",
   "whiteboard_get",
   "whiteboard_update",
+  "whiteboard_howto",
   "whiteboard_clear",
   "brain_get_object",
   "brain_store_object",

@@ -20,8 +20,18 @@ export type WhiteboardToolsContext = {
 };
 
 // ── Excalidraw element format cheat sheet ──────────────────────────────
-// Included in the whiteboard_update tool description so agents can
-// construct valid Excalidraw element JSON without importing the library.
+// Returned by whiteboard_howto rather than carried in whiteboard_update's
+// description: the reference is ~6KB and every agent used to pay for it in the
+// tool list whether or not it ever drew anything. Agents that draw fetch it
+// once; agents that never draw never see it.
+const WHITEBOARD_WORKFLOW = `**Workflow:** Call \`whiteboard_get\` first to see current elements, their ids, and where free space is. Then construct your elements and send them to \`whiteboard_update\`. Give elements readable ids (e.g. 'api-box', 'db-node') so you can reference them in arrow bindings.
+
+**Labels:** To put text inside a shape, create BOTH a shape element (with a \`boundElements\` back-reference to the text) AND a text element (with \`containerId\` pointing to the shape).
+
+**Arrows:** Use \`startBinding\`/\`endBinding\` with \`elementId\` and \`fixedPoint\` to connect arrows to shapes. Add back-references in each target shape's \`boundElements\` array. Set \`elbowed: true\` for right-angle routing.
+
+**Layout:** Typical box w=160, h=70 with ~80px gaps. Keep labels short (2–5 words).`;
+
 const EXCALIDRAW_CHEAT_SHEET = `
 
 ## Excalidraw Element Format Reference
@@ -251,6 +261,26 @@ export function registerWhiteboardTools(
     );
   }
 
+  if (allowed.has("whiteboard_howto")) {
+    server.registerTool(
+      "whiteboard_howto",
+      {
+        description:
+          "How to draw on the whiteboard: the Excalidraw element format, label and arrow binding " +
+          "rules, and layout conventions. Call once before your first whiteboard_update.",
+        inputSchema: {},
+      },
+      async () => ({
+        content: [
+          {
+            type: "text",
+            text: `${WHITEBOARD_WORKFLOW}\n${EXCALIDRAW_CHEAT_SHEET}`,
+          },
+        ],
+      })
+    );
+  }
+
   if (allowed.has("whiteboard_update") && context.updateWhiteboard) {
     const agentId = context.agentId;
     const updateWhiteboard = context.updateWhiteboard;
@@ -262,30 +292,16 @@ export function registerWhiteboardTools(
           "Draw on the shared whiteboard — the user sees your edits live. You construct raw " +
           "Excalidraw element JSON directly. Elements are merged by id: if an element with that " +
           "id already exists on the board, it is replaced entirely; otherwise it is added. Use " +
-          "`deleteIds` to remove elements." +
-          "\n\n" +
-          "**Workflow:** Call `whiteboard_get` first to see current elements, their ids, and where " +
-          "free space is. Then construct your elements and send them here. Give elements readable " +
-          "ids (e.g. 'api-box', 'db-node') so you can reference them in arrow bindings." +
-          "\n\n" +
-          "**Labels:** To put text inside a shape, create BOTH a shape element (with a `boundElements` " +
-          "back-reference to the text) AND a text element (with `containerId` pointing to the shape). " +
-          "See the format reference below." +
-          "\n\n" +
-          "**Arrows:** Use `startBinding`/`endBinding` with `elementId` and `fixedPoint` to connect " +
-          "arrows to shapes. Add back-references in each target shape's `boundElements` array. " +
-          "Set `elbowed: true` for right-angle routing." +
-          "\n\n" +
-          "**Layout:** Typical box w=160, h=70 with ~80px gaps. Keep labels short (2–5 words)." +
-          EXCALIDRAW_CHEAT_SHEET,
+          "`deleteIds` to remove elements. Call whiteboard_howto first for the element format, " +
+          "labels, arrow bindings and layout conventions.",
         inputSchema: {
           elements: z
             .array(z.record(z.string(), z.any()))
             .max(500)
             .describe(
               "Array of Excalidraw element objects to add or update. Each must have at least " +
-                "'id' and 'type'. Elements are merged by id (upsert). See the format reference in " +
-                "the tool description for the full element schema."
+                "'id' and 'type'. Elements are merged by id (upsert). Call whiteboard_howto for " +
+                "the full element schema."
             ),
           deleteIds: z
             .array(z.string())
@@ -315,7 +331,13 @@ export function registerWhiteboardTools(
             structuredContent: summary,
           };
         } catch (error) {
-          return toToolError(error);
+          // The format reference is no longer in this tool's description, so a
+          // caller that guessed at the element shape gets told where it lives.
+          return toToolError(
+            new Error(
+              `${error instanceof Error ? error.message : String(error)} — call whiteboard_howto for the element format.`
+            )
+          );
         }
       }
     );
