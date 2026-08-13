@@ -53,9 +53,9 @@ CREATE INDEX IF NOT EXISTS peer_pairings_expires_idx
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS peer_id text;
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS remote_id text;
 
-CREATE INDEX IF NOT EXISTS agents_peer_remote_idx
-  ON agents (peer_id, remote_id)
-  WHERE peer_id IS NOT NULL;
+-- Deliberately no index on (peer_id, remote_id): building one at startup
+-- migration write-locks a potentially large agents table, and shadow lookups
+-- filter a table that stays small in practice.
 
 -- Messages are CONTENT: losing one loses work, and a blind retry would
 -- double-inject. Hence a durable sender-side outbox with backoff, and a

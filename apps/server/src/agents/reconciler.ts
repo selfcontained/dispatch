@@ -108,7 +108,9 @@ async function reconcileAgentStatuses(
   await diagnostics.maybeMaintenanceLogs();
 
   const result = await pool.query(
-    "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE deleted_at IS NULL AND status IN ('running', 'stopping', 'creating', 'archiving')"
+    // Shadow rows (peer_id set) have no local pane by design — their status is
+    // mirrored from the owning peer, so local tmux reconciliation must skip them.
+    "SELECT id, tmux_session AS \"tmuxSession\", status, updated_at AS \"updatedAt\" FROM agents WHERE deleted_at IS NULL AND peer_id IS NULL AND status IN ('running', 'stopping', 'creating', 'archiving')"
   );
 
   const reconciled: AgentRecord[] = [];

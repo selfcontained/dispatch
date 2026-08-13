@@ -110,6 +110,7 @@ describe("linkToPeer", () => {
       claimedBody = JSON.parse(String(init?.body));
       return new Response(
         JSON.stringify({
+          protocolVersion: 1,
           instanceId: "inst_remote",
           name: "cloud-vm",
           token: remoteToken,
@@ -173,6 +174,26 @@ describe("linkToPeer", () => {
 });
 
 describe("requirePeerAuth", () => {
+  beforeAll(async () => {
+    // Peer auth fails closed without a configured password.
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ('password_hash', 'test-hash')
+       ON CONFLICT (key) DO UPDATE SET value = 'test-hash'`
+    );
+  });
+
+  it("hard-denies every token while no password is set", async () => {
+    await pool.query(`DELETE FROM settings WHERE key = 'password_hash'`);
+    const token = await pairUnpinned("inst_auth0");
+    const reply = fakeReply();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await requirePeerAuth(pool, fakeRequest(token) as any, reply as any);
+    expect(reply.state.code).toBe(403);
+    await pool.query(
+      `INSERT INTO settings (key, value) VALUES ('password_hash', 'test-hash')`
+    );
+  });
+
   function fakeReply() {
     const state: { code?: number; body?: unknown } = {};
     return {

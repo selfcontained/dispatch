@@ -22,6 +22,9 @@ type TailnetListenerDeps = {
 export class TailnetListener {
   private server: http.Server | https.Server | null = null;
   private boundAddress: string | null = null;
+  // closeAllConnections() does not cover upgraded (WebSocket) sockets, so we
+  // track every accepted socket and destroy them ourselves on stop.
+  private readonly sockets = new Set<import("node:net").Socket>();
 
   constructor(private readonly deps: TailnetListenerDeps) {}
 
@@ -54,6 +57,10 @@ export class TailnetListener {
     server.on("upgrade", (req, socket, head) => {
       target.emit("upgrade", req, socket, head);
     });
+    server.on("connection", (socket) => {
+      this.sockets.add(socket);
+      socket.once("close", () => this.sockets.delete(socket));
+    });
     await new Promise<void>((resolve, reject) => {
       const onError = (err: Error) => reject(err);
       server.once("error", onError);
@@ -78,6 +85,8 @@ export class TailnetListener {
       server.close(() => resolve());
       // close() waits for open connections (incl. SSE); cut them loose.
       server.closeAllConnections?.();
+      for (const socket of this.sockets) socket.destroy();
+      this.sockets.clear();
     });
     this.deps.log.info("Peer listener stopped");
   }

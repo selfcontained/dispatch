@@ -111,7 +111,10 @@ export function LinkedInstancesSettings(): JSX.Element {
         <h2 className="text-xl font-semibold">Linked instances</h2>
         <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
           Pair this Dispatch with another one you own — then agents can be
-          launched there by adding a location to the same launch tools.
+          launched there by adding a location to the same launch tools. While
+          the instances can't reach each other (laptop closed, VPN down),
+          messages queue and deliver on reconnect; remote agent status shows the
+          last known state until then.
         </p>
       </div>
 
@@ -167,10 +170,12 @@ export function LinkedInstancesSettings(): JSX.Element {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-base">Pair a new instance</CardTitle>
+          <CardTitle className="text-base">
+            Accept a connection from another instance
+          </CardTitle>
           <CardDescription>
-            Show a code here and type it on the other instance — or type a code
-            another instance is showing.
+            Do this on the machine being connected TO (e.g. the cloud box). It
+            shows a code; you enter that code on the other machine below.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -180,11 +185,12 @@ export function LinkedInstancesSettings(): JSX.Element {
                 {offer.code}
               </p>
               <p className="mt-2 text-sm text-muted-foreground">
-                On the other instance, link to{" "}
+                On the OTHER instance, open Settings → Connections and enter{" "}
                 <span className="font-mono">
                   {offer.address ?? "this instance's address"}
                 </span>{" "}
-                with this code. Expires in 10 minutes.
+                plus this code into its "Connect to another instance" form.
+                Expires in 10 minutes.
               </p>
             </div>
           ) : (
@@ -197,12 +203,31 @@ export function LinkedInstancesSettings(): JSX.Element {
               Show pairing code
             </Button>
           )}
+          {self && !self.passwordSet && (
+            <p className="text-sm text-destructive" role="alert">
+              Pairing requires a password — set one in Settings → Security
+              first, on both instances.
+            </p>
+          )}
           {offerMutation.isError && (
             <p className="text-sm text-destructive" role="alert">
               {(offerMutation.error as Error).message}
             </p>
           )}
+        </CardContent>
+      </Card>
 
+      <Card>
+        <CardHeader>
+          <CardTitle className="text-base">
+            Connect to another instance
+          </CardTitle>
+          <CardDescription>
+            Do this on the machine you're connecting FROM (e.g. your laptop),
+            using the address and code the other instance is showing.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
           <form
             className="flex flex-col gap-2 sm:flex-row"
             onSubmit={(event) => {
@@ -240,6 +265,12 @@ export function LinkedInstancesSettings(): JSX.Element {
               Link
             </Button>
           </form>
+          {self && !self.passwordSet && (
+            <p className="text-sm text-destructive" role="alert">
+              Pairing requires a password — set one in Settings → Security
+              first, on both instances.
+            </p>
+          )}
           {linkMutation.isError && (
             <p className="text-sm text-destructive" role="alert">
               {(linkMutation.error as Error).message}
