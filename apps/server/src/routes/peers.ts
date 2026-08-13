@@ -376,7 +376,10 @@ export async function registerPeerRoutes(
         for (const payload of pending) stream.write(payload);
         pending.length = 0;
       } catch {
-        // Live events still flow; the subscriber re-snapshots on reconnect.
+        // Without a snapshot, buffered delivery would hold events forever —
+        // drop the connection so the peer reconnects and re-snapshots.
+        cleanup();
+        stream.destroy();
       }
     }
   );
