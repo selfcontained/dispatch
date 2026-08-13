@@ -51,10 +51,26 @@ plugin update.
 
 Plugins on both platforms are **unsigned and unsandboxed, and run with your full
 local user privileges**. That is true of this plugin and of every other one you
-install from a self-hosted marketplace. This plugin ships skills only — no
-hooks, no bundled MCP servers, no executables — but you should verify that for
-yourself rather than take this file's word for it: the entire contents are the
-`skills/` directory plus two manifests.
+install from a self-hosted marketplace.
+
+This plugin ships **no executable components** — no `hooks/`, no `bin/`, no
+bundled MCP servers (`.mcp.json`), no LSP servers. Everything it contributes is
+markdown that agents read. Verify that yourself rather than taking this file's
+word for it:
+
+```bash
+# Nothing executable should be listed.
+ls plugins/dispatch                       # .claude-plugin .codex-plugin README.md evals skills
+cat plugins/dispatch/.claude-plugin/plugin.json   # no hooks/mcpServers/bin fields
+cat plugins/dispatch/.codex-plugin/plugin.json
+```
+
+`claude plugin details dispatch@dispatch` reports the same thing after install —
+it prints a component inventory with `Hooks (0)`, `MCP servers (0)`, and
+`LSP servers (0)`.
+
+The rest of the tree is documentation: `skills/` (the skill bodies agents load),
+`evals/` (test cases), and this README.
 
 ## What's in it
 

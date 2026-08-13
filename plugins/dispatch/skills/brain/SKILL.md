@@ -1,6 +1,6 @@
 ---
 name: brain
-description: Record decisions, findings, or state that outlive this session and share them with other agents. Use when you need to remember something for later, hand context to another agent, or check what was already decided.
+description: Record decisions, findings, or state in the repo's shared persistent store so they survive this session. Use when you need to remember something for later, look up what was already decided, or accumulate results across runs.
 ---
 
 # Shared memory (the brain)
@@ -58,7 +58,7 @@ brain_list_push    collection, name, items, maxItems?
 brain_list_get     collection, name, offset?, limit?
 brain_get_list_item collection, name, index
 brain_list_set     collection, name, index, value
-brain_list_remove  collection, name, index | match
+brain_list_remove  collection, name, index | where { field, equals }
 brain_list_delete  collection, name
 ```
 
@@ -66,6 +66,11 @@ brain_list_delete  collection, name
 a rolling log of the last N results without a cleanup pass. `brain_list_get`
 reports indexes and truncates long values; `brain_get_list_item` returns one entry
 in full.
+
+`brain_list_remove` takes either an `index` or a `where` object — `{ field,
+equals }`, matching the first item whose top-level `field` equals that string.
+Indexes shift as items are removed, so prefer `where` when you are removing by
+identity rather than by position.
 
 ## Events
 

@@ -93,9 +93,16 @@ started.
 
 ## Working on it
 
-The manifest is re-read when its mtime changes, so edits take effect without a
-restart — but the agent's tool list is built at session start, so a **newly
-added** tool only appears to a session launched after the edit. A malformed entry
-(missing `name`, `description`, or `command`) throws at load, which surfaces as
-the repo's tools being absent rather than as a parse error. If `repo_*` tools
-vanish, validate the JSON first.
+The tools manifest is re-read from disk on **every** MCP request — there is no
+caching — so an edited command, description, or param takes effect on the next
+tool listing with no server restart. (The mtime cache in Dispatch applies only to
+`hooks`, not to `tools`.)
+
+The catch is on the client side: an agent's CLI fetches its tool list once at
+session start and holds it. So an edit to an **existing** tool is picked up by
+the server immediately, but a **newly added** tool usually will not be callable
+by an already-running agent until it reconnects or a new session starts.
+
+A malformed entry (missing `name`, `description`, or `command`) throws at load,
+which surfaces as the repo's tools being absent rather than as a parse error. If
+`repo_*` tools vanish, validate the JSON first.
