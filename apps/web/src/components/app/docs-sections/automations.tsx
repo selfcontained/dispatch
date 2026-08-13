@@ -333,10 +333,11 @@ export function AutomationsContent() {
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
             <strong>Status &amp; comms</strong> — <Code>dispatch_event</Code>,{" "}
-            <Code>dispatch_pin</Code>, <Code>dispatch_list_pins</Code>,{" "}
-            <Code>dispatch_delete_pin</Code>, <Code>dispatch_share</Code>,{" "}
-            <Code>dispatch_list_media</Code>, <Code>dispatch_delete_media</Code>
-            , <Code>dispatch_rename_session</Code>, and{" "}
+            <Code>dispatch_pin</Code>, <Code>dispatch_pins</Code>,{" "}
+            <Code>dispatch_list_pins</Code>, <Code>dispatch_delete_pin</Code>,{" "}
+            <Code>dispatch_share</Code>, <Code>dispatch_list_media</Code>,{" "}
+            <Code>dispatch_delete_media</Code>,{" "}
+            <Code>dispatch_rename_session</Code>, and{" "}
             <Code>dispatch_notify</Code> all behave the same as for standard
             agents. Renaming the session is handy when the job's prompt is
             generic but each run has a more specific topic.
@@ -350,8 +351,10 @@ export function AutomationsContent() {
           <li>
             <strong>Discovery &amp; messaging</strong> —{" "}
             <Code>list_agents</Code>, <Code>dispatch_send_message</Code>,{" "}
-            <Code>dispatch_launch_agent</Code>, <Code>list_personas</Code>,{" "}
-            <Code>get_activity_summary</Code> and{" "}
+            <Code>dispatch_launch_agent</Code>,{" "}
+            <Code>dispatch_archive_agent</Code>, <Code>list_personas</Code>,{" "}
+            <Code>persona_templates</Code>, <Code>persona_upsert</Code>,{" "}
+            <Code>persona_validate</Code>, <Code>get_activity_summary</Code> and{" "}
             <Code>get_feedback_summary</Code> let a job sweep over recent
             activity, coordinate with other agents, or post a summary.
           </li>
@@ -359,6 +362,7 @@ export function AutomationsContent() {
             <strong>Tracked reviews</strong> —{" "}
             <Code>dispatch_launch_persona</Code>,{" "}
             <Code>dispatch_review_list_feedback</Code>,{" "}
+            <Code>dispatch_review_get_feedback</Code>,{" "}
             <Code>dispatch_review_add_message</Code>,{" "}
             <Code>dispatch_review_resolve</Code>, and{" "}
             <Code>dispatch_review_reopen</Code>. See below.
@@ -366,6 +370,7 @@ export function AutomationsContent() {
           <li>
             <strong>Human review</strong> —{" "}
             <Code>dispatch_review_list_feedback</Code>,{" "}
+            <Code>dispatch_review_get_feedback</Code>,{" "}
             <Code>dispatch_review_resolve</Code>, and{" "}
             <Code>dispatch_review_add_message</Code>. Read, resolve, and reply
             to review feedback left on the Changes tab.
@@ -375,10 +380,11 @@ export function AutomationsContent() {
             <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}
             <Code>brain_list_objects</Code>, <Code>brain_delete_object</Code>,{" "}
             <Code>brain_list_push</Code>, <Code>brain_list_remove</Code>,{" "}
-            <Code>brain_list_get</Code>, <Code>brain_list_set</Code>,{" "}
-            <Code>brain_list_delete</Code>, <Code>brain_append_event</Code>,{" "}
-            <Code>brain_query_events</Code>, and{" "}
-            <Code>brain_delete_events</Code>. Same tools as standard agents.
+            <Code>brain_list_get</Code>, <Code>brain_get_list_item</Code>,{" "}
+            <Code>brain_list_set</Code>, <Code>brain_list_delete</Code>,{" "}
+            <Code>brain_append_event</Code>, <Code>brain_query_events</Code>,{" "}
+            <Code>brain_get_event</Code>, and <Code>brain_delete_events</Code>.
+            Same tools as standard agents.
           </li>
           <li>
             <strong>Automation CRUD</strong> — <Code>list_jobs</Code>,{" "}

@@ -135,7 +135,16 @@ export function ToolsContent() {
             <Code>dispatch_pin</Code> — pin a label/value pair to the sidebar
             (URLs, ports, filenames, PRs, markdown summaries), or a{" "}
             <Code>shortcut</Code> button that injects a prompt into the agent’s
-            session when clicked
+            session when clicked. Setting the same label again updates that pin;
+            passing an <Code>id</Code> instead matches by id, so a rename is a
+            single-field edit
+          </li>
+          <li>
+            <Code>dispatch_pins</Code> — write up to 50 pins in one atomic call.{" "}
+            <Code>merge</Code> (the default) leaves unmentioned pins alone;{" "}
+            <Code>replace</Code> requires a <Code>group</Code> and rebuilds
+            exactly that group in the order given, never touching anything
+            outside it
           </li>
           <li>
             <Code>dispatch_share</Code> — publish a screenshot, image, video, or
@@ -150,12 +159,14 @@ export function ToolsContent() {
             media file by its listed file name
           </li>
           <li>
-            <Code>dispatch_list_pins</Code> — list the current sidebar pins so
-            stale pins can be removed by ID
+            <Code>dispatch_list_pins</Code> — list the current sidebar pins with
+            their stable IDs; long values are truncated in the listing, so pass
+            an <Code>id</Code> to read one pin back whole
           </li>
           <li>
-            <Code>dispatch_delete_pin</Code> — permanently remove a pin using
-            its stable ID from <Code>dispatch_list_pins</Code>
+            <Code>dispatch_delete_pin</Code> — permanently remove pins by{" "}
+            <Code>id</Code>, by a list of <Code>ids</Code>, or by clearing a
+            whole <Code>group</Code>
           </li>
           <li>
             <Code>list_personas</Code> — list persona reviewers defined for the
@@ -179,7 +190,12 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>dispatch_review_list_feedback</Code> — list review feedback
-            items and their tracked thread messages
+            items with their file locations, status, and message counts
+          </li>
+          <li>
+            <Code>dispatch_review_get_feedback</Code> — read one feedback item
+            in full, including its message thread and the diff hunk captured
+            when it was filed
           </li>
           <li>
             <Code>dispatch_review_resolve</Code> — resolve a review feedback
@@ -198,7 +214,11 @@ export function ToolsContent() {
             <Code>dispatch_launch_agent</Code> — launch a new agent as a child
             of the current session with a name, prompt, and optional agent type,
             model, working directory, worktree settings, full access mode, or
-            template
+            template. With a <Code>templateId</Code>, the template's own prompt
+            is rendered and its placeholders fill from <Code>templateArgs</Code>{" "}
+            (the names come back from <Code>list_templates</Code> /{" "}
+            <Code>get_template</Code> as <Code>promptArgs</Code>); anything left
+            in the caller's prompt follows the rendered template
           </li>
           <li>
             <Code>dispatch_archive_agent</Code> — archive an agent this session
@@ -222,7 +242,10 @@ export function ToolsContent() {
           <li>
             <Code>whiteboard_get</Code>, <Code>whiteboard_update</Code>,{" "}
             <Code>whiteboard_clear</Code> — read, draw on, and clear the agent's
-            shared whiteboard (see the Agents section)
+            shared whiteboard (see the Agents section);{" "}
+            <Code>whiteboard_howto</Code> returns the Excalidraw element format
+            and layout conventions on demand, so agents that never draw don't
+            carry it
           </li>
           <li>
             <Code>brain_get_object</Code>, <Code>brain_store_object</Code>,{" "}
@@ -231,14 +254,14 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>brain_list_push</Code>, <Code>brain_list_remove</Code>,{" "}
-            <Code>brain_list_get</Code>, <Code>brain_list_set</Code>,{" "}
-            <Code>brain_list_delete</Code> — manage ordered Brain lists without
-            rewriting whole arrays
+            <Code>brain_list_get</Code>, <Code>brain_get_list_item</Code>,{" "}
+            <Code>brain_list_set</Code>, <Code>brain_list_delete</Code> — manage
+            ordered Brain lists without rewriting whole arrays
           </li>
           <li>
             <Code>brain_append_event</Code>, <Code>brain_query_events</Code>,{" "}
-            <Code>brain_delete_events</Code> — append to, query, and prune the
-            Brain's event log
+            <Code>brain_get_event</Code>, <Code>brain_delete_events</Code> —
+            append to, query, and prune the Brain's event log
           </li>
           <li>
             <Code>list_jobs</Code>, <Code>get_job</Code>,{" "}
@@ -260,6 +283,18 @@ export function ToolsContent() {
             and which one is active (see the Personalities section)
           </li>
         </ul>
+        <P>
+          Everything a tool returns stays in the calling agent's context, so
+          list-shaped tools return a lean projection — long strings are
+          truncated with a marker showing how much was dropped — and there is
+          always an explicit way to read one entry in full: either a matching
+          single-item tool (<Code>get_template</Code>,{" "}
+          <Code>brain_get_object</Code>, <Code>brain_get_event</Code>,{" "}
+          <Code>brain_get_list_item</Code>,{" "}
+          <Code>dispatch_review_get_feedback</Code>) or an id on the list tool
+          itself (<Code>dispatch_list_pins</Code>). Writes confirm what changed
+          rather than echoing back the record.
+        </P>
         <P>
           By default, <Code>list_agents</Code> and{" "}
           <Code>dispatch_send_message</Code> only see agents in the same git

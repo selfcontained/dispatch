@@ -157,17 +157,19 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `dispatch_rename_session`       | Update the current session's display name                                  |
 | `dispatch_notify`               | Send a Slack notification from the agent                                   |
 | `dispatch_pin`                  | Surface key info in the sidebar (URLs, ports, PRs, files)                  |
+| `dispatch_pins`                 | Write several sidebar pins in one atomic call (merge or replace a group)   |
 | `dispatch_share`                | Upload screenshots and media to the agent's media pane                     |
 | `dispatch_list_media`           | List media files shared with or by this agent                              |
 | `dispatch_delete_media`         | Permanently remove a shared media file                                     |
-| `dispatch_list_pins`            | List current sidebar pins for this agent                                   |
-| `dispatch_delete_pin`           | Permanently remove a pin by its listed stable ID                           |
+| `dispatch_list_pins`            | List current sidebar pins, or read one back in full by ID                  |
+| `dispatch_delete_pin`           | Permanently remove pins by ID, by a list of IDs, or by group               |
 | `list_personas`                 | List available persona reviewers for this project                          |
 | `persona_templates`             | Get built-in starter templates for authoring review personas               |
 | `persona_upsert`                | Create or update a persona file in `.dispatch/personas/`                   |
 | `persona_validate`              | Validate persona files for required metadata and instructions              |
 | `dispatch_launch_persona`       | Launch a persona child agent for automated review                          |
-| `dispatch_review_list_feedback` | List human review feedback items with statuses and threads                 |
+| `dispatch_review_list_feedback` | List human review feedback items with statuses and message counts          |
+| `dispatch_review_get_feedback`  | Read one feedback item in full, with its thread and stored diff hunk       |
 | `dispatch_review_resolve`       | Resolve a review feedback item as fixed or dismissed                       |
 | `dispatch_review_reopen`        | Reopen a resolved review feedback item                                     |
 | `dispatch_review_add_message`   | Reply to a review feedback thread                                          |
@@ -179,6 +181,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `get_feedback_summary`          | Aggregate persona review feedback for pattern detection                    |
 | `whiteboard_get`                | Read the agent's shared whiteboard (elements + PNG snapshot path)          |
 | `whiteboard_update`             | Draw on the shared whiteboard (upsert Excalidraw elements by id)           |
+| `whiteboard_howto`              | Fetch the Excalidraw element format and layout guide on demand             |
 | `whiteboard_clear`              | Clear the shared whiteboard                                                |
 | `brain_get_object`              | Read a shared object from the repo-scoped Brain                            |
 | `brain_store_object`            | Create or update a shared Brain object (optimistic concurrency)            |
@@ -187,10 +190,12 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `brain_list_push`               | Append one or more items to a shared Brain list                            |
 | `brain_list_remove`             | Remove one item from a shared Brain list by index or field match           |
 | `brain_list_get`                | Read items from a shared Brain list with paging and ordering               |
+| `brain_get_list_item`           | Read one Brain list item by index, with its value untruncated              |
 | `brain_list_set`                | Replace one item in a shared Brain list by index                           |
 | `brain_list_delete`             | Delete a shared Brain list and all of its items                            |
 | `brain_append_event`            | Append a structured event to the Brain's append-only event log             |
 | `brain_query_events`            | Query Brain events by collection, kind, subject, tags, and time range      |
+| `brain_get_event`               | Read one Brain event by id, with its value untruncated                     |
 | `brain_delete_events`           | Delete Brain events by id, or prune a collection (`dryRun` previews count) |
 | `list_jobs`                     | List jobs scoped to a directory                                            |
 | `get_job`                       | Get a single job by ID or name                                             |
@@ -212,7 +217,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 ### Persona agents
 
-Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_delete_pin`, `dispatch_list_pins`, `dispatch_share`, `dispatch_list_media`, `dispatch_delete_media`, and `whiteboard_get`. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
+Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_get_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_pins`, `dispatch_delete_pin`, `dispatch_list_pins`, `dispatch_share`, `dispatch_list_media`, `dispatch_delete_media`, and `whiteboard_get`. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
 
 ### Job agents
 
