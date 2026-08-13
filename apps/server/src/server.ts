@@ -433,6 +433,7 @@ const peerRuntime = new PeerRuntime({
   pool,
   listener: tailnetListener,
   isPasswordSet: () => authRuntime.isPasswordSetCached(),
+  primaryHost: config.host,
   log: app.log,
 });
 const peerEventSubscriber = new PeerEventSubscriber({
@@ -703,8 +704,6 @@ async function registerRoutes() {
     withStreamFlag,
     injectAgentPrompt,
     subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
-    sendUiSnapshot: (stream, agents) =>
-      uiEventBroker.sendSnapshot(stream, agents as AgentRecord[]),
   });
 
   await registerSystemRoutes(app, {

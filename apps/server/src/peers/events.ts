@@ -131,6 +131,7 @@ export class PeerEventSubscriber {
           { err: error, peerId: peer.id },
           "Peer event stream dropped; will reconnect"
         );
+        await this.markPeerUnreachable(peer.id);
       }
       attempt += 1;
       const delay = Math.min(
@@ -188,6 +189,41 @@ export class PeerEventSubscriber {
       for (const agent of event.agents) {
         if (agent?.id) await this.mirrorRemoteAgent(peerId, agent);
       }
+    }
+  }
+
+  /**
+   * The peer stopped talking — stamp its shadows so "last known state" is
+   * visibly distinct from live state. The next snapshot supersedes this.
+   */
+  private async markPeerUnreachable(peerId: string): Promise<void> {
+    try {
+      const shadows = await this.deps.pool.query<{ id: string }>(
+        `UPDATE agents
+            SET latest_event_type = 'working',
+                latest_event_message = 'Linked instance unreachable — status may be stale.',
+                latest_event_metadata = '{"source":"system","peerUnreachable":true}'::jsonb,
+                latest_event_updated_at = now(),
+                updated_at = now()
+          WHERE peer_id = $1 AND deleted_at IS NULL
+            AND status IN ('creating', 'running', 'stopping')
+        RETURNING id`,
+        [peerId]
+      );
+      for (const row of shadows.rows) {
+        const agent = await this.deps.agentManager.getAgent(row.id);
+        if (agent) {
+          this.deps.publishUiEvent({
+            type: "agent.upsert",
+            agent: this.deps.withStreamFlag(agent),
+          });
+        }
+      }
+    } catch (error) {
+      this.deps.log.warn(
+        { err: error, peerId },
+        "Failed to mark shadows for unreachable peer"
+      );
     }
   }
 

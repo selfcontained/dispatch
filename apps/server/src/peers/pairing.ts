@@ -9,6 +9,14 @@ import { getTailscaleSelf, tailscaleWhois } from "./tailscale.js";
 
 export const PAIRING_TTL_MS = 10 * 60 * 1000;
 
+/**
+ * Version of the cross-instance wire contract (pairing, launch, messages,
+ * events). Negotiated once at pairing time: a mismatch fails the handshake
+ * with a clear error instead of failing ambiguously on a later payload.
+ * Bump on any incompatible change to the peer routes.
+ */
+export const PEER_PROTOCOL_VERSION = 1;
+
 export type PeerRecord = {
   id: string;
   name: string;
@@ -255,6 +263,7 @@ export async function linkToPeer(
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
+        protocolVersion: PEER_PROTOCOL_VERSION,
         code: input.code,
         instance: {
           id: instanceId,
@@ -286,9 +295,17 @@ export async function linkToPeer(
     instanceId?: string;
     name?: string;
     token?: string;
+    protocolVersion?: number;
   };
   if (!body.instanceId || !body.token) {
     return { ok: false, status: 502, error: "Peer sent a malformed response." };
+  }
+  if (body.protocolVersion !== PEER_PROTOCOL_VERSION) {
+    return {
+      ok: false,
+      status: 409,
+      error: `Peer speaks protocol v${body.protocolVersion ?? "unknown"}, this instance v${PEER_PROTOCOL_VERSION} — update the older instance and pair again.`,
+    };
   }
 
   const peerStableId = await whoisOfUrl(peerUrl);

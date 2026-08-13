@@ -3,6 +3,7 @@ import crypto from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Pool } from "pg";
 
+import { getSetting } from "../db/settings.js";
 import { tailscaleWhois } from "./tailscale.js";
 
 export type PeerAuth = {
@@ -45,6 +46,17 @@ export async function requirePeerAuth(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
+  // Fail closed if the password was cleared after pairing: first-run open
+  // mode must never extend to peers, even ones holding a valid token.
+  if ((await getSetting(pool, "password_hash")) === null) {
+    await reply
+      .code(403)
+      .send({
+        error: "This instance has no password set — peer access is disabled.",
+      });
+    return;
+  }
+
   const token = bearerToken(request);
   if (!token) {
     await reply.code(401).send({ error: "Peer authentication required." });

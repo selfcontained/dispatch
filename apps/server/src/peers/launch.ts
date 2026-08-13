@@ -45,6 +45,7 @@ function buildRemoteChildInitialPrompt(
   return [
     `You were launched from a linked Dispatch instance by agent "${parentAddress}" via dispatch_launch_agent.`,
     "Use that full address (instance:agent) as the target when coordinating back with dispatch_send_message.",
+    "You start fresh: the prompt below is your entire briefing — you have no access to the launching agent's transcript or context. Ask it via dispatch_send_message if something is missing.",
     "",
     prompt,
   ].join("\n");

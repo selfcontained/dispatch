@@ -14,6 +14,7 @@ import {
   createPairingOffer,
   linkToPeer,
   listPeers,
+  PEER_PROTOCOL_VERSION,
   revokePeer,
 } from "../peers/pairing.js";
 import { setTailnetBindEnabled } from "../peers/peer-settings.js";
@@ -30,6 +31,7 @@ const PairingOfferBodySchema = z.object({
 });
 
 const ClaimBodySchema = z.object({
+  protocolVersion: z.number().int().optional(),
   code: z.string().trim().min(6).max(12),
   instance: z.object({
     id: z.string().trim().min(1).max(64),
@@ -86,7 +88,6 @@ type PeerRouteDeps = {
     opts: { swallowFailure: boolean; awaitDelivery: boolean }
   ) => Promise<void>;
   subscribeUiEvents: (stream: NodeJS.WritableStream) => () => void;
-  sendUiSnapshot: (stream: NodeJS.WritableStream, agents: unknown[]) => void;
 };
 
 async function instanceDisplayName(pool: Pool): Promise<string> {
@@ -159,6 +160,11 @@ export async function registerPeerRoutes(
     async (request, reply) => {
       const input = parseInput(ClaimBodySchema, request.body, reply);
       if (!input) return;
+      if (input.protocolVersion !== PEER_PROTOCOL_VERSION) {
+        return reply.code(409).send({
+          error: `This instance speaks peer protocol v${PEER_PROTOCOL_VERSION}; the claiming instance sent v${input.protocolVersion ?? "unknown"}. Update the older instance and pair again.`,
+        });
+      }
       if (!(await deps.isPasswordSet())) {
         return reply
           .code(409)
@@ -186,6 +192,7 @@ export async function registerPeerRoutes(
         return reply.code(result.status).send({ error: result.error });
       }
       return {
+        protocolVersion: PEER_PROTOCOL_VERSION,
         instanceId: result.instanceId,
         name: result.name,
         token: result.token,
@@ -297,7 +304,46 @@ export async function registerPeerRoutes(
       reply.hijack();
 
       const stream = reply.raw;
-      const unsubscribe = deps.subscribeUiEvents(stream);
+      // Peers get a scoped view, not the full UI event firehose: only
+      // agent.upsert, only local (non-shadow) agents, only the status fields
+      // the mirror consumes. Live events buffer until the snapshot is written
+      // so a reconnect can never regress a shadow with an older snapshot.
+      const slim = (agent: {
+        id: string;
+        name: string;
+        type: string;
+        status: string;
+      }) => ({
+        id: agent.id,
+        name: agent.name,
+        type: agent.type,
+        status: agent.status,
+      });
+      let snapshotSent = false;
+      const pending: string[] = [];
+      const filtered = {
+        write(chunk: unknown): boolean {
+          const dataLine = String(chunk)
+            .split("\n")
+            .find((line) => line.startsWith("data: "));
+          if (!dataLine) return true;
+          try {
+            const event = JSON.parse(dataLine.slice(6)) as {
+              type?: string;
+              agent?: AgentRecord;
+            };
+            if (event.type !== "agent.upsert" || !event.agent) return true;
+            if (event.agent.peerId) return true;
+            const payload = `data: ${JSON.stringify({ type: "agent.upsert", agent: slim(event.agent) })}\n\n`;
+            if (snapshotSent) stream.write(payload);
+            else pending.push(payload);
+          } catch {
+            // Malformed frame — never a peer's problem.
+          }
+          return true;
+        },
+      } as unknown as NodeJS.WritableStream;
+      const unsubscribe = deps.subscribeUiEvents(filtered);
       const heartbeat = setInterval(() => {
         stream.write(": keepalive\n\n");
       }, 20_000);
@@ -316,14 +362,19 @@ export async function registerPeerRoutes(
       }
       try {
         const agents = await deps.agentManager.listAgents();
-        if (!request.raw.destroyed) {
-          deps.sendUiSnapshot(
-            stream,
-            agents.filter((agent) => !agent.peerId).map(deps.withStreamFlag)
-          );
-        } else {
+        if (request.raw.destroyed) {
           cleanup();
+          return;
         }
+        stream.write(
+          `data: ${JSON.stringify({
+            type: "snapshot",
+            agents: agents.filter((agent) => !agent.peerId).map(slim),
+          })}\n\n`
+        );
+        snapshotSent = true;
+        for (const payload of pending) stream.write(payload);
+        pending.length = 0;
       } catch {
         // Live events still flow; the subscriber re-snapshots on reconnect.
       }

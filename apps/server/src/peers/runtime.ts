@@ -16,7 +16,7 @@ export type TailnetBindStatus = {
   active: boolean;
   address: string | null;
   /** Why the listener is not active despite being enabled, for the UI. */
-  blockedReason: "no-password" | "no-tailscale" | null;
+  blockedReason: "no-password" | "no-tailscale" | "wildcard-host" | null;
 };
 
 export type PeerSelfStatus = {
@@ -30,8 +30,14 @@ type PeerRuntimeDeps = {
   pool: Pool;
   listener: TailnetListener;
   isPasswordSet: () => Promise<boolean>;
+  /** The primary server's bind host — wildcard binds already own the port. */
+  primaryHost: string;
   log: FastifyBaseLogger;
 };
+
+function primaryBindsAllInterfaces(host: string): boolean {
+  return host === "0.0.0.0" || host === "::";
+}
 
 /**
  * Owns the tailnet exposure lifecycle: reads the bind setting and starts or
@@ -46,6 +52,20 @@ export class PeerRuntime {
     if (!enabled) {
       await this.deps.listener.stop();
       return { enabled, active: false, address: null, blockedReason: null };
+    }
+    if (primaryBindsAllInterfaces(this.deps.primaryHost)) {
+      // The wildcard bind already serves the tailnet IP; a second bind on the
+      // same port would EADDRINUSE. Peer auth still whois-pins every caller.
+      await this.deps.listener.stop();
+      this.deps.log.info(
+        "Tailnet bind: primary server binds all interfaces — no secondary listener needed"
+      );
+      return {
+        enabled,
+        active: false,
+        address: null,
+        blockedReason: "wildcard-host",
+      };
     }
     if (!(await this.deps.isPasswordSet())) {
       await this.deps.listener.stop();
@@ -95,11 +115,13 @@ export class PeerRuntime {
         address: this.deps.listener.address,
         blockedReason: !enabled
           ? null
-          : !passwordSet
-            ? "no-password"
-            : !tailscale
-              ? "no-tailscale"
-              : null,
+          : primaryBindsAllInterfaces(this.deps.primaryHost)
+            ? "wildcard-host"
+            : !passwordSet
+              ? "no-password"
+              : !tailscale
+                ? "no-tailscale"
+                : null,
       },
     };
   }
