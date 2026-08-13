@@ -112,6 +112,25 @@ export function progressPercent(
   return Math.min(100, (progress.bytesReceived / progress.totalBytes) * 100);
 }
 
+/**
+ * True when the standard updater would need an explicit force to run — the
+ * release either demands the assisted flow or carries pending migrations.
+ */
+export function isForceRequired(
+  info: ReleaseInfo | ReleaseInfoSnapshot
+): boolean {
+  return (
+    info.assistedRequired === true || (info.pendingMigrations?.length ?? 0) > 0
+  );
+}
+
+/** True when the agent-assisted update should be the primary offered action. */
+export function isAssistedPreferred(
+  info: ReleaseInfo | ReleaseInfoSnapshot
+): boolean {
+  return isForceRequired(info) || info.assisted?.mode === "recommended";
+}
+
 export function describeForceTriggers(
   info: ReleaseInfo | ReleaseInfoSnapshot
 ): string {

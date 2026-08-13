@@ -6,6 +6,8 @@ import {
   formatBytes,
   formatInlineProgress,
   formatProgressLabel,
+  isAssistedPreferred,
+  isForceRequired,
   progressPercent,
 } from "./release-utils";
 
@@ -212,5 +214,73 @@ describe("describeForceTriggers", () => {
         migrationsError: null,
       } as never)
     ).toBe("is gated by the assisted-update flow");
+  });
+});
+
+describe("isForceRequired", () => {
+  it("is true when the assisted flow is required", () => {
+    expect(
+      isForceRequired({
+        assistedRequired: true,
+        pendingMigrations: [],
+        assisted: null,
+      } as never)
+    ).toBe(true);
+  });
+
+  it("is true when migrations are pending", () => {
+    expect(
+      isForceRequired({
+        assistedRequired: false,
+        pendingMigrations: [{ id: "001" }],
+        assisted: null,
+      } as never)
+    ).toBe(true);
+  });
+
+  it("is false for a plain update, even a recommended-assisted one", () => {
+    expect(
+      isForceRequired({
+        assistedRequired: false,
+        pendingMigrations: [],
+        assisted: { mode: "recommended" },
+      } as never)
+    ).toBe(false);
+  });
+
+  it("treats missing pendingMigrations as none", () => {
+    expect(isForceRequired({ assistedRequired: false } as never)).toBe(false);
+  });
+});
+
+describe("isAssistedPreferred", () => {
+  it("is true whenever a force would be required", () => {
+    expect(
+      isAssistedPreferred({
+        assistedRequired: true,
+        pendingMigrations: [],
+        assisted: null,
+      } as never)
+    ).toBe(true);
+  });
+
+  it("is true when the release recommends the assisted flow", () => {
+    expect(
+      isAssistedPreferred({
+        assistedRequired: false,
+        pendingMigrations: [],
+        assisted: { mode: "recommended" },
+      } as never)
+    ).toBe(true);
+  });
+
+  it("is false for a normal release", () => {
+    expect(
+      isAssistedPreferred({
+        assistedRequired: false,
+        pendingMigrations: [],
+        assisted: { mode: "normal" },
+      } as never)
+    ).toBe(false);
   });
 });
