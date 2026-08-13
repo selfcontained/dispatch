@@ -7,6 +7,10 @@ as discoverable skills instead of tribal knowledge.
 
 ## Install
 
+Installing from a marketplace is a two-step process on both platforms: register
+the catalog, then install the plugin from it. Adding the marketplace installs
+nothing on its own.
+
 **Claude Code**
 
 ```
@@ -21,12 +25,20 @@ claude plugin marketplace add selfcontained/dispatch
 claude plugin install dispatch@dispatch
 ```
 
+The shell form doesn't run inside a session, so the skills load the next time you
+start Claude Code — or immediately if you run `/reload-plugins` in a session
+that's already open.
+
 **Codex**
 
 ```bash
 codex plugin marketplace add selfcontained/dispatch
 codex plugin add dispatch@dispatch
 ```
+
+`codex plugin add` installs from a configured marketplace snapshot, so the
+`marketplace add` step is required here too. `/plugins` inside a Codex session
+opens the same thing as a browser.
 
 ## Updating
 
