@@ -3,6 +3,7 @@ import { Database, Server, Settings } from "lucide-react";
 import { AgentTypeSettings } from "@/components/app/agent-type-settings";
 import { AppearanceSettings } from "@/components/app/appearance-settings";
 import { BrowserExtensionSettings } from "@/components/app/browser-extension-settings";
+import { LinkedInstancesSettings } from "@/components/app/linked-instances-settings";
 import { CrossRepoMessagingSettings } from "@/components/app/cross-repo-messaging-settings";
 import { InjectionHoldSettings } from "@/components/app/injection-hold-settings";
 import { LaunchGuidanceSettings } from "@/components/app/launch-guidance-settings";
@@ -223,7 +224,14 @@ export function SettingsContent({
           </div>
         )}
         {activeSection === "notifications" && <NotificationSettings />}
-        {activeSection === "connections" && <BrowserExtensionSettings />}
+        {activeSection === "connections" && (
+          <div>
+            <BrowserExtensionSettings />
+            <div className="mx-auto w-full max-w-4xl space-y-6 p-4 md:p-6">
+              <LinkedInstancesSettings />
+            </div>
+          </div>
+        )}
         {activeSection === "resources" && <ServiceResourcesSettings />}
         {activeSection === "updates" && (
           <UpdatesSection stream={updateStream} />

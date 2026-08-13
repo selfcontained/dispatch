@@ -124,6 +124,10 @@ export type AgentRecord = {
   templateId: string | null;
   autoReview: boolean;
   cliSessionId: string | null;
+  /** Set on shadow rows: the linked instance actually running this agent. */
+  peerId: string | null;
+  /** The agent's id on that peer instance. */
+  remoteId: string | null;
   createdAt: string;
   updatedAt: string;
 };

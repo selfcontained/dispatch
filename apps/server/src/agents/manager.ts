@@ -584,6 +584,53 @@ export class AgentManager {
     );
   }
 
+  /**
+   * Insert a shadow row for an agent that runs on a linked instance. No tmux
+   * session, no setup script — status and events are mirrored from the peer.
+   */
+  async createShadowAgent(input: {
+    peerId: string;
+    remoteId: string;
+    name: string;
+    type: AgentType;
+    cwd: string;
+    status?: AgentStatus;
+    parentAgentId?: string;
+  }): Promise<AgentRecord> {
+    const id = this.newAgentId();
+    await this.pool.query(
+      `INSERT INTO agents (id, name, type, role, status, cwd, peer_id, remote_id, parent_agent_id, codex_args, updated_at)
+       VALUES ($1, $2, $3, 'standard', $4, $5, $6, $7, $8, '[]'::jsonb, NOW())`,
+      [
+        id,
+        input.name,
+        input.type,
+        input.status ?? "creating",
+        input.cwd,
+        input.peerId,
+        input.remoteId,
+        input.parentAgentId ?? null,
+      ]
+    );
+    return await this.getRequiredAgent(id);
+  }
+
+  /** Mirror a peer-reported status onto a shadow row. */
+  async updateShadowAgent(
+    id: string,
+    update: { status?: AgentStatus; name?: string }
+  ): Promise<AgentRecord | null> {
+    await this.pool.query(
+      `UPDATE agents
+          SET status = COALESCE($2, status),
+              name = COALESCE($3, name),
+              updated_at = NOW()
+        WHERE id = $1 AND peer_id IS NOT NULL`,
+      [id, update.status ?? null, update.name ?? null]
+    );
+    return await this.getAgent(id);
+  }
+
   private async launchInertAgent(opts: {
     id: string;
     type: AgentType;
@@ -979,6 +1026,13 @@ export class AgentManager {
 
   async getTerminalAccess(id: string): Promise<AgentTerminalAccess> {
     const agent = await this.getRequiredAgent(id);
+    if (agent.peerId) {
+      // Shadow row: the pane lives on another instance and is not proxied.
+      return {
+        mode: "inert",
+        message: `This agent runs on linked instance "${agent.peerId}" — its terminal is not available here.`,
+      };
+    }
     if (agent.status !== "running" && agent.status !== "creating") {
       throw new AgentError("Agent is not running.", 409);
     }
@@ -1433,6 +1487,8 @@ export class AgentManager {
         template_id AS "templateId",
         auto_review AS "autoReview",
         cli_session_id AS "cliSessionId",
+        peer_id AS "peerId",
+        remote_id AS "remoteId",
         (
           SELECT unified_review.id
           FROM reviews unified_review

@@ -196,6 +196,14 @@ export function AgentCard({
                 {agent.lastError ? (
                   <AgentMeta label="Last error" value={agent.lastError} />
                 ) : null}
+                {agent.peerId ? (
+                  <div className="flex items-center gap-1.5">
+                    <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
+                      Location
+                    </span>
+                    <Badge variant="default">{agent.peerId}</Badge>
+                  </div>
+                ) : null}
                 {agent.persona ? (
                   <div className="flex items-center gap-1.5">
                     <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
