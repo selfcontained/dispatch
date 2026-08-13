@@ -486,11 +486,24 @@ export function buildAgentCommand(
   ].join(" ");
   const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${shellEscape(dispatchMcpToken)}`;
   const modelFlag = model ? `--model ${shellEscape(model)}` : "";
-  // Codex resume: `codex resume [OPTIONS] <SESSION_ID>`. Options go before the
-  // session id so it always binds to SESSION_ID and never slides into the
-  // trailing [PROMPT] positional. Passthrough args are re-applied here too —
-  // they carry `--dangerously-bypass-approvals-and-sandbox` for full-access
-  // agents, which a resumed session would otherwise silently lose.
+  const codexPromptParts = [
+    launchGuidance,
+    appendedSystemPrompt,
+    personalityPrompt || null,
+    initialPrompt,
+  ].filter(Boolean);
+  const startupPrompt = codexPromptParts.join("\n\n");
+  // Codex resume: `codex resume [OPTIONS] <SESSION_ID> [PROMPT]`. Options go
+  // before the session id so it always binds to SESSION_ID and never slides
+  // into the trailing [PROMPT] positional. Passthrough args are re-applied
+  // here too — they carry `--dangerously-bypass-approvals-and-sandbox` for
+  // full-access agents, which a resumed session would otherwise silently
+  // lose. The startup prompt (persona/review identity via appendedSystemPrompt,
+  // personality, launch guidance) is re-sent as the trailing [PROMPT] the same
+  // way OpenCode/Cursor resume does — otherwise a resumed persona/review agent
+  // (whose entire identity and task live in appendedSystemPrompt) comes back
+  // with a live session but no prompt telling it what to do, and just sits at
+  // its input line forever.
   if (resume && cliSessionId) {
     const resumeFlags = [
       codexMcpFlags,
@@ -499,15 +512,11 @@ export function buildAgentCommand(
     ]
       .filter(Boolean)
       .join(" ");
-    return `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${resumeFlags} ${shellEscape(cliSessionId)}`;
+    const resumeCommand = `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${resumeFlags} ${shellEscape(cliSessionId)}`;
+    return startupPrompt
+      ? `${resumeCommand} ${shellEscape(startupPrompt)}`
+      : resumeCommand;
   }
-  const codexPromptParts = [
-    launchGuidance,
-    appendedSystemPrompt,
-    personalityPrompt || null,
-    initialPrompt,
-  ].filter(Boolean);
-  const startupPrompt = codexPromptParts.join("\n\n");
   if (launchArgs.length === 0) {
     return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${modelFlag} ${shellEscape(startupPrompt)}`;
   }

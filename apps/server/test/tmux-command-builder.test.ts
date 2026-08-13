@@ -320,7 +320,7 @@ describe("buildAgentCommand", () => {
     expect(cmd).toContain("DISPATCH_AUTH_TOKEN=");
   });
 
-  it("for codex resume, emits 'codex resume <flags> <sessionId>' with the session id last", () => {
+  it("for codex resume, emits 'codex resume <flags> <sessionId> <prompt>' with the session id before the trailing prompt", () => {
     const cmd = buildAgentCommand(
       baseConfig,
       "codex",
@@ -333,9 +333,13 @@ describe("buildAgentCommand", () => {
     );
     expect(cmd).toContain("'/opt/codex' resume ");
     expect(cmd).toContain("mcp_servers.dispatch.url=");
-    // Session id must be the trailing positional so codex binds it to
-    // SESSION_ID rather than the optional PROMPT argument.
-    expect(cmd.endsWith("'codex-session'")).toBe(true);
+    // Session id must come before the trailing [PROMPT] positional so codex
+    // binds it to SESSION_ID rather than swallowing it into the prompt.
+    const sessionIdIndex = cmd.indexOf("'codex-session'");
+    expect(sessionIdIndex).toBeGreaterThan(-1);
+    expect(cmd.indexOf("Dispatch startup rules")).toBeGreaterThan(
+      sessionIdIndex
+    );
   });
 
   it("for codex resume, re-applies passthrough args so full access survives a restart", () => {
@@ -350,7 +354,7 @@ describe("buildAgentCommand", () => {
       { cliSessionId: "codex-session", resume: true }
     );
     expect(cmd).toContain("'--dangerously-bypass-approvals-and-sandbox'");
-    expect(cmd.endsWith("'codex-session'")).toBe(true);
+    expect(cmd.indexOf("'codex-session'")).toBeGreaterThan(-1);
   });
 
   it("for codex resume with a model, passes --model before the session id", () => {
@@ -368,12 +372,12 @@ describe("buildAgentCommand", () => {
     expect(cmd.indexOf("--model")).toBeLessThan(cmd.indexOf("'codex-session'"));
   });
 
-  it("for codex resume, does not re-send the startup prompt", () => {
+  it("for codex resume, re-sends the startup prompt (a resumed persona/review agent needs its identity and task re-injected, not just a live session)", () => {
     const cmd = buildAgentCommand(
       baseConfig,
       "codex",
-      "standard",
-      [],
+      "review",
+      ["--append-system-prompt", "You are the security-review persona."],
       "/tmp/media",
       SESSION,
       false,
@@ -383,8 +387,17 @@ describe("buildAgentCommand", () => {
         initialPrompt: "do the thing",
       }
     );
-    expect(cmd).not.toContain("do the thing");
-    expect(cmd).not.toContain("Dispatch startup rules");
+    // initialPrompt is only ever supplied at original creation, not on
+    // restart (manager.ts doesn't pass it to startAgent's rebuild) — this
+    // exercises the codepath the same way a fresh launch would, to prove the
+    // resume branch no longer special-cases prompt content away.
+    expect(cmd).toContain("do the thing");
+    expect(cmd).toContain("Dispatch startup rules");
+    expect(cmd).toContain("You are the security-review persona.");
+    // Prompt must trail the session id, per `codex resume [OPTIONS] <SESSION_ID> [PROMPT]`.
+    expect(cmd.indexOf("'codex-session'")).toBeLessThan(
+      cmd.indexOf("do the thing")
+    );
   });
 
   it("for opencode with fullAccess=true, sets OPENCODE_PERMISSION env", () => {

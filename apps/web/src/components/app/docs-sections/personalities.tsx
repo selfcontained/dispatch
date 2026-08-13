@@ -64,10 +64,10 @@ export function PersonalitiesContent() {
           The active personality is looked up fresh each time a standard agent
           launches or resumes: it goes into Claude's{" "}
           <Code>--append-system-prompt</Code> flag and into the launch prompt
-          for Codex, Cursor, and OpenCode. The one exception is Codex on resume
-          — <Code>codex resume</Code> continues the existing session without a
-          new prompt, so a resumed Codex agent keeps whatever personality it
-          launched with. Terminal agents have no CLI to inject into, so the
+          for Codex, Cursor, and OpenCode — including on resume, where it's
+          re-sent as the trailing prompt (<Code>codex resume</Code> accepts an
+          optional prompt after the session id, and Cursor/OpenCode always
+          resend theirs too). Terminal agents have no CLI to inject into, so the
           personality is silently skipped.
         </P>
         <P>
