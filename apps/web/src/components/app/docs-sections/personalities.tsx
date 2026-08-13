@@ -64,11 +64,12 @@ export function PersonalitiesContent() {
           The active personality is looked up fresh each time a standard agent
           launches or resumes: it goes into Claude's{" "}
           <Code>--append-system-prompt</Code> flag and into the launch prompt
-          for Codex, Cursor, and OpenCode — including on resume, where it's
-          re-sent as the trailing prompt (<Code>codex resume</Code> accepts an
-          optional prompt after the session id, and Cursor/OpenCode always
-          resend theirs too). Terminal agents have no CLI to inject into, so the
-          personality is silently skipped.
+          for Codex, Cursor, and OpenCode. The one exception is Codex on resume
+          — resuming re-sends only a persona/review agent's own identity and
+          task (never a plain personality or launch guidance), so an ordinary
+          restart doesn't silently submit a new turn. Cursor and OpenCode still
+          resend the personality on resume. Terminal agents have no CLI to
+          inject into, so the personality is silently skipped.
         </P>
         <P>
           Three flows intentionally <em>don't</em> get the personality, since

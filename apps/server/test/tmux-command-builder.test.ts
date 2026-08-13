@@ -320,7 +320,7 @@ describe("buildAgentCommand", () => {
     expect(cmd).toContain("DISPATCH_AUTH_TOKEN=");
   });
 
-  it("for codex resume, emits 'codex resume <flags> <sessionId> <prompt>' with the session id before the trailing prompt", () => {
+  it("for codex resume with no persona/review identity, emits 'codex resume <flags> <sessionId>' with nothing trailing", () => {
     const cmd = buildAgentCommand(
       baseConfig,
       "codex",
@@ -333,13 +333,12 @@ describe("buildAgentCommand", () => {
     );
     expect(cmd).toContain("'/opt/codex' resume ");
     expect(cmd).toContain("mcp_servers.dispatch.url=");
-    // Session id must come before the trailing [PROMPT] positional so codex
-    // binds it to SESSION_ID rather than swallowing it into the prompt.
-    const sessionIdIndex = cmd.indexOf("'codex-session'");
-    expect(sessionIdIndex).toBeGreaterThan(-1);
-    expect(cmd.indexOf("Dispatch startup rules")).toBeGreaterThan(
-      sessionIdIndex
-    );
+    // A plain sub-agent (no --append-system-prompt in agentArgs) gets no
+    // trailing prompt on resume, exactly as before this fix — re-sending
+    // launchGuidance/personality on every ordinary restart would silently
+    // submit a new turn. Session id stays the trailing positional.
+    expect(cmd.endsWith("'codex-session'")).toBe(true);
+    expect(cmd).not.toContain("Dispatch startup rules");
   });
 
   it("for codex resume, re-applies passthrough args so full access survives a restart", () => {
@@ -354,7 +353,7 @@ describe("buildAgentCommand", () => {
       { cliSessionId: "codex-session", resume: true }
     );
     expect(cmd).toContain("'--dangerously-bypass-approvals-and-sandbox'");
-    expect(cmd.indexOf("'codex-session'")).toBeGreaterThan(-1);
+    expect(cmd.endsWith("'codex-session'")).toBe(true);
   });
 
   it("for codex resume with a model, passes --model before the session id", () => {
@@ -372,7 +371,7 @@ describe("buildAgentCommand", () => {
     expect(cmd.indexOf("--model")).toBeLessThan(cmd.indexOf("'codex-session'"));
   });
 
-  it("for codex resume, re-sends the startup prompt (a resumed persona/review agent needs its identity and task re-injected, not just a live session)", () => {
+  it("for codex resume, re-sends only the persona/review identity plus a resume note — not launch guidance, personality, or initialPrompt", () => {
     const cmd = buildAgentCommand(
       baseConfig,
       "codex",
@@ -384,20 +383,45 @@ describe("buildAgentCommand", () => {
       {
         cliSessionId: "codex-session",
         resume: true,
+        // initialPrompt is only ever supplied at original creation in
+        // practice (manager.ts doesn't pass it to startAgent's rebuild),
+        // but exercise it here to prove resume deliberately excludes it.
         initialPrompt: "do the thing",
+        personalityPrompt: "Be extra terse.",
       }
     );
-    // initialPrompt is only ever supplied at original creation, not on
-    // restart (manager.ts doesn't pass it to startAgent's rebuild) — this
-    // exercises the codepath the same way a fresh launch would, to prove the
-    // resume branch no longer special-cases prompt content away.
-    expect(cmd).toContain("do the thing");
-    expect(cmd).toContain("Dispatch startup rules");
     expect(cmd).toContain("You are the security-review persona.");
+    expect(cmd).toContain("Session resumed.");
+    expect(cmd).toContain("do not resubmit a review");
+    expect(cmd).not.toContain("Dispatch startup rules");
+    expect(cmd).not.toContain("Be extra terse.");
+    expect(cmd).not.toContain("do the thing");
     // Prompt must trail the session id, per `codex resume [OPTIONS] <SESSION_ID> [PROMPT]`.
     expect(cmd.indexOf("'codex-session'")).toBeLessThan(
-      cmd.indexOf("do the thing")
+      cmd.indexOf("Session resumed.")
     );
+  });
+
+  it("for codex resume, does NOT re-send the prompt for a standard-role agent even when agentArgs carries --append-system-prompt (job agents)", () => {
+    // Job agents are role "standard" but, like persona/review agents, store
+    // their entire prompt via --append-system-prompt in agentArgs (see
+    // jobs/service.ts's buildJobPrompt). The resume gate must key off role,
+    // not "does appendedSystemPrompt exist" — otherwise a resumed job agent
+    // re-runs its job against a stale run id with no job MCP tools threaded
+    // through the resumed session.
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "codex",
+      "standard",
+      ["--append-system-prompt", "You are running as a Dispatch Job agent."],
+      "/tmp/media",
+      SESSION,
+      false,
+      { cliSessionId: "codex-session", resume: true }
+    );
+    expect(cmd).not.toContain("You are running as a Dispatch Job agent.");
+    expect(cmd).not.toContain("Session resumed.");
+    expect(cmd.endsWith("'codex-session'")).toBe(true);
   });
 
   it("for opencode with fullAccess=true, sets OPENCODE_PERMISSION env", () => {

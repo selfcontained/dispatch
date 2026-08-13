@@ -1496,7 +1496,13 @@ describe("AgentManager", () => {
       await manager.startAgent(agent.id);
 
       expect(newSessionArgs.length).toBe(1);
-      const launchCommand = newSessionArgs[0]!.join(" ");
+      // The restart command is written to disk and run via `bash <path>`
+      // (same file-backed launch as a fresh session), not embedded inline
+      // in the tmux argv — so assert against the written script content.
+      const launchCommand = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(launchCommand).toContain("--resume");
       expect(launchCommand).toContain(sessionId);
     });
@@ -1526,7 +1532,10 @@ describe("AgentManager", () => {
       await manager.startAgent(agent.id);
 
       expect(newSessionArgs.length).toBe(1);
-      const launchCommand = newSessionArgs[0]!.join(" ");
+      const launchCommand = await readFile(
+        `/tmp/dispatch_setup_${agent.id}.sh`,
+        "utf-8"
+      );
       expect(launchCommand).not.toContain("--resume");
     });
   });

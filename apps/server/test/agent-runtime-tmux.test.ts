@@ -448,7 +448,13 @@ describe("TmuxRuntime — launch (setup-script payload)", () => {
 });
 
 describe("TmuxRuntime — launch (agent-command payload)", () => {
-  it("wraps the inline command with stderr-tee and exit-code capture (paths runtime-internal)", async () => {
+  afterEach(async () => {
+    await unlink("/tmp/dispatch_setup_agt_y.sh").catch(() => {});
+    await unlink("/tmp/dispatch_setup_agt_z.sh").catch(() => {});
+    await unlink("/tmp/dispatch_setup_agt_big.sh").catch(() => {});
+  });
+
+  it("writes the command to disk and runs `bash <path>` — same as setup-script, not embedded inline", async () => {
     vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
       if (args[0] === "has-session") return ok();
       return ok();
@@ -462,6 +468,10 @@ describe("TmuxRuntime — launch (agent-command payload)", () => {
       payload: { kind: "agent-command", command: "/opt/claude --foo" },
     });
 
+    const expectedScriptPath = "/tmp/dispatch_setup_agt_y.sh";
+    const written = await readFile(expectedScriptPath, "utf-8");
+    expect(written).toBe("/opt/claude --foo");
+
     const newSessionCall = vi
       .mocked(runCommand)
       .mock.calls.find(([, a]) => a.includes("new-session"));
@@ -470,20 +480,22 @@ describe("TmuxRuntime — launch (agent-command payload)", () => {
     ] as string;
 
     // The wrapper bakes in: stderr tee to the agent's setup log file
-    // (path derived from agentId), the agent command itself, and
-    // EXIT:$? to the per-session exit file (path derived from
-    // sessionName). The manager doesn't supply or know either path.
+    // (path derived from agentId), `bash <scriptPath>` (not the raw
+    // command), and EXIT:$? to the per-session exit file (path derived
+    // from sessionName). The manager doesn't supply or know either path.
     expect(wrappedCommand).toContain(`tee "/tmp/dispatch_setup_agt_y.log"`);
-    expect(wrappedCommand).toContain("/opt/claude --foo");
+    expect(wrappedCommand).toContain(`bash ${expectedScriptPath}`);
+    expect(wrappedCommand).not.toContain("/opt/claude --foo");
     expect(wrappedCommand).toContain(
       `echo "EXIT:$?" > /tmp/dispatch_dispatch_agt_y.exit`
     );
   });
 
-  it("escapes embedded single quotes in the command (security regression check)", async () => {
-    // The wrapper interpolates the command into a single-quoted bash
-    // string. An attacker-controlled value with `'` in it must not
-    // break out of the wrapping.
+  it("preserves embedded single quotes in the written script verbatim (no shell-interpolation mangling)", async () => {
+    // Since the command now goes to disk via writeFile rather than being
+    // interpolated into a single-quoted bash string, a `'` in the command
+    // (e.g. inside a persona prompt) must survive untouched, not get the
+    // classic '\'' escape treatment.
     vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
       if (args[0] === "has-session") return ok();
       return ok();
@@ -500,13 +512,43 @@ describe("TmuxRuntime — launch (agent-command payload)", () => {
       },
     });
 
+    const written = await readFile("/tmp/dispatch_setup_agt_z.sh", "utf-8");
+    expect(written).toBe(`echo 'inner-quote'`);
+  });
+
+  it("regression: a resume command carrying a large (>16KB) persona/review prompt still launches — tmux argv has a ~16KB limit that inline commands used to hit", async () => {
+    // Before this file-indirection fix, `agent-command` embedded the whole
+    // wrapped command as a single tmux argv entry, which tmux/imsg rejects
+    // past ~16KB — exactly the size a persona/review agent's re-sent
+    // identity+task prompt can reach on resume. Routing through disk (same
+    // as setup-script) removes the size limit entirely; this test proves a
+    // command well past that threshold reaches `runCommand` as a short,
+    // fixed-size argv regardless of payload size.
+    vi.mocked(runCommand).mockImplementation(async (_cmd, args) => {
+      if (args[0] === "has-session") return ok();
+      return ok();
+    });
+
+    const largeCommand = `codex resume --model gpt "${"x".repeat(20_000)}"`;
+    const runtime = createTmuxRuntime(noopLogger);
+    await runtime.launch({
+      sessionName: "dispatch_agt_big",
+      cwd: "/tmp",
+      agentId: "agt_big",
+      payload: { kind: "agent-command", command: largeCommand },
+    });
+
+    const written = await readFile("/tmp/dispatch_setup_agt_big.sh", "utf-8");
+    expect(written).toBe(largeCommand);
+
     const newSessionCall = vi
       .mocked(runCommand)
       .mock.calls.find(([, a]) => a.includes("new-session"));
     const wrappedCommand = newSessionCall?.[1]?.[
       newSessionCall[1].length - 1
     ] as string;
-    // The classic '\'' escape must appear in place of the embedded `'`.
-    expect(wrappedCommand).toContain(`echo '\\''inner-quote'\\''`);
+    // The argv entry tmux actually receives stays small — well under the
+    // ~16KB limit — no matter how large the underlying command is.
+    expect(wrappedCommand.length).toBeLessThan(1000);
   });
 });

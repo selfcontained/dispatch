@@ -250,16 +250,25 @@ export function createTmuxRuntime(logger: FastifyBaseLogger): AgentRuntime {
  * per-session exit file — so the reconciler can read both via
  * `readSetupLogTail` and `readExitInfo` regardless of how the session
  * was launched.
+ *
+ * Both kinds are also written to disk and run via `bash <path>` rather
+ * than embedded inline in the outer `bash -c '...'` string. `tmux
+ * new-session` hands its arguments to the kernel as a single argv entry
+ * per arg, and imsg-backed platforms (macOS, some Linux configs) reject
+ * anything past ~16KB with "command too long" — an `agent-command`
+ * carrying a large startup prompt (e.g. a persona/review agent's full
+ * identity + diff, re-sent on resume) can exceed that. Writing to disk
+ * removes the size limit entirely, matching how `setup-script` already
+ * avoided it.
  */
 async function prepareLaunch(input: LaunchInput): Promise<string> {
-  let inner: string;
-  if (input.payload.kind === "setup-script") {
-    const scriptPath = setupScriptPath(input.agentId);
-    await writeFile(scriptPath, input.payload.scriptContent, { mode: 0o755 });
-    inner = `bash ${scriptPath}`;
-  } else {
-    inner = input.payload.command;
-  }
+  const scriptContent =
+    input.payload.kind === "setup-script"
+      ? input.payload.scriptContent
+      : input.payload.command;
+  const scriptPath = setupScriptPath(input.agentId);
+  await writeFile(scriptPath, scriptContent, { mode: 0o755 });
+  const inner = `bash ${scriptPath}`;
 
   const logFile = setupLogPath(input.agentId);
   const exitFile = exitFilePath(input.sessionName);

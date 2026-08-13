@@ -26,6 +26,16 @@ const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
 const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
 
 /**
+ * Appended after a persona/review agent's identity/task when Codex resumes a
+ * stopped session, so it doesn't blindly redo work it already finished.
+ */
+const CODEX_RESUME_NOTE =
+  "Session resumed. Continue based on your role and task above using your " +
+  "existing progress and conversation history — do not restart or redo " +
+  "work you already completed (for example, do not resubmit a review that " +
+  "was already submitted).";
+
+/**
  * Pull a `--append-system-prompt <value>` pair out of an arg list (codex /
  * opencode put system prompts in their own flag). Claude doesn't need this
  * normalization because its CLI accepts the flag directly.
@@ -486,24 +496,33 @@ export function buildAgentCommand(
   ].join(" ");
   const codexEnvPrefix = `${envPrefix} ${codexDispatchAuthEnv}=${shellEscape(dispatchMcpToken)}`;
   const modelFlag = model ? `--model ${shellEscape(model)}` : "";
-  const codexPromptParts = [
-    launchGuidance,
-    appendedSystemPrompt,
-    personalityPrompt || null,
-    initialPrompt,
-  ].filter(Boolean);
-  const startupPrompt = codexPromptParts.join("\n\n");
   // Codex resume: `codex resume [OPTIONS] <SESSION_ID> [PROMPT]`. Options go
   // before the session id so it always binds to SESSION_ID and never slides
   // into the trailing [PROMPT] positional. Passthrough args are re-applied
   // here too — they carry `--dangerously-bypass-approvals-and-sandbox` for
   // full-access agents, which a resumed session would otherwise silently
-  // lose. The startup prompt (persona/review identity via appendedSystemPrompt,
-  // personality, launch guidance) is re-sent as the trailing [PROMPT] the same
-  // way OpenCode/Cursor resume does — otherwise a resumed persona/review agent
-  // (whose entire identity and task live in appendedSystemPrompt) comes back
-  // with a live session but no prompt telling it what to do, and just sits at
-  // its input line forever.
+  // lose.
+  //
+  // The trailing [PROMPT] on resume is deliberately NOT the same startupPrompt
+  // used on fresh launch below. A resumed session already has launchGuidance
+  // and personalityPrompt in its history from when it first launched —
+  // resending them would silently submit a new turn on every ordinary
+  // restart, burning an unattended turn re-processing guidance it already
+  // has (and for an autoReview agent, plausibly re-triggering "commit, push,
+  // open a PR, launch a reviewer" on an agent that already finished that
+  // flow). So a plain sub-agent gets nothing on resume, exactly as before
+  // this fix.
+  //
+  // Only a `role === "review"` agent (a persona/review sub-agent — the case
+  // this fix targets) gets a prompt at all, and it's just its own identity/
+  // task (appendedSystemPrompt) plus a short resume note telling it not to
+  // redo already-finished work — otherwise it comes back with a live session
+  // but nothing telling it what to do, and just sits at its input line
+  // forever. The gate is on role, not on "has appendedSystemPrompt": job
+  // agents also carry their prompt via --append-system-prompt in agentArgs
+  // (role "standard"), and re-sending a job's prompt on resume would re-run
+  // it against a stale job run id with none of the job's MCP tools threaded
+  // through — resume must stay a no-op for those, same as before this fix.
   if (resume && cliSessionId) {
     const resumeFlags = [
       codexMcpFlags,
@@ -513,10 +532,17 @@ export function buildAgentCommand(
       .filter(Boolean)
       .join(" ");
     const resumeCommand = `${codexEnvPrefix} ${shellEscape(cliBin)} resume ${resumeFlags} ${shellEscape(cliSessionId)}`;
-    return startupPrompt
-      ? `${resumeCommand} ${shellEscape(startupPrompt)}`
-      : resumeCommand;
+    if (role !== "review" || !appendedSystemPrompt) return resumeCommand;
+    const resumePrompt = [appendedSystemPrompt, CODEX_RESUME_NOTE].join("\n\n");
+    return `${resumeCommand} ${shellEscape(resumePrompt)}`;
   }
+  const codexPromptParts = [
+    launchGuidance,
+    appendedSystemPrompt,
+    personalityPrompt || null,
+    initialPrompt,
+  ].filter(Boolean);
+  const startupPrompt = codexPromptParts.join("\n\n");
   if (launchArgs.length === 0) {
     return `${codexEnvPrefix} ${shellEscape(cliBin)} ${codexMcpFlags} ${modelFlag} ${shellEscape(startupPrompt)}`;
   }
