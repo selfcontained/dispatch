@@ -7,7 +7,10 @@ export type AgentStatus =
   | "error"
   | "unknown";
 
-export type AgentType = "codex" | "claude" | "opencode" | "cursor" | "terminal";
+// Re-exported so the ~15 modules that already import AgentType from here keep
+// working, while the member list itself lives in one place.
+export type { AgentType } from "../shared/agent-types.js";
+import type { AgentType } from "../shared/agent-types.js";
 
 export type AgentRole = "standard" | "review" | "assisted_update";
 
