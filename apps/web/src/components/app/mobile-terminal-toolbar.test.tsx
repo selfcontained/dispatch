@@ -311,10 +311,27 @@ describe("MobileTerminalToolbar press flash", () => {
   it("does not flash the ctrl toggle", () => {
     renderToolbar();
 
+    // Flash one real key first: the single flash slot is shared, so arming
+    // ctrl through triggerFlash would blank the key the user just pressed.
+    fireEvent.click(button("Send Escape"));
+    advanceFrames();
+    const escFlash = button("Send Escape").getAttribute("data-flash-state");
+    expect(escFlash).toMatch(/^flash-\d+$/);
+
     fireEvent.pointerDown(ctrlButton());
     advanceFrames(2);
 
-    for (const label of ["Send Escape", "Send Enter", "Open text input"]) {
+    // Ctrl is a sticky modifier, not a keypress — it shows its armed state
+    // through the ring instead, and must not render the press animation or
+    // the flash token the other controls use.
+    expect(ctrlButton().getAttribute("data-flash-state")).toBeNull();
+    expect(ctrlButton().className).not.toContain(
+      "animate-mobile-toolbar-flash"
+    );
+    expect(button("Send Escape").getAttribute("data-flash-state")).toBe(
+      escFlash
+    );
+    for (const label of ["Send Enter", "Open text input"]) {
       expect(button(label).getAttribute("data-flash-state")).toBe("");
     }
   });
