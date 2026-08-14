@@ -618,10 +618,12 @@ describe("AgentManager", () => {
       expect(setupScript).toContain("dispatch_launch_persona");
       // No apostrophes: the guidance is shell-escaped into this script.
       expect(setupScript).toContain("until all submitted reviews are resolved");
-      // The reactive half is delivered by injection when it applies
-      // (buildLaunchPersonaResponseText / reviews/injection-prompts.ts), so
-      // it no longer rides along in every launch.
-      expect(setupScript).not.toContain("dispatch_review_list_feedback");
+      // Injection is best-effort and dropped when the agent has no session,
+      // so the recovery pointer stays durable.
+      expect(setupScript).toContain("dispatch_review_list_feedback");
+      // The rest of the reactive half is delivered by injection when it
+      // applies (buildLaunchPersonaResponseText /
+      // reviews/injection-prompts.ts), so it no longer rides along.
       expect(setupScript).not.toContain("structured REVIEW SUBMITTED prompt");
       expect(setupScript).not.toContain("ask the reviewer to verify it");
       expect(setupScript).not.toContain("zero-item approval");

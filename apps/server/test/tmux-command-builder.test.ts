@@ -718,7 +718,6 @@ describe("buildLaunchGuidance — trimmed variant", () => {
   // everyone, toggle or not.
   const REACTIVE_REVIEW_CLAUSES = [
     "structured REVIEW SUBMITTED prompt",
-    "dispatch_review_list_feedback",
     "ask the reviewer to verify it",
     "zero-item approval",
   ];
@@ -774,7 +773,10 @@ describe("buildLaunchGuidance — trimmed variant", () => {
       expect(text).toContain(
         "Don't emit done until all submitted reviews are resolved"
       );
-      // The reactive half is delivered by injection instead.
+      // Injection is best-effort, so one durable way to find a review
+      // submitted while this agent was down has to survive.
+      expect(text).toContain("dispatch_review_list_feedback");
+      // The rest of the reactive half is delivered by injection instead.
       for (const clause of REACTIVE_REVIEW_CLAUSES) {
         expect(text).not.toContain(clause);
       }

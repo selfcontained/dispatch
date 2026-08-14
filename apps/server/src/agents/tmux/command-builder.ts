@@ -177,7 +177,10 @@ export function buildStartupPrompt(
  * each of those clauses at the moment they apply — see
  * `buildLaunchPersonaResponseText` and `reviews/injection-prompts.ts`. What
  * remains is the part nothing can inject: the gate the agent must already know
- * before it decides it is done.
+ * before it decides it is done, plus a pointer to
+ * `dispatch_review_list_feedback` — injection is best-effort and is dropped
+ * when the parent has no live session, so the agent needs one durable way to
+ * find a review that was submitted while it was down.
  */
 export function buildLaunchGuidance(
   agentId: string,
@@ -252,7 +255,7 @@ export function buildLaunchGuidance(
     }
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers via dispatch_launch_persona. Dispatch will guide the rest as it happens. Don't emit done until all submitted reviews are resolved."
+        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers via dispatch_launch_persona. Dispatch will guide the rest as it happens. Don't emit done until all submitted reviews are resolved — if a review prompt never arrived, check with dispatch_review_list_feedback."
       );
     }
   }
