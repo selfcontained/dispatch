@@ -44,6 +44,15 @@ export function ToolsContent() {
           The tools above would be available to agents as <Code>repo_lint</Code>
           , <Code>repo_test</Code>, and <Code>repo_db_reset</Code>.
         </P>
+        <P>
+          Every entry needs a <Code>name</Code>, a <Code>description</Code>, and
+          a non-empty <Code>command</Code> array. The command is executed
+          directly rather than through a shell, so pipes, globs, and{" "}
+          <Code>&amp;&amp;</Code> don't work — put anything shell-shaped in a
+          script and point <Code>command</Code> at that. A malformed entry
+          aborts the whole manifest, so a typo in one tool makes every{" "}
+          <Code>repo_</Code> tool disappear.
+        </P>
       </Section>
 
       <Section>
@@ -78,7 +87,39 @@ export function ToolsContent() {
           When an agent calls <Code>repo_dev_up</Code> with{" "}
           <Code>{'{ cwd: "/path", live: true }'}</Code>, Dispatch runs{" "}
           <Code>./bin/dev up --cwd /path --live</Code>. Parameters that are
-          omitted or false are skipped.
+          omitted, false, or an empty string are skipped. Every parameter is
+          optional to the agent, and <Code>name</Code>, <Code>type</Code>, and{" "}
+          <Code>flag</Code> are required in the definition — the{" "}
+          <Code>description</Code> is what the agent reads to decide what to
+          pass, so it's worth writing.
+        </P>
+      </Section>
+
+      <Section>
+        <H3>What agents get back</H3>
+        <P>
+          A repo tool call doesn't fail on a non-zero exit. The command's stdout
+          comes back as the tool's text result, with the exit code, stdout, and
+          stderr in the structured payload, so the agent can read a failure and
+          react to it instead of just seeing an error. Write scripts that fail
+          loudly on stderr.
+        </P>
+        <P>
+          Dispatch puts no time limit on a repo tool command (lifecycle hooks
+          below do get one), though the agent's own MCP client may give up on a
+          very long call.
+        </P>
+      </Section>
+
+      <Section>
+        <H3>Picking up changes</H3>
+        <P>
+          <Code>.dispatch/tools.json</Code> is re-read from disk on every tool
+          listing — no server restart needed. The limit is on the agent's side:
+          a CLI fetches its tool list once when the session starts and holds it.
+          So an edited command runs the new version on the next call, but a
+          newly added tool usually isn't callable until the agent reconnects or
+          a new session starts.
         </P>
       </Section>
 

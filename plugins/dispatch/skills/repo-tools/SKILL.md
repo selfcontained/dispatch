@@ -54,13 +54,13 @@ it at the moment of use.
 | ------------- | -------- | --------------------------------------------------------------------------- |
 | `name`        | yes      | Exposed as `repo_<name>`. Dots are stripped — MCP names cannot contain them |
 | `description` | yes      | This is what makes the tool get used. See below                             |
-| `command`     | yes      | Argv array, run from the repo root                                          |
+| `command`     | yes      | Argv array, run from the agent's checkout root                              |
 | `params`      | no       | Turned into CLI flags appended to `command`                                 |
 | `scope`       | no       | Any of `agent`, `reviewer`, `job`. Omit to expose everywhere                |
 
-`repo_` prefixing is automatic, and a name that would collide with a built-in
-Dispatch tool (`create_pr`, `get_pr_status`, `dispatch_event`, `dispatch_share`)
-is rejected at load.
+`repo_` prefixing is automatic and keeps repo tools in their own namespace, so a
+repo tool can never shadow a built-in Dispatch tool like `create_pr` or
+`dispatch_event`.
 
 **Write the description for an agent that has never seen this repo.** It is the
 only thing standing between the tool existing and the tool being used. Say what
@@ -79,7 +79,10 @@ load. Give every param a `description` too — the agent picks values from it.
 
 ## Execution model
 
-Commands run from the repo root with `DISPATCH_AGENT_ID` set in the environment.
+Commands run from the root of the agent's checkout — the worktree root for
+worktree agents, otherwise the repo root — with `DISPATCH_AGENT_ID` set in the
+environment. There is no shell: the argv array is spawned directly, so pipes,
+globs, and `&&` need a wrapper script.
 **Every exit code is returned to the agent** rather than throwing — stdout,
 stderr, and the exit code all come back, so the agent can read a failure instead
 of just seeing an error. Write scripts that fail loudly on stderr.
@@ -89,7 +92,8 @@ of just seeing an error. Write scripts that fail loudly on stderr.
 `hooks.stop.command` runs when the agent stops. Use it for teardown that would
 otherwise leak: stopping a dev stack, removing a container, releasing a port.
 Keep it fast and idempotent — it may run when the thing it cleans up was never
-started.
+started, and it is killed after 15 seconds. A failing or timed-out hook is
+logged and never blocks the stop.
 
 ## Working on it
 

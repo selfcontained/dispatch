@@ -261,6 +261,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "repo-tools",
+    title: "Give Agents Your Repo's Commands",
+    body: "Add a .dispatch/tools.json to a repo and every entry becomes a real tool in each agent's tool list — so nobody has to paste the same build, reset, or dev-stack command into a prompt again.",
+    docsSection: "tools",
+    since: "0.11.12",
+    surfaces: ["ambient"],
+  },
+  {
     id: "shortcut-pins",
     title: "One-Click Agent Shortcuts",
     body: "Agents can pin a button to the Pins tab that sends a prompt back to them when you click it — approve a plan, kick off the next step, re-run a check without typing it out.",
