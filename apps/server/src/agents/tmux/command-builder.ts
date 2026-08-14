@@ -158,13 +158,23 @@ export function buildStartupPrompt(
 /**
  * Build the numbered launch guidance text shared by all CLI agent types.
  *
- * `trimmedGuidance` gates only the rules whose replacement is a *plugin skill*:
- * the Playwright methodology (→ `ui-validation` + `sharing`) and the `create_pr`
- * routing line (→ `review-workflow`). It never touches the rules that have no
- * task to match against — no-task guardrail, session naming, `dispatch_event`,
- * pin surfacing — because a skill only loads when its description matches the
- * situation, so always-on rules cannot become skills without silently stopping
- * working.
+ * `trimmedGuidance` swaps the verbose rules for short generic ones. Two
+ * different things carry the detail it drops, and the distinction matters:
+ *
+ * - **The MCP tool schemas.** `dispatch_pin`'s own description already lists
+ *   every pin type, explains shortcut/confirm/disabled, and says to pair a
+ *   blocking shortcut with `waiting_user`; `dispatch_event`'s enumerates the
+ *   status types. Restating them here duplicated a description the agent
+ *   already has, in every session, whether or not the flow ever comes up. The
+ *   trimmed rules say *that* these tools matter and leave the *how* to the
+ *   schema. This half does not depend on the plugin at all.
+ * - **Plugin skills**, for the Playwright methodology (→ `ui-validation` +
+ *   `sharing`) and the `create_pr` routing line (→ `review-workflow`). This
+ *   half genuinely needs the plugin installed, which is why the setting is
+ *   worded as an assertion about it.
+ *
+ * What never trims is the rule with no replacement anywhere: the no-task
+ * guardrail. Nothing else states it, and it has to fire before a task exists.
  *
  * A short `dispatch_share` nudge survives the trim on purpose. That habit was
  * already stated in two always-on places and agents still pasted file paths
@@ -231,18 +241,30 @@ export function buildLaunchGuidance(
     );
     if (suggestSessionRename) {
       rules.push(
-        "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
+        trimmed
+          ? "Name the session with dispatch_rename_session once the topic is clear — a short label for what the session is about, not a live status."
+          : "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
       );
     }
     rules.push(
-      "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
+      trimmed
+        ? "Report status with dispatch_event as you work and before your final response — blocked means genuinely stuck, not an error you're about to fix. Your reported status is verified against session activity and auto-corrected."
+        : "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
     );
-    rules.push(
-      "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share and pin a reference."
-    );
-    rules.push(
-      "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, pick an approach). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you."
-    );
+    if (trimmed) {
+      // One rule instead of two: surface values, and ask questions, with pins.
+      // The tool schema carries the types, shortcut mechanics, and deletion.
+      rules.push(
+        "Surface important data to the user with dispatch_pin — anything they may need to read or copy — and use shortcut pins to offer a next step or ask them to pick between options."
+      );
+    } else {
+      rules.push(
+        "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share and pin a reference."
+      );
+      rules.push(
+        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, pick an approach). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you."
+      );
+    }
     rules.push(
       trimmed
         ? "Share artifacts with dispatch_share — screenshots, logs, reports. A file path pasted into chat is not a deliverable."

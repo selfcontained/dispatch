@@ -722,14 +722,13 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     "zero-item approval",
   ];
 
-  // Rules with no task-shaped trigger for a skill description to match on —
-  // these must survive the trim in every variant.
-  const ALWAYS_ON = [
-    "No task, no work.",
-    "Name the session.",
-    "Report status with dispatch_event.",
-    "Pin key info with dispatch_pin",
-    "Offer a shortcut pin",
+  // Detail that lives in the MCP tool schemas — restating it in every
+  // session is what the trim removes.
+  const SCHEMA_DUPLICATED = [
+    "Types: url (dev servers, docs)",
+    "waiting_user (need a decision or approval)",
+    "call dispatch_list_pins then dispatch_delete_pin",
+    "Set confirm on destructive ones",
   ];
 
   function guidance(opts: Parameters<typeof buildLaunchGuidance>[1]): string {
@@ -797,14 +796,53 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     expect(text).not.toContain("Autonomous Review is enabled");
   });
 
-  it("never trims the always-on rules", () => {
+  it("keeps every rule's subject, just shorter", () => {
     const text = guidance({
       agentType: "claude",
       suggestSessionRename: true,
       autoReview: true,
       trimmedGuidance: true,
     });
-    for (const rule of ALWAYS_ON) expect(text).toContain(rule);
+    // The no-task guardrail has no replacement anywhere — verbatim.
+    expect(text).toContain("No task, no work.");
+    // The rest survive as pointers: still named, no longer explained.
+    for (const tool of [
+      "dispatch_rename_session",
+      "dispatch_event",
+      "dispatch_pin",
+      "shortcut pins",
+      "dispatch_share",
+    ]) {
+      expect(text).toContain(tool);
+    }
+  });
+
+  it("drops the detail the MCP tool schemas already carry", () => {
+    const full = guidance({ agentType: "claude", suggestSessionRename: true });
+    const text = guidance({
+      agentType: "claude",
+      suggestSessionRename: true,
+      trimmedGuidance: true,
+    });
+    for (const detail of SCHEMA_DUPLICATED) {
+      expect(full).toContain(detail);
+      expect(text).not.toContain(detail);
+    }
+  });
+
+  it("keeps the dispatch_event misuse guard, which no schema states", () => {
+    const text = guidance({ agentType: "claude", trimmedGuidance: true });
+    expect(text).toContain("blocked means genuinely stuck");
+    expect(text).toContain("auto-corrected");
+  });
+
+  it("folds the two pin rules into one", () => {
+    const full = guidance({ agentType: "claude" });
+    const text = guidance({ agentType: "claude", trimmedGuidance: true });
+    const pinRules = (s: string) =>
+      s.split("\n").filter((line) => /pin/i.test(line)).length;
+    expect(pinRules(full)).toBe(2);
+    expect(pinRules(text)).toBe(1);
   });
 
   it("ignores the setting for agent types with no Dispatch plugin", () => {

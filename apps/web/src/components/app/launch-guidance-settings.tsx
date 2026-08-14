@@ -78,10 +78,10 @@ export function LaunchGuidanceSettings(): JSX.Element {
         Launch guidance
       </div>
       <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-        Dispatch injects a set of startup rules into every agent. The Dispatch
-        plugin covers some of the same ground as discoverable skills, so those
-        rules can be shortened for agents that have it installed. Applies to all
-        agents on this Dispatch server.
+        Dispatch injects a set of startup rules into every agent. Most of their
+        detail is already in the MCP tool descriptions, and the rest is in the
+        Dispatch plugin&apos;s skills — so the rules can be short pointers
+        instead. Applies to all agents on this Dispatch server.
       </p>
       <div className="max-w-lg">
         <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
@@ -95,18 +95,19 @@ export function LaunchGuidanceSettings(): JSX.Element {
           />
           <div className="min-w-0">
             <div className="text-sm font-medium text-foreground">
-              I have the Dispatch plugin installed — trim the startup rules
+              Use short startup rules — I have the Dispatch plugin installed
             </div>
             <div id={DETAIL_ID} className="text-xs text-muted-foreground">
-              Only turn this on if the plugin really is installed. Dispatch
-              can&apos;t verify it, and without it the trimmed guidance is
-              simply gone. It drops the browser-validation and pull-request
-              rules, whose detail the plugin&apos;s <code>ui-validation</code>,{" "}
-              <code>sharing</code>, and <code>review-workflow</code> skills
-              carry — status reporting, pinning, and session naming are never
-              trimmed. Only affects Claude Code and Codex agents (the
-              plugin&apos;s platforms), and only agents launched after the
-              change.
+              Status reporting, pinning, and session naming shrink to one line
+              each; their detail is in the <code>dispatch_event</code> and{" "}
+              <code>dispatch_pin</code> tool descriptions, which every agent
+              already reads. The browser-validation and pull-request rules drop
+              entirely, and those <em>do</em> need the plugin&apos;s{" "}
+              <code>ui-validation</code>, <code>sharing</code>, and{" "}
+              <code>review-workflow</code> skills to replace them — Dispatch
+              can&apos;t verify it&apos;s installed, so turn this on only if it
+              is. Only affects Claude Code and Codex agents, and only agents
+              launched after the change.
             </div>
           </div>
         </label>
