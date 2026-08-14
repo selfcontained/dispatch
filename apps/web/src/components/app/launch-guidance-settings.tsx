@@ -100,13 +100,13 @@ export function LaunchGuidanceSettings(): JSX.Element {
             <div id={DETAIL_ID} className="text-xs text-muted-foreground">
               Only turn this on if the plugin really is installed. Dispatch
               can&apos;t verify it, and without it the trimmed guidance is
-              simply gone. It shortens the browser-validation and Autonomous
-              Review rules, whose detail the plugin&apos;s{" "}
-              <code>ui-validation</code>, <code>sharing</code>, and{" "}
-              <code>review-workflow</code> skills carry — status reporting,
-              pinning, and session naming are never trimmed. Only affects Claude
-              Code and Codex agents (the plugin&apos;s platforms), and only
-              agents launched after the change.
+              simply gone. It drops the browser-validation and pull-request
+              rules, whose detail the plugin&apos;s <code>ui-validation</code>,{" "}
+              <code>sharing</code>, and <code>review-workflow</code> skills
+              carry — status reporting, pinning, and session naming are never
+              trimmed. Only affects Claude Code and Codex agents (the
+              plugin&apos;s platforms), and only agents launched after the
+              change.
             </div>
           </div>
         </label>

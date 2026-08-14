@@ -158,17 +158,26 @@ export function buildStartupPrompt(
 /**
  * Build the numbered launch guidance text shared by all CLI agent types.
  *
- * `trimmedGuidance` shortens the rules the Dispatch plugin's skills now cover
- * in depth (Playwright/`dispatch_share`, and the Autonomous Review workflow).
- * It never touches the rules that have no task to match against — no-task
- * guardrail, session naming, `dispatch_event`, pin surfacing — because a skill
- * only loads when its description matches the situation, so always-on rules
- * cannot become skills without silently stopping working.
+ * `trimmedGuidance` gates only the rules whose replacement is a *plugin skill*:
+ * the Playwright methodology (→ `ui-validation` + `sharing`) and the `create_pr`
+ * routing line (→ `review-workflow`). It never touches the rules that have no
+ * task to match against — no-task guardrail, session naming, `dispatch_event`,
+ * pin surfacing — because a skill only loads when its description matches the
+ * situation, so always-on rules cannot become skills without silently stopping
+ * working.
  *
- * The two tool-routing lines (`dispatch_share`, `create_pr`) keep a short
- * always-on nudge even when trimmed: those habits were already ignored when
- * stated in two always-on places, so moving them entirely onto a
- * match-triggered skill is the riskiest part of the trim.
+ * A short `dispatch_share` nudge survives the trim on purpose. That habit was
+ * already stated in two always-on places and agents still pasted file paths
+ * into chat, so it's the one tool-routing rule with a demonstrated failure
+ * history — the toggle tests `create_pr`, not this.
+ *
+ * The Autonomous Review rule is shortened for *everyone*, toggle or not, and
+ * that has nothing to do with the plugin: two thirds of the old block was
+ * reactive ("after feedback arrives, do X"), and Dispatch already re-injects
+ * each of those clauses at the moment they apply — see
+ * `buildLaunchPersonaResponseText` and `reviews/injection-prompts.ts`. What
+ * remains is the part nothing can inject: the gate the agent must already know
+ * before it decides it is done.
  */
 export function buildLaunchGuidance(
   agentId: string,
@@ -236,14 +245,14 @@ export function buildLaunchGuidance(
         ? "Share artifacts with dispatch_share — screenshots, logs, reports. A file path pasted into chat is not a deliverable."
         : "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
     );
-    rules.push(
-      "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
-    );
+    if (!trimmed) {
+      rules.push(
+        "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
+      );
+    }
     if (autoReview) {
       rules.push(
-        trimmed
-          ? "Autonomous Review is enabled. Before emitting done: commit and push, open a draft PR via create_pr, then launch a reviewer via dispatch_launch_persona and end the turn — do not poll, sleep, or schedule a wakeup; Dispatch injects the review prompt when it's ready. Don't emit done until all submitted reviews are resolved."
-          : "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. After launch, do not poll, sleep, call list_agents, or schedule a wakeup; end the turn and let Dispatch inject the structured REVIEW SUBMITTED prompt when ready. If feedback exists, call dispatch_review_list_feedback with the supplied review ID and keep all discussion in item threads via dispatch_review_add_message. After fixing an item, ask the reviewer to verify it instead of resolving it yourself. The reviewer will resolve verified fixes or reply with further instructions. A clean zero-item approval requires no action. Don't emit done until all submitted reviews are resolved."
+        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers via dispatch_launch_persona. Dispatch will guide the rest as it happens. Don't emit done until all submitted reviews are resolved."
       );
     }
   }

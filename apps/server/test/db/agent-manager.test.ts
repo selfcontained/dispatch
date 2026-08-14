@@ -611,14 +611,20 @@ describe("AgentManager", () => {
         `/tmp/dispatch_setup_${agent.id}.sh`,
         "utf-8"
       );
+      // The proactive gates: nothing can inject these at the right moment,
+      // because the moment is the agent deciding it's done.
       expect(setupScript).toContain("Autonomous Review is enabled");
       expect(setupScript).toContain("list_personas");
       expect(setupScript).toContain("dispatch_launch_persona");
-      expect(setupScript).toContain("dispatch_review_list_feedback");
-      expect(setupScript).toContain("structured REVIEW SUBMITTED prompt");
-      expect(setupScript).toContain("launch 1 relevant reviewer");
-      expect(setupScript).toContain("do not poll, sleep");
-      expect(setupScript).toContain("ask the reviewer to verify it");
+      // No apostrophes: the guidance is shell-escaped into this script.
+      expect(setupScript).toContain("until all submitted reviews are resolved");
+      // The reactive half is delivered by injection when it applies
+      // (buildLaunchPersonaResponseText / reviews/injection-prompts.ts), so
+      // it no longer rides along in every launch.
+      expect(setupScript).not.toContain("dispatch_review_list_feedback");
+      expect(setupScript).not.toContain("structured REVIEW SUBMITTED prompt");
+      expect(setupScript).not.toContain("ask the reviewer to verify it");
+      expect(setupScript).not.toContain("zero-item approval");
       expect(setupScript).not.toContain(
         "set each outcome with dispatch_review_resolve"
       );

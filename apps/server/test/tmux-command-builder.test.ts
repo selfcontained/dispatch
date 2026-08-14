@@ -714,7 +714,14 @@ describe("buildLaunchGuidance — trimmed variant", () => {
   const PLAYWRIGHT_RULE = "Playwright: default headless.";
   const SHARE_NUDGE = "Share artifacts with dispatch_share";
   const CREATE_PR_RULE = "use the create_pr MCP tool";
-  const REVIEW_DETAIL = "structured REVIEW SUBMITTED prompt";
+  // Reactive clauses Dispatch re-injects when they apply — dropped for
+  // everyone, toggle or not.
+  const REACTIVE_REVIEW_CLAUSES = [
+    "structured REVIEW SUBMITTED prompt",
+    "dispatch_review_list_feedback",
+    "ask the reviewer to verify it",
+    "zero-item approval",
+  ];
 
   // Rules with no task-shaped trigger for a skill description to match on —
   // these must survive the trim in every variant.
@@ -747,26 +754,40 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     expect(text).toContain(SHARE_NUDGE);
   });
 
-  it("keeps the create_pr tool-routing rule verbatim when trimmed", () => {
+  it("drops the create_pr routing rule when trimmed — review-workflow carries it", () => {
     const text = guidance({ agentType: "claude", trimmedGuidance: true });
-    expect(text).toContain(CREATE_PR_RULE);
+    expect(text).not.toContain(CREATE_PR_RULE);
   });
 
-  it("shortens the Autonomous Review block but keeps its runtime protocol", () => {
-    const full = guidance({ agentType: "claude", autoReview: true });
-    const trimmed = guidance({
+  it("keeps the Autonomous Review rule short in BOTH states", () => {
+    for (const trimmedGuidance of [false, true]) {
+      const text = guidance({
+        agentType: "claude",
+        autoReview: true,
+        trimmedGuidance,
+      });
+      expect(text).toContain("Autonomous Review is enabled");
+      // The proactive gates — nothing can inject these at the right moment,
+      // because the moment is the agent deciding it's done.
+      expect(text).toContain("create_pr");
+      expect(text).toContain("dispatch_launch_persona");
+      expect(text).toContain(
+        "Don't emit done until all submitted reviews are resolved"
+      );
+      // The reactive half is delivered by injection instead.
+      for (const clause of REACTIVE_REVIEW_CLAUSES) {
+        expect(text).not.toContain(clause);
+      }
+    }
+  });
+
+  it("still mentions create_pr under trim when autoReview supplies it", () => {
+    const text = guidance({
       agentType: "claude",
       autoReview: true,
       trimmedGuidance: true,
     });
-    expect(full).toContain(REVIEW_DETAIL);
-    expect(trimmed).toContain("Autonomous Review is enabled");
-    expect(trimmed).not.toContain(REVIEW_DETAIL);
-    // The bits Dispatch's runtime depends on stay in the always-on text.
-    expect(trimmed).toContain("do not poll");
-    expect(trimmed).toContain("create_pr");
-    expect(trimmed).toContain("dispatch_launch_persona");
-    expect(trimmed.length).toBeLessThan(full.length);
+    expect(text).toContain("create_pr");
   });
 
   it("omits the Autonomous Review rule entirely when autoReview is off", () => {
@@ -792,7 +813,7 @@ describe("buildLaunchGuidance — trimmed variant", () => {
         trimmedGuidance: true,
       });
       expect(text).toContain(PLAYWRIGHT_RULE);
-      expect(text).toContain(REVIEW_DETAIL);
+      expect(text).toContain(CREATE_PR_RULE);
     }
   });
 
