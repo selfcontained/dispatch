@@ -697,7 +697,11 @@ export class AgentManager {
         opts.persona || opts.jobRunId || role === "assisted_update"
           ? null
           : await getActivePersonality(this.pool);
-      const trimmedGuidance = await isTrimmedLaunchGuidanceEnabled(this.pool);
+      // Job runs get their own ruleset, which the trim never touches — so
+      // don't make an unchanged launch path depend on this settings read.
+      const trimmedGuidance = opts.jobRunId
+        ? false
+        : await isTrimmedLaunchGuidanceEnabled(this.pool);
 
       const agentCommand = buildAgentCommand(
         this.config,
