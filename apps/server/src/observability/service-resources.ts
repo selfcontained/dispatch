@@ -930,7 +930,3 @@ export class ServiceResources {
     );
   }
 }
-
-export function isSubsystemDegraded(state: SubsystemHealthState): boolean {
-  return state === "degraded";
-}

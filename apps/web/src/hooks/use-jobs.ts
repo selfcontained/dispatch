@@ -13,10 +13,6 @@ import type {
 
 export type { JobAgentType, JobNotifyConfig, JobReport, JobRunStatus };
 
-export type JobRunTriggerSource = NonNullable<
-  JobRunRecord["config"]["triggerSource"]
->;
-
 export type Job = JobWithLatestRun & { nextRun: string | null };
 
 export type JobRun = JobRunRecord;

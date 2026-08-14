@@ -5,14 +5,8 @@ import type { Pool } from "pg";
 
 import type { AgentType } from "../agent-type-settings.js";
 import { isUniqueViolation } from "../shared/lib/pg-errors.js";
-import {
-  parseTemplateArgs,
-  substituteArgs,
-  type TemplatePromptArg as ParsedArg,
-} from "./arg-parser.js";
 
 export { parseTemplateArgs, substituteArgs } from "./arg-parser.js";
-export type { TemplatePromptArg as ParsedArg } from "./arg-parser.js";
 
 export type TemplateRecord = {
   id: string;
