@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { Brain, Search, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -26,7 +26,6 @@ import {
 import { cn } from "@/lib/utils";
 
 export function BrainsDetailPane(): JSX.Element {
-  const navigate = useNavigate();
   const { encodedRepoRoot, collection } = useParams<{
     encodedRepoRoot?: string;
     collection?: string;
@@ -40,15 +39,20 @@ export function BrainsDetailPane(): JSX.Element {
   try {
     repoRoot = decodeRepoRoot(encodedRepoRoot);
   } catch {
-    navigate("/automations/brains", { replace: true });
-    return <BrainsOverview />;
+    // Has to be declarative: react-router refuses an imperative navigate()
+    // during render, so calling it here would only warn and leave the
+    // undecodable repo root sitting in the address bar.
+    return <Navigate to="/automations/brains" replace />;
   }
 
   return (
     <BrainProjectDetail
       repoRoot={repoRoot}
       encodedRepoRoot={encodedRepoRoot}
-      selectedCollection={collection ? decodeURIComponent(collection) : null}
+      // react-router has already decoded the path param. Decoding it a second
+      // time silently mangles a collection whose name contains an escape-like
+      // sequence, and throws outright on a bare "%".
+      selectedCollection={collection ?? null}
     />
   );
 }
