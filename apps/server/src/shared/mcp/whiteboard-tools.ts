@@ -194,6 +194,7 @@ Children are assigned to frames by setting their \`frameId\` to the frame's id.
 - The editor auto-heals many cosmetic issues (null fields, missing indices). Don't over-validate those.
 - Always provide \`id\`, \`type\`, \`x\`, \`y\` at minimum. Width and height default to 0 if omitted.
 - For \`arrow\`, \`line\`, and \`freedraw\`, \`points\` is mandatory — it is not auto-healed.
+- \`freedraw\` also needs a \`pressures\` entry per point (0–1), or \`simulatePressure: true\` to let the editor derive them.
 - Use readable, descriptive ids — you'll reference them in bindings and future updates.
 - Elements are merged by id: sending an element with an existing id replaces it entirely.
 `;

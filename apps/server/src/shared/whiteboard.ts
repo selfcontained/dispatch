@@ -72,13 +72,27 @@ export function sanitizeElement(raw: unknown): RawElement | null {
   if (POINTS_REQUIRED_TYPES.has(el.type)) {
     const points = Array.isArray(el.points) ? el.points.filter(isPoint) : [];
     // Same fallback restoreElement() would apply, just early enough to matter.
-    out.points =
-      points.length >= 2
-        ? points
-        : [
-            [0, 0],
-            [width, height],
-          ];
+    const usedFallback = points.length < 2;
+    out.points = usedFallback
+      ? [
+          [0, 0],
+          [width, height],
+        ]
+      : points;
+
+    // The freedraw renderer indexes pressures[i] per point when
+    // simulatePressure is falsy, so a missing or short pressures array throws
+    // the same way missing points did. Default to 0.5 as Excalidraw's own
+    // restore does.
+    if (el.type === "freedraw" && el.simulatePressure !== true) {
+      const pressures = Array.isArray(el.pressures) ? el.pressures : [];
+      out.pressures = (out.points as unknown[]).map((_, i) => {
+        const pressure = usedFallback ? undefined : pressures[i];
+        return typeof pressure === "number" && Number.isFinite(pressure)
+          ? pressure
+          : 0.5;
+      });
+    }
   }
 
   return out;

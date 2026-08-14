@@ -251,6 +251,110 @@ describe("sanitizeElements", () => {
     expect(el.strokeColor).toBe("#e03131");
     expect(el.boundElements).toEqual([{ id: "t" }]);
   });
+
+  it("aligns freedraw pressures with points when simulatePressure is falsy", () => {
+    // The renderer indexes pressures[i] per point when simulatePressure is
+    // falsy — a freedraw with points but no pressures array throws.
+    const [missing] = sanitizeElements([
+      {
+        id: "f1",
+        type: "freedraw",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 20,
+        points: [
+          [0, 0],
+          [5, 5],
+          [10, 20],
+        ],
+      },
+    ]) as El[];
+    expect(missing.pressures).toEqual([0.5, 0.5, 0.5]);
+
+    const [short] = sanitizeElements([
+      {
+        id: "f2",
+        type: "freedraw",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 20,
+        points: [
+          [0, 0],
+          [5, 5],
+          [10, 20],
+        ],
+        simulatePressure: false,
+        pressures: [0.25, "bad"],
+      },
+    ]) as El[];
+    expect(short.pressures).toEqual([0.25, 0.5, 0.5]);
+  });
+
+  it("supplies pressures alongside fallback freedraw points", () => {
+    const [el] = sanitizeElements([
+      {
+        id: "f3",
+        type: "freedraw",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 20,
+        simulatePressure: false,
+        pressures: [0.9, 0.8, 0.7],
+      },
+    ]) as El[];
+    expect(el.points).toEqual([
+      [0, 0],
+      [10, 20],
+    ]);
+    // Stale pressures from dropped points are not carried over.
+    expect(el.pressures).toEqual([0.5, 0.5]);
+  });
+
+  it("leaves pressures alone when simulatePressure is true", () => {
+    const [el] = sanitizeElements([
+      {
+        id: "f4",
+        type: "freedraw",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 20,
+        points: [
+          [0, 0],
+          [10, 20],
+        ],
+        simulatePressure: true,
+        pressures: [],
+      },
+    ]) as El[];
+    expect(el.pressures).toEqual([]);
+  });
+
+  it("preserves real pen pressures for well-formed freedraw", () => {
+    const points = [
+      [0, 0],
+      [5, 5],
+      [10, 20],
+    ];
+    const [el] = sanitizeElements([
+      {
+        id: "f5",
+        type: "freedraw",
+        x: 0,
+        y: 0,
+        width: 10,
+        height: 20,
+        points,
+        simulatePressure: false,
+        pressures: [0.1, 0.2, 0.3],
+      },
+    ]) as El[];
+    expect(el.points).toEqual(points);
+    expect(el.pressures).toEqual([0.1, 0.2, 0.3]);
+  });
 });
 
 // ── isValidScene ──
