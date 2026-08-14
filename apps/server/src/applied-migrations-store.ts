@@ -125,5 +125,3 @@ function isAppliedState(value: unknown): value is AppliedMigrationsState {
   }
   return true;
 }
-
-export { appliedStorePath as APPLIED_MIGRATIONS_STORE_PATH_FN };

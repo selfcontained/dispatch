@@ -19,7 +19,6 @@ import type { AssistedUpdateState } from "../../../server/src/assisted-update-st
 import type {
   AssistedUpdateMetadata,
   AssistedUpdateMode,
-  RequiredCheckName,
 } from "../../../server/src/release-metadata";
 import type { CheckResult } from "../../../server/src/release-checks";
 import type { UpdateMigrationManifest } from "../../../server/src/update-migrations";
@@ -42,7 +41,6 @@ export type {
 };
 
 // These server types carry different names; keep the names web code uses.
-export type AssistedRequiredCheck = RequiredCheckName;
 export type AssistedCheckResult = CheckResult;
 export type PendingMigration = PendingMigrationSummary;
 

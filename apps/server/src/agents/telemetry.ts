@@ -33,49 +33,6 @@ export type ActivitySummaryResult = {
   }>;
 };
 
-export type AgentHistoryEntry = {
-  id: string;
-  name: string;
-  type: string;
-  project: string;
-  status: string;
-  createdAt: string;
-  latestEventType: string | null;
-  latestEventMessage: string | null;
-  pins: Array<{ label: string; value: string; type: string }>;
-  git: {
-    branch: string | null;
-    worktreeBranch: string | null;
-  } | null;
-  events?: Array<{
-    type: string;
-    message: string;
-    createdAt: string;
-  }>;
-  feedback?: Array<{
-    id: number;
-    persona: string;
-    severity: string;
-    description: string;
-    filePath: string | null;
-    suggestion: string | null;
-    status: string;
-  }>;
-  reviews?: Array<{
-    persona: string;
-    status: string;
-    verdict: string | null;
-    summary: string | null;
-    filesReviewed: string[] | null;
-  }>;
-};
-
-export type AgentHistoryResult = {
-  agents: AgentHistoryEntry[];
-  total: number;
-  hasMore: boolean;
-};
-
 export type FeedbackSummaryResult = {
   period: { start: string; end: string };
   totalFindings: number;
