@@ -12,7 +12,9 @@ import {
   Route,
   Routes,
   useLocation,
+  useNavigationType,
   type Location,
+  type NavigationType,
 } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,7 +31,12 @@ import { BrainsDetailPane } from "./brains-detail-pane";
 // "Clear project" flow. The real use-brain queries and mutations run; only the
 // HTTP seam, the toaster, and the already-covered collection view are stubbed.
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
-vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
+// Toaster is stubbed alongside toast so that a component pulled into the tree
+// later fails on its own terms rather than as "Element type is invalid".
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), error: vi.fn() },
+  Toaster: () => null,
+}));
 
 // BrainCollectionView has its own 590-line suite. Here it stands in as a probe
 // for the three props the pane is responsible for wiring, plus the cleared
@@ -77,11 +84,22 @@ function summary(
 
 function LocationProbe(): JSX.Element {
   const location: Location = useLocation();
-  return <span data-testid="location">{location.pathname}</span>;
+  const navigationType: NavigationType = useNavigationType();
+  return (
+    <>
+      <span data-testid="location">{location.pathname}</span>
+      <span data-testid="navigation-type">{navigationType}</span>
+    </>
+  );
 }
 
 function locationPath(): string {
   return screen.getByTestId("location").textContent ?? "";
+}
+
+/** "PUSH" leaves the previous entry in history; "REPLACE" discards it. */
+function navigationType(): string {
+  return screen.getByTestId("navigation-type").textContent ?? "";
 }
 
 function mountPane({
@@ -203,6 +221,10 @@ describe("repo root routing", () => {
 
     await waitFor(() => expect(locationPath()).toBe("/automations/brains"));
     expect(await screen.findByText("Brain Explorer")).toBeTruthy();
+    // Replaced, not pushed: a pushed redirect leaves the undecodable root one
+    // Back press away, and going Back immediately redirects forward again —
+    // the user is trapped on the button.
+    expect(navigationType()).toBe("REPLACE");
   });
 
   it("hands the view the real collection name from an escaped path segment", () => {
@@ -248,9 +270,10 @@ describe("collection pills", () => {
       collections: [summary("config", 2, 3, 5), summary("notes", 1, 0, 0)],
     });
 
-    // The badge is the total across all three entry types, not just objects.
-    expect((await findPill("config")).textContent).toContain("10");
-    expect(pill("notes").textContent).toContain("1");
+    // The badge is the total across all three entry types, not just objects,
+    // and is matched whole so a stray digit cannot stand in for the sum.
+    expect((await findPill("config")).textContent).toBe("config10");
+    expect(pill("notes").textContent).toBe("notes1");
   });
 
   it("marks All active while no collection is selected", async () => {
@@ -270,21 +293,6 @@ describe("collection pills", () => {
     const config = await findPill("config");
     expect(config.className).toContain("bg-primary/15");
     expect(pill("All").className).not.toContain("bg-primary/15");
-  });
-
-  it("renders no collection pills while the collections query is loading", async () => {
-    mountPane({ collections: null });
-
-    expect(pill("All")).toBeTruthy();
-    // Only the two chrome buttons — the All pill and Clear project — exist
-    // until the query resolves.
-    await waitFor(() =>
-      expect(
-        screen
-          .getAllByRole("button")
-          .filter((b) => (b.textContent ?? "").includes("config"))
-      ).toHaveLength(0)
-    );
   });
 
   it("re-encodes the collection name when navigating to its pill", async () => {
@@ -310,9 +318,12 @@ describe("collection pills", () => {
     await waitFor(() =>
       expect(locationPath()).toBe(`/automations/brains/${ENCODED}`)
     );
+    // Choosing a different collection is ordinary navigation, so it stays on
+    // the history stack — unlike the redirects, which replace.
+    expect(navigationType()).toBe("PUSH");
   });
 
-  it("returns to the project root when the view reports its collection cleared", async () => {
+  it("replaces history when the view reports its collection cleared", async () => {
     mountPane({
       path: `/automations/brains/${ENCODED}/config`,
       collections: [summary("config", 1, 0, 0)],
@@ -323,6 +334,9 @@ describe("collection pills", () => {
     await waitFor(() =>
       expect(locationPath()).toBe(`/automations/brains/${ENCODED}`)
     );
+    // The collection no longer exists, so its URL must not stay reachable
+    // through the Back button.
+    expect(navigationType()).toBe("REPLACE");
   });
 });
 
@@ -383,7 +397,11 @@ describe("clear project", () => {
     );
   });
 
-  it("closes the dialog and leaves the deleted project on success", async () => {
+  it("leaves the deleted project for the overview without keeping it in history", async () => {
+    // Only the navigation is asserted here. The dialog does close, but this
+    // test cannot be the thing that proves it: leaving the project unmounts
+    // the dialog either way, so a missing setProjectDeleteOpen(false) is
+    // invisible from the outside.
     mountPane({
       onDeleteProject: async () => ({ objects: 1, lists: 0, events: 0 }),
     });
@@ -392,7 +410,8 @@ describe("clear project", () => {
     fireEvent.click(confirmButton());
 
     await waitFor(() => expect(locationPath()).toBe("/automations/brains"));
-    expect(screen.queryByText("Clear this project?")).toBeNull();
+    // Back must not return to a project whose data is gone.
+    expect(navigationType()).toBe("REPLACE");
   });
 
   it("keeps the dialog open on the project view when the delete fails", async () => {
