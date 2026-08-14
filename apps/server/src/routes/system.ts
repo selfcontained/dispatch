@@ -14,6 +14,10 @@ import {
   loadInjectionHoldEnabled,
   setInjectionHoldEnabled,
 } from "../injection-hold-settings.js";
+import {
+  isTrimmedLaunchGuidanceEnabled,
+  setTrimmedLaunchGuidanceEnabled,
+} from "../launch-guidance-settings.js";
 import { JobService } from "../jobs/service.js";
 import {
   AGENT_TYPES,
@@ -434,6 +438,22 @@ export async function registerSystemRoutes(
     await setInjectionHoldEnabled(deps.pool, body.enabled);
     return { enabled: body.enabled };
   });
+
+  app.get("/api/v1/app/settings/launch-guidance-trim", async () => {
+    return { enabled: await isTrimmedLaunchGuidanceEnabled(deps.pool) };
+  });
+
+  app.post(
+    "/api/v1/app/settings/launch-guidance-trim",
+    async (request, reply) => {
+      const body = request.body as { enabled?: unknown } | null;
+      if (typeof body?.enabled !== "boolean") {
+        return reply.code(400).send({ error: "enabled must be a boolean." });
+      }
+      await setTrimmedLaunchGuidanceEnabled(deps.pool, body.enabled);
+      return { enabled: body.enabled };
+    }
+  );
 
   app.get("/api/v1/app/settings/cross-repo-messaging", async () => {
     return { enabled: await isCrossRepoMessagingEnabled(deps.pool) };

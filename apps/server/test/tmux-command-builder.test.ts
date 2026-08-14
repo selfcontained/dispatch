@@ -3,6 +3,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import type { AppConfig } from "../src/config.js";
 import {
   buildAgentCommand,
+  buildLaunchGuidance,
   buildStartupPrompt,
   normalizeAgentArgsForType,
 } from "../src/agents/tmux/command-builder.js";
@@ -706,5 +707,122 @@ describe("buildAgentCommand — host-env reads (process.env / process.platform)"
       false
     );
     expect(cmd).not.toContain("NODE_EXTRA_CA_CERTS");
+  });
+});
+
+describe("buildLaunchGuidance — trimmed variant", () => {
+  const PLAYWRIGHT_RULE = "Playwright: default headless.";
+  const SHARE_NUDGE = "Share artifacts with dispatch_share";
+  const CREATE_PR_RULE = "use the create_pr MCP tool";
+  const REVIEW_DETAIL = "structured REVIEW SUBMITTED prompt";
+
+  // Rules with no task-shaped trigger for a skill description to match on —
+  // these must survive the trim in every variant.
+  const ALWAYS_ON = [
+    "No task, no work.",
+    "Name the session.",
+    "Report status with dispatch_event.",
+    "Pin key info with dispatch_pin",
+    "Offer a shortcut pin",
+  ];
+
+  function guidance(opts: Parameters<typeof buildLaunchGuidance>[1]): string {
+    return buildLaunchGuidance(AGENT_ID, opts);
+  }
+
+  it("keeps the full ruleset when the setting is off", () => {
+    const text = guidance({ agentType: "claude", suggestSessionRename: true });
+    expect(text).toContain(PLAYWRIGHT_RULE);
+    expect(text).not.toContain(SHARE_NUDGE);
+    expect(text).toContain(CREATE_PR_RULE);
+  });
+
+  it("swaps the Playwright rule for a short dispatch_share nudge when trimmed", () => {
+    const text = guidance({
+      agentType: "claude",
+      suggestSessionRename: true,
+      trimmedGuidance: true,
+    });
+    expect(text).not.toContain(PLAYWRIGHT_RULE);
+    expect(text).toContain(SHARE_NUDGE);
+  });
+
+  it("keeps the create_pr tool-routing rule verbatim when trimmed", () => {
+    const text = guidance({ agentType: "claude", trimmedGuidance: true });
+    expect(text).toContain(CREATE_PR_RULE);
+  });
+
+  it("shortens the Autonomous Review block but keeps its runtime protocol", () => {
+    const full = guidance({ agentType: "claude", autoReview: true });
+    const trimmed = guidance({
+      agentType: "claude",
+      autoReview: true,
+      trimmedGuidance: true,
+    });
+    expect(full).toContain(REVIEW_DETAIL);
+    expect(trimmed).toContain("Autonomous Review is enabled");
+    expect(trimmed).not.toContain(REVIEW_DETAIL);
+    // The bits Dispatch's runtime depends on stay in the always-on text.
+    expect(trimmed).toContain("do not poll");
+    expect(trimmed).toContain("create_pr");
+    expect(trimmed).toContain("dispatch_launch_persona");
+    expect(trimmed.length).toBeLessThan(full.length);
+  });
+
+  it("omits the Autonomous Review rule entirely when autoReview is off", () => {
+    const text = guidance({ agentType: "claude", trimmedGuidance: true });
+    expect(text).not.toContain("Autonomous Review is enabled");
+  });
+
+  it("never trims the always-on rules", () => {
+    const text = guidance({
+      agentType: "claude",
+      suggestSessionRename: true,
+      autoReview: true,
+      trimmedGuidance: true,
+    });
+    for (const rule of ALWAYS_ON) expect(text).toContain(rule);
+  });
+
+  it("ignores the setting for agent types with no Dispatch plugin", () => {
+    for (const agentType of ["opencode", "cursor"] as const) {
+      const text = guidance({
+        agentType,
+        autoReview: true,
+        trimmedGuidance: true,
+      });
+      expect(text).toContain(PLAYWRIGHT_RULE);
+      expect(text).toContain(REVIEW_DETAIL);
+    }
+  });
+
+  it("applies to codex as well as claude", () => {
+    const text = guidance({ agentType: "codex", trimmedGuidance: true });
+    expect(text).toContain(SHARE_NUDGE);
+    expect(text).not.toContain(PLAYWRIGHT_RULE);
+  });
+
+  it("leaves job-run guidance identical — every rule there is protocol", () => {
+    const opts = {
+      agentType: "claude",
+      jobRunId: "run_1",
+      suggestSessionRename: true,
+    } as const;
+    expect(guidance({ ...opts, trimmedGuidance: true })).toBe(guidance(opts));
+  });
+
+  it("threads the setting through buildAgentCommand", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      { autoReview: true, trimmedGuidance: true }
+    );
+    expect(cmd).toContain(SHARE_NUDGE);
+    expect(cmd).not.toContain(PLAYWRIGHT_RULE);
   });
 });

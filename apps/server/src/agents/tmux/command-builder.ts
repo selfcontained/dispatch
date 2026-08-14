@@ -26,6 +26,17 @@ const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
 const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
 
 /**
+ * Agent types that can install the Dispatch plugin, whose skills carry the
+ * depth the trimmed rules drop. Opencode and Cursor have no plugin at all, so
+ * they keep the full guidance even when the trim setting is on — otherwise
+ * they'd lose that guidance with nothing replacing it.
+ */
+const PLUGIN_CAPABLE_AGENT_TYPES: ReadonlySet<AgentType> = new Set([
+  "claude",
+  "codex",
+]);
+
+/**
  * Pull a `--append-system-prompt <value>` pair out of an arg list (codex /
  * opencode put system prompts in their own flag). Claude doesn't need this
  * normalization because its CLI accepts the flag directly.
@@ -146,6 +157,18 @@ export function buildStartupPrompt(
 
 /**
  * Build the numbered launch guidance text shared by all CLI agent types.
+ *
+ * `trimmedGuidance` shortens the rules the Dispatch plugin's skills now cover
+ * in depth (Playwright/`dispatch_share`, and the Autonomous Review workflow).
+ * It never touches the rules that have no task to match against — no-task
+ * guardrail, session naming, `dispatch_event`, pin surfacing — because a skill
+ * only loads when its description matches the situation, so always-on rules
+ * cannot become skills without silently stopping working.
+ *
+ * The two tool-routing lines (`dispatch_share`, `create_pr`) keep a short
+ * always-on nudge even when trimmed: those habits were already ignored when
+ * stated in two always-on places, so moving them entirely onto a
+ * match-triggered skill is the riskiest part of the trim.
  */
 export function buildLaunchGuidance(
   agentId: string,
@@ -154,15 +177,29 @@ export function buildLaunchGuidance(
     jobRunId?: string;
     suggestSessionRename?: boolean;
     autoReview?: boolean;
+    trimmedGuidance?: boolean;
   }
 ): string {
-  const { agentType, jobRunId, suggestSessionRename, autoReview } = opts;
+  const {
+    agentType,
+    jobRunId,
+    suggestSessionRename,
+    autoReview,
+    trimmedGuidance,
+  } = opts;
+  const trimmed =
+    trimmedGuidance === true &&
+    agentType !== undefined &&
+    PLUGIN_CAPABLE_AGENT_TYPES.has(agentType);
   const rules: string[] = [];
   if (agentType === "cursor") {
     rules.push(buildCursorDispatchToolGuidance());
   }
 
   if (jobRunId) {
+    // Not affected by `trimmed`: every rule on this branch is a runtime
+    // protocol obligation (status, job_log, terminal event) with no
+    // task-shaped trigger a skill description could key on.
     rules.push(
       `You are running a Dispatch job run (${jobRunId}). Job agents have a dedicated MCP route — use repo tools when relevant.`
     );
@@ -195,14 +232,18 @@ export function buildLaunchGuidance(
       "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, pick an approach). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you."
     );
     rules.push(
-      "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
+      trimmed
+        ? "Share artifacts with dispatch_share — screenshots, logs, reports. A file path pasted into chat is not a deliverable."
+        : "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
     );
     rules.push(
       "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
     );
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. After launch, do not poll, sleep, call list_agents, or schedule a wakeup; end the turn and let Dispatch inject the structured REVIEW SUBMITTED prompt when ready. If feedback exists, call dispatch_review_list_feedback with the supplied review ID and keep all discussion in item threads via dispatch_review_add_message. After fixing an item, ask the reviewer to verify it instead of resolving it yourself. The reviewer will resolve verified fixes or reply with further instructions. A clean zero-item approval requires no action. Don't emit done until all submitted reviews are resolved."
+        trimmed
+          ? "Autonomous Review is enabled. Before emitting done: commit and push, open a draft PR via create_pr, then launch a reviewer via dispatch_launch_persona and end the turn — do not poll, sleep, or schedule a wakeup; Dispatch injects the review prompt when it's ready. Don't emit done until all submitted reviews are resolved."
+          : "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. After launch, do not poll, sleep, call list_agents, or schedule a wakeup; end the turn and let Dispatch inject the structured REVIEW SUBMITTED prompt when ready. If feedback exists, call dispatch_review_list_feedback with the supplied review ID and keep all discussion in item threads via dispatch_review_add_message. After fixing an item, ask the reviewer to verify it instead of resolving it yourself. The reviewer will resolve verified fixes or reply with further instructions. A clean zero-item approval requires no action. Don't emit done until all submitted reviews are resolved."
       );
     }
   }
@@ -240,6 +281,7 @@ type BuildAgentCommandOptions = {
   jobRunId?: string;
   suggestSessionRename?: boolean;
   autoReview?: boolean;
+  trimmedGuidance?: boolean;
   initialPrompt?: string;
   personalityPrompt?: string | null;
   model?: string;
@@ -259,6 +301,7 @@ export function buildAgentCommand(
     jobRunId,
     suggestSessionRename,
     autoReview,
+    trimmedGuidance,
     initialPrompt,
     personalityPrompt,
     model,
@@ -270,6 +313,7 @@ export function buildAgentCommand(
     jobRunId,
     suggestSessionRename,
     autoReview,
+    trimmedGuidance,
   });
 
   const userLocalBin = process.env.HOME
