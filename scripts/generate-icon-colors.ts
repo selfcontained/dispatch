@@ -11,6 +11,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import sharp from "sharp";
+import { ICON_COLOR_PALETTE } from "../apps/server/src/shared/icon-colors.js";
 
 const REPO_ROOT = path.resolve(import.meta.dirname, "..");
 const PUBLIC_DIR = path.join(REPO_ROOT, "apps/web/public");
@@ -22,16 +23,7 @@ const ICONS_DIR = path.join(PUBLIC_DIR, "icons");
 const ORIGINAL_PRIMARY = "rgb(7.843137%, 72.54902%, 50.588235%)";
 const ORIGINAL_DARK = "rgb(5.098039%, 51.372549%, 34.509804%)";
 
-const COLORS = [
-  { id: "teal", primary: "#14B981", dark: "#0D8358" },
-  { id: "blue", primary: "#3B82F6", dark: "#2563EB" },
-  { id: "purple", primary: "#8B5CF6", dark: "#6D28D9" },
-  { id: "red", primary: "#EF4444", dark: "#B91C1C" },
-  { id: "orange", primary: "#F97316", dark: "#C2410C" },
-  { id: "amber", primary: "#F59E0B", dark: "#B45309" },
-  { id: "pink", primary: "#EC4899", dark: "#BE185D" },
-  { id: "cyan", primary: "#06B6D4", dark: "#0E7490" },
-] as const;
+const COLORS = ICON_COLOR_PALETTE;
 
 const SIZES = [
   { name: "pwa-512.png", size: 512 },
