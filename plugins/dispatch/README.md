@@ -2,8 +2,9 @@
 
 Skills that teach agents how to use Dispatch's own capabilities. Install it in
 Claude Code or Codex and agents get shared memory, subagent orchestration, repo
-tools, artifact sharing, the review workflow, the whiteboard, jobs, and templates
-as discoverable skills instead of tribal knowledge.
+tools, artifact sharing, the review workflow, UI validation, personas, the
+whiteboard, jobs, templates, and personalities as discoverable skills instead of
+tribal knowledge.
 
 ## Install
 

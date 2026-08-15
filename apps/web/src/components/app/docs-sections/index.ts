@@ -9,5 +9,6 @@ export { EventsContent } from "./events";
 export { MediaContent } from "./media";
 export { BrowserFeedbackContent } from "./browser-feedback";
 export { NotificationsContent } from "./notifications";
+export { PluginContent } from "./plugin";
 export { ResourcesContent } from "./resources";
 export { UpdatesContent } from "./updates";
