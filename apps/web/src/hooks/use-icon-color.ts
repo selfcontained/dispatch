@@ -1,17 +1,29 @@
 import { useCallback } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
-export const ICON_COLORS = [
-  "teal",
-  "blue",
-  "purple",
-  "red",
-  "orange",
-  "amber",
-  "pink",
-  "cyan",
-] as const;
-export type IconColorId = (typeof ICON_COLORS)[number];
+/**
+ * Palette ids and swatch hexes come from the shared server module so the web
+ * client always matches what the server accepts and what the icon generator
+ * renders (see apps/server/src/shared/icon-colors.ts). Display labels are
+ * web-only and live here.
+ */
+import {
+  ICON_COLOR_PALETTE,
+  type IconColorId,
+} from "../../../server/src/shared/icon-colors";
+
+export type { IconColorId };
+
+const ICON_COLOR_LABELS: Record<IconColorId, string> = {
+  teal: "Teal",
+  blue: "Blue",
+  purple: "Purple",
+  red: "Red",
+  orange: "Orange",
+  amber: "Amber",
+  pink: "Pink",
+  cyan: "Cyan",
+};
 
 export type IconColorDefinition = {
   id: IconColorId;
@@ -19,16 +31,13 @@ export type IconColorDefinition = {
   swatch: string;
 };
 
-export const ICON_COLOR_OPTIONS: IconColorDefinition[] = [
-  { id: "teal", label: "Teal", swatch: "#14B981" },
-  { id: "blue", label: "Blue", swatch: "#3B82F6" },
-  { id: "purple", label: "Purple", swatch: "#8B5CF6" },
-  { id: "red", label: "Red", swatch: "#EF4444" },
-  { id: "orange", label: "Orange", swatch: "#F97316" },
-  { id: "amber", label: "Amber", swatch: "#F59E0B" },
-  { id: "pink", label: "Pink", swatch: "#EC4899" },
-  { id: "cyan", label: "Cyan", swatch: "#06B6D4" },
-];
+export const ICON_COLOR_OPTIONS: IconColorDefinition[] = ICON_COLOR_PALETTE.map(
+  (color) => ({
+    id: color.id,
+    label: ICON_COLOR_LABELS[color.id],
+    swatch: color.primary,
+  })
+);
 
 export function useIconColor(): {
   iconColor: IconColorId;

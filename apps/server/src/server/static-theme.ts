@@ -1,21 +1,14 @@
+import { ICON_COLOR_IDS, type IconColorId } from "../shared/icon-colors.js";
+
 type EmbeddedStaticAsset = {
   routePath: string;
   contentType: string;
   base64: string;
 };
 
-export const VALID_ICON_COLORS = [
-  "teal",
-  "blue",
-  "purple",
-  "red",
-  "orange",
-  "amber",
-  "pink",
-  "cyan",
-] as const;
+export const VALID_ICON_COLORS = ICON_COLOR_IDS;
 
-export type IconColor = (typeof VALID_ICON_COLORS)[number];
+export type IconColor = IconColorId;
 
 const DEFAULT_ICON_COLOR: IconColor = "teal";
 
