@@ -231,7 +231,7 @@ These tools only work inside running agent sessions (they require agent-scoped M
 
 ## Dispatch plugin (Claude Code + Codex)
 
-This repo doubles as a plugin marketplace. The **Dispatch plugin** ships skills that teach agents how to use the capabilities above — the Brain, subagents, `.dispatch/tools.json`, artifact sharing, the review workflow, the whiteboard, jobs, and templates — so agents discover them instead of having to be told.
+This repo doubles as a plugin marketplace. The **Dispatch plugin** ships eleven skills that teach agents how to use the capabilities above — the Brain, subagents, `.dispatch/tools.json`, artifact sharing, the review workflow, UI validation, personas, the whiteboard, jobs, templates, and personalities — so agents discover them instead of having to be told.
 
 **Before you install:** plugins on Claude Code and Codex are **unsigned and unsandboxed, and run with your full local user privileges** — this one and every other self-hosted plugin. This plugin ships no executable components (no hooks, no `bin/`, no bundled MCP servers), only markdown skills; [plugins/dispatch/README.md](plugins/dispatch/README.md#trust) shows how to verify that for yourself before running the commands below.
 
@@ -257,7 +257,7 @@ See [plugins/dispatch/README.md](plugins/dispatch/README.md) for what each skill
 
 ## Docs
 
-User-facing documentation (agents, keyboard shortcuts, personalities, repo tools, jobs, worktrees, reviewers, status events, media, notifications, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
+User-facing documentation (agents, keyboard shortcuts, personalities, repo tools, templates and jobs, worktrees, reviewers, status events, media, browser feedback, the plugin, notifications, service resources, updates) lives in the app itself — open the **Docs** pane from the sidebar. The files below are developer-facing references that aren't duplicated in the UI:
 
 - [API Specification](docs/03-api-spec.md) — complete API endpoint reference
 - [Agent Lifecycle Model](docs/04-agent-lifecycle.md) — states, transitions, tmux contract

@@ -11,6 +11,7 @@ import {
   Monitor,
   MousePointerClick,
   PlugZap,
+  Puzzle,
   Signal,
   Sparkles,
   Users,
@@ -27,6 +28,7 @@ import {
   NotificationsContent,
   PersonalitiesContent,
   PersonasContent,
+  PluginContent,
   ResourcesContent,
   ShortcutsContent,
   ToolsContent,
@@ -45,6 +47,7 @@ export type DocsSection =
   | "events"
   | "media"
   | "browser-feedback"
+  | "plugin"
   | "notifications"
   | "resources"
   | "updates";
@@ -127,6 +130,13 @@ const SECTIONS: SectionDef[] = [
     icon: MousePointerClick,
     title: "Browser Feedback",
     content: <BrowserFeedbackContent />,
+  },
+  {
+    id: "plugin",
+    label: "Plugin",
+    icon: Puzzle,
+    title: "Dispatch Plugin",
+    content: <PluginContent />,
   },
   {
     id: "notifications",

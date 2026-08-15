@@ -276,6 +276,14 @@ export const tips: Tip[] = [
     since: "0.33.7",
     surfaces: ["ambient"],
   },
+  {
+    id: "dispatch-plugin",
+    title: "Teach Your CLI About Dispatch",
+    body: "Install the Dispatch plugin in Claude Code or Codex and agents pick up skills for the Brain, subagents, repo tools, sharing, and reviews — so they use them without being told.",
+    docsSection: "plugin#plugin-install",
+    since: "0.34.1",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {
