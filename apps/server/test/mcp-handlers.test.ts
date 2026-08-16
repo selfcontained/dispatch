@@ -2336,7 +2336,7 @@ describe("createMcpHandlers", () => {
       ]);
     });
 
-    it("names a parent the caller cannot address", async () => {
+    it("redacts a parent the caller cannot address", async () => {
       deps.agentManager.listAgents.mockResolvedValue([
         {
           id: "agt_self",
@@ -2369,10 +2369,92 @@ describe("createMcpHandlers", () => {
 
       const result = await handlers.listAgentsForAgent("agt_self", "/repo-a");
       expect(result.map((a) => a.id)).toEqual(["agt_peer"]);
-      // agt_hidden is not addressable from /repo-a, but the caller still learns
-      // that agt_peer belongs to someone else's tree rather than being rootless.
-      expect(result[0].parentAgentId).toBe("agt_hidden");
-      expect(result[0].parentName).toBe("hidden-parent");
+      // agt_hidden is not addressable from /repo-a, so naming it here would
+      // hand the caller an identity it is not allowed to address.
+      expect(result[0].parentAgentId).toBeNull();
+      expect(result[0].parentName).toBeNull();
+    });
+
+    it("still labels a descendant whose intermediate is unaddressable", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "orchestrator",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_planner",
+          name: "planner",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_self",
+        },
+        {
+          // Neither same-repo nor a direct child of the caller, so the
+          // addressable set excludes it.
+          id: "agt_subplanner",
+          name: "subplanner",
+          cwd: "/repo-b",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_planner",
+        },
+        {
+          id: "agt_research",
+          name: "researcher",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_subplanner",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent("agt_self", "/repo-a");
+      expect(result.map((a) => a.id)).toEqual(["agt_planner", "agt_research"]);
+      const researcher = result.find((a) => a.id === "agt_research");
+      // The relation is computed over every agent, so the descendant does not
+      // flatten just because agt_subplanner sits in another repo — but
+      // agt_subplanner itself is still not named.
+      expect(researcher?.relation).toBe("descendant");
+      expect(researcher?.parentAgentId).toBeNull();
+      expect(researcher?.parentName).toBeNull();
+    });
+
+    it("names the caller as its own children's parent", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "orchestrator",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_self",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      // Self is excluded from the addressable set, but is not a secret from
+      // itself — a caller's own children must still name their parent.
+      const result = await handlers.listAgentsForAgent("agt_self", "/repo");
+      expect(result[0].parentAgentId).toBe("agt_self");
+      expect(result[0].parentName).toBe("orchestrator");
     });
 
     it("reports siblings launched by the same parent", async () => {
