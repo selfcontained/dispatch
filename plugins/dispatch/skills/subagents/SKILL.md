@@ -52,11 +52,16 @@ The list is not flat. Each entry names the agent that launched it, so a
 something you did. Incoming messages carry the same lineage: the delegation
 chain runs from the sender up through whoever launched it to you.
 
+Lineage is keyed by agent ID. Agents rename themselves as their work shifts, so
+a name is a label for reading, not a handle for remembering — build the tree
+from `parentAgentId`, and hold on to the ID of anyone you plan to contact later.
+
 `dispatch_send_message` injects a message directly into the target's session, and
 it can reply the same way. `target` accepts an agent ID (`agt_…`) or a name, which
-is fuzzy-matched. **It only works for agents that are currently running** — a
-message to a stopped agent goes nowhere, so check `list_agents` when a send fails
-rather than assuming it was delivered.
+is fuzzy-matched. A remembered name can drift onto a different agent or match
+nothing at all, so prefer the ID whenever you have it. **It only works for agents
+that are currently running** — a message to a stopped agent goes nowhere, so
+check `list_agents` when a send fails rather than assuming it was delivered.
 
 Messaging is for coordination, not for streaming progress. A parent that wants a
 start and an end does not want twelve interim pings; fold the detail into the
