@@ -735,6 +735,26 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     return buildLaunchGuidance(AGENT_ID, opts);
   }
 
+  it("is inert when the setting is off, however it's spelled", () => {
+    // An unset settings row reads as `false`, and callers that predate the
+    // option pass nothing at all. Both must leave guidance untouched, for
+    // every agent type and both branches.
+    for (const agentType of ["claude", "codex", "opencode", "cursor"] as const)
+      for (const jobRunId of [undefined, "run_1"])
+        for (const suggestSessionRename of [false, true])
+          for (const autoReview of [false, true]) {
+            const opts = {
+              agentType,
+              jobRunId,
+              suggestSessionRename,
+              autoReview,
+            };
+            expect(guidance({ ...opts, trimmedGuidance: false })).toBe(
+              guidance(opts)
+            );
+          }
+  });
+
   it("keeps the full ruleset when the setting is off", () => {
     const text = guidance({ agentType: "claude", suggestSessionRename: true });
     expect(text).toContain(PLAYWRIGHT_RULE);
