@@ -41,6 +41,14 @@ import {
   type PinListing,
   type PinSummary,
 } from "./pin-listing.js";
+import {
+  createLineageIndex,
+  delegationChain,
+  formatDelegationChain,
+  relationTo,
+  sanitizeAgentNameForPrompt,
+  type AgentRelation,
+} from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
@@ -704,8 +712,9 @@ async function handleSendMessage(
   const senderRepoRoot = input.senderRepoRoot;
   const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
 
+  const everyAgent = await deps.agentManager.listAgents();
   const allAgents = await addressableAgents(
-    await deps.agentManager.listAgents(),
+    everyAgent,
     agentId,
     senderRepoRoot,
     crossRepo
@@ -748,13 +757,36 @@ async function handleSendMessage(
     );
   }
 
+  // Provenance: without this the recipient sees only a sender name, so a
+  // message from a grandchild is indistinguishable from one from a direct
+  // child. Resolved against every agent so an unaddressable intermediate still
+  // appears in the chain rather than collapsing two levels into one.
+  const lineage = createLineageIndex(everyAgent);
+  const senderRelation = relationTo(lineage, target.id, agentId);
+  const chain = delegationChain(lineage, agentId, target.id);
+
   const envelope = JSON.stringify({
     from: sender.name,
     senderId: agentId,
+    senderRelation,
+    ...(chain.length > 1
+      ? { delegationChain: chain.map((node) => `${node.name} (${node.id})`) }
+      : {}),
     message: input.message,
     replyTarget: agentId,
   });
-  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
+  // The prose line only fires when it tells the recipient something the sender
+  // name alone does not: that the sender is further down its tree than a direct
+  // child, or that the sender belongs to a tree the recipient is not part of.
+  // A direct child's chain is just [child, you], so it stays silent.
+  const recipientInChain = chain.some((node) => node.id === target.id);
+  const provenanceLine =
+    senderRelation === "descendant"
+      ? `\nProvenance: ${sanitizeAgentNameForPrompt(sender.name)} is not your direct child — delegation chain: ${formatDelegationChain(chain, target.id)}.`
+      : !recipientInChain && chain.length > 1
+        ? `\nProvenance: ${formatDelegationChain(chain, target.id)}.`
+        : "";
+  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---${provenanceLine}\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
 
   // Deliver first: a persistence failure must never block delivery.
   let delivered = false;
@@ -837,23 +869,52 @@ async function handleListAgentsForAgent(
     name: string;
     status: string;
     latestEvent: { type: string; message: string } | null;
+    parentAgentId: string | null;
+    parentName: string | null;
+    relation: AgentRelation;
   }>
 > {
   const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
 
+  const allAgents = await deps.agentManager.listAgents();
   const agents = await addressableAgents(
-    await deps.agentManager.listAgents(),
+    allAgents,
     agentId,
     senderRepoRoot,
     crossRepo
   );
+  // Two different scopes, deliberately.
+  //
+  // `relation` is computed against every agent, because a grandchild must not
+  // flatten into a child just because the intermediate sits in another repo —
+  // and a relation names nobody.
+  //
+  // `parentAgentId`/`parentName` identify a specific agent, so they are
+  // resolved against the addressable set only. Naming the out-of-repo parent of
+  // a visible agent would hand the caller an identity it is not allowed to
+  // address; an unaddressable parent is reported as null instead.
+  const lineage = createLineageIndex(allAgents);
+  // Self is excluded from the addressable set but is obviously not a secret
+  // from itself, so the caller's own children still name their parent.
+  const visibleNamesById = new Map(agents.map((a) => [a.id, a.name]));
+  const self = lineage.get(agentId);
+  if (self) visibleNamesById.set(self.id, self.name);
+
   const result: Array<{
     id: string;
     name: string;
     status: string;
     latestEvent: { type: string; message: string } | null;
+    parentAgentId: string | null;
+    parentName: string | null;
+    relation: AgentRelation;
   }> = [];
   for (const a of agents) {
+    const rawParentId = a.parentAgentId ?? null;
+    const parentName = rawParentId
+      ? (visibleNamesById.get(rawParentId) ?? null)
+      : null;
+    const visibleParentId = parentName === null ? null : rawParentId;
     result.push({
       id: a.id,
       name: a.name,
@@ -861,6 +922,9 @@ async function handleListAgentsForAgent(
       latestEvent: a.latestEvent
         ? { type: a.latestEvent.type, message: a.latestEvent.message }
         : null,
+      parentAgentId: visibleParentId,
+      parentName,
+      relation: relationTo(lineage, agentId, a.id),
     });
   }
   return result;

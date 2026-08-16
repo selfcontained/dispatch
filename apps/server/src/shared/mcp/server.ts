@@ -16,7 +16,10 @@ import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
-import { registerMessagingTools } from "./messaging-tools.js";
+import {
+  registerMessagingTools,
+  type AgentListing,
+} from "./messaging-tools.js";
 import { registerPersonalityTools } from "./personality-tools.js";
 import { registerWhiteboardTools } from "./whiteboard-tools.js";
 import type {
@@ -502,14 +505,7 @@ export type McpRequestContext = {
   listAgentsForAgent?: (
     agentId: string,
     senderRepoRoot: string | null
-  ) => Promise<
-    Array<{
-      id: string;
-      name: string;
-      status: string;
-      latestEvent: { type: string; message: string } | null;
-    }>
-  >;
+  ) => Promise<AgentListing[]>;
   getActivitySummary?: (params: {
     start: Date;
     end: Date;

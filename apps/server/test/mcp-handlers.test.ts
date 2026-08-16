@@ -1664,6 +1664,7 @@ describe("createMcpHandlers", () => {
         `--- DISPATCH MESSAGE ---\n${JSON.stringify({
           from: "test-agent",
           senderId: "agt_test1",
+          senderRelation: "unrelated",
           message: "hello",
           replyTarget: "agt_test1",
         })}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`,
@@ -1675,6 +1676,149 @@ describe("createMcpHandlers", () => {
           "Reply with dispatch_send_message using the replyTarget above."
         ),
         { swallowFailure: false }
+      );
+    });
+
+    it("surfaces the delegation chain when the sender is a grandchild", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_researcher",
+        name: "researcher",
+        cwd: "/repo",
+        status: "running",
+        parentAgentId: "agt_planner",
+      } as any);
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_orchestrator",
+          name: "orchestrator",
+          cwd: "/repo",
+          status: "running",
+          parentAgentId: null,
+        },
+        {
+          id: "agt_planner",
+          name: "planner",
+          cwd: "/repo",
+          status: "running",
+          parentAgentId: "agt_orchestrator",
+        },
+        {
+          id: "agt_researcher",
+          name: "researcher",
+          cwd: "/repo",
+          status: "running",
+          parentAgentId: "agt_planner",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
+
+      await handlers.sendMessage("agt_researcher", {
+        target: "agt_orchestrator",
+        message: "hello",
+        senderRepoRoot: "/repo",
+      });
+
+      const prompt = deps.sendAgentPrompt.mock.calls[0][1] as string;
+      const envelope = JSON.parse(
+        prompt.slice(
+          prompt.indexOf("\n") + 1,
+          prompt.indexOf("\n--- END MESSAGE ---")
+        )
+      );
+      expect(envelope.senderRelation).toBe("descendant");
+      expect(envelope.delegationChain).toEqual([
+        "researcher (agt_researcher)",
+        "planner (agt_planner)",
+        "orchestrator (agt_orchestrator)",
+      ]);
+      expect(prompt).toContain(
+        "Provenance: researcher is not your direct child — delegation chain: " +
+          "researcher (agt_researcher) -> planner (agt_planner) -> orchestrator (agt_orchestrator, you)."
+      );
+    });
+
+    it("marks a direct child as a child and adds no provenance line", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child",
+        name: "child",
+        cwd: "/repo",
+        status: "running",
+        parentAgentId: "agt_parent",
+      } as any);
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/repo",
+          status: "running",
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo",
+          status: "running",
+          parentAgentId: "agt_parent",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
+
+      await handlers.sendMessage("agt_child", {
+        target: "agt_parent",
+        message: "done",
+        senderRepoRoot: "/repo",
+      });
+
+      const prompt = deps.sendAgentPrompt.mock.calls[0][1] as string;
+      expect(prompt).toContain('"senderRelation":"child"');
+      // The chain is [child, parent] and the recipient is the parent, so it adds
+      // nothing the recipient did not already know.
+      expect(prompt).not.toContain("Provenance:");
+    });
+
+    it("still reports the sender's own tree when the recipient is unrelated", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child",
+        name: "child",
+        cwd: "/repo",
+        status: "running",
+        parentAgentId: "agt_parent",
+      } as any);
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/repo",
+          status: "running",
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo",
+          status: "running",
+          parentAgentId: "agt_parent",
+        },
+        {
+          id: "agt_stranger",
+          name: "stranger",
+          cwd: "/repo",
+          status: "running",
+          parentAgentId: null,
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockResolvedValue("/repo");
+
+      await handlers.sendMessage("agt_child", {
+        target: "agt_stranger",
+        message: "fyi",
+        senderRepoRoot: "/repo",
+      });
+
+      const prompt = deps.sendAgentPrompt.mock.calls[0][1] as string;
+      expect(prompt).toContain('"senderRelation":"unrelated"');
+      expect(prompt).toContain(
+        "Provenance: child (agt_child) -> parent (agt_parent)."
       );
     });
 
@@ -1958,6 +2102,9 @@ describe("createMcpHandlers", () => {
         name: "peer",
         status: "running",
         latestEvent: null,
+        parentAgentId: null,
+        parentName: null,
+        relation: "unrelated",
       });
     });
 
@@ -2138,6 +2285,214 @@ describe("createMcpHandlers", () => {
       // senderRepoRoot null is tolerated once cross-repo messaging is on.
       const result = await handlers.listAgentsForAgent("agt_self", null);
       expect(result.map((a) => a.id)).toEqual(["agt_other"]);
+    });
+
+    it("labels each agent's lineage relative to the caller", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "orchestrator",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_planner",
+          name: "planner",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_self",
+        },
+        {
+          id: "agt_researcher",
+          name: "researcher",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_planner",
+        },
+        {
+          id: "agt_stranger",
+          name: "stranger",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent("agt_self", "/repo");
+      expect(
+        result.map((a) => [a.id, a.relation, a.parentAgentId, a.parentName])
+      ).toEqual([
+        ["agt_planner", "child", "agt_self", "orchestrator"],
+        ["agt_researcher", "descendant", "agt_planner", "planner"],
+        ["agt_stranger", "unrelated", null, null],
+      ]);
+    });
+
+    it("redacts a parent the caller cannot address", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "self",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_hidden",
+          name: "hidden-parent",
+          cwd: "/repo-b",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_peer",
+          name: "peer",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_hidden",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent("agt_self", "/repo-a");
+      expect(result.map((a) => a.id)).toEqual(["agt_peer"]);
+      // agt_hidden is not addressable from /repo-a, so naming it here would
+      // hand the caller an identity it is not allowed to address.
+      expect(result[0].parentAgentId).toBeNull();
+      expect(result[0].parentName).toBeNull();
+    });
+
+    it("still labels a descendant whose intermediate is unaddressable", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "orchestrator",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_planner",
+          name: "planner",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_self",
+        },
+        {
+          // Neither same-repo nor a direct child of the caller, so the
+          // addressable set excludes it.
+          id: "agt_subplanner",
+          name: "subplanner",
+          cwd: "/repo-b",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_planner",
+        },
+        {
+          id: "agt_research",
+          name: "researcher",
+          cwd: "/repo-a",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_subplanner",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent("agt_self", "/repo-a");
+      expect(result.map((a) => a.id)).toEqual(["agt_planner", "agt_research"]);
+      const researcher = result.find((a) => a.id === "agt_research");
+      // The relation is computed over every agent, so the descendant does not
+      // flatten just because agt_subplanner sits in another repo — but
+      // agt_subplanner itself is still not named.
+      expect(researcher?.relation).toBe("descendant");
+      expect(researcher?.parentAgentId).toBeNull();
+      expect(researcher?.parentName).toBeNull();
+    });
+
+    it("names the caller as its own children's parent", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_self",
+          name: "orchestrator",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_child",
+          name: "child",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_self",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      // Self is excluded from the addressable set, but is not a secret from
+      // itself — a caller's own children must still name their parent.
+      const result = await handlers.listAgentsForAgent("agt_self", "/repo");
+      expect(result[0].parentAgentId).toBe("agt_self");
+      expect(result[0].parentName).toBe("orchestrator");
+    });
+
+    it("reports siblings launched by the same parent", async () => {
+      deps.agentManager.listAgents.mockResolvedValue([
+        {
+          id: "agt_parent",
+          name: "parent",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: null,
+        },
+        {
+          id: "agt_self",
+          name: "self",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_parent",
+        },
+        {
+          id: "agt_sibling",
+          name: "sibling",
+          cwd: "/repo",
+          status: "running",
+          latestEvent: null,
+          parentAgentId: "agt_parent",
+        },
+      ]);
+      vi.mocked(resolveRepoRoot).mockImplementation(
+        async (cwd) => cwd as string
+      );
+
+      const result = await handlers.listAgentsForAgent("agt_self", "/repo");
+      expect(result.map((a) => [a.id, a.relation])).toEqual([
+        ["agt_parent", "parent"],
+        ["agt_sibling", "sibling"],
+      ]);
     });
   });
 
