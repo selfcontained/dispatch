@@ -51,8 +51,8 @@ export function AutomationsContent() {
             <strong>Agent type</strong> — <Code>claude</Code>,{" "}
             <Code>codex</Code>, <Code>cursor</Code>, <Code>opencode</Code>, or{" "}
             <Code>terminal</Code>. Terminal templates launch a plain shell
-            session and skip the prompt, worktree, full access, and media fields
-            below.
+            session and skip the prompt, worktree, full access, media, and
+            self-improve fields below.
           </li>
           <li>
             <strong>Model</strong> — shown for CLI types with a curated model
@@ -121,11 +121,16 @@ export function AutomationsContent() {
 
       <Section>
         <H3>Launching templates</H3>
-        <P>There are three ways to launch a template:</P>
+        <P>
+          There are three ways to launch a template, and all three open the same
+          launch dialog — there is no launch-on-click path, even for a template
+          with no arguments:
+        </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
             <strong>Template detail pane</strong> — select a template in the
-            sidebar, fill in any arguments, and click <strong>Launch</strong>.
+            sidebar. It lists the arguments the prompt expects, and{" "}
+            <strong>Launch</strong> opens the dialog to fill them in.
           </li>
           <li>
             <strong>Inline play button</strong> — each template in the list has
@@ -167,10 +172,19 @@ export function AutomationsContent() {
         <P>
           A job references a backing template and adds automation on top: cron
           scheduling, run timeouts, singleton enforcement, structured reporting
-          via MCP tools, auto-archive, and notifications. Jobs are the right
+          via MCP tools, auto-archive, and webhook triggers. Jobs are the right
           choice for recurring or monitored work — nightly triage, release
           babysitting, janitorial cleanup — where you want a machine-readable
           outcome.
+        </P>
+        <P>
+          Creating a job also creates a hidden backing template that holds the
+          agent config (prompt, agent type, model, worktree, full access). It
+          stays out of the Templates list and the palette, and the job's own
+          forms are how you edit it. Job runs notify through the ordinary
+          per-agent channels — a job agent's <Code>done</Code>,{" "}
+          <Code>waiting_user</Code>, or <Code>blocked</Code> event reaches Slack
+          and web notifications exactly like any other agent's.
         </P>
       </Section>
 
@@ -239,15 +253,17 @@ export function AutomationsContent() {
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <strong>Run timeout, minutes</strong> — how long an active run (
-            <Code>started</Code> / <Code>running</Code>) can stay open before
-            the scheduler force-stops it as <Code>timed_out</Code>. Defaults to
-            30 minutes.
+            <strong>Run timeout, minutes</strong> — wall-clock ceiling measured
+            from the moment the run starts, after which the scheduler
+            force-stops it as <Code>timed_out</Code>. Defaults to 30 minutes. It
+            keeps counting while the run is parked on a question, so raise it
+            for jobs that expect to wait on a human.
           </li>
           <li>
             <strong>Wait for input, minutes</strong> — how long a run can sit in{" "}
             <Code>needs_input</Code> before being marked <Code>timed_out</Code>.
-            Defaults to 24 hours.
+            Defaults to 24 hours, but the run timeout above applies at the same
+            time and usually expires first.
           </li>
           <li>
             <strong>Use worktree</strong> — create a fresh git worktree for each
@@ -262,20 +278,30 @@ export function AutomationsContent() {
             <strong>Keep agent after run completes</strong> — by default the
             agent is auto-archived once a run reaches a terminal state. Check
             this to leave the agent (and its worktree) around for inspection.
+            The job's detail pane then offers an <strong>Open session</strong>{" "}
+            button to pick up where the run left off.
           </li>
         </ul>
         <P>
           After creating a job, open its <strong>Configure</strong> tab to
           adjust these settings and options like{" "}
-          <strong>Webhook trigger</strong> — enable it to generate a secret URL
-          that fires a run via HTTP POST. No auth header is needed; the secret
-          in the URL is the credential. The prompt itself is edited on the job's{" "}
+          <strong>Webhook trigger</strong> — enable it, hit{" "}
+          <strong>Save</strong>, and Dispatch generates a secret URL that fires
+          a run via HTTP POST. No auth header is needed; the secret in the URL
+          is the credential. The prompt itself is edited on the job's{" "}
           <strong>Prompt</strong> tab.
+        </P>
+        <P>
+          The <strong>Enabled</strong> switch at the top of{" "}
+          <strong>Configure</strong> is the exception to the Save button: it
+          writes immediately, and it stays greyed out until the job has a
+          schedule saved. The same tab ends with <strong>Remove job</strong>,
+          which deletes the job, its schedule, and its run history.
         </P>
       </Section>
 
       <Section>
-        <H3>On-demand runs</H3>
+        <H3 id="on-demand-runs">On-demand runs</H3>
         <P>
           Every job has a <strong>Run now</strong> button on its detail pane.
           This spawns a run immediately with{" "}
@@ -309,9 +335,11 @@ export function AutomationsContent() {
             shape.
           </li>
           <li>
-            <Code>job_needs_input</Code> — pause the run and surface a question
-            in the UI; the run stays in <Code>needs_input</Code> until someone
-            resumes it or it hits the wait-for-input timeout.
+            <Code>job_needs_input</Code> — pause the run and surface the
+            question on its History entry. Answer the agent in its own terminal
+            session; the run stays in <Code>needs_input</Code> until the agent
+            calls a terminal tool or a timeout fires. There is no answer box in
+            the Jobs UI.
           </li>
         </ul>
         <P>
@@ -319,7 +347,9 @@ export function AutomationsContent() {
           <Code>needs_input</Code>, <Code>completed</Code>, <Code>failed</Code>,{" "}
           <Code>timed_out</Code>, and <Code>crashed</Code>. A run that exceeds
           its run timeout without reaching a terminal tool is force-stopped as{" "}
-          <Code>timed_out</Code>.
+          <Code>timed_out</Code>; one whose agent session ends first — stopped,
+          errored, or its tmux session gone — is recorded as{" "}
+          <Code>crashed</Code>.
         </P>
       </Section>
 
@@ -365,15 +395,9 @@ export function AutomationsContent() {
             <Code>dispatch_review_get_feedback</Code>,{" "}
             <Code>dispatch_review_add_message</Code>,{" "}
             <Code>dispatch_review_resolve</Code>, and{" "}
-            <Code>dispatch_review_reopen</Code>. See below.
-          </li>
-          <li>
-            <strong>Human review</strong> —{" "}
-            <Code>dispatch_review_list_feedback</Code>,{" "}
-            <Code>dispatch_review_get_feedback</Code>,{" "}
-            <Code>dispatch_review_resolve</Code>, and{" "}
-            <Code>dispatch_review_add_message</Code>. Read, resolve, and reply
-            to review feedback left on the Changes tab.
+            <Code>dispatch_review_reopen</Code>. The same family covers findings
+            a persona filed and feedback a human left on the Changes tab — read
+            them, reply in the item thread, and set each outcome. See below.
           </li>
           <li>
             <strong>Brain (shared memory)</strong> —{" "}
@@ -441,11 +465,20 @@ export function AutomationsContent() {
         <H3>History and status</H3>
         <P>
           Each job in the sidebar list shows its last run's status alongside its
-          schedule and enabled state, and the Jobs overview (shown when no job
-          is selected) lists upcoming scheduled runs. Open the{" "}
-          <strong>History</strong> tab on a job to browse past runs with their
-          start time, duration, trigger source (Manual, Scheduled, or Webhook),
-          and expandable report.
+          schedule and enabled state, plus <em>keeps agent</em> and{" "}
+          <em>callable</em> markers where they apply. The Jobs overview (shown
+          when no job is selected) covers the last 7 days: total runs, success
+          rate, average duration and failure count, a daily-runs chart, an{" "}
+          <strong>Upcoming</strong> list of the next scheduled runs, and a{" "}
+          <strong>Recent Activity</strong> list that jumps straight to a run.
+        </P>
+        <P>
+          Open the <strong>History</strong> tab on a job to browse past runs
+          with their status, start time, duration, trigger source (Manual,
+          Scheduled, or Webhook), and expandable report. An expanded run shows
+          the report summary, each task with its own status, and the last five{" "}
+          <Code>job_log</Code> lines per task — so write logs assuming only the
+          tail is visible.
         </P>
       </Section>
 

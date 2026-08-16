@@ -34,13 +34,20 @@ omits prompt bodies — call `get_template` for the one you actually want.
 | `description` | Shown in Cmd+K and launch views                      |
 | `directory`   | Absolute path of the repo this template runs against |
 | `prompt`      | The agent's first turn                               |
-| `agentType`   | `claude`, `codex`, `cursor`, or `opencode`           |
+| `agentType`   | `claude`, `codex`, `cursor`, `opencode`, `terminal`  |
 | `model`       | Optional model id, matching the agent type           |
 | `useWorktree` | Give the agent its own git worktree                  |
 | `baseBranch`  | Base branch for that worktree                        |
 | `branchName`  | Branch name for that worktree                        |
 | `fullAccess`  | Pass the CLI's full-access / bypass-approvals flag   |
 | `callable`    | Show it in the Cmd+K command palette                 |
+| `allowMedia`  | Default true: offer files and links at launch        |
+| `selfImprove` | Let the agent revise this saved prompt after a run   |
+
+Templates take the full agent-type table, jobs only the CLI subset. A `terminal`
+template opens a plain shell, so launching one ignores the prompt (and its
+arguments and self-improve guidance), the worktree settings, `fullAccess`, and
+any startup files.
 
 Set `useWorktree` for anything that writes code. Agents sharing a working tree
 overwrite each other's changes, and the damage is silent.
@@ -72,13 +79,16 @@ names it expects.
 
 ## The command palette
 
-Templates with `callable: true` appear in Cmd+K under "Templates":
-
-- **No arguments** → a confirmation step; Enter twice launches it.
-- **With arguments** → a launch dialog for filling values in first.
+Templates with `callable: true` appear in Cmd+K under "Templates". Selecting one
+always opens the launch dialog — argument fields when the prompt has them, plus
+an agent-type override, a model override, and a Context area when `allowMedia` is
+on. There is no launch-on-Enter path, so a template with no arguments still costs
+the human one extra confirm.
 
 Set `callable: false` for templates that exist only to back a job — otherwise the
-palette fills with entries nobody launches by hand.
+palette fills with entries nobody launches by hand. (Templates that Dispatch
+creates to back a job are already excluded from both the palette and the
+Templates list.)
 
 ## Writing the prompt
 
