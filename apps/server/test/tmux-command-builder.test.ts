@@ -3,6 +3,7 @@ import { afterEach, describe, it, expect, vi } from "vitest";
 import type { AppConfig } from "../src/config.js";
 import {
   buildAgentCommand,
+  buildLaunchGuidance,
   buildStartupPrompt,
   normalizeAgentArgsForType,
 } from "../src/agents/tmux/command-builder.js";
@@ -706,5 +707,203 @@ describe("buildAgentCommand — host-env reads (process.env / process.platform)"
       false
     );
     expect(cmd).not.toContain("NODE_EXTRA_CA_CERTS");
+  });
+});
+
+describe("buildLaunchGuidance — trimmed variant", () => {
+  const PLAYWRIGHT_RULE = "Playwright: default headless.";
+  const SHARE_NUDGE = "Share artifacts with dispatch_share";
+  const CREATE_PR_RULE = "use the create_pr MCP tool";
+  // Reactive clauses Dispatch re-injects when they apply — dropped for
+  // everyone, toggle or not.
+  const REACTIVE_REVIEW_CLAUSES = [
+    "structured REVIEW SUBMITTED prompt",
+    "ask the reviewer to verify it",
+    "zero-item approval",
+  ];
+
+  // Detail that lives in the MCP tool schemas — restating it in every
+  // session is what the trim removes.
+  const SCHEMA_DUPLICATED = [
+    "Types: url (dev servers, docs)",
+    "waiting_user (need a decision or approval)",
+    "call dispatch_list_pins then dispatch_delete_pin",
+    "Set confirm on destructive ones",
+  ];
+
+  function guidance(opts: Parameters<typeof buildLaunchGuidance>[1]): string {
+    return buildLaunchGuidance(AGENT_ID, opts);
+  }
+
+  it("is inert when the setting is off, however it's spelled", () => {
+    // An unset settings row reads as `false`, and callers that predate the
+    // option pass nothing at all. Both must leave guidance untouched, for
+    // every agent type and both branches.
+    for (const agentType of ["claude", "codex", "opencode", "cursor"] as const)
+      for (const jobRunId of [undefined, "run_1"])
+        for (const suggestSessionRename of [false, true])
+          for (const autoReview of [false, true]) {
+            const opts = {
+              agentType,
+              jobRunId,
+              suggestSessionRename,
+              autoReview,
+            };
+            expect(guidance({ ...opts, trimmedGuidance: false })).toBe(
+              guidance(opts)
+            );
+          }
+  });
+
+  it("keeps the full ruleset when the setting is off", () => {
+    const text = guidance({ agentType: "claude", suggestSessionRename: true });
+    expect(text).toContain(PLAYWRIGHT_RULE);
+    expect(text).not.toContain(SHARE_NUDGE);
+    expect(text).toContain(CREATE_PR_RULE);
+  });
+
+  it("swaps the Playwright rule for a short dispatch_share nudge when trimmed", () => {
+    const text = guidance({
+      agentType: "claude",
+      suggestSessionRename: true,
+      trimmedGuidance: true,
+    });
+    expect(text).not.toContain(PLAYWRIGHT_RULE);
+    expect(text).toContain(SHARE_NUDGE);
+  });
+
+  it("drops the create_pr routing rule when trimmed — review-workflow carries it", () => {
+    const text = guidance({ agentType: "claude", trimmedGuidance: true });
+    expect(text).not.toContain(CREATE_PR_RULE);
+  });
+
+  it("keeps the Autonomous Review rule short in BOTH states", () => {
+    for (const trimmedGuidance of [false, true]) {
+      const text = guidance({
+        agentType: "claude",
+        autoReview: true,
+        trimmedGuidance,
+      });
+      expect(text).toContain("Autonomous Review is enabled");
+      // The proactive gates — nothing can inject these at the right moment,
+      // because the moment is the agent deciding it's done.
+      expect(text).toContain("create_pr");
+      expect(text).toContain("dispatch_launch_persona");
+      expect(text).toContain(
+        "Don't emit done until all submitted reviews are resolved"
+      );
+      // Injection is best-effort, so one durable way to find a review
+      // submitted while this agent was down has to survive.
+      expect(text).toContain("dispatch_review_list_feedback");
+      // The rest of the reactive half is delivered by injection instead.
+      for (const clause of REACTIVE_REVIEW_CLAUSES) {
+        expect(text).not.toContain(clause);
+      }
+    }
+  });
+
+  it("still mentions create_pr under trim when autoReview supplies it", () => {
+    const text = guidance({
+      agentType: "claude",
+      autoReview: true,
+      trimmedGuidance: true,
+    });
+    expect(text).toContain("create_pr");
+  });
+
+  it("omits the Autonomous Review rule entirely when autoReview is off", () => {
+    const text = guidance({ agentType: "claude", trimmedGuidance: true });
+    expect(text).not.toContain("Autonomous Review is enabled");
+  });
+
+  it("keeps every rule's subject, just shorter", () => {
+    const text = guidance({
+      agentType: "claude",
+      suggestSessionRename: true,
+      autoReview: true,
+      trimmedGuidance: true,
+    });
+    // The no-task guardrail has no replacement anywhere — verbatim.
+    expect(text).toContain("No task, no work.");
+    // The rest survive as pointers: still named, no longer explained.
+    for (const tool of [
+      "dispatch_rename_session",
+      "dispatch_event",
+      "dispatch_pin",
+      "shortcut pins",
+      "dispatch_share",
+    ]) {
+      expect(text).toContain(tool);
+    }
+  });
+
+  it("drops the detail the MCP tool schemas already carry", () => {
+    const full = guidance({ agentType: "claude", suggestSessionRename: true });
+    const text = guidance({
+      agentType: "claude",
+      suggestSessionRename: true,
+      trimmedGuidance: true,
+    });
+    for (const detail of SCHEMA_DUPLICATED) {
+      expect(full).toContain(detail);
+      expect(text).not.toContain(detail);
+    }
+  });
+
+  it("keeps the dispatch_event misuse guard, which no schema states", () => {
+    const text = guidance({ agentType: "claude", trimmedGuidance: true });
+    expect(text).toContain("blocked means genuinely stuck");
+    expect(text).toContain("auto-corrected");
+  });
+
+  it("folds the two pin rules into one", () => {
+    const full = guidance({ agentType: "claude" });
+    const text = guidance({ agentType: "claude", trimmedGuidance: true });
+    const pinRules = (s: string) =>
+      s.split("\n").filter((line) => /pin/i.test(line)).length;
+    expect(pinRules(full)).toBe(2);
+    expect(pinRules(text)).toBe(1);
+  });
+
+  it("ignores the setting for agent types with no Dispatch plugin", () => {
+    for (const agentType of ["opencode", "cursor"] as const) {
+      const text = guidance({
+        agentType,
+        autoReview: true,
+        trimmedGuidance: true,
+      });
+      expect(text).toContain(PLAYWRIGHT_RULE);
+      expect(text).toContain(CREATE_PR_RULE);
+    }
+  });
+
+  it("applies to codex as well as claude", () => {
+    const text = guidance({ agentType: "codex", trimmedGuidance: true });
+    expect(text).toContain(SHARE_NUDGE);
+    expect(text).not.toContain(PLAYWRIGHT_RULE);
+  });
+
+  it("leaves job-run guidance identical — every rule there is protocol", () => {
+    const opts = {
+      agentType: "claude",
+      jobRunId: "run_1",
+      suggestSessionRename: true,
+    } as const;
+    expect(guidance({ ...opts, trimmedGuidance: true })).toBe(guidance(opts));
+  });
+
+  it("threads the setting through buildAgentCommand", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      { autoReview: true, trimmedGuidance: true }
+    );
+    expect(cmd).toContain(SHARE_NUDGE);
+    expect(cmd).not.toContain(PLAYWRIGHT_RULE);
   });
 });

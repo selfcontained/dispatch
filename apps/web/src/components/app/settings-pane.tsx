@@ -5,6 +5,7 @@ import { AppearanceSettings } from "@/components/app/appearance-settings";
 import { BrowserExtensionSettings } from "@/components/app/browser-extension-settings";
 import { CrossRepoMessagingSettings } from "@/components/app/cross-repo-messaging-settings";
 import { InjectionHoldSettings } from "@/components/app/injection-hold-settings";
+import { LaunchGuidanceSettings } from "@/components/app/launch-guidance-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
 import { InstanceNameSettings } from "@/components/app/instance-name-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
@@ -206,6 +207,9 @@ export function SettingsContent({
                 enabledIdes={enabledIdes}
                 onChange={onEnabledIdesChange}
               />
+            </div>
+            <div className="border-t border-border">
+              <LaunchGuidanceSettings />
             </div>
             <div className="border-t border-border">
               <InjectionHoldSettings />

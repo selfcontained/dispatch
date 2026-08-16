@@ -26,6 +26,17 @@ const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
 const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
 
 /**
+ * Agent types that can install the Dispatch plugin, whose skills carry the
+ * depth the trimmed rules drop. Opencode and Cursor have no plugin at all, so
+ * they keep the full guidance even when the trim setting is on — otherwise
+ * they'd lose that guidance with nothing replacing it.
+ */
+const PLUGIN_CAPABLE_AGENT_TYPES: ReadonlySet<AgentType> = new Set([
+  "claude",
+  "codex",
+]);
+
+/**
  * Pull a `--append-system-prompt <value>` pair out of an arg list (codex /
  * opencode put system prompts in their own flag). Claude doesn't need this
  * normalization because its CLI accepts the flag directly.
@@ -146,6 +157,40 @@ export function buildStartupPrompt(
 
 /**
  * Build the numbered launch guidance text shared by all CLI agent types.
+ *
+ * `trimmedGuidance` swaps the verbose rules for short generic ones. Two
+ * different things carry the detail it drops, and the distinction matters:
+ *
+ * - **The MCP tool schemas.** `dispatch_pin`'s own description already lists
+ *   every pin type, explains shortcut/confirm/disabled, and says to pair a
+ *   blocking shortcut with `waiting_user`; `dispatch_event`'s enumerates the
+ *   status types. Restating them here duplicated a description the agent
+ *   already has, in every session, whether or not the flow ever comes up. The
+ *   trimmed rules say *that* these tools matter and leave the *how* to the
+ *   schema. This half does not depend on the plugin at all.
+ * - **Plugin skills**, for the Playwright methodology (→ `ui-validation` +
+ *   `sharing`) and the `create_pr` routing line (→ `review-workflow`). This
+ *   half genuinely needs the plugin installed, which is why the setting is
+ *   worded as an assertion about it.
+ *
+ * What never trims is the rule with no replacement anywhere: the no-task
+ * guardrail. Nothing else states it, and it has to fire before a task exists.
+ *
+ * A short `dispatch_share` nudge survives the trim on purpose. That habit was
+ * already stated in two always-on places and agents still pasted file paths
+ * into chat, so it's the one tool-routing rule with a demonstrated failure
+ * history — the toggle tests `create_pr`, not this.
+ *
+ * The Autonomous Review rule is shortened for *everyone*, toggle or not, and
+ * that has nothing to do with the plugin: two thirds of the old block was
+ * reactive ("after feedback arrives, do X"), and Dispatch already re-injects
+ * each of those clauses at the moment they apply — see
+ * `buildLaunchPersonaResponseText` and `reviews/injection-prompts.ts`. What
+ * remains is the part nothing can inject: the gate the agent must already know
+ * before it decides it is done, plus a pointer to
+ * `dispatch_review_list_feedback` — injection is best-effort and is dropped
+ * when the parent has no live session, so the agent needs one durable way to
+ * find a review that was submitted while it was down.
  */
 export function buildLaunchGuidance(
   agentId: string,
@@ -154,15 +199,29 @@ export function buildLaunchGuidance(
     jobRunId?: string;
     suggestSessionRename?: boolean;
     autoReview?: boolean;
+    trimmedGuidance?: boolean;
   }
 ): string {
-  const { agentType, jobRunId, suggestSessionRename, autoReview } = opts;
+  const {
+    agentType,
+    jobRunId,
+    suggestSessionRename,
+    autoReview,
+    trimmedGuidance,
+  } = opts;
+  const trimmed =
+    trimmedGuidance === true &&
+    agentType !== undefined &&
+    PLUGIN_CAPABLE_AGENT_TYPES.has(agentType);
   const rules: string[] = [];
   if (agentType === "cursor") {
     rules.push(buildCursorDispatchToolGuidance());
   }
 
   if (jobRunId) {
+    // Not affected by `trimmed`: every rule on this branch is a runtime
+    // protocol obligation (status, job_log, terminal event) with no
+    // task-shaped trigger a skill description could key on.
     rules.push(
       `You are running a Dispatch job run (${jobRunId}). Job agents have a dedicated MCP route — use repo tools when relevant.`
     );
@@ -182,27 +241,43 @@ export function buildLaunchGuidance(
     );
     if (suggestSessionRename) {
       rules.push(
-        "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
+        trimmed
+          ? "Name the session with dispatch_rename_session once the topic is clear — a short label for what the session is about, not a live status."
+          : "Name the session. Once the topic of work is clear, call dispatch_rename_session with a short name for that topic, task, or feature — the reason for the session. The name is a stable label describing what the session is about, not a live status update. Rename again if the work shifts substantially to a new topic."
       );
     }
     rules.push(
-      "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
+      trimmed
+        ? "Report status with dispatch_event as you work and before your final response — blocked means genuinely stuck, not an error you're about to fix. Your reported status is verified against session activity and auto-corrected."
+        : "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
     );
+    if (trimmed) {
+      // One rule instead of two: surface values, and ask questions, with pins.
+      // The tool schema carries the types, shortcut mechanics, and deletion.
+      rules.push(
+        "Surface important data to the user with dispatch_pin — anything they may need to read or copy — and use shortcut pins to offer a next step or ask them to pick between options."
+      );
+    } else {
+      rules.push(
+        "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share and pin a reference."
+      );
+      rules.push(
+        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, pick an approach). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you."
+      );
+    }
     rules.push(
-      "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share and pin a reference."
+      trimmed
+        ? "Share artifacts with dispatch_share — screenshots, logs, reports. A file path pasted into chat is not a deliverable."
+        : "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
     );
-    rules.push(
-      "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, pick an approach). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you."
-    );
-    rules.push(
-      "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
-    );
-    rules.push(
-      "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
-    );
+    if (!trimmed) {
+      rules.push(
+        "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
+      );
+    }
     if (autoReview) {
       rules.push(
-        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch 1 relevant reviewer via dispatch_launch_persona. After launch, do not poll, sleep, call list_agents, or schedule a wakeup; end the turn and let Dispatch inject the structured REVIEW SUBMITTED prompt when ready. If feedback exists, call dispatch_review_list_feedback with the supplied review ID and keep all discussion in item threads via dispatch_review_add_message. After fixing an item, ask the reviewer to verify it instead of resolving it yourself. The reviewer will resolve verified fixes or reply with further instructions. A clean zero-item approval requires no action. Don't emit done until all submitted reviews are resolved."
+        "Autonomous Review is enabled. Before emitting done: commit and push your branch, open a draft PR via create_pr (don't override baseBranch — it defaults correctly), call list_personas, then launch relevant reviewers via dispatch_launch_persona. Dispatch will guide the rest as it happens. Don't emit done until all submitted reviews are resolved — if a review prompt never arrived, check with dispatch_review_list_feedback."
       );
     }
   }
@@ -240,6 +315,7 @@ type BuildAgentCommandOptions = {
   jobRunId?: string;
   suggestSessionRename?: boolean;
   autoReview?: boolean;
+  trimmedGuidance?: boolean;
   initialPrompt?: string;
   personalityPrompt?: string | null;
   model?: string;
@@ -259,6 +335,7 @@ export function buildAgentCommand(
     jobRunId,
     suggestSessionRename,
     autoReview,
+    trimmedGuidance,
     initialPrompt,
     personalityPrompt,
     model,
@@ -270,6 +347,7 @@ export function buildAgentCommand(
     jobRunId,
     suggestSessionRename,
     autoReview,
+    trimmedGuidance,
   });
 
   const userLocalBin = process.env.HOME

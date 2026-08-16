@@ -22,6 +22,7 @@ import {
   probeGitContext,
 } from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
+import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
 import { findCodexSessionId } from "./codex-sessions.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
@@ -696,6 +697,11 @@ export class AgentManager {
         opts.persona || opts.jobRunId || role === "assisted_update"
           ? null
           : await getActivePersonality(this.pool);
+      // Job runs get their own ruleset, which the trim never touches — so
+      // don't make an unchanged launch path depend on this settings read.
+      const trimmedGuidance = opts.jobRunId
+        ? false
+        : await isTrimmedLaunchGuidanceEnabled(this.pool);
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -713,6 +719,7 @@ export class AgentManager {
             jobRunId: opts.jobRunId,
           }),
           autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
+          trimmedGuidance,
           initialPrompt: startupPrompt,
           personalityPrompt: personality?.prompt ?? null,
           model,
@@ -906,6 +913,7 @@ export class AgentManager {
         agent.persona || agent.role === "assisted_update"
           ? null
           : await getActivePersonality(this.pool);
+      const trimmedGuidance = await isTrimmedLaunchGuidanceEnabled(this.pool);
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -922,6 +930,7 @@ export class AgentManager {
             persona: agent.persona,
           }),
           autoReview: !agent.persona && (agent.autoReview ?? false),
+          trimmedGuidance,
           personalityPrompt: personality?.prompt ?? null,
           model: agent.model ?? undefined,
         }
