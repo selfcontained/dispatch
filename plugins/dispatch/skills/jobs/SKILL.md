@@ -1,6 +1,6 @@
 ---
 name: jobs
-description: Run agent work on a schedule with structured pass/fail reporting and notifications. Use for recurring or unattended work — nightly triage, release babysitting, cleanup — or when a run's outcome must be machine-readable.
+description: Run agent work on a schedule with structured pass/fail reporting. Use for recurring or unattended work — nightly triage, release babysitting, cleanup — or when a run's outcome must be machine-readable.
 ---
 
 # Jobs: scheduled and monitored agent runs
@@ -8,7 +8,8 @@ description: Run agent work on a schedule with structured pass/fail reporting an
 A job is automation layered on a template. The template supplies the agent
 configuration — prompt, agent type, directory, worktree settings. The job adds
 everything that makes an unattended run safe: a cron schedule, timeouts, a
-one-at-a-time guarantee, structured reporting, auto-archive, and notifications.
+one-at-a-time guarantee, structured reporting, auto-archive, and an optional
+webhook trigger.
 
 **Template or job?** A template is for work a human launches — quick-start
 workflows out of the command palette. A job is for work that runs on its own and
@@ -36,7 +37,7 @@ Jobs are unique per (`directory`, `name`).
 | Field                 | Meaning                                                           |
 | --------------------- | ----------------------------------------------------------------- |
 | `templateId`          | The backing template supplying agent config                       |
-| `defaultArgs`         | Values for the template's arguments on scheduled runs             |
+| `defaultArgs`         | Values for the template's arguments, on every run. HTTP API only  |
 | `schedule`            | Cron expression. Optional — a job without one still runs manually |
 | `timeoutMs`           | Wall-clock ceiling for a run (default 30 min)                     |
 | `needsInputTimeoutMs` | How long a run may sit waiting on a human (default 24 h)          |
@@ -107,15 +108,24 @@ Limits: 1 MB per report, 100 tasks, 500 logs per task, 10 KB summary and error
 strings, 5 KB log messages.
 
 `job_needs_input` pauses the run rather than failing it — the right call when a
-decision genuinely requires a human. An unanswered one times out per
-`needsInputTimeoutMs`.
+decision genuinely requires a human. The answer arrives in your terminal like any
+other message; there is no answer box in the Jobs pane, so nothing "resumes" you
+but the human typing.
+
+Do not count on `needsInputTimeoutMs` as your budget for waiting. `timeoutMs` is
+measured from the start of the run and keeps counting through `needs_input`, so
+with the defaults (30 min vs 24 h) a parked run is killed by the run timeout
+first. Raise `timeoutMs` on any job that expects to wait on a person.
 
 ## Notifications
 
-Jobs send their own Slack messages, with independent webhook lists per event:
-`onComplete` (finished successfully), `onError` (failed, timed out, or crashed),
-and `onNeedsInput` (waiting on a human). The job agent's own per-agent
-notifications are suppressed so completion does not notify twice.
+There is no per-job notification config to wire. The `notify` column exists in
+the data model, but nothing writes it — not the routes, not `create_job`, not
+`update_job` — so the per-job Slack path never fires.
 
-Wire `onError` and `onNeedsInput` at minimum. A job whose failures are silent is
-worse than no job — it looks like coverage without providing any.
+Job agents are not excluded from the ordinary per-agent notifications, so a run's
+`done`, `waiting_user`, and `blocked` events already reach whatever Slack and web
+notifications the user has configured. That is the coverage you get for free —
+which makes emitting an honest terminal `dispatch_event` the thing that actually
+determines whether a failure is visible tonight. Call `dispatch_notify` directly
+when a run needs to say something the status event cannot carry.

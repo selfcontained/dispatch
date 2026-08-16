@@ -277,6 +277,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "job-webhooks",
+    title: "Fire a Job From Anywhere",
+    body: "A job's Configure tab has a Webhook trigger toggle: save it and you get a secret URL that starts a run on an HTTP POST — no auth header, so CI, a shortcut, or another machine can kick it off.",
+    docsSection: "automations#on-demand-runs",
+    since: "0.22.0",
+    surfaces: ["ambient"],
+  },
+  {
     id: "dispatch-plugin",
     title: "Teach Your CLI About Dispatch",
     body: "Install the Dispatch plugin in Claude Code or Codex and agents pick up skills for the Brain, subagents, repo tools, sharing, and reviews — so they use them without being told.",
