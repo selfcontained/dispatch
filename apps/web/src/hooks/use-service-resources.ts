@@ -12,10 +12,14 @@ export type {
 export type { SubsystemSnapshot } from "../../../server/src/observability/subsystem-tracker";
 
 /**
- * Every state the resource dashboard renders a badge for: the subsystem states
- * plus the `unavailable` that only `overall` and `database` report.
+ * Every state the resource dashboard renders a badge for. `stateLabel` and
+ * `stateBadgeVariant` are called with both `subsystem.state` and
+ * `overall.state`, so this tracks both server unions rather than restating
+ * where they differ.
  */
-export type ResourceHealthState = SubsystemHealthState | "unavailable";
+export type ResourceHealthState =
+  | SubsystemHealthState
+  | ServiceResourcesResponse["overall"]["state"];
 
 export type ResourceWindow = "15m" | "1h";
 
