@@ -42,9 +42,15 @@ of retyping the prompt — see the `templates` skill.
 ## Coordinating
 
 ```
-list_agents           — who exists, their IDs, names, statuses, latest activity
+list_agents           — who exists, their IDs, names, statuses, latest activity,
+                        plus parentAgentId and relation (child, descendant, …)
 dispatch_send_message target, message
 ```
+
+The list is not flat. Each entry names the agent that launched it, so a
+`descendant` is a grandchild or deeper — something your own child spawned, not
+something you did. Incoming messages carry the same lineage: the delegation
+chain runs from the sender up through whoever launched it to you.
 
 `dispatch_send_message` injects a message directly into the target's session, and
 it can reply the same way. `target` accepts an agent ID (`agt_…`) or a name, which

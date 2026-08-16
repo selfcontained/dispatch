@@ -41,6 +41,12 @@ import {
   type PinListing,
   type PinSummary,
 } from "./pin-listing.js";
+import {
+  delegationChain,
+  formatDelegationChain,
+  relationTo,
+  type AgentRelation,
+} from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
@@ -704,8 +710,9 @@ async function handleSendMessage(
   const senderRepoRoot = input.senderRepoRoot;
   const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
 
+  const everyAgent = await deps.agentManager.listAgents();
   const allAgents = await addressableAgents(
-    await deps.agentManager.listAgents(),
+    everyAgent,
     agentId,
     senderRepoRoot,
     crossRepo
@@ -748,13 +755,35 @@ async function handleSendMessage(
     );
   }
 
+  // Provenance: without this the recipient sees only a sender name, so a
+  // message from a grandchild is indistinguishable from one from a direct
+  // child. Resolved against every agent so an unaddressable intermediate still
+  // appears in the chain rather than collapsing two levels into one.
+  const senderRelation = relationTo(everyAgent, target.id, agentId);
+  const chain = delegationChain(everyAgent, agentId, target.id);
+
   const envelope = JSON.stringify({
     from: sender.name,
     senderId: agentId,
+    senderRelation,
+    ...(chain.length > 1
+      ? { delegationChain: chain.map((node) => `${node.name} (${node.id})`) }
+      : {}),
     message: input.message,
     replyTarget: agentId,
   });
-  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
+  // The prose line only fires when it tells the recipient something the sender
+  // name alone does not: that the sender is further down its tree than a direct
+  // child, or that the sender belongs to a tree the recipient is not part of.
+  // A direct child's chain is just [child, you], so it stays silent.
+  const recipientInChain = chain.some((node) => node.id === target.id);
+  const provenanceLine =
+    senderRelation === "descendant"
+      ? `\nProvenance: ${sender.name} is not your direct child — delegation chain: ${formatDelegationChain(chain, target.id)}.`
+      : !recipientInChain && chain.length > 1
+        ? `\nProvenance: ${formatDelegationChain(chain, target.id)}.`
+        : "";
+  const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---${provenanceLine}\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
 
   // Deliver first: a persistence failure must never block delivery.
   let delivered = false;
@@ -837,23 +866,37 @@ async function handleListAgentsForAgent(
     name: string;
     status: string;
     latestEvent: { type: string; message: string } | null;
+    parentAgentId: string | null;
+    parentName: string | null;
+    relation: AgentRelation;
   }>
 > {
   const crossRepo = await isCrossRepoMessagingEnabled(deps.pool);
 
+  const allAgents = await deps.agentManager.listAgents();
   const agents = await addressableAgents(
-    await deps.agentManager.listAgents(),
+    allAgents,
     agentId,
     senderRepoRoot,
     crossRepo
   );
+  // Lineage is resolved against every agent, not just the addressable subset:
+  // an intermediate that the caller cannot address (different repo root, or
+  // archived) must still be reported by name rather than silently flattening a
+  // grandchild into a child.
+  const namesById = new Map(allAgents.map((a) => [a.id, a.name]));
+
   const result: Array<{
     id: string;
     name: string;
     status: string;
     latestEvent: { type: string; message: string } | null;
+    parentAgentId: string | null;
+    parentName: string | null;
+    relation: AgentRelation;
   }> = [];
   for (const a of agents) {
+    const parentAgentId = a.parentAgentId ?? null;
     result.push({
       id: a.id,
       name: a.name,
@@ -861,6 +904,9 @@ async function handleListAgentsForAgent(
       latestEvent: a.latestEvent
         ? { type: a.latestEvent.type, message: a.latestEvent.message }
         : null,
+      parentAgentId,
+      parentName: parentAgentId ? (namesById.get(parentAgentId) ?? null) : null,
+      relation: relationTo(allAgents, agentId, a.id),
     });
   }
   return result;
