@@ -94,6 +94,17 @@ type CreateMcpHandlersDeps = {
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
   appLog: FastifyBaseLogger;
+  /**
+   * Claim an archive and run its teardown in the background. Archiving cannot
+   * be awaited here: the target may be the caller, whose session the teardown
+   * stops. Shared with the HTTP archive route's lifecycle runtime so the
+   * teardown is still tracked at shutdown and still publishes UI events.
+   */
+  beginBackgroundArchive: (
+    agentId: string,
+    cleanupWorktree?: WorktreeCleanupMode,
+    opts?: { startAfter?: () => Promise<void> }
+  ) => Promise<AgentRecord>;
 };
 
 function normalizePersonalityDuplicateName(error: unknown): never {
@@ -540,55 +551,58 @@ async function handleLaunchAgent(
   return { agentId: agent.id, name: agent.name, ...(note ? { note } : {}) };
 }
 
+/**
+ * Grace period after the response is on the wire before teardown begins,
+ * covering the gap between the kernel accepting the bytes and the agent
+ * process reading them. Only matters when an agent archives itself — it is the
+ * one waiting on that response.
+ */
+const ARCHIVE_RESPONSE_SETTLE_MS = 750;
+
+/** Backstop, so a transport that never ends the stream can't stall an archive. */
+const ARCHIVE_RESPONSE_TIMEOUT_MS = 5_000;
+
 async function handleArchiveAgent(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  input: { agentId: string; cleanupWorktree?: WorktreeCleanupMode }
-): Promise<{ agentId: string; name: string; archived: true }> {
+  input: {
+    agentId: string;
+    cleanupWorktree?: WorktreeCleanupMode;
+    whenResponseFinished?: () => Promise<void>;
+  }
+): Promise<{ agentId: string; name: string; archiving: true }> {
   const target = await deps.agentManager.getAgent(input.agentId);
   if (!target) throw new AgentError("Agent not found.", 404);
-  if (target.parentAgentId !== agentId) {
+  if (target.id !== agentId && target.parentAgentId !== agentId) {
     throw new AgentError(
-      "You can only archive agents you launched via dispatch_launch_agent or dispatch_launch_persona.",
+      "You can only archive yourself or an agent you launched via dispatch_launch_agent or dispatch_launch_persona.",
       403
     );
   }
 
-  const targetName = target.name;
-  const archiving = await deps.agentManager.beginArchive(
+  // Teardown runs in the background rather than being awaited: when the target
+  // is the caller, awaiting it would mean killing the session that is waiting
+  // for this response. Holding teardown until the response is written costs a
+  // child archive nothing, so both targets take the same path.
+  const archiving = await deps.beginBackgroundArchive(
     target.id,
-    input.cleanupWorktree ?? "auto"
+    input.cleanupWorktree ?? "auto",
+    {
+      startAfter: async () => {
+        const delay = (ms: number) =>
+          new Promise((resolve) => setTimeout(resolve, ms));
+        if (input.whenResponseFinished) {
+          await Promise.race([
+            input.whenResponseFinished(),
+            delay(ARCHIVE_RESPONSE_TIMEOUT_MS),
+          ]);
+        }
+        await delay(ARCHIVE_RESPONSE_SETTLE_MS);
+      },
+    }
   );
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(archiving),
-  });
 
-  let archiveError: unknown;
-  await deps.agentManager.executeArchive(target.id, {
-    onPhaseChange: (updated) => {
-      deps.publishUiEvent({
-        type: "agent.upsert",
-        agent: deps.withStreamFlag(updated),
-      });
-    },
-    onComplete: (deletedIds) => {
-      for (const deletedId of deletedIds) {
-        deps.publishUiEvent({ type: "agent.deleted", agentId: deletedId });
-      }
-    },
-    onError: (error) => {
-      archiveError = error;
-    },
-  });
-
-  if (archiveError !== undefined) {
-    throw archiveError instanceof Error
-      ? archiveError
-      : new Error(errorMessage(archiveError));
-  }
-
-  return { agentId: target.id, name: targetName, archived: true };
+  return { agentId: target.id, name: archiving.name, archiving: true };
 }
 
 async function handleShareMedia(
@@ -1162,7 +1176,11 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
 
     archiveAgent: (
       agentId: string,
-      input: { agentId: string; cleanupWorktree?: WorktreeCleanupMode }
+      input: {
+        agentId: string;
+        cleanupWorktree?: WorktreeCleanupMode;
+        whenResponseFinished?: () => Promise<void>;
+      }
     ) => handleArchiveAgent(deps, agentId, input),
 
     shareMedia: (

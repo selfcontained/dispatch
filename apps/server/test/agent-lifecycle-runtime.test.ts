@@ -34,6 +34,90 @@ describe("createAgentLifecycleRuntime", () => {
     vi.useRealTimers();
   });
 
+  describe("beginBackgroundArchive", () => {
+    it("claims the archive and returns without awaiting teardown", async () => {
+      const deps = makeDeps();
+      const rt = createAgentLifecycleRuntime(deps as never);
+
+      // executeArchive never resolves in makeDeps, so returning at all proves
+      // the caller is not blocked on teardown.
+      const agent = await rt.beginBackgroundArchive("agt_1", "keep");
+
+      expect(deps.agentManager.beginArchive).toHaveBeenCalledWith(
+        "agt_1",
+        "keep"
+      );
+      expect(agent).toMatchObject({ id: "agt_1" });
+      expect(deps.publishUiEvent).toHaveBeenCalledWith({
+        type: "agent.upsert",
+        agent: expect.objectContaining({ id: "agt_1", hasStream: false }),
+      });
+      expect(deps.agentManager.executeArchive).toHaveBeenCalled();
+    });
+
+    it("waits for startAfter before beginning teardown", async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const deps = makeDeps();
+      const rt = createAgentLifecycleRuntime(deps as never);
+
+      await rt.beginBackgroundArchive("agt_1", "auto", {
+        startAfter: () => gate,
+      });
+      await Promise.resolve();
+      expect(deps.agentManager.executeArchive).not.toHaveBeenCalled();
+
+      release();
+      await gate;
+      await Promise.resolve();
+      expect(deps.agentManager.executeArchive).toHaveBeenCalledWith(
+        "agt_1",
+        expect.any(Object)
+      );
+    });
+
+    it("propagates a failed claim instead of scheduling teardown", async () => {
+      const deps = makeDeps({
+        agentManager: {
+          beginArchive: vi
+            .fn()
+            .mockRejectedValue(new Error("Agent is already being archived.")),
+          executeArchive: vi.fn(),
+          reconcileAgentStatuses: vi.fn(),
+        },
+      });
+      const rt = createAgentLifecycleRuntime(deps as never);
+
+      await expect(rt.beginBackgroundArchive("agt_1")).rejects.toThrow(
+        "already being archived"
+      );
+      expect(deps.agentManager.executeArchive).not.toHaveBeenCalled();
+    });
+
+    it("swallows a rejecting teardown so no unhandled rejection escapes", async () => {
+      const deps = makeDeps({
+        agentManager: {
+          beginArchive: vi.fn().mockResolvedValue({ id: "agt_1", name: "a1" }),
+          executeArchive: vi
+            .fn()
+            .mockRejectedValue(new Error("archive blew up")),
+          reconcileAgentStatuses: vi.fn(),
+        },
+      });
+      const rt = createAgentLifecycleRuntime(deps as never);
+
+      await rt.beginBackgroundArchive("agt_1");
+      await rt.waitForActiveArchives(1_000);
+
+      expect(deps.appLog.error).toHaveBeenCalledWith(
+        expect.objectContaining({ err: expect.any(Error), agentId: "agt_1" }),
+        "Background archive failed"
+      );
+    });
+  });
+
   describe("autoArchiveJobAgent", () => {
     it("calls beginArchive and executeArchive for a new agent", async () => {
       const deps = makeDeps();

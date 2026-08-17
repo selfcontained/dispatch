@@ -263,8 +263,10 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>dispatch_archive_agent</Code> — archive an agent this session
-            launched, once its output has been consumed; optionally keeping or
-            force-removing its worktree
+            launched, once its output has been consumed, or the session itself
+            by passing its own agent ID; optionally keeping or force-removing
+            the worktree. A session archiving itself stops a moment after the
+            call returns, so it belongs last in a turn
           </li>
           <li>
             <Code>list_agents</Code> — list other agents in the same repo with

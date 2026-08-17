@@ -46,6 +46,39 @@ export function createAgentLifecycleRuntime(
   }
 
   return {
+    /**
+     * Claim an archive, then run its teardown in the background instead of
+     * awaiting it. `startAfter` gates the teardown — the MCP archive tool uses
+     * it to hold off until its response has been written, since an agent
+     * archiving itself is the one waiting on that response.
+     */
+    async beginBackgroundArchive(
+      agentId: string,
+      cleanupWorktree: "auto" | "keep" | "force" = "auto",
+      opts: { startAfter?: () => Promise<void> } = {}
+    ): Promise<AgentRecord> {
+      const agent = await agentManager.beginArchive(agentId, cleanupWorktree);
+      publishUiEvent({ type: "agent.upsert", agent: withStreamFlag(agent) });
+      trackArchive(
+        agentId,
+        (async () => {
+          if (opts.startAfter) await opts.startAfter();
+          await agentManager.executeArchive(agentId, {
+            onPhaseChange: (updated) => {
+              publishUiEvent({
+                type: "agent.upsert",
+                agent: withStreamFlag(updated),
+              });
+            },
+            onComplete: (deletedIds) =>
+              this.onArchivedAgentsDeleted(deletedIds),
+            onError: (error) => this.onArchiveError(agentId, error),
+          });
+        })().catch((error) => this.onArchiveError(agentId, error))
+      );
+      return agent;
+    },
+
     async autoArchiveJobAgent(agentId: string): Promise<void> {
       if (archivingAgentIds.has(agentId)) return;
       try {

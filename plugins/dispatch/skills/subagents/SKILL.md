@@ -82,6 +82,10 @@ launched directly — archiving someone else's agent is rejected. It stops the
 session and soft-deletes it, and it cannot be undone, so read the child's output
 first.
 
+Pass your own agent ID to retire yourself instead of idling until someone
+archives you from outside. Make it the last call of the turn: your session stops
+moments after it returns, so send any final message or report first.
+
 ## Patterns that work
 
 - **Fan out, then reconcile.** Launch one agent per independent part, each in its

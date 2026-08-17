@@ -18,6 +18,22 @@ import {
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 
+/**
+ * Resolves once the response has left the server — `finish` when it was
+ * written, `close` when the socket went away first. Attached before the MCP
+ * transport writes anything so no event can be missed.
+ */
+function onceResponseFinished(res: {
+  writableEnded?: boolean;
+  once(event: string, listener: () => void): unknown;
+}): Promise<void> {
+  if (res.writableEnded) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    res.once("finish", () => resolve());
+    res.once("close", () => resolve());
+  });
+}
+
 type McpRouteDeps = {
   config: {
     authToken: string;
@@ -191,7 +207,11 @@ export async function registerMcpRoutes(
       : undefined;
 
     reply.hijack();
+    // Captured before the transport writes anything, so an archive that stops
+    // the calling session can wait for its own response to be delivered.
+    const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
         cwd: agent.cwd,
@@ -285,7 +305,11 @@ export async function registerMcpRoutes(
     } catch {}
 
     reply.hijack();
+    // Captured before the transport writes anything, so an archive that stops
+    // the calling session can wait for its own response to be delivered.
+    const responseFinished = onceResponseFinished(reply.raw);
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      whenResponseFinished: () => responseFinished,
       agent: {
         id: agent.id,
         cwd: agent.cwd,
