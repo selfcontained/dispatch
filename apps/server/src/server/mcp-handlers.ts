@@ -441,6 +441,17 @@ async function handleLaunchAgent(
 ): Promise<{ agentId: string; name: string; note?: string }> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+  // An archive stops the parent moments from now, and only review children are
+  // cascaded — so a child launched after the archive was claimed would be
+  // orphaned the instant it started. True whoever claimed that archive; the
+  // window is simply widest when the parent archived itself and is still alive
+  // to make this very call.
+  if (parent.status === "archiving") {
+    throw new AgentError(
+      "This agent is being archived; it cannot launch new agents.",
+      409
+    );
+  }
 
   const agentType = input.type ?? parent.type ?? "claude";
   if (

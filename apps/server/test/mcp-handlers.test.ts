@@ -1007,6 +1007,21 @@ describe("createMcpHandlers", () => {
   });
 
   describe("launchAgent", () => {
+    it("refuses to launch a child under a parent that is being archived", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "test-agent",
+        cwd: "/repo",
+        status: "archiving",
+        type: "claude",
+      } as any);
+
+      await expect(
+        handlers.launchAgent("agt_test1", { name: "orphan", prompt: "work" })
+      ).rejects.toThrow("being archived");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
     it("includes the launching agent id in the child initial prompt", async () => {
       await handlers.launchAgent("agt_test1", {
         name: "worker",
