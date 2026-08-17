@@ -3,14 +3,54 @@ import crypto from "node:crypto";
 import type { FastifyReply, FastifyRequest } from "fastify";
 import type { Pool } from "pg";
 
-import { getSetting } from "../db/settings.js";
 import { tailscaleWhois } from "./tailscale.js";
 
 export type PeerAuth = {
   peerId: string;
   credentialId: string;
   allowLaunch: boolean;
+  allowMessage: boolean;
+  allowFullAccess: boolean;
 };
+
+/**
+ * A node's StableID cannot change between two requests from the same address,
+ * but resolving it costs a `tailscale whois` subprocess with a 10s timeout —
+ * once per authenticated request, on routes rate-limited at 120/min. Cache the
+ * positive answers briefly.
+ *
+ * Negative results are deliberately NOT cached: an unidentifiable caller is a
+ * hard deny, and caching that would let a transient tailscaled hiccup lock out
+ * a legitimate peer for the whole TTL.
+ */
+const WHOIS_TTL_MS = 30_000;
+const WHOIS_CACHE_MAX = 256;
+const whoisCache = new Map<string, { stableId: string; expiresAt: number }>();
+
+async function cachedWhoisStableId(addr: string): Promise<string | null> {
+  const hit = whoisCache.get(addr);
+  if (hit && hit.expiresAt > Date.now()) return hit.stableId;
+  if (hit) whoisCache.delete(addr);
+
+  const whois = await tailscaleWhois(addr);
+  if (!whois) return null;
+
+  // Cheap bound: the map is insertion-ordered, so the first key is the oldest.
+  if (whoisCache.size >= WHOIS_CACHE_MAX) {
+    const oldest = whoisCache.keys().next().value;
+    if (oldest !== undefined) whoisCache.delete(oldest);
+  }
+  whoisCache.set(addr, {
+    stableId: whois.stableId,
+    expiresAt: Date.now() + WHOIS_TTL_MS,
+  });
+  return whois.stableId;
+}
+
+/** Test-only: forget cached whois answers. */
+export function resetPeerWhoisCache(): void {
+  whoisCache.clear();
+}
 
 declare module "fastify" {
   interface FastifyContextConfig {
@@ -46,30 +86,29 @@ export async function requirePeerAuth(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  // Fail closed if the password was cleared after pairing: first-run open
-  // mode must never extend to peers, even ones holding a valid token.
-  if ((await getSetting(pool, "password_hash")) === null) {
-    await reply
-      .code(403)
-      .send({
-        error: "This instance has no password set — peer access is disabled.",
-      });
-    return;
-  }
-
   const token = bearerToken(request);
   if (!token) {
     await reply.code(401).send({ error: "Peer authentication required." });
     return;
   }
 
+  // One query does the credential lookup AND the fail-closed password check:
+  // first-run open mode must never extend to peers, even ones holding a valid
+  // token, so a cleared password denies here rather than falling through.
   const result = await pool.query<{
     id: string;
     peer_id: string;
     tailnet_stable_id: string | null;
     allow_launch: boolean;
+    allow_message: boolean;
+    allow_full_access: boolean;
+    password_set: boolean;
   }>(
-    `SELECT c.id, c.peer_id, c.tailnet_stable_id, c.allow_launch
+    `SELECT c.id, c.peer_id, c.tailnet_stable_id,
+            c.allow_launch, c.allow_message, c.allow_full_access,
+            EXISTS (
+              SELECT 1 FROM settings WHERE key = 'password_hash' AND value <> ''
+            ) AS password_set
        FROM peer_credentials c
        JOIN peers p ON p.id = c.peer_id AND p.revoked_at IS NULL
       WHERE c.token_hash = $1 AND c.revoked_at IS NULL`,
@@ -80,14 +119,20 @@ export async function requirePeerAuth(
     await reply.code(401).send({ error: "Invalid or revoked peer token." });
     return;
   }
+  if (!row.password_set) {
+    await reply.code(403).send({
+      error: "This instance has no password set — peer access is disabled.",
+    });
+    return;
+  }
 
   if (row.tailnet_stable_id) {
     const remote = request.socket.remoteAddress;
     const port = request.socket.remotePort;
-    const whois = remote
-      ? await tailscaleWhois(`${stripMapped(remote)}:${port ?? 0}`)
+    const stableId = remote
+      ? await cachedWhoisStableId(`${stripMapped(remote)}:${port ?? 0}`)
       : null;
-    if (!whois || whois.stableId !== row.tailnet_stable_id) {
+    if (!stableId || stableId !== row.tailnet_stable_id) {
       await reply
         .code(403)
         .send({ error: "Caller does not match the paired tailnet node." });
@@ -95,17 +140,32 @@ export async function requirePeerAuth(
     }
   }
 
-  await pool.query(
-    `UPDATE peer_credentials SET last_used_at = now() WHERE id = $1`,
-    [row.id]
-  );
-  await pool.query(`UPDATE peers SET last_seen_at = now() WHERE id = $1`, [
-    row.peer_id,
-  ]);
+  // Last-seen timestamps are telemetry, not correctness — nothing reads them to
+  // make a decision. Writing them per request costs two row writes on the
+  // hottest peer path, so only refresh once a minute.
+  void pool
+    .query(
+      `UPDATE peer_credentials SET last_used_at = now()
+        WHERE id = $1
+          AND (last_used_at IS NULL OR last_used_at < now() - interval '1 minute')`,
+      [row.id]
+    )
+    .catch(() => undefined);
+  void pool
+    .query(
+      `UPDATE peers SET last_seen_at = now()
+        WHERE id = $1
+          AND (last_seen_at IS NULL OR last_seen_at < now() - interval '1 minute')`,
+      [row.peer_id]
+    )
+    .catch(() => undefined);
+
   request.peerAuth = {
     peerId: row.peer_id,
     credentialId: row.id,
     allowLaunch: row.allow_launch,
+    allowMessage: row.allow_message,
+    allowFullAccess: row.allow_full_access,
   };
 }
 

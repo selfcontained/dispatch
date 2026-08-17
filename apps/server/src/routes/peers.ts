@@ -15,6 +15,7 @@ import {
   linkToPeer,
   listPeers,
   PEER_PROTOCOL_VERSION,
+  renamePeer,
   revokePeer,
 } from "../peers/pairing.js";
 import { setTailnetBindEnabled } from "../peers/peer-settings.js";
@@ -27,7 +28,13 @@ const TailnetBindBodySchema = z.object({
 
 const PairingOfferBodySchema = z.object({
   allowLaunch: z.boolean().default(true),
+  allowMessage: z.boolean().default(true),
+  allowFullAccess: z.boolean().default(false),
   requireTailnet: z.boolean().default(true),
+});
+
+const PeerRenameBodySchema = z.object({
+  name: z.string().trim().min(1).max(120),
 });
 
 const ClaimBodySchema = z.object({
@@ -44,7 +51,10 @@ const ClaimBodySchema = z.object({
 const LinkBodySchema = z.object({
   address: z.string().trim().min(1).max(4_096),
   code: z.string().trim().min(6).max(12),
+  name: z.string().trim().min(1).max(120).optional(),
   allowLaunch: z.boolean().default(true),
+  allowMessage: z.boolean().default(true),
+  allowFullAccess: z.boolean().default(false),
   selfUrl: z.string().trim().max(4_096).optional(),
 });
 
@@ -100,7 +110,13 @@ export async function registerPeerRoutes(
   deps: PeerRouteDeps
 ): Promise<void> {
   app.get("/api/v1/peers/self", async () => {
-    return await deps.peerRuntime.selfStatus();
+    const [status, name] = await Promise.all([
+      deps.peerRuntime.selfStatus(),
+      instanceDisplayName(deps.pool),
+    ]);
+    // The name a peer will adopt as its local label when it pairs with us, so
+    // the pairing card can show what the other side is about to see.
+    return { ...status, name };
   });
 
   app.post("/api/v1/peers/settings/tailnet-bind", async (request, reply) => {
@@ -243,7 +259,8 @@ export async function registerPeerRoutes(
       try {
         const result = await handleIncomingPeerLaunch(
           { pool: deps.pool, agentManager: deps.agentManager },
-          input
+          input,
+          { allowFullAccess: request.peerAuth!.allowFullAccess }
         );
         const agent = await deps.agentManager.getAgent(result.agentId);
         if (agent) {
@@ -276,6 +293,15 @@ export async function registerPeerRoutes(
     async (request, reply) => {
       const input = parseInput(PeerMessageBodySchema, request.body, reply);
       if (!input) return;
+      // Messaging is its own capability. Injecting a prompt into a full-access
+      // agent is code execution by a slower route, so a peer told it may not
+      // launch here must not reach agents here either.
+      if (!request.peerAuth!.allowMessage) {
+        return reply.code(403).send({
+          error:
+            "This peer is not allowed to message agents here (pair-time policy).",
+        });
+      }
       const result = await receivePeerMessage(
         { pool: deps.pool, injectAgentPrompt: deps.injectAgentPrompt },
         request.peerAuth!.peerId,
@@ -396,6 +422,21 @@ export async function registerPeerRoutes(
       return { repos: await listLocalRepos(deps.pool) };
     }
   );
+
+  // Rename a linked instance locally. "Cloud" is a statement about where the
+  // peer sits relative to THIS machine, so the remote is never told — and the
+  // label is what agents pass as `location`.
+  app.patch("/api/v1/peers/:id", async (request, reply) => {
+    const params = parseInput(PeerParamsSchema, request.params, reply);
+    if (!params) return;
+    const body = parseInput(PeerRenameBodySchema, request.body, reply);
+    if (!body) return;
+    const result = await renamePeer(deps.pool, params.id, body.name);
+    if (!result.ok) {
+      return reply.code(result.status).send({ error: result.error });
+    }
+    return { peer: { id: params.id, name: result.name } };
+  });
 
   app.delete("/api/v1/peers/:id", async (request, reply) => {
     const params = parseInput(PeerParamsSchema, request.params, reply);

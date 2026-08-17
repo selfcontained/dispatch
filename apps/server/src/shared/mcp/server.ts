@@ -369,6 +369,11 @@ export type McpRequestContext = {
   deletePersonality?: (id: string) => Promise<void>;
   setActivePersonality?: (id: string) => Promise<void>;
   clearActivePersonality?: () => Promise<void>;
+  /**
+   * Sentence naming the linked instances, spliced into the `location` parameter
+   * description so a model can see what "Cloud" or "Studio" actually resolve to.
+   */
+  peerLocationHint?: string;
   launchAgent?: (
     agentId: string,
     input: {
@@ -627,6 +632,7 @@ async function createDispatchMcpServer(
     registerAgentLaunchTools(server, allowed, {
       agentId: context.agent.id,
       launchAgent: context.launchAgent,
+      peerLocationHint: context.peerLocationHint,
     });
   }
 

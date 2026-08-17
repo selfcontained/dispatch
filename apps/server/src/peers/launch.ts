@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 import type { Pool } from "pg";
 
@@ -11,6 +13,52 @@ import {
 import { validateAgentModel } from "../shared/agent-models.js";
 import { getWorktreeLocation } from "../worktree-location-settings.js";
 import { getOrCreateInstanceId } from "./identity.js";
+import { asAgentStatus } from "./status.js";
+
+/**
+ * Resolve a peer-supplied cwd and prove it sits inside a repo root this
+ * instance advertises. Both sides are fully resolved first (realpath follows
+ * symlinks, so `/tmp/link-to-etc` cannot masquerade as an allowed root), and
+ * the containment test is segment-wise — a plain `startsWith` would accept
+ * `/repos/app-evil` for the root `/repos/app`.
+ */
+async function assertLaunchableCwd(
+  pool: Pool,
+  requested: string
+): Promise<string> {
+  const roots = await listLocalRepos(pool);
+  if (roots.length === 0) {
+    throw new Error(
+      "This instance advertises no repositories, so it cannot accept remote launches."
+    );
+  }
+
+  let resolved: string;
+  try {
+    resolved = await fs.realpath(path.resolve(requested));
+  } catch {
+    throw new Error(`Directory "${requested}" does not exist on this instance.`);
+  }
+
+  for (const root of roots) {
+    let resolvedRoot: string;
+    try {
+      resolvedRoot = await fs.realpath(path.resolve(root.root));
+    } catch {
+      continue; // A repo that has since been deleted cannot authorize anything.
+    }
+    const rel = path.relative(resolvedRoot, resolved);
+    const contained =
+      rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+    if (contained) return resolved;
+  }
+
+  throw new Error(
+    `Directory "${requested}" is not inside a repository this instance shares. Available: ${roots
+      .map((r) => r.root)
+      .join(", ")}.`
+  );
+}
 
 /**
  * Everything a remote launch needs is explicit in this payload — the usual
@@ -58,7 +106,8 @@ function buildRemoteChildInitialPrompt(
  */
 export async function handleIncomingPeerLaunch(
   deps: { pool: Pool; agentManager: AgentManager },
-  payload: PeerLaunchPayload
+  payload: PeerLaunchPayload,
+  policy: { allowFullAccess: boolean }
 ): Promise<PeerLaunchResult> {
   const agentType = payload.type;
   if (
@@ -76,6 +125,21 @@ export async function handleIncomingPeerLaunch(
     agentType as (typeof CLI_AGENT_TYPES)[number],
     payload.model
   );
+
+  // The repos we advertise on /peers/repos are the repos we accept launches
+  // into. Without this the advisory list is decorative and a linked peer can
+  // start an agent anywhere the server process can read.
+  const cwd = await assertLaunchableCwd(deps.pool, payload.cwd);
+
+  // fullAccess disables the sandbox, so it needs its own grant — "may launch
+  // here" must not silently mean "may launch unsandboxed here".
+  const fullAccess = payload.fullAccess ?? false;
+  if (fullAccess && !policy.allowFullAccess) {
+    throw new Error(
+      "This peer is not allowed to launch full-access agents here (pair-time policy)."
+    );
+  }
+
   const worktreeLocation = await getWorktreeLocation(deps.pool);
   const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
 
@@ -83,8 +147,8 @@ export async function handleIncomingPeerLaunch(
     cliSessionId,
     name: payload.name,
     type: agentType as AgentType,
-    cwd: payload.cwd,
-    fullAccess: payload.fullAccess ?? false,
+    cwd,
+    fullAccess,
     model,
     useWorktree: payload.useWorktree ?? false,
     createNewBranch: payload.createNewBranch ?? false,
@@ -117,6 +181,71 @@ export async function listLocalRepos(pool: Pool): Promise<PeerRepo[]> {
     root: row.root,
     name: row.root.split("/").filter(Boolean).at(-1) ?? row.root,
   }));
+}
+
+export type PeerLocation = {
+  /** The label to pass as `location` — what THIS instance calls the peer. */
+  name: string;
+  instanceId: string;
+  reachable: boolean;
+  canLaunch: boolean;
+};
+
+/**
+ * The locations an agent here can target, for the MCP tool descriptions.
+ *
+ * Tool descriptions are the only place a model learns what exists, so listing
+ * the real labels ("Cloud", "Studio") is the difference between the model
+ * guessing and the model knowing. `handleMcpRequest` registers tools per
+ * request, so this is read fresh each time rather than frozen at boot.
+ */
+export async function listPeerLocations(pool: Pool): Promise<PeerLocation[]> {
+  const result = await pool.query<{
+    id: string;
+    name: string;
+    last_seen_at: Date | null;
+    allow_launch: boolean | null;
+  }>(
+    `SELECT p.id, p.name, p.last_seen_at, c.allow_launch
+       FROM peers p
+       LEFT JOIN LATERAL (
+         SELECT allow_launch FROM peer_credentials
+          WHERE peer_id = p.id AND revoked_at IS NULL
+          ORDER BY created_at DESC LIMIT 1
+       ) c ON true
+      WHERE p.revoked_at IS NULL
+      ORDER BY p.name`
+  );
+  const staleAfter = Date.now() - 5 * 60 * 1000;
+  return result.rows.map((row) => ({
+    name: row.name,
+    instanceId: row.id,
+    reachable: (row.last_seen_at?.getTime() ?? 0) > staleAfter,
+    canLaunch: row.allow_launch ?? false,
+  }));
+}
+
+/**
+ * One line naming every linked instance, appended to the `location` parameter
+ * description. Empty string when nothing is linked, so the sentence reads
+ * naturally on the overwhelmingly common single-instance setup.
+ */
+export function describePeerLocations(locations: PeerLocation[]): string {
+  if (locations.length === 0) {
+    return " No instances are currently linked, so omit this and launch locally.";
+  }
+  const rendered = locations
+    .map((loc) => {
+      const notes = [
+        loc.reachable ? null : "not responding recently",
+        loc.canLaunch ? null : "launching not permitted there",
+      ].filter(Boolean);
+      return notes.length > 0
+        ? `"${loc.name}" (${notes.join("; ")})`
+        : `"${loc.name}"`;
+    })
+    .join(", ");
+  return ` Linked instances: ${rendered}. Omit to launch on this machine.`;
 }
 
 export type ResolvedPeer = {
@@ -207,6 +336,8 @@ export async function launchAgentOnPeer(
     pool: Pool;
     agentManager: AgentManager;
     fetchImpl?: typeof fetch;
+    /** Reconciles anything missed in the launch/insert window. */
+    requestPeerResnapshot?: (peerId: string) => void;
   },
   peer: ResolvedPeer,
   input: {
@@ -253,15 +384,23 @@ export async function launchAgentOnPeer(
   }
   const result = (await response.json()) as PeerLaunchResult;
 
+  // Seed from the status the peer just reported, not a hardcoded "creating".
+  // The peer publishes its own agent.upsert before this HTTP call returns, so
+  // that event lands before the shadow exists and the mirror drops it — leaving
+  // a hardcoded "creating" to sit there until the agent's NEXT status change,
+  // which for a long-running agent may be never.
   const shadow = await deps.agentManager.createShadowAgent({
     peerId: peer.id,
     remoteId: result.agentId,
     name: result.name,
     type: input.type as AgentType,
     cwd: input.cwd,
-    status: "creating",
+    status: asAgentStatus(result.status) ?? "creating",
     parentAgentId: input.parentAgentId,
   });
+  // Belt and braces for the same race: ask the subscriber to re-snapshot this
+  // peer so any transition we missed between launch and insert is reconciled.
+  deps.requestPeerResnapshot?.(peer.id);
   return {
     shadowAgentId: shadow.id,
     remoteAgentId: result.agentId,

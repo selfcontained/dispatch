@@ -6,7 +6,13 @@
 
 CREATE TABLE IF NOT EXISTS peers (
   id text PRIMARY KEY,                       -- the peer's instance_id (inst_*)
-  name text NOT NULL,                        -- display name shown in pickers
+  -- Two names, because they answer different questions. `reported_name` is what
+  -- the peer calls itself (its own instance_name, or hostname); `name` is what
+  -- THIS instance calls it, seeded from reported_name and editable here. The
+  -- local label is the one agents type as `location`, so "Cloud" can mean
+  -- different machines on different laptops without renaming anything remote.
+  name text NOT NULL,
+  reported_name text,
   url text NOT NULL,                         -- base URL we dial (MagicDNS or public)
   tailnet_stable_id text,                    -- the peer node's durable tailscale ID
   outbound_token text NOT NULL,              -- bearer WE present to THEM
@@ -15,13 +21,30 @@ CREATE TABLE IF NOT EXISTS peers (
   revoked_at timestamptz
 );
 
+-- One peer per local label, so `location: "Cloud"` is never ambiguous. Partial
+-- so a revoked peer's label is free for reuse.
+CREATE UNIQUE INDEX IF NOT EXISTS peers_active_name_idx
+  ON peers (lower(name))
+  WHERE revoked_at IS NULL;
+
 -- Bearer tokens THEY present to US, plus the standing pair-time policy.
+--
+-- Capabilities are a SET, not a flag. Pairing grants three separable things —
+-- run code here, inject prompts into agents here, and do either with the
+-- sandbox off — and a single boolean cannot describe them. Each route gates on
+-- its own column, so a launch-only CI box or a message-only observer is a
+-- policy row rather than a protocol version.
 CREATE TABLE IF NOT EXISTS peer_credentials (
   id uuid PRIMARY KEY,
   peer_id text NOT NULL REFERENCES peers(id) ON DELETE CASCADE,
   token_hash text NOT NULL UNIQUE,
   tailnet_stable_id text,                    -- pinned caller identity; NULL only for non-tailnet pairings
   allow_launch boolean NOT NULL DEFAULT true,
+  allow_message boolean NOT NULL DEFAULT true,
+  -- Off by default even when launching is allowed: fullAccess disables the
+  -- sandbox, and "may launch here" should not silently mean "may launch
+  -- unsandboxed here". Opt in per pairing.
+  allow_full_access boolean NOT NULL DEFAULT false,
   created_at timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz,
   revoked_at timestamptz
@@ -36,6 +59,8 @@ CREATE TABLE IF NOT EXISTS peer_pairings (
   id uuid PRIMARY KEY,
   code_hash text NOT NULL,
   allow_launch boolean NOT NULL DEFAULT true,
+  allow_message boolean NOT NULL DEFAULT true,
+  allow_full_access boolean NOT NULL DEFAULT false,
   require_tailnet boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL,
@@ -71,12 +96,17 @@ CREATE TABLE IF NOT EXISTS peer_outbox (
   next_attempt_at timestamptz NOT NULL DEFAULT now(),
   last_error text,
   created_at timestamptz NOT NULL DEFAULT now(),
-  delivered_at timestamptz
+  delivered_at timestamptz,
+  -- Retry is not forever. A peer that is merely gone — a machine nobody
+  -- explicitly unlinked — would otherwise accumulate rows that are re-attempted
+  -- until the end of time, and each attempt costs a 30s connect timeout. Past
+  -- the cap the row is dead-lettered: kept for inspection, never sent again.
+  dead_lettered_at timestamptz
 );
 
 CREATE INDEX IF NOT EXISTS peer_outbox_due_idx
-  ON peer_outbox (next_attempt_at)
-  WHERE delivered_at IS NULL;
+  ON peer_outbox (peer_id, next_attempt_at)
+  WHERE delivered_at IS NULL AND dead_lettered_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS peer_message_receipts (
   peer_id text NOT NULL,

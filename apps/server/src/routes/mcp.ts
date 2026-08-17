@@ -15,6 +15,10 @@ import {
   resolveRepoRoot,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
+import {
+  describePeerLocations,
+  listPeerLocations,
+} from "../peers/launch.js";
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 
@@ -190,8 +194,16 @@ export async function registerMcpRoutes(
         }
       : undefined;
 
+    // Read fresh per request: tool descriptions are the only place a model
+    // learns which machines it can target, and a linked instance can be added,
+    // renamed, or unlinked between two calls.
+    const peerLocationHint = describePeerLocations(
+      await listPeerLocations(deps.pool).catch(() => [])
+    );
+
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      peerLocationHint,
       agent: {
         id: agent.id,
         cwd: agent.cwd,
@@ -284,8 +296,16 @@ export async function registerMcpRoutes(
       worktreeRoot = await resolveWorktreeRoot(agent.cwd);
     } catch {}
 
+    // Read fresh per request: tool descriptions are the only place a model
+    // learns which machines it can target, and a linked instance can be added,
+    // renamed, or unlinked between two calls.
+    const peerLocationHint = describePeerLocations(
+      await listPeerLocations(deps.pool).catch(() => [])
+    );
+
     reply.hijack();
     await handleMcpRequest(request.raw, reply.raw, request.body, {
+      peerLocationHint,
       agent: {
         id: agent.id,
         cwd: agent.cwd,

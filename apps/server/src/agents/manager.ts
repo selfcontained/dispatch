@@ -1028,9 +1028,16 @@ export class AgentManager {
     const agent = await this.getRequiredAgent(id);
     if (agent.peerId) {
       // Shadow row: the pane lives on another instance and is not proxied.
+      // Name it the way every other surface does — "inst_9f2c62a1b0" means
+      // nothing to the person reading this.
+      const peer = await this.pool.query<{ name: string }>(
+        `SELECT name FROM peers WHERE id = $1`,
+        [agent.peerId]
+      );
+      const label = peer.rows[0]?.name ?? agent.peerId;
       return {
         mode: "inert",
-        message: `This agent runs on linked instance "${agent.peerId}" — its terminal is not available here.`,
+        message: `This agent runs on linked instance "${label}" — its terminal is not available here.`,
       };
     }
     if (agent.status !== "running" && agent.status !== "creating") {

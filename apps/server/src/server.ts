@@ -459,6 +459,8 @@ const mcpHandlers = createMcpHandlers({
   appLog: app.log,
   sendPeerPrompt: (peerId, targetAgentId, prompt) =>
     peerMessenger.sendPrompt(peerId, { targetAgentId, prompt }),
+  requestPeerResnapshot: (peerId) =>
+    peerEventSubscriber.requestResnapshot(peerId),
 });
 const jobTerminalStatuses = new Set([
   "completed",

@@ -34,6 +34,11 @@ export type AgentLaunchToolsContext = {
     agentId: string,
     input: LaunchAgentInput
   ) => Promise<LaunchAgentResult>;
+  /**
+   * Pre-rendered sentence naming the linked instances, appended to `location`.
+   * Computed per request by the caller — see describePeerLocations.
+   */
+  peerLocationHint?: string;
 };
 
 export function registerAgentLaunchTools(
@@ -130,7 +135,9 @@ export function registerAgentLaunchTools(
           .string()
           .optional()
           .describe(
-            "Name (or instance id) of a linked Dispatch instance to launch the agent on. Omit to launch locally. Requires an explicit cwd; calling without cwd returns the repos available there. Templates are not supported remotely. IMPORTANT: only the prompt you write crosses instances — the remote agent does not see your transcript, messages, or files, so write the prompt as a complete self-contained briefing."
+            "Which machine to run the agent on, by the name shown in Linked Instances." +
+              (context.peerLocationHint ?? "") +
+              " Requires an explicit cwd (paths cannot be inherited across machines); calling with a location but no cwd returns the repos available there. Templates are not supported remotely. IMPORTANT: only the prompt you write crosses instances — the remote agent does not see your transcript, messages, or files, so write the prompt as a complete self-contained briefing."
           ),
       },
     },

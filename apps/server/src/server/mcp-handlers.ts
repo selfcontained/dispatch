@@ -106,6 +106,8 @@ type CreateMcpHandlersDeps = {
     targetAgentId: string,
     prompt: string
   ) => Promise<{ delivered: boolean }>;
+  /** Re-snapshot a peer after minting a shadow, to close the launch race. */
+  requestPeerResnapshot?: (peerId: string) => void;
 };
 
 function normalizePersonalityDuplicateName(error: unknown): never {
@@ -598,7 +600,11 @@ async function handleLaunchAgentOnPeer(
   }
 
   const result = await launchAgentOnPeer(
-    { pool: deps.pool, agentManager: deps.agentManager },
+    {
+      pool: deps.pool,
+      agentManager: deps.agentManager,
+      requestPeerResnapshot: deps.requestPeerResnapshot,
+    },
     resolved.peer,
     {
       name: input.name,
@@ -796,10 +802,17 @@ async function handleSendMessage(
   // Qualified address ("<instance>:<agt_id>") — an agent on a linked instance
   // that has no shadow row here. Forward through the peer outbox; the peer's
   // own injector delivers it.
-  if (!input.target.startsWith("agt_") && input.target.includes(":")) {
-    const colon = input.target.indexOf(":");
-    const location = input.target.slice(0, colon);
-    const remoteAgentId = input.target.slice(colon + 1);
+  // A qualified address is "<location>:<agentId>". Recognising it on the mere
+  // presence of a colon was wrong: targets may be agent NAMES, and this repo
+  // names agents things like "fix: sse race", which then failed with
+  // `Unknown location "fix"`. Both SIDES have to look right — either an
+  // explicit inst_ prefix, or a label followed by something agent-id shaped.
+  const qualified =
+    /^(inst_[0-9a-f]+):(.+)$/i.exec(input.target) ??
+    /^([^:]+):(agt_[0-9a-z]+)$/i.exec(input.target);
+  if (qualified) {
+    const location = qualified[1];
+    const remoteAgentId = qualified[2];
     const resolved = await resolvePeerLocation(deps.pool, location);
     if (!resolved.ok) throw new Error(resolved.error);
     if (!deps.sendPeerPrompt) {

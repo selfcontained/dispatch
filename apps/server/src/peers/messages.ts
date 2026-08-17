@@ -7,6 +7,14 @@ const MAX_BACKOFF_MS = 15 * 60 * 1000;
 const BASE_BACKOFF_MS = 30 * 1000;
 const DRAIN_INTERVAL_MS = 30 * 1000;
 const RECEIPT_RETENTION_DAYS = 30;
+/**
+ * Backoff saturates at 15 minutes, so ~40 attempts is roughly half a day of
+ * trying. Past that the peer is not "temporarily away", it is gone, and a row
+ * that retries forever costs a 30s connect timeout every drain.
+ */
+const MAX_DELIVERY_ATTEMPTS = 40;
+/** Rows fetched per drain, per peer. Bounds one bad peer's share of the pass. */
+const DRAIN_BATCH_PER_PEER = 25;
 
 export type PeerMessageBody = {
   targetAgentId: string;
@@ -99,8 +107,17 @@ export class PeerMessenger {
     return { delivered };
   }
 
-  private async attempt(row: OutboxRow): Promise<boolean> {
-    const peer = await loadPeerDialInfo(this.deps.pool, row.peer_id);
+  /**
+   * Deliver one row. `peer` is passed in when the caller already loaded it —
+   * draining a backlog of 100 rows for one peer should not re-read the same
+   * peer row 100 times.
+   */
+  private async attempt(
+    row: OutboxRow,
+    prefetchedPeer?: PeerDialInfo
+  ): Promise<boolean> {
+    const peer =
+      prefetchedPeer ?? (await loadPeerDialInfo(this.deps.pool, row.peer_id));
     if (!peer) {
       // Peer was revoked with mail still queued — drop it, there is no one to
       // deliver to and retrying forever would hold the queue open.
@@ -123,44 +140,95 @@ export class PeerMessenger {
         BASE_BACKOFF_MS * 2 ** Math.min(attempts, 20),
         MAX_BACKOFF_MS
       );
+      const message =
+        error instanceof Error ? error.message.slice(0, 2_000) : "send failed";
+      const exhausted = attempts >= MAX_DELIVERY_ATTEMPTS;
       await this.deps.pool.query(
         `UPDATE peer_outbox
             SET attempts = $2,
                 next_attempt_at = now() + ($3 || ' milliseconds')::interval,
-                last_error = $4
+                last_error = $4,
+                dead_lettered_at = CASE WHEN $5 THEN now() ELSE dead_lettered_at END
           WHERE id = $1`,
-        [
-          row.id,
-          attempts,
-          String(backoff),
-          error instanceof Error
-            ? error.message.slice(0, 2_000)
-            : "send failed",
-        ]
+        [row.id, attempts, String(backoff), message, exhausted]
       );
+      if (exhausted) {
+        this.deps.log.warn(
+          { peerId: row.peer_id, outboxId: row.id, attempts, err: message },
+          "Peer message dead-lettered after exhausting delivery attempts"
+        );
+      }
       return false;
     }
   }
 
-  /** Deliver every due message; called on a timer and after reconnects. */
+  /**
+   * Deliver every due message; called on a timer and after reconnects.
+   *
+   * Peers drain CONCURRENTLY and each peer stops at its first transport
+   * failure. Serial delivery across peers meant one unreachable host — a closed
+   * laptop, the exact case the outbox exists for — held the mutex for a 30s
+   * timeout per row, starving every other peer's mail behind it.
+   */
   async drain(): Promise<void> {
     if (this.draining) return;
     this.draining = true;
     try {
-      const due = await this.deps.pool.query<OutboxRow>(
-        `SELECT id, peer_id, path, body, attempts
-           FROM peer_outbox
-          WHERE delivered_at IS NULL AND next_attempt_at <= now()
-          ORDER BY created_at
-          LIMIT 100`
+      const due = await this.deps.pool.query<OutboxRow & PeerDialInfo>(
+        `SELECT o.id, o.peer_id, o.path, o.body, o.attempts, p.url, p.outbound_token
+           FROM peer_outbox o
+           JOIN peers p ON p.id = o.peer_id AND p.revoked_at IS NULL
+          WHERE o.delivered_at IS NULL
+            AND o.dead_lettered_at IS NULL
+            AND o.next_attempt_at <= now()
+          ORDER BY o.peer_id, o.created_at`
       );
+
+      const byPeer = new Map<string, (OutboxRow & PeerDialInfo)[]>();
       for (const row of due.rows) {
-        await this.attempt(row);
+        const queue = byPeer.get(row.peer_id);
+        if (queue) queue.push(row);
+        else byPeer.set(row.peer_id, [row]);
       }
+
+      await Promise.all(
+        [...byPeer.values()].map(async (queue) => {
+          const peer: PeerDialInfo = {
+            url: queue[0].url,
+            outbound_token: queue[0].outbound_token,
+          };
+          // Ordered within a peer, and abandoned on the first failure: if this
+          // host is not answering, the remaining rows will fail identically and
+          // each costs a full connect timeout.
+          for (const row of queue.slice(0, DRAIN_BATCH_PER_PEER)) {
+            const ok = await this.attempt(row, peer);
+            if (!ok) break;
+          }
+        })
+      );
+
+      // The due query joins live peers only, so a revoked peer's queue would
+      // never be visited and never age out. Tombstone it here instead.
+      await this.deps.pool.query(
+        `UPDATE peer_outbox o
+            SET delivered_at = now(), last_error = 'peer revoked'
+          WHERE o.delivered_at IS NULL
+            AND NOT EXISTS (
+              SELECT 1 FROM peers p
+               WHERE p.id = o.peer_id AND p.revoked_at IS NULL
+            )`
+      );
       await this.deps.pool.query(
         `DELETE FROM peer_outbox
           WHERE delivered_at IS NOT NULL
             AND delivered_at < now() - interval '7 days'`
+      );
+      // Dead letters are kept longer than delivered rows: they are the record
+      // of mail that never arrived, which is the kind someone comes looking for.
+      await this.deps.pool.query(
+        `DELETE FROM peer_outbox
+          WHERE dead_lettered_at IS NOT NULL
+            AND dead_lettered_at < now() - interval '30 days'`
       );
       await this.deps.pool.query(
         `DELETE FROM peer_message_receipts
