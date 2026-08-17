@@ -253,6 +253,7 @@ function createMockDeps() {
       listMedia: vi.fn(async () => []),
     },
     jobService: {
+      getActiveRunForAgent: vi.fn(async () => null),
       completeRunForAgent: vi.fn(async () => ({
         id: "run_1",
         status: "completed",
@@ -1688,6 +1689,41 @@ describe("createMcpHandlers", () => {
       await expect(
         handlers.archiveAgent("agt_test1", { agentId: "agt_missing" })
       ).rejects.toThrow("Agent not found.");
+      expect(deps.beginBackgroundArchive).not.toHaveBeenCalled();
+    });
+
+    it("points a job agent at job_complete instead of archiving itself", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_test1",
+        name: "nightly triage",
+        cwd: "/repo",
+      } as any);
+      deps.jobService.getActiveRunForAgent.mockResolvedValue({
+        id: "run_7",
+        status: "running",
+      } as any);
+
+      await expect(
+        handlers.archiveAgent("agt_test1", { agentId: "agt_test1" })
+      ).rejects.toThrow(/active job run \(run_7\)[\s\S]*job_complete/);
+      expect(deps.beginBackgroundArchive).not.toHaveBeenCalled();
+    });
+
+    it("blocks archiving a child that has an active job run too", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child1",
+        name: "child",
+        cwd: "/repo",
+        parentAgentId: "agt_test1",
+      } as any);
+      deps.jobService.getActiveRunForAgent.mockResolvedValue({
+        id: "run_8",
+        status: "needs_input",
+      } as any);
+
+      await expect(
+        handlers.archiveAgent("agt_test1", { agentId: "agt_child1" })
+      ).rejects.toThrow("active job run (run_8)");
       expect(deps.beginBackgroundArchive).not.toHaveBeenCalled();
     });
 

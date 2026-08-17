@@ -591,6 +591,21 @@ async function handleArchiveAgent(
     );
   }
 
+  // A job agent leaves by reporting its outcome, not by being archived: the
+  // run is auto-archived once it reaches a terminal state. Archiving around
+  // that reports the run as crashed and pages whoever the job notifies. Only
+  // agent-initiated archives are blocked — the UI and the job runner still need
+  // to be able to archive a job agent that has genuinely gone wrong.
+  const activeRun = await deps.jobService.getActiveRunForAgent(target.id);
+  if (activeRun) {
+    throw new AgentError(
+      `Agent "${target.name}" has an active job run (${activeRun.id}). ` +
+        "A job agent ends its run by reporting the outcome — job_complete, job_failed, or job_needs_input — " +
+        "and is archived automatically once the run reaches a terminal state.",
+      409
+    );
+  }
+
   // Teardown runs in the background rather than being awaited: when the target
   // is the caller, awaiting it would mean killing the session that is waiting
   // for this response. Holding teardown until the response is written costs a
