@@ -1,61 +1,26 @@
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type {
+  ReviewFeedbackItemRecord,
+  ReviewListItem as ReviewListItemRecord,
+  ReviewRecord,
+  ReviewThreadMessageRecord,
+  ReviewWithItems as ReviewWithItemsRecord,
+} from "../../../server/src/agents/reviews";
 import { api } from "@/lib/api";
 
-export type ReviewThreadMessage = {
-  id: number;
-  feedbackItemId: number;
-  authorType: string;
-  authorAgentId: string | null;
-  type: string;
-  content: {
-    body: string;
-    resolution?: "fixed" | "dismissed" | null;
-  };
-  createdAt: string;
-};
+export type ReviewThreadMessage = ReviewThreadMessageRecord;
 
-export type ReviewFeedbackItem = {
-  id: number;
-  reviewId: number;
-  filePath: string | null;
-  lineStart: number | null;
-  lineEnd: number | null;
-  diffSnapshot: string | null;
-  baseRef: string | null;
-  status: string;
-  resolution: string | null;
-  resolutionNote: string | null;
-  resolvedBy: string | null;
-  resolvedAt: string | null;
-  createdAt: string;
-  updatedAt: string;
+export type ReviewFeedbackItem = ReviewFeedbackItemRecord & {
   messages: ReviewThreadMessage[];
 };
 
-export type Review = {
-  id: number;
-  agentId: string;
-  assignedAgentId: string | null;
-  reviewerType: string;
-  reviewerAgentId: string | null;
-  summary: string | null;
-  status: string;
-  baseRef: string | null;
-  createdAt: string;
-  updatedAt: string;
-};
+export type Review = ReviewRecord;
 
-export type ReviewListItem = Review & {
-  reviewerName: string | null;
-  itemCount: number;
-  resolvedCount: number;
-};
+export type ReviewListItem = ReviewListItemRecord;
 
-export type ReviewWithItems = Review & {
-  items: ReviewFeedbackItem[];
-};
+export type ReviewWithItems = ReviewWithItemsRecord;
 
 export type SubmitReviewInput = {
   summary?: string;

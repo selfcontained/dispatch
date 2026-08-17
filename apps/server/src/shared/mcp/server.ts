@@ -5,6 +5,10 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import * as z from "zod/v4";
 
 import type {
+  ReviewFeedbackItemRecord,
+  ReviewThreadMessageRecord,
+} from "../../agents/reviews.js";
+import type {
   AgentRole,
   AgentType as CliAgentType,
 } from "../../agents/types.js";
@@ -447,28 +451,7 @@ export type McpRequestContext = {
     agentId: string,
     reviewId?: number
   ) => Promise<
-    Array<{
-      id: number;
-      reviewId: number;
-      filePath: string | null;
-      lineStart: number | null;
-      lineEnd: number | null;
-      diffSnapshot: string | null;
-      baseRef: string | null;
-      status: string;
-      resolution: string | null;
-      resolutionNote: string | null;
-      resolvedBy: string | null;
-      resolvedAt: string | null;
-      createdAt: string;
-      updatedAt: string;
-      messages: Array<{
-        id: number;
-        authorType: string;
-        content: { body: string };
-        createdAt: string;
-      }>;
-    }>
+    Array<ReviewFeedbackItemRecord & { messages: ReviewThreadMessageRecord[] }>
   >;
   getReviewFeedbackItem?: (
     agentId: string,
