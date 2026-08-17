@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  bumpVersion,
   cleanError,
   describeForceTriggers,
+  formatAgo,
   formatBytes,
   formatInlineProgress,
   formatProgressLabel,
@@ -282,5 +284,42 @@ describe("isAssistedPreferred", () => {
         assisted: { mode: "normal" },
       } as never)
     ).toBe(false);
+  });
+});
+
+describe("bumpVersion", () => {
+  it("bumps patch, minor, and major from a stable tag", () => {
+    expect(bumpVersion("v1.2.3", "patch")).toBe("v1.2.4");
+    expect(bumpVersion("v1.2.3", "minor")).toBe("v1.3.0");
+    expect(bumpVersion("v1.2.3", "major")).toBe("v2.0.0");
+  });
+
+  it("accepts a base without the v prefix", () => {
+    expect(bumpVersion("0.34.3", "patch")).toBe("v0.34.4");
+  });
+
+  it("returns null for a missing or prerelease-suffixed base", () => {
+    expect(bumpVersion(null, "patch")).toBeNull();
+    expect(bumpVersion("v1.2.3-rc.1", "patch")).toBeNull();
+    expect(bumpVersion("nightly", "minor")).toBeNull();
+  });
+});
+
+describe("formatAgo", () => {
+  const now = 1_000_000_000_000;
+
+  it("collapses the first ten seconds to 'just now'", () => {
+    expect(formatAgo(now, now)).toBe("just now");
+    expect(formatAgo(now - 9_000, now)).toBe("just now");
+  });
+
+  it("steps up through seconds, minutes, and hours", () => {
+    expect(formatAgo(now - 30_000, now)).toBe("30s ago");
+    expect(formatAgo(now - 90_000, now)).toBe("1m ago");
+    expect(formatAgo(now - 3 * 3_600_000, now)).toBe("3h ago");
+  });
+
+  it("clamps a future timestamp to 'just now'", () => {
+    expect(formatAgo(now + 5_000, now)).toBe("just now");
   });
 });
