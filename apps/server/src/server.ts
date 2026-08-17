@@ -573,12 +573,17 @@ async function registerRoutes() {
     // session cookie or bearer token.
     if (url === "/api/v1/release/assisted/phase") return;
 
-    // If no password is set, all routes are open (first-run mode) — except on
-    // the tailnet interface, where open mode would expose the API to every
-    // node on the tailnet. Belt-and-braces: the listener refuses to start
-    // without a password, but the password can be cleared while it runs.
+    // If no password is set, all routes are open (first-run mode) — but only
+    // to loopback. Anything arriving on another interface is a remote caller,
+    // and first-run mode must never answer one.
+    //
+    // The invariant is deliberately "did this arrive on loopback", not "is
+    // this the tailnet listener's address": with DISPATCH_HOST=0.0.0.0 the
+    // secondary listener never starts (the wildcard bind already serves the
+    // tailnet), so a listener-address test passes every tailnet and LAN
+    // caller straight into open mode.
     if (!(await authRuntime.isPasswordSetCached())) {
-      if (tailnetListener.isBoundAddress(request.socket.localAddress)) {
+      if (!TailnetListener.isLoopback(request.socket.localAddress)) {
         return reply.code(401).send({ error: "Authentication required." });
       }
       return;

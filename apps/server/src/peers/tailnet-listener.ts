@@ -33,6 +33,22 @@ export class TailnetListener {
   }
 
   /** True when `localAddress` is the tailnet interface this listener bound. */
+  /**
+   * Whether a connection arrived on a loopback interface. First-run open mode
+   * is gated on this: a request from anywhere else is a remote caller, and
+   * "no password set" must never mean "answer them".
+   */
+  static isLoopback(localAddress: string | undefined): boolean {
+    if (!localAddress) return false;
+    // Node reports IPv4 as ::ffff:127.0.0.1 on dual-stack sockets.
+    const address = localAddress.startsWith("::ffff:")
+      ? localAddress.slice(7)
+      : localAddress;
+    return (
+      address === "::1" || address === "127.0.0.1" || address.startsWith("127.")
+    );
+  }
+
   isBoundAddress(localAddress: string | undefined): boolean {
     if (!this.boundAddress || !localAddress) return false;
     // Node reports IPv4 as ::ffff:100.x.y.z on dual-stack sockets.

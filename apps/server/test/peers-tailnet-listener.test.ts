@@ -87,3 +87,21 @@ describe("TailnetListener", () => {
     expect(listener.isBoundAddress("127.0.0.1")).toBe(false);
   });
 });
+
+describe("first-run open mode", () => {
+  it("treats only loopback as safe for passwordless access", () => {
+    // Loopback: first-run mode is fine here.
+    expect(TailnetListener.isLoopback("127.0.0.1")).toBe(true);
+    expect(TailnetListener.isLoopback("::1")).toBe(true);
+    expect(TailnetListener.isLoopback("::ffff:127.0.0.1")).toBe(true);
+
+    // Everything else is a remote caller. The tailnet case is the one that
+    // matters: with DISPATCH_HOST=0.0.0.0 no secondary listener starts, so a
+    // bound-address test would have let these through into open mode.
+    expect(TailnetListener.isLoopback("100.83.166.101")).toBe(false);
+    expect(TailnetListener.isLoopback("::ffff:100.83.166.101")).toBe(false);
+    expect(TailnetListener.isLoopback("192.168.1.10")).toBe(false);
+    expect(TailnetListener.isLoopback("0.0.0.0")).toBe(false);
+    expect(TailnetListener.isLoopback(undefined)).toBe(false);
+  });
+});
