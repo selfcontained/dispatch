@@ -527,7 +527,9 @@ export function LinkedInstancesSettings(): JSX.Element {
                           </Button>
                         </form>
                       ) : (
-                        <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                        <div className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                          {/* div, not p: Badge renders a div, which cannot
+                              nest inside a paragraph. */}
                           <span className="truncate">{peer.name}</span>
                           {peer.allowLaunch && <Badge>can launch here</Badge>}
                           {peer.allowMessage && (
@@ -536,6 +538,11 @@ export function LinkedInstancesSettings(): JSX.Element {
                           {peer.allowFullAccess && (
                             <Badge variant="error">full access</Badge>
                           )}
+                        </div>
+                      )}
+                      {renamingId === peer.id && renameMutation.isError && (
+                        <p className="text-sm text-destructive" role="alert">
+                          {(renameMutation.error as Error).message}
                         </p>
                       )}
                       <p className="truncate text-sm text-muted-foreground">
@@ -552,6 +559,7 @@ export function LinkedInstancesSettings(): JSX.Element {
                         size="icon"
                         aria-label={`Rename ${peer.name}`}
                         onClick={() => {
+                          renameMutation.reset();
                           setRenamingId(peer.id);
                           setRenameDraft(peer.name);
                         }}
