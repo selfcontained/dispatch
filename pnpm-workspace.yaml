@@ -1,2 +1,17 @@
 packages:
   - "apps/*"
+
+# pnpm 11 stopped reading both of the places these settings used to live: the
+# `shamefully-hoist=true` in .npmrc and the `pnpm.onlyBuiltDependencies` block
+# in package.json are now silently ignored (pnpm warns about the latter on
+# every command). This file is their new home — the values are unchanged.
+#
+# The hoist is load-bearing, not cosmetic: the Playwright suite in e2e/ lives
+# at the repo root, outside any workspace package, so `import pg` there only
+# resolves against a flattened node_modules. Without this, `pnpm test:e2e`
+# fails to collect every spec with "Cannot find package 'pg'".
+shamefullyHoist: true
+allowBuilds:
+  esbuild: true
+  sharp: true
+  workerd: true
