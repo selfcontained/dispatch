@@ -1,5 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Link2, Loader2, MonitorSmartphone, Trash2 } from "lucide-react";
+import {
+  Link2,
+  Loader2,
+  MonitorSmartphone,
+  Pencil,
+  Trash2,
+} from "lucide-react";
 import { useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
@@ -17,24 +23,36 @@ import { api } from "@/lib/api";
 
 type PeerSelf = {
   instanceId: string;
+  /** What peers adopt as their label for this instance when they pair. */
+  name: string;
   passwordSet: boolean;
   tailscale: { dnsName: string; stableId: string } | null;
   bind: {
     enabled: boolean;
     active: boolean;
     address: string | null;
-    blockedReason: "no-password" | "no-tailscale" | null;
+    blockedReason:
+      | "no-password"
+      | "no-tailscale"
+      | "wildcard-host"
+      | null;
   };
 };
 
-type Peer = {
+type Capabilities = {
+  allowLaunch: boolean;
+  allowMessage: boolean;
+  allowFullAccess: boolean;
+};
+
+type Peer = Capabilities & {
   id: string;
   name: string;
+  reportedName: string | null;
   url: string;
   tailnetStableId: string | null;
   createdAt: string;
   lastSeenAt: string | null;
-  allowLaunch: boolean;
 };
 
 type PairingOffer = {
@@ -43,6 +61,72 @@ type PairingOffer = {
   expiresAt: string;
   address: string | null;
 };
+
+const DEFAULT_CAPABILITIES: Capabilities = {
+  allowLaunch: true,
+  allowMessage: true,
+  allowFullAccess: false,
+};
+
+const CAPABILITY_LABELS: {
+  key: keyof Capabilities;
+  label: string;
+  hint: string;
+}[] = [
+  {
+    key: "allowLaunch",
+    label: "Launch agents here",
+    hint: "Start new agents on this machine.",
+  },
+  {
+    key: "allowMessage",
+    label: "Message agents here",
+    hint: "Send prompts to agents already running on this machine.",
+  },
+  {
+    key: "allowFullAccess",
+    label: "Allow full access",
+    hint: "Let launched agents run with the sandbox off.",
+  },
+];
+
+/** The three switches shown on both the accept and connect cards. */
+function CapabilitySwitches({
+  value,
+  onChange,
+  idPrefix,
+}: {
+  value: Capabilities;
+  onChange: (next: Capabilities) => void;
+  idPrefix: string;
+}): JSX.Element {
+  return (
+    <div className="space-y-3 rounded-md border p-3">
+      <p className="text-sm font-medium">What the other instance may do here</p>
+      {CAPABILITY_LABELS.map(({ key, label, hint }) => (
+        <div key={key} className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <label
+              htmlFor={`${idPrefix}-${key}`}
+              className="text-sm font-medium"
+            >
+              {label}
+            </label>
+            <p className="text-sm text-muted-foreground">{hint}</p>
+          </div>
+          <Switch
+            id={`${idPrefix}-${key}`}
+            checked={value[key]}
+            onCheckedChange={(checked) =>
+              onChange({ ...value, [key]: checked })
+            }
+            aria-label={label}
+          />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 const selfQueryKey = ["peers", "self"] as const;
 const peersQueryKey = ["peers", "list"] as const;
@@ -67,16 +151,21 @@ export function LinkedInstancesSettings(): JSX.Element {
     onSettled: () => queryClient.invalidateQueries({ queryKey: selfQueryKey }),
   });
 
+  const [offerCaps, setOfferCaps] = useState<Capabilities>(
+    DEFAULT_CAPABILITIES
+  );
   const offerMutation = useMutation({
     mutationFn: () =>
       api<PairingOffer>("/api/v1/peers/pairings", {
         method: "POST",
-        body: JSON.stringify({ allowLaunch: true, requireTailnet: true }),
+        body: JSON.stringify({ ...offerCaps, requireTailnet: true }),
       }),
   });
 
   const [linkAddress, setLinkAddress] = useState("");
   const [linkCode, setLinkCode] = useState("");
+  const [linkName, setLinkName] = useState("");
+  const [linkCaps, setLinkCaps] = useState<Capabilities>(DEFAULT_CAPABILITIES);
   const linkMutation = useMutation({
     mutationFn: () =>
       api<{ peer: Peer }>("/api/v1/peers/link", {
@@ -84,12 +173,14 @@ export function LinkedInstancesSettings(): JSX.Element {
         body: JSON.stringify({
           address: linkAddress.trim(),
           code: linkCode.trim(),
-          allowLaunch: true,
+          ...(linkName.trim() ? { name: linkName.trim() } : {}),
+          ...linkCaps,
         }),
       }),
     onSuccess: () => {
       setLinkAddress("");
       setLinkCode("");
+      setLinkName("");
       void queryClient.invalidateQueries({ queryKey: peersQueryKey });
     },
   });
@@ -99,6 +190,35 @@ export function LinkedInstancesSettings(): JSX.Element {
       api(`/api/v1/peers/${peerId}`, { method: "DELETE" }),
     onSuccess: () =>
       void queryClient.invalidateQueries({ queryKey: peersQueryKey }),
+  });
+
+  // Local label only — the remote is never told. "Cloud" describes where the
+  // peer sits relative to THIS machine.
+  const [renamingId, setRenamingId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameMutation = useMutation({
+    mutationFn: ({ id, name }: { id: string; name: string }) =>
+      api(`/api/v1/peers/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ name }),
+      }),
+    onSuccess: () => {
+      setRenamingId(null);
+      void queryClient.invalidateQueries({ queryKey: peersQueryKey });
+    },
+  });
+
+  const [selfNameDraft, setSelfNameDraft] = useState<string | null>(null);
+  const selfNameMutation = useMutation({
+    mutationFn: (instanceName: string) =>
+      api("/api/v1/agents/settings", {
+        method: "POST",
+        body: JSON.stringify({ instanceName }),
+      }),
+    onSuccess: () => {
+      setSelfNameDraft(null);
+      void queryClient.invalidateQueries({ queryKey: selfQueryKey });
+    },
   });
 
   const self = selfQuery.data;
@@ -129,7 +249,47 @@ export function LinkedInstancesSettings(): JSX.Element {
             </CardDescription>
           )}
         </CardHeader>
-        <CardContent className="space-y-3">
+        <CardContent className="space-y-4">
+          <div className="space-y-2">
+            <label htmlFor="self-name" className="text-sm font-medium">
+              Name
+            </label>
+            <p className="text-sm text-muted-foreground">
+              What other instances will call this one when they link to it, and
+              what agents there pass as the launch location. Something
+              positional reads best — "Cloud", "Studio", "Laptop".
+            </p>
+            <form
+              className="flex flex-col gap-2 sm:flex-row"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (selfNameDraft !== null) {
+                  selfNameMutation.mutate(selfNameDraft.trim());
+                }
+              }}
+            >
+              <Input
+                id="self-name"
+                value={selfNameDraft ?? self?.name ?? ""}
+                onChange={(e) => setSelfNameDraft(e.target.value)}
+                placeholder="Cloud"
+                className="sm:flex-1"
+              />
+              <Button
+                type="submit"
+                variant="default"
+                disabled={
+                  selfNameMutation.isPending ||
+                  selfNameDraft === null ||
+                  selfNameDraft.trim().length === 0 ||
+                  selfNameDraft.trim() === self?.name
+                }
+              >
+                Save
+              </Button>
+            </form>
+          </div>
+
           <div className="flex items-center justify-between gap-4">
             <div>
               <p className="text-sm font-medium">Accept tailnet connections</p>
@@ -158,6 +318,14 @@ export function LinkedInstancesSettings(): JSX.Element {
           {self?.bind.enabled && self.bind.blockedReason === "no-tailscale" && (
             <p className="text-sm text-destructive" role="alert">
               Blocked: tailscale is not running on this machine.
+            </p>
+          )}
+          {/* Not a failure: the server binds all interfaces, so the tailnet is
+              already served and a second listener would collide on the port. */}
+          {self?.bind.enabled && self.bind.blockedReason === "wildcard-host" && (
+            <p className="text-sm text-muted-foreground">
+              Already reachable on the tailnet — this server binds all
+              interfaces, so no separate listener is needed.
             </p>
           )}
           {self?.bind.active && self.bind.address && (
@@ -194,14 +362,21 @@ export function LinkedInstancesSettings(): JSX.Element {
               </p>
             </div>
           ) : (
-            <Button
-              variant="default"
-              disabled={offerMutation.isPending || !self?.passwordSet}
-              onClick={() => offerMutation.mutate()}
-            >
-              <MonitorSmartphone className="mr-2 h-4 w-4" />
-              Show pairing code
-            </Button>
+            <>
+              <CapabilitySwitches
+                value={offerCaps}
+                onChange={setOfferCaps}
+                idPrefix="offer"
+              />
+              <Button
+                variant="default"
+                disabled={offerMutation.isPending || !self?.passwordSet}
+                onClick={() => offerMutation.mutate()}
+              >
+                <MonitorSmartphone className="mr-2 h-4 w-4" />
+                Show pairing code
+              </Button>
+            </>
           )}
           {self && !self.passwordSet && (
             <p className="text-sm text-destructive" role="alert">
@@ -249,6 +424,13 @@ export function LinkedInstancesSettings(): JSX.Element {
               aria-label="Pairing code"
               className="sm:w-28"
             />
+            <Input
+              value={linkName}
+              onChange={(e) => setLinkName(e.target.value)}
+              placeholder="Call it…"
+              aria-label="Name for this instance"
+              className="sm:w-36"
+            />
             <Button
               type="submit"
               disabled={
@@ -265,6 +447,16 @@ export function LinkedInstancesSettings(): JSX.Element {
               Link
             </Button>
           </form>
+          <p className="text-sm text-muted-foreground">
+            The name is yours alone — it's what agents here pass as the launch
+            location, and the other instance is never told. Leave it blank to
+            use whatever that instance calls itself.
+          </p>
+          <CapabilitySwitches
+            value={linkCaps}
+            onChange={setLinkCaps}
+            idPrefix="link"
+          />
           {self && !self.passwordSet && (
             <p className="text-sm text-destructive" role="alert">
               Pairing requires a password — set one in Settings → Security
@@ -296,27 +488,86 @@ export function LinkedInstancesSettings(): JSX.Element {
                     key={peer.id}
                     className="flex items-center justify-between gap-4 py-3"
                   >
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-medium">
-                        {peer.name}
-                        {peer.allowLaunch && (
-                          <Badge className="ml-2">can launch here</Badge>
-                        )}
-                      </p>
+                    <div className="min-w-0 flex-1">
+                      {renamingId === peer.id ? (
+                        <form
+                          className="flex gap-2"
+                          onSubmit={(event) => {
+                            event.preventDefault();
+                            renameMutation.mutate({
+                              id: peer.id,
+                              name: renameDraft.trim(),
+                            });
+                          }}
+                        >
+                          <Input
+                            value={renameDraft}
+                            onChange={(e) => setRenameDraft(e.target.value)}
+                            aria-label={`New name for ${peer.name}`}
+                            autoFocus
+                            className="h-8"
+                          />
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={
+                              renameMutation.isPending ||
+                              renameDraft.trim().length === 0
+                            }
+                          >
+                            Save
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="ghost"
+                            onClick={() => setRenamingId(null)}
+                          >
+                            Cancel
+                          </Button>
+                        </form>
+                      ) : (
+                        <p className="flex flex-wrap items-center gap-2 text-sm font-medium">
+                          <span className="truncate">{peer.name}</span>
+                          {peer.allowLaunch && <Badge>can launch here</Badge>}
+                          {peer.allowMessage && (
+                            <Badge variant="running">can message here</Badge>
+                          )}
+                          {peer.allowFullAccess && (
+                            <Badge variant="error">full access</Badge>
+                          )}
+                        </p>
+                      )}
                       <p className="truncate text-sm text-muted-foreground">
                         {peer.url}
                         {peer.tailnetStableId ? " · tailnet-pinned" : ""}
+                        {peer.reportedName && peer.reportedName !== peer.name
+                          ? ` · calls itself ${peer.reportedName}`
+                          : ""}
                       </p>
                     </div>
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      aria-label={`Unlink ${peer.name}`}
-                      disabled={revokeMutation.isPending}
-                      onClick={() => revokeMutation.mutate(peer.id)}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
+                    <div className="flex shrink-0 items-center">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Rename ${peer.name}`}
+                        onClick={() => {
+                          setRenamingId(peer.id);
+                          setRenameDraft(peer.name);
+                        }}
+                      >
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        aria-label={`Unlink ${peer.name}`}
+                        disabled={revokeMutation.isPending}
+                        onClick={() => revokeMutation.mutate(peer.id)}
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </Button>
+                    </div>
                   </li>
                 ))}
               </ul>
