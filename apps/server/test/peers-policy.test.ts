@@ -5,7 +5,11 @@ import path from "node:path";
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
-import { handleIncomingPeerLaunch } from "../src/peers/launch.js";
+import {
+  describePeerLocations,
+  handleIncomingPeerLaunch,
+  listPeerLocations,
+} from "../src/peers/launch.js";
 import {
   claimPairing,
   createPairingOffer,
@@ -248,5 +252,36 @@ describe("incoming launch policy", () => {
         { allowFullAccess: false }
       )
     ).rejects.toThrow(/not allowed to launch full-access agents/);
+  });
+});
+
+describe("peer locations for the launch tool description", () => {
+  it("reports a recently-seen peer as reachable and a stale one as not", async () => {
+    await pair("inst_live", { allowLaunch: true }, "LiveBox");
+    await pair("inst_stale", { allowLaunch: false }, "StaleBox");
+
+    await pool.query(
+      `UPDATE peers SET last_seen_at = now() WHERE id = 'inst_live'`
+    );
+    await pool.query(
+      `UPDATE peers SET last_seen_at = now() - interval '2 hours' WHERE id = 'inst_stale'`
+    );
+
+    const locations = await listPeerLocations(pool);
+    const live = locations.find((l) => l.name === "LiveBox");
+    const stale = locations.find((l) => l.name === "StaleBox");
+
+    expect(live).toMatchObject({ reachable: true, canLaunch: true });
+    expect(stale).toMatchObject({ reachable: false, canLaunch: false });
+
+    // This string is what a model actually reads, so assert it directly.
+    const described = describePeerLocations([live!, stale!]);
+    expect(described).toContain('"LiveBox"');
+    expect(described).toContain("not responding recently");
+    expect(described).toContain("launching not permitted there");
+  });
+
+  it("tells the model to launch locally when nothing is linked", () => {
+    expect(describePeerLocations([])).toContain("No instances are currently linked");
   });
 });
