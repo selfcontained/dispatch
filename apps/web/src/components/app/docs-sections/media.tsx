@@ -57,7 +57,8 @@ export function MediaContent() {
         <P>
           Agents running Playwright can stream their browser session live. The
           stream appears in the media sidebar as a real-time MJPEG feed via
-          Chrome DevTools Protocol. When the stream ends, the last frame is
+          Chrome DevTools Protocol, with a <strong>Pop out</strong> button that
+          opens it in its own window. When the stream ends, the last frame is
           saved as a screenshot.
         </P>
       </Section>
@@ -108,8 +109,9 @@ export function MediaContent() {
           highlighting. Shared <Code>.html</Code> files render as a live page
           preview in a sandboxed frame — scripts run, but the page is isolated
           from Dispatch itself — with an <strong>Open in tab</strong> action to
-          view it full-size. For markdown and HTML, the copy button copies the
-          source.
+          view it full-size. Every item has a <strong>Download</strong> action,
+          and a copy button that copies the text of a text file or the image
+          itself otherwise; for markdown and HTML it copies the source.
         </P>
       </Section>
 
@@ -129,29 +131,35 @@ export function MediaContent() {
           other key info. Setting a pin again with the same label updates it in
           place, <Code>dispatch_pins</Code> writes a whole set at once, and
           agents can remove stale pins with <Code>dispatch_list_pins</Code> +{" "}
-          <Code>dispatch_delete_pin</Code>. Agents can also pin a{" "}
-          <strong>shortcut</strong> — a button that injects a prompt into that
-          agent's session when you click it, exactly as if you had typed it
-          yourself. Hovering shows the full prompt before you commit, shortcuts
-          the agent marks as risky ask you to confirm first, and they're
-          disabled while the agent isn't running. An agent can also grey out a
-          shortcut of its own once the action no longer applies, leaving the
-          caption to explain why. Any pin can also carry a one-line markdown
-          caption, and pins sharing a <Code>group</Code> render together under
-          one collapsible heading with a member count — groups of more than
-          eight pins start collapsed, and your own expand/collapse choice sticks
-          per agent and group. The <strong>Media</strong> tab shows shared files
-          in reverse chronological order (most recent 50); click an item to open
-          the full-screen lightbox. Items you haven't seen yet are highlighted,
-          and the tab shows an unseen count. The <strong>Reviews</strong> tab
-          shows human review feedback submitted from the Changes tab — each
-          review has a status badge (open, partially resolved, or resolved), and
-          you can expand it to see individual items, threaded messages, diff
-          snapshots, and resolutions. Click a file path to jump to that location
-          in the Changes tab. The <strong>Messages</strong> tab shows
-          inter-agent messages grouped by conversation partner — sent and
-          received messages appear in chat-style bubbles with timestamps and
-          delivery status. Unread messages show a badge count on the tab.
+          <Code>dispatch_delete_pin</Code> — one, several, or a whole group at a
+          time. Agents can also pin a <strong>shortcut</strong> — a button that
+          injects a prompt into that agent's session when you click it, exactly
+          as if you had typed it yourself. Hovering shows the full prompt before
+          you commit, shortcuts the agent marks as risky ask you to confirm
+          first, and they're disabled while the agent isn't running. On a touch
+          device there is no hover, so every shortcut routes through the confirm
+          dialog — which shows the prompt in full — before it sends. An agent
+          can also grey out a shortcut of its own once the action no longer
+          applies, leaving the caption to explain why. Any pin can also carry a
+          one-line markdown caption, and pins sharing a <Code>group</Code>{" "}
+          render together under one collapsible heading with a member count —
+          groups of more than eight pins start collapsed, and your own
+          expand/collapse choice sticks per agent and group. The{" "}
+          <strong>Media</strong> tab shows shared files in reverse chronological
+          order (most recent 50); click an item to open the full-screen
+          lightbox. Items you haven't seen yet are highlighted, and the tab
+          shows an unseen count. The <strong>Reviews</strong> tab shows review
+          feedback for this agent — both what a persona reviewer submitted and
+          what you sent from the Changes tab. Each row carries a resolved count
+          and a status badge that reads <strong>Open</strong> until every item
+          is resolved and <strong>Resolved</strong> after; a reviewer that
+          raised nothing shows as <em>Approved · no feedback</em>. Expand a
+          review to see individual items, threaded messages, diff snapshots, and
+          resolutions. Click a file path to jump to that location in the Changes
+          tab. The <strong>Messages</strong> tab shows inter-agent messages
+          grouped by conversation partner — sent and received messages appear in
+          chat-style bubbles with timestamps and delivery status. Unread
+          messages show a badge count on the tab.
         </P>
         <P>
           The sidebar opens in <strong>drawer</strong> mode by default —
