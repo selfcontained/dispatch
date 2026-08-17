@@ -121,6 +121,26 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
       </Section>
 
       <Section>
+        <H3 id="plugin-launch-guidance">Shorter startup rules</H3>
+        <P>
+          Once the plugin is installed, the launch guidance can drop the rules
+          its skills already cover — the Playwright methodology and the{" "}
+          <Code>create_pr</Code> routing line — and shorten the rest. Turn it on
+          under <strong>Settings → Agents → Launch guidance</strong> with{" "}
+          <strong>Use short startup rules</strong>. It's off by default.
+        </P>
+        <P>
+          Dispatch never reads the CLI's plugin state, so this is your
+          assertion, not a detection: switching it on without the plugin
+          installed drops that guidance with nothing replacing it. Only Claude
+          Code and Codex agents are ever trimmed — OpenCode and Cursor have no
+          plugin, so they keep the full ruleset either way — and job runs are
+          untouched. Guidance is composed at launch, so a change only affects
+          agents started afterwards.
+        </P>
+      </Section>
+
+      <Section>
         <H3 id="plugin-updating">Keeping it updated</H3>
         <P>
           The plugin carries an explicit version in its manifests, so updates

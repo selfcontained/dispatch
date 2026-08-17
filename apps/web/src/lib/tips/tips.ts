@@ -292,6 +292,14 @@ export const tips: Tip[] = [
     since: "0.34.1",
     surfaces: ["ambient"],
   },
+  {
+    id: "launch-guidance-trim",
+    title: "Shorter Startup Rules",
+    body: "Running the Dispatch plugin? Settings → Agents → Launch guidance lets new Claude Code and Codex agents skip the rules the plugin's skills already cover, leaving more room for your prompt.",
+    docsSection: "plugin#plugin-launch-guidance",
+    since: "0.34.2",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {
