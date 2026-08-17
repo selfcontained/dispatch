@@ -154,12 +154,15 @@ function openSplitMenu(label: string): void {
 
 beforeEach(() => {
   // Radix Select and DropdownMenu both call scrollIntoView on open; jsdom has
-  // no layout engine and does not define it at all.
+  // no layout engine and does not define it at all, so there is no property to
+  // spy on — it has to be installed and then removed again, or every later
+  // file sharing this worker sees a fake layout API.
   Element.prototype.scrollIntoView = vi.fn();
 });
 
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(Element.prototype, "scrollIntoView");
   hookMock.mockReset();
   for (const handler of Object.values(handlers)) handler.mockReset();
 });
@@ -387,7 +390,10 @@ describe("preferences and reload", () => {
     expect(handlers.handleReload).not.toHaveBeenCalled();
   });
 
-  it("persists a channel switch and an automatic-update change", async () => {
+  // Wiring only — useReleaseUpdates owns the save, so what is pinned here is
+  // that each control reports the value it was clicked with rather than a
+  // hardcoded one. Persisting it belongs to the hook's own coverage.
+  it("reports the picked channel and automatic-update mode", async () => {
     stubHook();
     renderSection();
 
