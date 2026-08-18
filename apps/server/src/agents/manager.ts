@@ -599,11 +599,12 @@ export class AgentManager {
     cwd: string;
     status?: AgentStatus;
     parentAgentId?: string;
+    launchedByAgentId?: string;
   }): Promise<AgentRecord> {
     const id = this.newAgentId();
     await this.pool.query(
-      `INSERT INTO agents (id, name, type, role, status, cwd, peer_id, remote_id, parent_agent_id, codex_args, updated_at)
-       VALUES ($1, $2, $3, 'standard', $4, $5, $6, $7, $8, '[]'::jsonb, NOW())`,
+      `INSERT INTO agents (id, name, type, role, status, cwd, peer_id, remote_id, parent_agent_id, launched_by_agent_id, codex_args, updated_at)
+       VALUES ($1, $2, $3, 'standard', $4, $5, $6, $7, $8, $9, '[]'::jsonb, NOW())`,
       [
         id,
         input.name,
@@ -613,6 +614,7 @@ export class AgentManager {
         input.peerId,
         input.remoteId,
         input.parentAgentId ?? null,
+        input.launchedByAgentId ?? input.parentAgentId ?? null,
       ]
     );
     return await this.getRequiredAgent(id);

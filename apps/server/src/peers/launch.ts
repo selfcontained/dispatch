@@ -37,7 +37,9 @@ async function assertLaunchableCwd(
   try {
     resolved = await fs.realpath(path.resolve(requested));
   } catch {
-    throw new Error(`Directory "${requested}" does not exist on this instance.`);
+    throw new Error(
+      `Directory "${requested}" does not exist on this instance.`
+    );
   }
 
   for (const root of roots) {
@@ -347,7 +349,9 @@ export async function launchAgentOnPeer(
     model?: string;
     cwd: string;
     fullAccess?: boolean;
-    parentAgentId: string;
+    /** Unset for `child: false` launches — the shadow stays top-level. */
+    parentAgentId?: string;
+    launchedByAgentId: string;
   }
 ): Promise<{ shadowAgentId: string; remoteAgentId: string; name: string }> {
   const fetchImpl = deps.fetchImpl ?? fetch;
@@ -359,7 +363,7 @@ export async function launchAgentOnPeer(
     model: input.model,
     cwd: input.cwd,
     fullAccess: input.fullAccess,
-    parentAddress: `${instanceId}:${input.parentAgentId}`,
+    parentAddress: `${instanceId}:${input.launchedByAgentId}`,
   };
   let response: Response;
   try {
@@ -397,6 +401,7 @@ export async function launchAgentOnPeer(
     cwd: input.cwd,
     status: asAgentStatus(result.status) ?? "creating",
     parentAgentId: input.parentAgentId,
+    launchedByAgentId: input.launchedByAgentId,
   });
   // Belt and braces for the same race: ask the subscriber to re-snapshot this
   // peer so any transition we missed between launch and insert is reconciled.

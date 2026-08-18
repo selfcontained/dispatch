@@ -4,6 +4,7 @@ import {
   Pause,
   Pencil,
   Play,
+  Radio,
   Terminal,
   Unplug,
 } from "lucide-react";
@@ -28,6 +29,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { usePeerName } from "@/hooks/use-peers";
 import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -68,6 +70,10 @@ export function ChildAgentRow({
 }: ChildAgentRowProps): JSX.Element {
   const isStopped = state === "stopped";
   const isArchiving = agent.status === "archiving";
+  // A shadow of an agent on a linked instance: no tmux session here, so the
+  // row offers the activity timeline instead of terminal/pause/resume.
+  const isShadow = Boolean(agent.peerId);
+  const peerName = usePeerName(agent.peerId);
   // The shared DropdownMenuItem is a plain block styled for destructive items;
   // these need inline icons and the normal foreground colour.
   const menuItemClass =
@@ -142,6 +148,16 @@ export function ChildAgentRow({
           >
             {displayName}
           </span>
+          {isShadow && peerName ? (
+            <Badge
+              data-testid={`child-agent-peer-badge-${agent.id}`}
+              title={peerName}
+              className="ml-auto h-4 max-w-[7rem] shrink-0 border-status-working/40 bg-status-working/10 px-1 text-[8px] font-semibold text-status-working"
+            >
+              <Radio className="mr-0.5 h-2.5 w-2.5 shrink-0" />
+              <span className="truncate normal-case">{peerName}</span>
+            </Badge>
+          ) : null}
           {isReviewAgent ? (
             <Badge
               className={cn(
@@ -167,7 +183,27 @@ export function ChildAgentRow({
           ) : null}
         </div>
       </div>
-      {isStopped ? (
+      {isShadow ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              size="icon"
+              variant="ghost"
+              data-agent-control="true"
+              data-testid={`child-agent-attach-${agent.id}`}
+              aria-label={`View activity for ${displayName}`}
+              className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+              onClick={() => {
+                if (closeOnSessionAction) onRequestClose?.();
+                void attachToAgent(agent);
+              }}
+            >
+              <Radio className="h-3.5 w-3.5" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>View remote activity</TooltipContent>
+        </Tooltip>
+      ) : isStopped ? (
         <Tooltip>
           <TooltipTrigger asChild>
             <Button
@@ -245,7 +281,7 @@ export function ChildAgentRow({
           </Button>
         </DropdownMenuTrigger>
         <DropdownMenuContent align="end">
-          {!isStopped && !isArchiving ? (
+          {!isStopped && !isArchiving && !isShadow ? (
             <DropdownMenuItem
               className={menuItemClass}
               data-testid={`child-agent-pause-${agent.id}`}
@@ -258,7 +294,7 @@ export function ChildAgentRow({
               Pause
             </DropdownMenuItem>
           ) : null}
-          {isStopped && !isArchiving ? (
+          {isStopped && !isArchiving && !isShadow ? (
             <DropdownMenuItem
               className={menuItemClass}
               data-testid={`child-agent-menu-resume-${agent.id}`}
@@ -271,14 +307,18 @@ export function ChildAgentRow({
               Resume
             </DropdownMenuItem>
           ) : null}
-          <DropdownMenuItem
-            className={menuItemClass}
-            data-testid={`child-agent-settings-${agent.id}`}
-            onSelect={() => onEditSettings(agent)}
-          >
-            <Pencil className="h-3.5 w-3.5" />
-            Session settings
-          </DropdownMenuItem>
+          {/* Pause/resume/settings act on a local tmux session, which a
+              shadow doesn't have. Archive stays: it removes the local row. */}
+          {!isShadow ? (
+            <DropdownMenuItem
+              className={menuItemClass}
+              data-testid={`child-agent-settings-${agent.id}`}
+              onSelect={() => onEditSettings(agent)}
+            >
+              <Pencil className="h-3.5 w-3.5" />
+              Session settings
+            </DropdownMenuItem>
+          ) : null}
           <DropdownMenuItem
             className="flex min-h-11 items-center gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0"
             data-testid={`child-agent-archive-${agent.id}`}

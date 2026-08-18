@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { MemoryRouter } from "react-router-dom";
@@ -48,27 +49,33 @@ function renderRow(
   const setDeleteTarget = vi.fn();
   const setDeleteConfirmOpen = vi.fn();
   const onEditSettings = vi.fn();
+  // usePeerName resolves peer display names through react-query.
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, enabled: false } },
+  });
   render(
-    <MemoryRouter>
-      <TooltipProvider>
-        <ChildAgentRow
-          agent={agent}
-          state="idle"
-          isInitialReviewActive={true}
-          isConnected={false}
-          attachToAgent={attachToAgent}
-          detachTerminal={detachTerminal}
-          startAgent={startAgent}
-          openSubmittedReview={openSubmittedReview}
-          setStopTarget={setStopTarget}
-          setStopConfirmOpen={setStopConfirmOpen}
-          setDeleteTarget={setDeleteTarget}
-          setDeleteConfirmOpen={setDeleteConfirmOpen}
-          onEditSettings={onEditSettings}
-          {...overrides}
-        />
-      </TooltipProvider>
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter>
+        <TooltipProvider>
+          <ChildAgentRow
+            agent={agent}
+            state="idle"
+            isInitialReviewActive={true}
+            isConnected={false}
+            attachToAgent={attachToAgent}
+            detachTerminal={detachTerminal}
+            startAgent={startAgent}
+            openSubmittedReview={openSubmittedReview}
+            setStopTarget={setStopTarget}
+            setStopConfirmOpen={setStopConfirmOpen}
+            setDeleteTarget={setDeleteTarget}
+            setDeleteConfirmOpen={setDeleteConfirmOpen}
+            onEditSettings={onEditSettings}
+            {...overrides}
+          />
+        </TooltipProvider>
+      </MemoryRouter>
+    </QueryClientProvider>
   );
   return {
     attachToAgent,
@@ -198,6 +205,33 @@ describe("ChildAgentRow", () => {
     expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
+  it("routes a shadow row to remote activity instead of a terminal", () => {
+    const shadow = {
+      ...baseAgent,
+      role: "standard" as const,
+      persona: null,
+      peerId: "inst_remote",
+    };
+    const { attachToAgent, startAgent } = renderRow(shadow, {
+      state: "stopped",
+    });
+
+    // Peer badge names the machine (raw id until the peer list resolves).
+    expect(
+      screen.getByTestId("child-agent-peer-badge-agt_child").textContent
+    ).toContain("inst_remote");
+    // No resume even when stopped — there is no local session to start.
+    expect(screen.queryByTestId("child-agent-resume-agt_child")).toBeNull();
+
+    const activityButton = screen.getByTestId("child-agent-attach-agt_child");
+    expect(activityButton.getAttribute("aria-label")).toContain(
+      "View activity"
+    );
+    fireEvent.click(activityButton);
+    expect(attachToAgent).toHaveBeenCalledWith(shadow);
+    expect(startAgent).not.toHaveBeenCalled();
+  });
+
   it("detaches to the detached state without attaching another agent", () => {
     const { attachToAgent, detachTerminal } = renderRow(baseAgent, {
       state: "active",
@@ -257,6 +291,22 @@ describe("ChildAgentRow", () => {
       fireEvent.click(screen.getByTestId("child-agent-settings-agt_child"));
 
       expect(onEditSettings).toHaveBeenCalledWith(baseAgent);
+    });
+
+    it("offers only archive for a shadow of a remote agent", () => {
+      const shadow = {
+        ...baseAgent,
+        role: "standard" as const,
+        persona: null,
+        peerId: "inst_remote",
+      };
+      const { setDeleteTarget } = renderRow(shadow);
+
+      openMenu();
+      expect(screen.queryByTestId("child-agent-pause-agt_child")).toBeNull();
+      expect(screen.queryByTestId("child-agent-settings-agt_child")).toBeNull();
+      fireEvent.click(screen.getByTestId("child-agent-archive-agt_child"));
+      expect(setDeleteTarget).toHaveBeenCalledWith(shadow);
     });
 
     it("disables archive while the sub agent is already archiving", () => {

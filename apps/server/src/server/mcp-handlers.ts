@@ -636,6 +636,7 @@ async function handleLaunchAgentOnPeer(
     templateId?: string;
     cwd?: string;
     location?: string;
+    child?: boolean;
   }
 ): Promise<{ agentId: string; name: string; note?: string }> {
   if (input.templateId) {
@@ -671,7 +672,10 @@ async function handleLaunchAgentOnPeer(
       model: input.model,
       cwd: input.cwd,
       fullAccess: input.fullAccess,
-      parentAgentId: agentId,
+      // Same lineage contract as a local launch: `child: false` keeps the
+      // shadow out of the launcher's card, but the launcher stays recorded.
+      parentAgentId: input.child !== false ? agentId : undefined,
+      launchedByAgentId: agentId,
     }
   );
   const shadow = await deps.agentManager.getAgent(result.shadowAgentId);
