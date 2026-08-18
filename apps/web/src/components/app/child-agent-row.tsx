@@ -99,17 +99,24 @@ export function ChildAgentRow({
       data-review-active={showReviewActivity ? "true" : "false"}
       data-review-ready={canOpenSubmittedReview ? "true" : "false"}
       className={cn(
-        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
+        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 border-r-4 border-r-transparent bg-background/30 px-2 py-1 sm:py-1.5",
         "transition-colors hover:bg-muted/35",
-        // Connected row: a filled left accent bar plus a primary-tinted
-        // background/border, so the currently-viewed sub agent reads clearly
-        // at a glance instead of blending into the row list (see also the
-        // presence dot on its AgentTypeIcon below).
-        isConnected &&
-          "border-l-2 border-l-primary border-primary/50 bg-primary/[0.07]",
-        // Ready-to-open wins over connected styling: it is the actionable state.
-        canOpenSubmittedReview &&
-          "cursor-pointer border-primary/45 bg-primary/[0.06] hover:bg-primary/10",
+        // Ready-to-open wins over connected styling: it is the actionable
+        // state. Both branches set border-r-{color} explicitly (not just
+        // the general border-{color} shorthand) — twMerge only dedupes a
+        // directional override against the base border-r-transparent when
+        // one is present, so leaving the ready branch to the general
+        // border-primary/45 alone would have left the reserved 4px right
+        // edge transparent even on a ready-to-open row.
+        canOpenSubmittedReview
+          ? "cursor-pointer border-primary/45 border-r-primary/45 bg-primary/[0.06] hover:bg-primary/10"
+          : // Connected row: the same solid right-edge border treatment the
+            // top-level agent card uses for "this is what's connected"
+            // (agents-view.tsx's borderForAgentState), so the signal reads
+            // consistently across both list levels. The width is reserved
+            // by border-r-4 above and only the color toggles, so this never
+            // shifts the row's layout the way an added/removed border would.
+            isConnected && "border-r-status-done",
         isStopped && "opacity-65",
         canOpenSubmittedReview && "opacity-100",
         showReviewActivity && "child-agent-review-active-row"
@@ -132,22 +139,13 @@ export function ChildAgentRow({
           <TooltipContent>Open submitted review</TooltipContent>
         </Tooltip>
       ) : null}
-      <span className="relative z-10 shrink-0">
-        <AgentTypeIcon
-          type={agent.type}
-          eventType={
-            agent.status === "running" ? agent.latestEvent?.type : undefined
-          }
-          className="pointer-events-none h-4.5 w-4.5"
-        />
-        {isConnected ? (
-          <span
-            aria-hidden="true"
-            title="Currently viewed in the terminal"
-            className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-2 border-background bg-primary"
-          />
-        ) : null}
-      </span>
+      <AgentTypeIcon
+        type={agent.type}
+        eventType={
+          agent.status === "running" ? agent.latestEvent?.type : undefined
+        }
+        className="pointer-events-none relative z-10 h-4.5 w-4.5"
+      />
       <div className="pointer-events-none relative z-10 min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
@@ -175,11 +173,11 @@ export function ChildAgentRow({
         inside the shrinking label) so the label is the only thing that gives
         way to a long name — this cluster never competes with it for space.
       */}
-      <div className="relative z-10 flex shrink-0 items-center gap-1">
+      <div className="pointer-events-none relative z-10 flex shrink-0 items-center gap-1 [&_button]:pointer-events-auto">
         {isReviewAgent ? (
           <Badge
             className={cn(
-              "h-4 shrink-0 border-primary px-1 text-[8px] font-semibold uppercase tracking-wide",
+              "h-4 border-primary px-1 text-[8px] font-semibold uppercase tracking-wide",
               canOpenSubmittedReview
                 ? "bg-primary text-primary-foreground"
                 : "bg-background text-foreground"
@@ -197,7 +195,7 @@ export function ChildAgentRow({
                 data-agent-control="true"
                 data-testid={`child-agent-resume-${agent.id}`}
                 aria-label={`Resume ${displayName}`}
-                className="relative z-20 h-11 w-11 shrink-0 sm:h-7 sm:w-7"
+                className="h-11 w-11 sm:h-7 sm:w-7"
                 onClick={() => {
                   if (closeOnSessionAction) onRequestClose?.();
                   void startAgent(agent);
@@ -217,7 +215,7 @@ export function ChildAgentRow({
                 data-agent-control="true"
                 data-testid={`child-agent-detach-${agent.id}`}
                 aria-label={`Detach from ${displayName}`}
-                className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+                className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
                 onClick={detachTerminal}
               >
                 <Unplug className="h-3.5 w-3.5" />
@@ -234,7 +232,7 @@ export function ChildAgentRow({
                 data-agent-control="true"
                 data-testid={`child-agent-attach-${agent.id}`}
                 aria-label={`Attach to ${displayName}`}
-                className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+                className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
                 onClick={() => {
                   if (closeOnSessionAction) onRequestClose?.();
                   void attachToAgent(agent);
@@ -247,11 +245,12 @@ export function ChildAgentRow({
           </Tooltip>
         )}
         {/*
-        Session lifecycle controls. A sub agent used to offer only terminal
-        attach and resume, so moving plain children into this section would have
-        stripped the pause/rename/archive an agent card carries in its footer.
-        They live behind an overflow menu because the row has one action slot.
-      */}
+          Session lifecycle controls. A sub agent used to offer only terminal
+          attach and resume, so moving plain children into this section would
+          have stripped the pause/rename/archive an agent card carries in its
+          footer. They live behind an overflow menu because the row has one
+          action slot.
+        */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <Button
@@ -260,7 +259,7 @@ export function ChildAgentRow({
               data-agent-control="true"
               data-testid={`child-agent-menu-${agent.id}`}
               aria-label={`Session actions for ${displayName}`}
-              className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+              className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
             >
               <MoreVertical className="h-3.5 w-3.5" />
             </Button>

@@ -48,7 +48,9 @@ function renderRow(
   const setDeleteTarget = vi.fn();
   const setDeleteConfirmOpen = vi.fn();
   const onEditSettings = vi.fn();
-  render(
+  const buildElement = (
+    elementOverrides: Partial<ComponentProps<typeof ChildAgentRow>> = {}
+  ) => (
     <MemoryRouter>
       <TooltipProvider>
         <ChildAgentRow
@@ -65,11 +67,12 @@ function renderRow(
           setDeleteTarget={setDeleteTarget}
           setDeleteConfirmOpen={setDeleteConfirmOpen}
           onEditSettings={onEditSettings}
-          {...overrides}
+          {...elementOverrides}
         />
       </TooltipProvider>
     </MemoryRouter>
   );
+  const { rerender } = render(buildElement(overrides));
   return {
     attachToAgent,
     detachTerminal,
@@ -80,6 +83,9 @@ function renderRow(
     setDeleteTarget,
     setDeleteConfirmOpen,
     onEditSettings,
+    rerenderWith: (
+      elementOverrides: Partial<ComponentProps<typeof ChildAgentRow>>
+    ) => rerender(buildElement(elementOverrides)),
   };
 }
 
@@ -97,7 +103,6 @@ describe("ChildAgentRow", () => {
     const badge = screen.getByText("Review");
     expect(badge.className.split(/\s+/)).toEqual(
       expect.arrayContaining([
-        "ml-auto",
         "border-primary",
         "bg-background",
         "text-foreground",
@@ -109,6 +114,26 @@ describe("ChildAgentRow", () => {
     expect(row.dataset.agentRole).toBe("review");
     expect(row.dataset.reviewActive).toBe("true");
     expect(row.className).toContain("child-agent-review-active-row");
+  });
+
+  it("groups the REVIEW badge with the terminal/menu controls, not the truncating name label", () => {
+    renderRow(baseAgent);
+
+    const badge = screen.getByText("Review");
+    const menuButton = screen.getByTestId("child-agent-menu-agt_child");
+    // The badge and the overflow menu button should share an immediate
+    // parent (the right-side action cluster) rather than the badge living
+    // inside the name label's min-w-0/flex-1/truncate wrapper.
+    expect(badge.parentElement).toBe(menuButton.parentElement);
+  });
+
+  it("keeps the action cluster transparent to clicks except its own controls", () => {
+    renderRow(baseAgent);
+
+    const menuButton = screen.getByTestId("child-agent-menu-agt_child");
+    const cluster = menuButton.parentElement;
+    expect(cluster?.className).toContain("pointer-events-none");
+    expect(cluster?.className).toContain("[&_button]:pointer-events-auto");
   });
 
   it("stops chasing after the initial review is submitted", () => {
@@ -154,10 +179,35 @@ describe("ChildAgentRow", () => {
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-primary/45");
+    expect(row.className).toContain("border-r-primary/45");
     expect(row.className).toContain("bg-primary/[0.06]");
     expect(row.className).toContain("hover:bg-primary/10");
     expect(row.className).toContain("cursor-pointer");
-    expect(row.className).not.toContain("border-primary/35");
+    // Ready-to-open wins: the connected row's own right-edge accent must not
+    // also be present, or the two would visually fight on the same edge.
+    expect(row.className).not.toContain("border-r-status-done");
+  });
+
+  it("shows the connected right-edge accent when not also ready to open", () => {
+    renderRow(baseAgent, { isConnected: true });
+
+    const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.className).toContain("border-r-status-done");
+    expect(row.className).not.toContain("border-primary/45");
+    expect(row.className).not.toContain("cursor-pointer");
+  });
+
+  it("reserves the connected accent's width so attaching never shifts the row", () => {
+    const { rerenderWith } = renderRow(baseAgent, { isConnected: false });
+    const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.className).toContain("border-r-4");
+    expect(row.className).toContain("border-r-transparent");
+
+    rerenderWith({ isConnected: true });
+    // Same border-r-4 width both before and after — only the color class
+    // toggles (see the two tests above), so the box never resizes.
+    expect(row.className).toContain("border-r-4");
+    expect(row.className).toContain("border-r-status-done");
   });
 
   it("opens a submitted review from the row without attaching its terminal", () => {

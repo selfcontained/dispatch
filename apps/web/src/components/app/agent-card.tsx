@@ -14,6 +14,7 @@ import { useCopyText } from "@/hooks/use-copy";
 import { SessionSettingsDialog } from "@/components/app/session-settings-dialog";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
+import { ScrollArea } from "@/components/ui/scroll-area";
 import { AnimatePresence, motion } from "framer-motion";
 
 import { type AgentType } from "@/lib/agent-types";
@@ -223,17 +224,11 @@ export function AgentCard({
                         {childAgents.length}
                       </span>
                     </div>
-                    {/*
-                      A plain scrollable div, not the shadcn ScrollArea: Radix's
-                      ScrollArea wraps its viewport content in a `display: table`
-                      element that sizes to the content's natural (unshrunk)
-                      width instead of the container's — so a long child name
-                      never actually truncates, it just grows the row until an
-                      ancestor's overflow-hidden clips it off past the sidebar's
-                      edge. The outer agent list avoids the same trap the same
-                      way (agent-sidebar.tsx's "agent-sidebar-scroll" div).
-                    */}
-                    <div className="max-h-56 min-w-0 overflow-y-auto overflow-x-hidden">
+                    <ScrollArea
+                      className="max-h-56"
+                      type="always"
+                      fitContentWidth
+                    >
                       <div className="space-y-1 pr-2">
                         {childAgents.map((child) => (
                           <ChildAgentRow
@@ -259,7 +254,7 @@ export function AgentCard({
                           />
                         ))}
                       </div>
-                    </div>
+                    </ScrollArea>
                   </div>
                 ) : null}
               </div>
