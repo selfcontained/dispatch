@@ -5,25 +5,10 @@ import {
   CLI_AGENT_TYPES,
   isAgentType,
   isCliAgentType,
-  isNestedReviewAgent,
   sanitizeEnabledAgentTypes,
   sortAgentTypes,
   type AgentType,
 } from "./agent-types";
-
-describe("isNestedReviewAgent", () => {
-  it("nests only review-role agents that have a parent", () => {
-    expect(
-      isNestedReviewAgent({ parentAgentId: "parent", role: "review" })
-    ).toBe(true);
-    expect(
-      isNestedReviewAgent({ parentAgentId: "parent", role: "standard" })
-    ).toBe(false);
-    expect(isNestedReviewAgent({ parentAgentId: null, role: "review" })).toBe(
-      false
-    );
-  });
-});
 
 describe("isAgentType", () => {
   it.each([...AGENT_TYPES])("returns true for %s", (type) => {

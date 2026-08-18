@@ -160,6 +160,8 @@ type CreateAgentInput = {
   worktreeLocation?: WorktreeLocation;
   persona?: string;
   parentAgentId?: string;
+  /** Launcher of this agent, recorded even when it is not the parent. */
+  launchedByAgentId?: string;
   personaContext?: string;
   reviewAgentType?: AgentType | null;
   autoReview?: boolean;
@@ -556,8 +558,8 @@ export class AgentManager {
   ): Promise<void> {
     await this.pool.query(
       `
-      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, model, full_access, setup_phase, persona, parent_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
-      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, NOW())
+      INSERT INTO agents (id, name, type, role, status, cwd, tmux_session, media_dir, codex_args, model, full_access, setup_phase, persona, parent_agent_id, launched_by_agent_id, persona_context, review_agent_type, cli_session_id, auto_review, base_branch, template_id, pins, updated_at)
+      VALUES ($1, $2, $3, $4, 'creating', $5, $6, $7, $8::jsonb, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21::jsonb, NOW())
       `,
       [
         p.id,
@@ -573,6 +575,7 @@ export class AgentManager {
         p.initialSetupPhase,
         input.persona ?? null,
         input.parentAgentId ?? null,
+        input.launchedByAgentId ?? input.parentAgentId ?? null,
         input.personaContext ?? null,
         input.reviewAgentType ?? null,
         p.cliSessionId,
@@ -1427,6 +1430,7 @@ export class AgentManager {
         git_context_updated_at AS "gitContextUpdatedAt",
         persona,
         parent_agent_id AS "parentAgentId",
+        launched_by_agent_id AS "launchedByAgentId",
         persona_context AS "personaContext",
         review_agent_type AS "reviewAgentType",
         base_branch AS "baseBranch",

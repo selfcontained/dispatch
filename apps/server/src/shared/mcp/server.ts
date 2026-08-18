@@ -384,6 +384,7 @@ export type McpRequestContext = {
       templateId?: string;
       templateArgs?: Record<string, string>;
       cwd?: string;
+      child?: boolean;
     }
   ) => Promise<{ agentId: string; name: string; note?: string }>;
   archiveAgent?: (

@@ -67,16 +67,25 @@ import {
 import { errorMessage } from "../shared/lib/error-message.js";
 import { getWorktreeLocation } from "../worktree-location-settings.js";
 
-function buildChildAgentInitialPrompt(
-  parentAgentId: string,
-  prompt: string
+function buildLaunchedAgentInitialPrompt(
+  launcherAgentId: string,
+  prompt: string,
+  child: boolean
 ): string {
-  return [
-    `You were launched by Dispatch agent "${parentAgentId}" via dispatch_launch_agent.`,
-    "Use that parent agent ID when coordinating back with dispatch_send_message.",
-    "",
-    prompt,
-  ].join("\n");
+  const header = child
+    ? [
+        `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent.`,
+        "Use that parent agent ID when coordinating back with dispatch_send_message.",
+        // Stated up front because the tool call fails at the point of use
+        // otherwise, halfway through work the agent has already planned around.
+        "You are a child agent: you cannot launch child agents or persona reviews of your own. " +
+          "If you need to hand work off, launch an independent agent with dispatch_launch_agent's `child: false`.",
+      ]
+    : [
+        `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent as an independent agent — you are not its child.`,
+        "Use that agent ID when coordinating back with dispatch_send_message.",
+      ];
+  return [...header, "", prompt].join("\n");
 }
 
 type CreateMcpHandlersDeps = {
@@ -134,12 +143,18 @@ export function mcpMethodNotAllowed(): {
  * list_agents: every other agent (self excluded), scoped to the sender's git
  * repo root unless cross-repo messaging is enabled. Direct parent ↔ child
  * relationships always bypass repo-root scoping so spawned agents can
- * coordinate with their parent regardless of working directory. This is the
+ * coordinate with their parent regardless of working directory, as does the
+ * launcher ↔ launched pair for agents launched outside the lineage. This is the
  * single definition of that visibility boundary — both message delivery and
  * agent listing consult it, so they can never disagree about who is reachable.
  */
 async function addressableAgents<
-  T extends { id: string; cwd: string; parentAgentId?: string | null },
+  T extends {
+    id: string;
+    cwd: string;
+    parentAgentId?: string | null;
+    launchedByAgentId?: string | null;
+  },
 >(
   all: T[],
   agentId: string,
@@ -148,6 +163,7 @@ async function addressableAgents<
 ): Promise<T[]> {
   const sender = all.find((a) => a.id === agentId);
   const senderParentId = sender?.parentAgentId ?? null;
+  const senderLauncherId = sender?.launchedByAgentId ?? null;
 
   const result: T[] = [];
   for (const a of all) {
@@ -159,6 +175,12 @@ async function addressableAgents<
     // Direct parent ↔ child always visible. parentAgentId is trusted because
     // MCP-originated creation sets it server-side; the HTTP path is localhost-only.
     if (a.id === senderParentId || a.parentAgentId === agentId) {
+      result.push(a);
+      continue;
+    }
+    // A `child: false` launch has no parent but still needs to coordinate with
+    // whoever launched it — the same reason the parent ↔ child bypass exists.
+    if (a.id === senderLauncherId || a.launchedByAgentId === agentId) {
       result.push(a);
       continue;
     }
@@ -437,10 +459,23 @@ async function handleLaunchAgent(
     templateId?: string;
     templateArgs?: Record<string, string>;
     cwd?: string;
+    child?: boolean;
   }
 ): Promise<{ agentId: string; name: string; note?: string }> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+  const child = input.child !== false;
+  // Depth cap: the sidebar renders a child as a row inside its parent's card,
+  // and that row has nowhere to render children of its own — a grandchild would
+  // simply stop being visible. So a child may only launch outside the lineage.
+  if (child && parent.parentAgentId) {
+    throw new AgentError(
+      "This agent was itself launched as a child agent, and child agents cannot launch further children " +
+        "(the UI only renders one level of sub agents). Pass child: false to launch an independent, " +
+        "top-level agent instead.",
+      409
+    );
+  }
   // An archive stops the parent moments from now, and only review children are
   // cascaded — so a child launched after the archive was claimed would be
   // orphaned the instant it started. True whoever claimed that archive; the
@@ -534,9 +569,10 @@ async function handleLaunchAgent(
     baseBranch,
     worktreeBranch,
     worktreeLocation,
-    parentAgentId: agentId,
+    ...(child ? { parentAgentId: agentId } : {}),
+    launchedByAgentId: agentId,
     cliSessionId,
-    initialPrompt: buildChildAgentInitialPrompt(agentId, prompt),
+    initialPrompt: buildLaunchedAgentInitialPrompt(agentId, prompt, child),
     templateId: input.templateId,
   });
 
@@ -584,7 +620,13 @@ async function handleArchiveAgent(
 ): Promise<{ agentId: string; name: string; archiving: true }> {
   const target = await deps.agentManager.getAgent(input.agentId);
   if (!target) throw new AgentError("Agent not found.", 404);
-  if (target.id !== agentId && target.parentAgentId !== agentId) {
+  // launchedByAgentId rather than parentAgentId alone: a `child: false` launch
+  // has no parent, but the launcher still owns the session it created.
+  if (
+    target.id !== agentId &&
+    target.parentAgentId !== agentId &&
+    target.launchedByAgentId !== agentId
+  ) {
     throw new AgentError(
       "You can only archive yourself or an agent you launched via dispatch_launch_agent or dispatch_launch_persona.",
       403
@@ -911,6 +953,8 @@ async function handleListAgentsForAgent(
     latestEvent: { type: string; message: string } | null;
     parentAgentId: string | null;
     parentName: string | null;
+    launchedByAgentId?: string;
+    launchedByName?: string;
     relation: AgentRelation;
   }>
 > {
@@ -947,6 +991,8 @@ async function handleListAgentsForAgent(
     latestEvent: { type: string; message: string } | null;
     parentAgentId: string | null;
     parentName: string | null;
+    launchedByAgentId?: string;
+    launchedByName?: string;
     relation: AgentRelation;
   }> = [];
   for (const a of agents) {
@@ -955,6 +1001,13 @@ async function handleListAgentsForAgent(
       ? (visibleNamesById.get(rawParentId) ?? null)
       : null;
     const visibleParentId = parentName === null ? null : rawParentId;
+    // Only reported when it says something parentAgentId does not: for a child
+    // the launcher *is* the parent, and repeating it is noise in every row.
+    const rawLauncherId = a.launchedByAgentId ?? null;
+    const launcherName =
+      rawLauncherId && rawLauncherId !== rawParentId
+        ? (visibleNamesById.get(rawLauncherId) ?? null)
+        : null;
     result.push({
       id: a.id,
       name: a.name,
@@ -964,6 +1017,9 @@ async function handleListAgentsForAgent(
         : null,
       parentAgentId: visibleParentId,
       parentName,
+      ...(launcherName && rawLauncherId
+        ? { launchedByAgentId: rawLauncherId, launchedByName: launcherName }
+        : {}),
       relation: relationTo(lineage, agentId, a.id),
     });
   }
@@ -1197,6 +1253,7 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         templateId?: string;
         templateArgs?: Record<string, string>;
         cwd?: string;
+        child?: boolean;
       }
     ) => handleLaunchAgent(deps, agentId, input),
 

@@ -43,6 +43,11 @@ function renderRow(
   const detachTerminal = vi.fn();
   const startAgent = vi.fn().mockResolvedValue(undefined);
   const openSubmittedReview = vi.fn();
+  const setStopTarget = vi.fn();
+  const setStopConfirmOpen = vi.fn();
+  const setDeleteTarget = vi.fn();
+  const setDeleteConfirmOpen = vi.fn();
+  const onEditSettings = vi.fn();
   render(
     <MemoryRouter>
       <TooltipProvider>
@@ -55,6 +60,11 @@ function renderRow(
           detachTerminal={detachTerminal}
           startAgent={startAgent}
           openSubmittedReview={openSubmittedReview}
+          setStopTarget={setStopTarget}
+          setStopConfirmOpen={setStopConfirmOpen}
+          setDeleteTarget={setDeleteTarget}
+          setDeleteConfirmOpen={setDeleteConfirmOpen}
+          onEditSettings={onEditSettings}
           {...overrides}
         />
       </TooltipProvider>
@@ -65,6 +75,11 @@ function renderRow(
     detachTerminal,
     startAgent,
     openSubmittedReview,
+    setStopTarget,
+    setStopConfirmOpen,
+    setDeleteTarget,
+    setDeleteConfirmOpen,
+    onEditSettings,
   };
 }
 
@@ -192,5 +207,68 @@ describe("ChildAgentRow", () => {
     fireEvent.click(screen.getByTestId("child-agent-detach-agt_child"));
     expect(detachTerminal).toHaveBeenCalledOnce();
     expect(attachToAgent).not.toHaveBeenCalled();
+  });
+
+  describe("session actions", () => {
+    // Plain children now live in this section too, so the row has to carry the
+    // lifecycle controls an agent card's footer offers.
+    function openMenu() {
+      fireEvent.pointerDown(
+        screen.getByTestId("child-agent-menu-agt_child"),
+        new MouseEvent("pointerdown", { bubbles: true, button: 0 })
+      );
+    }
+
+    it("archives the sub agent through the shared confirmation dialog", () => {
+      const { setDeleteTarget, setDeleteConfirmOpen } = renderRow(baseAgent);
+
+      openMenu();
+      fireEvent.click(screen.getByTestId("child-agent-archive-agt_child"));
+
+      expect(setDeleteTarget).toHaveBeenCalledWith(baseAgent);
+      expect(setDeleteConfirmOpen).toHaveBeenCalledWith(true);
+    });
+
+    it("pauses a running sub agent", () => {
+      const { setStopTarget, setStopConfirmOpen } = renderRow(baseAgent);
+
+      openMenu();
+      fireEvent.click(screen.getByTestId("child-agent-pause-agt_child"));
+
+      expect(setStopTarget).toHaveBeenCalledWith(baseAgent);
+      expect(setStopConfirmOpen).toHaveBeenCalledWith(true);
+    });
+
+    it("offers resume instead of pause once the sub agent is stopped", () => {
+      const stopped = { ...baseAgent, status: "stopped" as const };
+      const { startAgent } = renderRow(stopped, { state: "stopped" });
+
+      openMenu();
+      expect(screen.queryByTestId("child-agent-pause-agt_child")).toBeNull();
+      fireEvent.click(screen.getByTestId("child-agent-menu-resume-agt_child"));
+
+      expect(startAgent).toHaveBeenCalledWith(stopped);
+    });
+
+    it("opens session settings for the sub agent, not its parent", () => {
+      const { onEditSettings } = renderRow(baseAgent);
+
+      openMenu();
+      fireEvent.click(screen.getByTestId("child-agent-settings-agt_child"));
+
+      expect(onEditSettings).toHaveBeenCalledWith(baseAgent);
+    });
+
+    it("disables archive while the sub agent is already archiving", () => {
+      renderRow({ ...baseAgent, status: "archiving" });
+
+      openMenu();
+      expect(
+        screen
+          .getByTestId("child-agent-archive-agt_child")
+          .getAttribute("aria-disabled")
+      ).toBe("true");
+      expect(screen.queryByTestId("child-agent-pause-agt_child")).toBeNull();
+    });
   });
 });

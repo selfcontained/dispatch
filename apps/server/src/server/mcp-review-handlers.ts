@@ -472,6 +472,16 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
     ): Promise<{ agentId: string; persona: string; parentAgentId: string }> {
       const parent = await agentManager.getAgent(agentId);
       if (!parent) throw new Error("Parent agent not found.");
+      // Same depth cap as dispatch_launch_agent: a child renders as a row
+      // inside its parent's card, and that row cannot host sub agents of its
+      // own, so a reviewer launched from a child would be invisible in the UI.
+      if (parent.parentAgentId) {
+        throw new Error(
+          "This agent was itself launched as a child agent, and child agents cannot launch persona reviews " +
+            "(the UI only renders one level of sub agents). Ask the agent that launched you to run the review, " +
+            "or do this work in an independent agent (dispatch_launch_agent with child: false)."
+        );
+      }
 
       const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
         ? parent.reviewAgentType

@@ -117,6 +117,12 @@ export type AgentRecord = {
   gitContextUpdatedAt: string | null;
   persona: string | null;
   parentAgentId: string | null;
+  /**
+   * The agent that ran dispatch_launch_agent / dispatch_launch_persona to
+   * create this one. Set for every agent-originated launch, including
+   * `child: false` launches whose `parentAgentId` is deliberately null.
+   */
+  launchedByAgentId: string | null;
   personaContext: string | null;
   reviewAgentType: AgentType | null;
   submittedReviewId: number | null;

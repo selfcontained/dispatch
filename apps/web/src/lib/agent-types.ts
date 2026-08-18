@@ -24,13 +24,6 @@ export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   terminal: "Terminal",
 };
 
-export function isNestedReviewAgent(agent: {
-  parentAgentId?: string | null;
-  role?: string | null;
-}): boolean {
-  return Boolean(agent.parentAgentId) && agent.role === "review";
-}
-
 export function sortAgentTypes<T extends AgentType>(types: T[]): T[] {
   return [...types].sort((a, b) => {
     if (a === "terminal") return 1;

@@ -107,6 +107,9 @@ export function AgentCard({
   const isExpanded = expandedAgentId === agent.id;
   const fullAccessEnabled = isFullAccessEnabled(agent);
   const [settingsOpen, setSettingsOpen] = React.useState(false);
+  // Sub agent rows reuse the same rename dialog; tracking which row opened it
+  // keeps one dialog instance instead of one per row.
+  const [settingsChild, setSettingsChild] = React.useState<Agent | null>(null);
   // Owned here rather than in AgentCardDetails so the copy confirmation is not
   // lost when the details panel unmounts on collapse.
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
@@ -237,6 +240,11 @@ export function AgentCard({
                             detachTerminal={detachTerminal}
                             startAgent={startAgent}
                             openSubmittedReview={openSubmittedReview}
+                            setStopTarget={setStopTarget}
+                            setStopConfirmOpen={setStopConfirmOpen}
+                            setDeleteTarget={setDeleteTarget}
+                            setDeleteConfirmOpen={setDeleteConfirmOpen}
+                            onEditSettings={setSettingsChild}
                             onRequestClose={onRequestClose}
                             closeOnSessionAction={closeOnSessionAction}
                           />
@@ -270,6 +278,13 @@ export function AgentCard({
         agent={agent}
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+      />
+      <SessionSettingsDialog
+        agent={settingsChild}
+        open={settingsChild !== null}
+        onOpenChange={(open) => {
+          if (!open) setSettingsChild(null);
+        }}
       />
     </React.Fragment>
   );
