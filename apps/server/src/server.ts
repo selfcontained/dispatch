@@ -583,7 +583,11 @@ async function registerRoutes() {
     // tailnet), so a listener-address test passes every tailnet and LAN
     // caller straight into open mode.
     if (!(await authRuntime.isPasswordSetCached())) {
-      if (!TailnetListener.isLoopback(request.socket.localAddress)) {
+      // Injected requests (tests) have no localAddress; their fake socket
+      // reports a loopback remoteAddress, and the loopback bar still applies.
+      const arrivedOn =
+        request.socket.localAddress ?? request.socket.remoteAddress;
+      if (!TailnetListener.isLoopback(arrivedOn)) {
         return reply.code(401).send({ error: "Authentication required." });
       }
       return;
