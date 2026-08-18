@@ -32,7 +32,8 @@ export function ShortcutsContent() {
           </li>
           <li>
             <Code>Mod+Shift+↑</Code> — Focus the previous agent (cycles through
-            top-level agents only; review children are skipped).
+            sidebar cards only; sub agent rows are skipped, and selecting one
+            anchors the cycle to the card it lives in).
           </li>
           <li>
             <Code>Mod+Shift+↓</Code> — Focus the next agent.

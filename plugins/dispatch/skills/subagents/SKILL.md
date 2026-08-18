@@ -39,18 +39,33 @@ The prompt is the child's entire world. Write it as a standalone briefing:
 If a template already captures this launch configuration, launch from it instead
 of retyping the prompt — see the `templates` skill.
 
+By default the new agent is your child: it renders inside your card in the
+sidebar, and archiving it is yours to do. `child: false` launches an independent
+agent instead — same inherited directory, type, and access level, still yours to
+message and archive, but outside your lineage and owning a top-level card.
+
+Nesting stops at one level. If you were launched as a child yourself, you cannot
+launch children or persona reviews at all; `child: false` is the only launch
+available to you. Reach for it when the work you are handing off is substantial
+enough to deserve its own card, or when you need a reviewer and cannot launch
+one.
+
 ## Coordinating
 
 ```
 list_agents           — who exists, their IDs, names, statuses, latest activity,
-                        plus parentAgentId and relation (child, descendant, …)
+                        plus parentAgentId and relation (child, descendant, …),
+                        and launchedByAgentId when that is not the parent
 dispatch_send_message target, message
 ```
 
-The list is not flat. Each entry names the agent that launched it, so a
+The list is not flat. Each entry names the agent it is a child of, so a
 `descendant` is a grandchild or deeper — something your own child spawned, not
-something you did. Incoming messages carry the same lineage: the delegation
-chain runs from the sender up through whoever launched it to you.
+something you did. An agent you launched with `child: false` is not in your
+tree, so it reports as `unrelated`; find it by `launchedByAgentId`, which is
+present only when the launcher is not already the parent. Incoming messages
+carry the same lineage: the delegation chain runs from the sender up through
+whoever launched it to you.
 
 Lineage is keyed by agent ID. Agents rename themselves as their work shifts, so
 a name is a label for reading, not a handle for remembering — build the tree
@@ -78,9 +93,9 @@ dispatch_archive_agent  agentId
 ```
 
 Archive a child once you have consumed its output. This is scoped to agents you
-launched directly — archiving someone else's agent is rejected. It stops the
-session and soft-deletes it, and it cannot be undone, so read the child's output
-first.
+launched directly, `child: false` ones included — archiving someone else's agent
+is rejected. It stops the session and soft-deletes it, and it cannot be undone,
+so read the child's output first.
 
 Pass your own agent ID to retire yourself instead of idling until someone
 archives you from outside. Make it the last call of the turn: your session stops

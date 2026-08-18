@@ -255,11 +255,13 @@ export function ToolsContent() {
             <Code>dispatch_launch_agent</Code> — launch a new agent as a child
             of the current session with a name, prompt, and optional agent type,
             model, working directory, worktree settings, full access mode, or
-            template. With a <Code>templateId</Code>, the template's own prompt
-            is rendered and its placeholders fill from <Code>templateArgs</Code>{" "}
-            (the names come back from <Code>list_templates</Code> /{" "}
-            <Code>get_template</Code> as <Code>promptArgs</Code>); anything left
-            in the caller's prompt follows the rendered template
+            template. Pass <Code>child: false</Code> to launch it outside the
+            caller's lineage as a top-level agent instead. With a{" "}
+            <Code>templateId</Code>, the template's own prompt is rendered and
+            its placeholders fill from <Code>templateArgs</Code> (the names come
+            back from <Code>list_templates</Code> / <Code>get_template</Code> as{" "}
+            <Code>promptArgs</Code>); anything left in the caller's prompt
+            follows the rendered template
           </li>
           <li>
             <Code>dispatch_archive_agent</Code> — archive an agent this session
@@ -270,7 +272,10 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>list_agents</Code> — list other agents in the same repo with
-            their IDs, names, statuses, and latest activity
+            their IDs, names, statuses, and latest activity, plus lineage: each
+            entry's parent, how it relates to the caller (child, descendant,
+            parent, ancestor, sibling, unrelated), and who launched it when that
+            is not the parent
           </li>
           <li>
             <Code>dispatch_send_message</Code> — send a message to another
@@ -384,16 +389,20 @@ export function ToolsContent() {
         <H3 id="dispatch-launch-agent">Agent orchestration</H3>
         <P>
           Agents can spawn other agents using <Code>dispatch_launch_agent</Code>
-          . The launched agent runs independently and appears as a top-level
-          entry in the sidebar — it is not nested under its parent like persona
-          reviewers. Archiving the parent does not cascade to launched agents.
+          . The launched agent runs independently, and by default it is a child
+          of the launcher — nested in that card's <strong>Sub Agents</strong>{" "}
+          list, the same place persona reviewers render. Pass{" "}
+          <Code>child: false</Code> for a top-level agent outside the launcher's
+          lineage; that is the only launch a sub agent itself can make.
+          Archiving the parent does not cascade to launched agents — only
+          persona reviewers are archived with their parent.
         </P>
         <P>
           Use <Code>list_agents</Code> to discover running agents and{" "}
           <Code>dispatch_send_message</Code> to coordinate between them.
           Messages are persisted and visible in the <strong>Messages</strong>{" "}
-          tab of the media sidebar. The launched agent receives the parent's ID
-          in its startup context so it can message back.
+          tab of the media sidebar. The launched agent receives the launcher's
+          ID in its startup context so it can message back.
         </P>
       </Section>
 

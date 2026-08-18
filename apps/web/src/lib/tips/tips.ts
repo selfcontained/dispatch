@@ -300,6 +300,14 @@ export const tips: Tip[] = [
     since: "0.34.2",
     surfaces: ["ambient"],
   },
+  {
+    id: "sub-agents",
+    title: "Sub Agents",
+    body: "Agents launched by another agent now live in that agent's card — expand it to find the Sub Agents list, where each row has its own terminal, pause, settings, and archive actions.",
+    docsSection: "agents#sub-agents",
+    since: "0.35.0",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {

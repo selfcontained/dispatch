@@ -159,7 +159,9 @@ export function AgentsContent() {
           <strong>Review</strong> button that launches a reviewer agent (see the
           Reviewers section — review feedback lives in the Changes tab's
           threads, not on the card); terminal agents skip those since they have
-          no CLI. Persona agents show their role and link to their parent agent.
+          no CLI. Agents launched as children — persona reviewers included —
+          appear in a <strong>Sub Agents</strong> list at the bottom of the
+          expanded card.
         </P>
       </Section>
 
@@ -386,21 +388,40 @@ export function AgentsContent() {
       </Section>
 
       <Section>
-        <H3>Agent orchestration</H3>
+        <H3 id="sub-agents">Agent orchestration</H3>
         <P>
           Agents can launch other agents using the{" "}
-          <Code>dispatch_launch_agent</Code> tool. The child agent runs
-          independently and appears as a top-level entry in the sidebar — it
-          inherits the parent's working directory and full-access mode by
-          default. Each child is told which agent launched it and can coordinate
-          back using <Code>dispatch_send_message</Code>. Messages are persisted
-          and visible in the <strong>Messages</strong> tab of the media sidebar,
+          <Code>dispatch_launch_agent</Code> tool. By default the new agent is a
+          child of the one that launched it: it inherits the parent's working
+          directory and full-access mode, and renders as a row in the{" "}
+          <strong>Sub Agents</strong> list inside the parent's expanded card
+          rather than as a card of its own. Persona reviewers appear in the same
+          list, marked with a <strong>Review</strong> badge. Passing{" "}
+          <Code>child: false</Code> launches an independent agent instead — it
+          gets its own top-level card, but Dispatch still records who launched
+          it, so the launcher can message and archive it.
+        </P>
+        <P>
+          Nesting stops at one level: a sub agent can only launch independent
+          agents, not children or persona reviews of its own. Sub agent rows
+          carry the same session controls a card does — attach or detach the
+          terminal, resume a stopped session, and an overflow menu with{" "}
+          <strong>Pause</strong>, <strong>Session settings</strong>, and{" "}
+          <strong>Archive</strong>. Selecting a sub agent expands the card it
+          lives in.
+        </P>
+        <P>
+          Each child is told which agent launched it and can coordinate back
+          using <Code>dispatch_send_message</Code>. Messages are persisted and
+          visible in the <strong>Messages</strong> tab of the media sidebar,
           grouped by conversation partner.
         </P>
         <P>
-          Archiving a parent does not archive its launched children — they
-          continue running on their own. This differs from persona reviewers,
-          which are always archived alongside their parent.
+          Archiving a parent does not archive its launched children — they keep
+          running and are promoted to their own top-level cards. This differs
+          from persona reviewers, which are always archived alongside their
+          parent. An agent can also retire itself once its work is reported, by
+          calling <Code>dispatch_archive_agent</Code> with its own ID.
         </P>
       </Section>
     </>
