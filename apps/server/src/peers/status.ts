@@ -16,7 +16,9 @@ const AGENT_STATUSES = [
  * rather than written through — a shadow with a bogus status would break every
  * consumer that switches on it.
  */
-export function asAgentStatus(value: string | undefined): AgentStatus | undefined {
+export function asAgentStatus(
+  value: string | undefined
+): AgentStatus | undefined {
   return AGENT_STATUSES.includes(value as (typeof AGENT_STATUSES)[number])
     ? (value as AgentStatus)
     : undefined;

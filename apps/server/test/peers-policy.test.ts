@@ -282,6 +282,8 @@ describe("peer locations for the launch tool description", () => {
   });
 
   it("tells the model to launch locally when nothing is linked", () => {
-    expect(describePeerLocations([])).toContain("No instances are currently linked");
+    expect(describePeerLocations([])).toContain(
+      "No instances are currently linked"
+    );
   });
 });
