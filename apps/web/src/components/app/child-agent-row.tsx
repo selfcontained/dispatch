@@ -5,7 +5,7 @@ import {
   Pencil,
   Play,
   Terminal,
-  X,
+  Unplug,
 } from "lucide-react";
 
 import {
@@ -71,7 +71,7 @@ export function ChildAgentRow({
   // The shared DropdownMenuItem is a plain block styled for destructive items;
   // these need inline icons and the normal foreground colour.
   const menuItemClass =
-    "flex items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50";
+    "flex min-h-11 items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0";
   const isReviewAgent = agent.role === "review";
   const canOpenSubmittedReview =
     isReviewAgent && agent.submittedReviewId != null;
@@ -199,7 +199,7 @@ export function ChildAgentRow({
               className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
               onClick={detachTerminal}
             >
-              <X className="h-3.5 w-3.5" />
+              <Unplug className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Detach</TooltipContent>
@@ -280,7 +280,7 @@ export function ChildAgentRow({
             Session settings
           </DropdownMenuItem>
           <DropdownMenuItem
-            className="flex items-center gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50"
+            className="flex min-h-11 items-center gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0"
             data-testid={`child-agent-archive-${agent.id}`}
             disabled={isArchiving || agent.status === "creating"}
             onSelect={() => {
