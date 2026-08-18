@@ -31,11 +31,7 @@ type PeerSelf = {
     enabled: boolean;
     active: boolean;
     address: string | null;
-    blockedReason:
-      | "no-password"
-      | "no-tailscale"
-      | "wildcard-host"
-      | null;
+    blockedReason: "no-password" | "no-tailscale" | "wildcard-host" | null;
   };
 };
 
@@ -43,6 +39,7 @@ type Capabilities = {
   allowLaunch: boolean;
   allowMessage: boolean;
   allowFullAccess: boolean;
+  allowEvents: boolean;
 };
 
 type Peer = Capabilities & {
@@ -66,6 +63,7 @@ const DEFAULT_CAPABILITIES: Capabilities = {
   allowLaunch: true,
   allowMessage: true,
   allowFullAccess: false,
+  allowEvents: true,
 };
 
 const CAPABILITY_LABELS: {
@@ -88,9 +86,14 @@ const CAPABILITY_LABELS: {
     label: "Allow full access",
     hint: "Let launched agents run with the sandbox off.",
   },
+  {
+    key: "allowEvents",
+    label: "Share agent activity",
+    hint: "Send what agents here are doing — the status messages they write, not just whether they are running.",
+  },
 ];
 
-/** The three switches shown on both the accept and connect cards. */
+/** The capability switches shown on both the accept and connect cards. */
 function CapabilitySwitches({
   value,
   onChange,
@@ -151,9 +154,8 @@ export function LinkedInstancesSettings(): JSX.Element {
     onSettled: () => queryClient.invalidateQueries({ queryKey: selfQueryKey }),
   });
 
-  const [offerCaps, setOfferCaps] = useState<Capabilities>(
-    DEFAULT_CAPABILITIES
-  );
+  const [offerCaps, setOfferCaps] =
+    useState<Capabilities>(DEFAULT_CAPABILITIES);
   const offerMutation = useMutation({
     mutationFn: () =>
       api<PairingOffer>("/api/v1/peers/pairings", {
@@ -322,12 +324,13 @@ export function LinkedInstancesSettings(): JSX.Element {
           )}
           {/* Not a failure: the server binds all interfaces, so the tailnet is
               already served and a second listener would collide on the port. */}
-          {self?.bind.enabled && self.bind.blockedReason === "wildcard-host" && (
-            <p className="text-sm text-muted-foreground">
-              Already reachable on the tailnet — this server binds all
-              interfaces, so no separate listener is needed.
-            </p>
-          )}
+          {self?.bind.enabled &&
+            self.bind.blockedReason === "wildcard-host" && (
+              <p className="text-sm text-muted-foreground">
+                Already reachable on the tailnet — this server binds all
+                interfaces, so no separate listener is needed.
+              </p>
+            )}
           {self?.bind.active && self.bind.address && (
             <p className="text-sm text-muted-foreground">
               Listening on {self.bind.address}
@@ -537,6 +540,9 @@ export function LinkedInstancesSettings(): JSX.Element {
                           )}
                           {peer.allowFullAccess && (
                             <Badge variant="error">full access</Badge>
+                          )}
+                          {peer.allowEvents && (
+                            <Badge variant="running">sees activity here</Badge>
                           )}
                         </div>
                       )}

@@ -1,7 +1,4 @@
 import React from "react";
-import { useQuery } from "@tanstack/react-query";
-
-import { api } from "@/lib/api";
 
 import { AgentMeta } from "@/components/app/agent-meta";
 import { AgentCardActions } from "@/components/app/agent-card-actions";
@@ -113,19 +110,6 @@ export function AgentCard({
   // Owned here rather than in AgentCardDetails so the copy confirmation is not
   // lost when the details panel unmounts on collapse.
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
-  const { data: linkedPeers } = useQuery({
-    queryKey: ["peers", "list"],
-    queryFn: async () =>
-      (
-        await api<{ peers: Array<{ id: string; name: string }> }>(
-          "/api/v1/peers"
-        )
-      ).peers,
-    enabled: Boolean(agent.peerId),
-    staleTime: 60_000,
-  });
-  const peerDisplayName =
-    linkedPeers?.find((peer) => peer.id === agent.peerId)?.name ?? agent.peerId;
   const isTerminalAgent = agent.type === "terminal";
   const { diffStats, refresh: refreshDiffStats } = useAgentDiffStats(
     agent.id,
@@ -212,16 +196,8 @@ export function AgentCard({
                 {agent.lastError ? (
                   <AgentMeta label="Last error" value={agent.lastError} />
                 ) : null}
-                {agent.peerId ? (
-                  <div className="flex items-center gap-1.5">
-                    <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">
-                      Location
-                    </span>
-                    <Badge variant="default" title={agent.peerId ?? undefined}>
-                      {peerDisplayName}
-                    </Badge>
-                  </div>
-                ) : null}
+                {/* Location is not repeated here — the header badge carries it,
+                    and it has to be legible collapsed anyway. */}
                 {agent.persona ? (
                   <div className="flex items-center gap-1.5">
                     <span className="uppercase tracking-wide text-[10px] text-muted-foreground/80">

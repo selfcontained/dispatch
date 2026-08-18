@@ -9,6 +9,47 @@ import type {
 } from "./types.js";
 
 /**
+ * Append one row to the `agent_events` history. Fire-and-forget by design:
+ * losing a history row must never block the live status indicator.
+ *
+ * `at` exists for MIRRORED peer events, which already happened on another
+ * machine — their history row keeps the originating timestamp so the timeline
+ * reads in the order the remote agent actually worked in. It doubles as the
+ * dedupe identity: a peer snapshot replays the whole agent list after every
+ * reconnect, so the insert is skipped when this agent already has a row at that
+ * exact instant. Locally-written events omit it and get `now()`.
+ */
+export function appendAgentEventHistory(
+  pool: Pool,
+  logger: FastifyBaseLogger,
+  id: string,
+  input: AgentLatestEventInput,
+  at?: string
+): void {
+  pool
+    .query(
+      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir, created_at)
+       SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd),
+              COALESCE($5::timestamptz, now())
+       FROM agents WHERE id = $1
+         AND ($5::timestamptz IS NULL OR NOT EXISTS (
+           SELECT 1 FROM agent_events
+            WHERE agent_id = $1 AND created_at = $5::timestamptz
+         ))`,
+      [
+        id,
+        input.type,
+        input.message,
+        JSON.stringify(input.metadata ?? {}),
+        at ?? null,
+      ]
+    )
+    .catch((err) =>
+      logger.warn({ err }, "Failed to insert agent event history")
+    );
+}
+
+/**
  * Persist a latest-event update for `id`. Two writes:
  *   1. UPDATE the agent's `latest_event_*` columns synchronously. Throws
  *      `AgentError(404)` if the agent has no live row.
@@ -52,19 +93,7 @@ export async function writeLatestEvent(
     throw new AgentError("Agent not found.", 404);
   }
 
-  // Append to event history (fire-and-forget — keeping this off the critical
-  // path means the agent status indicator updates even if the history table
-  // is briefly unavailable).
-  pool
-    .query(
-      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-       SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-       FROM agents WHERE id = $1`,
-      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
-    )
-    .catch((err) =>
-      logger.warn({ err }, "Failed to insert agent event history")
-    );
+  appendAgentEventHistory(pool, logger, id, { ...input, message });
 }
 
 /**
@@ -113,16 +142,7 @@ export async function writeLatestEventIfCurrent(
     return false;
   }
 
-  pool
-    .query(
-      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-       SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-       FROM agents WHERE id = $1`,
-      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
-    )
-    .catch((err) =>
-      logger.warn({ err }, "Failed to insert agent event history")
-    );
+  appendAgentEventHistory(pool, logger, id, { ...input, message });
 
   return true;
 }

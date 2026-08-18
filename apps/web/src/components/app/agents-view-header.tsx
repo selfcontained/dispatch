@@ -32,6 +32,7 @@ type AgentsViewHeaderProps = {
   setMediaOpen: (open: boolean) => void;
   unseenMediaCount: number;
   unreadMessageCount: number;
+  terminalTabLabel?: string;
 };
 
 export function AgentsViewHeader({
@@ -55,6 +56,7 @@ export function AgentsViewHeader({
   setMediaOpen,
   unseenMediaCount,
   unreadMessageCount,
+  terminalTabLabel,
 }: AgentsViewHeaderProps): JSX.Element {
   return (
     <div className="relative z-10 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-background px-3">
@@ -117,6 +119,7 @@ export function AgentsViewHeader({
                 onTabChange(tab);
               }}
               whiteboardAgentDrew={whiteboardAgentDrew}
+              terminalTabLabel={terminalTabLabel}
               isSplit={isSplit}
               splitState={splitState}
               isMobile={isMobile}

@@ -33,6 +33,12 @@ type CenterPaneTabBarProps = {
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
+  /**
+   * Shadow agents open to an event timeline instead of a terminal — the tmux
+   * pane is on another machine. Same tab id, so split/routing state is
+   * untouched; only what it is called changes.
+   */
+  terminalTabLabel?: string;
 };
 
 export const CenterPaneTabBar = memo(function CenterPaneTabBar({
@@ -42,6 +48,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   isSplit,
   splitState,
   isMobile,
+  terminalTabLabel,
 }: CenterPaneTabBarProps): JSX.Element {
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
@@ -86,7 +93,9 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             }}
           >
             <span className="relative pb-1.5 -mb-1.5">
-              {tab.label}
+              {tab.id === "terminal"
+                ? (terminalTabLabel ?? tab.label)
+                : tab.label}
               {tab.id === "whiteboard" &&
               whiteboardAgentDrew &&
               activeTab !== "whiteboard" ? (

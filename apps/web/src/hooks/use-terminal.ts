@@ -374,6 +374,20 @@ export function useTerminal(args: {
 
         if (!isCurrentAttempt() || !agent) return;
 
+        // Shadow rows have no tmux session on this machine. Bail before any
+        // connect attempt — every entry point lands here (route auto-attach,
+        // visibility/online reconnect), so gating callers individually would
+        // leave a permanent "Connecting…" in the status live region.
+        if (agent.peerId) {
+          shouldKeepAttachedRef.current = false;
+          clearReconnectTimer();
+          closeSocket(false);
+          resetTerminalSurface();
+          setConnState("disconnected");
+          setStatusMessage("");
+          return;
+        }
+
         if (agent.status !== "running" && agent.status !== "creating") {
           shouldKeepAttachedRef.current = false;
           clearReconnectTimer();

@@ -6,6 +6,7 @@ import {
   createPairingOffer,
   linkToPeer,
   listPeers,
+  PEER_PROTOCOL_VERSION,
   revokePeer,
 } from "../src/peers/pairing.js";
 import { requirePeerAuth } from "../src/peers/peer-auth.js";
@@ -110,7 +111,7 @@ describe("linkToPeer", () => {
       claimedBody = JSON.parse(String(init?.body));
       return new Response(
         JSON.stringify({
-          protocolVersion: 1,
+          protocolVersion: PEER_PROTOCOL_VERSION,
           instanceId: "inst_remote",
           name: "cloud-vm",
           token: remoteToken,

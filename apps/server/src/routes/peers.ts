@@ -30,6 +30,7 @@ const PairingOfferBodySchema = z.object({
   allowLaunch: z.boolean().default(true),
   allowMessage: z.boolean().default(true),
   allowFullAccess: z.boolean().default(false),
+  allowEvents: z.boolean().default(true),
   requireTailnet: z.boolean().default(true),
 });
 
@@ -55,6 +56,7 @@ const LinkBodySchema = z.object({
   allowLaunch: z.boolean().default(true),
   allowMessage: z.boolean().default(true),
   allowFullAccess: z.boolean().default(false),
+  allowEvents: z.boolean().default(true),
   selfUrl: z.string().trim().max(4_096).optional(),
 });
 
@@ -331,19 +333,28 @@ export async function registerPeerRoutes(
 
       const stream = reply.raw;
       // Peers get a scoped view, not the full UI event firehose: only
-      // agent.upsert, only local (non-shadow) agents, only the status fields
-      // the mirror consumes. Live events buffer until the snapshot is written
-      // so a reconnect can never regress a shadow with an older snapshot.
+      // agent.upsert, only local (non-shadow) agents, only the fields the
+      // mirror consumes. Live events buffer until the snapshot is written so a
+      // reconnect can never regress a shadow with an older snapshot.
+      //
+      // latestEvent is its own capability: identity and status are what a
+      // shadow row needs to exist at all, but the event text is whatever the
+      // agent wrote about itself, and that says far more about this machine.
+      // Omitted entirely (not nulled) when ungranted, so the mirror can tell
+      // "not shared" from "no event yet" and leave the shadow's own state be.
+      const shareEvents = request.peerAuth!.allowEvents;
       const slim = (agent: {
         id: string;
         name: string;
         type: string;
         status: string;
+        latestEvent?: AgentRecord["latestEvent"];
       }) => ({
         id: agent.id,
         name: agent.name,
         type: agent.type,
         status: agent.status,
+        ...(shareEvents ? { latestEvent: agent.latestEvent ?? null } : {}),
       });
       let snapshotSent = false;
       const pending: string[] = [];

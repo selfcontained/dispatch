@@ -24,6 +24,8 @@ type CenterPaneSplitProps = {
   isMobile: boolean;
   onLayoutChange: (layout: Record<string, number>) => void;
   onExitSplit: () => void;
+  /** Mirrors the tab bar's override so both surfaces name the pane alike. */
+  terminalTabLabel?: string;
 };
 
 /**
@@ -42,7 +44,12 @@ export function CenterPaneSplit({
   isMobile,
   onLayoutChange,
   onExitSplit,
+  terminalTabLabel,
 }: CenterPaneSplitProps): JSX.Element {
+  const labelFor = (tab: CenterTab): string =>
+    tab === "terminal"
+      ? (terminalTabLabel ?? TAB_LABELS.terminal)
+      : TAB_LABELS[tab];
   return (
     <div className="relative h-full">
       <ResizablePanelGroup
@@ -58,7 +65,7 @@ export function CenterPaneSplit({
           <div ref={splitLeftRef} className="flex h-full flex-col">
             <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {TAB_LABELS[splitState.left]}
+                {labelFor(splitState.left)}
               </span>
               {splitState.left === "changes" && !isMobile ? (
                 <ChangesSettingsPopover />
@@ -84,7 +91,7 @@ export function CenterPaneSplit({
           <div className="flex h-full flex-col">
             <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {TAB_LABELS[splitState.right]}
+                {labelFor(splitState.right)}
               </span>
               {splitState.right === "changes" && !isMobile ? (
                 <ChangesSettingsPopover />

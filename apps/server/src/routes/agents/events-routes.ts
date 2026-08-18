@@ -51,6 +51,40 @@ export async function registerAgentEventRoutes(
     }
   });
 
+  // One agent's event history, newest first. The live SSE feed only ever
+  // carries the LATEST event, so a pane that renders a timeline needs this to
+  // see anything that happened before it was opened.
+  app.get("/api/v1/agents/:id/events", async (request, reply) => {
+    const { id } = request.params as { id?: string };
+    if (!id) return reply.code(400).send({ error: "Agent id is required." });
+
+    const rawLimit = Number((request.query as { limit?: string }).limit);
+    const limit = Number.isFinite(rawLimit)
+      ? Math.min(Math.max(Math.trunc(rawLimit), 1), 500)
+      : 200;
+
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) return reply.code(404).send({ error: "Agent not found." });
+
+    const result = await deps.pool.query<{
+      id: number;
+      type: string;
+      message: string;
+      metadata: Record<string, unknown> | null;
+      createdAt: string;
+    }>(
+      `SELECT id, event_type AS "type", message,
+              COALESCE(metadata, '{}'::jsonb) AS metadata,
+              created_at AS "createdAt"
+         FROM agent_events
+        WHERE agent_id = $1
+        ORDER BY created_at DESC, id DESC
+        LIMIT $2`,
+      [id, limit]
+    );
+    return { events: result.rows };
+  });
+
   app.post("/api/v1/notifications/ack", async (request, reply) => {
     const body = request.body as { notificationId?: unknown };
     if (typeof body?.notificationId !== "string") {

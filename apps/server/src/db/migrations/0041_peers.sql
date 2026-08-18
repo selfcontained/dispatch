@@ -29,11 +29,11 @@ CREATE UNIQUE INDEX IF NOT EXISTS peers_active_name_idx
 
 -- Bearer tokens THEY present to US, plus the standing pair-time policy.
 --
--- Capabilities are a SET, not a flag. Pairing grants three separable things —
--- run code here, inject prompts into agents here, and do either with the
--- sandbox off — and a single boolean cannot describe them. Each route gates on
--- its own column, so a launch-only CI box or a message-only observer is a
--- policy row rather than a protocol version.
+-- Capabilities are a SET, not a flag. Pairing grants separable things — run
+-- code here, inject prompts into agents here, do either with the sandbox off,
+-- and see what agents here are doing — and a single boolean cannot describe
+-- them. Each route gates on its own column, so a launch-only CI box or a
+-- message-only observer is a policy row rather than a protocol version.
 CREATE TABLE IF NOT EXISTS peer_credentials (
   id uuid PRIMARY KEY,
   peer_id text NOT NULL REFERENCES peers(id) ON DELETE CASCADE,
@@ -45,6 +45,13 @@ CREATE TABLE IF NOT EXISTS peer_credentials (
   -- sandbox, and "may launch here" should not silently mean "may launch
   -- unsandboxed here". Opt in per pairing.
   allow_full_access boolean NOT NULL DEFAULT false,
+  -- Gates the LATEST-EVENT payload on the peer event feed, not the feed itself.
+  -- Id/name/type/status always cross — without them a shadow row could never
+  -- track its remote agent at all. What this grant adds is the event text an
+  -- agent writes about itself ("Refactoring auth middleware"), which says far
+  -- more about what this machine is doing than a status enum does. On by
+  -- default: a shadow whose progress never moves is the thing it exists to fix.
+  allow_events boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   last_used_at timestamptz,
   revoked_at timestamptz
@@ -61,6 +68,7 @@ CREATE TABLE IF NOT EXISTS peer_pairings (
   allow_launch boolean NOT NULL DEFAULT true,
   allow_message boolean NOT NULL DEFAULT true,
   allow_full_access boolean NOT NULL DEFAULT false,
+  allow_events boolean NOT NULL DEFAULT true,
   require_tailnet boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   expires_at timestamptz NOT NULL,

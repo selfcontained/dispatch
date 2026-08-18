@@ -11,6 +11,7 @@ export type PeerAuth = {
   allowLaunch: boolean;
   allowMessage: boolean;
   allowFullAccess: boolean;
+  allowEvents: boolean;
 };
 
 /**
@@ -102,10 +103,11 @@ export async function requirePeerAuth(
     allow_launch: boolean;
     allow_message: boolean;
     allow_full_access: boolean;
+    allow_events: boolean;
     password_set: boolean;
   }>(
     `SELECT c.id, c.peer_id, c.tailnet_stable_id,
-            c.allow_launch, c.allow_message, c.allow_full_access,
+            c.allow_launch, c.allow_message, c.allow_full_access, c.allow_events,
             EXISTS (
               SELECT 1 FROM settings WHERE key = 'password_hash' AND value <> ''
             ) AS password_set
@@ -166,6 +168,7 @@ export async function requirePeerAuth(
     allowLaunch: row.allow_launch,
     allowMessage: row.allow_message,
     allowFullAccess: row.allow_full_access,
+    allowEvents: row.allow_events,
   };
 }
 

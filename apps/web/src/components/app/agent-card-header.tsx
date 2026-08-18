@@ -4,6 +4,7 @@ import {
   ArrowDownToLine,
   ChevronDown,
   Play,
+  Radio,
   Tag,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -17,6 +18,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { usePeerName } from "@/hooks/use-peers";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -61,6 +63,9 @@ export function AgentCardHeader({
   toggleAgentDetails,
 }: AgentCardHeaderProps): JSX.Element {
   const [renamePromptPending, setRenamePromptPending] = React.useState(false);
+  // Which machine this agent is on has to be legible without expanding the
+  // card — a collapsed sidebar is the state people actually read.
+  const peerName = usePeerName(agent.peerId);
   const needsAttention = agent.status === "error";
   const isJobAgent = agent.name.startsWith("job-");
   const isAssistedUpdateAgent = agent.role === "assisted_update";
@@ -161,6 +166,31 @@ export function AgentCardHeader({
           </Tooltip>
         ) : null}
       </div>
+
+      {peerName ? (
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Badge
+              data-testid={`agent-peer-badge-${agent.id}`}
+              // Which agent this is outranks which machine it runs on, so the
+              // badge gets a hard slice of the row and shrinks before the name.
+              // title, not just the tooltip: tooltips never open on touch.
+              title={peerName}
+              className="max-w-[8rem] shrink border-status-working/40 bg-status-working/10 text-status-working"
+            >
+              <Radio className="mr-1 h-3 w-3 shrink-0" />
+              <span className="truncate">{peerName}</span>
+            </Badge>
+          </TooltipTrigger>
+          <TooltipContent>
+            Runs on {peerName}
+            <br />
+            <span className="text-muted-foreground">
+              Linked instance — this card mirrors it
+            </span>
+          </TooltipContent>
+        </Tooltip>
+      ) : null}
 
       {needsAttention ? (
         <Badge

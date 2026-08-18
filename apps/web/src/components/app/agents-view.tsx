@@ -31,6 +31,7 @@ import { BottomBar } from "@/components/app/bottom-bar";
 import { TerminalCopyModeBannerLayer } from "@/components/app/terminal-copy-mode-banner";
 import { MobileTerminalToolbar } from "@/components/app/mobile-terminal-toolbar";
 import { SidebarShell, type NavSection } from "@/components/app/sidebar-shell";
+import { RemoteActivityPane } from "@/components/app/remote-activity-pane";
 import { TerminalPane } from "@/components/app/terminal-pane";
 import {
   type Agent,
@@ -205,11 +206,18 @@ export function AgentsView({
     resortAgents();
   }, [connectedAgentId, resortAgents]);
 
-  const focusedAgentId = resyncing
-    ? validatedSelectedAgentId
-    : connState === "connected" || connState === "reconnecting"
-      ? (connectedAgentId ?? validatedSelectedAgentId)
-      : null;
+  // A shadow agent is focused by selection alone: it never holds a terminal, so
+  // gating focus on connection state would leave its activity pane unreachable.
+  const selectedIsShadow = Boolean(
+    validatedSelectedAgentId &&
+    agents.find((agent) => agent.id === validatedSelectedAgentId)?.peerId
+  );
+  const focusedAgentId =
+    resyncing || selectedIsShadow
+      ? validatedSelectedAgentId
+      : connState === "connected" || connState === "reconnecting"
+        ? (connectedAgentId ?? validatedSelectedAgentId)
+        : null;
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
@@ -454,7 +462,12 @@ export function AgentsView({
   const isAttached = connState === "connected" && Boolean(connectedAgentId);
   const hasActiveAgent = Boolean(validatedSelectedAgentId);
 
-  const terminalElement = (
+  // A shadow agent's pane is its event timeline, not a terminal: the tmux
+  // session is on another machine, and its events are already structured data
+  // that a relayed terminal would have flattened back into text.
+  const terminalElement = focusedAgent?.peerId ? (
+    <RemoteActivityPane agent={focusedAgent} />
+  ) : (
     <TerminalPane
       isAttached={isAttached}
       connState={connState}
@@ -601,6 +614,7 @@ export function AgentsView({
                 setMediaOpen={setMediaOpen}
                 unseenMediaCount={unseenMediaCount}
                 unreadMessageCount={unreadMessageCount}
+                terminalTabLabel={focusedAgent?.peerId ? "Activity" : undefined}
               />
               <div
                 className={cn(
@@ -622,6 +636,9 @@ export function AgentsView({
                     isMobile={isMobile}
                     onLayoutChange={handleSplitLayoutChange}
                     onExitSplit={exitSplit}
+                    terminalTabLabel={
+                      focusedAgent?.peerId ? "Activity" : undefined
+                    }
                   />
                 ) : (
                   <>
@@ -666,7 +683,9 @@ export function AgentsView({
               ) : null}
             </div>
 
-            {isMobile ? (
+            {/* No keyboard for a machine we have no shell on — the toolbar
+                would sit disabled under the timeline eating vertical space. */}
+            {isMobile && !focusedAgent?.peerId ? (
               <MobileTerminalToolbar
                 agentId={connectedAgentId}
                 onSendInput={sendTerminalInput}

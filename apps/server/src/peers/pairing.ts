@@ -15,23 +15,26 @@ export const PAIRING_TTL_MS = 10 * 60 * 1000;
  * with a clear error instead of failing ambiguously on a later payload.
  * Bump on any incompatible change to the peer routes.
  */
-export const PEER_PROTOCOL_VERSION = 1;
+export const PEER_PROTOCOL_VERSION = 2;
 
 /**
- * What a pairing grants. Three separable powers, because "may launch here" and
- * "may launch here with the sandbox off" are not the same permission, and
- * messaging an agent is not launching one.
+ * What a pairing grants. Separable powers, because "may launch here" and "may
+ * launch here with the sandbox off" are not the same permission, messaging an
+ * agent is not launching one, and watching what agents here are doing is
+ * neither.
  */
 export type PeerCapabilities = {
   allowLaunch: boolean;
   allowMessage: boolean;
   allowFullAccess: boolean;
+  allowEvents: boolean;
 };
 
 export const DEFAULT_CAPABILITIES: PeerCapabilities = {
   allowLaunch: true,
   allowMessage: true,
   allowFullAccess: false,
+  allowEvents: true,
 };
 
 export type PeerRecord = {
@@ -134,14 +137,15 @@ export async function createPairingOffer(
   const expiresAt = new Date(Date.now() + PAIRING_TTL_MS);
   await pool.query(
     `INSERT INTO peer_pairings
-       (id, code_hash, allow_launch, allow_message, allow_full_access, require_tailnet, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+       (id, code_hash, allow_launch, allow_message, allow_full_access, allow_events, require_tailnet, expires_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
     [
       pairingId,
       sha256(code),
       caps.allowLaunch,
       caps.allowMessage,
       caps.allowFullAccess,
+      caps.allowEvents,
       input.requireTailnet,
       expiresAt,
     ]
@@ -183,9 +187,11 @@ export async function claimPairing(
     allow_launch: boolean;
     allow_message: boolean;
     allow_full_access: boolean;
+    allow_events: boolean;
     require_tailnet: boolean;
   }>(
-    `SELECT id, code_hash, allow_launch, allow_message, allow_full_access, require_tailnet
+    `SELECT id, code_hash, allow_launch, allow_message, allow_full_access,
+            allow_events, require_tailnet
        FROM peer_pairings
       WHERE expires_at > now() AND claimed_at IS NULL`
   );
@@ -263,8 +269,8 @@ export async function claimPairing(
     );
     await client.query(
       `INSERT INTO peer_credentials
-         (id, peer_id, token_hash, tailnet_stable_id, allow_launch, allow_message, allow_full_access)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (id, peer_id, token_hash, tailnet_stable_id, allow_launch, allow_message, allow_full_access, allow_events)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         crypto.randomUUID(),
         input.claimer.instanceId,
@@ -273,6 +279,7 @@ export async function claimPairing(
         offer.allow_launch,
         offer.allow_message,
         offer.allow_full_access,
+        offer.allow_events,
       ]
     );
     await client.query(`UPDATE peer_pairings SET peer_id = $2 WHERE id = $1`, [
@@ -436,14 +443,7 @@ export async function linkToPeer(
        ON CONFLICT (id) DO UPDATE
          SET reported_name = $3, url = $4, tailnet_stable_id = $5,
              outbound_token = $6, last_seen_at = now(), revoked_at = NULL`,
-      [
-        body.instanceId,
-        label,
-        reportedName,
-        peerUrl,
-        peerStableId,
-        body.token,
-      ]
+      [body.instanceId, label, reportedName, peerUrl, peerStableId, body.token]
     );
     await client.query(
       `UPDATE peer_credentials SET revoked_at = now()
@@ -452,8 +452,8 @@ export async function linkToPeer(
     );
     await client.query(
       `INSERT INTO peer_credentials
-         (id, peer_id, token_hash, tailnet_stable_id, allow_launch, allow_message, allow_full_access)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (id, peer_id, token_hash, tailnet_stable_id, allow_launch, allow_message, allow_full_access, allow_events)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [
         crypto.randomUUID(),
         body.instanceId,
@@ -462,6 +462,7 @@ export async function linkToPeer(
         caps.allowLaunch,
         caps.allowMessage,
         caps.allowFullAccess,
+        caps.allowEvents,
       ]
     );
     await client.query("COMMIT");
@@ -484,7 +485,9 @@ export async function renamePeer(
   pool: Pool,
   peerId: string,
   name: string
-): Promise<{ ok: true; name: string } | { ok: false; status: number; error: string }> {
+): Promise<
+  { ok: true; name: string } | { ok: false; status: number; error: string }
+> {
   const trimmed = name.trim();
   if (!trimmed) {
     return { ok: false, status: 400, error: "Name cannot be empty." };
@@ -523,13 +526,14 @@ export async function listPeers(pool: Pool): Promise<PeerRecord[]> {
     allow_launch: boolean | null;
     allow_message: boolean | null;
     allow_full_access: boolean | null;
+    allow_events: boolean | null;
   }>(
     `SELECT p.id, p.name, p.reported_name, p.url, p.tailnet_stable_id,
             p.created_at, p.last_seen_at,
-            c.allow_launch, c.allow_message, c.allow_full_access
+            c.allow_launch, c.allow_message, c.allow_full_access, c.allow_events
        FROM peers p
        LEFT JOIN LATERAL (
-         SELECT allow_launch, allow_message, allow_full_access
+         SELECT allow_launch, allow_message, allow_full_access, allow_events
            FROM peer_credentials
           WHERE peer_id = p.id AND revoked_at IS NULL
           ORDER BY created_at DESC LIMIT 1
@@ -548,6 +552,7 @@ export async function listPeers(pool: Pool): Promise<PeerRecord[]> {
     allowLaunch: row.allow_launch ?? false,
     allowMessage: row.allow_message ?? false,
     allowFullAccess: row.allow_full_access ?? false,
+    allowEvents: row.allow_events ?? false,
   }));
 }
 

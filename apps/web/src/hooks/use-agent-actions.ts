@@ -49,9 +49,22 @@ export function useAgentActions({
       navigate(agentRoute(agent.id));
       ensureAuxExpanded(agent.parentAgentId ?? agent.id);
       refreshMedia(agent.id);
+      // A shadow agent has no tmux session on this machine — attaching would
+      // sit in "Connecting…" forever. Drop any terminal we still hold instead,
+      // so its chrome doesn't linger over the activity timeline.
+      if (agent.peerId) {
+        detachTerminal();
+        return;
+      }
       await ensureTerminalConnected(true, true, agent.id);
     },
-    [ensureAuxExpanded, ensureTerminalConnected, navigate, refreshMedia]
+    [
+      detachTerminal,
+      ensureAuxExpanded,
+      ensureTerminalConnected,
+      navigate,
+      refreshMedia,
+    ]
   );
 
   const startAgent = useCallback(
