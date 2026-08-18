@@ -12,6 +12,12 @@ export type AgentListing = {
   latestEvent: { type: string; message: string } | null;
   parentAgentId: string | null;
   parentName: string | null;
+  /**
+   * Present only when the launcher is not the parent — i.e. the agent was
+   * launched with `child: false` and sits outside the launcher's lineage.
+   */
+  launchedByAgentId?: string;
+  launchedByName?: string;
   relation: AgentRelation;
 };
 
@@ -49,6 +55,8 @@ export function registerMessagingTools(
           "Use this to discover agents you can communicate with via dispatch_send_message. " +
           "Each entry also carries its delegation lineage: parentAgentId/parentName name the agent that launched it, " +
           "and relation says how it sits relative to you (child, descendant, parent, ancestor, sibling, unrelated). " +
+          "launchedByAgentId/launchedByName appear only when an agent was launched outside its launcher's lineage " +
+          "(dispatch_launch_agent with child: false) — that agent is top-level, but the named launcher created it. " +
           "Build the delegation tree from parentAgentId rather than assuming the list is flat — a 'descendant' is a " +
           "grandchild or deeper, not something you launched yourself.",
         inputSchema: {},

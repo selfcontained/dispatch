@@ -713,6 +713,26 @@ describe("createMcpHandlers", () => {
       );
     });
 
+    it("refuses a persona review launched from a child agent", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child",
+        name: "child-agent",
+        cwd: "/repo",
+        type: "claude",
+        fullAccess: false,
+        status: "running",
+        parentAgentId: "agt_root",
+      } as any);
+
+      await expect(
+        handlers.launchPersona("agt_child", {
+          persona: "security",
+          context: "review this PR",
+        })
+      ).rejects.toThrow("cannot launch persona reviews");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
     it("passes the Cursor runtime to persona prompt assembly for Cursor review agents", async () => {
       deps.agentManager.getAgent.mockResolvedValue({
         id: "agt_test1",
@@ -1021,6 +1041,73 @@ describe("createMcpHandlers", () => {
         handlers.launchAgent("agt_test1", { name: "orphan", prompt: "work" })
       ).rejects.toThrow("being archived");
       expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
+    it("records the launcher and refuses a further child from a child agent", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child",
+        name: "child-agent",
+        cwd: "/repo",
+        status: "running",
+        type: "claude",
+        parentAgentId: "agt_root",
+      } as any);
+
+      await expect(
+        handlers.launchAgent("agt_child", { name: "grandchild", prompt: "go" })
+      ).rejects.toThrow("cannot launch further children");
+      expect(deps.agentManager.createAgent).not.toHaveBeenCalled();
+    });
+
+    it("lets a child agent launch an independent agent", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_child",
+        name: "child-agent",
+        cwd: "/repo",
+        status: "running",
+        type: "claude",
+        fullAccess: false,
+        parentAgentId: "agt_root",
+      } as any);
+
+      await handlers.launchAgent("agt_child", {
+        name: "peer",
+        prompt: "go",
+        child: false,
+      });
+
+      const created = deps.agentManager.createAgent.mock.calls[0][0];
+      expect(created.parentAgentId).toBeUndefined();
+      expect(created.launchedByAgentId).toBe("agt_child");
+      expect(created.initialPrompt).toContain("as an independent agent");
+      expect(created.initialPrompt).not.toContain("You are a child agent");
+    });
+
+    it("keeps the launcher recorded on a child launch", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "work",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          parentAgentId: "agt_test1",
+          launchedByAgentId: "agt_test1",
+        })
+      );
+    });
+
+    it("tells a child agent up front that it cannot launch children", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "work",
+      });
+
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          initialPrompt: expect.stringContaining("You are a child agent"),
+        })
+      );
     });
 
     it("includes the launching agent id in the child initial prompt", async () => {
@@ -1741,6 +1828,24 @@ describe("createMcpHandlers", () => {
         "You can only archive yourself or an agent you launched"
       );
       expect(deps.beginBackgroundArchive).not.toHaveBeenCalled();
+    });
+
+    it("archives an agent launched with child: false, which has no parent", async () => {
+      deps.agentManager.getAgent.mockResolvedValue({
+        id: "agt_indep1",
+        name: "independent",
+        cwd: "/repo",
+        parentAgentId: null,
+        launchedByAgentId: "agt_test1",
+      } as any);
+
+      await handlers.archiveAgent("agt_test1", { agentId: "agt_indep1" });
+
+      expect(deps.beginBackgroundArchive).toHaveBeenCalledWith(
+        "agt_indep1",
+        "auto",
+        expect.anything()
+      );
     });
   });
 

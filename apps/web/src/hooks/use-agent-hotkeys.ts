@@ -8,7 +8,7 @@ import {
 } from "@/components/app/command-palette";
 import { type Agent } from "@/components/app/types";
 import { agentRoute } from "@/lib/agent-routes";
-import { isNestedReviewAgent } from "@/lib/agent-types";
+import { partitionAgentsByLineage } from "@/lib/agent-types";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
 import { useTemplates, type Template } from "@/hooks/use-templates";
 
@@ -79,7 +79,8 @@ export function useAgentHotkeys({
 
   const cycleAgent = useCallback(
     (direction: -1 | 1) => {
-      const cycleAgents = agents.filter((agent) => !isNestedReviewAgent(agent));
+      // Cycling walks the sidebar cards, and a sub agent has no card of its own.
+      const cycleAgents = partitionAgentsByLineage(agents).topLevel;
       if (cycleAgents.length === 0) return;
       const currentIdx = validatedSelectedAgentId
         ? cycleAgents.findIndex((a) => a.id === validatedSelectedAgentId)
