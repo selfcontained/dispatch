@@ -8,10 +8,6 @@
 -- with no provenance and no owner allowed to archive them.
 ALTER TABLE agents ADD COLUMN IF NOT EXISTS launched_by_agent_id TEXT;
 
-CREATE INDEX IF NOT EXISTS idx_agents_launched_by_agent_id
-  ON agents (launched_by_agent_id)
-  WHERE launched_by_agent_id IS NOT NULL;
-
 -- Every agent launched by another agent to date was launched as a child, so
 -- the launcher is exactly the recorded parent.
 UPDATE agents

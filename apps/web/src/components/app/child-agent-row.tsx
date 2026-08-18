@@ -239,7 +239,7 @@ export function ChildAgentRow({
             data-agent-control="true"
             data-testid={`child-agent-menu-${agent.id}`}
             aria-label={`Session actions for ${displayName}`}
-            className="relative z-20 h-11 w-7 shrink-0 text-muted-foreground hover:text-foreground sm:h-7"
+            className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
           >
             <MoreVertical className="h-3.5 w-3.5" />
           </Button>

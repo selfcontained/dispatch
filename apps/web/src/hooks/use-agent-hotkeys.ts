@@ -8,7 +8,7 @@ import {
 } from "@/components/app/command-palette";
 import { type Agent } from "@/components/app/types";
 import { agentRoute } from "@/lib/agent-routes";
-import { partitionAgentsByLineage } from "@/lib/agent-types";
+import { cardIdForAgent, partitionAgentsByLineage } from "@/lib/agent-lineage";
 import { useHotkey } from "@/lib/hotkeys/use-hotkey";
 import { useTemplates, type Template } from "@/hooks/use-templates";
 
@@ -82,8 +82,17 @@ export function useAgentHotkeys({
       // Cycling walks the sidebar cards, and a sub agent has no card of its own.
       const cycleAgents = partitionAgentsByLineage(agents).topLevel;
       if (cycleAgents.length === 0) return;
-      const currentIdx = validatedSelectedAgentId
-        ? cycleAgents.findIndex((a) => a.id === validatedSelectedAgentId)
+      // When a sub agent is selected, cycle relative to the card it lives in —
+      // otherwise its own id is absent from the list and the cycle restarts
+      // from the far end instead of stepping to the neighbouring card.
+      const selected = validatedSelectedAgentId
+        ? agents.find((a) => a.id === validatedSelectedAgentId)
+        : undefined;
+      const anchorId = selected
+        ? cardIdForAgent(selected, new Map(agents.map((a) => [a.id, a])))
+        : null;
+      const currentIdx = anchorId
+        ? cycleAgents.findIndex((a) => a.id === anchorId)
         : -1;
       const nextIdx =
         currentIdx === -1

@@ -215,10 +215,10 @@ describe("useAgentHotkeys", () => {
       expect(pathname()).toBe("/agents/agt_2");
     });
 
-    it("filters review agents before indexing, so a selected review agent counts as no selection", () => {
-      // Selection points at the review agent; it is filtered out before the
-      // index lookup, so cycling behaves like nothing was selected: next
-      // lands on the FIRST cycleable agent, not the review agent's neighbor.
+    it("cycles a selected review agent relative to its parent card", () => {
+      // The review agent has no card of its own, but it is reachable only from
+      // inside agt_2's card — so next means "the card after agt_2", not "start
+      // over at the first card", which is where the index lookup used to land.
       const { pathname } = renderAgentHotkeys(
         defaultArgs({
           agents: [a1, a2, review, a3],
@@ -227,7 +227,7 @@ describe("useAgentHotkeys", () => {
       );
 
       pressHotkey("focus-next-agent");
-      expect(pathname()).toBe("/agents/agt_1");
+      expect(pathname()).toBe("/agents/agt_3");
     });
 
     it("with no selection, next goes to the first agent and prev to the last", () => {
@@ -275,6 +275,34 @@ describe("useAgentHotkeys", () => {
 
       pressHotkey("focus-next-agent");
       expect(pathname()).toBe("/agents/agt_3");
+    });
+
+    it("cycles relative to the card a selected sub agent lives in", () => {
+      // Selecting a sub agent used to leave the index at -1, so next jumped to
+      // the first card instead of stepping past the card holding it.
+      const child = makeAgent("agt_child_of_2", { parentAgentId: "agt_2" });
+      const { pathname } = renderAgentHotkeys(
+        defaultArgs({
+          agents: [a1, a2, child, a3],
+          validatedSelectedAgentId: "agt_child_of_2",
+        })
+      );
+
+      pressHotkey("focus-next-agent");
+      expect(pathname()).toBe("/agents/agt_3");
+    });
+
+    it("steps backwards from a selected sub agent's card too", () => {
+      const child = makeAgent("agt_child_of_2", { parentAgentId: "agt_2" });
+      const { pathname } = renderAgentHotkeys(
+        defaultArgs({
+          agents: [a1, a2, child, a3],
+          validatedSelectedAgentId: "agt_child_of_2",
+        })
+      );
+
+      pressHotkey("focus-prev-agent");
+      expect(pathname()).toBe("/agents/agt_1");
     });
 
     it("cycles an orphaned child whose parent is gone", () => {

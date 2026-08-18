@@ -13,9 +13,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { partitionAgentsByLineage } from "@/lib/agent-lineage";
 import {
   AGENT_TYPE_LABELS,
-  partitionAgentsByLineage,
   type AgentType,
   sortAgentTypes,
 } from "@/lib/agent-types";

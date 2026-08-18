@@ -42,10 +42,17 @@ test.describe("Review agent UI", () => {
         page.getByTestId(`child-agent-row-${reviewerId}`)
       ).toBeVisible();
     }
+    // A plain child is a sub agent too now — it used to render as its own
+    // top-level card while also being absent from its parent's list.
     await expect(
       page.getByTestId(`agent-card-${fixture.standardChildAgentId}`)
+    ).not.toBeVisible();
+    await expect(
+      page.getByTestId(`child-agent-row-${fixture.standardChildAgentId}`)
     ).toBeVisible();
     await expect(page.getByText("Sub Agents", { exact: true })).toBeVisible();
+    // Still 3, not 4: the badge marks review agents, and its absence is what
+    // distinguishes a plain child sitting in the same list.
     await expect(
       page.locator('[data-agent-role="review"]').getByText("Review", {
         exact: true,
@@ -73,6 +80,46 @@ test.describe("Review agent UI", () => {
     );
     await expect(
       page.getByText("Found one actionable loading-state issue.")
+    ).toBeVisible();
+  });
+
+  test("sub agent rows offer the session controls an agent card has", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-${Date.now()}`,
+      cwd: process.cwd(),
+      useWorktree: false,
+    });
+    const fixture = await seedReviewAgentFixtureViaDB(agent.id);
+
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await waitForAppShell(page);
+
+    // The seeded plain child is stopped, so the menu offers resume over pause.
+    await page
+      .getByTestId(`child-agent-menu-${fixture.standardChildAgentId}`)
+      .click();
+    await expect(
+      page.getByTestId(
+        `child-agent-menu-resume-${fixture.standardChildAgentId}`
+      )
+    ).toBeVisible();
+    await expect(
+      page.getByTestId(`child-agent-pause-${fixture.standardChildAgentId}`)
+    ).toHaveCount(0);
+    await expect(
+      page.getByTestId(`child-agent-settings-${fixture.standardChildAgentId}`)
+    ).toBeVisible();
+
+    // Archive is the control whose absence would have been a regression when
+    // plain children moved out of the top-level list.
+    await page
+      .getByTestId(`child-agent-archive-${fixture.standardChildAgentId}`)
+      .click();
+    await expect(
+      page.getByText(`Archive "standard task child"?`, { exact: false })
     ).toBeVisible();
   });
 

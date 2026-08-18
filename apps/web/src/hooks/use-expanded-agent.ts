@@ -13,7 +13,7 @@ import {
   readExpandedAgentId,
 } from "@/components/app/agents-view-utils";
 import { type Agent } from "@/components/app/types";
-import { cardIdForAgent } from "@/lib/agent-types";
+import { cardIdForAgent } from "@/lib/agent-lineage";
 
 /**
  * Owns which agent card is expanded in the sidebar: localStorage-initialized
