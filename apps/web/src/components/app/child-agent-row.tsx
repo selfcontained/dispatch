@@ -1,12 +1,13 @@
 import {
   Archive,
+  Check,
+  Eye,
   MoreVertical,
   Pause,
   Pencil,
   Play,
-  Terminal,
-  Unplug,
 } from "lucide-react";
+import type { ReactNode } from "react";
 
 import {
   latestEventColor,
@@ -30,6 +31,27 @@ import {
 } from "@/components/ui/tooltip";
 import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+/**
+ * Wraps the REVIEW badge in the "open review from the menu" tip once its
+ * review is ready to open — otherwise renders the badge plain. A tiny local
+ * component (rather than an inline ternary) so TipSpot's own eligibility
+ * check still only ever mounts for a badge that's actually ready.
+ */
+function ReviewBadge({
+  tip,
+  children,
+}: {
+  tip: boolean;
+  children: ReactNode;
+}): JSX.Element {
+  if (!tip) return <>{children}</>;
+  return (
+    <TipSpot tipId="review-row-open" side="bottom" align="center">
+      {children}
+    </TipSpot>
+  );
+}
 
 export type ChildAgentRowProps = {
   agent: Agent;
@@ -98,77 +120,69 @@ export function ChildAgentRow({
       data-agent-role={agent.role ?? "standard"}
       data-review-active={showReviewActivity ? "true" : "false"}
       data-review-ready={canOpenSubmittedReview ? "true" : "false"}
+      onClick={(event) => {
+        // Mirrors the top-level agent card's row-click-to-attach/detach
+        // (agent-card-header.tsx): a data-agent-control="true" marker plus
+        // closest() lets interactive descendants (the overflow menu, the
+        // resume button) opt out of the row's own click, the same
+        // convention that file uses instead of stopPropagation. Opening a
+        // submitted review is a separate action, reached through the
+        // overflow menu below — not tied to this click at all, so there's
+        // no race between the two actions' navigation.
+        const target = event.target as HTMLElement;
+        if (target.closest("[data-agent-control='true']")) return;
+        if (isStopped) return;
+        if (isConnected) {
+          detachTerminal();
+          return;
+        }
+        if (closeOnSessionAction) onRequestClose?.();
+        void attachToAgent(agent);
+      }}
       className={cn(
-        // Right corners stay square (a deliberate visual choice, not literal
-        // edge-flushing — the row still sits inset inside the card's px-2,
-        // the list's pr-2, etc.): the connected accent below is meant to
-        // read as one continuous bar rather than one interrupted partway
-        // through by a rounded corner, echoing the top-level card's own
-        // border-r-4 treatment. border-r-4 is in the BASE, unconditionally,
-        // and every row's right edge is always painted some color (never
-        // literally transparent) — so every row's border closes into a
-        // complete shape instead of reading as cut open on one side, and
-        // ready/connected/plain rows all keep identical internal geometry
-        // (a row whose border-r width varied by state measurably
+        // No rounded corners at all (a single rounded side read as odd):
+        // the connected accent below is meant to read as one continuous
+        // bar, uninterrupted by any corner treatment, echoing the
+        // top-level card's own border-r-4 treatment. border-r-4 is in the
+        // BASE, unconditionally, and every row's right edge is always
+        // painted some color (never literally transparent) — so every
+        // row's border closes into a complete shape instead of reading as
+        // cut open on one side, and every row keeps identical internal
+        // geometry (a row whose border-r width varied by state measurably
         // misaligned its controls against its neighbors).
-        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-l-lg border border-border/60 border-r-4 border-r-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
+        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-none border border-border/60 border-r-4 border-r-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
         "transition-colors hover:bg-muted/35",
-        // Ready-to-open wins over connected styling and keeps its own
-        // long-standing look: a colored, CLOSED border on all four sides
-        // (border-r-primary/45 matches the other three, not the neutral
-        // default) plus its tint and cursor-pointer. Uniformly coloring
-        // every side — rather than singling the right edge out, the way
-        // the connected treatment below does — is what keeps this from
-        // reading as a muted version of "connected": that signal is
-        // specifically an asymmetric one edge lit up against the rest,
-        // and a ready row's border never does that.
-        canOpenSubmittedReview
-          ? "cursor-pointer border-primary/45 border-r-primary/45 bg-primary/[0.06] hover:bg-primary/10"
-          : // Connected row: the same solid right-edge border treatment the
-            // top-level agent card uses for "this is what's connected"
-            // (agents-view.tsx's borderForAgentState), so the signal reads
-            // consistently across both list levels — and, being the only
-            // state that colors just the right edge differently from the
-            // row's other three sides, exclusively means "connected." state
-            // === "active" (not the bare isConnected prop) so this exactly
-            // matches the top-level card's own condition (use-agents.ts's
-            // agentVisualState: running/creating AND actually connected).
-            // isConnected alone would keep the accent lit for a
-            // paused-but-still-attached agent, or after the terminal
-            // socket drops — both cases where the top-level card already
-            // goes transparent, so the two would disagree about the same
-            // fact.
-            state === "active" && "border-r-status-done",
+        !isStopped && "cursor-pointer",
+        // Connected row: the same solid right-edge border treatment the
+        // top-level agent card uses for "this is what's connected"
+        // (agents-view.tsx's borderForAgentState), so the signal reads
+        // consistently across both list levels — and, being the only state
+        // that colors just the right edge differently from the row's other
+        // three sides, exclusively means "connected." A ready-to-open
+        // review no longer has its own border treatment at all (that
+        // signal now lives on the REVIEW badge's checkmark below), so it
+        // can't compete with or dilute this one. state === "active" (not
+        // the bare isConnected prop) so this exactly matches the
+        // top-level card's own condition (use-agents.ts's
+        // agentVisualState: running/creating AND actually connected).
+        // isConnected alone would keep the accent lit for a
+        // paused-but-still-attached agent, or after the terminal socket
+        // drops — both cases where the top-level card already goes
+        // transparent, so the two would disagree about the same fact.
+        state === "active" && "border-r-status-done",
         isStopped && "opacity-65",
         canOpenSubmittedReview && "opacity-100",
         showReviewActivity && "child-agent-review-active-row"
       )}
     >
-      {canOpenSubmittedReview ? (
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              data-testid={`child-agent-open-review-${agent.id}`}
-              aria-label={`Open submitted review from ${displayName}`}
-              className="absolute inset-0 z-0 rounded-l-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              onClick={() => {
-                if (closeOnSessionAction) onRequestClose?.();
-                openSubmittedReview(agent);
-              }}
-            />
-          </TooltipTrigger>
-          <TooltipContent>Open submitted review</TooltipContent>
-        </Tooltip>
-      ) : null}
       <AgentTypeIcon
         type={agent.type}
         eventType={
           agent.status === "running" ? agent.latestEvent?.type : undefined
         }
-        className="pointer-events-none relative z-10 h-4.5 w-4.5"
+        className="h-4.5 w-4.5 shrink-0"
       />
-      <div className="pointer-events-none relative z-10 min-w-0 flex-1">
+      <div className="min-w-0 flex-1">
         <div className="flex min-w-0 items-center gap-1.5">
           <span
             className="min-w-0 truncate text-[11px] font-medium"
@@ -190,24 +204,43 @@ export function ChildAgentRow({
         </div>
       </div>
       {/*
-        Right-side action cluster: REVIEW badge, terminal icon, overflow menu.
-        Grouped in one shrink-0 flex container (rather than the badge living
-        inside the shrinking label) so the label is the only thing that gives
-        way to a long name — this cluster never competes with it for space.
+        Right-side action cluster: REVIEW badge, resume button (stopped
+        agents only), overflow menu. Grouped in one shrink-0 flex container
+        (rather than the badge living inside the shrinking label) so the
+        label is the only thing that gives way to a long name — this
+        cluster never competes with it for space. Plain elements here (no
+        pointer-events tricks needed): a click anywhere in the cluster that
+        isn't a real control just bubbles up to the row's own onClick, same
+        as clicking blank space anywhere else in the row.
       */}
-      <div className="pointer-events-none relative z-10 flex shrink-0 items-center gap-1 [&_button]:pointer-events-auto">
+      <div className="flex shrink-0 items-center gap-1">
         {isReviewAgent ? (
-          <Badge
-            className={cn(
-              "h-4 border-primary px-1 text-[8px] font-semibold uppercase tracking-wide",
-              canOpenSubmittedReview
-                ? "bg-primary text-primary-foreground"
-                : "bg-background text-foreground"
-            )}
-          >
-            Review
-          </Badge>
+          <ReviewBadge tip={canOpenSubmittedReview}>
+            <Badge
+              className={cn(
+                "h-4 gap-0.5 border-primary px-1 text-[8px] font-semibold uppercase tracking-wide",
+                canOpenSubmittedReview
+                  ? "bg-primary text-primary-foreground"
+                  : "bg-background text-foreground"
+              )}
+            >
+              {/* The checkmark carries "ready to open" directly on the
+                  badge instead of a row-wide border treatment, which used
+                  to look like a muted version of the connected accent. */}
+              {canOpenSubmittedReview ? (
+                <Check className="h-2.5 w-2.5" aria-hidden="true" />
+              ) : null}
+              Review
+            </Badge>
+          </ReviewBadge>
         ) : null}
+        {/*
+          Attach/detach no longer have their own buttons — clicking
+          anywhere on the row does it (mirrors the top-level agent card,
+          see the row's onClick above). A stopped agent isn't click-to-
+          attach, though (the row's onClick bails out via isStopped), so
+          it keeps a dedicated Resume control, same as the top-level card.
+        */}
         {isStopped ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -228,44 +261,7 @@ export function ChildAgentRow({
             </TooltipTrigger>
             <TooltipContent>Resume child agent</TooltipContent>
           </Tooltip>
-        ) : isConnected ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                data-agent-control="true"
-                data-testid={`child-agent-detach-${agent.id}`}
-                aria-label={`Detach from ${displayName}`}
-                className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
-                onClick={detachTerminal}
-              >
-                <Unplug className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>Detach</TooltipContent>
-          </Tooltip>
-        ) : (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                size="icon"
-                variant="ghost"
-                data-agent-control="true"
-                data-testid={`child-agent-attach-${agent.id}`}
-                aria-label={`Attach to ${displayName}`}
-                className="h-11 w-11 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
-                onClick={() => {
-                  if (closeOnSessionAction) onRequestClose?.();
-                  void attachToAgent(agent);
-                }}
-              >
-                <Terminal className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>View terminal</TooltipContent>
-          </Tooltip>
-        )}
+        ) : null}
         {/*
           Session lifecycle controls. A sub agent used to offer only terminal
           attach and resume, so moving plain children into this section would
@@ -286,7 +282,29 @@ export function ChildAgentRow({
               <MoreVertical className="h-3.5 w-3.5" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          {/*
+            data-agent-control marks the whole content, not just the
+            trigger button: Radix portals this out of the row's DOM
+            subtree, but React's synthetic events still bubble through the
+            *component* tree, so a click inside would otherwise also reach
+            the row's own onClick above. target.closest() here walks the
+            real (portaled) DOM, where this attribute is an actual ancestor
+            of every item's click target.
+          */}
+          <DropdownMenuContent align="end" data-agent-control="true">
+            {canOpenSubmittedReview ? (
+              <DropdownMenuItem
+                className={menuItemClass}
+                data-testid={`child-agent-open-review-${agent.id}`}
+                onSelect={() => {
+                  if (closeOnSessionAction) onRequestClose?.();
+                  openSubmittedReview(agent);
+                }}
+              >
+                <Eye className="h-3.5 w-3.5" />
+                Open review
+              </DropdownMenuItem>
+            ) : null}
             {!isStopped && !isArchiving ? (
               <DropdownMenuItem
                 className={menuItemClass}
@@ -339,15 +357,5 @@ export function ChildAgentRow({
     </div>
   );
 
-  if (!canOpenSubmittedReview) return row;
-  return (
-    <TipSpot
-      tipId="review-row-open"
-      side="bottom"
-      align="center"
-      triggerClassName="flex w-full"
-    >
-      {row}
-    </TipSpot>
-  );
+  return row;
 }

@@ -72,6 +72,11 @@ test.describe("Review agent UI", () => {
       page.getByTestId(`child-agent-row-${fixture.activeAgentId}`)
     ).toHaveAttribute("data-review-ready", "false");
 
+    // "Open review" lives in the row's overflow menu now, decoupled from
+    // connecting to the agent's terminal.
+    await page
+      .getByTestId(`child-agent-menu-${fixture.openReviewAgentId}`)
+      .click();
     await page
       .getByTestId(`child-agent-open-review-${fixture.openReviewAgentId}`)
       .click();

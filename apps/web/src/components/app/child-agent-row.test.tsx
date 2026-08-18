@@ -89,6 +89,13 @@ function renderRow(
   };
 }
 
+function openMenu(agentId = "agt_child") {
+  fireEvent.pointerDown(
+    screen.getByTestId(`child-agent-menu-${agentId}`),
+    new MouseEvent("pointerdown", { bubbles: true, button: 0 })
+  );
+}
+
 describe("ChildAgentRow", () => {
   it("labels review agents and chases before their initial review is submitted", () => {
     renderRow({
@@ -116,7 +123,7 @@ describe("ChildAgentRow", () => {
     expect(row.className).toContain("child-agent-review-active-row");
   });
 
-  it("groups the REVIEW badge with the terminal/menu controls, not the truncating name label", () => {
+  it("groups the REVIEW badge with the overflow menu control, not the truncating name label", () => {
     renderRow(baseAgent);
 
     const badge = screen.getByText("Review");
@@ -124,16 +131,9 @@ describe("ChildAgentRow", () => {
     // The badge and the overflow menu button should share an immediate
     // parent (the right-side action cluster) rather than the badge living
     // inside the name label's min-w-0/flex-1/truncate wrapper.
-    expect(badge.parentElement).toBe(menuButton.parentElement);
-  });
-
-  it("keeps the action cluster transparent to clicks except its own controls", () => {
-    renderRow(baseAgent);
-
-    const menuButton = screen.getByTestId("child-agent-menu-agt_child");
-    const cluster = menuButton.parentElement;
-    expect(cluster?.className).toContain("pointer-events-none");
-    expect(cluster?.className).toContain("[&_button]:pointer-events-auto");
+    expect(badge.closest("div.flex.shrink-0")).toBe(
+      menuButton.closest("div.flex.shrink-0")
+    );
   });
 
   it("stops chasing after the initial review is submitted", () => {
@@ -144,17 +144,22 @@ describe("ChildAgentRow", () => {
     expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
-  it("keeps the row muted until a review has been submitted", () => {
+  it("keeps the badge muted until a review has been submitted", () => {
     renderRow(baseAgent);
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewReady).toBe("false");
-    expect(row.className).not.toContain("cursor-pointer");
     const badge = screen.getByText("Review");
     expect(badge.className).toContain("bg-background");
+    expect(badge.querySelector("svg")).toBeNull();
+    // "Open review" only makes sense once a review exists.
+    openMenu();
+    expect(
+      screen.queryByTestId("child-agent-open-review-agt_child")
+    ).toBeNull();
   });
 
-  it("lights up the row once the review can be opened", () => {
+  it("marks the badge ready with a checkmark once the review can be opened, without a row border", () => {
     renderRow(
       { ...baseAgent, status: "stopped", submittedReviewId: 42 },
       { state: "stopped", isInitialReviewActive: false }
@@ -162,34 +167,45 @@ describe("ChildAgentRow", () => {
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewReady).toBe("true");
-    expect(row.className).toContain("cursor-pointer");
-    expect(row.className).toContain("border-primary/45");
     expect(row.className).toContain("opacity-100");
     expect(row.className).not.toContain("opacity-65");
+    // "Ready to open" no longer gets its own row-wide border/tint (it used
+    // to read as a muted echo of the connected accent) — the badge's
+    // checkmark is the sole carrier of that signal, and opening it moves to
+    // the overflow menu (tested below), decoupled from connecting.
+    expect(row.className).not.toContain("border-primary/45");
+    expect(row.className).not.toContain("bg-primary/[0.06]");
     const badge = screen.getByText("Review");
     expect(badge.className).toContain("bg-primary");
     expect(badge.className).toContain("text-primary-foreground");
+    expect(badge.querySelector("svg")).not.toBeNull();
   });
 
-  it("keeps the ready treatment when the row is terminal-connected", () => {
-    renderRow(
+  it("opens the submitted review from the overflow menu, independent of connecting", () => {
+    const submittedAgent = { ...baseAgent, submittedReviewId: 42 };
+    const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
+      isInitialReviewActive: false,
+    });
+
+    openMenu();
+    fireEvent.click(screen.getByTestId("child-agent-open-review-agt_child"));
+    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
+    expect(attachToAgent).not.toHaveBeenCalled();
+  });
+
+  it("still attaches by clicking a ready-to-open row's body, same as any other row", () => {
+    // Opening the review is a menu action now — the row itself has no
+    // special case for a ready-to-open review, it's click-to-connect like
+    // every other row.
+    const { attachToAgent } = renderRow(
       { ...baseAgent, submittedReviewId: 42 },
-      { isConnected: true, isInitialReviewActive: false }
+      { isInitialReviewActive: false, isConnected: false, state: "idle" }
     );
 
-    const row = screen.getByTestId("child-agent-row-agt_child");
-    expect(row.className).toContain("border-primary/45");
-    expect(row.className).toContain("border-r-primary/45");
-    expect(row.className).toContain("bg-primary/[0.06]");
-    expect(row.className).toContain("hover:bg-primary/10");
-    expect(row.className).toContain("cursor-pointer");
-    // Ready-to-open closes its border on all four sides at the same color
-    // (border-r-primary/45 matches the other three) rather than leaving the
-    // right edge a different color or transparent — a uniform closed border
-    // reads as its own distinct treatment, not an asymmetric single-edge
-    // accent, so it can't be mistaken for a muted version of "connected."
-    expect(row.className).toContain("border-r-4");
-    expect(row.className).not.toContain("border-r-status-done");
+    fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
+    expect(attachToAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agt_child" })
+    );
   });
 
   it("shows the connected right-edge accent when not also ready to open", () => {
@@ -198,7 +214,6 @@ describe("ChildAgentRow", () => {
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-r-status-done");
     expect(row.className).not.toContain("border-primary/45");
-    expect(row.className).not.toContain("cursor-pointer");
   });
 
   it("does not light the connected accent for a paused agent that's still attached", () => {
@@ -231,35 +246,6 @@ describe("ChildAgentRow", () => {
     expect(row.className).toContain("border-r-status-done");
   });
 
-  it("opens a submitted review from the row without attaching its terminal", () => {
-    const submittedAgent = {
-      ...baseAgent,
-      submittedReviewId: 42,
-    };
-    const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
-      isInitialReviewActive: false,
-    });
-
-    fireEvent.click(screen.getByTestId("child-agent-open-review-agt_child"));
-    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
-    expect(attachToAgent).not.toHaveBeenCalled();
-  });
-
-  it("keeps the terminal control independent from review navigation", () => {
-    const { attachToAgent, openSubmittedReview } = renderRow({
-      ...baseAgent,
-      submittedReviewId: 42,
-    });
-
-    const attachButton = screen.getByTestId("child-agent-attach-agt_child");
-    expect(attachButton.className).toContain("h-11");
-    expect(attachButton.className).toContain("w-11");
-    expect(attachButton.className).toContain("sm:h-7");
-    fireEvent.click(attachButton);
-    expect(attachToAgent).toHaveBeenCalledOnce();
-    expect(openSubmittedReview).not.toHaveBeenCalled();
-  });
-
   it("does not infer review purpose from a persona", () => {
     renderRow({ ...baseAgent, role: "standard" });
 
@@ -269,27 +255,77 @@ describe("ChildAgentRow", () => {
     expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
-  it("detaches to the detached state without attaching another agent", () => {
-    const { attachToAgent, detachTerminal } = renderRow(baseAgent, {
-      state: "active",
-      isConnected: true,
+  describe("click-to-connect (mirrors the top-level agent card)", () => {
+    it("attaches by clicking anywhere on the row", () => {
+      const { attachToAgent, detachTerminal } = renderRow(
+        { ...baseAgent, role: "standard" },
+        { isConnected: false, state: "idle" }
+      );
+
+      fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
+      expect(attachToAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "agt_child" })
+      );
+      expect(detachTerminal).not.toHaveBeenCalled();
     });
 
-    fireEvent.click(screen.getByTestId("child-agent-detach-agt_child"));
-    expect(detachTerminal).toHaveBeenCalledOnce();
-    expect(attachToAgent).not.toHaveBeenCalled();
+    it("detaches by clicking an already-connected row", () => {
+      const { attachToAgent, detachTerminal } = renderRow(
+        { ...baseAgent, role: "standard" },
+        { isConnected: true, state: "active" }
+      );
+
+      fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
+      expect(detachTerminal).toHaveBeenCalledOnce();
+      expect(attachToAgent).not.toHaveBeenCalled();
+    });
+
+    it("does not attach or detach by clicking a stopped row", () => {
+      const stopped = {
+        ...baseAgent,
+        role: "standard" as const,
+        status: "stopped" as const,
+      };
+      const { attachToAgent, detachTerminal } = renderRow(stopped, {
+        state: "stopped",
+      });
+
+      const row = screen.getByTestId("child-agent-row-agt_child");
+      expect(row.className).not.toContain("cursor-pointer");
+      fireEvent.click(row);
+      expect(attachToAgent).not.toHaveBeenCalled();
+      expect(detachTerminal).not.toHaveBeenCalled();
+    });
+
+    it("does not attach when clicking the overflow menu button", () => {
+      const { attachToAgent } = renderRow(
+        { ...baseAgent, role: "standard" },
+        { isConnected: false, state: "idle" }
+      );
+
+      fireEvent.click(screen.getByTestId("child-agent-menu-agt_child"));
+      expect(attachToAgent).not.toHaveBeenCalled();
+    });
+
+    it("does not attach when clicking the resume button on a stopped row", () => {
+      const stopped = {
+        ...baseAgent,
+        role: "standard" as const,
+        status: "stopped" as const,
+      };
+      const { attachToAgent, startAgent } = renderRow(stopped, {
+        state: "stopped",
+      });
+
+      fireEvent.click(screen.getByTestId("child-agent-resume-agt_child"));
+      expect(startAgent).toHaveBeenCalledWith(stopped);
+      expect(attachToAgent).not.toHaveBeenCalled();
+    });
   });
 
   describe("session actions", () => {
     // Plain children now live in this section too, so the row has to carry the
     // lifecycle controls an agent card's footer offers.
-    function openMenu() {
-      fireEvent.pointerDown(
-        screen.getByTestId("child-agent-menu-agt_child"),
-        new MouseEvent("pointerdown", { bubbles: true, button: 0 })
-      );
-    }
-
     it("archives the sub agent through the shared confirmation dialog", () => {
       const { setDeleteTarget, setDeleteConfirmOpen } = renderRow(baseAgent);
 
