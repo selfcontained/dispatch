@@ -423,6 +423,12 @@ const mcpHandlers = createMcpHandlers({
   withStreamFlag,
   sendAgentPrompt: injectAgentPrompt,
   appLog: app.log,
+  beginBackgroundArchive: (agentId, cleanupWorktree, opts) =>
+    agentLifecycleRuntime.beginBackgroundArchive(
+      agentId,
+      cleanupWorktree,
+      opts
+    ),
 });
 const jobTerminalStatuses = new Set([
   "completed",
