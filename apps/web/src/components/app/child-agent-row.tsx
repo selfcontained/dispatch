@@ -104,29 +104,33 @@ export function ChildAgentRow({
         // the list's pr-2, etc.): the connected accent below is meant to
         // read as one continuous bar rather than one interrupted partway
         // through by a rounded corner, echoing the top-level card's own
-        // border-r-4 treatment. border-r-4/border-r-transparent are in the
-        // BASE, unconditionally — every row reserves the same 4px right
-        // edge, so ready/connected/plain rows all keep identical internal
-        // geometry (a ready row that instead fell back to a 1px border
-        // measurably misaligned its controls against the rows above and
-        // below it, and jumped 3px when a review's ready state flipped).
-        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-l-lg border border-border/60 border-r-4 border-r-transparent bg-background/30 px-2 py-1 sm:py-1.5",
+        // border-r-4 treatment. border-r-4 is in the BASE, unconditionally,
+        // and every row's right edge is always painted some color (never
+        // literally transparent) — so every row's border closes into a
+        // complete shape instead of reading as cut open on one side, and
+        // ready/connected/plain rows all keep identical internal geometry
+        // (a row whose border-r width varied by state measurably
+        // misaligned its controls against its neighbors).
+        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-l-lg border border-border/60 border-r-4 border-r-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
         "transition-colors hover:bg-muted/35",
         // Ready-to-open wins over connected styling and keeps its own
-        // long-standing look (a colored border on all sides, tint,
-        // cursor-pointer) — but re-asserts border-r-transparent explicitly
-        // so the general border-primary/45 above doesn't bleed onto the
-        // reserved right edge (twMerge only drops a directional class for
-        // a later *general* one, not the reverse) and echo even a muted
-        // version of the connected accent on a row that isn't connected.
+        // long-standing look: a colored, CLOSED border on all four sides
+        // (border-r-primary/45 matches the other three, not the neutral
+        // default) plus its tint and cursor-pointer. Uniformly coloring
+        // every side — rather than singling the right edge out, the way
+        // the connected treatment below does — is what keeps this from
+        // reading as a muted version of "connected": that signal is
+        // specifically an asymmetric one edge lit up against the rest,
+        // and a ready row's border never does that.
         canOpenSubmittedReview
-          ? "cursor-pointer border-primary/45 border-r-transparent bg-primary/[0.06] hover:bg-primary/10"
+          ? "cursor-pointer border-primary/45 border-r-primary/45 bg-primary/[0.06] hover:bg-primary/10"
           : // Connected row: the same solid right-edge border treatment the
             // top-level agent card uses for "this is what's connected"
             // (agents-view.tsx's borderForAgentState), so the signal reads
-            // consistently across both list levels — and exclusively means
-            // "connected," not shared with any other state. state ===
-            // "active" (not the bare isConnected prop) so this exactly
+            // consistently across both list levels — and, being the only
+            // state that colors just the right edge differently from the
+            // row's other three sides, exclusively means "connected." state
+            // === "active" (not the bare isConnected prop) so this exactly
             // matches the top-level card's own condition (use-agents.ts's
             // agentVisualState: running/creating AND actually connected).
             // isConnected alone would keep the accent lit for a

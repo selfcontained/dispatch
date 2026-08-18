@@ -179,14 +179,15 @@ describe("ChildAgentRow", () => {
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-primary/45");
+    expect(row.className).toContain("border-r-primary/45");
     expect(row.className).toContain("bg-primary/[0.06]");
     expect(row.className).toContain("hover:bg-primary/10");
     expect(row.className).toContain("cursor-pointer");
-    // Ready-to-open reserves the same border-r-4 width as every other row
-    // (so a row's right-side controls never mis-align with its neighbors,
-    // and never jump when this state flips) but keeps that edge
-    // transparent — it doesn't opt into the connected accent's color, so a
-    // ready-but-not-connected row can't echo even a muted version of it.
+    // Ready-to-open closes its border on all four sides at the same color
+    // (border-r-primary/45 matches the other three) rather than leaving the
+    // right edge a different color or transparent — a uniform closed border
+    // reads as its own distinct treatment, not an asymmetric single-edge
+    // accent, so it can't be mistaken for a muted version of "connected."
     expect(row.className).toContain("border-r-4");
     expect(row.className).not.toContain("border-r-status-done");
   });
@@ -209,7 +210,9 @@ describe("ChildAgentRow", () => {
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).not.toContain("border-r-status-done");
-    expect(row.className).toContain("border-r-transparent");
+    // Falls back to the neutral default, matching every other unconnected
+    // row's closed border — not a transparent gap.
+    expect(row.className).toContain("border-r-border/60");
   });
 
   it("reserves the connected accent's width so attaching never shifts the row", () => {
@@ -219,7 +222,7 @@ describe("ChildAgentRow", () => {
     });
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-r-4");
-    expect(row.className).toContain("border-r-transparent");
+    expect(row.className).toContain("border-r-border/60");
 
     rerenderWith({ isConnected: true, state: "active" });
     // Same border-r-4 width both before and after — only the color class
