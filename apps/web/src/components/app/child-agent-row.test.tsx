@@ -85,7 +85,7 @@ function renderRow(
     onEditSettings,
     rerenderWith: (
       elementOverrides: Partial<ComponentProps<typeof ChildAgentRow>>
-    ) => rerender(buildElement(elementOverrides)),
+    ) => rerender(buildElement({ ...overrides, ...elementOverrides })),
   };
 }
 
@@ -179,17 +179,20 @@ describe("ChildAgentRow", () => {
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-primary/45");
-    expect(row.className).toContain("border-r-primary/45");
     expect(row.className).toContain("bg-primary/[0.06]");
     expect(row.className).toContain("hover:bg-primary/10");
     expect(row.className).toContain("cursor-pointer");
-    // Ready-to-open wins: the connected row's own right-edge accent must not
-    // also be present, or the two would visually fight on the same edge.
+    // Ready-to-open reserves the same border-r-4 width as every other row
+    // (so a row's right-side controls never mis-align with its neighbors,
+    // and never jump when this state flips) but keeps that edge
+    // transparent — it doesn't opt into the connected accent's color, so a
+    // ready-but-not-connected row can't echo even a muted version of it.
+    expect(row.className).toContain("border-r-4");
     expect(row.className).not.toContain("border-r-status-done");
   });
 
   it("shows the connected right-edge accent when not also ready to open", () => {
-    renderRow(baseAgent, { isConnected: true });
+    renderRow(baseAgent, { isConnected: true, state: "active" });
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-r-status-done");
@@ -197,13 +200,28 @@ describe("ChildAgentRow", () => {
     expect(row.className).not.toContain("cursor-pointer");
   });
 
+  it("does not light the connected accent for a paused agent that's still attached", () => {
+    // state tracks agentVisualState (running/creating AND actually
+    // connected), which can diverge from the raw isConnected prop — e.g. a
+    // paused agent you're still attached to. The accent should follow
+    // state, matching the top-level card's own condition, not isConnected.
+    renderRow(baseAgent, { isConnected: true, state: "stopped" });
+
+    const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.className).not.toContain("border-r-status-done");
+    expect(row.className).toContain("border-r-transparent");
+  });
+
   it("reserves the connected accent's width so attaching never shifts the row", () => {
-    const { rerenderWith } = renderRow(baseAgent, { isConnected: false });
+    const { rerenderWith } = renderRow(baseAgent, {
+      isConnected: false,
+      state: "idle",
+    });
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-r-4");
     expect(row.className).toContain("border-r-transparent");
 
-    rerenderWith({ isConnected: true });
+    rerenderWith({ isConnected: true, state: "active" });
     // Same border-r-4 width both before and after — only the color class
     // toggles (see the two tests above), so the box never resizes.
     expect(row.className).toContain("border-r-4");

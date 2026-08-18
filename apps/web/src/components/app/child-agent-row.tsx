@@ -99,24 +99,42 @@ export function ChildAgentRow({
       data-review-active={showReviewActivity ? "true" : "false"}
       data-review-ready={canOpenSubmittedReview ? "true" : "false"}
       className={cn(
-        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 border-r-4 border-r-transparent bg-background/30 px-2 py-1 sm:py-1.5",
+        // Right corners stay square (a deliberate visual choice, not literal
+        // edge-flushing — the row still sits inset inside the card's px-2,
+        // the list's pr-2, etc.): the connected accent below is meant to
+        // read as one continuous bar rather than one interrupted partway
+        // through by a rounded corner, echoing the top-level card's own
+        // border-r-4 treatment. border-r-4/border-r-transparent are in the
+        // BASE, unconditionally — every row reserves the same 4px right
+        // edge, so ready/connected/plain rows all keep identical internal
+        // geometry (a ready row that instead fell back to a 1px border
+        // measurably misaligned its controls against the rows above and
+        // below it, and jumped 3px when a review's ready state flipped).
+        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-l-lg border border-border/60 border-r-4 border-r-transparent bg-background/30 px-2 py-1 sm:py-1.5",
         "transition-colors hover:bg-muted/35",
-        // Ready-to-open wins over connected styling: it is the actionable
-        // state. Both branches set border-r-{color} explicitly (not just
-        // the general border-{color} shorthand) — twMerge only dedupes a
-        // directional override against the base border-r-transparent when
-        // one is present, so leaving the ready branch to the general
-        // border-primary/45 alone would have left the reserved 4px right
-        // edge transparent even on a ready-to-open row.
+        // Ready-to-open wins over connected styling and keeps its own
+        // long-standing look (a colored border on all sides, tint,
+        // cursor-pointer) — but re-asserts border-r-transparent explicitly
+        // so the general border-primary/45 above doesn't bleed onto the
+        // reserved right edge (twMerge only drops a directional class for
+        // a later *general* one, not the reverse) and echo even a muted
+        // version of the connected accent on a row that isn't connected.
         canOpenSubmittedReview
-          ? "cursor-pointer border-primary/45 border-r-primary/45 bg-primary/[0.06] hover:bg-primary/10"
+          ? "cursor-pointer border-primary/45 border-r-transparent bg-primary/[0.06] hover:bg-primary/10"
           : // Connected row: the same solid right-edge border treatment the
             // top-level agent card uses for "this is what's connected"
             // (agents-view.tsx's borderForAgentState), so the signal reads
-            // consistently across both list levels. The width is reserved
-            // by border-r-4 above and only the color toggles, so this never
-            // shifts the row's layout the way an added/removed border would.
-            isConnected && "border-r-status-done",
+            // consistently across both list levels — and exclusively means
+            // "connected," not shared with any other state. state ===
+            // "active" (not the bare isConnected prop) so this exactly
+            // matches the top-level card's own condition (use-agents.ts's
+            // agentVisualState: running/creating AND actually connected).
+            // isConnected alone would keep the accent lit for a
+            // paused-but-still-attached agent, or after the terminal
+            // socket drops — both cases where the top-level card already
+            // goes transparent, so the two would disagree about the same
+            // fact.
+            state === "active" && "border-r-status-done",
         isStopped && "opacity-65",
         canOpenSubmittedReview && "opacity-100",
         showReviewActivity && "child-agent-review-active-row"
@@ -129,7 +147,7 @@ export function ChildAgentRow({
               type="button"
               data-testid={`child-agent-open-review-${agent.id}`}
               aria-label={`Open submitted review from ${displayName}`}
-              className="absolute inset-0 z-0 rounded-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="absolute inset-0 z-0 rounded-l-lg outline-none focus-visible:ring-2 focus-visible:ring-ring"
               onClick={() => {
                 if (closeOnSessionAction) onRequestClose?.();
                 openSubmittedReview(agent);
