@@ -73,16 +73,25 @@ import {
 } from "../peers/launch.js";
 import { getOrCreateInstanceId } from "../peers/identity.js";
 
-function buildChildAgentInitialPrompt(
-  parentAgentId: string,
-  prompt: string
+function buildLaunchedAgentInitialPrompt(
+  launcherAgentId: string,
+  prompt: string,
+  child: boolean
 ): string {
-  return [
-    `You were launched by Dispatch agent "${parentAgentId}" via dispatch_launch_agent.`,
-    "Use that parent agent ID when coordinating back with dispatch_send_message.",
-    "",
-    prompt,
-  ].join("\n");
+  const header = child
+    ? [
+        `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent.`,
+        "Use that parent agent ID when coordinating back with dispatch_send_message.",
+        // Stated up front because the tool call fails at the point of use
+        // otherwise, halfway through work the agent has already planned around.
+        "You are a child agent: you cannot launch child agents or persona reviews of your own. " +
+          "If you need to hand work off, launch an independent agent with dispatch_launch_agent's `child: false`.",
+      ]
+    : [
+        `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent as an independent agent — you are not its child.`,
+        "Use that agent ID when coordinating back with dispatch_send_message.",
+      ];
+  return [...header, "", prompt].join("\n");
 }
 
 type CreateMcpHandlersDeps = {
@@ -108,6 +117,17 @@ type CreateMcpHandlersDeps = {
   ) => Promise<{ delivered: boolean }>;
   /** Re-snapshot a peer after minting a shadow, to close the launch race. */
   requestPeerResnapshot?: (peerId: string) => void;
+  /**
+   * Claim an archive and run its teardown in the background. Archiving cannot
+   * be awaited here: the target may be the caller, whose session the teardown
+   * stops. Shared with the HTTP archive route's lifecycle runtime so the
+   * teardown is still tracked at shutdown and still publishes UI events.
+   */
+  beginBackgroundArchive: (
+    agentId: string,
+    cleanupWorktree?: WorktreeCleanupMode,
+    opts?: { startAfter?: () => Promise<void> }
+  ) => Promise<AgentRecord>;
 };
 
 function normalizePersonalityDuplicateName(error: unknown): never {
@@ -137,12 +157,18 @@ export function mcpMethodNotAllowed(): {
  * list_agents: every other agent (self excluded), scoped to the sender's git
  * repo root unless cross-repo messaging is enabled. Direct parent ↔ child
  * relationships always bypass repo-root scoping so spawned agents can
- * coordinate with their parent regardless of working directory. This is the
+ * coordinate with their parent regardless of working directory, as does the
+ * launcher ↔ launched pair for agents launched outside the lineage. This is the
  * single definition of that visibility boundary — both message delivery and
  * agent listing consult it, so they can never disagree about who is reachable.
  */
 async function addressableAgents<
-  T extends { id: string; cwd: string; parentAgentId?: string | null },
+  T extends {
+    id: string;
+    cwd: string;
+    parentAgentId?: string | null;
+    launchedByAgentId?: string | null;
+  },
 >(
   all: T[],
   agentId: string,
@@ -151,6 +177,7 @@ async function addressableAgents<
 ): Promise<T[]> {
   const sender = all.find((a) => a.id === agentId);
   const senderParentId = sender?.parentAgentId ?? null;
+  const senderLauncherId = sender?.launchedByAgentId ?? null;
 
   const result: T[] = [];
   for (const a of all) {
@@ -162,6 +189,12 @@ async function addressableAgents<
     // Direct parent ↔ child always visible. parentAgentId is trusted because
     // MCP-originated creation sets it server-side; the HTTP path is localhost-only.
     if (a.id === senderParentId || a.parentAgentId === agentId) {
+      result.push(a);
+      continue;
+    }
+    // A `child: false` launch has no parent but still needs to coordinate with
+    // whoever launched it — the same reason the parent ↔ child bypass exists.
+    if (a.id === senderLauncherId || a.launchedByAgentId === agentId) {
       result.push(a);
       continue;
     }
@@ -441,10 +474,34 @@ async function handleLaunchAgent(
     templateArgs?: Record<string, string>;
     cwd?: string;
     location?: string;
+    child?: boolean;
   }
 ): Promise<{ agentId: string; name: string; note?: string }> {
   const parent = await deps.agentManager.getAgent(agentId);
   if (!parent) throw new Error("Parent agent not found.");
+  const child = input.child !== false;
+  // Depth cap: the sidebar renders a child as a row inside its parent's card,
+  // and that row has nowhere to render children of its own — a grandchild would
+  // simply stop being visible. So a child may only launch outside the lineage.
+  if (child && parent.parentAgentId) {
+    throw new AgentError(
+      "This agent was itself launched as a child agent, and child agents cannot launch further children " +
+        "(the UI only renders one level of sub agents). Pass child: false to launch an independent, " +
+        "top-level agent instead.",
+      409
+    );
+  }
+  // An archive stops the parent moments from now, and only review children are
+  // cascaded — so a child launched after the archive was claimed would be
+  // orphaned the instant it started. True whoever claimed that archive; the
+  // window is simply widest when the parent archived itself and is still alive
+  // to make this very call.
+  if (parent.status === "archiving") {
+    throw new AgentError(
+      "This agent is being archived; it cannot launch new agents.",
+      409
+    );
+  }
 
   if (input.location) {
     return await handleLaunchAgentOnPeer(deps, agentId, parent, input);
@@ -531,9 +588,10 @@ async function handleLaunchAgent(
     baseBranch,
     worktreeBranch,
     worktreeLocation,
-    parentAgentId: agentId,
+    ...(child ? { parentAgentId: agentId } : {}),
+    launchedByAgentId: agentId,
     cliSessionId,
-    initialPrompt: buildChildAgentInitialPrompt(agentId, prompt),
+    initialPrompt: buildLaunchedAgentInitialPrompt(agentId, prompt, child),
     templateId: input.templateId,
   });
 
@@ -630,55 +688,79 @@ async function handleLaunchAgentOnPeer(
   };
 }
 
+/**
+ * Grace period after the response is on the wire before teardown begins,
+ * covering the gap between the kernel accepting the bytes and the agent
+ * process reading them. Only matters when an agent archives itself — it is the
+ * one waiting on that response.
+ */
+const ARCHIVE_RESPONSE_SETTLE_MS = 750;
+
+/** Backstop, so a transport that never ends the stream can't stall an archive. */
+const ARCHIVE_RESPONSE_TIMEOUT_MS = 5_000;
+
 async function handleArchiveAgent(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  input: { agentId: string; cleanupWorktree?: WorktreeCleanupMode }
-): Promise<{ agentId: string; name: string; archived: true }> {
+  input: {
+    agentId: string;
+    cleanupWorktree?: WorktreeCleanupMode;
+    whenResponseFinished?: () => Promise<void>;
+  }
+): Promise<{ agentId: string; name: string; archiving: true }> {
   const target = await deps.agentManager.getAgent(input.agentId);
   if (!target) throw new AgentError("Agent not found.", 404);
-  if (target.parentAgentId !== agentId) {
+  // launchedByAgentId rather than parentAgentId alone: a `child: false` launch
+  // has no parent, but the launcher still owns the session it created.
+  if (
+    target.id !== agentId &&
+    target.parentAgentId !== agentId &&
+    target.launchedByAgentId !== agentId
+  ) {
     throw new AgentError(
-      "You can only archive agents you launched via dispatch_launch_agent or dispatch_launch_persona.",
+      "You can only archive yourself or an agent you launched via dispatch_launch_agent or dispatch_launch_persona.",
       403
     );
   }
 
-  const targetName = target.name;
-  const archiving = await deps.agentManager.beginArchive(
-    target.id,
-    input.cleanupWorktree ?? "auto"
-  );
-  deps.publishUiEvent({
-    type: "agent.upsert",
-    agent: deps.withStreamFlag(archiving),
-  });
-
-  let archiveError: unknown;
-  await deps.agentManager.executeArchive(target.id, {
-    onPhaseChange: (updated) => {
-      deps.publishUiEvent({
-        type: "agent.upsert",
-        agent: deps.withStreamFlag(updated),
-      });
-    },
-    onComplete: (deletedIds) => {
-      for (const deletedId of deletedIds) {
-        deps.publishUiEvent({ type: "agent.deleted", agentId: deletedId });
-      }
-    },
-    onError: (error) => {
-      archiveError = error;
-    },
-  });
-
-  if (archiveError !== undefined) {
-    throw archiveError instanceof Error
-      ? archiveError
-      : new Error(errorMessage(archiveError));
+  // A job agent leaves by reporting its outcome, not by being archived: the
+  // run is auto-archived once it reaches a terminal state. Archiving around
+  // that reports the run as crashed and pages whoever the job notifies. Only
+  // agent-initiated archives are blocked — the UI and the job runner still need
+  // to be able to archive a job agent that has genuinely gone wrong.
+  const activeRun = await deps.jobService.getActiveRunForAgent(target.id);
+  if (activeRun) {
+    throw new AgentError(
+      `Agent "${target.name}" has an active job run (${activeRun.id}). ` +
+        "A job agent ends its run by reporting the outcome — job_complete, job_failed, or job_needs_input — " +
+        "and is archived automatically once the run reaches a terminal state.",
+      409
+    );
   }
 
-  return { agentId: target.id, name: targetName, archived: true };
+  // Teardown runs in the background rather than being awaited: when the target
+  // is the caller, awaiting it would mean killing the session that is waiting
+  // for this response. Holding teardown until the response is written costs a
+  // child archive nothing, so both targets take the same path.
+  const archiving = await deps.beginBackgroundArchive(
+    target.id,
+    input.cleanupWorktree ?? "auto",
+    {
+      startAfter: async () => {
+        const delay = (ms: number) =>
+          new Promise((resolve) => setTimeout(resolve, ms));
+        if (input.whenResponseFinished) {
+          await Promise.race([
+            input.whenResponseFinished(),
+            delay(ARCHIVE_RESPONSE_TIMEOUT_MS),
+          ]);
+        }
+        await delay(ARCHIVE_RESPONSE_SETTLE_MS);
+      },
+    }
+  );
+
+  return { agentId: target.id, name: archiving.name, archiving: true };
 }
 
 async function handleShareMedia(
@@ -1006,6 +1088,8 @@ async function handleListAgentsForAgent(
     latestEvent: { type: string; message: string } | null;
     parentAgentId: string | null;
     parentName: string | null;
+    launchedByAgentId?: string;
+    launchedByName?: string;
     relation: AgentRelation;
   }>
 > {
@@ -1042,6 +1126,8 @@ async function handleListAgentsForAgent(
     latestEvent: { type: string; message: string } | null;
     parentAgentId: string | null;
     parentName: string | null;
+    launchedByAgentId?: string;
+    launchedByName?: string;
     relation: AgentRelation;
   }> = [];
   for (const a of agents) {
@@ -1050,6 +1136,13 @@ async function handleListAgentsForAgent(
       ? (visibleNamesById.get(rawParentId) ?? null)
       : null;
     const visibleParentId = parentName === null ? null : rawParentId;
+    // Only reported when it says something parentAgentId does not: for a child
+    // the launcher *is* the parent, and repeating it is noise in every row.
+    const rawLauncherId = a.launchedByAgentId ?? null;
+    const launcherName =
+      rawLauncherId && rawLauncherId !== rawParentId
+        ? (visibleNamesById.get(rawLauncherId) ?? null)
+        : null;
     result.push({
       id: a.id,
       name: a.name,
@@ -1059,6 +1152,9 @@ async function handleListAgentsForAgent(
         : null,
       parentAgentId: visibleParentId,
       parentName,
+      ...(launcherName && rawLauncherId
+        ? { launchedByAgentId: rawLauncherId, launchedByName: launcherName }
+        : {}),
       relation: relationTo(lineage, agentId, a.id),
     });
   }
@@ -1292,12 +1388,17 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
         templateId?: string;
         templateArgs?: Record<string, string>;
         cwd?: string;
+        child?: boolean;
       }
     ) => handleLaunchAgent(deps, agentId, input),
 
     archiveAgent: (
       agentId: string,
-      input: { agentId: string; cleanupWorktree?: WorktreeCleanupMode }
+      input: {
+        agentId: string;
+        cleanupWorktree?: WorktreeCleanupMode;
+        whenResponseFinished?: () => Promise<void>;
+      }
     ) => handleArchiveAgent(deps, agentId, input),
 
     shareMedia: (

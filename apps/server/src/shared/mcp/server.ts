@@ -389,12 +389,23 @@ export type McpRequestContext = {
       templateId?: string;
       templateArgs?: Record<string, string>;
       cwd?: string;
+      child?: boolean;
     }
   ) => Promise<{ agentId: string; name: string; note?: string }>;
   archiveAgent?: (
     agentId: string,
-    input: { agentId: string; cleanupWorktree?: "auto" | "keep" | "force" }
-  ) => Promise<{ agentId: string; name: string; archived: true }>;
+    input: {
+      agentId: string;
+      cleanupWorktree?: "auto" | "keep" | "force";
+      whenResponseFinished?: () => Promise<void>;
+    }
+  ) => Promise<{ agentId: string; name: string; archiving: true }>;
+  /**
+   * Resolves once this request's response has been written. Only the archive
+   * tool uses it — it must not stop the caller's own session before the caller
+   * has read the result.
+   */
+  whenResponseFinished?: () => Promise<void>;
   resolveReviewFeedback?: (
     agentId: string,
     itemId: number,
@@ -641,6 +652,7 @@ async function createDispatchMcpServer(
     registerAgentArchiveTools(server, allowed, {
       agentId: context.agent.id,
       archiveAgent: context.archiveAgent,
+      whenResponseFinished: context.whenResponseFinished,
     });
   }
 

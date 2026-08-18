@@ -73,7 +73,7 @@ function makeAgent(id: string, overrides: Partial<Agent> = {}): Agent {
   } as Agent;
 }
 
-// Matches isNestedReviewAgent: parentAgentId set AND role === "review".
+// A sub agent: any agent whose parent is also in the list, review or not.
 function makeReviewAgent(id: string, parentAgentId: string): Agent {
   return makeAgent(id, { parentAgentId, role: "review" });
 }
@@ -215,10 +215,10 @@ describe("useAgentHotkeys", () => {
       expect(pathname()).toBe("/agents/agt_2");
     });
 
-    it("filters review agents before indexing, so a selected review agent counts as no selection", () => {
-      // Selection points at the review agent; it is filtered out before the
-      // index lookup, so cycling behaves like nothing was selected: next
-      // lands on the FIRST cycleable agent, not the review agent's neighbor.
+    it("cycles a selected review agent relative to its parent card", () => {
+      // The review agent has no card of its own, but it is reachable only from
+      // inside agt_2's card — so next means "the card after agt_2", not "start
+      // over at the first card", which is where the index lookup used to land.
       const { pathname } = renderAgentHotkeys(
         defaultArgs({
           agents: [a1, a2, review, a3],
@@ -227,7 +227,7 @@ describe("useAgentHotkeys", () => {
       );
 
       pressHotkey("focus-next-agent");
-      expect(pathname()).toBe("/agents/agt_1");
+      expect(pathname()).toBe("/agents/agt_3");
     });
 
     it("with no selection, next goes to the first agent and prev to the last", () => {
@@ -246,18 +246,78 @@ describe("useAgentHotkeys", () => {
       expect(second.pathname()).toBe("/agents/agt_3");
     });
 
-    it("does not navigate when there are no cycleable agents", () => {
+    it("does not navigate when every agent is a sub agent", () => {
       const { pathname } = renderAgentHotkeys(
         defaultArgs({
-          agents: [review],
-          validatedSelectedAgentId: null,
+          agents: [a2, review],
+          validatedSelectedAgentId: "agt_2",
         })
       );
 
       pressHotkey("focus-next-agent");
-      expect(pathname()).toBe("/agents");
+      expect(pathname()).toBe("/agents/agt_2");
       pressHotkey("focus-prev-agent");
-      expect(pathname()).toBe("/agents");
+      expect(pathname()).toBe("/agents/agt_2");
+    });
+
+    it("skips plain children, not just review agents", () => {
+      // The sidebar renders every child inside its parent's card, so cycling
+      // must skip a child launched by dispatch_launch_agent too.
+      const plainChild = makeAgent("agt_plain_child", {
+        parentAgentId: "agt_1",
+      });
+      const { pathname } = renderAgentHotkeys(
+        defaultArgs({
+          agents: [a1, plainChild, a3],
+          validatedSelectedAgentId: "agt_1",
+        })
+      );
+
+      pressHotkey("focus-next-agent");
+      expect(pathname()).toBe("/agents/agt_3");
+    });
+
+    it("cycles relative to the card a selected sub agent lives in", () => {
+      // Selecting a sub agent used to leave the index at -1, so next jumped to
+      // the first card instead of stepping past the card holding it.
+      const child = makeAgent("agt_child_of_2", { parentAgentId: "agt_2" });
+      const { pathname } = renderAgentHotkeys(
+        defaultArgs({
+          agents: [a1, a2, child, a3],
+          validatedSelectedAgentId: "agt_child_of_2",
+        })
+      );
+
+      pressHotkey("focus-next-agent");
+      expect(pathname()).toBe("/agents/agt_3");
+    });
+
+    it("steps backwards from a selected sub agent's card too", () => {
+      const child = makeAgent("agt_child_of_2", { parentAgentId: "agt_2" });
+      const { pathname } = renderAgentHotkeys(
+        defaultArgs({
+          agents: [a1, a2, child, a3],
+          validatedSelectedAgentId: "agt_child_of_2",
+        })
+      );
+
+      pressHotkey("focus-prev-agent");
+      expect(pathname()).toBe("/agents/agt_1");
+    });
+
+    it("cycles an orphaned child whose parent is gone", () => {
+      // Only review children cascade on archive, so a plain child outlives its
+      // parent. It gets its own card, and must stay reachable.
+      const orphan = makeAgent("agt_orphan", { parentAgentId: "agt_missing" });
+      const { pathname } = renderAgentHotkeys(
+        defaultArgs({
+          agents: [a1, orphan],
+          validatedSelectedAgentId: "agt_1",
+        })
+      );
+
+      pressHotkey("focus-next-agent");
+      expect(pathname()).toBe("/agents/agt_orphan");
     });
 
     it("treats an agent with role=review but no parent as cycleable", () => {

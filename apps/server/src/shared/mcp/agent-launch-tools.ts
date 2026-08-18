@@ -26,6 +26,7 @@ export type LaunchAgentInput = {
   templateArgs?: Record<string, string>;
   cwd?: string;
   location?: string;
+  child?: boolean;
 };
 
 export type AgentLaunchToolsContext = {
@@ -56,7 +57,9 @@ export function registerAgentLaunchTools(
     {
       description:
         "Launch a new agent to work on a task. The new agent runs independently " +
-        "— use dispatch_send_message to coordinate and list_agents to check status.",
+        "— use dispatch_send_message to coordinate and list_agents to check status. " +
+        "By default the new agent is your child and appears under your card in the sidebar; " +
+        "pass child: false to launch it as its own top-level agent instead.",
       inputSchema: {
         name: z
           .string()
@@ -139,6 +142,15 @@ export function registerAgentLaunchTools(
               (context.peerLocationHint ?? "") +
               " Requires an explicit cwd (paths cannot be inherited across machines); calling with a location but no cwd returns the repos available there. Templates are not supported remotely. IMPORTANT: only the prompt you write crosses instances — the remote agent does not see your transcript, messages, or files, so write the prompt as a complete self-contained briefing."
           ),
+        child: z
+          .boolean()
+          .optional()
+          .describe(
+            "Whether the new agent is your child (default true). A child appears as a sub agent row under your card. " +
+              "Pass false to launch it as an independent top-level agent — it still inherits your working directory, " +
+              "type, and access level, and you can still message and archive it, but it is not part of your lineage. " +
+              "If you were launched as a child agent yourself, child: false is the only launch you can make."
+          ),
       },
     },
     async (args) => {
@@ -162,6 +174,7 @@ export function registerAgentLaunchTools(
           input.templateArgs = args.templateArgs;
         if (args.cwd !== undefined) input.cwd = args.cwd;
         if (args.location !== undefined) input.location = args.location;
+        if (args.child !== undefined) input.child = args.child;
 
         const result = await launchAgent(agentId, input);
         const text = `Launched agent "${result.name}" (${result.agentId}).`;

@@ -13,15 +13,18 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import { partitionAgentsByLineage } from "@/lib/agent-lineage";
 import {
   AGENT_TYPE_LABELS,
-  isNestedReviewAgent,
   type AgentType,
   sortAgentTypes,
 } from "@/lib/agent-types";
 import { type IdeType } from "@/lib/ide-types";
 import { agentSidebarOrderAtom, reconcileAgentSidebarOrder } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+/** Stable identity so a card with no sub agents does not re-render on every list change. */
+const EMPTY_AGENTS: Agent[] = [];
 
 export type AgentListContentProps = {
   agents: Agent[];
@@ -98,8 +101,8 @@ export function AgentListContent({
       ? lastUsedAgentType
       : (enabledAgentTypes[0] ?? "codex");
   const showCreateTypePicker = enabledAgentTypes.length > 1;
-  const topLevelAgents = useMemo(
-    () => agents.filter((agent) => !isNestedReviewAgent(agent)),
+  const { topLevel: topLevelAgents, subAgentsByCardId } = useMemo(
+    () => partitionAgentsByLineage(agents),
     [agents]
   );
   const topLevelAgentIds = useMemo(
@@ -330,11 +333,7 @@ export function AgentListContent({
                   key={agent.id}
                   agent={agent}
                   agents={agents}
-                  childAgents={agents.filter(
-                    (candidate) =>
-                      candidate.parentAgentId === agent.id &&
-                      isNestedReviewAgent(candidate)
-                  )}
+                  childAgents={subAgentsByCardId.get(agent.id) ?? EMPTY_AGENTS}
                   selectedAgentId={selectedAgentId}
                   expandedAgentId={expandedAgentId}
                   agentVisualState={agentVisualState}

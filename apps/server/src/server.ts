@@ -461,6 +461,12 @@ const mcpHandlers = createMcpHandlers({
     peerMessenger.sendPrompt(peerId, { targetAgentId, prompt }),
   requestPeerResnapshot: (peerId) =>
     peerEventSubscriber.requestResnapshot(peerId),
+  beginBackgroundArchive: (agentId, cleanupWorktree, opts) =>
+    agentLifecycleRuntime.beginBackgroundArchive(
+      agentId,
+      cleanupWorktree,
+      opts
+    ),
 });
 const jobTerminalStatuses = new Set([
   "completed",

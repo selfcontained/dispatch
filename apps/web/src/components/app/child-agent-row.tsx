@@ -1,4 +1,12 @@
-import { Play, Terminal, X } from "lucide-react";
+import {
+  Archive,
+  MoreVertical,
+  Pause,
+  Pencil,
+  Play,
+  Terminal,
+  Unplug,
+} from "lucide-react";
 
 import {
   latestEventColor,
@@ -9,6 +17,12 @@ import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   Tooltip,
   TooltipContent,
@@ -26,6 +40,11 @@ export type ChildAgentRowProps = {
   detachTerminal: () => void;
   startAgent: (agent: Agent) => Promise<void>;
   openSubmittedReview: (agent: Agent) => void;
+  setStopTarget: (agent: Agent | null) => void;
+  setStopConfirmOpen: (open: boolean) => void;
+  setDeleteTarget: (agent: Agent | null) => void;
+  setDeleteConfirmOpen: (open: boolean) => void;
+  onEditSettings: (agent: Agent) => void;
   onRequestClose?: () => void;
   closeOnSessionAction?: boolean;
 };
@@ -39,10 +58,20 @@ export function ChildAgentRow({
   detachTerminal,
   startAgent,
   openSubmittedReview,
+  setStopTarget,
+  setStopConfirmOpen,
+  setDeleteTarget,
+  setDeleteConfirmOpen,
+  onEditSettings,
   onRequestClose,
   closeOnSessionAction = false,
 }: ChildAgentRowProps): JSX.Element {
   const isStopped = state === "stopped";
+  const isArchiving = agent.status === "archiving";
+  // The shared DropdownMenuItem is a plain block styled for destructive items;
+  // these need inline icons and the normal foreground colour.
+  const menuItemClass =
+    "flex min-h-11 items-center gap-2 text-foreground data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0";
   const isReviewAgent = agent.role === "review";
   const canOpenSubmittedReview =
     isReviewAgent && agent.submittedReviewId != null;
@@ -170,7 +199,7 @@ export function ChildAgentRow({
               className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
               onClick={detachTerminal}
             >
-              <X className="h-3.5 w-3.5" />
+              <Unplug className="h-3.5 w-3.5" />
             </Button>
           </TooltipTrigger>
           <TooltipContent>Detach</TooltipContent>
@@ -196,6 +225,74 @@ export function ChildAgentRow({
           <TooltipContent>View terminal</TooltipContent>
         </Tooltip>
       )}
+      {/*
+        Session lifecycle controls. A sub agent used to offer only terminal
+        attach and resume, so moving plain children into this section would have
+        stripped the pause/rename/archive an agent card carries in its footer.
+        They live behind an overflow menu because the row has one action slot.
+      */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            size="icon"
+            variant="ghost"
+            data-agent-control="true"
+            data-testid={`child-agent-menu-${agent.id}`}
+            aria-label={`Session actions for ${displayName}`}
+            className="relative z-20 h-11 w-11 shrink-0 text-muted-foreground hover:text-foreground sm:h-7 sm:w-7"
+          >
+            <MoreVertical className="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          {!isStopped && !isArchiving ? (
+            <DropdownMenuItem
+              className={menuItemClass}
+              data-testid={`child-agent-pause-${agent.id}`}
+              onSelect={() => {
+                setStopTarget(agent);
+                setStopConfirmOpen(true);
+              }}
+            >
+              <Pause className="h-3.5 w-3.5" />
+              Pause
+            </DropdownMenuItem>
+          ) : null}
+          {isStopped && !isArchiving ? (
+            <DropdownMenuItem
+              className={menuItemClass}
+              data-testid={`child-agent-menu-resume-${agent.id}`}
+              onSelect={() => {
+                if (closeOnSessionAction) onRequestClose?.();
+                void startAgent(agent);
+              }}
+            >
+              <Play className="h-3.5 w-3.5" />
+              Resume
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuItem
+            className={menuItemClass}
+            data-testid={`child-agent-settings-${agent.id}`}
+            onSelect={() => onEditSettings(agent)}
+          >
+            <Pencil className="h-3.5 w-3.5" />
+            Session settings
+          </DropdownMenuItem>
+          <DropdownMenuItem
+            className="flex min-h-11 items-center gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0"
+            data-testid={`child-agent-archive-${agent.id}`}
+            disabled={isArchiving || agent.status === "creating"}
+            onSelect={() => {
+              setDeleteTarget(agent);
+              setDeleteConfirmOpen(true);
+            }}
+          >
+            <Archive className="h-3.5 w-3.5" />
+            Archive
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
     </div>
   );
 

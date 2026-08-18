@@ -72,6 +72,7 @@ export const ReviewModeBar = memo(function ReviewModeBar({
         )}
         <button
           type="button"
+          aria-label="Cancel review"
           className="text-xs text-muted-foreground hover:text-foreground"
           onClick={handleCancel}
         >

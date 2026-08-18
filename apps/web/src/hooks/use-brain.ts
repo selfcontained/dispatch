@@ -1,52 +1,31 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
+import type {
+  BrainCollectionSummary as BrainCollectionSummaryRecord,
+  BrainEntryType as BrainEntryTypeRecord,
+  BrainEvent as BrainEventRecord,
+  BrainListItem as BrainListItemRecord,
+  BrainListWithItemCount as BrainListRecord,
+  BrainObject as BrainObjectRecord,
+  BrainProject as BrainProjectRecord,
+} from "../../../server/src/brain/types";
+
 import { api } from "@/lib/api";
 
-export type BrainProject = {
-  repoRoot: string;
-  objectCount: number;
-  listCount: number;
-  eventCount: number;
-};
+export type BrainProject = BrainProjectRecord;
 
-export type BrainCollectionSummary = {
-  collection: string;
-  objectCount: number;
-  listCount: number;
-  eventCount: number;
-};
+export type BrainCollectionSummary = BrainCollectionSummaryRecord;
 
-export type BrainObject = {
-  collection: string;
-  name: string;
-  value: unknown;
-  revision: number;
-  createdAt: string;
-  updatedAt: string;
-  createdByAgentId: string;
-  updatedByAgentId: string;
-};
+export type BrainObject = BrainObjectRecord;
 
-export type BrainList = {
-  collection: string;
-  name: string;
-  revision: number;
-  itemCount: number;
-  createdAt: string;
-  updatedAt: string;
-  createdByAgentId: string;
-  updatedByAgentId: string;
-};
+export type BrainList = BrainListRecord;
 
-export type BrainListItem = {
-  index: number;
-  value: unknown;
-  createdAt: string;
-  updatedAt: string;
-};
+export type BrainListItem = BrainListItemRecord;
 
 /** Matches the brain entry-type segment in the bulk-delete API paths. */
-export type BrainEntryType = "objects" | "lists" | "events";
+export type BrainEntryType = BrainEntryTypeRecord;
+
+export type BrainEvent = BrainEventRecord;
 
 /**
  * Unfiltered counts for a scope. Derived so it cannot drift from the payloads
@@ -74,17 +53,6 @@ export function scopeCount(
 ): number {
   return totals[ENTRY_TYPE_COUNT_KEYS[entryType]];
 }
-
-export type BrainEvent = {
-  id: string;
-  collection: string;
-  kind: string;
-  subject: string | null;
-  tags: string[];
-  value: unknown;
-  createdAt: string;
-  agentId: string;
-};
 
 export function useBrainProjects(enabled = true) {
   return useQuery<BrainProject[]>({

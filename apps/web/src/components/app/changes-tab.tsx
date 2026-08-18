@@ -255,11 +255,18 @@ export const ChangesTab = memo(function ChangesTab({
   const scrollRef = useRef<HTMLDivElement>(null);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Position of the latest scroll event, kept so the unmount flush below has a
+  // value to write: React detaches `scrollRef` before effect cleanups run, so
+  // the pane can no longer be measured by then.
+  const pendingScrollTopRef = useRef<number | null>(null);
+
   const handleScroll = useCallback(() => {
+    const top = scrollRef.current?.scrollTop ?? 0;
+    pendingScrollTopRef.current = top;
     if (scrollTimerRef.current) clearTimeout(scrollTimerRef.current);
     scrollTimerRef.current = setTimeout(() => {
       scrollTimerRef.current = null;
-      const top = scrollRef.current?.scrollTop ?? 0;
+      pendingScrollTopRef.current = null;
       setViewState((prev) => {
         if (prev.scrollTop === top) return prev;
         return { ...prev, scrollTop: top };
@@ -268,17 +275,22 @@ export const ChangesTab = memo(function ChangesTab({
   }, [setViewState]);
 
   useEffect(() => {
-    const el = scrollRef.current;
     return () => {
       if (scrollTimerRef.current) {
         clearTimeout(scrollTimerRef.current);
-        const top = el?.scrollTop ?? 0;
+        scrollTimerRef.current = null;
+        const top = pendingScrollTopRef.current;
+        pendingScrollTopRef.current = null;
+        if (top === null) return;
         setViewState((prev) => {
           if (prev.scrollTop === top) return prev;
           return { ...prev, scrollTop: top };
         });
       }
     };
+    // `setViewState` changes identity when `agentId` does, so this also runs
+    // on an agent switch — disarming both refs there is what keeps the
+    // outgoing agent's offset from landing on the incoming one.
   }, [setViewState]);
 
   const restoredScrollForAgent = useRef<string | null>(null);

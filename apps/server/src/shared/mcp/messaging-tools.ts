@@ -12,6 +12,14 @@ export type AgentListing = {
   latestEvent: { type: string; message: string } | null;
   parentAgentId: string | null;
   parentName: string | null;
+  /**
+   * Who created this session, as opposed to whose child it is. Present only
+   * when the launcher is not already the parent — i.e. the agent was launched
+   * with `child: false` and sits outside the launcher's lineage. Never
+   * participates in `relation`, which is parent-tree-only.
+   */
+  launchedByAgentId?: string;
+  launchedByName?: string;
   relation: AgentRelation;
 };
 
@@ -47,10 +55,13 @@ export function registerMessagingTools(
         description:
           "List other agents on this Dispatch server with their IDs, names, statuses, and latest activity. " +
           "Use this to discover agents you can communicate with via dispatch_send_message. " +
-          "Each entry also carries its delegation lineage: parentAgentId/parentName name the agent that launched it, " +
-          "and relation says how it sits relative to you (child, descendant, parent, ancestor, sibling, unrelated). " +
-          "Build the delegation tree from parentAgentId rather than assuming the list is flat — a 'descendant' is a " +
-          "grandchild or deeper, not something you launched yourself.",
+          "Each entry carries two separate things. Lineage: parentAgentId/parentName name the agent this one is a " +
+          "child of, and relation says how it sits relative to you in that same parent tree (child, descendant, " +
+          "parent, ancestor, sibling, unrelated). Provenance: launchedByAgentId/launchedByName name whoever created " +
+          "the session, and appear only when that is not already the parent — i.e. the agent was launched with " +
+          "dispatch_launch_agent's child: false, so it is top-level and reports as unrelated to you even though you " +
+          "may have launched it. Build the delegation tree from parentAgentId rather than assuming the list is flat " +
+          "— a 'descendant' is a grandchild or deeper, not something you launched yourself.",
         inputSchema: {},
       },
       async () => {

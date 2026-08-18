@@ -13,7 +13,7 @@ import {
   readExpandedAgentId,
 } from "@/components/app/agents-view-utils";
 import { type Agent } from "@/components/app/types";
-import { isNestedReviewAgent } from "@/lib/agent-types";
+import { cardIdForAgent } from "@/lib/agent-lineage";
 
 /**
  * Owns which agent card is expanded in the sidebar: localStorage-initialized
@@ -60,9 +60,10 @@ export function useExpandedAgentSync(
   const selectedExpansionTarget = useMemo(() => {
     if (!validatedSelectedAgentId) return null;
     const selected = agents.find((a) => a.id === validatedSelectedAgentId);
-    return selected && isNestedReviewAgent(selected)
-      ? (selected.parentAgentId ?? validatedSelectedAgentId)
-      : validatedSelectedAgentId;
+    // Selecting a sub agent expands the card it lives in, since the sub agent
+    // itself is only reachable from inside that card.
+    if (!selected) return validatedSelectedAgentId;
+    return cardIdForAgent(selected, new Map(agents.map((a) => [a.id, a])));
   }, [agents, validatedSelectedAgentId]);
   const prevSelectedExpansionTargetRef = useRef<string | null>(null);
 
