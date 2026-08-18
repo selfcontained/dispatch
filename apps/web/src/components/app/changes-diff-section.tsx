@@ -92,6 +92,7 @@ export function DiffPane({
     <div
       ref={scrollRef}
       onScroll={onScroll}
+      data-testid="changes-diff-pane"
       className="min-h-0 flex-1 space-y-3 overflow-y-auto bg-background px-3 pb-3"
     >
       {files.map((file) => (
@@ -182,7 +183,11 @@ function FileDiffSection({
   onFeedbackFocusComplete,
 }: FileDiffSectionProps): JSX.Element {
   return (
-    <div ref={setRef} className="rounded-md border border-border/50">
+    <div
+      ref={setRef}
+      data-testid={`changes-file-section:${file.path}`}
+      className="rounded-md border border-border/50"
+    >
       <button
         type="button"
         className="sticky top-0 z-10 flex w-full items-center gap-2 rounded-t-md border-b border-border/50 bg-background/95 backdrop-blur-sm px-3 py-2 text-left text-xs hover:bg-muted/60"
