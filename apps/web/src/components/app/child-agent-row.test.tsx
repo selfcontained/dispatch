@@ -57,6 +57,10 @@ function renderRow(
           agent={agent}
           state="idle"
           isInitialReviewActive={true}
+          // The component itself no longer reads isConnected — connection
+          // state comes entirely from `state === "active"` now — but the
+          // prop stays required in the type since agent-card.tsx still
+          // passes it. Kept here only to satisfy that type.
           isConnected={false}
           attachToAgent={attachToAgent}
           detachTerminal={detachTerminal}
@@ -190,7 +194,88 @@ describe("ChildAgentRow", () => {
     openMenu();
     fireEvent.click(screen.getByTestId("child-agent-open-review-agt_child"));
     expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
+    // Also proves the portal-bubbling fix: DropdownMenuContent is portaled
+    // outside the row's real DOM, but React's synthetic events still
+    // bubble through the *component* tree — without the row's
+    // currentTarget.contains() guard, this click would also attach.
     expect(attachToAgent).not.toHaveBeenCalled();
+  });
+
+  it("opens the submitted review by clicking its own badge, not the row", () => {
+    const submittedAgent = { ...baseAgent, submittedReviewId: 42 };
+    const { attachToAgent, openSubmittedReview } = renderRow(submittedAgent, {
+      isInitialReviewActive: false,
+    });
+
+    fireEvent.click(
+      screen.getByTestId("child-agent-open-review-badge-agt_child")
+    );
+    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
+    expect(attachToAgent).not.toHaveBeenCalled();
+  });
+
+  it("keeps the badge trigger reachable on a stopped, ready-to-open row", () => {
+    // The row's own click-to-connect is a dead end here (isStopped bails
+    // out), so the badge is the only way to reach the review without
+    // opening the overflow menu — worth pinning explicitly.
+    const submittedAgent = {
+      ...baseAgent,
+      status: "stopped" as const,
+      submittedReviewId: 42,
+    };
+    const { openSubmittedReview } = renderRow(submittedAgent, {
+      state: "stopped",
+      isInitialReviewActive: false,
+    });
+
+    fireEvent.click(
+      screen.getByTestId("child-agent-open-review-badge-agt_child")
+    );
+    expect(openSubmittedReview).toHaveBeenCalledWith(submittedAgent);
+  });
+
+  it("renders the badge plain (not a button) before a review is submitted", () => {
+    renderRow(baseAgent);
+
+    expect(
+      screen.queryByTestId("child-agent-open-review-badge-agt_child")
+    ).toBeNull();
+  });
+
+  describe("keyboard/screen-reader terminal access (the overflow menu's View terminal / Detach item)", () => {
+    it("attaches from the menu when not connected", () => {
+      const { attachToAgent } = renderRow(
+        { ...baseAgent, role: "standard" },
+        { state: "idle" }
+      );
+
+      openMenu();
+      fireEvent.click(screen.getByTestId("child-agent-terminal-agt_child"));
+      expect(attachToAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ id: "agt_child" })
+      );
+    });
+
+    it("detaches from the menu when connected", () => {
+      const { detachTerminal } = renderRow(
+        { ...baseAgent, role: "standard" },
+        { state: "active" }
+      );
+
+      openMenu();
+      const item = screen.getByTestId("child-agent-terminal-agt_child");
+      expect(item.textContent).toContain("Detach");
+      fireEvent.click(item);
+      expect(detachTerminal).toHaveBeenCalledOnce();
+    });
+
+    it("is absent for a stopped agent, which uses Resume instead", () => {
+      const stopped = { ...baseAgent, status: "stopped" as const };
+      renderRow(stopped, { state: "stopped" });
+
+      openMenu();
+      expect(screen.queryByTestId("child-agent-terminal-agt_child")).toBeNull();
+    });
   });
 
   it("still attaches by clicking a ready-to-open row's body, same as any other row", () => {
@@ -199,7 +284,7 @@ describe("ChildAgentRow", () => {
     // every other row.
     const { attachToAgent } = renderRow(
       { ...baseAgent, submittedReviewId: 42 },
-      { isInitialReviewActive: false, isConnected: false, state: "idle" }
+      { isInitialReviewActive: false, state: "idle" }
     );
 
     fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
@@ -209,7 +294,7 @@ describe("ChildAgentRow", () => {
   });
 
   it("shows the connected right-edge accent when not also ready to open", () => {
-    renderRow(baseAgent, { isConnected: true, state: "active" });
+    renderRow(baseAgent, { state: "active" });
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-r-status-done");
@@ -218,10 +303,9 @@ describe("ChildAgentRow", () => {
 
   it("does not light the connected accent for a paused agent that's still attached", () => {
     // state tracks agentVisualState (running/creating AND actually
-    // connected), which can diverge from the raw isConnected prop — e.g. a
-    // paused agent you're still attached to. The accent should follow
-    // state, matching the top-level card's own condition, not isConnected.
-    renderRow(baseAgent, { isConnected: true, state: "stopped" });
+    // connected) — the accent (and the row's click-to-detach) follow it,
+    // not any looser notion of "was ever attached."
+    renderRow(baseAgent, { state: "stopped" });
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).not.toContain("border-r-status-done");
@@ -231,15 +315,12 @@ describe("ChildAgentRow", () => {
   });
 
   it("reserves the connected accent's width so attaching never shifts the row", () => {
-    const { rerenderWith } = renderRow(baseAgent, {
-      isConnected: false,
-      state: "idle",
-    });
+    const { rerenderWith } = renderRow(baseAgent, { state: "idle" });
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("border-r-4");
     expect(row.className).toContain("border-r-border/60");
 
-    rerenderWith({ isConnected: true, state: "active" });
+    rerenderWith({ state: "active" });
     // Same border-r-4 width both before and after — only the color class
     // toggles (see the two tests above), so the box never resizes.
     expect(row.className).toContain("border-r-4");
@@ -259,7 +340,7 @@ describe("ChildAgentRow", () => {
     it("attaches by clicking anywhere on the row", () => {
       const { attachToAgent, detachTerminal } = renderRow(
         { ...baseAgent, role: "standard" },
-        { isConnected: false, state: "idle" }
+        { state: "idle" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
@@ -272,7 +353,7 @@ describe("ChildAgentRow", () => {
     it("detaches by clicking an already-connected row", () => {
       const { attachToAgent, detachTerminal } = renderRow(
         { ...baseAgent, role: "standard" },
-        { isConnected: true, state: "active" }
+        { state: "active" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-row-agt_child"));
@@ -300,7 +381,7 @@ describe("ChildAgentRow", () => {
     it("does not attach when clicking the overflow menu button", () => {
       const { attachToAgent } = renderRow(
         { ...baseAgent, role: "standard" },
-        { isConnected: false, state: "idle" }
+        { state: "idle" }
       );
 
       fireEvent.click(screen.getByTestId("child-agent-menu-agt_child"));

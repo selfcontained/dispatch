@@ -6,6 +6,8 @@ import {
   Pause,
   Pencil,
   Play,
+  Terminal,
+  Unplug,
 } from "lucide-react";
 import type { ReactNode } from "react";
 
@@ -75,7 +77,6 @@ export function ChildAgentRow({
   agent,
   state,
   isInitialReviewActive,
-  isConnected,
   attachToAgent,
   detachTerminal,
   startAgent,
@@ -89,6 +90,12 @@ export function ChildAgentRow({
   closeOnSessionAction = false,
 }: ChildAgentRowProps): JSX.Element {
   const isStopped = state === "stopped";
+  // Not the raw isConnected/connectedAgentId-equality prop: that stays true
+  // through a mid-reconnect or a dropped socket, which would make a click
+  // silently detach a row that visually reads as "not connected" (its
+  // accent already follows this same condition, below). state === "active"
+  // is what use-agents.ts's agentVisualState actually calls "connected."
+  const isConnectedActive = state === "active";
   const isArchiving = agent.status === "archiving";
   // The shared DropdownMenuItem is a plain block styled for destructive items;
   // these need inline icons and the normal foreground colour.
@@ -127,12 +134,19 @@ export function ChildAgentRow({
         // resume button) opt out of the row's own click, the same
         // convention that file uses instead of stopPropagation. Opening a
         // submitted review is a separate action, reached through the
-        // overflow menu below — not tied to this click at all, so there's
-        // no race between the two actions' navigation.
+        // overflow menu and the badge below — not tied to this click at
+        // all, so there's no race between the two actions' navigation.
         const target = event.target as HTMLElement;
+        // Radix (DropdownMenuContent, TipSpot's Popover, Tooltip content)
+        // portals its content to document.body — outside this row's real
+        // DOM subtree — but React's synthetic events still bubble through
+        // the *component* tree regardless of where they're portaled to.
+        // contains() walks the real DOM, so this is the one check that
+        // actually catches every portal, not just the ones marked below.
+        if (!event.currentTarget.contains(target)) return;
         if (target.closest("[data-agent-control='true']")) return;
         if (isStopped) return;
-        if (isConnected) {
+        if (isConnectedActive) {
           detachTerminal();
           return;
         }
@@ -216,22 +230,34 @@ export function ChildAgentRow({
       <div className="flex shrink-0 items-center gap-1">
         {isReviewAgent ? (
           <ReviewBadge tip={canOpenSubmittedReview}>
-            <Badge
-              className={cn(
-                "h-4 gap-0.5 border-primary px-1 text-[8px] font-semibold uppercase tracking-wide",
-                canOpenSubmittedReview
-                  ? "bg-primary text-primary-foreground"
-                  : "bg-background text-foreground"
-              )}
-            >
-              {/* The checkmark carries "ready to open" directly on the
-                  badge instead of a row-wide border treatment, which used
-                  to look like a muted version of the connected accent. */}
-              {canOpenSubmittedReview ? (
-                <Check className="h-2.5 w-2.5" aria-hidden="true" />
-              ) : null}
-              Review
-            </Badge>
+            {canOpenSubmittedReview ? (
+              // A real button, not inert decoration: it's the one element
+              // in the row that visibly lights up (checkmark + fill), so
+              // it's also the thing a user is most likely to click or tap
+              // aiming to open the review — including on a stopped row,
+              // whose click-to-connect is otherwise a dead end. Its own
+              // trigger (not the row's) so it can't race attachToAgent's
+              // navigate the way a combined click used to.
+              <button
+                type="button"
+                data-agent-control="true"
+                data-testid={`child-agent-open-review-badge-${agent.id}`}
+                aria-label={`Open submitted review from ${displayName}`}
+                onClick={() => {
+                  if (closeOnSessionAction) onRequestClose?.();
+                  openSubmittedReview(agent);
+                }}
+              >
+                <Badge className="h-4 gap-0.5 border-primary bg-primary px-1 text-[8px] font-semibold uppercase tracking-wide text-primary-foreground">
+                  <Check className="h-2.5 w-2.5" aria-hidden="true" />
+                  Review
+                </Badge>
+              </button>
+            ) : (
+              <Badge className="h-4 border-primary bg-background px-1 text-[8px] font-semibold uppercase tracking-wide text-foreground">
+                Review
+              </Badge>
+            )}
           </ReviewBadge>
         ) : null}
         {/*
@@ -285,13 +311,39 @@ export function ChildAgentRow({
           {/*
             data-agent-control marks the whole content, not just the
             trigger button: Radix portals this out of the row's DOM
-            subtree, but React's synthetic events still bubble through the
-            *component* tree, so a click inside would otherwise also reach
-            the row's own onClick above. target.closest() here walks the
-            real (portaled) DOM, where this attribute is an actual ancestor
-            of every item's click target.
+            subtree, so it's not a real ancestor of an item's click target
+            in the row's own onClick's closest() check. The row's own
+            currentTarget.contains() guard already catches this (and every
+            other portal, e.g. the tip popover) on its own — this stays as
+            a second, belt-and-braces guard.
           */}
           <DropdownMenuContent align="end" data-agent-control="true">
+            {!isStopped ? (
+              // The keyboard/screen-reader path to connect — the row's own
+              // click-to-attach has no non-mouse equivalent, so this is the
+              // only accessible way to reach a sub agent's terminal. Label
+              // and action both follow isConnectedActive, matching what the
+              // row's own accent and click already mean by "connected."
+              <DropdownMenuItem
+                className={menuItemClass}
+                data-testid={`child-agent-terminal-${agent.id}`}
+                onSelect={() => {
+                  if (isConnectedActive) {
+                    detachTerminal();
+                    return;
+                  }
+                  if (closeOnSessionAction) onRequestClose?.();
+                  void attachToAgent(agent);
+                }}
+              >
+                {isConnectedActive ? (
+                  <Unplug className="h-3.5 w-3.5" />
+                ) : (
+                  <Terminal className="h-3.5 w-3.5" />
+                )}
+                {isConnectedActive ? "Detach" : "View terminal"}
+              </DropdownMenuItem>
+            ) : null}
             {canOpenSubmittedReview ? (
               <DropdownMenuItem
                 className={menuItemClass}
