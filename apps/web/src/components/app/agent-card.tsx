@@ -281,6 +281,7 @@ export function AgentCard({
         agent={agent}
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        enabledIdes={enabledIdes}
       />
       <SessionSettingsDialog
         agent={settingsChild}
@@ -288,6 +289,7 @@ export function AgentCard({
         onOpenChange={(open) => {
           if (!open) setSettingsChild(null);
         }}
+        enabledIdes={enabledIdes}
       />
     </React.Fragment>
   );

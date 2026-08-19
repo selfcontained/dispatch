@@ -371,7 +371,7 @@ export function AgentsContent() {
         </P>
         <P>
           To rename any agent yourself, expand its sidebar card and click the
-          edit button to open the <strong>Session settings</strong> dialog and
+          edit button to open the <strong>Session details</strong> dialog and
           type a new name.
         </P>
       </Section>
@@ -406,7 +406,7 @@ export function AgentsContent() {
           agents, not children or persona reviews of its own. Sub agent rows
           carry the same session controls a card does — attach or detach the
           terminal, resume a stopped session, and an overflow menu with{" "}
-          <strong>Pause</strong>, <strong>Session settings</strong>, and{" "}
+          <strong>Pause</strong>, <strong>Session details</strong>, and{" "}
           <strong>Archive</strong>. Selecting a sub agent expands the card it
           lives in.
         </P>

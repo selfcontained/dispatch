@@ -106,15 +106,8 @@ describe("ChildAgentRow", () => {
       },
     });
 
-    const badge = screen.getByText("Review");
-    expect(badge.className.split(/\s+/)).toEqual(
-      expect.arrayContaining([
-        "border-primary",
-        "bg-background",
-        "text-foreground",
-      ])
-    );
-    expect(badge.className).not.toContain("violet");
+    const indicator = screen.getByRole("img", { name: "Review in progress" });
+    expect(indicator.className).toContain("text-muted-foreground");
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.className).toContain("min-h-11");
     expect(row.dataset.agentRole).toBe("review");
@@ -122,15 +115,15 @@ describe("ChildAgentRow", () => {
     expect(row.className).toContain("child-agent-review-active-row");
   });
 
-  it("groups the REVIEW badge with the overflow menu control, not the truncating name label", () => {
+  it("groups the review indicator with the overflow menu control, not the truncating name label", () => {
     renderRow(baseAgent);
 
-    const badge = screen.getByText("Review");
+    const indicator = screen.getByRole("img", { name: "Review in progress" });
     const menuButton = screen.getByTestId("child-agent-menu-agt_child");
-    // The badge and the overflow menu button should share an immediate
-    // parent (the right-side action cluster) rather than the badge living
-    // inside the name label's min-w-0/flex-1/truncate wrapper.
-    expect(badge.closest("div.flex.shrink-0")).toBe(
+    // The indicator and the overflow menu button should share an immediate
+    // parent (the right-side action cluster) rather than living inside the
+    // name label's min-w-0/flex-1/truncate wrapper.
+    expect(indicator.closest("div.flex.shrink-0")).toBe(
       menuButton.closest("div.flex.shrink-0")
     );
   });
@@ -143,14 +136,14 @@ describe("ChildAgentRow", () => {
     expect(row.className).not.toContain("child-agent-review-active-row");
   });
 
-  it("keeps the badge muted until a review has been submitted", () => {
+  it("shows the muted clipboard-list indicator until a review has been submitted", () => {
     renderRow(baseAgent);
 
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewReady).toBe("false");
-    const badge = screen.getByText("Review");
-    expect(badge.className).toContain("bg-background");
-    expect(badge.querySelector("svg")).toBeNull();
+    const indicator = screen.getByRole("img", { name: "Review in progress" });
+    expect(indicator.querySelector("svg.lucide-clipboard-list")).not.toBeNull();
+    expect(indicator.querySelector("svg.lucide-clipboard-check")).toBeNull();
     // "Open review" only makes sense once a review exists.
     openMenu();
     expect(
@@ -158,7 +151,7 @@ describe("ChildAgentRow", () => {
     ).toBeNull();
   });
 
-  it("marks the badge ready with a checkmark once the review can be opened, without a row border", () => {
+  it("swaps to a colored clipboard-check indicator once the review can be opened, without a row border", () => {
     renderRow(
       { ...baseAgent, status: "stopped", submittedReviewId: 42 },
       { state: "stopped", isInitialReviewActive: false }
@@ -169,15 +162,19 @@ describe("ChildAgentRow", () => {
     expect(row.className).toContain("opacity-100");
     expect(row.className).not.toContain("opacity-65");
     // "Ready to open" no longer gets its own row-wide border/tint (it used
-    // to read as a muted echo of the connected accent) — the badge's
-    // checkmark is the sole carrier of that signal, and opening it moves to
-    // the overflow menu (tested below), decoupled from connecting.
+    // to read as a muted echo of the connected accent) — the indicator's
+    // color/icon swap is the sole carrier of that signal, and opening it
+    // moves to the overflow menu (tested below), decoupled from connecting.
     expect(row.className).not.toContain("border-primary/45");
     expect(row.className).not.toContain("bg-primary/[0.06]");
-    const badge = screen.getByText("Review");
-    expect(badge.className).toContain("bg-primary");
-    expect(badge.className).toContain("text-primary-foreground");
-    expect(badge.querySelector("svg")).not.toBeNull();
+    const trigger = screen.getByTestId(
+      "child-agent-open-review-badge-agt_child"
+    );
+    // status-working (green), deliberately not the same color family as the
+    // connected accent (status-done/primary, blue in this theme) — the two
+    // signals must never look like variants of each other.
+    expect(trigger.className).toContain("text-status-working");
+    expect(trigger.querySelector("svg.lucide-clipboard-check")).not.toBeNull();
   });
 
   it("opens the submitted review from the overflow menu, independent of connecting", () => {
@@ -292,6 +289,7 @@ describe("ChildAgentRow", () => {
     renderRow(baseAgent, { state: "active" });
 
     const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.className).toContain("border-r-4");
     expect(row.className).toContain("border-r-status-done");
     expect(row.className).not.toContain("border-primary/45");
   });
@@ -303,29 +301,19 @@ describe("ChildAgentRow", () => {
     renderRow(baseAgent, { state: "stopped" });
 
     const row = screen.getByTestId("child-agent-row-agt_child");
+    expect(row.className).not.toContain("border-r-4");
     expect(row.className).not.toContain("border-r-status-done");
-    // Falls back to the neutral default, matching every other unconnected
-    // row's closed border — not a transparent gap.
-    expect(row.className).toContain("border-r-border/60");
-  });
-
-  it("reserves the connected accent's width so attaching never shifts the row", () => {
-    const { rerenderWith } = renderRow(baseAgent, { state: "idle" });
-    const row = screen.getByTestId("child-agent-row-agt_child");
-    expect(row.className).toContain("border-r-4");
-    expect(row.className).toContain("border-r-border/60");
-
-    rerenderWith({ state: "active" });
-    // Same border-r-4 width both before and after — only the color class
-    // toggles (see the two tests above), so the box never resizes.
-    expect(row.className).toContain("border-r-4");
-    expect(row.className).toContain("border-r-status-done");
+    // A normal 1px border matching the row's other sides — not a thick
+    // reserved edge (muted or invisible), just an ordinary bordered pill.
+    expect(row.className).toContain("border-border/60");
   });
 
   it("does not infer review purpose from a persona", () => {
     renderRow({ ...baseAgent, role: "standard" });
 
-    expect(screen.queryByText("Review")).toBeNull();
+    expect(
+      screen.queryByRole("img", { name: "Review in progress" })
+    ).toBeNull();
     const row = screen.getByTestId("child-agent-row-agt_child");
     expect(row.dataset.reviewActive).toBe("false");
     expect(row.className).not.toContain("child-agent-review-active-row");

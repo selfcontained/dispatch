@@ -93,8 +93,8 @@ export function AgentCardActions({
             variant="ghost"
             className="h-8 w-8 rounded-full border border-blue-500/35 bg-blue-500/10 p-0 text-blue-400 hover:bg-blue-500/15 hover:text-blue-300"
             data-testid={`agent-session-settings-${agent.id}`}
-            aria-label="Edit session settings"
-            title="Edit session settings"
+            aria-label="Session details"
+            title="Session details"
             onClick={onEditSettings}
           >
             <Pencil className="h-3.5 w-3.5" />

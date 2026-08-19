@@ -1,6 +1,7 @@
 import {
   Archive,
-  Check,
+  ClipboardCheck,
+  ClipboardList,
   Eye,
   MoreVertical,
   Pause,
@@ -18,7 +19,6 @@ import {
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -153,36 +153,28 @@ export function ChildAgentRow({
         void attachToAgent(agent);
       }}
       className={cn(
-        // No rounded corners at all (a single rounded side read as odd):
-        // the connected accent below is meant to read as one continuous
-        // bar, uninterrupted by any corner treatment, echoing the
-        // top-level card's own border-r-4 treatment. border-r-4 is in the
-        // BASE, unconditionally, and every row's right edge is always
-        // painted some color (never literally transparent) — so every
-        // row's border closes into a complete shape instead of reading as
-        // cut open on one side, and every row keeps identical internal
-        // geometry (a row whose border-r width varied by state measurably
-        // misaligned its controls against its neighbors).
-        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-none border border-border/60 border-r-4 border-r-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
+        // Rounded on every corner, like an ordinary pill, with a normal
+        // matching 1px border on all four sides at rest — no permanently
+        // reserved thick edge (that read as either a muted "always-there"
+        // border, or, fully transparent, as no border at all on one side).
+        // Only the connected row below adds border-r-4 on top of this, so
+        // "thick right edge" exclusively means "this one's connected," and
+        // every other row just looks like an ordinary bordered pill.
+        "group relative flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border border-border/60 bg-background/30 px-2 py-1 sm:py-1.5",
         "transition-colors hover:bg-muted/35",
         !isStopped && "cursor-pointer",
         // Connected row: the same solid right-edge border treatment the
         // top-level agent card uses for "this is what's connected"
         // (agents-view.tsx's borderForAgentState), so the signal reads
         // consistently across both list levels — and, being the only state
-        // that colors just the right edge differently from the row's other
-        // three sides, exclusively means "connected." A ready-to-open
-        // review no longer has its own border treatment at all (that
-        // signal now lives on the REVIEW badge's checkmark below), so it
-        // can't compete with or dilute this one. state === "active" (not
-        // the bare isConnected prop) so this exactly matches the
-        // top-level card's own condition (use-agents.ts's
+        // that thickens this edge at all, exclusively means "connected." A
+        // ready-to-open review no longer has its own border treatment at
+        // all (that signal now lives on the review indicator's icon/color
+        // swap below), so it can't compete with or dilute this one. state ===
+        // "active" (not the bare isConnected prop) so this exactly matches
+        // the top-level card's own condition (use-agents.ts's
         // agentVisualState: running/creating AND actually connected).
-        // isConnected alone would keep the accent lit for a
-        // paused-but-still-attached agent, or after the terminal socket
-        // drops — both cases where the top-level card already goes
-        // transparent, so the two would disagree about the same fact.
-        state === "active" && "border-r-status-done",
+        state === "active" && "border-r-4 border-r-status-done",
         isStopped && "opacity-65",
         canOpenSubmittedReview && "opacity-100",
         showReviewActivity && "child-agent-review-active-row"
@@ -231,31 +223,47 @@ export function ChildAgentRow({
           <ReviewBadge tip={canOpenSubmittedReview}>
             {canOpenSubmittedReview ? (
               // A real button, not inert decoration: it's the one element
-              // in the row that visibly lights up (checkmark + fill), so
-              // it's also the thing a user is most likely to click or tap
-              // aiming to open the review — including on a stopped row,
-              // whose click-to-connect is otherwise a dead end. Its own
-              // trigger (not the row's) so it can't race attachToAgent's
-              // navigate the way a combined click used to.
-              <button
-                type="button"
-                data-agent-control="true"
-                data-testid={`child-agent-open-review-badge-${agent.id}`}
-                aria-label={`Open submitted review from ${displayName}`}
-                onClick={() => {
-                  if (closeOnSessionAction) onRequestClose?.();
-                  openSubmittedReview(agent);
-                }}
-              >
-                <Badge className="h-4 gap-0.5 border-primary bg-primary px-1 text-[8px] font-semibold uppercase tracking-wide text-primary-foreground">
-                  <Check className="h-2.5 w-2.5" aria-hidden="true" />
-                  Review
-                </Badge>
-              </button>
+              // in the row that visibly lights up (a filled clipboard-check
+              // in the "done" green, distinct from the connected accent's
+              // blue so the two signals never compete), so it's also the
+              // thing a user is most likely to click or tap aiming to open
+              // the review — including on a stopped row, whose
+              // click-to-connect is otherwise a dead end. Its own trigger
+              // (not the row's) so it can't race attachToAgent's navigate
+              // the way a combined click used to.
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    data-agent-control="true"
+                    data-testid={`child-agent-open-review-badge-${agent.id}`}
+                    aria-label={`Open submitted review from ${displayName}`}
+                    onClick={() => {
+                      if (closeOnSessionAction) onRequestClose?.();
+                      openSubmittedReview(agent);
+                    }}
+                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-status-working transition-colors hover:bg-status-working/10 sm:h-7 sm:w-7"
+                  >
+                    <ClipboardCheck
+                      className="h-3.5 w-3.5"
+                      aria-hidden="true"
+                    />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Open submitted review</TooltipContent>
+              </Tooltip>
             ) : (
-              <Badge className="h-4 border-primary bg-background px-1 text-[8px] font-semibold uppercase tracking-wide text-foreground">
-                Review
-              </Badge>
+              // Decorative only — the row's own status line already says
+              // "Working"/etc.; this just marks the agent as a reviewer,
+              // muted, with no checkmark yet.
+              <span
+                role="img"
+                aria-label="Review in progress"
+                title="Review in progress"
+                className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground sm:h-7 sm:w-7"
+              >
+                <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />
+              </span>
             )}
           </ReviewBadge>
         ) : null}
@@ -388,7 +396,7 @@ export function ChildAgentRow({
               onSelect={() => onEditSettings(agent)}
             >
               <Pencil className="h-3.5 w-3.5" />
-              Session settings
+              Session details
             </DropdownMenuItem>
             <DropdownMenuItem
               className="flex min-h-11 items-center gap-2 data-[disabled]:pointer-events-none data-[disabled]:opacity-50 sm:min-h-0"
