@@ -51,13 +51,9 @@ test.describe("Review agent UI", () => {
       page.getByTestId(`child-agent-row-${fixture.standardChildAgentId}`)
     ).toBeVisible();
     await expect(page.getByText("Sub Agents", { exact: true })).toBeVisible();
-    // Still 3, not 4: the badge marks review agents, and its absence is what
-    // distinguishes a plain child sitting in the same list.
-    await expect(
-      page.locator('[data-agent-role="review"]').getByText("Review", {
-        exact: true,
-      })
-    ).toHaveCount(3);
+    // Still 3, not 4: data-agent-role="review" marks review agents, and its
+    // absence is what distinguishes a plain child sitting in the same list.
+    await expect(page.locator('[data-agent-role="review"]')).toHaveCount(3);
     await expect(
       page.getByTestId(`child-agent-row-${fixture.activeAgentId}`)
     ).toHaveAttribute("data-review-active", "true");
@@ -72,6 +68,11 @@ test.describe("Review agent UI", () => {
       page.getByTestId(`child-agent-row-${fixture.activeAgentId}`)
     ).toHaveAttribute("data-review-ready", "false");
 
+    // "Open review" lives in the row's overflow menu now, decoupled from
+    // connecting to the agent's terminal.
+    await page
+      .getByTestId(`child-agent-menu-${fixture.openReviewAgentId}`)
+      .click();
     await page
       .getByTestId(`child-agent-open-review-${fixture.openReviewAgentId}`)
       .click();

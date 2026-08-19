@@ -224,7 +224,11 @@ export function AgentCard({
                         {childAgents.length}
                       </span>
                     </div>
-                    <ScrollArea className="max-h-56" type="always">
+                    <ScrollArea
+                      className="max-h-56"
+                      type="always"
+                      fitContentWidth
+                    >
                       <div className="space-y-1 pr-2">
                         {childAgents.map((child) => (
                           <ChildAgentRow
@@ -235,7 +239,6 @@ export function AgentCard({
                               child.role === "review" &&
                               child.submittedReviewId == null
                             }
-                            isConnected={connectedAgentId === child.id}
                             attachToAgent={attachToAgent}
                             detachTerminal={detachTerminal}
                             startAgent={startAgent}
@@ -278,6 +281,7 @@ export function AgentCard({
         agent={agent}
         open={settingsOpen}
         onOpenChange={setSettingsOpen}
+        enabledIdes={enabledIdes}
       />
       <SessionSettingsDialog
         agent={settingsChild}
@@ -285,6 +289,7 @@ export function AgentCard({
         onOpenChange={(open) => {
           if (!open) setSettingsChild(null);
         }}
+        enabledIdes={enabledIdes}
       />
     </React.Fragment>
   );

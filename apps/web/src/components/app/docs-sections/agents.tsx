@@ -371,7 +371,7 @@ export function AgentsContent() {
         </P>
         <P>
           To rename any agent yourself, expand its sidebar card and click the
-          edit button to open the <strong>Session settings</strong> dialog and
+          edit button to open the <strong>Session details</strong> dialog and
           type a new name.
         </P>
       </Section>
@@ -396,19 +396,22 @@ export function AgentsContent() {
           directory and full-access mode, and renders as a row in the{" "}
           <strong>Sub Agents</strong> list inside the parent's expanded card
           rather than as a card of its own. Persona reviewers appear in the same
-          list, marked with a <strong>Review</strong> badge. Passing{" "}
-          <Code>child: false</Code> launches an independent agent instead — it
-          gets its own top-level card, but Dispatch still records who launched
-          it, so the launcher can message and archive it.
+          list, marked with a clipboard icon that turns into a green checkmark
+          once its review is submitted — click it to open the review directly.
+          Passing <Code>child: false</Code> launches an independent agent
+          instead — it gets its own top-level card, but Dispatch still records
+          who launched it, so the launcher can message and archive it.
         </P>
         <P>
           Nesting stops at one level: a sub agent can only launch independent
-          agents, not children or persona reviews of its own. Sub agent rows
-          carry the same session controls a card does — attach or detach the
-          terminal, resume a stopped session, and an overflow menu with{" "}
-          <strong>Pause</strong>, <strong>Session settings</strong>, and{" "}
-          <strong>Archive</strong>. Selecting a sub agent expands the card it
-          lives in.
+          agents, not children or persona reviews of its own. Clicking a sub
+          agent row's own body connects or disconnects its terminal, the same
+          way a top-level card's row does. An overflow menu carries the rest of
+          its session controls: <strong>View terminal</strong>/
+          <strong>Detach</strong>, <strong>Open review</strong> (once a review
+          is submitted), <strong>Pause</strong>/<strong>Resume</strong>,{" "}
+          <strong>Session details</strong>, and <strong>Archive</strong>.
+          Selecting a sub agent expands the card it lives in.
         </P>
         <P>
           Each child is told which agent launched it and can coordinate back
