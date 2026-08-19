@@ -35,13 +35,14 @@ export function describeAgentStatus(
   agent: Pick<Agent, "status" | "latestEvent">,
   isStopped: boolean
 ): { label: string; colorClass: string } {
-  const label = isStopped
-    ? "Stopped"
-    : agent.status === "error"
+  const label =
+    agent.status === "error"
       ? "Error"
-      : agent.latestEvent
-        ? latestEventLabel(agent.latestEvent.type)
-        : "Running";
+      : isStopped
+        ? "Stopped"
+        : agent.latestEvent
+          ? latestEventLabel(agent.latestEvent.type)
+          : "Running";
   const colorClass =
     agent.status === "error"
       ? "text-status-blocked"

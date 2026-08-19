@@ -105,11 +105,12 @@ export function ChildAgentRow({
   // canOpenSubmittedReview is just "no submission yet" — much broader than
   // "actively working," so a paused or errored reviewer needs its own
   // wording rather than a blanket "Review in progress."
-  const reviewPendingLabel = isStopped
-    ? "Review agent — paused, no review submitted"
-    : agent.status === "error"
+  const reviewPendingLabel =
+    agent.status === "error"
       ? "Review agent — no review submitted"
-      : "Review in progress";
+      : isStopped
+        ? "Review agent — paused, no review submitted"
+        : "Review in progress";
   const displayName = agent.persona ?? agent.name;
   const { label: statusLabel, colorClass: statusColor } = describeAgentStatus(
     agent,
