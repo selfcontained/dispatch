@@ -57,11 +57,6 @@ function renderRow(
           agent={agent}
           state="idle"
           isInitialReviewActive={true}
-          // The component itself no longer reads isConnected — connection
-          // state comes entirely from `state === "active"` now — but the
-          // prop stays required in the type since agent-card.tsx still
-          // passes it. Kept here only to satisfy that type.
-          isConnected={false}
           attachToAgent={attachToAgent}
           detachTerminal={detachTerminal}
           startAgent={startAgent}

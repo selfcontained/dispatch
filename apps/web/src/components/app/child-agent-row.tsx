@@ -59,7 +59,6 @@ export type ChildAgentRowProps = {
   agent: Agent;
   state: AgentVisualState;
   isInitialReviewActive: boolean;
-  isConnected: boolean;
   attachToAgent: (agent: Agent) => Promise<void>;
   detachTerminal: () => void;
   startAgent: (agent: Agent) => Promise<void>;

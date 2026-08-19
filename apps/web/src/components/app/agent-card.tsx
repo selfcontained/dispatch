@@ -239,7 +239,6 @@ export function AgentCard({
                               child.role === "review" &&
                               child.submittedReviewId == null
                             }
-                            isConnected={connectedAgentId === child.id}
                             attachToAgent={attachToAgent}
                             detachTerminal={detachTerminal}
                             startAgent={startAgent}
