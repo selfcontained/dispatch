@@ -4,6 +4,14 @@ import {
   computeActivityStats,
   type ActivityEventRow,
 } from "../../activity-metrics.js";
+import type {
+  HistoryChildAgent,
+  HistoryEvent,
+  HistoryFeedbackItem,
+  HistoryMedia,
+  HistoryTokenByModel,
+  HistoryTokenTotals,
+} from "./history-wire.js";
 import type { ActivityRouteDeps } from "./shared.js";
 
 async function handleHistoryProjects(
@@ -168,26 +176,11 @@ async function handleHistoryAgents(
   ]);
 
   const parentIds = agentsResult.rows.map((agent: { id: string }) => agent.id);
-  type ChildAgent = {
-    id: string;
-    name: string;
-    persona: string | null;
-    status: string;
-    latestEvent: {
-      type: string;
-      message: string;
-      updatedAt: string;
-      metadata: Record<string, unknown> | null;
-    } | null;
-    totalTokens: number;
-    createdAt: string;
-    updatedAt: string;
-  };
-  const childrenByParent = new Map<string, ChildAgent[]>();
+  const childrenByParent = new Map<string, HistoryChildAgent[]>();
 
   if (parentIds.length > 0) {
     const childResult = await deps.pool.query<
-      ChildAgent & { parentAgentId: string }
+      HistoryChildAgent & { parentAgentId: string }
     >(
       `SELECT
           a.id,
@@ -290,24 +283,12 @@ async function handleHistoryAgentDetail(
     feedbackResult,
     messagesResult,
   ] = await Promise.all([
-    deps.pool.query<{
-      id: number;
-      event_type: string;
-      message: string;
-      metadata: Record<string, unknown>;
-      created_at: string;
-    }>(
+    deps.pool.query<HistoryEvent>(
       `SELECT id, event_type, message, metadata, created_at
            FROM agent_events WHERE agent_id = $1 ORDER BY created_at ASC`,
       [id]
     ),
-    deps.pool.query<{
-      total_input: number;
-      total_cache_creation: number;
-      total_cache_read: number;
-      total_output: number;
-      total_messages: number;
-    }>(
+    deps.pool.query<HistoryTokenTotals>(
       `SELECT
             COALESCE(SUM(input_tokens), 0) AS total_input,
             COALESCE(SUM(cache_creation_tokens), 0) AS total_cache_creation,
@@ -317,11 +298,7 @@ async function handleHistoryAgentDetail(
            FROM agent_token_usage WHERE agent_id = $1`,
       [id]
     ),
-    deps.pool.query<{
-      model: string;
-      input_tokens: number;
-      output_tokens: number;
-    }>(
+    deps.pool.query<HistoryTokenByModel>(
       `SELECT model,
             SUM(input_tokens + cache_creation_tokens + cache_read_tokens) AS input_tokens,
             SUM(output_tokens) AS output_tokens
@@ -329,30 +306,12 @@ async function handleHistoryAgentDetail(
            GROUP BY model ORDER BY (SUM(input_tokens + cache_creation_tokens + cache_read_tokens) + SUM(output_tokens)) DESC`,
       [id]
     ),
-    deps.pool.query<{
-      file_name: string;
-      source: string;
-      size_bytes: number;
-      description: string | null;
-      created_at: string;
-    }>(
+    deps.pool.query<HistoryMedia>(
       `SELECT file_name, source, size_bytes, description, created_at
            FROM media WHERE agent_id = $1 ORDER BY created_at`,
       [id]
     ),
-    deps.pool.query<{
-      id: number;
-      agentId: string;
-      persona: string | null;
-      severity: string;
-      filePath: string | null;
-      lineNumber: number | null;
-      description: string;
-      suggestion: string | null;
-      mediaRef: string | null;
-      status: string;
-      createdAt: string;
-    }>(
+    deps.pool.query<HistoryFeedbackItem>(
       `SELECT f.id, r.reviewer_agent_id AS "agentId",
                   COALESCE(ra.persona, r.reviewer_type) AS persona,
                   'info' AS severity,
