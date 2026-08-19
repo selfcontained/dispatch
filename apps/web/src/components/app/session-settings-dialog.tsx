@@ -3,10 +3,8 @@ import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
 import { AgentCardDetails } from "@/components/app/agent-card-details";
-import {
-  AgentCardLatestEvent,
-  AgentCardPhaseStatus,
-} from "@/components/app/agent-card-status";
+import { AgentCardPhaseStatus } from "@/components/app/agent-card-status";
+import { describeAgentStatus } from "@/components/app/agent-event-utils";
 import { isFullAccessEnabled } from "@/components/app/agents-view-utils";
 import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -20,7 +18,9 @@ import { Input } from "@/components/ui/input";
 import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCopyText } from "@/hooks/use-copy";
 import { api } from "@/lib/api";
+import { formatRelativeTime } from "@/lib/format";
 import { type IdeType } from "@/lib/ide-types";
+import { cn } from "@/lib/utils";
 
 const MAX_NAME_LENGTH = 120;
 
@@ -61,6 +61,19 @@ export function SessionSettingsDialog({
   );
   const [worktreePathCopied, copyWorktreePath] = useCopyText();
 
+  // Mirrors ChildAgentRow's own derivation (same shared helper): the latest
+  // event's own label/color describes the EVENT, not the agent's current
+  // status, so a stopped or errored agent needs this rather than
+  // AgentCardLatestEvent's summary alone — that only reflects the event
+  // type, and would show a stale "Working" in the active-work color for an
+  // agent that has since stopped.
+  const isStopped = agent
+    ? agent.status !== "running" && agent.status !== "creating"
+    : false;
+  const { label: statusLabel, colorClass: statusColor } = agent
+    ? describeAgentStatus(agent, isStopped)
+    : { label: "", colorClass: "" };
+
   useEffect(() => {
     if (open && agent) {
       setName(agent.name);
@@ -97,7 +110,21 @@ export function SessionSettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="w-[min(460px,calc(100vw-2rem))]">
+      <DialogContent
+        className="w-[min(460px,calc(100vw-2rem))]"
+        onOpenAutoFocus={(e) => {
+          // Radix's default autofocus lands on the first non-link tabbable
+          // in the dialog — for a worktree agent, that's now the "Copy
+          // worktree path" button (AgentCardDetails renders ahead of the
+          // name field), not the Input's own `autoFocus`. That both drops
+          // focus from the rename field this dialog exists to let you use
+          // quickly, and immediately opens that button's tooltip on top of
+          // the branch info. Force focus onto the name field explicitly.
+          e.preventDefault();
+          inputRef.current?.focus();
+          inputRef.current?.select();
+        }}
+      >
         <DialogHeader>
           <DialogTitle>Session details</DialogTitle>
         </DialogHeader>
@@ -112,7 +139,24 @@ export function SessionSettingsDialog({
             {agent ? (
               <div className="space-y-1.5">
                 <AgentCardPhaseStatus agent={agent} />
-                <AgentCardLatestEvent agent={agent} isExpanded />
+                <div className="flex min-w-0 items-center gap-1 text-xs">
+                  <span className={cn("font-medium", statusColor)}>
+                    {statusLabel}
+                  </span>
+                  {agent.latestEvent?.updatedAt ? (
+                    <>
+                      <span className="text-muted-foreground/50">•</span>
+                      <span className="text-muted-foreground/70">
+                        {formatRelativeTime(agent.latestEvent.updatedAt)}
+                      </span>
+                    </>
+                  ) : null}
+                </div>
+                {agent.latestEvent?.message ? (
+                  <div className="text-xs leading-relaxed text-muted-foreground">
+                    {agent.latestEvent.message}
+                  </div>
+                ) : null}
                 <AgentCardDetails
                   agent={agent}
                   diffStats={diffStats}
@@ -138,7 +182,6 @@ export function SessionSettingsDialog({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 maxLength={MAX_NAME_LENGTH}
-                autoFocus
               />
               <span className="text-xs text-muted-foreground/60">
                 {name.length}/{MAX_NAME_LENGTH} characters

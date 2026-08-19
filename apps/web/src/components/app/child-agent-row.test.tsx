@@ -308,6 +308,24 @@ describe("ChildAgentRow", () => {
     expect(row.className).toContain("border-border/60");
   });
 
+  it("describes a paused reviewer's pending indicator differently from an active one", () => {
+    // canOpenSubmittedReview is just "no submission yet" — much broader
+    // than "actively working." A stopped reviewer never submitted, so
+    // "Review in progress" would misdescribe it.
+    renderRow(
+      { ...baseAgent, status: "stopped" },
+      { state: "stopped", isInitialReviewActive: false }
+    );
+
+    expect(
+      screen.queryByRole("img", { name: "Review in progress" })
+    ).toBeNull();
+    // Throws (failing the test) if not found — this is the assertion.
+    screen.getByRole("img", {
+      name: "Review agent — paused, no review submitted",
+    });
+  });
+
   it("does not infer review purpose from a persona", () => {
     renderRow({ ...baseAgent, role: "standard" });
 

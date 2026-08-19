@@ -12,10 +12,7 @@ import {
 } from "lucide-react";
 import type { ReactNode } from "react";
 
-import {
-  latestEventColor,
-  latestEventLabel,
-} from "@/components/app/agent-event-utils";
+import { describeAgentStatus } from "@/components/app/agent-event-utils";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
@@ -105,20 +102,19 @@ export function ChildAgentRow({
     isReviewAgent && agent.submittedReviewId != null;
   const showReviewActivity =
     isReviewAgent && agent.status === "running" && isInitialReviewActive;
-  const displayName = agent.persona ?? agent.name;
-  const statusLabel = isStopped
-    ? "Stopped"
+  // canOpenSubmittedReview is just "no submission yet" — much broader than
+  // "actively working," so a paused or errored reviewer needs its own
+  // wording rather than a blanket "Review in progress."
+  const reviewPendingLabel = isStopped
+    ? "Review agent — paused, no review submitted"
     : agent.status === "error"
-      ? "Error"
-      : agent.latestEvent
-        ? latestEventLabel(agent.latestEvent.type)
-        : "Running";
-  const statusColor =
-    agent.status === "error"
-      ? "text-status-blocked"
-      : agent.latestEvent && !isStopped
-        ? latestEventColor(agent.latestEvent.type)
-        : "text-muted-foreground";
+      ? "Review agent — no review submitted"
+      : "Review in progress";
+  const displayName = agent.persona ?? agent.name;
+  const { label: statusLabel, colorClass: statusColor } = describeAgentStatus(
+    agent,
+    isStopped
+  );
 
   const row = (
     <div
@@ -233,8 +229,9 @@ export function ChildAgentRow({
               // the way a combined click used to.
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <button
-                    type="button"
+                  <Button
+                    size="icon"
+                    variant="ghost-primary"
                     data-agent-control="true"
                     data-testid={`child-agent-open-review-badge-${agent.id}`}
                     aria-label={`Open submitted review from ${displayName}`}
@@ -242,24 +239,26 @@ export function ChildAgentRow({
                       if (closeOnSessionAction) onRequestClose?.();
                       openSubmittedReview(agent);
                     }}
-                    className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-status-working transition-colors hover:bg-status-working/10 sm:h-7 sm:w-7"
+                    className="h-11 w-11 sm:h-7 sm:w-7"
                   >
                     <ClipboardCheck
                       className="h-3.5 w-3.5"
                       aria-hidden="true"
                     />
-                  </button>
+                  </Button>
                 </TooltipTrigger>
                 <TooltipContent>Open submitted review</TooltipContent>
               </Tooltip>
             ) : (
               // Decorative only — the row's own status line already says
-              // "Working"/etc.; this just marks the agent as a reviewer,
-              // muted, with no checkmark yet.
+              // "Working"/etc.; this just marks the agent as a reviewer with
+              // no submission yet. Label follows the same stopped/error
+              // condition the status line uses, not a blanket "in progress"
+              // that would misdescribe a paused or errored reviewer.
               <span
                 role="img"
-                aria-label="Review in progress"
-                title="Review in progress"
+                aria-label={reviewPendingLabel}
+                title={reviewPendingLabel}
                 className="flex h-11 w-11 shrink-0 items-center justify-center text-muted-foreground sm:h-7 sm:w-7"
               >
                 <ClipboardList className="h-3.5 w-3.5" aria-hidden="true" />

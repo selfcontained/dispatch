@@ -199,7 +199,7 @@ export const tips: Tip[] = [
   {
     id: "review-row-open",
     title: "Open Submitted Reviews",
-    body: "A review agent's badge gets a checkmark once its review is submitted. Open the row's overflow menu and choose Open review to work through its feedback.",
+    body: "A review agent's icon turns into a green checkmark once its review is submitted. Click it to open the review and work through its feedback — it's also in the row's overflow menu.",
     docsSection: "personas",
     since: "0.29.1",
     surfaces: ["inline"],
