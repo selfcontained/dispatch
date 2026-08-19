@@ -48,10 +48,18 @@ export function EventsContent() {
           them to build the activity and active-hours heatmaps, working-time
           stats, and the status breakdown chart.
         </P>
+        <P>
+          Sub agent rows and the <strong>Session details</strong> dialog show
+          the agent's current state instead of a stale event: an agent that has
+          stopped reads <strong>Stopped</strong> (or <strong>Error</strong> if
+          it failed), whatever its last reported event was, and one that hasn't
+          reported yet reads <strong>Running</strong>. The timestamp next to it
+          is still the last event's.
+        </P>
       </Section>
 
       <Section>
-        <H3>Automatic status correction</H3>
+        <H3 id="status-correction">Automatic status correction</H3>
         <P>
           Agents don't always report accurately, so Dispatch cross-checks each
           running agent's status against its terminal activity. If the terminal
@@ -69,11 +77,15 @@ export function EventsContent() {
         <H3>Configuring agent instructions</H3>
         <P>
           Dispatch already injects startup rules at launch telling the agent
-          which event types to use and when to emit them, so reporting works
-          without any setup. To reinforce or customize the behavior, add
-          instructions to your repo's <Code>CLAUDE.md</Code> (or equivalent
-          config) covering the checkpoints that matter to you: start of turn,
-          phase transitions, and a terminal event before the final response.
+          what each event type means and when to emit them, so reporting works
+          without any setup. With <strong>Use short startup rules</strong> on
+          (Settings → Agents → Launch guidance), that rule keeps the timing and
+          the <Code>blocked</Code> distinction but leaves the list of types to
+          the <Code>dispatch_event</Code> tool description. To reinforce or
+          customize the behavior, add instructions to your repo's{" "}
+          <Code>CLAUDE.md</Code> (or equivalent config) covering the checkpoints
+          that matter to you: start of turn, phase transitions, and a terminal
+          event before the final response.
         </P>
       </Section>
     </>
