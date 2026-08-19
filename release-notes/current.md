@@ -1,11 +1,7 @@
 ## What's Changed
-* Cover the updates section's assisted-update safety routing by @selfcontained in https://github.com/selfcontained/dispatch/pull/968
-* Correct the Media & Sharing docs and cover the guidance trim by @selfcontained in https://github.com/selfcontained/dispatch/pull/969
-* Split release-admin.tsx into focused files by @selfcontained in https://github.com/selfcontained/dispatch/pull/970
-* Consolidate the three-way reviews wire-type duplication by @selfcontained in https://github.com/selfcontained/dispatch/pull/971
-* Let an agent archive its own session by @selfcontained in https://github.com/selfcontained/dispatch/pull/972
-* Cover the changes tab and stop it clobbering the saved scroll position by @selfcontained in https://github.com/selfcontained/dispatch/pull/974
-* Launch agents outside the lineage, and group children in the sidebar by @selfcontained in https://github.com/selfcontained/dispatch/pull/973
+* Document sub agent grouping and independent launches by @selfcontained in https://github.com/selfcontained/dispatch/pull/975
+* Single-source the brain wire types shared by server and web by @selfcontained in https://github.com/selfcontained/dispatch/pull/976
+* Fix sub-agent row clipping and add a connected-agent callout by @selfcontained in https://github.com/selfcontained/dispatch/pull/977
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.34.3...v0.35.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.35.0...v0.35.1
