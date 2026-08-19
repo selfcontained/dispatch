@@ -308,6 +308,14 @@ export const tips: Tip[] = [
     since: "0.35.0",
     surfaces: ["ambient"],
   },
+  {
+    id: "status-correction",
+    title: "Status Correction",
+    body: 'Agent statuses are self-reported, so Dispatch cross-checks them against terminal activity. An expanded card showing "Activity detected" or "No recent activity detected" is that correction, not something the agent reported.',
+    docsSection: "events#status-correction",
+    since: "0.21.9",
+    surfaces: ["ambient"],
+  },
 ];
 
 export function getTipById(id: string): Tip | undefined {
