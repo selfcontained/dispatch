@@ -323,6 +323,12 @@ describe("an update in flight takes over the section", () => {
     expect(
       screen.queryByRole("button", { name: "Check for updates" })
     ).toBeNull();
+    // The takeover takes its phase list from the caller, so this is the only
+    // place the standard update's phases are chosen — an assisted list here
+    // would walk the operator through steps this job never runs.
+    expect(screen.getByText("Fetching")).toBeTruthy();
+    expect(screen.getByText("Deploying")).toBeTruthy();
+    expect(screen.queryByText("Apply update")).toBeNull();
   });
 
   it("replaces the controls while an assisted update runs", () => {
