@@ -289,4 +289,89 @@ describe("migrate-legacy-media", () => {
     await expect(readFile(destination, "utf8")).resolves.toBe("raced in");
     await expect(readFile(source, "utf8")).resolves.toBe("legacy report");
   });
+
+  it("prefers a service-level MEDIA_ROOT over the .env value", async () => {
+    const fixture = await createFixture();
+    // dotenv does not override a variable already in the process environment,
+    // so a systemd Environment= line is what the service actually ran with.
+    await writeEnvFile(fixture.root, "MEDIA_ROOT=/var/lib/dispatch/media\n");
+    const unitDir = path.join(fixture.home, ".config", "systemd", "user");
+    await mkdir(unitDir, { recursive: true });
+    await writeFile(
+      path.join(unitDir, "dispatch.service"),
+      "[Service]\nEnvironment=MEDIA_ROOT=~/svc-media\nExecStart=/x\n"
+    );
+    const source = path.join(fixture.root, "~", "svc-media", "agt_1", "s.png");
+    const destination = path.join(fixture.home, "svc-media", "agt_1", "s.png");
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "service shot");
+
+    const applied = await runMigration(fixture.script, fixture.home, "--apply");
+    expect(applied.stdout).toContain("moved: agt_1/s.png");
+    await expect(readFile(destination, "utf8")).resolves.toBe("service shot");
+  });
+
+  it("refuses to classify an install as unaffected while a legacy tree exists", async () => {
+    const fixture = await createFixture();
+    await writeEnvFile(fixture.root, "MEDIA_ROOT=/var/lib/dispatch/media\n");
+    // The readable config says absolute, but files under a literal `~` prove
+    // the running service used something else. Guessing "no-op" here would
+    // silently strand them.
+    const source = path.join(fixture.root, "~", "mystery", "agt_1", "o.png");
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "orphan");
+
+    const result = await runMigration(
+      fixture.script,
+      fixture.home,
+      "--apply"
+    ).then(
+      () => null,
+      (err: { code?: number; stderr?: string }) => err
+    );
+    expect(result?.code).toBe(1);
+    expect(result?.stderr).toContain("--media-root");
+    await expect(readFile(source, "utf8")).resolves.toBe("orphan");
+  });
+
+  it("fails closed when a destination ancestor is swapped mid-migration", async () => {
+    const fixture = await createFixture();
+    const outside = await mkdtemp(path.join(os.tmpdir(), "dispatch-outside-"));
+    tempDirs.push(outside);
+    const source = path.join(fixture.sourceDir, "agt_1", "report.pdf");
+    const agentDir = path.join(fixture.destinationDir, "agt_1");
+    await mkdir(path.dirname(source), { recursive: true });
+    await mkdir(fixture.destinationDir, { recursive: true });
+    await writeFile(source, "legacy report");
+
+    // Swap the agent directory for a symlink *after* the ancestor preflight,
+    // in the window a path-based check cannot cover. Placement holds a kernel
+    // directory reference and verifies where it landed, so this must not write
+    // through the symlink.
+    const shimDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-shim-"));
+    tempDirs.push(shimDir);
+    const shim = path.join(shimDir, "mkdir");
+    await writeFile(
+      shim,
+      [
+        "#!/bin/bash",
+        '/bin/mkdir "$@"',
+        `if [[ -d ${JSON.stringify(agentDir)} && ! -L ${JSON.stringify(agentDir)} ]]; then`,
+        `  /bin/rmdir ${JSON.stringify(agentDir)} 2>/dev/null && /bin/ln -s ${JSON.stringify(outside)} ${JSON.stringify(agentDir)}`,
+        "fi",
+        "",
+      ].join("\n")
+    );
+    await chmod(shim, 0o755);
+
+    await expect(
+      runMigration(fixture.script, fixture.home, "--apply", {
+        env: { PATH: `${shimDir}:${process.env.PATH ?? ""}` },
+      })
+    ).rejects.toMatchObject({ code: 2 });
+    await expect(readFile(source, "utf8")).resolves.toBe("legacy report");
+    await expect(
+      readFile(path.join(outside, "report.pdf"), "utf8")
+    ).rejects.toMatchObject({ code: "ENOENT" });
+  });
 });

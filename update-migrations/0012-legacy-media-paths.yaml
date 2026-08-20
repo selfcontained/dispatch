@@ -15,17 +15,31 @@ alreadySatisfied:
     which case it never wrote to a literal-tilde path and nothing needs to
     happen — or the legacy directory derived from that MEDIA_ROOT is absent or
     empty, no active agent has a stored media_dir beginning with `~`, and the
-    current service is healthy on the target tag. Determine MEDIA_ROOT from
-    <Dispatch install>/.env (the file the service loads); `bin/migrate-legacy-media
-    --dry-run` reports which root it resolved and from where.
+    current service is healthy on the target tag. Do not read MEDIA_ROOT from
+    <Dispatch install>/.env alone: the runtime loads that file through dotenv,
+    which does not override a value already set in the service process
+    environment (systemd Environment=, launchd EnvironmentVariables, docker
+    -e). Run `bin/migrate-legacy-media --dry-run`, which checks the service
+    definition before .env and reports which root it resolved and from where.
 
 instructions:
   - >
-    First determine the install's effective MEDIA_ROOT by reading MEDIA_ROOT
-    from <Dispatch install>/.env. If it is absent or does not begin with `~`,
-    this migration is an explicit no-op: report that the install was never
+    First determine the install's effective MEDIA_ROOT. Run
+    `bin/migrate-legacy-media --dry-run`: it resolves the root from the service
+    definition (systemd Environment= / launchd EnvironmentVariables) before
+    falling back to <Dispatch install>/.env, and reports which source it used.
+    Do not classify from .env alone — dotenv does not override a value already
+    present in the service process environment, so .env can disagree with what
+    the service actually ran with. If the resolved root does not begin with
+    `~`, this migration is an explicit no-op: report that the install was never
     affected, do NOT stop any agents, and continue with the rest of the update
     plan. Only tilde-configured installs need the steps below.
+  - >
+    If the command exits 1 asking for --media-root, it found a literal-tilde
+    tree that the configuration it could read does not explain — the service
+    ran with an override this script cannot see. Determine the value that
+    service actually used (its unit, plist, or container definition) and rerun
+    with --media-root set to it. Do not treat this as a no-op.
   - >
     During inspect on a tilde-configured install, check whether the legacy
     directory <Dispatch install>/<literal MEDIA_ROOT value> exists and list

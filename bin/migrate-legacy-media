@@ -78,6 +78,44 @@ media_root_from_env_file() {
   printf '%s' "$value"
 }
 
+# A service-level MEDIA_ROOT (systemd Environment=, launchd
+# EnvironmentVariables, docker -e) beats the .env file: the runtime loads .env
+# through dotenv, which does not override a variable already present in the
+# process environment. The operator usually runs this script from a plain
+# shell that never saw that value, so .env alone cannot be trusted to describe
+# the effective configuration.
+media_root_from_service_definition() {
+  local unit="$HOME/.config/systemd/user/dispatch.service"
+  local plist="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
+  local line value
+
+  if [[ -r "$unit" ]]; then
+    line="$(grep -E '^[[:space:]]*Environment=.*MEDIA_ROOT=' "$unit" | tail -1)" || line=""
+    if [[ -n "$line" ]]; then
+      value="${line#*MEDIA_ROOT=}"
+      value="${value%%[[:space:]]*}"
+      value="${value%\"}"
+      value="${value#\"}"
+      printf '%s' "$value"
+      return 0
+    fi
+  fi
+
+  if [[ -r "$plist" ]]; then
+    # <key>MEDIA_ROOT</key><string>VALUE</string>, with or without newlines.
+    value="$(tr '\n' ' ' <"$plist" \
+      | grep -o '<key>MEDIA_ROOT</key>[[:space:]]*<string>[^<]*</string>' \
+      | tail -1 \
+      | sed -e 's|.*<string>||' -e 's|</string>||')" || value=""
+    if [[ -n "$value" ]]; then
+      printf '%s' "$value"
+      return 0
+    fi
+  fi
+
+  return 0
+}
+
 CONFIGURED_MEDIA_ROOT=""
 CONFIGURED_SOURCE="default"
 if [[ -n "$MEDIA_ROOT_OVERRIDE" ]]; then
@@ -87,11 +125,35 @@ elif [[ -n "${MEDIA_ROOT:-}" ]]; then
   CONFIGURED_MEDIA_ROOT="$MEDIA_ROOT"
   CONFIGURED_SOURCE="MEDIA_ROOT environment variable"
 else
-  CONFIGURED_MEDIA_ROOT="$(media_root_from_env_file)"
-  [[ -n "$CONFIGURED_MEDIA_ROOT" ]] && CONFIGURED_SOURCE="$ROOT_DIR/.env"
+  CONFIGURED_MEDIA_ROOT="$(media_root_from_service_definition)"
+  if [[ -n "$CONFIGURED_MEDIA_ROOT" ]]; then
+    CONFIGURED_SOURCE="the service definition"
+  else
+    CONFIGURED_MEDIA_ROOT="$(media_root_from_env_file)"
+    [[ -n "$CONFIGURED_MEDIA_ROOT" ]] && CONFIGURED_SOURCE="$ROOT_DIR/.env"
+  fi
 fi
 
+# Physical evidence overrides configuration guesses. If a literal-tilde tree
+# exists under the install directory, this install *did* write through the
+# broken path at some point, whatever the config we managed to read now says.
+# Refuse to classify it as unaffected rather than silently skipping real files.
+legacy_tree_present() {
+  local candidate
+  for candidate in "$ROOT_DIR"/~/*; do
+    [[ -e "$candidate" ]] && return 0
+  done
+  return 1
+}
+
 if [[ -n "$CONFIGURED_MEDIA_ROOT" && "$CONFIGURED_MEDIA_ROOT" != "~" && "$CONFIGURED_MEDIA_ROOT" != "~/"* ]]; then
+  if legacy_tree_present; then
+    echo "error: MEDIA_ROOT reads as $CONFIGURED_MEDIA_ROOT (from $CONFIGURED_SOURCE)," >&2
+    echo "but a literal-tilde tree exists at $ROOT_DIR/~ — the effective media root" >&2
+    echo "used by the running service must have differed. Re-run with --media-root" >&2
+    echo "set to the value that service actually used." >&2
+    exit 1
+  fi
   echo "MEDIA_ROOT is $CONFIGURED_MEDIA_ROOT (from $CONFIGURED_SOURCE), which has no leading tilde."
   echo "This install never wrote media to a literal-tilde path; nothing to migrate."
   exit 0
@@ -118,6 +180,15 @@ fi
 # non-default MEDIA_ROOT is checked as thoroughly as the default one.
 DESTINATION_RELATIVE="${DESTINATION_DIR#"$HOME"}"
 DESTINATION_RELATIVE="${DESTINATION_RELATIVE#/}"
+
+# Physical root of the media tree, resolved once. Only $HOME is resolved
+# through symlinks — it can legitimately be one (/home -> /var/home). The
+# components below it are deliberately NOT resolved: destination_ancestors_are_safe
+# rejects a symlink among them, so resolving here would launder exactly the
+# case that check exists to catch.
+HOME_PHYSICAL="$(cd -P "$HOME" && pwd -P)"
+DESTINATION_PHYSICAL="$HOME_PHYSICAL"
+[[ -n "$DESTINATION_RELATIVE" ]] && DESTINATION_PHYSICAL="$HOME_PHYSICAL/$DESTINATION_RELATIVE"
 
 destination_ancestors_are_safe() {
   local relative_path="$1"
@@ -177,48 +248,79 @@ if [[ ! -d "$SOURCE_DIR" ]]; then
   exit 1
 fi
 
-# Place $1 at $2 without ever replacing an existing destination entry.
+# Place $1 (absolute source path) inside destination directory $2 under the
+# single-component name $3, without ever replacing an existing entry and
+# without ever writing outside the media tree.
 #
-# `mv` is unsafe here: the earlier `[[ -f ]]`/`[[ -L ]]` tests are only a
-# preflight, and the Dispatch server keeps writing media (browser-extension
-# screenshots, whiteboard snapshots) while this runs, so a destination file
-# can appear in the window between the test and the move — and `mv` would
-# silently overwrite it. link(2) is atomic and fails with EEXIST instead,
-# including when the destination is a symlink, which it never follows.
+# Two hazards, both handled here rather than by a preflight test:
+#
+#  * `mv` silently overwrites. The Dispatch server keeps writing media
+#    (browser-extension screenshots, whiteboard snapshots) while this runs, so
+#    a destination file can appear between any check and the move. link(2) is
+#    atomic and fails with EEXIST instead, and never follows a symlink at the
+#    destination.
+#
+#  * A path re-resolves on every syscall, so checking the ancestors and then
+#    writing through the same path string is not sound — a component can be
+#    swapped for a symlink in between. Instead `cd -P` into the destination
+#    directory once and link under a single-component name: the shell's cwd is
+#    a kernel-held directory reference, so a later swap of the parent path
+#    cannot redirect the write. The containment check runs after the cd, on
+#    the physical path we actually landed in, so a swap that already happened
+#    fails closed here.
 #
 # Exit status: 0 placed, 1 destination appeared (treat as a conflict),
-# 2 the copy itself failed.
+# 2 the copy itself failed, 3 the destination escaped the media tree.
 place_file() {
   local src="$1"
-  local dst="$2"
-  local tmp
+  local dst_dir="$2"
+  local base="$3"
+  local status
 
-  if ln "$src" "$dst" 2>/dev/null; then
-    rm -f "$src"
-    return 0
-  fi
+  (
+    cd -P "$dst_dir" 2>/dev/null || exit 3
 
-  # Either the destination raced into existence, or source and destination
-  # live on different filesystems (hard links cannot span them, which happens
-  # when the install tree and $HOME are separate mounts).
-  if [[ -e "$dst" || -L "$dst" ]]; then
-    return 1
-  fi
+    landed="$(pwd -P)"
+    case "$landed" in
+      "$DESTINATION_PHYSICAL"|"$DESTINATION_PHYSICAL"/*) ;;
+      *) exit 3 ;;
+    esac
 
-  # Cross-device: stage a private copy inside the destination directory, then
-  # claim the final name with the same atomic no-clobber link.
-  tmp="$(mktemp "$(dirname "$dst")/.migrate-legacy-media.XXXXXX")" || return 2
-  if ! cp -p "$src" "$tmp"; then
+    if ln "$src" "$base" 2>/dev/null; then
+      exit 0
+    fi
+
+    # Either the destination raced into existence, or source and destination
+    # live on different filesystems (hard links cannot span them, which
+    # happens when the install tree and $HOME are separate mounts).
+    if [[ -e "$base" || -L "$base" ]]; then
+      exit 1
+    fi
+
+    # Cross-device: stage a private copy inside the destination directory,
+    # then claim the final name with the same atomic no-clobber link. The
+    # staging file is created relative to the held cwd too.
+    tmp="$(mktemp ./.migrate-legacy-media.XXXXXX)" || exit 2
+    if ! cp -p "$src" "$tmp"; then
+      rm -f "$tmp"
+      exit 2
+    fi
+    if ln "$tmp" "$base" 2>/dev/null; then
+      rm -f "$tmp"
+      exit 0
+    fi
     rm -f "$tmp"
-    return 2
+    exit 1
+  )
+  status=$?
+
+  # The source is only dropped once the destination is definitely in place.
+  if [[ "$status" -eq 0 ]]; then
+    rm -f "$src"
   fi
-  if ln "$tmp" "$dst" 2>/dev/null; then
-    rm -f "$tmp" "$src"
-    return 0
-  fi
-  rm -f "$tmp"
-  return 1
+  return "$status"
 }
+
 
 moved=0
 duplicates=0
@@ -289,7 +391,8 @@ while IFS= read -r -d '' source_file; do
 
   mkdir -p "$(dirname "$destination_file")"
   place_status=0
-  place_file "$source_file" "$destination_file" || place_status=$?
+  place_file "$source_file" "$(dirname "$destination_file")" \
+    "$(basename "$destination_file")" || place_status=$?
   case "$place_status" in
     0)
       moved=$((moved + 1))
@@ -298,6 +401,10 @@ while IFS= read -r -d '' source_file; do
     1)
       conflicts=$((conflicts + 1))
       echo "conflict (destination appeared during migration, left untouched): $relative_path" >&2
+      ;;
+    3)
+      conflicts=$((conflicts + 1))
+      echo "conflict (destination escaped the media tree, left untouched): $relative_path" >&2
       ;;
     *)
       conflicts=$((conflicts + 1))
