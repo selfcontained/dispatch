@@ -84,37 +84,117 @@ media_root_from_env_file() {
 # process environment. The operator usually runs this script from a plain
 # shell that never saw that value, so .env alone cannot be trusted to describe
 # the effective configuration.
-media_root_from_service_definition() {
+# Extract MEDIA_ROOT from a NUL- or newline-separated environment dump on
+# stdin. Prints nothing when absent; `grep` finding no match is a normal
+# outcome here, not a failure, so it must not trip errexit/pipefail.
+media_root_from_environ_dump() {
+  local line
+  line="$(tr '\0' '\n' | grep -E '^MEDIA_ROOT=' | tail -1)" || line=""
+  [[ -n "$line" ]] || return 0
+  line="${line#MEDIA_ROOT=}"
+  line="${line%$'\r'}"
+  if [[ "$line" == \"*\" || "$line" == \'*\' ]]; then
+    line="${line:1:${#line}-2}"
+  fi
+  printf '%s' "$line"
+}
+
+# Resolve MEDIA_ROOT from systemd's *effective* service environment into the
+# globals SERVICE_MEDIA_ROOT / SERVICE_LOOKUP_STATUS. Assigned rather than
+# printed: a command substitution would run this in a subshell and the status
+# would never reach the caller.
+#
+# Parsing the unit file by hand is not enough — systemd merges
+# dispatch.service.d/*.conf drop-ins and reads EnvironmentFile= at exec time,
+# so a tilde root can live in a source a naive parser never opens. Ask systemd
+# instead of reimplementing its merge.
+#
+# SERVICE_LOOKUP_STATUS is one of:
+#   found       — positively established (value in SERVICE_MEDIA_ROOT)
+#   absent      — systemd answered and there is definitively no MEDIA_ROOT
+#   unknown     — systemd is present but could not be interrogated
+#   no-systemd  — no systemd Dispatch service on this host
+SERVICE_MEDIA_ROOT=""
+SERVICE_LOOKUP_STATUS="no-systemd"
+
+media_root_from_systemd() {
   local unit="$HOME/.config/systemd/user/dispatch.service"
-  local plist="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
-  local line value
+  local main_pid environment env_files env_file value
 
-  if [[ -r "$unit" ]]; then
-    line="$(grep -E '^[[:space:]]*Environment=.*MEDIA_ROOT=' "$unit" | tail -1)" || line=""
-    if [[ -n "$line" ]]; then
-      value="${line#*MEDIA_ROOT=}"
-      value="${value%%[[:space:]]*}"
-      value="${value%\"}"
-      value="${value#\"}"
-      printf '%s' "$value"
-      return 0
-    fi
+  SERVICE_MEDIA_ROOT=""
+  if [[ ! -e "$unit" ]]; then
+    SERVICE_LOOKUP_STATUS="no-systemd"
+    return 0
+  fi
+  if ! command -v systemctl >/dev/null 2>&1; then
+    SERVICE_LOOKUP_STATUS="unknown"
+    return 0
   fi
 
-  if [[ -r "$plist" ]]; then
-    # <key>MEDIA_ROOT</key><string>VALUE</string>, with or without newlines.
-    value="$(tr '\n' ' ' <"$plist" \
-      | grep -o '<key>MEDIA_ROOT</key>[[:space:]]*<string>[^<]*</string>' \
-      | tail -1 \
-      | sed -e 's|.*<string>||' -e 's|</string>||')" || value=""
+  # Best source: the live process environment. It is ground truth, whatever
+  # combination of unit, drop-in, EnvironmentFile or manager environment
+  # produced it.
+  main_pid="$(systemctl --user show dispatch.service --property=MainPID --value 2>/dev/null)" || main_pid=""
+  if [[ -n "$main_pid" && "$main_pid" != "0" && -r "/proc/$main_pid/environ" ]]; then
+    value="$(media_root_from_environ_dump <"/proc/$main_pid/environ")" || value=""
     if [[ -n "$value" ]]; then
-      printf '%s' "$value"
-      return 0
+      SERVICE_MEDIA_ROOT="$value"
+      SERVICE_LOOKUP_STATUS="found"
+    else
+      SERVICE_LOOKUP_STATUS="absent"
     fi
+    return 0
   fi
 
+  # Service not running (or no procfs): ask systemd for the merged directives.
+  # `show` already folds in drop-ins; EnvironmentFile= is reported separately.
+  if ! environment="$(systemctl --user show dispatch.service --property=Environment --value 2>/dev/null)"; then
+    SERVICE_LOOKUP_STATUS="unknown"
+    return 0
+  fi
+  value="$(printf '%s\n' "$environment" | tr ' ' '\n' | media_root_from_environ_dump)" || value=""
+  if [[ -n "$value" ]]; then
+    SERVICE_MEDIA_ROOT="$value"
+    SERVICE_LOOKUP_STATUS="found"
+    return 0
+  fi
+
+  env_files="$(systemctl --user show dispatch.service --property=EnvironmentFiles --value 2>/dev/null)" || env_files=""
+  if [[ -n "$env_files" ]]; then
+    # Reported as "/path/to/file (ignore_errors=no)", one per line.
+    while IFS= read -r env_file; do
+      env_file="${env_file%% (*}"
+      if [[ -n "$env_file" && -r "$env_file" ]]; then
+        value="$(media_root_from_environ_dump <"$env_file")" || value=""
+        if [[ -n "$value" ]]; then
+          SERVICE_MEDIA_ROOT="$value"
+          SERVICE_LOOKUP_STATUS="found"
+          return 0
+        fi
+      fi
+    done <<EOF
+$env_files
+EOF
+  fi
+
+  SERVICE_LOOKUP_STATUS="absent"
   return 0
 }
+
+# launchd has no drop-in mechanism: the plist's EnvironmentVariables dict is
+# the whole service-level environment.
+media_root_from_launchd() {
+  local plist="$HOME/Library/LaunchAgents/com.dispatch.server.plist"
+  local value
+
+  [[ -r "$plist" ]] || return 0
+  value="$(tr '\n' ' ' <"$plist" \
+    | grep -o '<key>MEDIA_ROOT</key>[[:space:]]*<string>[^<]*</string>' \
+    | tail -1 \
+    | sed -e 's|.*<string>||' -e 's|</string>||')" || value=""
+  printf '%s' "$value"
+}
+
 
 CONFIGURED_MEDIA_ROOT=""
 CONFIGURED_SOURCE="default"
@@ -125,12 +205,27 @@ elif [[ -n "${MEDIA_ROOT:-}" ]]; then
   CONFIGURED_MEDIA_ROOT="$MEDIA_ROOT"
   CONFIGURED_SOURCE="MEDIA_ROOT environment variable"
 else
-  CONFIGURED_MEDIA_ROOT="$(media_root_from_service_definition)"
-  if [[ -n "$CONFIGURED_MEDIA_ROOT" ]]; then
-    CONFIGURED_SOURCE="the service definition"
+  media_root_from_systemd
+  if [[ "$SERVICE_LOOKUP_STATUS" == "found" ]]; then
+    CONFIGURED_MEDIA_ROOT="$SERVICE_MEDIA_ROOT"
+    CONFIGURED_SOURCE="the systemd service environment"
   else
-    CONFIGURED_MEDIA_ROOT="$(media_root_from_env_file)"
-    [[ -n "$CONFIGURED_MEDIA_ROOT" ]] && CONFIGURED_SOURCE="$ROOT_DIR/.env"
+    CONFIGURED_MEDIA_ROOT="$(media_root_from_launchd)"
+    if [[ -n "$CONFIGURED_MEDIA_ROOT" ]]; then
+      CONFIGURED_SOURCE="the launchd service definition"
+    elif [[ "$SERVICE_LOOKUP_STATUS" == "unknown" ]]; then
+      # systemd is here but would not answer. Its environment can carry a
+      # tilde root from a drop-in or EnvironmentFile that .env does not show,
+      # and a "not affected" verdict from .env alone would skip a real
+      # migration — with no legacy tree on disk yet to catch the mistake.
+      echo "error: a systemd Dispatch service exists but its effective environment" >&2
+      echo "could not be read, so MEDIA_ROOT cannot be established. Determine the" >&2
+      echo "value that service runs with and rerun with --media-root set to it." >&2
+      exit 1
+    else
+      CONFIGURED_MEDIA_ROOT="$(media_root_from_env_file)"
+      [[ -n "$CONFIGURED_MEDIA_ROOT" ]] && CONFIGURED_SOURCE="$ROOT_DIR/.env"
+    fi
   fi
 fi
 

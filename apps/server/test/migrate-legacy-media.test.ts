@@ -65,6 +65,38 @@ async function runMigration(
   });
 }
 
+/**
+ * Stub `systemctl` on PATH so the effective-environment lookup can be driven
+ * without a real systemd. Mirrors the properties the script queries.
+ */
+async function stubSystemd(
+  home: string,
+  properties: { environment?: string; environmentFiles?: string }
+) {
+  const unitDir = path.join(home, ".config", "systemd", "user");
+  await mkdir(unitDir, { recursive: true });
+  await writeFile(
+    path.join(unitDir, "dispatch.service"),
+    "[Service]\nExecStart=/x\n"
+  );
+  const shimDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-systemctl-"));
+  tempDirs.push(shimDir);
+  await writeFile(
+    path.join(shimDir, "systemctl"),
+    [
+      "#!/bin/bash",
+      'case "$*" in',
+      "  *MainPID*) echo 0 ;;",
+      `  *EnvironmentFiles*) echo ${JSON.stringify(properties.environmentFiles ?? "")} ;;`,
+      `  *Environment*) echo ${JSON.stringify(properties.environment ?? "")} ;;`,
+      "esac",
+      "",
+    ].join("\n")
+  );
+  await chmod(path.join(shimDir, "systemctl"), 0o755);
+  return shimDir;
+}
+
 /** Write MEDIA_ROOT into the install .env the way the service reads it. */
 async function writeEnvFile(root: string, contents: string) {
   await writeFile(path.join(root, ".env"), contents);
@@ -290,27 +322,6 @@ describe("migrate-legacy-media", () => {
     await expect(readFile(source, "utf8")).resolves.toBe("legacy report");
   });
 
-  it("prefers a service-level MEDIA_ROOT over the .env value", async () => {
-    const fixture = await createFixture();
-    // dotenv does not override a variable already in the process environment,
-    // so a systemd Environment= line is what the service actually ran with.
-    await writeEnvFile(fixture.root, "MEDIA_ROOT=/var/lib/dispatch/media\n");
-    const unitDir = path.join(fixture.home, ".config", "systemd", "user");
-    await mkdir(unitDir, { recursive: true });
-    await writeFile(
-      path.join(unitDir, "dispatch.service"),
-      "[Service]\nEnvironment=MEDIA_ROOT=~/svc-media\nExecStart=/x\n"
-    );
-    const source = path.join(fixture.root, "~", "svc-media", "agt_1", "s.png");
-    const destination = path.join(fixture.home, "svc-media", "agt_1", "s.png");
-    await mkdir(path.dirname(source), { recursive: true });
-    await writeFile(source, "service shot");
-
-    const applied = await runMigration(fixture.script, fixture.home, "--apply");
-    expect(applied.stdout).toContain("moved: agt_1/s.png");
-    await expect(readFile(destination, "utf8")).resolves.toBe("service shot");
-  });
-
   it("refuses to classify an install as unaffected while a legacy tree exists", async () => {
     const fixture = await createFixture();
     await writeEnvFile(fixture.root, "MEDIA_ROOT=/var/lib/dispatch/media\n");
@@ -373,5 +384,103 @@ describe("migrate-legacy-media", () => {
     await expect(
       readFile(path.join(outside, "report.pdf"), "utf8")
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("reads MEDIA_ROOT from a systemd drop-in via the merged environment", async () => {
+    const fixture = await createFixture();
+    await writeEnvFile(fixture.root, "MEDIA_ROOT=/var/lib/dispatch/media\n");
+    // systemctl already folds dispatch.service.d/*.conf into Environment=,
+    // which is exactly why the script asks systemd instead of parsing the unit.
+    const shimDir = await stubSystemd(fixture.home, {
+      environment: "FOO=1 MEDIA_ROOT=~/dropin-media",
+    });
+    const source = path.join(
+      fixture.root,
+      "~",
+      "dropin-media",
+      "agt_1",
+      "d.png"
+    );
+    const destination = path.join(
+      fixture.home,
+      "dropin-media",
+      "agt_1",
+      "d.png"
+    );
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "dropin shot");
+
+    const applied = await runMigration(
+      fixture.script,
+      fixture.home,
+      "--apply",
+      {
+        env: { PATH: `${shimDir}:${process.env.PATH ?? ""}` },
+      }
+    );
+    expect(applied.stdout).toContain("moved: agt_1/d.png");
+    await expect(readFile(destination, "utf8")).resolves.toBe("dropin shot");
+  });
+
+  it("reads MEDIA_ROOT from a systemd EnvironmentFile", async () => {
+    const fixture = await createFixture();
+    await writeEnvFile(fixture.root, "MEDIA_ROOT=/var/lib/dispatch/media\n");
+    const serviceEnv = path.join(fixture.home, "svc.env");
+    await writeFile(serviceEnv, "MEDIA_ROOT=~/envfile-media\n");
+    const shimDir = await stubSystemd(fixture.home, {
+      environmentFiles: `${serviceEnv} (ignore_errors=no)`,
+    });
+    const source = path.join(
+      fixture.root,
+      "~",
+      "envfile-media",
+      "agt_1",
+      "e.png"
+    );
+    const destination = path.join(
+      fixture.home,
+      "envfile-media",
+      "agt_1",
+      "e.png"
+    );
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "envfile shot");
+
+    const applied = await runMigration(
+      fixture.script,
+      fixture.home,
+      "--apply",
+      {
+        env: { PATH: `${shimDir}:${process.env.PATH ?? ""}` },
+      }
+    );
+    expect(applied.stdout).toContain("moved: agt_1/e.png");
+    await expect(readFile(destination, "utf8")).resolves.toBe("envfile shot");
+  });
+
+  it("fails closed when a systemd service cannot be interrogated", async () => {
+    const fixture = await createFixture();
+    await writeEnvFile(fixture.root, "MEDIA_ROOT=/var/lib/dispatch/media\n");
+    const unitDir = path.join(fixture.home, ".config", "systemd", "user");
+    await mkdir(unitDir, { recursive: true });
+    await writeFile(path.join(unitDir, "dispatch.service"), "[Service]\n");
+    const shimDir = await mkdtemp(
+      path.join(os.tmpdir(), "dispatch-systemctl-")
+    );
+    tempDirs.push(shimDir);
+    await writeFile(path.join(shimDir, "systemctl"), "#!/bin/bash\nexit 1\n");
+    await chmod(path.join(shimDir, "systemctl"), 0o755);
+
+    // No legacy tree exists yet, so physical evidence cannot catch a wrong
+    // verdict here — a drop-in or EnvironmentFile tilde root would be missed
+    // and a running agent would recreate the tree after the "no-op".
+    const result = await runMigration(fixture.script, fixture.home, "--apply", {
+      env: { PATH: `${shimDir}:${process.env.PATH ?? ""}` },
+    }).then(
+      () => null,
+      (err: { code?: number; stderr?: string }) => err
+    );
+    expect(result?.code).toBe(1);
+    expect(result?.stderr).toContain("--media-root");
   });
 });

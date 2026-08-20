@@ -18,16 +18,20 @@ alreadySatisfied:
     current service is healthy on the target tag. Do not read MEDIA_ROOT from
     <Dispatch install>/.env alone: the runtime loads that file through dotenv,
     which does not override a value already set in the service process
-    environment (systemd Environment=, launchd EnvironmentVariables, docker
-    -e). Run `bin/migrate-legacy-media --dry-run`, which checks the service
-    definition before .env and reports which root it resolved and from where.
+    environment (systemd Environment= including drop-ins and EnvironmentFile=,
+    launchd EnvironmentVariables, docker -e). Run `bin/migrate-legacy-media
+    --dry-run`, which asks systemd for the effective environment before falling
+    back to .env and reports which root it resolved and from where.
 
 instructions:
   - >
     First determine the install's effective MEDIA_ROOT. Run
-    `bin/migrate-legacy-media --dry-run`: it resolves the root from the service
-    definition (systemd Environment= / launchd EnvironmentVariables) before
-    falling back to <Dispatch install>/.env, and reports which source it used.
+    `bin/migrate-legacy-media --dry-run`: it resolves the root from the
+    service's effective environment — asking systemd, so drop-ins and
+    EnvironmentFile= are covered, or reading the launchd plist — before falling
+    back to <Dispatch install>/.env, and reports which source it used. If a
+    systemd service exists but cannot be interrogated it exits 1 rather than
+    guessing.
     Do not classify from .env alone — dotenv does not override a value already
     present in the service process environment, so .env can disagree with what
     the service actually ran with. If the resolved root does not begin with
@@ -35,9 +39,10 @@ instructions:
     affected, do NOT stop any agents, and continue with the rest of the update
     plan. Only tilde-configured installs need the steps below.
   - >
-    If the command exits 1 asking for --media-root, it found a literal-tilde
-    tree that the configuration it could read does not explain — the service
-    ran with an override this script cannot see. Determine the value that
+    If the command exits 1 asking for --media-root, it could not establish the
+    effective media root: either a systemd service it cannot interrogate, or a
+    literal-tilde tree the readable configuration does not explain — the
+    service ran with an override this script cannot see. Determine the value that
     service actually used (its unit, plist, or container definition) and rerun
     with --media-root set to it. Do not treat this as a no-op.
   - >
