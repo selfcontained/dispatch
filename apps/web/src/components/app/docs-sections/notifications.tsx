@@ -6,8 +6,8 @@ export function NotificationsContent() {
       <P>
         Dispatch can notify you when agents finish, need input, or get stuck —
         so you don't have to watch the dashboard. Notifications are delivered
-        through three independent channels: native browser notifications, Slack,
-        and local sound cues. All three are configured in{" "}
+        through three channels: native browser notifications, Slack, and local
+        sound cues. All three are configured in{" "}
         <strong>Settings → Notifications</strong>.
       </P>
 
@@ -25,7 +25,8 @@ export function NotificationsContent() {
             <Code>waiting_user</Code> — agent needs your input
           </li>
           <li>
-            <Code>blocked</Code> — agent hit an error it can't resolve
+            <Code>blocked</Code> — agent is stuck with no further approach to
+            try
           </li>
         </ul>
       </Section>
@@ -60,10 +61,14 @@ export function NotificationsContent() {
           >
             Slack incoming webhook
           </a>{" "}
-          URL and use <strong>Send Slack test</strong> to verify it. Configured
-          events fire to Slack whenever a browser notification isn't delivered
-          (no tab open, permission denied, or the event isn't in your
-          browser-notification list).
+          URL and use <strong>Send Slack test</strong> to verify it, then click{" "}
+          <strong>Save</strong> — the webhook and the Slack event list are only
+          persisted when you save, unlike the browser toggles above, which save
+          as soon as you flip them. Configured events fire to Slack whenever a
+          browser notification isn't delivered (no tab open, permission denied,
+          or the event isn't in your browser-notification list). Agents launched
+          by a job are the exception: their status events go to browser
+          notifications only, never to Slack.
         </P>
       </Section>
 
@@ -93,7 +98,7 @@ export function NotificationsContent() {
       </Section>
 
       <Section>
-        <H3>Focus-aware suppression</H3>
+        <H3 id="focus-suppression">Focus-aware suppression</H3>
         <P>
           Dispatch suppresses browser and Slack notifications for an agent
           you're already looking at. Tabs that have an agent selected send a

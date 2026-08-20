@@ -309,6 +309,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "focus-suppression",
+    title: "Quiet While You Watch",
+    body: "Dispatch skips browser and Slack notifications for the agent you currently have selected in a visible, focused tab. Switch away, hide the tab, or blur the window and alerts for it resume right away.",
+    docsSection: "notifications#focus-suppression",
+    since: "0.11.12",
+    surfaces: ["ambient"],
+  },
+  {
     id: "status-correction",
     title: "Status Correction",
     body: 'Agent statuses are self-reported, so Dispatch cross-checks them against terminal activity. An expanded card showing "Activity detected" or "No recent activity detected" is that correction, not something the agent reported.',

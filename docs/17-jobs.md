@@ -140,7 +140,7 @@ Report size limits: 1 MB total, 100 tasks, 500 logs per task, 10 KB summary and 
 
 **None of it fires today.** The channel lists come from `job.notify`, and no code path writes that column: it is absent from `createJob`'s insert, from `JobConfigUpdate`, from the routes' Zod schemas, and from the MCP `create_job`/`update_job` tools. `buildRunConfig` falls back to three empty arrays, so `getNotifyChannels` always returns none and the notifier returns before sending. Treat this as a data model waiting on a write path, not a shipped feature.
 
-What does notify is the ordinary per-agent path in [docs/16-notifications.md](16-notifications.md): job agents are not excluded from it, so their `done`, `waiting_user`, and `blocked` events reach Slack and web notifications like any other agent's. Agents can also call `dispatch_notify` directly, which is in `JOB_TOOLS`.
+What does notify is the ordinary per-agent path, and only half of it: a job agent's `done`, `waiting_user`, and `blocked` events raise browser notifications like any other agent's, but `createNotificationRuntime` skips the Slack send for any agent whose name starts with `job-` and has a job run. So a job run's status events never reach Slack through that path either. Agents can call `dispatch_notify` directly, which is in `JOB_TOOLS`, and that path has no job exclusion.
 
 ### API
 

@@ -358,7 +358,7 @@ All fields are optional — the request updates only the fields it contains.
 }
 ```
 
-`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`done`, `waiting_user`, `blocked`). When a notable agent event fires, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there).
+`notifyEvents` and `webNotifyEvents` are arrays of event-type strings (`done`, `waiting_user`, `blocked`). When a notable agent event fires, Dispatch first attempts an in-app notification via the SSE event stream; if no browser client acks within ~3s it falls back to the Slack webhook (provided the event is enabled there). Agents belonging to a job run are excluded from that Slack fallback — their status events reach browser notifications only.
 
 ### `POST /notifications/ack`
 
