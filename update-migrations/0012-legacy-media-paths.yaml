@@ -3,35 +3,51 @@ title: Migrate shared media from the legacy literal-tilde directory
 summary: >
   Earlier Dispatch versions accepted MEDIA_ROOT values such as
   ~/.dispatch/media without expanding the tilde. Those installs stored shared
-  media beneath a literal ~ directory inside the Dispatch install. This
-  migration moves that legacy tree into the correct home-relative media
-  directory so historical dispatch_list_media entries remain readable after
-  the path-resolution fix.
+  media beneath a literal `~` directory inside the Dispatch install. This
+  migration moves that legacy tree to the location the fixed runtime reads, so
+  historical dispatch_list_media entries remain readable after the
+  path-resolution fix. Installs whose MEDIA_ROOT is an absolute path were
+  never affected and this migration is a no-op for them.
 
 alreadySatisfied:
   description: >
-    The legacy directory <Dispatch install>/~/.dispatch/media does not exist,
-    or it is empty after migration; no active agent has a stored media_dir
-    beginning with ~/ or a session launched before this release; and the
-    current service is healthy on the target tag. An empty or absent legacy
-    directory alone is insufficient because an already-running agent can
-    recreate it using its retained literal-tilde environment.
+    Either the install's effective MEDIA_ROOT does not begin with `~` — in
+    which case it never wrote to a literal-tilde path and nothing needs to
+    happen — or the legacy directory derived from that MEDIA_ROOT is absent or
+    empty, no active agent has a stored media_dir beginning with `~`, and the
+    current service is healthy on the target tag. Determine MEDIA_ROOT from
+    <Dispatch install>/.env (the file the service loads); `bin/migrate-legacy-media
+    --dry-run` reports which root it resolved and from where.
 
 instructions:
-  - During inspect, independently check whether
-    <Dispatch install>/~/.dispatch/media exists and identify every active agent
-    whose stored media_dir begins with ~/ or whose session was launched before
-    this release. Record affected agents even when the legacy directory is
-    absent, because their retained environment can create it later.
+  - >
+    First determine the install's effective MEDIA_ROOT by reading MEDIA_ROOT
+    from <Dispatch install>/.env. If it is absent or does not begin with `~`,
+    this migration is an explicit no-op: report that the install was never
+    affected, do NOT stop any agents, and continue with the rest of the update
+    plan. Only tilde-configured installs need the steps below.
+  - >
+    During inspect on a tilde-configured install, check whether the legacy
+    directory <Dispatch install>/<literal MEDIA_ROOT value> exists and list
+    every active agent. Running `bin/migrate-legacy-media --dry-run` is the
+    supported way to resolve the media root and see the legacy tree's contents
+    without moving anything.
   - If alreadySatisfied is false, use the managed update endpoint to install
     the target release and wait for the service to become healthy.
-  - After the target service is healthy and regardless of whether the legacy
-    directory exists, stop every affected active agent cleanly so no process
-    continues writing to the literal-tilde tree. If an agent cannot be safely
-    stopped, report the update as blocked and do not run the file migration.
+  - >
+    After the target service is healthy, stop every active agent on this
+    install cleanly. Stop them all rather than trying to identify which ones
+    predate the fix: a still-running agent holds a literal-tilde
+    DISPATCH_MEDIA_DIR in its retained environment and can recreate the legacy
+    tree after the move, and there is no reliable way to inspect a live
+    agent's launch-time environment. If an agent cannot be safely stopped,
+    report the update as blocked and do not run the file migration.
   - From the Dispatch install directory, run
     bin/migrate-legacy-media --dry-run and inspect its summary before moving
-    anything. Do not manually overwrite destination files.
+    anything. Do not manually overwrite destination files. Exit status 1 means
+    the scan itself was incomplete (for example an unreadable directory) —
+    treat that as blocked and fix it before proceeding, because a partial scan
+    can otherwise look like a clean result.
   - Run bin/migrate-legacy-media --apply only when the dry run reports zero
     conflicts and zero unsupported entries. The command is idempotent and
     retains conflicting source files for manual recovery.
@@ -51,9 +67,24 @@ validation:
     - version_converged
 
 rollback:
-  - If the target service does not return healthy, roll back to the previous
-    healthy release using the normal Dispatch rollback flow.
-  - If media migration has started, leave both the corrected destination files
-    and any unresolved source files in place; the migration never overwrites
-    destination data, so rerunning it is safe after recovery.
+  - >
+    Before bin/migrate-legacy-media --apply has run, rollback is unrestricted:
+    no files have moved, so the previous release resolves media exactly as it
+    did before. Roll back using the normal Dispatch rollback flow if the target
+    service does not return healthy.
+  - >
+    After --apply has moved files, a plain rollback is NOT safe. The
+    pre-fix runtime resolves `~` literally again, while the migrated files now
+    exist only under the expanded home path — the service will pass its health
+    check while every migrated media file reads as missing. Prefer staying on
+    the fixed release and resolving the failure forward.
+  - >
+    If rolling back after a move is unavoidable, first move the migrated files
+    back into the literal-tilde tree under the install directory before
+    starting the old binary, so the pre-fix runtime finds them where it
+    expects. Never delete either copy while doing so.
+  - If media migration has started and files remain in both places, leave both
+    the corrected destination files and any unresolved source files in place;
+    the migration never overwrites destination data, so rerunning it is safe
+    after recovery.
   - Restart the prior service and confirm its health endpoint returns status=ok.

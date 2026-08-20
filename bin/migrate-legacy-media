@@ -8,16 +8,26 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="dry-run"
+MEDIA_ROOT_OVERRIDE=""
 
 usage() {
   cat <<'USAGE'
-Usage: bin/migrate-legacy-media [--dry-run|--apply]
+Usage: bin/migrate-legacy-media [--dry-run|--apply] [--media-root VALUE]
 
-Moves the legacy literal-tilde media tree at:
-  <Dispatch install>/~/.dispatch/media
+Dispatch versions before the tilde-expansion fix stored media under a
+directory literally named `~` inside the install tree whenever MEDIA_ROOT was
+configured with a leading tilde. This moves that legacy tree to the location
+the fixed runtime actually reads.
 
-to the correct home-relative media tree:
-  $HOME/.dispatch/media
+For MEDIA_ROOT=~/.dispatch/media (the documented default) that means:
+  from  <Dispatch install>/~/.dispatch/media
+  to    $HOME/.dispatch/media
+
+The media root is not assumed. It is taken from --media-root, else the
+MEDIA_ROOT environment variable, else MEDIA_ROOT in <Dispatch install>/.env
+(the file the service loads), else the documented default. An install whose
+MEDIA_ROOT is an absolute path was never affected and exits 0 immediately
+without touching anything.
 
 --dry-run is the default. --apply moves files that do not already exist at
 the destination, removes source duplicates with identical contents, and
@@ -26,25 +36,94 @@ unsupported entries need manual handling.
 USAGE
 }
 
-case "${1:-}" in
-  ""|--dry-run) ;;
-  --apply) MODE="apply" ;;
-  --help|-h) usage; exit 0 ;;
-  *) echo "error: unknown argument: $1" >&2; usage >&2; exit 1 ;;
-esac
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --dry-run) MODE="dry-run" ;;
+    --apply) MODE="apply" ;;
+    --media-root)
+      if [[ $# -lt 2 ]]; then
+        echo "error: --media-root requires a value" >&2
+        exit 1
+      fi
+      MEDIA_ROOT_OVERRIDE="$2"
+      shift
+      ;;
+    --media-root=*) MEDIA_ROOT_OVERRIDE="${1#--media-root=}" ;;
+    --help|-h) usage; exit 0 ;;
+    *) echo "error: unknown argument: $1" >&2; usage >&2; exit 1 ;;
+  esac
+  shift
+done
 
 if [[ -z "${HOME:-}" ]]; then
   echo "error: HOME must be set to migrate legacy media" >&2
   exit 1
 fi
 
-SOURCE_DIR="$ROOT_DIR/~/.dispatch/media"
-DESTINATION_DIR="$HOME/.dispatch/media"
+# Read MEDIA_ROOT out of the env file the service itself loads (systemd
+# EnvironmentFile / the dotenv import in the runtime). Only the last
+# assignment wins, matching dotenv, and surrounding quotes are stripped.
+media_root_from_env_file() {
+  local env_file="$ROOT_DIR/.env"
+  local line value
+  [[ -r "$env_file" ]] || return 0
+  line="$(grep -E '^[[:space:]]*(export[[:space:]]+)?MEDIA_ROOT=' "$env_file" | tail -1)" || return 0
+  [[ -n "$line" ]] || return 0
+  value="${line#*=}"
+  # Trim a trailing carriage return (CRLF env files) and surrounding quotes.
+  value="${value%$'\r'}"
+  if [[ "$value" == \"*\" || "$value" == \'*\' ]]; then
+    value="${value:1:${#value}-2}"
+  fi
+  printf '%s' "$value"
+}
+
+CONFIGURED_MEDIA_ROOT=""
+CONFIGURED_SOURCE="default"
+if [[ -n "$MEDIA_ROOT_OVERRIDE" ]]; then
+  CONFIGURED_MEDIA_ROOT="$MEDIA_ROOT_OVERRIDE"
+  CONFIGURED_SOURCE="--media-root"
+elif [[ -n "${MEDIA_ROOT:-}" ]]; then
+  CONFIGURED_MEDIA_ROOT="$MEDIA_ROOT"
+  CONFIGURED_SOURCE="MEDIA_ROOT environment variable"
+else
+  CONFIGURED_MEDIA_ROOT="$(media_root_from_env_file)"
+  [[ -n "$CONFIGURED_MEDIA_ROOT" ]] && CONFIGURED_SOURCE="$ROOT_DIR/.env"
+fi
+
+if [[ -n "$CONFIGURED_MEDIA_ROOT" && "$CONFIGURED_MEDIA_ROOT" != "~" && "$CONFIGURED_MEDIA_ROOT" != "~/"* ]]; then
+  echo "MEDIA_ROOT is $CONFIGURED_MEDIA_ROOT (from $CONFIGURED_SOURCE), which has no leading tilde."
+  echo "This install never wrote media to a literal-tilde path; nothing to migrate."
+  exit 0
+fi
+
+# No explicit setting anywhere: fall back to the documented default so an
+# install whose .env is unreadable is still checked. Costs nothing — if the
+# legacy tree is absent the run is a no-op.
+if [[ -z "$CONFIGURED_MEDIA_ROOT" ]]; then
+  CONFIGURED_MEDIA_ROOT="~/.dispatch/media"
+fi
+
+# The legacy tree sits under the service's working directory, which both the
+# launchd plist and the systemd unit set to the install directory.
+SOURCE_DIR="$ROOT_DIR/$CONFIGURED_MEDIA_ROOT"
+if [[ "$CONFIGURED_MEDIA_ROOT" == "~" ]]; then
+  DESTINATION_DIR="$HOME"
+else
+  DESTINATION_DIR="$HOME/${CONFIGURED_MEDIA_ROOT#\~/}"
+fi
+
+# Components of the destination tree below $HOME, walked by the ancestor
+# check. Derived from the configured media root rather than hardcoded, so a
+# non-default MEDIA_ROOT is checked as thoroughly as the default one.
+DESTINATION_RELATIVE="${DESTINATION_DIR#"$HOME"}"
+DESTINATION_RELATIVE="${DESTINATION_RELATIVE#/}"
 
 destination_ancestors_are_safe() {
   local relative_path="$1"
   local parent_path=""
   local current="$HOME"
+  local remaining
   local component
 
   if [[ "$relative_path" == */* ]]; then
@@ -54,11 +133,18 @@ destination_ancestors_are_safe() {
   # Check every existing path component below HOME. A symlink at any level
   # would make mkdir -p follow it and let a migration write outside the media
   # tree. Missing components are safe; mkdir -p creates them during --apply.
-  for component in ".dispatch" "media"; do
+  remaining="$DESTINATION_RELATIVE"
+  while [[ -n "$remaining" ]]; do
+    component="${remaining%%/*}"
     current="$current/$component"
     if [[ -L "$current" || ( -e "$current" && ! -d "$current" ) ]]; then
       echo "$current"
       return 1
+    fi
+    if [[ "$remaining" == */* ]]; then
+      remaining="${remaining#*/}"
+    else
+      remaining=""
     fi
   done
 
@@ -75,6 +161,11 @@ destination_ancestors_are_safe() {
       parent_path=""
     fi
   done
+
+  # Explicit success: the loops above may not run at all, and without this the
+  # function would return whatever status the last `[[ ]]` test happened to
+  # leave behind.
+  return 0
 }
 
 if [[ ! -e "$SOURCE_DIR" ]]; then
@@ -86,10 +177,75 @@ if [[ ! -d "$SOURCE_DIR" ]]; then
   exit 1
 fi
 
+# Place $1 at $2 without ever replacing an existing destination entry.
+#
+# `mv` is unsafe here: the earlier `[[ -f ]]`/`[[ -L ]]` tests are only a
+# preflight, and the Dispatch server keeps writing media (browser-extension
+# screenshots, whiteboard snapshots) while this runs, so a destination file
+# can appear in the window between the test and the move — and `mv` would
+# silently overwrite it. link(2) is atomic and fails with EEXIST instead,
+# including when the destination is a symlink, which it never follows.
+#
+# Exit status: 0 placed, 1 destination appeared (treat as a conflict),
+# 2 the copy itself failed.
+place_file() {
+  local src="$1"
+  local dst="$2"
+  local tmp
+
+  if ln "$src" "$dst" 2>/dev/null; then
+    rm -f "$src"
+    return 0
+  fi
+
+  # Either the destination raced into existence, or source and destination
+  # live on different filesystems (hard links cannot span them, which happens
+  # when the install tree and $HOME are separate mounts).
+  if [[ -e "$dst" || -L "$dst" ]]; then
+    return 1
+  fi
+
+  # Cross-device: stage a private copy inside the destination directory, then
+  # claim the final name with the same atomic no-clobber link.
+  tmp="$(mktemp "$(dirname "$dst")/.migrate-legacy-media.XXXXXX")" || return 2
+  if ! cp -p "$src" "$tmp"; then
+    rm -f "$tmp"
+    return 2
+  fi
+  if ln "$tmp" "$dst" 2>/dev/null; then
+    rm -f "$tmp" "$src"
+    return 0
+  fi
+  rm -f "$tmp"
+  return 1
+}
+
 moved=0
 duplicates=0
 conflicts=0
 unsupported=0
+
+# Enumerate up front rather than streaming `find` through a process
+# substitution: there the parent shell never sees find's exit status, so an
+# unreadable subdirectory prints a "Permission denied" line to stderr and the
+# run still ends with a zero-conflict summary and exit 0. The manifest gates
+# `--apply` on exactly that summary, so a partial scan must be a hard failure
+# rather than a clean-looking result.
+SCAN_DIR="$(mktemp -d "${TMPDIR:-/tmp}/migrate-legacy-media.XXXXXX")"
+trap 'rm -rf "$SCAN_DIR"' EXIT
+
+REGULAR_LIST="$SCAN_DIR/regular"
+SPECIAL_LIST="$SCAN_DIR/special"
+
+scan_failed() {
+  echo "error: could not fully scan $SOURCE_DIR (see the find errors above)." >&2
+  echo "Refusing to report a result from an incomplete scan; fix the unreadable entries and rerun." >&2
+  exit 1
+}
+
+find "$SOURCE_DIR" -type f -print0 >"$REGULAR_LIST" || scan_failed
+find "$SOURCE_DIR" \( -type l -o -type p -o -type s -o -type b -o -type c \) \
+  -print0 >"$SPECIAL_LIST" || scan_failed
 
 while IFS= read -r -d '' source_file; do
   relative_path="${source_file#"$SOURCE_DIR"/}"
@@ -125,20 +281,35 @@ while IFS= read -r -d '' source_file; do
     continue
   fi
 
-  moved=$((moved + 1))
-  if [[ "$MODE" == "apply" ]]; then
-    mkdir -p "$(dirname "$destination_file")"
-    mv "$source_file" "$destination_file"
-    echo "moved: $relative_path"
-  else
+  if [[ "$MODE" != "apply" ]]; then
+    moved=$((moved + 1))
     echo "would move: $relative_path"
+    continue
   fi
-done < <(find "$SOURCE_DIR" -type f -print0)
+
+  mkdir -p "$(dirname "$destination_file")"
+  place_status=0
+  place_file "$source_file" "$destination_file" || place_status=$?
+  case "$place_status" in
+    0)
+      moved=$((moved + 1))
+      echo "moved: $relative_path"
+      ;;
+    1)
+      conflicts=$((conflicts + 1))
+      echo "conflict (destination appeared during migration, left untouched): $relative_path" >&2
+      ;;
+    *)
+      conflicts=$((conflicts + 1))
+      echo "conflict (could not copy across filesystems, left untouched): $relative_path" >&2
+      ;;
+  esac
+done <"$REGULAR_LIST"
 
 while IFS= read -r -d '' unsupported_path; do
   unsupported=$((unsupported + 1))
   echo "unsupported entry (left untouched): ${unsupported_path#"$SOURCE_DIR"/}" >&2
-done < <(find "$SOURCE_DIR" \( -type l -o -type p -o -type s -o -type b -o -type c \) -print0)
+done <"$SPECIAL_LIST"
 
 if [[ "$MODE" == "apply" && "$conflicts" -eq 0 && "$unsupported" -eq 0 ]]; then
   find "$SOURCE_DIR" -depth -type d -empty -delete

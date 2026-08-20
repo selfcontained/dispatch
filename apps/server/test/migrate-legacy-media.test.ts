@@ -50,11 +50,24 @@ async function createFixture() {
 async function runMigration(
   script: string,
   home: string,
-  mode: "--dry-run" | "--apply"
+  mode: "--dry-run" | "--apply",
+  options: { args?: string[]; env?: NodeJS.ProcessEnv } = {}
 ) {
-  return execFileAsync(script, [mode], {
-    env: { ...process.env, HOME: home },
+  return execFileAsync(script, [mode, ...(options.args ?? [])], {
+    env: {
+      ...process.env,
+      // The script falls back to MEDIA_ROOT from the environment; an inherited
+      // value from the outer test runner would silently retarget the run.
+      MEDIA_ROOT: undefined,
+      ...options.env,
+      HOME: home,
+    },
   });
+}
+
+/** Write MEDIA_ROOT into the install .env the way the service reads it. */
+async function writeEnvFile(root: string, contents: string) {
+  await writeFile(path.join(root, ".env"), contents);
 }
 
 describe("migrate-legacy-media", () => {
@@ -144,5 +157,136 @@ describe("migrate-legacy-media", () => {
     await expect(
       readFile(path.join(outside, "report.pdf"), "utf8")
     ).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("resolves a non-default tilde MEDIA_ROOT from the install .env", async () => {
+    const fixture = await createFixture();
+    await writeEnvFile(fixture.root, "MEDIA_ROOT=~/dispatch-media\n");
+    // The legacy tree lives under the configured value, not the default one.
+    const source = path.join(
+      fixture.root,
+      "~",
+      "dispatch-media",
+      "agt_1",
+      "shot.png"
+    );
+    const destination = path.join(
+      fixture.home,
+      "dispatch-media",
+      "agt_1",
+      "shot.png"
+    );
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "legacy shot");
+
+    const applied = await runMigration(fixture.script, fixture.home, "--apply");
+    expect(applied.stdout).toContain("moved: agt_1/shot.png");
+    await expect(readFile(destination, "utf8")).resolves.toBe("legacy shot");
+  });
+
+  it("accepts an explicit --media-root over the .env value", async () => {
+    const fixture = await createFixture();
+    await writeEnvFile(fixture.root, "MEDIA_ROOT=~/dispatch-media\n");
+    const source = path.join(
+      fixture.root,
+      "~",
+      "override",
+      "agt_1",
+      "shot.png"
+    );
+    const destination = path.join(
+      fixture.home,
+      "override",
+      "agt_1",
+      "shot.png"
+    );
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "legacy shot");
+
+    const applied = await runMigration(
+      fixture.script,
+      fixture.home,
+      "--apply",
+      {
+        args: ["--media-root", "~/override"],
+      }
+    );
+    expect(applied.stdout).toContain("moved: agt_1/shot.png");
+    await expect(readFile(destination, "utf8")).resolves.toBe("legacy shot");
+  });
+
+  it("is a no-op on an install whose MEDIA_ROOT is absolute", async () => {
+    const fixture = await createFixture();
+    await writeEnvFile(fixture.root, "MEDIA_ROOT=/var/lib/dispatch/media\n");
+    // A stray legacy tree must still be left alone: an absolute MEDIA_ROOT was
+    // never resolved through the broken tilde path, so nothing here is ours.
+    const source = path.join(fixture.sourceDir, "agt_1", "report.pdf");
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "legacy report");
+
+    const applied = await runMigration(fixture.script, fixture.home, "--apply");
+    expect(applied.stdout).toContain("nothing to migrate");
+    await expect(readFile(source, "utf8")).resolves.toBe("legacy report");
+  });
+
+  it("fails instead of reporting a clean result when the scan is incomplete", async () => {
+    const fixture = await createFixture();
+    const readable = path.join(fixture.sourceDir, "agt_1", "report.pdf");
+    const lockedDir = path.join(fixture.sourceDir, "agt_locked");
+    await mkdir(path.dirname(readable), { recursive: true });
+    await mkdir(lockedDir, { recursive: true });
+    await writeFile(readable, "legacy report");
+    await writeFile(path.join(lockedDir, "hidden.pdf"), "hidden");
+    await chmod(lockedDir, 0o000);
+
+    try {
+      // find cannot descend into the locked directory. Exiting 0 with a
+      // zero-conflict summary here would let the manifest greenlight --apply
+      // from a scan that never saw `hidden.pdf`.
+      const result = await runMigration(
+        fixture.script,
+        fixture.home,
+        "--dry-run"
+      ).then(
+        () => null,
+        (err: { code?: number; stderr?: string }) => err
+      );
+      expect(result?.code).toBe(1);
+      expect(result?.stderr).toContain("incomplete scan");
+    } finally {
+      await chmod(lockedDir, 0o755);
+    }
+  });
+
+  it("treats a destination that appears mid-migration as a conflict", async () => {
+    const fixture = await createFixture();
+    const source = path.join(fixture.sourceDir, "agt_1", "report.pdf");
+    const destination = path.join(
+      fixture.destinationDir,
+      "agt_1",
+      "report.pdf"
+    );
+    await mkdir(path.dirname(source), { recursive: true });
+    await writeFile(source, "legacy report");
+
+    // Shim `mkdir` so a file lands at the destination in the exact window
+    // between the script's preflight checks and its placement — the race a
+    // live Dispatch server can win by writing media while the migration runs.
+    const shimDir = await mkdtemp(path.join(os.tmpdir(), "dispatch-shim-"));
+    tempDirs.push(shimDir);
+    const shim = path.join(shimDir, "mkdir");
+    await writeFile(
+      shim,
+      `#!/bin/bash\n/bin/mkdir "$@"\nprintf 'raced in' > ${JSON.stringify(destination)} 2>/dev/null || true\n`
+    );
+    await chmod(shim, 0o755);
+
+    await expect(
+      runMigration(fixture.script, fixture.home, "--apply", {
+        env: { PATH: `${shimDir}:${process.env.PATH ?? ""}` },
+      })
+    ).rejects.toMatchObject({ code: 2 });
+    await expect(readFile(destination, "utf8")).resolves.toBe("raced in");
+    await expect(readFile(source, "utf8")).resolves.toBe("legacy report");
   });
 });
