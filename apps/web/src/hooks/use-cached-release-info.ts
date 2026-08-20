@@ -1,11 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 
 import { api } from "@/lib/api";
-import type {
-  AssistedUpdateMetadata,
-  PendingMigration,
-  ReleaseChannel,
-} from "@/hooks/use-release-stream";
+// The snapshot shape is defined once on the server and imported type-only —
+// esbuild erases these imports, so nothing from the server reaches the web
+// bundle.
+import type { ReleaseInfoSnapshot } from "../../../server/src/release-info";
 
 /**
  * Snapshot returned by GET /api/v1/release/cached-info — the in-memory
@@ -14,19 +13,7 @@ import type {
  * /api/v1/release/info endpoint adds (unreleasedCount, commits, etc.) since
  * the snapshot is shared across UI clients.
  */
-export type ReleaseInfoSnapshot = {
-  currentTag: string | null;
-  channel: ReleaseChannel;
-  latestTag: string | null;
-  absoluteLatestTag: string | null;
-  updateAvailable: boolean;
-  latestRelease: { tag: string; publishedAt: string; url: string } | null;
-  assisted: AssistedUpdateMetadata | null;
-  assistedRequired: boolean;
-  pendingMigrations: PendingMigration[];
-  migrationsError: string | null;
-  computedAt: string;
-};
+export type { ReleaseInfoSnapshot };
 
 export const CACHED_RELEASE_INFO_QUERY_KEY = [
   "release",
