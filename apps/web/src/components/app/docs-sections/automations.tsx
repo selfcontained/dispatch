@@ -182,9 +182,10 @@ export function AutomationsContent() {
           agent config (prompt, agent type, model, worktree, full access). It
           stays out of the Templates list and the palette, and the job's own
           forms are how you edit it. Job runs notify through the ordinary
-          per-agent channels — a job agent's <Code>done</Code>,{" "}
-          <Code>waiting_user</Code>, or <Code>blocked</Code> event reaches Slack
-          and web notifications exactly like any other agent's.
+          per-agent channels, with one exception — a job agent's{" "}
+          <Code>done</Code>, <Code>waiting_user</Code>, or <Code>blocked</Code>{" "}
+          event raises a browser notification like any other agent's, but is
+          excluded from Slack.
         </P>
       </Section>
 

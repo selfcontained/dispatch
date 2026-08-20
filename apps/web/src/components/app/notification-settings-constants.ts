@@ -21,6 +21,6 @@ export const EVENT_OPTIONS: Array<{
   {
     id: "blocked",
     label: "Blocked",
-    description: "Agent hit an error or obstacle",
+    description: "Agent is stuck with no further approach to try",
   },
 ];

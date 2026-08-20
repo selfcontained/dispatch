@@ -154,7 +154,7 @@ export const CUE_INTENTS: Array<{
   {
     intent: "blocked",
     label: "Blocked",
-    description: "Agent hit an error or obstacle.",
+    description: "Agent is stuck with no further approach to try.",
   },
   {
     intent: "review_finished",
