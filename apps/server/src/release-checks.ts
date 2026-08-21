@@ -1,6 +1,7 @@
 import { lstat, readFile } from "node:fs/promises";
 import https from "node:https";
 import os from "node:os";
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import type { RequiredCheckName } from "./release-metadata.js";
 import { readReleaseStore } from "./release-store.js";
@@ -153,7 +154,7 @@ function escapeRegex(value: string): string {
 
 function serviceDefinitionPath(): string {
   const configured = process.env.DISPATCH_SERVICE_DEFINITION_PATH?.trim();
-  if (configured) return configured;
+  if (configured) return resolveConfiguredPath(configured);
   return process.platform === "darwin"
     ? path.join(
         os.homedir(),

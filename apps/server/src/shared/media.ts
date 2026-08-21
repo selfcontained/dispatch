@@ -1,16 +1,6 @@
 import path from "node:path";
-import os from "node:os";
 
-/** Resolve a storage path without treating a leading `~` as a literal name. */
-export function resolveStoragePath(storagePath: string): string {
-  const expanded =
-    storagePath === "~"
-      ? os.homedir()
-      : storagePath.startsWith("~/")
-        ? path.join(os.homedir(), storagePath.slice(2))
-        : storagePath;
-  return path.resolve(expanded);
-}
+import { resolveConfiguredPath } from "./lib/resolve-tilde.js";
 
 import {
   extensionForMime,
@@ -58,7 +48,7 @@ export function resolveMediaDir(
   mediaDir: string | null,
   mediaRoot: string
 ): string {
-  return resolveStoragePath(mediaDir ?? path.join(mediaRoot, agentId));
+  return resolveConfiguredPath(mediaDir ?? path.join(mediaRoot, agentId));
 }
 
 export function toMediaKey(file: { name: string; updatedAt: string }): string {

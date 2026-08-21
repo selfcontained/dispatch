@@ -1,11 +1,12 @@
 import os from "node:os";
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 
 function candidateStorePath(): string {
-  return (
+  return resolveConfiguredPath(
     process.env.DISPATCH_RELEASE_CANDIDATE_STORE_PATH ??
-    path.join(os.homedir(), ".dispatch", "release-candidate.json")
+      path.join(os.homedir(), ".dispatch", "release-candidate.json")
   );
 }
 

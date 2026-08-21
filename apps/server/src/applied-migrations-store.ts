@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import os from "node:os";
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 
@@ -14,9 +15,9 @@ import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 // reloading the module. Production hosts only set the env var at boot, so
 // the lookup cost is negligible.
 function appliedStorePath(): string {
-  return (
+  return resolveConfiguredPath(
     process.env.DISPATCH_APPLIED_MIGRATIONS_STORE_PATH ??
-    path.join(os.homedir(), ".dispatch", "applied-migrations.json")
+      path.join(os.homedir(), ".dispatch", "applied-migrations.json")
   );
 }
 

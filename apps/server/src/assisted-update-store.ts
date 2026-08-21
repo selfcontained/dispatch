@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import os from "node:os";
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import type { AssistedUpdateMetadata } from "./release-metadata.js";
@@ -71,9 +72,9 @@ export type AssistedUpdateState = {
 // reloading the module. Production hosts only set the env var at boot, so
 // the lookup cost is negligible.
 function assistedStorePath(): string {
-  return (
+  return resolveConfiguredPath(
     process.env.DISPATCH_ASSISTED_UPDATE_STORE_PATH ??
-    path.join(os.homedir(), ".dispatch", "assisted-update.json")
+      path.join(os.homedir(), ".dispatch", "assisted-update.json")
   );
 }
 

@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 
+import { resolveConfiguredPath } from "../src/shared/lib/resolve-tilde.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -11,7 +12,6 @@ import {
   isValidMediaKey,
   mimeType,
   resolveMediaDir,
-  resolveStoragePath,
   sanitizeUploadedFileName,
   toMediaKey,
 } from "../src/shared/media.js";
@@ -22,7 +22,7 @@ import {
 
 describe("media storage paths", () => {
   it("expands a home-relative storage path to an absolute path", () => {
-    expect(resolveStoragePath("~/.dispatch/media")).toBe(
+    expect(resolveConfiguredPath("~/.dispatch/media")).toBe(
       path.join(os.homedir(), ".dispatch", "media")
     );
   });

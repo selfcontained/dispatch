@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, rename, rm, stat } from "node:fs/promises";
 import { readdir, unlink } from "node:fs/promises";
 import https from "node:https";
 import os from "node:os";
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
@@ -32,9 +33,9 @@ export const RELEASE_ARTIFACT_NAME = "dispatch-release.tar.gz";
 // reloading the module. Production hosts only set the env var at boot, so
 // the lookup cost is negligible.
 function cacheDir(): string {
-  return (
+  return resolveConfiguredPath(
     process.env.DISPATCH_RELEASE_CACHE_DIR ??
-    path.join(os.homedir(), ".dispatch", "cache")
+      path.join(os.homedir(), ".dispatch", "cache")
   );
 }
 

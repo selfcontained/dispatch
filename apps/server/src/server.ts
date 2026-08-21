@@ -159,6 +159,7 @@ import {
   type HttpRequestToken,
 } from "./observability/service-resources.js";
 import { readServiceResourcesCollectionEnabled } from "./observability/service-resources-settings.js";
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 
 const config = loadConfig();
 const app = Fastify({
@@ -260,9 +261,10 @@ function withStreamFlag<T extends AgentRecord>(
   return { ...agent, hasStream: streamManager.hasStream(agent.id) };
 }
 
-const serverDir =
+const serverDir = resolveConfiguredPath(
   process.env.DISPATCH_SERVER_DIR ??
-  path.join(os.homedir(), ".dispatch", "server");
+    path.join(os.homedir(), ".dispatch", "server")
+);
 const releaseRuntime = createReleaseRuntime({
   pool,
   config,

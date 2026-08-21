@@ -4,7 +4,7 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveStoragePath } from "./shared/media.js";
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -47,8 +47,8 @@ function loadTls(): TlsConfig | null {
     throw new Error("Both TLS_CERT and TLS_KEY must be set to enable TLS");
   }
   return {
-    cert: readFileSync(resolveStoragePath(certPath)),
-    key: readFileSync(resolveStoragePath(keyPath)),
+    cert: readFileSync(resolveConfiguredPath(certPath)),
+    key: readFileSync(resolveConfiguredPath(keyPath)),
   };
 }
 
@@ -80,7 +80,7 @@ export function loadConfig(): AppConfig {
     port: Number(process.env.DISPATCH_PORT ?? process.env.PORT ?? 6767),
     databaseUrl: requireEnv("DATABASE_URL"),
     authToken: "", // resolved from DB in start() via getOrCreateAuthToken()
-    mediaRoot: resolveStoragePath(
+    mediaRoot: resolveConfiguredPath(
       process.env.MEDIA_ROOT ?? path.join(os.homedir(), ".dispatch", "media")
     ),
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),

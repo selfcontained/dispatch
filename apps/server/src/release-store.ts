@@ -1,13 +1,15 @@
 import os from "node:os";
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 
 // Isolated dev stacks and E2E runs set DISPATCH_RELEASE_STORE_PATH to keep
 // from reading the host's production release state. Default is the
 // machine-scoped production path.
-const RELEASE_STORE_PATH =
+const RELEASE_STORE_PATH = resolveConfiguredPath(
   process.env.DISPATCH_RELEASE_STORE_PATH ??
-  path.join(os.homedir(), ".dispatch", "release.json");
+    path.join(os.homedir(), ".dispatch", "release.json")
+);
 
 export type ReleaseRecord = {
   tag: string;
