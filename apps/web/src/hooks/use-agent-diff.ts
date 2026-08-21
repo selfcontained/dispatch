@@ -2,33 +2,29 @@ import { useCallback } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 
+// The diff shapes are defined once on the server and imported type-only —
+// esbuild erases these imports, so nothing from the server reaches the web
+// bundle.
+import type {
+  DiffFile,
+  DiffFileStatus,
+  DiffResponse as AgentDiffResult,
+  FileDiffResponse,
+} from "../../../server/src/shared/git/agent-diff";
+
 import { api } from "@/lib/api";
 import { diffIncludeUncommittedAtom } from "@/lib/store";
 
-export type DiffFileStatus = "modified" | "added" | "deleted" | "renamed";
+export type { DiffFile, DiffFileStatus, FileDiffResponse };
 
-export type DiffFile = {
-  path: string;
-  status: DiffFileStatus;
-  oldPath?: string;
-  added: number;
-  deleted: number;
-  diff: string | null;
-  truncated: boolean;
-};
-
-export type DiffResponse = {
+/**
+ * Wire shape of GET /api/v1/agents/:id/diff. The server's own DiffResponse
+ * always carries a merge-base SHA, but the route substitutes
+ * `{ baseRef: null, files: [] }` when the diff cannot be computed, so baseRef
+ * is nullable over the wire.
+ */
+export type DiffResponse = Omit<AgentDiffResult, "baseRef"> & {
   baseRef: string | null;
-  files: DiffFile[];
-};
-
-export type FileDiffResponse = {
-  path: string;
-  status: DiffFileStatus;
-  oldPath?: string;
-  added: number;
-  deleted: number;
-  diff: string;
 };
 
 export function agentDiffQueryKey(agentId: string): [string, string] {
