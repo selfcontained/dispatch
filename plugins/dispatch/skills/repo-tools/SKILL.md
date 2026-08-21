@@ -50,17 +50,24 @@ it at the moment of use.
 
 ## Tool entries
 
-| Field         | Required | Notes                                                                       |
-| ------------- | -------- | --------------------------------------------------------------------------- |
-| `name`        | yes      | Exposed as `repo_<name>`. Dots are stripped — MCP names cannot contain them |
-| `description` | yes      | This is what makes the tool get used. See below                             |
-| `command`     | yes      | Argv array, run from the agent's checkout root                              |
-| `params`      | no       | Turned into CLI flags appended to `command`                                 |
-| `scope`       | no       | Any of `agent`, `reviewer`, `job`. Omit to expose everywhere                |
+| Field         | Required | Notes                                                                                                        |
+| ------------- | -------- | ------------------------------------------------------------------------------------------------------------ |
+| `name`        | yes      | Exposed as `repo_<name>`. Dots are stripped — MCP names cannot contain them                                  |
+| `description` | yes      | This is what makes the tool get used. See below                                                              |
+| `command`     | yes      | Argv array, run from the agent's checkout root                                                               |
+| `params`      | no       | Turned into CLI flags appended to `command`                                                                  |
+| `scope`       | no       | `agent` (standard agents and persona reviewers) and/or `job` (scheduled job runs). Omit to expose everywhere |
 
 `repo_` prefixing is automatic and keeps repo tools in their own namespace, so a
 repo tool can never shadow a built-in Dispatch tool like `create_pr` or
 `dispatch_event`.
+
+Scope values Dispatch doesn't recognize are dropped from the array, and a `scope`
+left with nothing recognizable falls back to no scope at all — so a misspelled
+scope silently re-exposes a job-only tool to every agent. Older manifests
+sometimes carry `"reviewer"`; nothing is ever loaded under that scope, so a tool
+scoped to it alone is exposed to no one. Persona reviewers are covered by
+`agent`.
 
 **Write the description for an agent that has never seen this repo.** It is the
 only thing standing between the tool existing and the tool being used. Say what
@@ -108,5 +115,7 @@ the server immediately, but a **newly added** tool usually will not be callable
 by an already-running agent until it reconnects or a new session starts.
 
 A malformed entry (missing `name`, `description`, or `command`) throws at load,
-which surfaces as the repo's tools being absent rather than as a parse error. If
-`repo_*` tools vanish, validate the JSON first.
+and that error escapes the MCP request handler rather than being reported as a
+parse error. The symptom is not "the `repo_*` tools are missing" — it is the
+whole Dispatch MCP server failing for that session, built-in tools included. If
+Dispatch's tools stop resolving, validate `.dispatch/tools.json` first.
