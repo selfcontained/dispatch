@@ -1,3 +1,7 @@
+import os from "node:os";
+import path from "node:path";
+
+import { resolveConfiguredPath } from "../src/shared/lib/resolve-tilde.js";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -7,6 +11,7 @@ import {
   isTextFile,
   isValidMediaKey,
   mimeType,
+  resolveMediaDir,
   sanitizeUploadedFileName,
   toMediaKey,
 } from "../src/shared/media.js";
@@ -14,6 +19,20 @@ import {
   MEDIA_UPLOAD_ACCEPT,
   TEXT_EXTENSIONS,
 } from "../src/shared/media-file-types.js";
+
+describe("media storage paths", () => {
+  it("expands a home-relative storage path to an absolute path", () => {
+    expect(resolveConfiguredPath("~/.dispatch/media")).toBe(
+      path.join(os.homedir(), ".dispatch", "media")
+    );
+  });
+
+  it("returns an absolute media directory when the configured root uses ~", () => {
+    expect(resolveMediaDir("agt_test", null, "~/.dispatch/media")).toBe(
+      path.join(os.homedir(), ".dispatch", "media", "agt_test")
+    );
+  });
+});
 
 describe("sanitizeUploadedFileName", () => {
   it("passes through a clean filename unchanged", () => {

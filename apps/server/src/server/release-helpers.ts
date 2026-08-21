@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
+
 export type RunCommand = (
   command: string,
   args: string[],
@@ -45,7 +47,8 @@ export function isReleaseAuthoringEnabled(): boolean {
  * must agree on which checkout that is.
  */
 export function resolveAuthoringRepoDir(serverDir: string): string {
-  return process.env.DISPATCH_RELEASE_AUTHORING_REPO_DIR?.trim() || serverDir;
+  const configured = process.env.DISPATCH_RELEASE_AUTHORING_REPO_DIR?.trim();
+  return configured ? resolveConfiguredPath(configured) : serverDir;
 }
 
 export type AuthoringRemoteRefreshResult =
@@ -150,7 +153,7 @@ export function compareSemver(a: string, b: string): number {
 export function fixedRuntimePath(serverDir: string): string {
   const configured = process.env.DISPATCH_RUNTIME_PATH?.trim();
   return configured
-    ? path.resolve(configured)
+    ? resolveConfiguredPath(configured)
     : path.join(serverDir, "dispatch");
 }
 

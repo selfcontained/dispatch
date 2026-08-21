@@ -1,5 +1,7 @@
 import path from "node:path";
 
+import { resolveConfiguredPath } from "./lib/resolve-tilde.js";
+
 import {
   extensionForMime,
   isDocumentFile,
@@ -46,7 +48,7 @@ export function resolveMediaDir(
   mediaDir: string | null,
   mediaRoot: string
 ): string {
-  return mediaDir ?? path.join(mediaRoot, agentId);
+  return resolveConfiguredPath(mediaDir ?? path.join(mediaRoot, agentId));
 }
 
 export function toMediaKey(file: { name: string; updatedAt: string }): string {

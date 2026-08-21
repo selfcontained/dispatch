@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
+import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
 import type { AgentGitContext, AgentPin } from "./types.js";
 
 export type ActivitySummaryResult = {
@@ -515,7 +516,7 @@ export async function listMedia(
   return result.rows.map((row) => ({
     fileName: row.fileName,
     filePath: path.join(
-      row.mediaDir ?? fallbackMediaDir(agentId),
+      resolveConfiguredPath(row.mediaDir ?? fallbackMediaDir(agentId)),
       row.fileName
     ),
     description: row.description,
