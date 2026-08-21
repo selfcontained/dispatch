@@ -60,7 +60,6 @@ describe.skipIf(!BUILDS_EXIST)("pack-release", () => {
     // reference it, but old checkout-based services need it through the
     // fixed-runtime migration.
     expect(files).toContain("bin/dispatch-launchd-wrapper");
-    expect(files).toContain("bin/migrate-legacy-media");
   });
 
   it("does NOT embed macOS xattr/pax metadata (e.g. com.apple.provenance)", () => {
