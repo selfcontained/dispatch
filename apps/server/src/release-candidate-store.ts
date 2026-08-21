@@ -1,7 +1,8 @@
 import os from "node:os";
-import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
+
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 
 function candidateStorePath(): string {
   return resolveConfiguredPath(

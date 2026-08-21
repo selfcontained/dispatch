@@ -1,8 +1,9 @@
 import { randomBytes } from "node:crypto";
 import os from "node:os";
-import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 
 /**
  * Local source of truth for which install-update migrations (CRU-146) have

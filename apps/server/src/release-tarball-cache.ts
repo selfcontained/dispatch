@@ -4,10 +4,11 @@ import { mkdir, mkdtemp, readFile, rename, rm, stat } from "node:fs/promises";
 import { readdir, unlink } from "node:fs/promises";
 import https from "node:https";
 import os from "node:os";
-import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import { formatBytes } from "./shared/lib/format-bytes.js";
 import { runCommand } from "./shared/lib/run-command.js";
 

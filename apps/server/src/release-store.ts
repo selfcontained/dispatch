@@ -1,7 +1,8 @@
 import os from "node:os";
-import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 import path from "node:path";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
+
+import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
 
 // Isolated dev stacks and E2E runs set DISPATCH_RELEASE_STORE_PATH to keep
 // from reading the host's production release state. Default is the
