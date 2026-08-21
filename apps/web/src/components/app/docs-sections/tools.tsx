@@ -50,8 +50,10 @@ export function ToolsContent() {
           directly rather than through a shell, so pipes, globs, and{" "}
           <Code>&amp;&amp;</Code> don't work — put anything shell-shaped in a
           script and point <Code>command</Code> at that. A malformed entry
-          aborts the whole manifest, so a typo in one tool makes every{" "}
-          <Code>repo_</Code> tool disappear.
+          aborts the whole manifest, and that failure takes the MCP request with
+          it — so a typo in one tool doesn't just hide the <Code>repo_</Code>{" "}
+          tools, it leaves the session with no Dispatch tools at all until the
+          file is fixed.
         </P>
       </Section>
 
@@ -131,7 +133,10 @@ export function ToolsContent() {
           scopes are <Code>"agent"</Code> (standard agents and persona
           reviewers) and <Code>"job"</Code> (scheduled job runs). Useful for
           job-only maintenance commands that shouldn't clutter a regular agent's
-          toolset.
+          toolset. Anything Dispatch doesn't recognize is dropped from the
+          array, and a <Code>scope</Code> left with nothing recognizable is
+          treated as no scope at all — so a typo quietly re-exposes the tool
+          everywhere.
         </P>
         <CodeBlock>{`
 {

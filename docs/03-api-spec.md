@@ -694,7 +694,7 @@ These endpoints use the `/api/mcp` base path (not `/api/v1`).
 | POST   | `/api/mcp/:agentId`             | Handle agent-scoped MCP requests with repo context        |
 | POST   | `/api/mcp/jobs/:runId/:agentId` | Handle job-scoped MCP requests (adds job lifecycle tools) |
 
-Agent-scoped MCP loads repo tools from `.dispatch/tools.json` in the agent's working directory.
+Agent-scoped and job-scoped MCP both load repo tools from `.dispatch/tools.json` at the root of the agent's checkout — the worktree root when the agent has one, otherwise the repo root — resolved from `agent.cwd`. A tool's optional `scope` array decides which of the two routes exposes it (`agent` or `job`); the global `/api/mcp` route has no agent and loads none.
 
 ## Error Codes
 
