@@ -125,6 +125,20 @@ export function useCreateAgentForm({
     setCreateWorktreeBranch("");
   }, [createCwd]);
 
+  // The submit path already guards against sending useWorktree for a
+  // non-repo cwd (see handleSubmit's submitUseWorktree), and the derived
+  // worktreeChecked/worktreeAvailable below already keep the checkboxes
+  // *rendering* unchecked while disabled. But without this, the underlying
+  // preference stays true, so flipping back to a repo dir would silently
+  // re-check the boxes on its own. Force the actual state off once the cwd
+  // is confirmed not a git repo, so re-checking always requires the user.
+  useEffect(() => {
+    if (cwdIsGitRepo === false) {
+      setCreateUseWorktree(false);
+      setCreateNewBranch(false);
+    }
+  }, [cwdIsGitRepo, setCreateNewBranch]);
+
   const { data: systemDefaults, isError: systemDefaultsError } =
     useSystemDefaults();
   useEffect(() => {

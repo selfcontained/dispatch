@@ -527,3 +527,42 @@ describe("handleSubmit", () => {
     expect(toastErrorMock).toHaveBeenCalledWith("Failed to create agent.");
   });
 });
+
+describe("worktree checkbox state vs. cwd repo-ness", () => {
+  it("forces both checkboxes off once the cwd is confirmed not a git repo", async () => {
+    const { result } = await setup();
+    expect(result.current.createUseWorktree).toBe(true);
+    expect(result.current.createNewBranch).toBe(true);
+
+    act(() => result.current.handlePathInfoChange({ isGitRepo: false }));
+
+    expect(result.current.createUseWorktree).toBe(false);
+    expect(result.current.createNewBranch).toBe(false);
+    expect(result.current.worktreeChecked).toBe(false);
+  });
+
+  it("does not spuriously re-check once the cwd becomes a repo again", async () => {
+    const { result } = await setup();
+
+    act(() => result.current.handlePathInfoChange({ isGitRepo: false }));
+    expect(result.current.createUseWorktree).toBe(false);
+
+    act(() => result.current.handlePathInfoChange({ isGitRepo: true }));
+
+    expect(result.current.worktreeAvailable).toBe(true);
+    expect(result.current.createUseWorktree).toBe(false);
+    expect(result.current.createNewBranch).toBe(false);
+    expect(result.current.worktreeChecked).toBe(false);
+  });
+
+  it("leaves the preference untouched while repo-ness is still unknown", async () => {
+    const { result } = await setup();
+
+    // handlePathInfoChange(null) is what PathInput sends while a debounced
+    // validation is in flight — must not be treated as "confirmed not a repo".
+    act(() => result.current.handlePathInfoChange(null));
+
+    expect(result.current.createUseWorktree).toBe(true);
+    expect(result.current.createNewBranch).toBe(true);
+  });
+});
