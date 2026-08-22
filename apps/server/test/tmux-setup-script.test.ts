@@ -5,6 +5,7 @@ import {
   generateSetupScript,
   type SetupScriptParams,
 } from "../src/agents/tmux/setup-script.js";
+import { WORKTREE_LOCAL_CONFIG_PATTERNS } from "../src/agents/worktree-local-config.js";
 
 const baseConfig: AppConfig = {
   host: "127.0.0.1",
@@ -174,6 +175,58 @@ describe("generateSetupScript — type-specific blocks", () => {
     expect(script).toContain("yarn.lock");
     expect(script).toContain("package-lock.json");
     expect(script).toContain("bun.lockb");
+  });
+});
+
+describe("generateSetupScript — local config copy", () => {
+  const worktreeParams: SetupScriptParams = {
+    ...baseParams,
+    useWorktree: true,
+    createNewBranch: true,
+    worktreeBranchName: "my-branch",
+  };
+
+  // The tmux-mode bash and the inert-mode TypeScript copy files from the
+  // same list. Driving the script off WORKTREE_LOCAL_CONFIG_PATTERNS is
+  // what keeps the two launch paths from drifting apart.
+  it("emits every shared pattern as a glob candidate", () => {
+    const script = generateSetupScript(baseConfig, worktreeParams);
+    for (const pattern of WORKTREE_LOCAL_CONFIG_PATTERNS) {
+      expect(script).toContain(`"$SRC_ROOT"/${pattern}`);
+    }
+  });
+
+  it("continues every candidate line but the last, so the for-loop is one command", () => {
+    const script = generateSetupScript(baseConfig, worktreeParams);
+    const loop = script.slice(
+      script.indexOf("for CANDIDATE in"),
+      script.indexOf("copy_local_config ")
+    );
+    const candidateLines = loop
+      .split("\n")
+      .filter((line) => line.includes('"$SRC_ROOT"/'));
+    expect(candidateLines).toHaveLength(WORKTREE_LOCAL_CONFIG_PATTERNS.length);
+    for (const line of candidateLines.slice(0, -1)) {
+      // A single trailing backslash — `\\` would escape the backslash and
+      // end the command at the newline.
+      expect(line.endsWith(" \\")).toBe(true);
+      expect(line.endsWith("\\\\")).toBe(false);
+    }
+    expect(candidateLines.at(-1)?.endsWith("; do")).toBe(true);
+  });
+
+  it("shell-quotes the source repo path rather than interpolating it raw", () => {
+    const script = generateSetupScript(baseConfig, {
+      ...worktreeParams,
+      originalCwd: "/Users/me/it's a proj",
+    });
+    expect(script).toContain(`SRC_ROOT='/Users/me/it'\\''s a proj'`);
+  });
+
+  it("skips destinations that already exist and ones resolving outside the worktree", () => {
+    const script = generateSetupScript(baseConfig, worktreeParams);
+    expect(script).toContain(`if [ -e "$dest" ]; then return 0; fi`);
+    expect(script).toContain("resolves outside the worktree");
   });
 });
 

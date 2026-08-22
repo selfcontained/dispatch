@@ -5,6 +5,7 @@ import {
   worktreePathSlug,
 } from "../../shared/git/worktree.js";
 import type { AgentType } from "../types.js";
+import { WORKTREE_LOCAL_CONFIG_PATTERNS } from "../worktree-local-config.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape, shellQuote } from "./quoting.js";
 
@@ -23,6 +24,27 @@ export type SetupScriptParams = {
 };
 
 /**
+ * Repo-relative patterns are a compile-time constant, but they are
+ * interpolated unquoted into the generated bash (they have to be, or
+ * the globs would not expand). Re-validate the charset here for the
+ * same defense-in-depth reason `assertSafeRefName` exists: a failure
+ * is a bug in the pattern list, not user error.
+ */
+const SAFE_COPY_PATTERN = /^[A-Za-z0-9._*][A-Za-z0-9._*/-]*$/;
+
+const localConfigPatternLines = WORKTREE_LOCAL_CONFIG_PATTERNS.map(
+  (pattern, index) => {
+    if (!SAFE_COPY_PATTERN.test(pattern) || pattern.includes("..")) {
+      throw new Error(
+        `Unsafe worktree local-config pattern: ${JSON.stringify(pattern)}`
+      );
+    }
+    const isLast = index === WORKTREE_LOCAL_CONFIG_PATTERNS.length - 1;
+    return `      "$SRC_ROOT"/${pattern}${isLast ? "; do" : " \\"}`;
+  }
+);
+
+/**
  * Generate the bash setup script that runs in the agent's tmux pane on
  * launch. Pure — takes config + inputs, returns the full script as a
  * single string. The runtime (`agents/tmux/runtime.ts`) writes it to
@@ -30,8 +52,9 @@ export type SetupScriptParams = {
  * via tmux.
  *
  * The script:
- *   1. Optionally creates a git worktree from `baseBranch` and copies
- *      `.env` + installs deps inside it.
+ *   1. Optionally creates a git worktree from `baseBranch`, copies the
+ *      source repo's gitignored local config files into it, and
+ *      installs deps.
  *   2. Phones the server back via curl at each phase boundary
  *      (`worktree`/`env`/`deps`/`session`).
  *   3. For opencode agents, writes `opencode.json` with the dispatch
@@ -211,13 +234,44 @@ export function generateSetupScript(
       `    WORKTREE_PATH="\\"$WT_PATH\\""`,
       `    WORKTREE_BRANCH="\\"${worktreeBranchName}\\""`,
       ``,
-      `    # --- Copy .env ---`,
+      `    # --- Copy local config files ---`,
       `    ${curlPhase("env")}`,
       `    phase "Copying environment files"`,
-      `    if [ -f "${originalCwd}/.env" ]; then`,
-      `      cp "${originalCwd}/.env" "$WT_PATH/.env" && ok "Copied .env" || warn "Failed to copy .env"`,
-      `    else`,
-      `      info "No .env file found — skipping"`,
+      `    SRC_ROOT=${shellEscape(originalCwd)}`,
+      `    WT_REAL=$(cd "$WT_PATH" && pwd -P)`,
+      `    COPIED_COUNT=0`,
+      // Mirrors copyLocalConfigFiles() in agents/worktree-local-config.ts:
+      // never overwrite what the checkout produced, and never let a
+      // tracked symlink redirect a nested destination out of the worktree.
+      `    copy_local_config() {`,
+      `      local rel="$1"`,
+      `      local src="$SRC_ROOT/$rel"`,
+      `      local dest="$WT_PATH/$rel"`,
+      `      if [ ! -f "$src" ]; then return 0; fi`,
+      `      if [ -e "$dest" ]; then return 0; fi`,
+      `      local dest_dir dest_real`,
+      `      dest_dir=$(dirname "$dest")`,
+      `      if ! mkdir -p "$dest_dir" 2>/dev/null; then warn "Failed to copy $rel"; return 0; fi`,
+      `      if ! dest_real=$(cd "$dest_dir" 2>/dev/null && pwd -P); then warn "Failed to copy $rel"; return 0; fi`,
+      `      case "$dest_real" in`,
+      `        "$WT_REAL"|"$WT_REAL"/*) ;;`,
+      `        *) warn "Skipped $rel — resolves outside the worktree"; return 0 ;;`,
+      `      esac`,
+      `      if cp "$src" "$dest" 2>/dev/null; then`,
+      `        ok "Copied $rel"`,
+      `        COPIED_COUNT=$((COPIED_COUNT + 1))`,
+      `      else`,
+      `        warn "Failed to copy $rel"`,
+      `      fi`,
+      `    }`,
+      // Unmatched globs stay literal and fail the `-f` test above, so no
+      // nullglob juggling is needed here.
+      `    for CANDIDATE in \\`,
+      ...localConfigPatternLines,
+      `      copy_local_config "\${CANDIDATE#"$SRC_ROOT"/}"`,
+      `    done`,
+      `    if [ "$COPIED_COUNT" -eq 0 ]; then`,
+      `      info "No local config files found — skipping"`,
       `    fi`,
       ``
     );

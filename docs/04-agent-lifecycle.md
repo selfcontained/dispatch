@@ -27,7 +27,7 @@ Role is orthogonal to `AgentType` (`claude` / `codex` / `opencode` / `cursor` / 
 `SetupPhase` is a sub-state of `creating`/`running`, surfaced to the UI while the in-tmux setup script runs:
 
 - `worktree` — creating the git worktree
-- `env` — copying `.env` / sourcing `~/.dispatch/env`
+- `env` — copying local config files / sourcing `~/.dispatch/env`
 - `deps` — installing dependencies (lockfile-driven)
 - `session` — starting the agent CLI inside tmux
 - `null` — setup is complete (or never used; agents that don't create a worktree start here)
@@ -118,11 +118,47 @@ The generated setup script (`/tmp/dispatch_setup_<agentId>.sh`) does, in order:
 
 1. `unset DATABASE_URL`, then source `~/.dispatch/env` (if it exists) so user overrides win.
 2. Create the git worktree (if requested). The script doesn't post this phase — `worktree` is the initial `setup_phase` written when the agent row is inserted.
-3. POST `setup/phase: env`, then copy `.env` if present.
+3. POST `setup/phase: env`, then copy the source repo's gitignored local config files (see below) into the worktree.
 4. POST `setup/phase: deps`, then install dependencies based on detected lockfile (pnpm/yarn/npm/bun). Skipped for `terminal` agent type.
 5. POST `setup/phase: session`, then `exec` into the agent CLI command.
 
-Worktree creation is the only unrecoverable step: on failure the script POSTs `setup/error` with the git output, removes the partial worktree (and the branch it was creating), and exits rather than falling back to the primary checkout. A missing lockfile, a failed dependency install, or a missing `.env` are all non-fatal. If the working directory turns out not to be a git repo, the worktree is skipped and the script proceeds straight to the session phase.
+Worktree creation is the only unrecoverable step: on failure the script POSTs `setup/error` with the git output, removes the partial worktree (and the branch it was creating), and exits rather than falling back to the primary checkout. A missing lockfile, a failed dependency install, or a missing local config file are all non-fatal. If the working directory turns out not to be a git repo, the worktree is skipped and the script proceeds straight to the session phase.
+
+## Local Config Files
+
+`git worktree add` only materializes _tracked_ files, so a developer's
+gitignored secrets and local overrides never reach a new worktree. Both launch
+paths copy a shared list of conventionally-gitignored filenames from the source
+repo into the worktree — `apps/server/src/agents/worktree-local-config.ts` owns
+the list (`WORKTREE_LOCAL_CONFIG_PATTERNS`) and the inert-mode copy; the
+tmux-mode bash in `apps/server/src/agents/tmux/setup-script.ts` is generated
+from the same constant so the two cannot drift.
+
+Covered today: `.env`, `.env.local`, `.env.*.local`, `.dev.vars` (Wrangler),
+`.envrc` (direnv), `.npmrc`, `local.settings.json` (Azure Functions),
+`terraform.tfvars[.json]`, `*.auto.tfvars[.json]`, `config/master.key` and
+`config/credentials/*.key` (Rails), `.streamlit/secrets.toml`, and
+`.claude/settings.local.json`.
+
+Rules the list follows:
+
+- Only names that are conventionally _gitignored_. Committed templates like
+  `.env.example` are already in the worktree via the checkout.
+- `*` is allowed in the final path segment only and never crosses a `/`. Globs
+  stay narrow — `.env*` would sweep up committed templates, and `*.tfvars`
+  would sweep up committed per-environment values.
+- An existing destination is never overwritten. A fresh worktree contains
+  exactly the tracked files, so a destination that already exists means the
+  repo commits that name, and the checked-out revision's copy is the correct
+  one — not the source checkout's possibly-dirty, possibly-different-branch
+  version.
+- A nested destination directory that resolves outside the worktree (via a
+  tracked symlink) is skipped rather than written through.
+- Everything is best-effort: a missing source file is a no-op and an individual
+  copy failure is logged, not thrown.
+
+Copying happens before the dependency install, so a gitignored `.npmrc` with a
+private-registry token is in place by the time `pnpm install` runs.
 
 ## Agent Environment
 
