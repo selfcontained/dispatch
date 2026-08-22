@@ -1,18 +1,23 @@
 import { useCallback } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+
+// The message shape is defined once on the server and imported type-only —
+// esbuild erases this import, so nothing from the server reaches the web
+// bundle.
+import type { StoredMessage } from "../../../server/src/messages/store";
+
 import { api } from "@/lib/api";
 
-export type AgentMessage = {
-  id: string;
-  senderAgentId: string;
-  recipientAgentId: string;
-  senderName: string;
-  recipientName: string;
-  content: string;
-  delivered: boolean;
-  readAt: string | null;
-  createdAt: string;
-};
+/**
+ * Wire shape of a message row. GET /api/v1/agents/:id/messages returns
+ * `MessageStore.listForAgent()` verbatim, but the /api/v1/history detail query
+ * projects the same row without the repo-root columns and reuses this type, so
+ * those two fields are omitted rather than aliased through.
+ */
+export type AgentMessage = Omit<
+  StoredMessage,
+  "senderRepoRoot" | "recipientRepoRoot"
+>;
 
 type MessagesPayload = {
   messages: AgentMessage[];
