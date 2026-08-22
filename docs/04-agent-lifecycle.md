@@ -42,6 +42,8 @@ The setup script reports phase via `POST /api/v1/agents/:id/setup/phase`. On com
 
 Worktree cleanup mode is one of `auto` | `keep` | `force`, passed as the `cleanupWorktree` query param on `DELETE /api/v1/agents/:id`. `auto` preserves a worktree that has unmerged commits or uncommitted changes; `keep` always preserves; `force` always deletes.
 
+Whenever the worktree is removed, `cleanupGitWorktree` also runs `git branch -D` on the branch — but only when Dispatch created it (`worktree_branch` is set and differs from `base_branch`). A worktree checked out on an existing branch loses only its directory. Cleanup failures are logged and swallowed; the worktree is left on disk and archival still completes.
+
 ## State Transitions
 
 1. **Create**
@@ -114,13 +116,13 @@ The wrapper tees stderr to `/tmp/dispatch_setup_<agentId>.log` and captures the 
 
 The generated setup script (`/tmp/dispatch_setup_<agentId>.sh`) does, in order:
 
-1. Source `~/.dispatch/env` (if it exists).
-2. POST `setup/phase: worktree`, then create the git worktree (if requested).
+1. `unset DATABASE_URL`, then source `~/.dispatch/env` (if it exists) so user overrides win.
+2. Create the git worktree (if requested). The script doesn't post this phase — `worktree` is the initial `setup_phase` written when the agent row is inserted.
 3. POST `setup/phase: env`, then copy `.env` if present.
 4. POST `setup/phase: deps`, then install dependencies based on detected lockfile (pnpm/yarn/npm/bun). Skipped for `terminal` agent type.
 5. POST `setup/phase: session`, then `exec` into the agent CLI command.
 
-If any step fails non-recoverably, the script POSTs `setup/error` with a message before exiting.
+Worktree creation is the only unrecoverable step: on failure the script POSTs `setup/error` with the git output, removes the partial worktree (and the branch it was creating), and exits rather than falling back to the primary checkout. A missing lockfile, a failed dependency install, or a missing `.env` are all non-fatal. If the working directory turns out not to be a git repo, the worktree is skipped and the script proceeds straight to the session phase.
 
 ## Agent Environment
 

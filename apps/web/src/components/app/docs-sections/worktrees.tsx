@@ -25,6 +25,12 @@ export function WorktreesContent() {
           terminal sessions get the worktree and the <Code>.env</Code> copy but
           skip the dependency install.
         </P>
+        <P>
+          Templates and jobs run through the same machinery — their{" "}
+          <strong>Use worktree</strong>, base branch, and branch name fields
+          feed this same creation path, and each launch or run gets its own
+          worktree. See <strong>Automations</strong> for those forms.
+        </P>
       </Section>
 
       <Section>
@@ -73,8 +79,9 @@ export function WorktreesContent() {
           branch — fall back to the local branch.
         </P>
         <P>
-          The new-branch preference is remembered per working directory, so
-          review and authoring repos each keep their own default.
+          The starting branch and the new-branch preference are both remembered
+          per working directory, so review and authoring repos each keep their
+          own defaults.
         </P>
       </Section>
 
@@ -83,10 +90,15 @@ export function WorktreesContent() {
         <P>
           By default, worktrees are created next to the repo as siblings (e.g.{" "}
           <Code>../repo-branch-name</Code>). You can change this in{" "}
-          <strong>Settings</strong> to place them inside the repo at{" "}
+          <strong>Settings → Agents</strong> to place them inside the repo at{" "}
           <Code>.dispatch/worktrees/</Code> instead. Sibling worktrees avoid
           nesting issues with tools that recurse into the repo; nested worktrees
           keep everything under one directory.
+        </P>
+        <P>
+          The setting covers agents you create yourself and agents launched by
+          other agents. Template launches and job runs don&apos;t read it — they
+          always land in a sibling directory.
         </P>
       </Section>
 
