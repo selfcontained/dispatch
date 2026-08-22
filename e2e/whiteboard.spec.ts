@@ -142,6 +142,54 @@ test.describe("Whiteboard", () => {
     expect(conflictData.version).toBe(1);
   });
 
+  test("whiteboard renders when an agent writes an arrow without points", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-wb-arrow-${Date.now()}`,
+    });
+
+    // An arrow with no `points` used to crash the whole route: Excalidraw's
+    // isInvisiblySmallElement() reads `element.points.length` unguarded.
+    await callMcpTool(request, agent.id, "whiteboard_update", {
+      elements: [
+        { id: "s1", type: "rectangle", x: 0, y: 0, width: 160, height: 70 },
+        { id: "s2", type: "rectangle", x: 300, y: 0, width: 160, height: 70 },
+        {
+          id: "s1-s2-arrow",
+          type: "arrow",
+          x: 170,
+          y: 35,
+          width: 120,
+          height: 0,
+        },
+      ],
+    });
+
+    const getRes = await request.get(`/api/v1/agents/${agent.id}/whiteboard`, {
+      headers: AUTH_HEADER,
+    });
+    const { scene } = (await getRes.json()) as {
+      scene: { elements: Array<{ id: string; points?: unknown }> };
+    };
+    const arrow = scene.elements.find((e) => e.id === "s1-s2-arrow");
+    expect(arrow?.points).toEqual([
+      [0, 0],
+      [120, 0],
+    ]);
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-whiteboard").click();
+    await page.waitForURL(/\/agents\/[^/]+\/whiteboard/);
+
+    await expect(page.getByTestId("whiteboard-canvas")).toBeVisible();
+    await expect(page.locator(".excalidraw canvas").first()).toBeVisible();
+    await expect(page.getByText("Unexpected Application Error")).toHaveCount(0);
+    await expect(page.getByText("could not be rendered")).toHaveCount(0);
+  });
+
   test("whiteboard MCP tool: agent can update and read whiteboard", async ({
     request,
   }) => {

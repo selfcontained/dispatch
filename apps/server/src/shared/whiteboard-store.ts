@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
 
+import { sanitizeElements } from "./whiteboard.js";
+
 export const WHITEBOARD_SNAPSHOT_FILENAME = "whiteboard.png";
 
 export const MAX_ELEMENTS = 20_000;
@@ -21,7 +23,12 @@ export async function loadWhiteboard(
     "SELECT scene, version, updated_by, updated_at FROM whiteboards WHERE agent_id = $1",
     [agentId]
   );
-  return result.rows[0] ?? null;
+  const row = result.rows[0];
+  if (!row) return null;
+  // Sanitize on read too, so boards already holding malformed elements render
+  // instead of crashing, and heal on their next write.
+  const elements = Array.isArray(row.scene?.elements) ? row.scene.elements : [];
+  return { ...row, scene: { elements: sanitizeElements(elements) } };
 }
 
 export function isValidScene(scene: unknown): scene is { elements: unknown[] } {
@@ -40,6 +47,7 @@ export async function saveWhiteboard(
   baseVersion: number,
   updatedBy: "user" | "agent"
 ): Promise<{ version: number } | null> {
+  const clean = { elements: sanitizeElements(scene.elements) };
   const result = await pool.query<{ version: string }>(
     `INSERT INTO whiteboards (agent_id, scene, version, updated_by)
      VALUES ($1, $2::jsonb, 1, $3)
@@ -50,7 +58,7 @@ export async function saveWhiteboard(
            updated_at = NOW()
        WHERE whiteboards.version = $4
      RETURNING version`,
-    [agentId, JSON.stringify(scene), updatedBy, baseVersion]
+    [agentId, JSON.stringify(clean), updatedBy, baseVersion]
   );
   if (result.rows.length === 0) {
     return null;

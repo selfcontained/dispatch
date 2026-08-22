@@ -35,6 +35,78 @@ export type WhiteboardUpdateResult = {
   elements: SimplifiedElement[];
 };
 
+// Excalidraw's restoreElements() calls isInvisiblySmallElement() — which reads
+// `element.points.length` unguarded — before restoreElement() applies its own
+// defaults. A points-less arrow therefore throws and takes down the whole view,
+// so we normalize these fields before the data ever reaches the editor.
+const POINTS_REQUIRED_TYPES = new Set(["arrow", "line", "draw", "freedraw"]);
+
+function finite(value: unknown): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function isPoint(value: unknown): boolean {
+  return (
+    Array.isArray(value) &&
+    value.length >= 2 &&
+    Number.isFinite(value[0]) &&
+    Number.isFinite(value[1])
+  );
+}
+
+export function sanitizeElement(raw: unknown): RawElement | null {
+  if (typeof raw !== "object" || raw === null) return null;
+  const el = raw as RawElement;
+  if (typeof el.id !== "string" || typeof el.type !== "string") return null;
+
+  const width = finite(el.width);
+  const height = finite(el.height);
+  const out: RawElement = {
+    ...el,
+    x: finite(el.x),
+    y: finite(el.y),
+    width,
+    height,
+  };
+
+  if (POINTS_REQUIRED_TYPES.has(el.type)) {
+    const points = Array.isArray(el.points) ? el.points.filter(isPoint) : [];
+    // Same fallback restoreElement() would apply, just early enough to matter.
+    const usedFallback = points.length < 2;
+    out.points = usedFallback
+      ? [
+          [0, 0],
+          [width, height],
+        ]
+      : points;
+
+    // The freedraw renderer indexes pressures[i] per point when
+    // simulatePressure is falsy, so a missing or short pressures array throws
+    // the same way missing points did. Default to 0.5 as Excalidraw's own
+    // restore does.
+    if (el.type === "freedraw" && el.simulatePressure !== true) {
+      const pressures = Array.isArray(el.pressures) ? el.pressures : [];
+      out.pressures = (out.points as unknown[]).map((_, i) => {
+        const pressure = usedFallback ? undefined : pressures[i];
+        return typeof pressure === "number" && Number.isFinite(pressure)
+          ? pressure
+          : 0.5;
+      });
+    }
+  }
+
+  return out;
+}
+
+export function sanitizeElements(elements: unknown[]): unknown[] {
+  const out: RawElement[] = [];
+  for (const raw of elements) {
+    const el = sanitizeElement(raw);
+    if (el) out.push(el);
+  }
+  return out;
+}
+
 function num(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value)
     ? Math.round(value)
