@@ -137,23 +137,37 @@ from the same constant so the two cannot drift.
 Covered today: `.env`, `.env.local`, `.env.*.local`, `.dev.vars` (Wrangler),
 `.envrc` (direnv), `.npmrc`, `local.settings.json` (Azure Functions),
 `terraform.tfvars[.json]`, `*.auto.tfvars[.json]`, `config/master.key` and
-`config/credentials/*.key` (Rails), `.streamlit/secrets.toml`, and
-`.claude/settings.local.json`.
+`config/credentials/*.key` (Rails), and `.streamlit/secrets.toml`.
 
 Rules the list follows:
 
 - Only names that are conventionally _gitignored_. Committed templates like
   `.env.example` are already in the worktree via the checkout.
+- Only files that are _configuration_. Anything that grants the launched agent
+  capabilities it wouldn't otherwise have stays off the list —
+  `.claude/settings.local.json` was considered and rejected on those grounds,
+  since copying a permission allowlist would quietly widen what a
+  `fullAccess: false` launch can do.
 - `*` is allowed in the final path segment only and never crosses a `/`. Globs
   stay narrow — `.env*` would sweep up committed templates, and `*.tfvars`
-  would sweep up committed per-environment values.
+  would sweep up committed per-environment values. `assertSafeLocalConfigPattern`
+  enforces this grammar where the list is defined, so a future addition cannot
+  mean one thing to the bash launch path and another to the TypeScript one.
 - An existing destination is never overwritten. A fresh worktree contains
   exactly the tracked files, so a destination that already exists means the
   repo commits that name, and the checked-out revision's copy is the correct
   one — not the source checkout's possibly-dirty, possibly-different-branch
   version.
-- A nested destination directory that resolves outside the worktree (via a
-  tracked symlink) is skipped rather than written through.
+- Symlinks are refused on both sides, because a checkout is data and a
+  repository may be untrusted. A symlinked _source_ would make every pattern a
+  read primitive pointing anywhere on disk (`.env -> ~/.ssh/id_rsa`); a
+  symlinked _destination_ would make every pattern a write primitive, and a
+  dangling link in particular passes an existence check, so it is tested for
+  explicitly. The directory components on each side are canonicalized and
+  required to stay inside their own root.
+- Nothing in this step can abort an agent launch. The generated bash guards
+  every command substitution, since a bare assignment failing under `set -e`
+  would kill the setup script before the agent starts.
 - Everything is best-effort: a missing source file is a no-op and an individual
   copy failure is logged, not thrown.
 

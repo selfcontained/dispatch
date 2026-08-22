@@ -223,10 +223,37 @@ describe("generateSetupScript — local config copy", () => {
     expect(script).toContain(`SRC_ROOT='/Users/me/it'\\''s a proj'`);
   });
 
-  it("skips destinations that already exist and ones resolving outside the worktree", () => {
+  it("skips destinations that already exist, including dangling symlinks", () => {
     const script = generateSetupScript(baseConfig, worktreeParams);
-    expect(script).toContain(`if [ -e "$dest" ]; then return 0; fi`);
+    // `-e` alone misses a dangling symlink, which `cp` would then follow
+    // and create outside the worktree.
+    expect(script).toContain(
+      `if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`
+    );
     expect(script).toContain("resolves outside the worktree");
+  });
+
+  it("refuses symlinked sources and sources escaping the repo", () => {
+    const script = generateSetupScript(baseConfig, worktreeParams);
+    expect(script).toContain(
+      `if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`
+    );
+    expect(script).toContain("resolves outside the source repo");
+  });
+
+  it("never lets a failed path canonicalization abort the launch", () => {
+    // Bare `VAR=$(...)` assignments exit the whole script under errexit,
+    // and this is a best-effort step running before the agent starts.
+    const script = generateSetupScript(baseConfig, worktreeParams);
+    expect(script).toContain(
+      `if ! WT_REAL=$(cd "$WT_PATH" 2>/dev/null && pwd -P); then WT_REAL=""; fi`
+    );
+    expect(script).toContain(
+      `if ! SRC_REAL=$(cd "$SRC_ROOT" 2>/dev/null && pwd -P); then SRC_REAL=""; fi`
+    );
+    expect(script).toContain(
+      "Could not resolve repo paths — skipping local config copy"
+    );
   });
 });
 
