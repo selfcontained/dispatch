@@ -95,6 +95,15 @@ function submitEvent(): FormEvent<HTMLFormElement> {
   return { preventDefault: vi.fn() } as unknown as FormEvent<HTMLFormElement>;
 }
 
+// path-info fixtures matching what PathInput forwards via onPathInfoChange
+// (apps/v1/system/path-info's {exists, isDirectory, isGitRepo} shape).
+const REPO_INFO = { exists: true, isDirectory: true, isGitRepo: true };
+const NON_REPO_DIR_INFO = { exists: true, isDirectory: true, isGitRepo: false };
+// A path that doesn't exist yet also resolves isGitRepo: false — distinct
+// from NON_REPO_DIR_INFO because a half-typed path shouldn't be treated as
+// a deliberate "this is not a repo" signal.
+const NOT_FOUND_INFO = { exists: false, isDirectory: false, isGitRepo: false };
+
 /** The POST /api/v1/agents call, or undefined if none was made. */
 function agentsPost(): [string, RequestInit] | undefined {
   return apiMock.mock.calls.find(([path]) => path === "/api/v1/agents") as
@@ -381,7 +390,7 @@ describe("handleSubmit", () => {
 
   it("forces useWorktree off when the cwd is not a git repo", async () => {
     const { result } = await setup();
-    act(() => result.current.handlePathInfoChange({ isGitRepo: false }));
+    act(() => result.current.handlePathInfoChange(NON_REPO_DIR_INFO));
     act(() => result.current.setCreateBaseBranch("develop"));
     act(() => result.current.setCreateWorktreeBranch("feat/x"));
 
@@ -395,7 +404,7 @@ describe("handleSubmit", () => {
 
   it("sends branch fields when a worktree is requested off main", async () => {
     const { result } = await setup();
-    act(() => result.current.handlePathInfoChange({ isGitRepo: true }));
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
     act(() => result.current.setCreateBaseBranch("develop"));
     act(() => result.current.setCreateWorktreeBranch("  feat/x  "));
 
@@ -529,29 +538,27 @@ describe("handleSubmit", () => {
 });
 
 describe("worktree checkbox state vs. cwd repo-ness", () => {
-  it("forces both checkboxes off once the cwd is confirmed not a git repo", async () => {
+  it("forces the worktree checkbox off once a previously-available repo becomes a confirmed non-repo directory", async () => {
     const { result } = await setup();
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
     expect(result.current.createUseWorktree).toBe(true);
-    expect(result.current.createNewBranch).toBe(true);
 
-    act(() => result.current.handlePathInfoChange({ isGitRepo: false }));
+    act(() => result.current.handlePathInfoChange(NON_REPO_DIR_INFO));
 
     expect(result.current.createUseWorktree).toBe(false);
-    expect(result.current.createNewBranch).toBe(false);
     expect(result.current.worktreeChecked).toBe(false);
   });
 
   it("does not spuriously re-check once the cwd becomes a repo again", async () => {
     const { result } = await setup();
-
-    act(() => result.current.handlePathInfoChange({ isGitRepo: false }));
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
+    act(() => result.current.handlePathInfoChange(NON_REPO_DIR_INFO));
     expect(result.current.createUseWorktree).toBe(false);
 
-    act(() => result.current.handlePathInfoChange({ isGitRepo: true }));
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
 
     expect(result.current.worktreeAvailable).toBe(true);
     expect(result.current.createUseWorktree).toBe(false);
-    expect(result.current.createNewBranch).toBe(false);
     expect(result.current.worktreeChecked).toBe(false);
   });
 
@@ -563,6 +570,71 @@ describe("worktree checkbox state vs. cwd repo-ness", () => {
     act(() => result.current.handlePathInfoChange(null));
 
     expect(result.current.createUseWorktree).toBe(true);
+  });
+
+  it("leaves the untouched default alone when the dialog opens on a non-repo cwd", async () => {
+    // No repo has ever been available yet (e.g. the dialog's default cwd is
+    // the user's home directory) — the useState(true) default must survive,
+    // not read as though the user explicitly unchecked it.
+    const { result } = await setup();
+
+    act(() => result.current.handlePathInfoChange(NON_REPO_DIR_INFO));
+
+    expect(result.current.createUseWorktree).toBe(true);
+  });
+
+  it("does not reset for a path that merely doesn't exist yet, even after a prior available repo", async () => {
+    const { result } = await setup();
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
+
+    // A half-typed path (mid-Tab-completion, or a pause between keystrokes)
+    // resolves isGitRepo: false too, via exists: false — must not clobber
+    // the user's choice while they're still typing toward a real path.
+    act(() => result.current.handlePathInfoChange(NOT_FOUND_INFO));
+
+    expect(result.current.createUseWorktree).toBe(true);
+  });
+
+  it("still forces off on a confirmed non-repo dir reached via an intermediate not-found path", async () => {
+    const { result } = await setup();
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
+    act(() => result.current.handlePathInfoChange(NOT_FOUND_INFO));
+    expect(result.current.createUseWorktree).toBe(true);
+
+    act(() => result.current.handlePathInfoChange(NON_REPO_DIR_INFO));
+
+    expect(result.current.createUseWorktree).toBe(false);
+  });
+
+  it("never touches the per-cwd createNewBranch preference directly", async () => {
+    // createNewBranch's checked state cascades from worktreeChecked in the
+    // UI (create-agent-worktree-section.tsx), so the reset effect doesn't
+    // need to — and must not — write through to its own per-cwd atom.
+    const { result } = await setup();
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
+    act(() => result.current.handlePathInfoChange(NON_REPO_DIR_INFO));
+
     expect(result.current.createNewBranch).toBe(true);
+    expect(
+      window.localStorage.getItem("dispatch:createNewBranch:/repo/app")
+    ).toBeNull();
+  });
+
+  it("doesn't clobber a different cwd's saved createNewBranch pref on switch", async () => {
+    // A previously-visited repo with its own saved "create new branch" pref.
+    window.localStorage.setItem("dispatch:createNewBranch:/repo/other", "true");
+    const { result } = await setup();
+    act(() => result.current.handlePathInfoChange(REPO_INFO));
+    act(() => result.current.handlePathInfoChange(NON_REPO_DIR_INFO));
+
+    // Switching to the other repo must not stomp its independently-saved
+    // preference — a standing guard against a cwd-keyed setter creeping
+    // back into the reset effect's deps.
+    act(() => result.current.setCreateCwd("/repo/other"));
+
+    expect(result.current.createNewBranch).toBe(true);
+    expect(
+      window.localStorage.getItem("dispatch:createNewBranch:/repo/other")
+    ).toBe("true");
   });
 });
