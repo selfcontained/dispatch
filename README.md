@@ -158,7 +158,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 | `dispatch_notify`               | Send a Slack notification from the agent                                   |
 | `dispatch_pin`                  | Surface key info in the sidebar (URLs, ports, PRs, files)                  |
 | `dispatch_pins`                 | Write several sidebar pins in one atomic call (merge or replace a group)   |
-| `dispatch_share`                | Upload screenshots and media to the agent's media pane                     |
+| `dispatch_share_file`           | Upload screenshots and media to the agent's media pane                     |
 | `dispatch_list_media`           | List media files shared with or by this agent                              |
 | `dispatch_delete_media`         | Permanently remove a shared media file                                     |
 | `dispatch_list_pins`            | List current sidebar pins, or read one back in full by ID                  |
@@ -217,7 +217,7 @@ Every agent launched by Dispatch gets access to MCP tools via an agent-scoped en
 
 ### Persona agents
 
-Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_get_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_pins`, `dispatch_delete_pin`, `dispatch_list_pins`, `dispatch_share`, `dispatch_list_media`, `dispatch_delete_media`, and `whiteboard_get`. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
+Persona review agents get a narrower set focused on reviewing their parent's work: `dispatch_review_submit`, `dispatch_review_add_feedback`, `dispatch_review_list_feedback`, `dispatch_review_get_feedback`, `dispatch_review_add_message`, `dispatch_review_resolve`, `dispatch_event`, `dispatch_pin`, `dispatch_pins`, `dispatch_delete_pin`, `dispatch_list_pins`, `dispatch_share_file`, `dispatch_list_media`, `dispatch_delete_media`, and `whiteboard_get`. After the parent reports a fix in the feedback thread, the reviewer re-inspects it and either resolves the item or replies with further instructions.
 
 ### Job agents
 

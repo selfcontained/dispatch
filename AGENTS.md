@@ -34,7 +34,7 @@ If you were started in a git worktree (check: does your working directory contai
 
 - For any UI/layout/style/feature change, validate behavior in Playwright before marking the task complete.
 - Include at least one Playwright interaction that covers the changed UI path (for example: open/close panes, modal flow, or action button state changes).
-- Capture at least one screenshot per validation flow and publish it with the `dispatch_share` MCP tool. Never leave screenshots local-only.
+- Capture at least one screenshot per validation flow and publish it with the `dispatch_share_file` MCP tool. Never leave screenshots local-only.
 - For pages with SSE/WebSocket activity, do not use Playwright `waitUntil: "networkidle"` for readiness checks.
 - Use `waitUntil: "domcontentloaded"` (or `"load"`) and wait for concrete UI-ready signals (visible control/text/state) instead.
 - **Browser cleanup**: When you are done with Playwright validation, call `browser_close` to shut down the browser. Do this before your final `dispatch_event` call. Leaving browsers open wastes resources on headless VMs.
@@ -89,7 +89,7 @@ Before marking any task as done, run the following checks and fix any failures:
 
 - Never write temporary files (screenshots, test scripts, scratch files) to the repo root.
 - Use `/tmp/` or `$DISPATCH_MEDIA_DIR` for ephemeral files.
-- Playwright screenshots should be published via the `dispatch_share` MCP tool, not saved locally.
+- Playwright screenshots should be published via the `dispatch_share_file` MCP tool, not saved locally.
 
 ## Dev Server Management (CRITICAL)
 

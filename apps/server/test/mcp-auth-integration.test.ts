@@ -292,7 +292,7 @@ describe("MCP auth integration", () => {
 
     expect(response.statusCode).toBe(200);
     expect(response.body).toContain("dispatch_event");
-    expect(response.body).toContain("dispatch_share");
+    expect(response.body).toContain("dispatch_share_file");
     expect(response.body).toContain("dispatch_launch_persona");
     expect(response.body).not.toContain("job_complete");
     expect(response.body).not.toContain("job_log");

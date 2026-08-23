@@ -136,6 +136,12 @@ Rollback is just an `update` to an older tag. The currently deployed tag is what
 cat ~/.dispatch/release.json
 ```
 
+**MCP tool renames do not roll back cleanly.** Agents hold the tool list they
+fetched at session start, so after rolling back past a release that renamed an
+MCP tool, already-running agents call a name the older server does not register.
+Restart those agent sessions so they refetch `tools/list`. See
+[11-backend-compatibility-checklist.md](11-backend-compatibility-checklist.md#mcp-tool-names).
+
 If the failed update went through the assisted-update flow, the launched agent can drive rollback explicitly (it has the bearer token and follows the recovery guidance in its initial prompt). The state lands in `~/.dispatch/assisted-update.json` with `phase: "rollback"` if it goes that route.
 
 ## Assisted Update

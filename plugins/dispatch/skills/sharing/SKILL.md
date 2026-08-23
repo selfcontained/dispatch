@@ -6,9 +6,13 @@ description: Give the user a file, screenshot, log, or snippet they can actually
 # Sharing artifacts with the user
 
 When you produce something the user should see — a screenshot, a diff, a
-generated config, a log excerpt, a report — hand it over with `dispatch_share`.
+generated config, a log excerpt, a report — hand it over with `dispatch_share_file`.
 It uploads the artifact into the Dispatch session, where it renders inline and
 stays attached to the conversation.
+
+If `dispatch_share_file` is not in your tool list, you are talking to a Dispatch
+server from before the rename — the same tool is registered there as
+`dispatch_share`, and everything below applies unchanged.
 
 **The failure this prevents:** writing the file to `/tmp` and pasting the path.
 That path is meaningless to a user reading the session in a browser, on a phone,
@@ -20,16 +24,16 @@ not a deliverable.
 **Share a file that already exists:**
 
 ```
-dispatch_share  filePath: "/tmp/login-flow.png",
-                description: "Login flow after the redirect fix"
+dispatch_share_file  filePath: "/tmp/login-flow.png",
+                     description: "Login flow after the redirect fix"
 ```
 
 **Share text you are generating right now** — no temp file needed:
 
 ```
-dispatch_share  content: "…",
-                name: "migration-plan.md",
-                description: "Proposed migration order"
+dispatch_share_file  content: "…",
+                     name: "migration-plan.md",
+                     description: "Proposed migration order"
 ```
 
 `name` is required with `content` and must carry a real extension — it drives
@@ -48,9 +52,9 @@ Every share returns a `fileName`. Pass it back as `update` to replace the
 contents in place:
 
 ```
-dispatch_share  filePath: "/tmp/report.md",
-                description: "Report — second pass",
-                update: "<fileName from the first call>"
+dispatch_share_file  filePath: "/tmp/report.md",
+                     description: "Report — second pass",
+                     update: "<fileName from the first call>"
 ```
 
 Use this for anything you regenerate — a report that gets refined, a screenshot

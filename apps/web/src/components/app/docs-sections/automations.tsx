@@ -366,7 +366,7 @@ export function AutomationsContent() {
             <strong>Status &amp; comms</strong> — <Code>dispatch_event</Code>,{" "}
             <Code>dispatch_pin</Code>, <Code>dispatch_pins</Code>,{" "}
             <Code>dispatch_list_pins</Code>, <Code>dispatch_delete_pin</Code>,{" "}
-            <Code>dispatch_share</Code>, <Code>dispatch_list_media</Code>,{" "}
+            <Code>dispatch_share_file</Code>, <Code>dispatch_list_media</Code>,{" "}
             <Code>dispatch_delete_media</Code>,{" "}
             <Code>dispatch_rename_session</Code>, and{" "}
             <Code>dispatch_notify</Code> all behave the same as for standard

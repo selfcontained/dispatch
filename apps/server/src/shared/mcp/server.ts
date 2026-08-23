@@ -122,7 +122,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_pins",
   "dispatch_delete_pin",
-  "dispatch_share",
+  "dispatch_share_file",
   "dispatch_list_media",
   "dispatch_delete_media",
   "dispatch_list_pins",
@@ -188,7 +188,7 @@ const JOB_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_pins",
   "dispatch_delete_pin",
-  "dispatch_share",
+  "dispatch_share_file",
   "dispatch_list_media",
   "dispatch_delete_media",
   "dispatch_list_pins",
@@ -244,7 +244,7 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_pins",
   "dispatch_delete_pin",
-  "dispatch_share",
+  "dispatch_share_file",
   "dispatch_list_media",
   "dispatch_delete_media",
   "dispatch_list_pins",
@@ -518,6 +518,77 @@ export type McpRequestContext = {
   publishBrainChanged?: (repoRoot: string) => void;
 };
 
+/**
+ * Old tool names that still resolve to their current tool.
+ *
+ * A rename is invisible to an agent that already fetched `tools/list`: a
+ * session started before the server was upgraded keeps calling the old name,
+ * as does any agent following a stale copy of the shipped plugin's skills.
+ * Rewriting the name on the way in keeps those calls working without listing
+ * the old name — a deprecated duplicate in `tools/list` would cost every
+ * agent context and split the model's choice, which is exactly what the
+ * rename was meant to fix.
+ *
+ * Every entry carries its own removal trigger so the map cannot silently
+ * accumulate: `lastVersionWithOldName` is the release that still advertised
+ * the old name — anything at or below it can still be holding it — and
+ * `reviewAfter` is the date by which someone should check whether that is
+ * still plausible and drop the entry if not. Both are required, and
+ * `mcp-legacy-tool-aliases.test.ts` fails a new alias that omits either.
+ */
+type LegacyToolAlias = {
+  /** The tool the old name resolves to today. */
+  to: string;
+  /** Last Dispatch release whose `tools/list` still advertised the old name. */
+  lastVersionWithOldName: string;
+  /** ISO date after which this entry should be re-evaluated for removal. */
+  reviewAfter: string;
+};
+
+const LEGACY_TOOL_ALIASES = new Map<string, LegacyToolAlias>([
+  // Renamed so the name states the situation ("I have a file to share").
+  [
+    "dispatch_share",
+    {
+      to: "dispatch_share_file",
+      lastVersionWithOldName: "0.35.2",
+      reviewAfter: "2027-02-23",
+    },
+  ],
+]);
+
+/** The alias table, for tests and tooling that assert on its lifecycle fields. */
+export function legacyToolAliases(): ReadonlyMap<string, LegacyToolAlias> {
+  return LEGACY_TOOL_ALIASES;
+}
+
+/** Rewrites one JSON-RPC message, returning it unchanged when nothing applies. */
+function applyLegacyToolAliasesToMessage(message: unknown): unknown {
+  if (!message || typeof message !== "object") return message;
+  const request = message as { method?: unknown; params?: unknown };
+  if (request.method !== "tools/call") return message;
+  const params = request.params;
+  if (!params || typeof params !== "object") return message;
+  const name = (params as { name?: unknown }).name;
+  if (typeof name !== "string") return message;
+  // A Map, not an object literal: a plain-object lookup would resolve names
+  // like "constructor" through the prototype chain.
+  const alias = LEGACY_TOOL_ALIASES.get(name);
+  if (!alias) return message;
+  return { ...request, params: { ...(params as object), name: alias.to } };
+}
+
+/**
+ * Rewrites legacy tool names in a `tools/call` request body. Accepts a single
+ * JSON-RPC request or a batch, and leaves anything else untouched. A batch is
+ * one level deep by the spec, so this does not recurse — a body nested to
+ * arbitrary depth is data, not something to walk.
+ */
+export function applyLegacyToolAliases(body: unknown): unknown {
+  if (Array.isArray(body)) return body.map(applyLegacyToolAliasesToMessage);
+  return applyLegacyToolAliasesToMessage(body);
+}
+
 export async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -528,6 +599,8 @@ export async function handleMcpRequest(
     worktreeRoot: null,
   }
 ): Promise<void> {
+  const body =
+    parsedBody === undefined ? parsedBody : applyLegacyToolAliases(parsedBody);
   const server = await createDispatchMcpServer(context);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -538,7 +611,7 @@ export async function handleMcpRequest(
   });
 
   await server.connect(transport);
-  await transport.handleRequest(req, res, parsedBody);
+  await transport.handleRequest(req, res, body);
 }
 
 async function createDispatchMcpServer(
@@ -590,7 +663,7 @@ async function createDispatchMcpServer(
   if (allowed.has("dispatch_pins")) registerBatchPinTool(server, context);
   if (allowed.has("dispatch_delete_pin"))
     registerDeletePinTool(server, context);
-  if (allowed.has("dispatch_share")) registerShareTool(server, context);
+  if (allowed.has("dispatch_share_file")) registerShareTool(server, context);
   // ── Persona launch and unified review tools ───────────────────────
   if (context.agent) {
     registerPersonaInteractionTools(server, allowed, {
@@ -994,7 +1067,7 @@ function registerShareTool(
   const shareMedia = context.shareMedia;
 
   server.registerTool(
-    "dispatch_share",
+    "dispatch_share_file",
     {
       description:
         "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), documents (pdf), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
@@ -1036,7 +1109,7 @@ function registerShareTool(
           .string()
           .optional()
           .describe(
-            "fileName of an existing shared media file to update (returned from a previous dispatch_share call). When set, the file content is replaced instead of creating a new file."
+            "fileName of an existing shared media file to update (returned from a previous dispatch_share_file call). When set, the file content is replaced instead of creating a new file."
           ),
       },
     },

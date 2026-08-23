@@ -1,7 +1,7 @@
 {
   "name": "dispatch",
   "displayName": "Dispatch",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, sharing artifacts, review workflow, whiteboard, jobs, and templates.",
   "author": {
     "name": "Dispatch",

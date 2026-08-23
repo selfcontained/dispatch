@@ -193,8 +193,8 @@ export function ToolsContent() {
             outside it
           </li>
           <li>
-            <Code>dispatch_share</Code> — publish a screenshot, image, video, or
-            text snippet to the session's media stream
+            <Code>dispatch_share_file</Code> — publish a screenshot, image,
+            video, or text snippet to the session's media stream
           </li>
           <li>
             <Code>dispatch_list_media</Code> — list media shared with or by the
