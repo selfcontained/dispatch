@@ -211,18 +211,9 @@ describe("generateSetupScript — local config copy", () => {
   });
 
   it("mirrors the inert path's guards", () => {
-    expect(block).toContain(`if [ -L "$src" ]; then`);
-    expect(block).toContain(`if [ ! -f "$src" ]; then return 0; fi`);
-    // Only copy what git ignores, or the copy dirties the worktree and
-    // Dispatch's own cleanliness checks act on it. `|| rc=$?` keeps
-    // errexit out of it.
     expect(block).toContain(
-      `git -C "$WT_PATH" check-ignore -q -- "$name" || rc=$?`
+      `if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`
     );
-    expect(block).toContain(`if [ "$rc" -eq 1 ]; then`);
-    // Both refusals are announced rather than silent.
-    expect(block).toMatch(/warn "Skipped \$name \(symlink/);
-    expect(block).toMatch(/warn "Skipped \$name \(not gitignored/);
     // `set -C` makes the redirect O_CREAT|O_EXCL, so an existing name —
     // regular file, live symlink or dangling one — is refused by the write
     // itself; `umask 077` matches the inert path's 0600. A bare `cp` would

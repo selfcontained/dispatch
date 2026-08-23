@@ -135,7 +135,7 @@ bash in `apps/server/src/agents/tmux/setup-script.ts` is generated from the same
 constant so the two cannot drift.
 
 Covered today: `.env`, `.env.local`, `.env.development.local`,
-`.env.production.local`, `.env.test.local`, `.dev.vars` (Wrangler), `.npmrc`,
+`.env.production.local`, `.env.test.local`, `.dev.vars` (Wrangler),
 `local.settings.json` (Azure Functions), `terraform.tfvars` and
 `terraform.tfvars.json`.
 
@@ -177,8 +177,7 @@ Deliberately _not_ covered, because each would require globbing or a directory
 component: `*.auto.tfvars` (arbitrary prefix), Rails' `config/master.key`, and
 `.streamlit/secrets.toml`.
 
-Copying happens before the dependency install, so a gitignored `.npmrc` with a
-private-registry token is in place by the time `pnpm install` runs.
+Copying happens before the dependency install.
 
 ## Agent Environment
 
