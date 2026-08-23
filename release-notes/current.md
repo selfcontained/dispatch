@@ -1,15 +1,13 @@
 ## What's Changed
-* Cover the personality settings write paths by @selfcontained in https://github.com/selfcontained/dispatch/pull/979
-* Correct the Status Events docs and add a status-correction tip by @selfcontained in https://github.com/selfcontained/dispatch/pull/980
-* Single-source the history wire types shared by server and web by @selfcontained in https://github.com/selfcontained/dispatch/pull/981
-* Cover the assisted-update and release takeover panels by @selfcontained in https://github.com/selfcontained/dispatch/pull/982
-* Correct the Notifications docs and the job-agent Slack claim by @selfcontained in https://github.com/selfcontained/dispatch/pull/983
-* Split the mermaid machinery out of markdown.tsx by @selfcontained in https://github.com/selfcontained/dispatch/pull/984
-* Import ReleaseInfoSnapshot from the server instead of restating it by @selfcontained in https://github.com/selfcontained/dispatch/pull/985
-* Cover the command palette's filter and confirm sub-page by @selfcontained in https://github.com/selfcontained/dispatch/pull/987
-* Correct the Repo Tools manifest-failure and scope claims by @selfcontained in https://github.com/selfcontained/dispatch/pull/988
-* Import the agent-diff wire types from the server by @selfcontained in https://github.com/selfcontained/dispatch/pull/989
-* fix: resolve a leading `~` in every configured path, not just some by @selfcontained in https://github.com/selfcontained/dispatch/pull/986
+* Cover the admin Releases page end to end by @selfcontained in https://github.com/selfcontained/dispatch/pull/990
+* Correct the Worktrees docs and the worktree lifecycle contract by @selfcontained in https://github.com/selfcontained/dispatch/pull/991
+* Derive the web AgentMessage type from the server's message row by @selfcontained in https://github.com/selfcontained/dispatch/pull/992
+* Cover the settings pane's routing and its admin gate by @selfcontained in https://github.com/selfcontained/dispatch/pull/995
+* Correct the Agents docs section and add a create-with-context tip by @selfcontained in https://github.com/selfcontained/dispatch/pull/996
+* Force worktree checkboxes off when cwd stops being a git repo by @selfcontained in https://github.com/selfcontained/dispatch/pull/993
+* Rename the dispatch_share MCP tool to dispatch_share_file by @selfcontained in https://github.com/selfcontained/dispatch/pull/997
+* Style markdown in the lightbox: fix invisible prose elements, color headings by @selfcontained in https://github.com/selfcontained/dispatch/pull/998
+* Copy the whole family of gitignored local config files into new worktrees by @selfcontained in https://github.com/selfcontained/dispatch/pull/994
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.35.1...v0.35.2
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.35.2...v0.35.3
