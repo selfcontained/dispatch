@@ -317,6 +317,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "create-with-context",
+    title: "Start an Agent With Context",
+    body: "The create dialog's second button, Create with context, opens a step for startup instructions, attached files, and links — so the session begins with what it needs instead of you pasting it into the terminal afterwards.",
+    docsSection: "agents",
+    since: "0.18.1",
+    surfaces: ["ambient"],
+  },
+  {
     id: "status-correction",
     title: "Status Correction",
     body: 'Agent statuses are self-reported, so Dispatch cross-checks them against terminal activity. An expanded card showing "Activity detected" or "No recent activity detected" is that correction, not something the agent reported.',

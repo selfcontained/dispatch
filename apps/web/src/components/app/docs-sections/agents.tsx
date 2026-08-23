@@ -37,17 +37,18 @@ export function AgentsContent() {
             <strong>Create managed git worktree</strong> — checked by default
             (and disabled when the working directory isn't a git repo). Creates
             an isolated worktree so the agent works without touching your
-            primary checkout. When checked, two nested controls appear: a{" "}
-            <strong>Starting branch</strong> picker (defaults to{" "}
-            <Code>main</Code>, remembered per directory) that sets which branch
-            the worktree checks out, and a{" "}
+            primary checkout. Two nested controls sit under it, dimmed and
+            disabled until it's checked: a <strong>Starting branch</strong>{" "}
+            picker (defaults to <Code>main</Code>) that sets which branch the
+            worktree checks out, and a{" "}
             <strong>Create a new branch in this worktree</strong> checkbox that
             controls whether Dispatch forks a new working branch from the
             starting branch (on, default — the authoring flow) or just checks
             out the starting branch directly (off — review/investigation flows).
-            When on, a <strong>New branch name</strong> input appears — leave it
-            empty and Dispatch auto-generates a name, or type one to use a
-            specific branch. See the Worktrees section for details.
+            The <strong>New branch name</strong> input below it follows the same
+            pattern, active only while that checkbox is on — leave it empty and
+            Dispatch auto-generates a name, or type one to use a specific
+            branch. See the Worktrees section for details.
           </li>
           <li>
             <strong>Full access mode</strong> (CLI types only) — starts the CLI
@@ -60,6 +61,12 @@ export function AgentsContent() {
             and addresses its feedback before finishing.
           </li>
         </ul>
+        <P>
+          The form reopens with the choices you last made in that working
+          directory: full access, Autonomous Review, the starting branch, and
+          the new-branch checkbox are remembered per directory, and the model
+          per directory and agent type.
+        </P>
         <P>
           Click <strong>Create</strong> to start the agent immediately. For CLI
           types, <strong>Create with context</strong> opens a second step where
@@ -128,10 +135,11 @@ export function AgentsContent() {
       <Section>
         <H3>Starting and stopping</H3>
         <P>
-          Press the play button to resume a stopped agent. Press the pause
-          button to stop it — a confirmation dialog appears first, and you can
-          resume the session later. Click an agent card to attach your terminal
-          to its session, or click again to detach without stopping.
+          Press the play button on a stopped agent's row to resume it. To stop a
+          running agent, expand its card and press the pause button in the
+          footer — a confirmation dialog appears first, and you can resume the
+          session later. Click an agent card to attach your terminal to its
+          session, or click again to detach without stopping.
         </P>
       </Section>
 
@@ -156,12 +164,12 @@ export function AgentsContent() {
           a button to open the working directory in your IDE and, for worktree
           agents, a pill that copies the worktree path. CLI agents additionally
           show whether they're running in full access or sandboxed mode, plus a{" "}
-          <strong>Review</strong> button that launches a reviewer agent (see the
-          Reviewers section — review feedback lives in the Changes tab's
-          threads, not on the card); terminal agents skip those since they have
-          no CLI. Agents launched as children — persona reviewers included —
-          appear in a <strong>Sub Agents</strong> list at the bottom of the
-          expanded card.
+          <strong>Review</strong> button that launches one or more reviewer
+          agents (see the Reviewers section — review feedback lives in the
+          Changes tab's threads, not on the card); terminal agents skip those
+          since they have no CLI. Agents launched as children — persona
+          reviewers included — appear in a <strong>Sub Agents</strong> list in
+          the expanded card.
         </P>
       </Section>
 
@@ -172,9 +180,10 @@ export function AgentsContent() {
           recomputed against the worktree's base branch (defaults to{" "}
           <Code>origin/main</Code>). It is hidden entirely when the agent has no
           changes, briefly highlights when the numbers tick, and dims to ~60%
-          opacity when the agent has reported activity since the last compute (a
-          hint that the cached value may be stale). Clicking the badge forces a
-          fresh recompute; the tooltip shows the file count.
+          opacity once the agent has reported activity since the last compute
+          and that compute is over 30 seconds old (a hint that the cached value
+          may be stale). Clicking the badge forces a fresh recompute; the
+          tooltip shows the file count.
         </P>
       </Section>
 
@@ -245,14 +254,16 @@ export function AgentsContent() {
           the agent, so it survives detaching, stopping, and resuming.
         </P>
         <P>
-          Agents work the board through three MCP tools:{" "}
+          Agents work the board through four MCP tools:{" "}
           <Code>whiteboard_get</Code> returns the element list plus the path to
           a PNG snapshot of the board the agent can open to actually see the
-          drawing, <Code>whiteboard_update</Code> adds or replaces elements by
-          id, and <Code>whiteboard_clear</Code> wipes the board. The snapshot is
-          rendered by your browser shortly after edits settle, so a board that
-          has never been opened in the UI has no image yet — the agent falls
-          back to the element list.
+          drawing, <Code>whiteboard_howto</Code> hands the agent the Excalidraw
+          element format and layout conventions on demand,{" "}
+          <Code>whiteboard_update</Code> adds or replaces elements by id (and
+          removes them by id), and <Code>whiteboard_clear</Code> wipes the
+          board. The snapshot is rendered by your browser shortly after edits
+          settle, so a board that has never been opened in the UI has no image
+          yet — the agent falls back to the element list.
         </P>
         <P>
           When the agent draws while you're on another tab, a violet dot appears
@@ -307,10 +318,10 @@ export function AgentsContent() {
           after 60 seconds a prompt is delivered even if you're still typing.
         </P>
         <P>
-          Things you send yourself — quick phrases, dropped or pasted files —
-          never wait; they're meant to land where your cursor is. They still
-          take their turn behind a prompt that is actively being typed in, so
-          the two can't interleave.
+          Things you send yourself — quick phrases, shortcut pins, dropped or
+          pasted files — never wait; they're meant to land where your cursor is.
+          They still take their turn behind a prompt that is actively being
+          typed in, so the two can't interleave.
         </P>
       </Section>
 
@@ -372,7 +383,10 @@ export function AgentsContent() {
         <P>
           To rename any agent yourself, expand its sidebar card and click the
           edit button to open the <strong>Session details</strong> dialog and
-          type a new name.
+          type a new name. The dialog also carries the agent's current status
+          and the same branch, worktree, and diff details the card shows — which
+          is how you reach them for a sub agent, whose row has no expandable
+          details of its own.
         </P>
       </Section>
 
@@ -381,9 +395,11 @@ export function AgentsContent() {
         <P>
           Click the archive button to remove an agent. If the agent has a
           worktree with unmerged commits or uncommitted changes, you'll be asked
-          whether to keep or remove the worktree. Archived agents are preserved
-          in the History section of the Activity page, where you can review
-          their events, media, pins, feedback, and messages.
+          whether to keep or remove the worktree. Removing it also deletes the
+          branch Dispatch created for the agent — see <strong>Worktrees</strong>{" "}
+          for exactly what that throws away. Archived agents are preserved in
+          the History section of the Activity page, where you can review their
+          events, media, pins, feedback, and messages.
         </P>
       </Section>
 
