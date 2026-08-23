@@ -130,17 +130,23 @@ Worktree creation is the only unrecoverable step: on failure the script POSTs `s
 gitignored secrets and local overrides never reach a new worktree. Both launch
 paths copy a shared list of conventionally-gitignored filenames from the source
 repo into the worktree — `apps/server/src/agents/worktree-local-config.ts` owns
-the list (`WORKTREE_LOCAL_CONFIG_PATTERNS`) and the inert-mode copy; the
-tmux-mode bash in `apps/server/src/agents/tmux/setup-script.ts` is generated
-from the same constant so the two cannot drift.
+the list (`WORKTREE_LOCAL_CONFIG_FILES`) and the inert-mode copy; the tmux-mode
+bash in `apps/server/src/agents/tmux/setup-script.ts` is generated from the same
+constant so the two cannot drift.
 
-Covered today: `.env`, `.env.local`, `.env.*.local`, `.dev.vars` (Wrangler),
-`.envrc` (direnv), `.npmrc`, `local.settings.json` (Azure Functions),
-`terraform.tfvars[.json]`, `*.auto.tfvars[.json]`, `config/master.key` and
-`config/credentials/*.key` (Rails), and `.streamlit/secrets.toml`.
+Covered today: `.env`, `.env.local`, `.env.development.local`,
+`.env.production.local`, `.env.test.local`, `.dev.vars` (Wrangler), `.envrc`
+(direnv), `.npmrc`, `local.settings.json` (Azure Functions), `terraform.tfvars`
+and `terraform.tfvars.json`.
 
 Rules the list follows:
 
+- **Exact top-level filenames only** — no globs, no directory components.
+  bash and `fs` agree for free only while neither has to interpret anything; a
+  `*` or a `/` would be expanded by one and looked up literally by the other,
+  which is exactly the drift this module exists to prevent.
+  `assertTopLevelFileName` enforces this where the list is defined, and the
+  generated bash quotes every name.
 - Only names that are conventionally _gitignored_. Committed templates like
   `.env.example` are already in the worktree via the checkout.
 - Only files that are _configuration_. Anything that grants the launched agent
@@ -148,28 +154,24 @@ Rules the list follows:
   `.claude/settings.local.json` was considered and rejected on those grounds,
   since copying a permission allowlist would quietly widen what a
   `fullAccess: false` launch can do.
-- `*` is allowed in the final path segment only and never crosses a `/`. Globs
-  stay narrow — `.env*` would sweep up committed templates, and `*.tfvars`
-  would sweep up committed per-environment values. `assertSafeLocalConfigPattern`
-  enforces this grammar where the list is defined, so a future addition cannot
-  mean one thing to the bash launch path and another to the TypeScript one.
 - An existing destination is never overwritten. A fresh worktree contains
   exactly the tracked files, so a destination that already exists means the
   repo commits that name, and the checked-out revision's copy is the correct
   one — not the source checkout's possibly-dirty, possibly-different-branch
   version.
-- Symlinks are refused on both sides, because a checkout is data and a
-  repository may be untrusted. A symlinked _source_ would make every pattern a
-  read primitive pointing anywhere on disk (`.env -> ~/.ssh/id_rsa`); a
-  symlinked _destination_ would make every pattern a write primitive, and a
-  dangling link in particular passes an existence check, so it is tested for
-  explicitly. The directory components on each side are canonicalized and
-  required to stay inside their own root.
-- Nothing in this step can abort an agent launch. The generated bash guards
-  every command substitution, since a bare assignment failing under `set -e`
-  would kill the setup script before the agent starts.
-- Everything is best-effort: a missing source file is a no-op and an individual
-  copy failure is logged, not thrown.
+- Both sides are checked with `lstat` / `-L` rather than `stat` / `-e`, because
+  a checkout is data and a repository may be untrusted. Following a symlinked
+  _source_ would make every name a read primitive pointing anywhere on disk
+  (`.env -> ~/.ssh/id_rsa`); following a symlinked _destination_ would make
+  every name a write primitive, and a dangling link is the sharp case — it is
+  invisible to an existence check but `cp` still follows it.
+- Nothing in this step can abort an agent launch. The generated bash uses no
+  command substitution, since a bare assignment failing under `set -e` would
+  kill the setup script before the agent starts.
+
+Deliberately _not_ covered, because each would require globbing or a directory
+component: `*.auto.tfvars` (arbitrary prefix), Rails' `config/master.key`, and
+`.streamlit/secrets.toml`.
 
 Copying happens before the dependency install, so a gitignored `.npmrc` with a
 private-registry token is in place by the time `pnpm install` runs.

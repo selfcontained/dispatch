@@ -5,7 +5,7 @@ import {
   worktreePathSlug,
 } from "../../shared/git/worktree.js";
 import type { AgentType } from "../types.js";
-import { WORKTREE_LOCAL_CONFIG_PATTERNS } from "../worktree-local-config.js";
+import { WORKTREE_LOCAL_CONFIG_FILES } from "../worktree-local-config.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape, shellQuote } from "./quoting.js";
 
@@ -23,12 +23,12 @@ export type SetupScriptParams = {
   jobRunId?: string;
 };
 
-const localConfigPatternLines = WORKTREE_LOCAL_CONFIG_PATTERNS.map(
-  (pattern, index) => {
-    const isLast = index === WORKTREE_LOCAL_CONFIG_PATTERNS.length - 1;
-    return `        "$SRC_ROOT"/${pattern}${isLast ? "; do" : " \\"}`;
-  }
-);
+// Every name is a plain top-level filename, so each one is emitted fully
+// quoted and bash never interprets any of it. Nothing here globs.
+const localConfigFileLines = WORKTREE_LOCAL_CONFIG_FILES.map((name, index) => {
+  const isLast = index === WORKTREE_LOCAL_CONFIG_FILES.length - 1;
+  return `      ${shellEscape(name)}${isLast ? "; do" : " \\"}`;
+});
 
 /**
  * Generate the bash setup script that runs in the agent's tmux pane on
@@ -224,53 +224,28 @@ export function generateSetupScript(
       `    ${curlPhase("env")}`,
       `    phase "Copying environment files"`,
       `    SRC_ROOT=${shellEscape(originalCwd)}`,
-      // Bare assignments would abort the whole launch under errexit. The
-      // config copy is best-effort, so a failure to canonicalize either
-      // root must only skip the copying.
-      `    if ! WT_REAL=$(cd "$WT_PATH" 2>/dev/null && pwd -P); then WT_REAL=""; fi`,
-      `    if ! SRC_REAL=$(cd "$SRC_ROOT" 2>/dev/null && pwd -P); then SRC_REAL=""; fi`,
       `    COPIED_COUNT=0`,
       // Mirrors copyLocalConfigFiles() in agents/worktree-local-config.ts:
-      // refuse symlinks on both sides, keep each side's directories inside
-      // its own root, and never overwrite what the checkout produced.
+      // refuse symlinks on both sides and never overwrite what the
+      // checkout produced. `-L` is what catches a dangling destination
+      // link, which `-e` misses and `cp` would follow out of the worktree.
       `    copy_local_config() {`,
-      `      local rel="$1"`,
-      `      local src="$SRC_ROOT/$rel"`,
-      `      local dest="$WT_PATH/$rel"`,
+      `      local name="$1"`,
+      `      local src="$SRC_ROOT/$name"`,
+      `      local dest="$WT_PATH/$name"`,
       `      if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`,
-      `      local src_dir_real dest_dir dest_dir_real`,
-      `      if ! src_dir_real=$(cd "$(dirname "$src")" 2>/dev/null && pwd -P); then return 0; fi`,
-      `      case "$src_dir_real" in`,
-      `        "$SRC_REAL"|"$SRC_REAL"/*) ;;`,
-      `        *) warn "Skipped $rel — resolves outside the source repo"; return 0 ;;`,
-      `      esac`,
-      // -e alone misses a dangling symlink, which cp would then follow and
-      // create outside the worktree.
       `      if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`,
-      `      dest_dir=$(dirname "$dest")`,
-      `      if ! mkdir -p "$dest_dir" 2>/dev/null; then warn "Failed to copy $rel"; return 0; fi`,
-      `      if ! dest_dir_real=$(cd "$dest_dir" 2>/dev/null && pwd -P); then warn "Failed to copy $rel"; return 0; fi`,
-      `      case "$dest_dir_real" in`,
-      `        "$WT_REAL"|"$WT_REAL"/*) ;;`,
-      `        *) warn "Skipped $rel — resolves outside the worktree"; return 0 ;;`,
-      `      esac`,
       `      if cp "$src" "$dest" 2>/dev/null; then`,
-      `        ok "Copied $rel"`,
+      `        ok "Copied $name"`,
       `        COPIED_COUNT=$((COPIED_COUNT + 1))`,
       `      else`,
-      `        warn "Failed to copy $rel"`,
+      `        warn "Failed to copy $name"`,
       `      fi`,
       `    }`,
-      // Unmatched globs stay literal and fail the `-f` test above, so no
-      // nullglob juggling is needed here.
-      `    if [ -n "$WT_REAL" ] && [ -n "$SRC_REAL" ]; then`,
-      `      for CANDIDATE in \\`,
-      ...localConfigPatternLines,
-      `        copy_local_config "\${CANDIDATE#"$SRC_ROOT"/}"`,
-      `      done`,
-      `    else`,
-      `      warn "Could not resolve repo paths — skipping local config copy"`,
-      `    fi`,
+      `    for LOCAL_CONFIG_NAME in \\`,
+      ...localConfigFileLines,
+      `      copy_local_config "$LOCAL_CONFIG_NAME"`,
+      `    done`,
       `    if [ "$COPIED_COUNT" -eq 0 ]; then`,
       `      info "No local config files found — skipping"`,
       `    fi`,

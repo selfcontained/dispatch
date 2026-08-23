@@ -5,7 +5,7 @@ import {
   generateSetupScript,
   type SetupScriptParams,
 } from "../src/agents/tmux/setup-script.js";
-import { WORKTREE_LOCAL_CONFIG_PATTERNS } from "../src/agents/worktree-local-config.js";
+import { WORKTREE_LOCAL_CONFIG_FILES } from "../src/agents/worktree-local-config.js";
 
 const baseConfig: AppConfig = {
   host: "127.0.0.1",
@@ -186,26 +186,27 @@ describe("generateSetupScript — local config copy", () => {
     worktreeBranchName: "my-branch",
   };
 
-  // The tmux-mode bash and the inert-mode TypeScript copy files from the
-  // same list. Driving the script off WORKTREE_LOCAL_CONFIG_PATTERNS is
-  // what keeps the two launch paths from drifting apart.
-  it("emits every shared pattern as a glob candidate", () => {
+  // The tmux-mode bash and the inert-mode TypeScript copy the same files.
+  // Driving the script off WORKTREE_LOCAL_CONFIG_FILES is what keeps the
+  // two launch paths from drifting apart.
+  it("emits every shared filename, fully quoted so bash interprets none of it", () => {
     const script = generateSetupScript(baseConfig, worktreeParams);
-    for (const pattern of WORKTREE_LOCAL_CONFIG_PATTERNS) {
-      expect(script).toContain(`"$SRC_ROOT"/${pattern}`);
+    for (const name of WORKTREE_LOCAL_CONFIG_FILES) {
+      expect(script).toContain(`'${name}'`);
     }
+    expect(script).not.toContain("nullglob");
   });
 
   it("continues every candidate line but the last, so the for-loop is one command", () => {
     const script = generateSetupScript(baseConfig, worktreeParams);
     const loop = script.slice(
-      script.indexOf("for CANDIDATE in"),
-      script.indexOf("copy_local_config ")
+      script.indexOf("for LOCAL_CONFIG_NAME in"),
+      script.indexOf('copy_local_config "$LOCAL_CONFIG_NAME"')
     );
     const candidateLines = loop
       .split("\n")
-      .filter((line) => line.includes('"$SRC_ROOT"/'));
-    expect(candidateLines).toHaveLength(WORKTREE_LOCAL_CONFIG_PATTERNS.length);
+      .filter((line) => /^\s+'/.test(line));
+    expect(candidateLines).toHaveLength(WORKTREE_LOCAL_CONFIG_FILES.length);
     for (const line of candidateLines.slice(0, -1)) {
       // A single trailing backslash — `\\` would escape the backslash and
       // end the command at the newline.
@@ -230,30 +231,25 @@ describe("generateSetupScript — local config copy", () => {
     expect(script).toContain(
       `if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`
     );
-    expect(script).toContain("resolves outside the worktree");
   });
 
-  it("refuses symlinked sources and sources escaping the repo", () => {
+  it("refuses symlinked sources", () => {
     const script = generateSetupScript(baseConfig, worktreeParams);
     expect(script).toContain(
       `if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`
     );
-    expect(script).toContain("resolves outside the source repo");
   });
 
-  it("never lets a failed path canonicalization abort the launch", () => {
-    // Bare `VAR=$(...)` assignments exit the whole script under errexit,
-    // and this is a best-effort step running before the agent starts.
+  it("uses no command substitution, which errexit would turn into a failed launch", () => {
     const script = generateSetupScript(baseConfig, worktreeParams);
-    expect(script).toContain(
-      `if ! WT_REAL=$(cd "$WT_PATH" 2>/dev/null && pwd -P); then WT_REAL=""; fi`
+    const block = script.slice(
+      script.indexOf("# --- Copy local config files ---"),
+      script.indexOf("No local config files found")
     );
-    expect(script).toContain(
-      `if ! SRC_REAL=$(cd "$SRC_ROOT" 2>/dev/null && pwd -P); then SRC_REAL=""; fi`
-    );
-    expect(script).toContain(
-      "Could not resolve repo paths — skipping local config copy"
-    );
+    // Arithmetic expansion `$((...))` is fine — it is the command
+    // substitution form whose failure exits the script.
+    expect(block).not.toMatch(/\$\((?!\()/);
+    expect(block).not.toContain("`");
   });
 });
 
