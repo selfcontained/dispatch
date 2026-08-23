@@ -10,6 +10,10 @@ generated config, a log excerpt, a report — hand it over with `dispatch_share_
 It uploads the artifact into the Dispatch session, where it renders inline and
 stays attached to the conversation.
 
+If `dispatch_share_file` is not in your tool list, you are talking to a Dispatch
+server from before the rename — the same tool is registered there as
+`dispatch_share`, and everything below applies unchanged.
+
 **The failure this prevents:** writing the file to `/tmp` and pasting the path.
 That path is meaningless to a user reading the session in a browser, on a phone,
 or on a different machine from the one the agent is running on. A local path is

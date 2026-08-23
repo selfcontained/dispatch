@@ -529,34 +529,64 @@ export type McpRequestContext = {
  * agent context and split the model's choice, which is exactly what the
  * rename was meant to fix.
  *
- * Entries are cheap to keep; drop one only once no client can plausibly still
- * be holding the old name.
+ * Every entry carries its own removal trigger so the map cannot silently
+ * accumulate: `lastVersionWithOldName` is the release that still advertised
+ * the old name — anything at or below it can still be holding it — and
+ * `reviewAfter` is the date by which someone should check whether that is
+ * still plausible and drop the entry if not. Both are required, and
+ * `mcp-legacy-tool-aliases.test.ts` fails a new alias that omits either.
  */
-const LEGACY_TOOL_ALIASES: Record<string, string> = {
-  // Renamed 2026-08 so the name states the situation ("I have a file to share").
-  dispatch_share: "dispatch_share_file",
+type LegacyToolAlias = {
+  /** The tool the old name resolves to today. */
+  to: string;
+  /** Last Dispatch release whose `tools/list` still advertised the old name. */
+  lastVersionWithOldName: string;
+  /** ISO date after which this entry should be re-evaluated for removal. */
+  reviewAfter: string;
 };
+
+const LEGACY_TOOL_ALIASES = new Map<string, LegacyToolAlias>([
+  // Renamed so the name states the situation ("I have a file to share").
+  [
+    "dispatch_share",
+    {
+      to: "dispatch_share_file",
+      lastVersionWithOldName: "0.35.2",
+      reviewAfter: "2027-02-23",
+    },
+  ],
+]);
+
+/** The alias table, for tests and tooling that assert on its lifecycle fields. */
+export function legacyToolAliases(): ReadonlyMap<string, LegacyToolAlias> {
+  return LEGACY_TOOL_ALIASES;
+}
+
+/** Rewrites one JSON-RPC message, returning it unchanged when nothing applies. */
+function applyLegacyToolAliasesToMessage(message: unknown): unknown {
+  if (!message || typeof message !== "object") return message;
+  const request = message as { method?: unknown; params?: unknown };
+  if (request.method !== "tools/call") return message;
+  const params = request.params;
+  if (!params || typeof params !== "object") return message;
+  const name = (params as { name?: unknown }).name;
+  if (typeof name !== "string") return message;
+  // A Map, not an object literal: a plain-object lookup would resolve names
+  // like "constructor" through the prototype chain.
+  const alias = LEGACY_TOOL_ALIASES.get(name);
+  if (!alias) return message;
+  return { ...request, params: { ...(params as object), name: alias.to } };
+}
 
 /**
  * Rewrites legacy tool names in a `tools/call` request body. Accepts a single
- * JSON-RPC request or a batch, and leaves anything else untouched.
+ * JSON-RPC request or a batch, and leaves anything else untouched. A batch is
+ * one level deep by the spec, so this does not recurse — a body nested to
+ * arbitrary depth is data, not something to walk.
  */
 export function applyLegacyToolAliases(body: unknown): unknown {
-  if (Array.isArray(body))
-    return body.map((entry) => applyLegacyToolAliases(entry));
-  if (!body || typeof body !== "object") return body;
-  const message = body as {
-    method?: unknown;
-    params?: { name?: unknown } | unknown;
-  };
-  if (message.method !== "tools/call") return body;
-  const params = message.params;
-  if (!params || typeof params !== "object") return body;
-  const name = (params as { name?: unknown }).name;
-  if (typeof name !== "string") return body;
-  const renamed = LEGACY_TOOL_ALIASES[name];
-  if (!renamed) return body;
-  return { ...message, params: { ...(params as object), name: renamed } };
+  if (Array.isArray(body)) return body.map(applyLegacyToolAliasesToMessage);
+  return applyLegacyToolAliasesToMessage(body);
 }
 
 export async function handleMcpRequest(

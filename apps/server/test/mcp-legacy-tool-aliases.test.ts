@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { applyLegacyToolAliases } from "../src/shared/mcp/server.js";
+import {
+  applyLegacyToolAliases,
+  legacyToolAliases,
+} from "../src/shared/mcp/server.js";
 import { useInjectApp } from "./helpers/inject-app.js";
 
 vi.mock("../src/shared/lib/run-command.js", () => ({
@@ -51,6 +54,31 @@ describe("applyLegacyToolAliases", () => {
     ]) as Array<{ params?: { name?: string } }>;
     expect(result[0]!.params).toEqual({});
     expect(result[1]!.params?.name).toBe("dispatch_share_file");
+  });
+
+  it("does not resolve names through the prototype chain", () => {
+    for (const name of ["constructor", "toString", "hasOwnProperty"]) {
+      const body = {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/call",
+        params: { name },
+      };
+      expect(applyLegacyToolAliases(body)).toBe(body);
+    }
+  });
+
+  // A rename is only safe to undo once nobody can still be holding the old
+  // name, which nothing observes on its own — so every entry has to carry the
+  // trigger that says when to look.
+  it("requires a removal trigger on every alias", () => {
+    for (const [from, alias] of legacyToolAliases()) {
+      expect(from).not.toBe(alias.to);
+      expect(alias.to).toMatch(/^[a-z][a-z0-9_]*$/);
+      expect(alias.lastVersionWithOldName).toMatch(/^\d+\.\d+\.\d+$/);
+      expect(alias.reviewAfter).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      expect(Number.isNaN(Date.parse(alias.reviewAfter))).toBe(false);
+    }
   });
 
   it("tolerates malformed bodies", () => {
