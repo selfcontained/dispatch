@@ -23,8 +23,7 @@ export type SetupScriptParams = {
   jobRunId?: string;
 };
 
-// Every name is a plain top-level filename, so each one is emitted fully
-// quoted and bash never interprets any of it. Nothing here globs.
+// Fully quoted, so bash interprets none of it and nothing globs.
 const localConfigFileLines = WORKTREE_LOCAL_CONFIG_FILES.map((name, index) => {
   const isLast = index === WORKTREE_LOCAL_CONFIG_FILES.length - 1;
   return `      ${shellEscape(name)}${isLast ? "; do" : " \\"}`;
@@ -225,35 +224,23 @@ export function generateSetupScript(
       `    phase "Copying environment files"`,
       `    SRC_ROOT=${shellEscape(originalCwd)}`,
       `    COPIED_COUNT=0`,
-      // Mirrors copyLocalConfigFiles() in agents/worktree-local-config.ts,
-      // with one guarantee a shell cannot match. The destination half is
-      // equivalent: the exclusive create below settles existence, so there
-      // is no window to swap a link into.
-      //
-      // The source half is weaker. `-L` is a path test followed by a
-      // path-based read, so it refuses a checkout that *contains* a
-      // symlink — the realistic malicious-repo case — but not a process
-      // that swaps one in during the milliseconds of setup. Bash has no
-      // no-follow open: every read primitive (`cat`, `< redirect`, `read`)
-      // follows, and `cp -P` is worse, copying the link so the destination
-      // itself escapes. The inert path uses `O_NOFOLLOW` and has no such
-      // gap; closing it here would mean shelling out to node, which is not
-      // guaranteed on PATH for every agent type.
+      // Mirrors copyLocalConfigFiles() in agents/worktree-local-config.ts.
+      // The destination half is equivalent; the source half is weaker.
+      // `-L` is a path test before a path-based read, so it refuses a
+      // checkout that *contains* a symlink — the realistic case — but not
+      // one swapped in mid-setup. Bash has no no-follow open: every read
+      // primitive follows, and `cp -P` is worse, copying the link so the
+      // destination escapes.
       `    copy_local_config() {`,
       `      local name="$1"`,
       `      local src="$SRC_ROOT/$name"`,
       `      local dest="$WT_PATH/$name"`,
       `      if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`,
-      // Existence is settled by the exclusive create below, not here —
-      // testing first and copying second would leave a window in which a
-      // symlink could be installed and then followed out of the worktree.
-      // This test only keeps the common "repo commits this name" case
-      // from printing a scary warning.
+      // Not load-bearing: the exclusive create settles existence. This
+      // only keeps the common "repo commits this name" case quiet.
       `      if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`,
-      // `set -C` makes the redirect open with O_CREAT|O_EXCL, which fails
-      // for a regular file, a live symlink and a dangling one alike.
-      // `umask 077` lands the copy at 0600, matching what
-      // copyLocalConfigFiles() does with an explicit chmod.
+      // `set -C` makes the redirect O_CREAT|O_EXCL; `umask 077` matches
+      // the inert path's 0600.
       `      if (umask 077; set -C; cat "$src" > "$dest") 2>/dev/null; then`,
       `        ok "Copied $name"`,
       `        COPIED_COUNT=$((COPIED_COUNT + 1))`,
