@@ -232,10 +232,26 @@ export function generateSetupScript(
       // primitive follows, and `cp -P` is worse, copying the link so the
       // destination escapes.
       `    copy_local_config() {`,
-      `      local name="$1"`,
+      `      local name="$1" rc`,
       `      local src="$SRC_ROOT/$name"`,
       `      local dest="$WT_PATH/$name"`,
-      `      if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`,
+      `      if [ -L "$src" ]; then`,
+      `        warn "Skipped $name (symlink — copy the target instead)"`,
+      `        return 0`,
+      `      fi`,
+      `      if [ ! -f "$src" ]; then return 0; fi`,
+      // Only copy what git ignores in the worktree. A copied file that
+      // isn't ignored shows in `git status --porcelain`, which makes the
+      // agent read dirty, renders the file into the agent diff, keeps
+      // auto-cleanup from removing the worktree, and blocks a non-forced
+      // `git worktree remove`. `|| rc=$?` keeps errexit out of it; rc 128
+      // (not a git repo) falls through and copies, as before.
+      `      rc=0`,
+      `      git -C "$WT_PATH" check-ignore -q -- "$name" || rc=$?`,
+      `      if [ "$rc" -eq 1 ]; then`,
+      `        warn "Skipped $name (not gitignored — would leave the worktree dirty)"`,
+      `        return 0`,
+      `      fi`,
       // Not load-bearing: the exclusive create settles existence. This
       // only keeps the common "repo commits this name" case quiet.
       `      if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`,

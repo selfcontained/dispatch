@@ -37,11 +37,16 @@ beforeEach(async () => {
   await mkdir(originalCwd, { recursive: true });
   await mkdir(worktreePath, { recursive: true });
   vi.mocked(runCommand).mockReset();
-  // Default: any package-manager invocation succeeds with empty output.
-  vi.mocked(runCommand).mockResolvedValue({
-    exitCode: 0,
-    stdout: "",
-    stderr: "",
+  // Default: package-manager invocations succeed with empty output, and
+  // `git check-ignore` behaves like a repo that ignores every candidate
+  // (it echoes the matching paths, which is how the real command reports).
+  vi.mocked(runCommand).mockImplementation(async (_command, args) => {
+    const checkIgnore = args.indexOf("check-ignore");
+    return {
+      exitCode: 0,
+      stdout: checkIgnore === -1 ? "" : args.slice(checkIgnore + 2).join("\n"),
+      stderr: "",
+    };
   });
 });
 
@@ -118,7 +123,11 @@ describe("setupAgentWorkspace — auto deps install", () => {
   it("invokes no install command when no lockfile is present", async () => {
     await setupAgentWorkspace(originalCwd, worktreePath, noopLogger);
 
-    const calls = vi.mocked(runCommand).mock.calls;
+    // The local-config copy asks git which names are ignored; nothing else
+    // should run.
+    const calls = vi
+      .mocked(runCommand)
+      .mock.calls.filter(([command]) => command !== "git");
     expect(calls).toEqual([]);
   });
 
@@ -137,7 +146,10 @@ describe("setupAgentWorkspace — auto deps install", () => {
     } as unknown as import("fastify").FastifyBaseLogger;
 
     await writeFile(path.join(worktreePath, "pnpm-lock.yaml"), "");
-    vi.mocked(runCommand).mockRejectedValue(new Error("install crashed"));
+    vi.mocked(runCommand).mockImplementation(async (command) => {
+      if (command === "git") throw new Error("not a git repo");
+      throw new Error("install crashed");
+    });
 
     await expect(
       setupAgentWorkspace(originalCwd, worktreePath, logger)

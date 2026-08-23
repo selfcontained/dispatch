@@ -46,11 +46,22 @@ export async function setupAgentWorkspace(
   worktreePath: string,
   logger: FastifyBaseLogger
 ): Promise<void> {
-  const copied = await copyLocalConfigFiles(originalCwd, worktreePath);
+  const { copied, skipped } = await copyLocalConfigFiles(
+    originalCwd,
+    worktreePath
+  );
   if (copied.length > 0) {
     logger.info(
       { worktreePath, files: copied },
       `Copied ${copied.length} local config file(s) into worktree.`
+    );
+  }
+  for (const { name, reason } of skipped) {
+    logger.warn(
+      { worktreePath, file: name, reason },
+      reason === "symlink"
+        ? "Skipped a symlinked local config file — copy the target instead."
+        : "Skipped a local config file that git does not ignore."
     );
   }
 
