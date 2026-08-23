@@ -11,7 +11,7 @@ export function MediaContent() {
       <Section>
         <H3>Sharing files</H3>
         <P>
-          Agents call the <Code>dispatch_share</Code> tool with a{" "}
+          Agents call the <Code>dispatch_share_file</Code> tool with a{" "}
           <Code>filePath</Code> and a <Code>description</Code> to publish an
           existing file. Supported formats are PNG, JPG, GIF, WebP, MP4, PDF,
           and a wide range of text file extensions (txt, md, html, json, yaml,
@@ -33,18 +33,18 @@ export function MediaContent() {
       <Section>
         <H3>Updating shared media</H3>
         <P>
-          Every <Code>dispatch_share</Code> call returns a <Code>fileName</Code>
-          . Pass that back as the <Code>update</Code> parameter on a later call
-          to replace the existing file in place instead of creating a new entry
-          — useful for iterating on a screenshot or snippet without cluttering
-          the sidebar.
+          Every <Code>dispatch_share_file</Code> call returns a{" "}
+          <Code>fileName</Code>. Pass that back as the <Code>update</Code>{" "}
+          parameter on a later call to replace the existing file in place
+          instead of creating a new entry — useful for iterating on a screenshot
+          or snippet without cluttering the sidebar.
         </P>
       </Section>
 
       <Section>
         <H3>Simulator screenshots</H3>
         <P>
-          When <Code>dispatch_share</Code> is called with{" "}
+          When <Code>dispatch_share_file</Code> is called with{" "}
           <Code>source: "simulator"</Code>, it captures a screenshot from the
           iOS Simulator using <Code>xcrun simctl</Code> and shares the resulting
           PNG. <Code>simulatorUdid</Code> selects a specific simulator; it

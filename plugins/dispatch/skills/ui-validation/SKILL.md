@@ -19,7 +19,7 @@ including ones that "obviously can't break anything".
    starting a server by hand.
 2. **Drive the changed path**, don't just load the page.
 3. **Screenshot the meaningful states.**
-4. **Share them with `dispatch_share`** — see the `sharing` skill. A screenshot
+4. **Share them with `dispatch_share_file`** — see the `sharing` skill. A screenshot
    left on disk was never delivered.
 5. **`browser_close` when done.** Leaving browsers open wastes resources,
    especially on headless machines. Close before your final status event.

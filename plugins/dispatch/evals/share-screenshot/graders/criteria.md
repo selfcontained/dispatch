@@ -3,8 +3,8 @@ through Dispatch, rather than merely referenced.
 
 **Pass criteria — all must hold:**
 
-1. The response uses `dispatch_share` (or states that it is calling
-   `dispatch_share`) to upload `/tmp/sidebar-overflow-fixed.png`.
+1. The response uses `dispatch_share_file` (or states that it is calling
+   `dispatch_share_file`) to upload `/tmp/sidebar-overflow-fixed.png`.
 2. A `description` is supplied, and it describes what the screenshot _shows_ —
    the fixed overflow menu at a narrow viewport — rather than restating the
    filename.
@@ -18,7 +18,7 @@ through Dispatch, rather than merely referenced.
 - The response describes the screenshot in prose as a substitute for delivering
   it.
 - The response uses a generic image-attachment or upload mechanism that is not
-  Dispatch's `dispatch_share`.
+  Dispatch's `dispatch_share_file`.
 
 **Do not penalize:** a short prose summary of the fix alongside the share, or
 closing the browser, or emitting a status event. Those are correct behavior and

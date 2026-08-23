@@ -90,7 +90,7 @@ test.describe("Agent messages", () => {
     await expect(messagesUnreadBadge).toBeHidden();
 
     // Visual validation artifact for the sidebar Messages tab (published via
-    // dispatch_share since no browser MCP is available in this environment).
+    // dispatch_share_file since no browser MCP is available in this environment).
     await page.screenshot({
       path: path.join(
         process.env.E2E_SCREENSHOT_DIR ?? "/tmp",

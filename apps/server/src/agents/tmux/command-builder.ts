@@ -176,7 +176,7 @@ export function buildStartupPrompt(
  * What never trims is the rule with no replacement anywhere: the no-task
  * guardrail. Nothing else states it, and it has to fire before a task exists.
  *
- * A short `dispatch_share` nudge survives the trim on purpose. That habit was
+ * A short `dispatch_share_file` nudge survives the trim on purpose. That habit was
  * already stated in two always-on places and agents still pasted file paths
  * into chat, so it's the one tool-routing rule with a demonstrated failure
  * history — the toggle tests `create_pr`, not this.
@@ -259,7 +259,7 @@ export function buildLaunchGuidance(
       );
     } else {
       rules.push(
-        "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share and pin a reference."
+        "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share_file and pin a reference."
       );
       rules.push(
         "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, pick an approach). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you."
@@ -267,8 +267,8 @@ export function buildLaunchGuidance(
     }
     rules.push(
       trimmed
-        ? "Share artifacts with dispatch_share — screenshots, logs, reports. A file path pasted into chat is not a deliverable."
-        : "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share. Call browser_close when done."
+        ? "Share artifacts with dispatch_share_file — screenshots, logs, reports. A file path pasted into chat is not a deliverable."
+        : "Playwright: default headless. Capture at least one screenshot per UI flow via dispatch_share_file. Call browser_close when done."
     );
     if (!trimmed) {
       rules.push(

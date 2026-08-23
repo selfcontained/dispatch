@@ -53,14 +53,14 @@ export function PersonasContent() {
         </P>
         <P>
           Persona agents also have <Code>dispatch_pin</Code> and{" "}
-          <Code>dispatch_share</Code> for surfacing files or screenshots, and{" "}
-          <Code>dispatch_list_media</Code> to inspect what has been shared with
-          them. Each media item includes an absolute <Code>filePath</Code> and{" "}
-          <Code>sizeBytes</Code> so reviewers can open or inspect the artifact
-          directly — useful for doc-centric review flows. Reviewers also have{" "}
-          <Code>whiteboard_get</Code> to read their own whiteboard tab — sketch
-          on it to hand the reviewer a diagram — though unlike standard agents
-          they cannot draw back.
+          <Code>dispatch_share_file</Code> for surfacing files or screenshots,
+          and <Code>dispatch_list_media</Code> to inspect what has been shared
+          with them. Each media item includes an absolute <Code>filePath</Code>{" "}
+          and <Code>sizeBytes</Code> so reviewers can open or inspect the
+          artifact directly — useful for doc-centric review flows. Reviewers
+          also have <Code>whiteboard_get</Code> to read their own whiteboard tab
+          — sketch on it to hand the reviewer a diagram — though unlike standard
+          agents they cannot draw back.
         </P>
       </Section>
 

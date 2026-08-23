@@ -712,7 +712,7 @@ describe("buildAgentCommand — host-env reads (process.env / process.platform)"
 
 describe("buildLaunchGuidance — trimmed variant", () => {
   const PLAYWRIGHT_RULE = "Playwright: default headless.";
-  const SHARE_NUDGE = "Share artifacts with dispatch_share";
+  const SHARE_NUDGE = "Share artifacts with dispatch_share_file";
   const CREATE_PR_RULE = "use the create_pr MCP tool";
   // Reactive clauses Dispatch re-injects when they apply — dropped for
   // everyone, toggle or not.
@@ -762,7 +762,7 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     expect(text).toContain(CREATE_PR_RULE);
   });
 
-  it("swaps the Playwright rule for a short dispatch_share nudge when trimmed", () => {
+  it("swaps the Playwright rule for a short dispatch_share_file nudge when trimmed", () => {
     const text = guidance({
       agentType: "claude",
       suggestSessionRename: true,
@@ -831,7 +831,7 @@ describe("buildLaunchGuidance — trimmed variant", () => {
       "dispatch_event",
       "dispatch_pin",
       "shortcut pins",
-      "dispatch_share",
+      "dispatch_share_file",
     ]) {
       expect(text).toContain(tool);
     }

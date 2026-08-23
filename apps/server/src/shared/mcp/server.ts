@@ -122,7 +122,7 @@ const AGENT_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_pins",
   "dispatch_delete_pin",
-  "dispatch_share",
+  "dispatch_share_file",
   "dispatch_list_media",
   "dispatch_delete_media",
   "dispatch_list_pins",
@@ -188,7 +188,7 @@ const JOB_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_pins",
   "dispatch_delete_pin",
-  "dispatch_share",
+  "dispatch_share_file",
   "dispatch_list_media",
   "dispatch_delete_media",
   "dispatch_list_pins",
@@ -244,7 +244,7 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_pin",
   "dispatch_pins",
   "dispatch_delete_pin",
-  "dispatch_share",
+  "dispatch_share_file",
   "dispatch_list_media",
   "dispatch_delete_media",
   "dispatch_list_pins",
@@ -518,6 +518,47 @@ export type McpRequestContext = {
   publishBrainChanged?: (repoRoot: string) => void;
 };
 
+/**
+ * Old tool names that still resolve to their current tool.
+ *
+ * A rename is invisible to an agent that already fetched `tools/list`: a
+ * session started before the server was upgraded keeps calling the old name,
+ * as does any agent following a stale copy of the shipped plugin's skills.
+ * Rewriting the name on the way in keeps those calls working without listing
+ * the old name — a deprecated duplicate in `tools/list` would cost every
+ * agent context and split the model's choice, which is exactly what the
+ * rename was meant to fix.
+ *
+ * Entries are cheap to keep; drop one only once no client can plausibly still
+ * be holding the old name.
+ */
+const LEGACY_TOOL_ALIASES: Record<string, string> = {
+  // Renamed 2026-08 so the name states the situation ("I have a file to share").
+  dispatch_share: "dispatch_share_file",
+};
+
+/**
+ * Rewrites legacy tool names in a `tools/call` request body. Accepts a single
+ * JSON-RPC request or a batch, and leaves anything else untouched.
+ */
+export function applyLegacyToolAliases(body: unknown): unknown {
+  if (Array.isArray(body))
+    return body.map((entry) => applyLegacyToolAliases(entry));
+  if (!body || typeof body !== "object") return body;
+  const message = body as {
+    method?: unknown;
+    params?: { name?: unknown } | unknown;
+  };
+  if (message.method !== "tools/call") return body;
+  const params = message.params;
+  if (!params || typeof params !== "object") return body;
+  const name = (params as { name?: unknown }).name;
+  if (typeof name !== "string") return body;
+  const renamed = LEGACY_TOOL_ALIASES[name];
+  if (!renamed) return body;
+  return { ...message, params: { ...(params as object), name: renamed } };
+}
+
 export async function handleMcpRequest(
   req: IncomingMessage,
   res: ServerResponse,
@@ -528,6 +569,8 @@ export async function handleMcpRequest(
     worktreeRoot: null,
   }
 ): Promise<void> {
+  const body =
+    parsedBody === undefined ? parsedBody : applyLegacyToolAliases(parsedBody);
   const server = await createDispatchMcpServer(context);
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
@@ -538,7 +581,7 @@ export async function handleMcpRequest(
   });
 
   await server.connect(transport);
-  await transport.handleRequest(req, res, parsedBody);
+  await transport.handleRequest(req, res, body);
 }
 
 async function createDispatchMcpServer(
@@ -590,7 +633,7 @@ async function createDispatchMcpServer(
   if (allowed.has("dispatch_pins")) registerBatchPinTool(server, context);
   if (allowed.has("dispatch_delete_pin"))
     registerDeletePinTool(server, context);
-  if (allowed.has("dispatch_share")) registerShareTool(server, context);
+  if (allowed.has("dispatch_share_file")) registerShareTool(server, context);
   // ── Persona launch and unified review tools ───────────────────────
   if (context.agent) {
     registerPersonaInteractionTools(server, allowed, {
@@ -994,7 +1037,7 @@ function registerShareTool(
   const shareMedia = context.shareMedia;
 
   server.registerTool(
-    "dispatch_share",
+    "dispatch_share_file",
     {
       description:
         "Upload a media file or text snippet to Dispatch for sharing. Supports images (png/jpg/jpeg/gif/webp), video (mp4), documents (pdf), and text files (txt/md/json/yaml/ts/py/go/rs/sh/sql/etc). Use source 'simulator' to capture from an iOS Simulator. For text snippets, pass content directly with a name (e.g. name='config.yaml') instead of writing to a file first. To update a previously shared file, pass its fileName (from the original response) in the 'update' parameter.",
@@ -1036,7 +1079,7 @@ function registerShareTool(
           .string()
           .optional()
           .describe(
-            "fileName of an existing shared media file to update (returned from a previous dispatch_share call). When set, the file content is replaced instead of creating a new file."
+            "fileName of an existing shared media file to update (returned from a previous dispatch_share_file call). When set, the file content is replaced instead of creating a new file."
           ),
       },
     },
