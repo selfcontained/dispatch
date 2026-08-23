@@ -24,7 +24,11 @@
   --input: 40 10% 18%;
   --ring: 192 85% 64%;
   /* Text accents for markdown h1/h2 — deliberately not --primary, so
-     headings don't read as links. */
+     headings don't read as links. Derivation rule for new themes: accent-1
+     mirrors this theme's --chart-2, accent-2 mirrors --status-reviewing.
+     If either collides with --primary or with each other here, borrow the
+     nearest distinct chart slot instead and say why in a comment (see the
+     mytra, solarized-light, and catppuccin-mocha blocks for examples). */
   --heading-accent-1: 45 96% 64%;
   --heading-accent-2: 210 80% 62%;
 
@@ -376,6 +380,10 @@
   --border: 225 10% 21%;
   --input: 225 10% 21%;
   --ring: 244 100% 69%;
+  /* accent-1 borrows --chart-3 (cyan) instead of the usual --chart-2 donor:
+     this theme's --chart-2 (229 57% 71%, periwinkle) sits too close to both
+     --primary (244) and --status-done. accent-2 follows the usual
+     --status-reviewing donor without issue. */
   --heading-accent-1: 186 58% 58%;
   --heading-accent-2: 290 70% 74%;
 
@@ -418,6 +426,11 @@
   --border: 46 30% 80%;
   --input: 46 30% 80%;
   --ring: 205 82% 45%;
+  /* accent-2 borrows --chart-4 (magenta) instead of the usual
+     --status-reviewing donor: this theme's --status-reviewing
+     (237 43% 52%, indigo) sits too close to --primary (205 82% 45%, blue)
+     on this light background. accent-1 follows the usual --chart-2 donor
+     without issue. */
   --heading-accent-1: 45 100% 35%;
   --heading-accent-2: 331 64% 52%;
 
