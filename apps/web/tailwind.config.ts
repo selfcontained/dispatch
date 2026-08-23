@@ -49,6 +49,8 @@ export default {
           5: "hsl(var(--chart-5) / <alpha-value>)",
           6: "hsl(var(--chart-6) / <alpha-value>)",
         },
+        "heading-accent-1": "hsl(var(--heading-accent-1) / <alpha-value>)",
+        "heading-accent-2": "hsl(var(--heading-accent-2) / <alpha-value>)",
       },
       borderRadius: {
         lg: "0.75rem",

@@ -23,6 +23,10 @@
   --border: 40 10% 18%;
   --input: 40 10% 18%;
   --ring: 192 85% 64%;
+  /* Text accents for markdown h1/h2 — deliberately not --primary, so
+     headings don't read as links. */
+  --heading-accent-1: 45 96% 64%;
+  --heading-accent-2: 210 80% 62%;
 
   /* Semantic status colors */
   --status-working: 158 64% 52%;
@@ -72,6 +76,8 @@
   --border: 220 11% 21%;
   --input: 220 11% 21%;
   --ring: 207 100% 67%;
+  --heading-accent-2: 270 80% 72%;
+  --heading-accent-1: 55 87% 63%;
 
   --status-working: 150 57% 59%;
   --status-blocked: 330 100% 68%;
@@ -112,6 +118,8 @@
   --border: 0 0% 14%;
   --input: 0 0% 14%;
   --ring: 160 84% 39%;
+  --heading-accent-2: 210 90% 65%;
+  --heading-accent-1: 45 93% 58%;
 
   --status-working: 160 72% 52%;
   --status-blocked: 0 84% 60%;
@@ -152,6 +160,8 @@
   --border: 192 40% 23%;
   --input: 192 40% 23%;
   --ring: 205 82% 45%;
+  --heading-accent-2: 285 65% 62%;
+  --heading-accent-1: 45 100% 35%;
 
   --status-working: 68 100% 30%;
   --status-blocked: 1 71% 52%;
@@ -192,6 +202,8 @@
   --border: 208 20% 85%;
   --input: 208 20% 85%;
   --ring: 153 78% 27%;
+  --heading-accent-2: 262 72% 50%;
+  --heading-accent-1: 46 97% 42%;
 
   --status-working: 142 71% 35%;
   --status-blocked: 0 72% 51%;
@@ -238,6 +250,8 @@
   --border: 262 30% 18%;
   --input: 262 30% 18%;
   --ring: 191 99% 50%;
+  --heading-accent-2: 268 80% 72%;
+  --heading-accent-1: 57 100% 79%;
 
   --status-working: 160 100% 50%;
   --status-blocked: 325 100% 62%;
@@ -278,6 +292,8 @@
   --border: 220 11% 14%;
   --input: 220 11% 14%;
   --ring: 207 100% 67%;
+  --heading-accent-2: 270 80% 74%;
+  --heading-accent-1: 55 87% 63%;
 
   --status-working: 150 57% 59%;
   --status-blocked: 330 100% 68%;
@@ -318,6 +334,8 @@
   --border: 137 24% 16%;
   --input: 137 24% 16%;
   --ring: 136 100% 71%;
+  --heading-accent-2: 185 80% 62%;
+  --heading-accent-1: 46 52% 54%;
 
   --status-working: 136 100% 71%;
   --status-blocked: 0 49% 44%;
@@ -358,6 +376,8 @@
   --border: 225 10% 21%;
   --input: 225 10% 21%;
   --ring: 244 100% 69%;
+  --heading-accent-2: 290 70% 74%;
+  --heading-accent-1: 186 58% 58%;
 
   --status-working: 186 58% 58%;
   --status-blocked: 354 52% 61%;
@@ -398,6 +418,8 @@
   --border: 46 30% 80%;
   --input: 46 30% 80%;
   --ring: 205 82% 45%;
+  --heading-accent-2: 331 64% 52%;
+  --heading-accent-1: 45 100% 35%;
 
   --status-working: 68 100% 30%;
   --status-blocked: 1 71% 52%;
@@ -444,6 +466,11 @@
   --border: 234 13% 31%;
   --input: 234 13% 31%;
   --ring: 267 84% 81%;
+  /* status-reviewing matches --primary in this theme, so borrow the peach
+     chart accent instead — still distinct from the lavender primary/link
+     color. */
+  --heading-accent-2: 41 86% 83%;
+  --heading-accent-1: 170 57% 73%;
 
   --status-working: 115 54% 76%;
   --status-blocked: 343 81% 75%;
@@ -484,6 +511,8 @@
   --border: 220 14% 80%;
   --input: 220 14% 80%;
   --ring: 217 100% 42%;
+  --heading-accent-2: 270 70% 35%;
+  --heading-accent-1: 30 100% 35%;
 
   --status-working: 153 80% 27%;
   --status-blocked: 350 86% 42%;

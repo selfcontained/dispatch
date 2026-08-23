@@ -141,14 +141,32 @@ function MarkdownDefault({
       className={cn(
         "prose prose-sm max-w-none",
         // Use theme CSS variables for colors so it works across all themes
-        "text-foreground prose-headings:text-foreground prose-strong:text-foreground",
+        "text-foreground prose-strong:text-foreground",
         "prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5",
         "prose-headings:mt-3 prose-headings:mb-1",
+        // Give each heading level its own color, not just size/weight — a
+        // file that's mostly headings and short paragraphs needs more than
+        // a size bump to skim, especially at prose-sm sizes where h2/h3
+        // are close together. h1/h2 use dedicated --heading-accent-1/-2
+        // tokens rather than --primary, so a heading is never mistaken for
+        // a link at a glance.
+        "prose-h1:text-heading-accent-1",
+        "prose-h2:text-heading-accent-2",
+        "prose-h3:text-muted-foreground prose-h4:text-muted-foreground prose-h5:text-muted-foreground prose-h6:text-muted-foreground",
         "prose-pre:bg-muted prose-pre:rounded-md prose-pre:p-2 prose-pre:text-xs prose-pre:overflow-x-auto",
         "prose-code:text-xs prose-code:text-foreground prose-code:bg-muted prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:break-words prose-code:[overflow-wrap:anywhere]",
         "prose-code:before:content-none prose-code:after:content-none",
         "prose-a:text-primary prose-a:underline",
         "prose-li:text-foreground prose-li:marker:text-muted-foreground",
+        // Typography's default blockquote/hr/table colors are a fixed
+        // light-mode gray scale (e.g. text-gray-900 quotes), which reads as
+        // near-invisible against a dark theme's background. Route them
+        // through the same theme variables as everything else above.
+        "prose-blockquote:text-muted-foreground prose-blockquote:border-border",
+        "prose-hr:border-border",
+        "prose-th:text-foreground prose-th:border-border",
+        "prose-td:border-border",
+        "prose-thead:border-border",
         className
       )}
     >
