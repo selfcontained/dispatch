@@ -240,6 +240,13 @@ export function generateSetupScript(
       `        return 0`,
       `      fi`,
       `      if [ ! -f "$src" ]; then return 0; fi`,
+      // Not load-bearing: the exclusive create settles existence. This
+      // only keeps the common "repo commits this name" case quiet.
+      // Before the ignore check: `check-ignore` is index-aware and never
+      // reports a tracked path as ignored, so a repo that commits one of
+      // these would otherwise be warned about a file the checkout already
+      // placed correctly.
+      `      if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`,
       // Only copy what git ignores in the worktree. A copied file that
       // isn't ignored shows in `git status --porcelain`, which makes the
       // agent read dirty, renders the file into the agent diff, keeps
@@ -252,9 +259,6 @@ export function generateSetupScript(
       `        warn "Skipped $name (not gitignored — would leave the worktree dirty)"`,
       `        return 0`,
       `      fi`,
-      // Not load-bearing: the exclusive create settles existence. This
-      // only keeps the common "repo commits this name" case quiet.
-      `      if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`,
       // `set -C` makes the redirect O_CREAT|O_EXCL; `umask 077` matches
       // the inert path's 0600.
       `      if (umask 077; set -C; cat "$src" > "$dest") 2>/dev/null; then`,

@@ -180,4 +180,27 @@ describe("copyLocalConfigFiles", () => {
     const status = await git(worktreePath, "status", "--porcelain");
     expect(status).toBe("");
   });
+
+  it("stays quiet about a name the repo commits despite ignoring it", async () => {
+    // `check-ignore` is index-aware: a tracked path is never reported as
+    // ignored, even with a matching .gitignore line. That file is already
+    // in the worktree from the checkout, so warning about it every launch
+    // would be noise about something that is already correct.
+    await git(worktreePath, "init", "-qb", "main");
+    await git(worktreePath, "config", "user.email", "t@t");
+    await git(worktreePath, "config", "user.name", "t");
+    await writeFile(path.join(worktreePath, ".gitignore"), ".env\n.npmrc\n");
+    await writeFile(dest(".npmrc"), "FROM_GIT\n");
+    await git(worktreePath, "add", "-f", ".gitignore", ".npmrc");
+    await git(worktreePath, "commit", "-qm", "init");
+    await writeSource(".npmrc", "FROM_SOURCE\n");
+    await writeSource("local.settings.json", "{}\n");
+
+    await expect(copy()).resolves.toEqual({
+      copied: [],
+      // Only the name that is genuinely absent and unignored is reported.
+      skipped: [{ name: "local.settings.json", reason: "not-ignored" }],
+    });
+    await expect(readFile(dest(".npmrc"), "utf-8")).resolves.toBe("FROM_GIT\n");
+  });
 });

@@ -1,4 +1,4 @@
-import { constants, open } from "node:fs/promises";
+import { constants, lstat, open } from "node:fs/promises";
 import path from "node:path";
 
 import { runCommand } from "../shared/lib/run-command.js";
@@ -153,7 +153,14 @@ export async function copyLocalConfigFiles(
       const stats = await sourceHandle.stat();
       if (!stats.isFile()) continue;
       if (ignored && !ignored.has(name)) {
-        skipped.push({ name, reason: "not-ignored" });
+        // `check-ignore` is index-aware and never reports a *tracked* path
+        // as ignored, so a repo that commits one of these lands here. That
+        // file is already in the worktree from the checkout, which is the
+        // right outcome — report only when it genuinely isn't there. This
+        // `lstat` decides wording, never whether to write: the copy itself
+        // is still settled by the exclusive create below.
+        const present = await lstat(destination).catch(() => null);
+        if (!present) skipped.push({ name, reason: "not-ignored" });
         continue;
       }
       const contents = await sourceHandle.readFile();
