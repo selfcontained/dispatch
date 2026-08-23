@@ -1,4 +1,4 @@
-import { constants, open, unlink } from "node:fs/promises";
+import { constants, open } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -163,9 +163,11 @@ export async function copyLocalConfigFiles(
         await destinationHandle.writeFile(contents);
         copied.push(name);
       } catch {
-        // Don't leave a truncated secret behind. `unlink` does not follow
-        // symlinks, so this can only remove the entry we just created.
-        await unlink(destination).catch(() => {});
+        // Don't leave a truncated secret behind. Truncating through the
+        // descriptor keeps this anchored to the file we created — a
+        // path-based unlink here could remove a different entry that
+        // replaced ours in the meantime.
+        await destinationHandle.truncate(0).catch(() => {});
       } finally {
         await destinationHandle.close();
       }
