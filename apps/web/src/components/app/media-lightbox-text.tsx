@@ -89,7 +89,7 @@ export function MarkdownViewer({ src }: { src: string }): JSX.Element {
 
   return (
     <div className="h-full overflow-auto bg-background p-4">
-      <Markdown>{content}</Markdown>
+      <Markdown headingAccents>{content}</Markdown>
     </div>
   );
 }

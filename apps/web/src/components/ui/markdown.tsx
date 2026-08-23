@@ -33,12 +33,19 @@ type MarkdownProps = {
   children: string;
   className?: string;
   variant?: "default" | "pin" | "caption";
+  // Colors h1/h2 for skimming a long document (see MarkdownDefault). Off by
+  // default: most `default`-variant consumers are compact cards that pass
+  // their own dimmed base color (e.g. text-muted-foreground, text-foreground/85)
+  // and a full-opacity accent heading would fight that. Opt in for a
+  // dedicated document-reading surface like the lightbox.
+  headingAccents?: boolean;
 };
 
 export function Markdown({
   children,
   className,
   variant = "default",
+  headingAccents = false,
 }: MarkdownProps): JSX.Element {
   if (variant === "pin") {
     return <MarkdownPin className={className}>{children}</MarkdownPin>;
@@ -48,7 +55,11 @@ export function Markdown({
     return <MarkdownCaption className={className}>{children}</MarkdownCaption>;
   }
 
-  return <MarkdownDefault className={className}>{children}</MarkdownDefault>;
+  return (
+    <MarkdownDefault className={className} headingAccents={headingAccents}>
+      {children}
+    </MarkdownDefault>
+  );
 }
 
 /**
@@ -133,7 +144,11 @@ function MarkdownPin({
 function MarkdownDefault({
   children,
   className,
-}: Pick<MarkdownProps, "children" | "className">): JSX.Element {
+  headingAccents = false,
+}: Pick<
+  MarkdownProps,
+  "children" | "className" | "headingAccents"
+>): JSX.Element {
   const mermaidTheme = useMermaidTheme();
 
   return (
@@ -144,11 +159,36 @@ function MarkdownDefault({
         "text-foreground prose-headings:text-foreground prose-strong:text-foreground",
         "prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5",
         "prose-headings:mt-3 prose-headings:mb-1",
+        // Color h1/h2 for skimming a long document — a file that's mostly
+        // headings and short paragraphs needs more than a size bump,
+        // especially at prose-sm sizes where h2/h3 are close together. Uses
+        // dedicated --heading-accent-1/-2 tokens rather than --primary, so a
+        // heading is never mistaken for a link at a glance. h3-h6 stay on
+        // the prose-headings:text-foreground rule above — size and weight
+        // carry those levels instead. `prose-h1:`/`prose-h2:` sort after
+        // `prose-headings:` in the generated stylesheet regardless of
+        // className order, so these win over the shared rule for just
+        // those two levels.
+        headingAccents && "prose-h1:text-heading-accent-1",
+        headingAccents && "prose-h2:text-heading-accent-2",
         "prose-pre:bg-muted prose-pre:rounded-md prose-pre:p-2 prose-pre:text-xs prose-pre:overflow-x-auto",
         "prose-code:text-xs prose-code:text-foreground prose-code:bg-muted prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:break-words prose-code:[overflow-wrap:anywhere]",
         "prose-code:before:content-none prose-code:after:content-none",
         "prose-a:text-primary prose-a:underline",
         "prose-li:text-foreground prose-li:marker:text-muted-foreground",
+        // Typography's default blockquote/hr/table colors are a fixed
+        // light-mode gray scale (e.g. text-gray-900 quotes), which reads as
+        // near-invisible against a dark theme's background. Route them
+        // through the same theme variables as everything else above.
+        "prose-blockquote:text-muted-foreground prose-blockquote:border-border",
+        "prose-hr:border-border",
+        // Typography borders thead/tbody-tr, not th/td directly — a
+        // prose-th:/prose-td:border-border override is a silent no-op
+        // (no border-width to color). prose-thead: covers the header rule,
+        // prose-tr: covers per-row dividers.
+        "prose-th:text-foreground",
+        "prose-thead:border-border",
+        "prose-tr:border-border",
         className
       )}
     >

@@ -23,6 +23,20 @@
   --border: 40 10% 18%;
   --input: 40 10% 18%;
   --ring: 192 85% 64%;
+  /* Text accents for markdown h1/h2 — deliberately not --primary, so
+     headings don't read as links. Derivation rule for new themes: accent-1
+     mirrors this theme's --chart-2, accent-2 mirrors --status-reviewing.
+     If either collides with --primary or with each other here, borrow the
+     nearest distinct chart slot instead and say why in a comment (see the
+     mytra and catppuccin-mocha blocks for examples). Check contrast against
+     --background (and --card/--muted, since MarkdownDefault can render
+     there too) before shipping a new value — amber/gold hues in particular
+     read much lighter than their HSL lightness suggests, so a donor tuned
+     for a chart fill can fail WCAG's 3:1 floor as heading text on a light
+     background (see the light and solarized-light blocks, which darken
+     accent-1 well below its chart-2 donor for exactly this reason). */
+  --heading-accent-1: 45 96% 64%;
+  --heading-accent-2: 210 80% 62%;
 
   /* Semantic status colors */
   --status-working: 158 64% 52%;
@@ -72,6 +86,8 @@
   --border: 220 11% 21%;
   --input: 220 11% 21%;
   --ring: 207 100% 67%;
+  --heading-accent-1: 55 87% 63%;
+  --heading-accent-2: 270 80% 72%;
 
   --status-working: 150 57% 59%;
   --status-blocked: 330 100% 68%;
@@ -112,6 +128,8 @@
   --border: 0 0% 14%;
   --input: 0 0% 14%;
   --ring: 160 84% 39%;
+  --heading-accent-1: 45 93% 58%;
+  --heading-accent-2: 210 90% 65%;
 
   --status-working: 160 72% 52%;
   --status-blocked: 0 84% 60%;
@@ -152,6 +170,8 @@
   --border: 192 40% 23%;
   --input: 192 40% 23%;
   --ring: 205 82% 45%;
+  --heading-accent-1: 45 100% 35%;
+  --heading-accent-2: 285 65% 62%;
 
   --status-working: 68 100% 30%;
   --status-blocked: 1 71% 52%;
@@ -192,6 +212,13 @@
   --border: 208 20% 85%;
   --input: 208 20% 85%;
   --ring: 153 78% 27%;
+  /* accent-1 is darkened well below the usual --chart-2 donor (46 97% 42%):
+     amber/gold hues carry deceptively high relative luminance at moderate
+     HSL lightness, so the donor value only reached 1.94:1 against this
+     light background — badly failing WCAG's 3:1 floor for large text. L26%
+     clears 4.5:1. */
+  --heading-accent-1: 46 97% 26%;
+  --heading-accent-2: 262 72% 50%;
 
   --status-working: 142 71% 35%;
   --status-blocked: 0 72% 51%;
@@ -238,6 +265,8 @@
   --border: 262 30% 18%;
   --input: 262 30% 18%;
   --ring: 191 99% 50%;
+  --heading-accent-1: 57 100% 79%;
+  --heading-accent-2: 268 80% 72%;
 
   --status-working: 160 100% 50%;
   --status-blocked: 325 100% 62%;
@@ -278,6 +307,8 @@
   --border: 220 11% 14%;
   --input: 220 11% 14%;
   --ring: 207 100% 67%;
+  --heading-accent-1: 55 87% 63%;
+  --heading-accent-2: 270 80% 74%;
 
   --status-working: 150 57% 59%;
   --status-blocked: 330 100% 68%;
@@ -318,6 +349,8 @@
   --border: 137 24% 16%;
   --input: 137 24% 16%;
   --ring: 136 100% 71%;
+  --heading-accent-1: 46 52% 54%;
+  --heading-accent-2: 185 80% 62%;
 
   --status-working: 136 100% 71%;
   --status-blocked: 0 49% 44%;
@@ -358,6 +391,12 @@
   --border: 225 10% 21%;
   --input: 225 10% 21%;
   --ring: 244 100% 69%;
+  /* accent-1 borrows --chart-3 (cyan) instead of the usual --chart-2 donor:
+     this theme's --chart-2 (229 57% 71%, periwinkle) sits too close to both
+     --primary (244) and --status-done. accent-2 follows the usual
+     --status-reviewing donor without issue. */
+  --heading-accent-1: 186 58% 58%;
+  --heading-accent-2: 290 70% 74%;
 
   --status-working: 186 58% 58%;
   --status-blocked: 354 52% 61%;
@@ -398,6 +437,18 @@
   --border: 46 30% 80%;
   --input: 46 30% 80%;
   --ring: 205 82% 45%;
+  /* accent-2 borrows --chart-4 (magenta) instead of the usual
+     --status-reviewing donor: this theme's --status-reviewing
+     (237 43% 52%, indigo) sits too close to --primary (205 82% 45%, blue)
+     on this light background. accent-1 follows the usual --chart-2 donor
+     hue/saturation, but darkened well below its L35% value: amber/gold
+     hues carry deceptively high relative luminance at moderate HSL
+     lightness, so the donor value only reached 3.08:1 against this
+     background and 2.70:1 against --card/--muted — both failing or
+     barely at WCAG's 3:1 floor for large text. L25% clears 4.5:1 against
+     all three. */
+  --heading-accent-1: 45 100% 25%;
+  --heading-accent-2: 331 64% 52%;
 
   --status-working: 68 100% 30%;
   --status-blocked: 1 71% 52%;
@@ -444,6 +495,13 @@
   --border: 234 13% 31%;
   --input: 234 13% 31%;
   --ring: 267 84% 81%;
+  /* --status-reviewing (accent-2's usual donor elsewhere) is identical to
+     --primary in this theme, so accent-2 borrows the peach --chart-2
+     instead. That leaves accent-1's usual donor (--chart-2) already
+     spoken for, so accent-1 borrows the mint --chart-3 instead. Both land
+     distinct from the lavender primary/link color and from each other. */
+  --heading-accent-1: 170 57% 73%;
+  --heading-accent-2: 41 86% 83%;
 
   --status-working: 115 54% 76%;
   --status-blocked: 343 81% 75%;
@@ -484,6 +542,8 @@
   --border: 220 14% 80%;
   --input: 220 14% 80%;
   --ring: 217 100% 42%;
+  --heading-accent-1: 30 100% 35%;
+  --heading-accent-2: 270 70% 35%;
 
   --status-working: 153 80% 27%;
   --status-blocked: 350 86% 42%;
