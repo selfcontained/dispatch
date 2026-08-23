@@ -188,6 +188,32 @@ describe("copyLocalConfigFiles", () => {
     expect(stats.mode & 0o777).toBe(0o600);
   });
 
+  it("refuses a symlinked source without a check-then-open window", async () => {
+    // `O_NOFOLLOW` means the refusal happens on the same open the copy
+    // reads from — there is no path test to race.
+    const secret = path.join(tempRoot, "id_rsa");
+    await writeFile(secret, "PRIVATE KEY\n");
+    await symlink(secret, path.join(sourceRoot, ".env"));
+    await writeSource(".dev.vars", "CF=1\n");
+
+    // The legitimate file is still copied; only the symlink is refused.
+    await expect(
+      copyLocalConfigFiles(sourceRoot, worktreePath)
+    ).resolves.toEqual([".dev.vars"]);
+    await expect(readFile(path.join(worktreePath, ".env"))).rejects.toThrow();
+  });
+
+  it("leaves no truncated file behind when the write fails", async () => {
+    // The destination directory is removed after the source opens, so the
+    // exclusive create fails — nothing partial should remain.
+    await writeSource(".env", "SECRET\n");
+    await rm(worktreePath, { recursive: true, force: true });
+
+    await expect(
+      copyLocalConfigFiles(sourceRoot, worktreePath)
+    ).resolves.toEqual([]);
+  });
+
   it("is a no-op when the source repo has none of them", async () => {
     await expect(
       copyLocalConfigFiles(sourceRoot, worktreePath)

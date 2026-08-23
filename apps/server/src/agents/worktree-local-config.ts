@@ -1,4 +1,4 @@
-import { chmod, constants, copyFile, lstat } from "node:fs/promises";
+import { constants, open, unlink } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -102,16 +102,23 @@ export const WORKTREE_LOCAL_CONFIG_FILES: readonly string[] = FILES.map(
  * checkout's possibly-dirty, possibly-different-branch version.
  *
  * Symlinks are refused on both sides, because a checkout is data and a
- * repository may be untrusted:
- *   - The *source* is checked with `lstat` rather than `stat`. Following
- *     a symlink there would make every name a read primitive pointing
- *     anywhere on disk (`.env -> ~/.ssh/id_rsa`), quietly copying that
- *     file somewhere the repo can read it.
- *   - The *destination* is not checked at all — it is created
- *     exclusively. Following a symlink there would make every name a
- *     write primitive, and a dangling link is the sharp case: invisible
- *     to an existence test, yet still followed by the copy. Testing
- *     first and copying second would leave a window between the two.
+ * repository may be untrusted. Neither side is tested by path and then
+ * acted on by path — every check happens on the descriptor that the
+ * copy itself uses, so there is no window to swap a link into:
+ *   - The *source* is opened `O_NOFOLLOW`. Following a symlink there
+ *     would make every name a read primitive pointing anywhere on disk
+ *     (`.env -> ~/.ssh/id_rsa`), quietly copying that file somewhere the
+ *     repo can read it.
+ *   - The *destination* is created `O_CREAT | O_EXCL`, at mode 0600.
+ *     Following a symlink there would make every name a write primitive,
+ *     and a dangling link is the sharp case: invisible to an existence
+ *     test, yet still followed by the copy.
+ *
+ * The tmux path cannot match the source half of this — a shell has no
+ * no-follow open — so it still tests `-L` by path. That defends against
+ * a checkout that *contains* a symlink, which is the realistic case, but
+ * not against a process mutating the source repo during the milliseconds
+ * of setup. See `tmux/setup-script.ts`.
  *
  * `tmux/setup-script.ts` implements the same rules in bash for the
  * tmux launch path.
@@ -123,27 +130,50 @@ export async function copyLocalConfigFiles(
   const copied: string[] = [];
 
   for (const name of WORKTREE_LOCAL_CONFIG_FILES) {
-    const source = path.join(sourceRoot, name);
-    const sourceStats = await lstat(source).catch(() => null);
-    if (!sourceStats?.isFile()) continue;
+    // Open the source with `O_NOFOLLOW` and read through the descriptor.
+    // Checking the path with `lstat` and then opening it again would be a
+    // check-then-open pair: a symlink swapped in between the two would be
+    // followed by the open, which is the read primitive this refuses.
+    const sourceHandle = await open(
+      path.join(sourceRoot, name),
+      constants.O_RDONLY | constants.O_NOFOLLOW
+    ).catch(() => null);
+    if (!sourceHandle) continue;
 
-    // `COPYFILE_EXCL` is the guarantee, not a pre-flight check: it opens
-    // the destination with `O_CREAT | O_EXCL`, which fails with EEXIST
-    // for a regular file, a live symlink and a dangling one alike. A
-    // separate existence test would leave a window in which a symlink
-    // could be installed and then followed out of the worktree.
     const destination = path.join(worktreePath, name);
-    const ok = await copyFile(source, destination, constants.COPYFILE_EXCL)
-      .then(() => true)
-      .catch(() => false);
-    if (!ok) continue;
+    try {
+      const stats = await sourceHandle.stat();
+      if (!stats.isFile()) continue;
+      const contents = await sourceHandle.readFile();
 
-    // Land every copy at 0600 rather than inheriting the source's mode.
-    // These are secrets, the worktree is single-user, and it keeps the
-    // two launch paths byte-for-byte comparable (the tmux script gets
-    // the same result from `umask 077`).
-    await chmod(destination, 0o600).catch(() => {});
-    copied.push(name);
+      // `O_CREAT | O_EXCL` is the destination guarantee, not a pre-flight
+      // check: it fails with EEXIST for a regular file, a live symlink and
+      // a dangling one alike, so an existing name is never overwritten and
+      // a symlinked one is never followed. The mode is set at creation
+      // rather than by a later `chmod`, because a path-based `chmod` would
+      // follow a link swapped in after the file was created.
+      const destinationHandle = await open(
+        destination,
+        constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL,
+        0o600
+      ).catch(() => null);
+      if (!destinationHandle) continue;
+
+      try {
+        await destinationHandle.writeFile(contents);
+        copied.push(name);
+      } catch {
+        // Don't leave a truncated secret behind. `unlink` does not follow
+        // symlinks, so this can only remove the entry we just created.
+        await unlink(destination).catch(() => {});
+      } finally {
+        await destinationHandle.close();
+      }
+    } catch {
+      // Best-effort: a worktree missing one of these is still usable.
+    } finally {
+      await sourceHandle.close();
+    }
   }
 
   return copied;

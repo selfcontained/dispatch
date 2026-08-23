@@ -225,10 +225,20 @@ export function generateSetupScript(
       `    phase "Copying environment files"`,
       `    SRC_ROOT=${shellEscape(originalCwd)}`,
       `    COPIED_COUNT=0`,
-      // Mirrors copyLocalConfigFiles() in agents/worktree-local-config.ts:
-      // refuse a symlinked source, and create the destination exclusively
-      // so an existing name is never overwritten and a symlinked one is
-      // never followed.
+      // Mirrors copyLocalConfigFiles() in agents/worktree-local-config.ts,
+      // with one guarantee a shell cannot match. The destination half is
+      // equivalent: the exclusive create below settles existence, so there
+      // is no window to swap a link into.
+      //
+      // The source half is weaker. `-L` is a path test followed by a
+      // path-based read, so it refuses a checkout that *contains* a
+      // symlink — the realistic malicious-repo case — but not a process
+      // that swaps one in during the milliseconds of setup. Bash has no
+      // no-follow open: every read primitive (`cat`, `< redirect`, `read`)
+      // follows, and `cp -P` is worse, copying the link so the destination
+      // itself escapes. The inert path uses `O_NOFOLLOW` and has no such
+      // gap; closing it here would mean shelling out to node, which is not
+      // guaranteed on PATH for every agent type.
       `    copy_local_config() {`,
       `      local name="$1"`,
       `      local src="$SRC_ROOT/$name"`,
