@@ -135,9 +135,9 @@ bash in `apps/server/src/agents/tmux/setup-script.ts` is generated from the same
 constant so the two cannot drift.
 
 Covered today: `.env`, `.env.local`, `.env.development.local`,
-`.env.production.local`, `.env.test.local`, `.dev.vars` (Wrangler), `.envrc`
-(direnv), `.npmrc`, `local.settings.json` (Azure Functions), `terraform.tfvars`
-and `terraform.tfvars.json`.
+`.env.production.local`, `.env.test.local`, `.dev.vars` (Wrangler), `.npmrc`,
+`local.settings.json` (Azure Functions), `terraform.tfvars` and
+`terraform.tfvars.json`.
 
 Rules the list follows:
 
@@ -154,6 +154,10 @@ Rules the list follows:
   `.claude/settings.local.json` was considered and rejected on those grounds,
   since copying a permission allowlist would quietly widen what a
   `fullAccess: false` launch can do.
+- Only files that copying alone actually fixes. `.envrc` was considered and
+  rejected: direnv will not load it until the new worktree is approved, and
+  approving it automatically would execute repository-controlled code, so
+  copying it duplicates a secret without restoring anything.
 - An existing destination is never overwritten. A fresh worktree contains
   exactly the tracked files, so a destination that already exists means the
   repo commits that name, and the checked-out revision's copy is the correct

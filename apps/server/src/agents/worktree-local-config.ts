@@ -1,4 +1,4 @@
-import { copyFile, lstat } from "node:fs/promises";
+import { chmod, constants, copyFile, lstat } from "node:fs/promises";
 import path from "node:path";
 
 /**
@@ -19,6 +19,11 @@ import path from "node:path";
  *   - Only names that are *conventionally gitignored*. Committed
  *     template files (`.env.example`, `.env.sample`) are already in the
  *     worktree via the checkout, so listing them would be pure noise.
+ *   - Only files that actually fix the failure on their own. `.envrc`
+ *     was considered and rejected: direnv will not load it until the
+ *     new worktree is approved, and approving it automatically would
+ *     execute repository-controlled code, so copying it duplicates a
+ *     secret without restoring anything.
  *   - Only files that are configuration. Anything that grants the
  *     launched agent capabilities it wouldn't otherwise have belongs
  *     nowhere near this list — `.claude/settings.local.json` was
@@ -41,8 +46,6 @@ const FILES: readonly string[] = [
   ".env.test.local",
   // Cloudflare Wrangler local secrets.
   ".dev.vars",
-  // direnv.
-  ".envrc",
   // Registry auth tokens — copied before the dependency install step so
   // private-registry installs in the worktree work.
   ".npmrc",
@@ -98,15 +101,17 @@ export const WORKTREE_LOCAL_CONFIG_FILES: readonly string[] = FILES.map(
  * checked-out revision's copy is the correct one, not the source
  * checkout's possibly-dirty, possibly-different-branch version.
  *
- * Both sides are checked with `lstat` rather than `stat`, because a
- * checkout is data and a repository may be untrusted:
- *   - Following a symlinked *source* would make every name a read
- *     primitive pointing anywhere on disk (`.env -> ~/.ssh/id_rsa`),
- *     quietly copying that file somewhere the repo can read it.
- *   - Following a symlinked *destination* would make every name a write
- *     primitive. A dangling link is the sharp case: it is invisible to
- *     an existence check but `copyFile` would still follow it and
- *     create the target outside the worktree.
+ * Symlinks are refused on both sides, because a checkout is data and a
+ * repository may be untrusted:
+ *   - The *source* is checked with `lstat` rather than `stat`. Following
+ *     a symlink there would make every name a read primitive pointing
+ *     anywhere on disk (`.env -> ~/.ssh/id_rsa`), quietly copying that
+ *     file somewhere the repo can read it.
+ *   - The *destination* is not checked at all — it is created
+ *     exclusively. Following a symlink there would make every name a
+ *     write primitive, and a dangling link is the sharp case: invisible
+ *     to an existence test, yet still followed by the copy. Testing
+ *     first and copying second would leave a window between the two.
  *
  * `tmux/setup-script.ts` implements the same rules in bash for the
  * tmux launch path.
@@ -122,14 +127,23 @@ export async function copyLocalConfigFiles(
     const sourceStats = await lstat(source).catch(() => null);
     if (!sourceStats?.isFile()) continue;
 
+    // `COPYFILE_EXCL` is the guarantee, not a pre-flight check: it opens
+    // the destination with `O_CREAT | O_EXCL`, which fails with EEXIST
+    // for a regular file, a live symlink and a dangling one alike. A
+    // separate existence test would leave a window in which a symlink
+    // could be installed and then followed out of the worktree.
     const destination = path.join(worktreePath, name);
-    const existing = await lstat(destination).catch(() => null);
-    if (existing) continue;
-
-    const ok = await copyFile(source, destination)
+    const ok = await copyFile(source, destination, constants.COPYFILE_EXCL)
       .then(() => true)
       .catch(() => false);
-    if (ok) copied.push(name);
+    if (!ok) continue;
+
+    // Land every copy at 0600 rather than inheriting the source's mode.
+    // These are secrets, the worktree is single-user, and it keeps the
+    // two launch paths byte-for-byte comparable (the tmux script gets
+    // the same result from `umask 077`).
+    await chmod(destination, 0o600).catch(() => {});
+    copied.push(name);
   }
 
   return copied;

@@ -224,13 +224,21 @@ describe("generateSetupScript — local config copy", () => {
     expect(script).toContain(`SRC_ROOT='/Users/me/it'\\''s a proj'`);
   });
 
-  it("skips destinations that already exist, including dangling symlinks", () => {
+  it("creates the destination exclusively rather than testing then copying", () => {
     const script = generateSetupScript(baseConfig, worktreeParams);
-    // `-e` alone misses a dangling symlink, which `cp` would then follow
-    // and create outside the worktree.
+    // `set -C` makes the redirect O_CREAT|O_EXCL, so an existing name —
+    // regular file, live symlink or dangling one — is refused by the
+    // write itself. A bare `cp` would follow a symlink installed after
+    // any pre-flight test.
     expect(script).toContain(
-      `if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`
+      `if (umask 077; set -C; cat "$src" > "$dest") 2>/dev/null; then`
     );
+    expect(script).not.toMatch(/\bcp "\$src" "\$dest"/);
+  });
+
+  it("matches the inert path's 0600 result via umask", () => {
+    const script = generateSetupScript(baseConfig, worktreeParams);
+    expect(script).toContain("umask 077");
   });
 
   it("refuses symlinked sources", () => {

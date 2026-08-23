@@ -1,8 +1,10 @@
 import {
+  chmod,
   mkdtemp,
   mkdir,
   readFile,
   rm,
+  stat,
   symlink,
   writeFile,
 } from "node:fs/promises";
@@ -41,6 +43,12 @@ const writeSource = (name: string, contents = "x\n") =>
 describe("WORKTREE_LOCAL_CONFIG_FILES", () => {
   it("still covers the original .env behaviour", () => {
     expect(WORKTREE_LOCAL_CONFIG_FILES).toContain(".env");
+  });
+
+  it("carries no file that copying alone would not actually fix", () => {
+    // direnv will not load a copied .envrc until the new worktree is
+    // approved, and approving it automatically would run repo code.
+    expect(WORKTREE_LOCAL_CONFIG_FILES).not.toContain(".envrc");
   });
 
   it("carries no file that grants the launched agent new capabilities", () => {
@@ -150,6 +158,34 @@ describe("copyLocalConfigFiles", () => {
       copyLocalConfigFiles(sourceRoot, worktreePath)
     ).resolves.toEqual([]);
     await expect(readFile(path.join(worktreePath, ".env"))).rejects.toThrow();
+  });
+
+  it("creates the destination exclusively, closing the check-then-copy race", async () => {
+    // The interleaving that matters: nothing at the destination when the
+    // copy starts, a symlink installed before the write lands. An
+    // existence test cannot cover this; O_CREAT|O_EXCL can.
+    const outside = path.join(tempRoot, "outside");
+    await mkdir(outside, { recursive: true });
+    const victim = path.join(outside, "victim");
+    await writeFile(victim, "ORIGINAL\n");
+    await writeSource(".env", "SECRET\n");
+    await symlink(victim, path.join(worktreePath, ".env"));
+
+    await expect(
+      copyLocalConfigFiles(sourceRoot, worktreePath)
+    ).resolves.toEqual([]);
+    await expect(readFile(victim, "utf-8")).resolves.toBe("ORIGINAL\n");
+  });
+
+  it("lands copies at 0600 rather than inheriting a loose source mode", async () => {
+    await writeSource(".env", "SECRET=1\n");
+    await chmod(path.join(sourceRoot, ".env"), 0o644);
+
+    await expect(
+      copyLocalConfigFiles(sourceRoot, worktreePath)
+    ).resolves.toEqual([".env"]);
+    const stats = await stat(path.join(worktreePath, ".env"));
+    expect(stats.mode & 0o777).toBe(0o600);
   });
 
   it("is a no-op when the source repo has none of them", async () => {

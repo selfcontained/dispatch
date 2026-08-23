@@ -226,16 +226,25 @@ export function generateSetupScript(
       `    SRC_ROOT=${shellEscape(originalCwd)}`,
       `    COPIED_COUNT=0`,
       // Mirrors copyLocalConfigFiles() in agents/worktree-local-config.ts:
-      // refuse symlinks on both sides and never overwrite what the
-      // checkout produced. `-L` is what catches a dangling destination
-      // link, which `-e` misses and `cp` would follow out of the worktree.
+      // refuse a symlinked source, and create the destination exclusively
+      // so an existing name is never overwritten and a symlinked one is
+      // never followed.
       `    copy_local_config() {`,
       `      local name="$1"`,
       `      local src="$SRC_ROOT/$name"`,
       `      local dest="$WT_PATH/$name"`,
       `      if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`,
+      // Existence is settled by the exclusive create below, not here —
+      // testing first and copying second would leave a window in which a
+      // symlink could be installed and then followed out of the worktree.
+      // This test only keeps the common "repo commits this name" case
+      // from printing a scary warning.
       `      if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`,
-      `      if cp "$src" "$dest" 2>/dev/null; then`,
+      // `set -C` makes the redirect open with O_CREAT|O_EXCL, which fails
+      // for a regular file, a live symlink and a dangling one alike.
+      // `umask 077` lands the copy at 0600, matching what
+      // copyLocalConfigFiles() does with an explicit chmod.
+      `      if (umask 077; set -C; cat "$src" > "$dest") 2>/dev/null; then`,
       `        ok "Copied $name"`,
       `        COPIED_COUNT=$((COPIED_COUNT + 1))`,
       `      else`,
