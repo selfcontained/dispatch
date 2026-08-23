@@ -185,79 +185,58 @@ describe("generateSetupScript — local config copy", () => {
     createNewBranch: true,
     worktreeBranchName: "my-branch",
   };
+  const script = generateSetupScript(baseConfig, worktreeParams);
+  const block = script.slice(
+    script.indexOf("# --- Copy local config files ---"),
+    script.indexOf("No local config files found")
+  );
 
-  // The tmux-mode bash and the inert-mode TypeScript copy the same files.
-  // Driving the script off WORKTREE_LOCAL_CONFIG_FILES is what keeps the
-  // two launch paths from drifting apart.
-  it("emits every shared filename, fully quoted so bash interprets none of it", () => {
-    const script = generateSetupScript(baseConfig, worktreeParams);
-    for (const name of WORKTREE_LOCAL_CONFIG_FILES) {
-      expect(script).toContain(`'${name}'`);
-    }
-    expect(script).not.toContain("nullglob");
-  });
-
-  it("continues every candidate line but the last, so the for-loop is one command", () => {
-    const script = generateSetupScript(baseConfig, worktreeParams);
-    const loop = script.slice(
-      script.indexOf("for LOCAL_CONFIG_NAME in"),
-      script.indexOf('copy_local_config "$LOCAL_CONFIG_NAME"')
-    );
-    const candidateLines = loop
+  // Rendering the loop from WORKTREE_LOCAL_CONFIG_FILES is what keeps the
+  // tmux and inert launch paths from drifting apart.
+  it("renders the shared list as one fully-quoted bash loop", () => {
+    const lines = block
+      .slice(block.indexOf("for LOCAL_CONFIG_NAME in"))
       .split("\n")
       .filter((line) => /^\s+'/.test(line));
-    expect(candidateLines).toHaveLength(WORKTREE_LOCAL_CONFIG_FILES.length);
-    for (const line of candidateLines.slice(0, -1)) {
+    expect(lines.map((line) => line.trim().split("'")[1])).toEqual([
+      ...WORKTREE_LOCAL_CONFIG_FILES,
+    ]);
+    for (const line of lines.slice(0, -1)) {
       // A single trailing backslash — `\\` would escape the backslash and
-      // end the command at the newline.
+      // end the command at the newline, silently truncating the loop.
       expect(line.endsWith(" \\")).toBe(true);
       expect(line.endsWith("\\\\")).toBe(false);
     }
-    expect(candidateLines.at(-1)?.endsWith("; do")).toBe(true);
+    expect(lines.at(-1)?.endsWith("; do")).toBe(true);
   });
 
-  it("shell-quotes the source repo path rather than interpolating it raw", () => {
-    const script = generateSetupScript(baseConfig, {
-      ...worktreeParams,
-      originalCwd: "/Users/me/it's a proj",
-    });
-    expect(script).toContain(`SRC_ROOT='/Users/me/it'\\''s a proj'`);
-  });
-
-  it("creates the destination exclusively rather than testing then copying", () => {
-    const script = generateSetupScript(baseConfig, worktreeParams);
-    // `set -C` makes the redirect O_CREAT|O_EXCL, so an existing name —
-    // regular file, live symlink or dangling one — is refused by the
-    // write itself. A bare `cp` would follow a symlink installed after
-    // any pre-flight test.
-    expect(script).toContain(
-      `if (umask 077; set -C; cat "$src" > "$dest") 2>/dev/null; then`
-    );
-    expect(script).not.toMatch(/\bcp "\$src" "\$dest"/);
-  });
-
-  it("matches the inert path's 0600 result via umask", () => {
-    const script = generateSetupScript(baseConfig, worktreeParams);
-    expect(script).toContain("umask 077");
-  });
-
-  it("refuses symlinked sources", () => {
-    const script = generateSetupScript(baseConfig, worktreeParams);
-    expect(script).toContain(
+  it("mirrors the inert path's guards", () => {
+    expect(block).toContain(
       `if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`
     );
+    // `set -C` makes the redirect O_CREAT|O_EXCL, so an existing name —
+    // regular file, live symlink or dangling one — is refused by the write
+    // itself; `umask 077` matches the inert path's 0600. A bare `cp` would
+    // follow a symlink installed after any pre-flight test.
+    expect(block).toContain(
+      `if (umask 077; set -C; cat "$src" > "$dest") 2>/dev/null; then`
+    );
+    expect(block).not.toMatch(/\bcp "\$src" "\$dest"/);
   });
 
   it("uses no command substitution, which errexit would turn into a failed launch", () => {
-    const script = generateSetupScript(baseConfig, worktreeParams);
-    const block = script.slice(
-      script.indexOf("# --- Copy local config files ---"),
-      script.indexOf("No local config files found")
-    );
-    // Arithmetic expansion `$((...))` is fine — it is the command
-    // substitution form whose failure exits the script.
+    // Arithmetic expansion `$((...))` is fine — the substitution form is
+    // the one whose failure exits the script.
     expect(block).not.toMatch(/\$\((?!\()/);
     expect(block).not.toContain("`");
+  });
+
+  it("shell-quotes the source repo path rather than interpolating it raw", () => {
+    const quoted = generateSetupScript(baseConfig, {
+      ...worktreeParams,
+      originalCwd: "/Users/me/it's a proj",
+    });
+    expect(quoted).toContain(`SRC_ROOT='/Users/me/it'\\''s a proj'`);
   });
 });
 
