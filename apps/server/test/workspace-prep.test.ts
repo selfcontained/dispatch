@@ -49,7 +49,7 @@ afterEach(async () => {
   await rm(tempRoot, { recursive: true, force: true });
 });
 
-describe("setupAgentWorkspace — .env copy", () => {
+describe("setupAgentWorkspace — local config copy", () => {
   it("copies .env from the source repo into the worktree when present", async () => {
     await writeFile(path.join(originalCwd, ".env"), "FOO=bar\nBAZ=qux\n");
     await setupAgentWorkspace(originalCwd, worktreePath, noopLogger);

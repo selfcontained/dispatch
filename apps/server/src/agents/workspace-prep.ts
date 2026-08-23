@@ -1,9 +1,10 @@
-import { copyFile, stat } from "node:fs/promises";
+import { stat } from "node:fs/promises";
 import path from "node:path";
 
 import type { FastifyBaseLogger } from "fastify";
 
 import { runCommand } from "../shared/lib/run-command.js";
+import { copyLocalConfigFiles } from "./worktree-local-config.js";
 
 /**
  * Lockfile → package-manager command for the auto-deps-install path.
@@ -24,8 +25,10 @@ const LOCKFILE_INSTALL_COMMANDS: ReadonlyArray<
 /**
  * Prepare a freshly-created worktree for use as an agent workspace:
  *
- *   1. Copy `.env` from the source repo into the worktree (best-effort —
- *      missing source `.env` is a no-op, not an error).
+ *   1. Copy the source repo's gitignored local config/secret files
+ *      into the worktree (best-effort — a missing source file is a
+ *      no-op, not an error). See `worktree-local-config.ts` for the
+ *      pattern list and copy rules.
  *   2. Detect a lockfile and run the matching package manager's install.
  *      First match in `LOCKFILE_INSTALL_COMMANDS` wins; install failures
  *      are logged but not propagated (the worktree is usable without
@@ -43,13 +46,12 @@ export async function setupAgentWorkspace(
   worktreePath: string,
   logger: FastifyBaseLogger
 ): Promise<void> {
-  const envSource = path.join(originalCwd, ".env");
-  const envDest = path.join(worktreePath, ".env");
-  try {
-    await copyFile(envSource, envDest);
-    logger.info({ worktreePath }, "Copied .env into worktree.");
-  } catch {
-    // .env doesn't exist — that's fine
+  const copied = await copyLocalConfigFiles(originalCwd, worktreePath);
+  if (copied.length > 0) {
+    logger.info(
+      { worktreePath, files: copied },
+      `Copied ${copied.length} local config file(s) into worktree.`
+    );
   }
 
   for (const [lockfile, bin, args] of LOCKFILE_INSTALL_COMMANDS) {

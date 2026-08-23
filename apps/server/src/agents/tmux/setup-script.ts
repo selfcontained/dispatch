@@ -5,6 +5,7 @@ import {
   worktreePathSlug,
 } from "../../shared/git/worktree.js";
 import type { AgentType } from "../types.js";
+import { WORKTREE_LOCAL_CONFIG_FILES } from "../worktree-local-config.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape, shellQuote } from "./quoting.js";
 
@@ -22,6 +23,12 @@ export type SetupScriptParams = {
   jobRunId?: string;
 };
 
+// Fully quoted, so bash interprets none of it and nothing globs.
+const localConfigFileLines = WORKTREE_LOCAL_CONFIG_FILES.map((name, index) => {
+  const isLast = index === WORKTREE_LOCAL_CONFIG_FILES.length - 1;
+  return `      ${shellEscape(name)}${isLast ? "; do" : " \\"}`;
+});
+
 /**
  * Generate the bash setup script that runs in the agent's tmux pane on
  * launch. Pure — takes config + inputs, returns the full script as a
@@ -30,8 +37,9 @@ export type SetupScriptParams = {
  * via tmux.
  *
  * The script:
- *   1. Optionally creates a git worktree from `baseBranch` and copies
- *      `.env` + installs deps inside it.
+ *   1. Optionally creates a git worktree from `baseBranch`, copies the
+ *      source repo's gitignored local config files into it, and
+ *      installs deps.
  *   2. Phones the server back via curl at each phase boundary
  *      (`worktree`/`env`/`deps`/`session`).
  *   3. For opencode agents, writes `opencode.json` with the dispatch
@@ -211,13 +219,41 @@ export function generateSetupScript(
       `    WORKTREE_PATH="\\"$WT_PATH\\""`,
       `    WORKTREE_BRANCH="\\"${worktreeBranchName}\\""`,
       ``,
-      `    # --- Copy .env ---`,
+      `    # --- Copy local config files ---`,
       `    ${curlPhase("env")}`,
       `    phase "Copying environment files"`,
-      `    if [ -f "${originalCwd}/.env" ]; then`,
-      `      cp "${originalCwd}/.env" "$WT_PATH/.env" && ok "Copied .env" || warn "Failed to copy .env"`,
-      `    else`,
-      `      info "No .env file found — skipping"`,
+      `    SRC_ROOT=${shellEscape(originalCwd)}`,
+      `    COPIED_COUNT=0`,
+      // Mirrors copyLocalConfigFiles() in agents/worktree-local-config.ts.
+      // The destination half is equivalent; the source half is weaker.
+      // `-L` is a path test before a path-based read, so it refuses a
+      // checkout that *contains* a symlink — the realistic case — but not
+      // one swapped in mid-setup. Bash has no no-follow open: every read
+      // primitive follows, and `cp -P` is worse, copying the link so the
+      // destination escapes.
+      `    copy_local_config() {`,
+      `      local name="$1"`,
+      `      local src="$SRC_ROOT/$name"`,
+      `      local dest="$WT_PATH/$name"`,
+      `      if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`,
+      // Not load-bearing: the exclusive create settles existence. This
+      // only keeps the common "repo commits this name" case quiet.
+      `      if [ -e "$dest" ] || [ -L "$dest" ]; then return 0; fi`,
+      // `set -C` makes the redirect O_CREAT|O_EXCL; `umask 077` matches
+      // the inert path's 0600.
+      `      if (umask 077; set -C; cat "$src" > "$dest") 2>/dev/null; then`,
+      `        ok "Copied $name"`,
+      `        COPIED_COUNT=$((COPIED_COUNT + 1))`,
+      `      else`,
+      `        warn "Failed to copy $name"`,
+      `      fi`,
+      `    }`,
+      `    for LOCAL_CONFIG_NAME in \\`,
+      ...localConfigFileLines,
+      `      copy_local_config "$LOCAL_CONFIG_NAME"`,
+      `    done`,
+      `    if [ "$COPIED_COUNT" -eq 0 ]; then`,
+      `      info "No local config files found — skipping"`,
       `    fi`,
       ``
     );

@@ -5,6 +5,7 @@ import {
   generateSetupScript,
   type SetupScriptParams,
 } from "../src/agents/tmux/setup-script.js";
+import { WORKTREE_LOCAL_CONFIG_FILES } from "../src/agents/worktree-local-config.js";
 
 const baseConfig: AppConfig = {
   host: "127.0.0.1",
@@ -174,6 +175,68 @@ describe("generateSetupScript — type-specific blocks", () => {
     expect(script).toContain("yarn.lock");
     expect(script).toContain("package-lock.json");
     expect(script).toContain("bun.lockb");
+  });
+});
+
+describe("generateSetupScript — local config copy", () => {
+  const worktreeParams: SetupScriptParams = {
+    ...baseParams,
+    useWorktree: true,
+    createNewBranch: true,
+    worktreeBranchName: "my-branch",
+  };
+  const script = generateSetupScript(baseConfig, worktreeParams);
+  const block = script.slice(
+    script.indexOf("# --- Copy local config files ---"),
+    script.indexOf("No local config files found")
+  );
+
+  // Rendering the loop from WORKTREE_LOCAL_CONFIG_FILES is what keeps the
+  // tmux and inert launch paths from drifting apart.
+  it("renders the shared list as one fully-quoted bash loop", () => {
+    const lines = block
+      .slice(block.indexOf("for LOCAL_CONFIG_NAME in"))
+      .split("\n")
+      .filter((line) => /^\s+'/.test(line));
+    expect(lines.map((line) => line.trim().split("'")[1])).toEqual([
+      ...WORKTREE_LOCAL_CONFIG_FILES,
+    ]);
+    for (const line of lines.slice(0, -1)) {
+      // A single trailing backslash — `\\` would escape the backslash and
+      // end the command at the newline, silently truncating the loop.
+      expect(line.endsWith(" \\")).toBe(true);
+      expect(line.endsWith("\\\\")).toBe(false);
+    }
+    expect(lines.at(-1)?.endsWith("; do")).toBe(true);
+  });
+
+  it("mirrors the inert path's guards", () => {
+    expect(block).toContain(
+      `if [ -L "$src" ] || [ ! -f "$src" ]; then return 0; fi`
+    );
+    // `set -C` makes the redirect O_CREAT|O_EXCL, so an existing name —
+    // regular file, live symlink or dangling one — is refused by the write
+    // itself; `umask 077` matches the inert path's 0600. A bare `cp` would
+    // follow a symlink installed after any pre-flight test.
+    expect(block).toContain(
+      `if (umask 077; set -C; cat "$src" > "$dest") 2>/dev/null; then`
+    );
+    expect(block).not.toMatch(/\bcp "\$src" "\$dest"/);
+  });
+
+  it("uses no command substitution, which errexit would turn into a failed launch", () => {
+    // Arithmetic expansion `$((...))` is fine — the substitution form is
+    // the one whose failure exits the script.
+    expect(block).not.toMatch(/\$\((?!\()/);
+    expect(block).not.toContain("`");
+  });
+
+  it("shell-quotes the source repo path rather than interpolating it raw", () => {
+    const quoted = generateSetupScript(baseConfig, {
+      ...worktreeParams,
+      originalCwd: "/Users/me/it's a proj",
+    });
+    expect(quoted).toContain(`SRC_ROOT='/Users/me/it'\\''s a proj'`);
   });
 });
 

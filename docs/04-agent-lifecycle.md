@@ -27,7 +27,7 @@ Role is orthogonal to `AgentType` (`claude` / `codex` / `opencode` / `cursor` / 
 `SetupPhase` is a sub-state of `creating`/`running`, surfaced to the UI while the in-tmux setup script runs:
 
 - `worktree` — creating the git worktree
-- `env` — copying `.env` / sourcing `~/.dispatch/env`
+- `env` — copying local config files / sourcing `~/.dispatch/env`
 - `deps` — installing dependencies (lockfile-driven)
 - `session` — starting the agent CLI inside tmux
 - `null` — setup is complete (or never used; agents that don't create a worktree start here)
@@ -118,11 +118,66 @@ The generated setup script (`/tmp/dispatch_setup_<agentId>.sh`) does, in order:
 
 1. `unset DATABASE_URL`, then source `~/.dispatch/env` (if it exists) so user overrides win.
 2. Create the git worktree (if requested). The script doesn't post this phase — `worktree` is the initial `setup_phase` written when the agent row is inserted.
-3. POST `setup/phase: env`, then copy `.env` if present.
+3. POST `setup/phase: env`, then copy the source repo's gitignored local config files (see below) into the worktree.
 4. POST `setup/phase: deps`, then install dependencies based on detected lockfile (pnpm/yarn/npm/bun). Skipped for `terminal` agent type.
 5. POST `setup/phase: session`, then `exec` into the agent CLI command.
 
-Worktree creation is the only unrecoverable step: on failure the script POSTs `setup/error` with the git output, removes the partial worktree (and the branch it was creating), and exits rather than falling back to the primary checkout. A missing lockfile, a failed dependency install, or a missing `.env` are all non-fatal. If the working directory turns out not to be a git repo, the worktree is skipped and the script proceeds straight to the session phase.
+Worktree creation is the only unrecoverable step: on failure the script POSTs `setup/error` with the git output, removes the partial worktree (and the branch it was creating), and exits rather than falling back to the primary checkout. A missing lockfile, a failed dependency install, or a missing local config file are all non-fatal. If the working directory turns out not to be a git repo, the worktree is skipped and the script proceeds straight to the session phase.
+
+## Local Config Files
+
+`git worktree add` only materializes _tracked_ files, so a developer's
+gitignored secrets and local overrides never reach a new worktree. Both launch
+paths copy a shared list of conventionally-gitignored filenames from the source
+repo into the worktree — `apps/server/src/agents/worktree-local-config.ts` owns
+the list (`WORKTREE_LOCAL_CONFIG_FILES`) and the inert-mode copy; the tmux-mode
+bash in `apps/server/src/agents/tmux/setup-script.ts` is generated from the same
+constant so the two cannot drift.
+
+Covered today: `.env`, `.env.local`, `.env.development.local`,
+`.env.production.local`, `.env.test.local`, `.dev.vars` (Wrangler),
+`local.settings.json` (Azure Functions), `terraform.tfvars` and
+`terraform.tfvars.json`.
+
+Rules the list follows:
+
+- **Exact top-level filenames only** — no globs, no directory components.
+  bash and `fs` agree for free only while neither has to interpret anything; a
+  `*` or a `/` would be expanded by one and looked up literally by the other,
+  which is exactly the drift this module exists to prevent.
+  `assertTopLevelFileName` enforces this where the list is defined, and the
+  generated bash quotes every name.
+- Only names that are conventionally _gitignored_. Committed templates like
+  `.env.example` are already in the worktree via the checkout.
+- Only files that are _configuration_. Anything that grants the launched agent
+  capabilities it wouldn't otherwise have stays off the list —
+  `.claude/settings.local.json` was considered and rejected on those grounds,
+  since copying a permission allowlist would quietly widen what a
+  `fullAccess: false` launch can do.
+- Only files that copying alone actually fixes. `.envrc` was considered and
+  rejected: direnv will not load it until the new worktree is approved, and
+  approving it automatically would execute repository-controlled code, so
+  copying it duplicates a secret without restoring anything.
+- An existing destination is never overwritten. A fresh worktree contains
+  exactly the tracked files, so a destination that already exists means the
+  repo commits that name, and the checked-out revision's copy is the correct
+  one — not the source checkout's possibly-dirty, possibly-different-branch
+  version.
+- Both sides are checked with `lstat` / `-L` rather than `stat` / `-e`, because
+  a checkout is data and a repository may be untrusted. Following a symlinked
+  _source_ would make every name a read primitive pointing anywhere on disk
+  (`.env -> ~/.ssh/id_rsa`); following a symlinked _destination_ would make
+  every name a write primitive, and a dangling link is the sharp case — it is
+  invisible to an existence check but `cp` still follows it.
+- Nothing in this step can abort an agent launch. The generated bash uses no
+  command substitution, since a bare assignment failing under `set -e` would
+  kill the setup script before the agent starts.
+
+Deliberately _not_ covered, because each would require globbing or a directory
+component: `*.auto.tfvars` (arbitrary prefix), Rails' `config/master.key`, and
+`.streamlit/secrets.toml`.
+
+Copying happens before the dependency install.
 
 ## Agent Environment
 
