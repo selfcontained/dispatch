@@ -28,7 +28,13 @@
      mirrors this theme's --chart-2, accent-2 mirrors --status-reviewing.
      If either collides with --primary or with each other here, borrow the
      nearest distinct chart slot instead and say why in a comment (see the
-     mytra, solarized-light, and catppuccin-mocha blocks for examples). */
+     mytra and catppuccin-mocha blocks for examples). Check contrast against
+     --background (and --card/--muted, since MarkdownDefault can render
+     there too) before shipping a new value — amber/gold hues in particular
+     read much lighter than their HSL lightness suggests, so a donor tuned
+     for a chart fill can fail WCAG's 3:1 floor as heading text on a light
+     background (see the light and solarized-light blocks, which darken
+     accent-1 well below its chart-2 donor for exactly this reason). */
   --heading-accent-1: 45 96% 64%;
   --heading-accent-2: 210 80% 62%;
 
@@ -206,7 +212,12 @@
   --border: 208 20% 85%;
   --input: 208 20% 85%;
   --ring: 153 78% 27%;
-  --heading-accent-1: 46 97% 42%;
+  /* accent-1 is darkened well below the usual --chart-2 donor (46 97% 42%):
+     amber/gold hues carry deceptively high relative luminance at moderate
+     HSL lightness, so the donor value only reached 1.94:1 against this
+     light background — badly failing WCAG's 3:1 floor for large text. L26%
+     clears 4.5:1. */
+  --heading-accent-1: 46 97% 26%;
   --heading-accent-2: 262 72% 50%;
 
   --status-working: 142 71% 35%;
@@ -430,8 +441,13 @@
      --status-reviewing donor: this theme's --status-reviewing
      (237 43% 52%, indigo) sits too close to --primary (205 82% 45%, blue)
      on this light background. accent-1 follows the usual --chart-2 donor
-     without issue. */
-  --heading-accent-1: 45 100% 35%;
+     hue/saturation, but darkened well below its L35% value: amber/gold
+     hues carry deceptively high relative luminance at moderate HSL
+     lightness, so the donor value only reached 3.08:1 against this
+     background and 2.70:1 against --card/--muted — both failing or
+     barely at WCAG's 3:1 floor for large text. L25% clears 4.5:1 against
+     all three. */
+  --heading-accent-1: 45 100% 25%;
   --heading-accent-2: 331 64% 52%;
 
   --status-working: 68 100% 30%;

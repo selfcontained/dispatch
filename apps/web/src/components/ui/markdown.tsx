@@ -182,9 +182,13 @@ function MarkdownDefault({
         // through the same theme variables as everything else above.
         "prose-blockquote:text-muted-foreground prose-blockquote:border-border",
         "prose-hr:border-border",
-        "prose-th:text-foreground prose-th:border-border",
-        "prose-td:border-border",
+        // Typography borders thead/tbody-tr, not th/td directly — a
+        // prose-th:/prose-td:border-border override is a silent no-op
+        // (no border-width to color). prose-thead: covers the header rule,
+        // prose-tr: covers per-row dividers.
+        "prose-th:text-foreground",
         "prose-thead:border-border",
+        "prose-tr:border-border",
         className
       )}
     >
