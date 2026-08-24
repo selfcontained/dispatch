@@ -21,6 +21,7 @@ function makeDeps(overrides: Record<string, unknown> = {}) {
     },
     reconcileIntervalMs: 60_000,
     activityMonitor: (overrides.activityMonitor as never) ?? undefined,
+    onAgentsArchived: (overrides.onAgentsArchived as never) ?? undefined,
     withStreamFlag: vi.fn(
       (agent: Record<string, unknown>) =>
         ({ ...agent, hasStream: false }) as never
@@ -438,6 +439,33 @@ describe("createAgentLifecycleRuntime", () => {
       });
     });
 
+    it("runs the durable archive hook when a resumed archive completes", async () => {
+      let capturedOnComplete!: (deletedIds: string[]) => void;
+      const onAgentsArchived = vi.fn().mockResolvedValue(undefined);
+      const deps = makeDeps({
+        onAgentsArchived,
+        agentManager: {
+          beginArchive: vi.fn(),
+          executeArchive: vi.fn((_id, opts) => {
+            capturedOnComplete = opts.onComplete;
+            return new Promise(() => {});
+          }),
+          reconcileAgentStatuses: vi
+            .fn()
+            .mockResolvedValue([
+              { id: "agt_hook", name: "arch", status: "archiving" },
+            ]),
+        },
+      });
+      const rt = createAgentLifecycleRuntime(deps as never);
+      await rt.runAgentStatusReconciliation();
+
+      capturedOnComplete(["agt_hook"]);
+      await vi.waitFor(() => {
+        expect(onAgentsArchived).toHaveBeenCalledWith(["agt_hook"]);
+      });
+    });
+
     it("resumed archive onError logs an error", async () => {
       let capturedOnError!: (error: unknown) => void;
       const deps = makeDeps({
@@ -532,6 +560,49 @@ describe("createAgentLifecycleRuntime", () => {
         type: "agent.deleted",
         agentId: "agt_b",
       });
+    });
+  });
+
+  describe("restorePendingContinuations", () => {
+    it("launches when the predecessor is missing, resumes archive, or archives a live predecessor", async () => {
+      const jobService = {
+        listPendingContinuations: vi.fn().mockResolvedValue([
+          { id: "run_missing", agentId: null },
+          { id: "run_archiving", agentId: "agt_archiving" },
+          { id: "run_live", agentId: "agt_live" },
+        ]),
+        listReservedContinuationRuns: vi.fn().mockResolvedValue([]),
+        recoverReservedContinuation: vi.fn().mockResolvedValue(null),
+        launchPendingContinuation: vi.fn().mockResolvedValue(null),
+      };
+      const deps = makeDeps({
+        agentManager: {
+          beginArchive: vi.fn().mockResolvedValue({ id: "agt_live" }),
+          executeArchive: vi.fn().mockReturnValue(new Promise(() => {})),
+          getAgent: vi.fn(async (id: string) =>
+            id === "agt_archiving"
+              ? { id, status: "archiving" }
+              : { id, status: "running" }
+          ),
+          reconcileAgentStatuses: vi.fn(),
+        },
+      });
+      const rt = createAgentLifecycleRuntime(deps as never);
+
+      await rt.restorePendingContinuations(jobService as never);
+      await vi.waitFor(() => {
+        expect(jobService.launchPendingContinuation).toHaveBeenCalledWith(
+          "run_missing"
+        );
+      });
+      expect(deps.agentManager.executeArchive).toHaveBeenCalledWith(
+        "agt_archiving",
+        expect.any(Object)
+      );
+      expect(deps.agentManager.beginArchive).toHaveBeenCalledWith(
+        "agt_live",
+        "auto"
+      );
     });
   });
 

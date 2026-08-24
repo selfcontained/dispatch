@@ -248,6 +248,13 @@ export function AutomationsContent() {
             run can be active at a time. Turn off to allow overlapping runs of
             the same job.
           </li>
+          <li>
+            <strong>Run as a loop</strong> — keeps starting new runs until the
+            work is done. The task prompt defines how every run works and where
+            it keeps shared context; <strong>Loop setup</strong> controls the
+            run limit and completion conditions. New loops default to 10 runs;
+            choose another limit or leave it blank for no limit.
+          </li>
         </ul>
         <P>
           Open <strong>Advanced settings</strong> for the rest:
@@ -282,22 +289,28 @@ export function AutomationsContent() {
             The job's detail pane then offers an <strong>Open session</strong>{" "}
             button to pick up where the run left off.
           </li>
+          <li>
+            <strong>Loop jobs close each completed run</strong> before starting
+            the next. A loop can also have a cron schedule; scheduled starts
+            wait while the loop is already running.
+          </li>
         </ul>
         <P>
-          After creating a job, open its <strong>Configure</strong> tab to
-          adjust these settings and options like{" "}
-          <strong>Webhook trigger</strong> — enable it, hit{" "}
-          <strong>Save</strong>, and Dispatch generates a secret URL that fires
-          a run via HTTP POST. No auth header is needed; the secret in the URL
-          is the credential. The prompt itself is edited on the job's{" "}
-          <strong>Prompt</strong> tab.
+          After creating a job, use its <strong>Prompt</strong> tab to edit the
+          task prompt and Loop setup together. Use <strong>Configure</strong>{" "}
+          for runtime settings and options like <strong>Webhook trigger</strong>{" "}
+          — enable it, hit <strong>Save</strong>, and Dispatch generates a
+          secret URL that fires a run via HTTP POST. No auth header is needed;
+          the secret in the URL is the credential.
         </P>
         <P>
           The <strong>Enabled</strong> switch at the top of{" "}
           <strong>Configure</strong> is the exception to the Save button: it
           writes immediately, and it stays greyed out until the job has a
-          schedule saved. The same tab ends with <strong>Remove job</strong>,
-          which deletes the job, its schedule, and its run history.
+          schedule or loop setting saved. Enabling arms future triggers; it
+          never starts a run immediately. The same tab ends with{" "}
+          <strong>Remove job</strong>, which deletes the job, its schedule, and
+          its run history.
         </P>
       </Section>
 
@@ -313,6 +326,12 @@ export function AutomationsContent() {
           <strong>Single instance</strong> is on (the default), only one run can
           be active per job at a time; with it off, overlapping runs are
           allowed.
+        </P>
+        <P>
+          For loop jobs, <strong>Run now</strong> starts a new loop. It is
+          unavailable while that loop is running or preparing its next run.
+          Reaching the run limit ends the loop without disabling the job, so a
+          later cron trigger or Run now can start another one.
         </P>
       </Section>
 
@@ -439,16 +458,17 @@ export function AutomationsContent() {
       <Section>
         <H3>State across runs</H3>
         <P>
-          Recurring jobs often need to pass context from one run to the next
-          without re-inventorying the repo every time. Two approaches work well:
+          Loop jobs automatically pass a compact handoff to their successor: the
+          outcome, next step, relevant files, and unresolved blockers. The job
+          prompt remains responsible for defining where detailed shared context
+          lives. Two common approaches are:
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
-            <strong>Filesystem handoff</strong> — a small markdown file at{" "}
-            <Code>.dispatch/job-state/{"<job>"}.md</Code> that the prompt tells
-            the agent to read at the start and overwrite at the end. Treat it as
-            a note to the next run, not an append-only log; prune what's no
-            longer relevant. This pattern is simple and version-controlled.
+            <strong>Repository files</strong> — plans, specifications, notes, or
+            other project files chosen by the job author. Tell each run what to
+            read and update in the task prompt; Dispatch does not impose a file
+            structure.
           </li>
           <li>
             <strong>Brain shared memory</strong> — use the{" "}

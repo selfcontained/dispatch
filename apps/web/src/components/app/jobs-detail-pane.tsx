@@ -14,6 +14,7 @@ import { JobsOverview } from "@/components/app/jobs-overview";
 import { PromptTab } from "@/components/app/jobs-prompt-tab";
 import { SettingsTab } from "@/components/app/jobs-settings-tab";
 import {
+  ACTIVE_RUN_STATUSES,
   formatJobDateTime,
   statusClasses,
   statusIcon,
@@ -157,6 +158,13 @@ function JobDetail({
   const [detailActionError, setDetailActionError] = useState<string | null>(
     null
   );
+  const runBlockedReason = job.continuationPending
+    ? "The loop is preparing its next run."
+    : job.continuationEnabled &&
+        job.lastRunStatus &&
+        ACTIVE_RUN_STATUSES.includes(job.lastRunStatus)
+      ? "This job already has a run in progress."
+      : null;
   return (
     <div className={cn("flex h-full min-h-0 flex-col p-4 md:p-6", className)}>
       <div className="flex flex-wrap items-start gap-3">
@@ -172,7 +180,10 @@ function JobDetail({
         <Button
           size="sm"
           variant="primary"
-          disabled={isUpdating}
+          disabled={isUpdating || Boolean(runBlockedReason)}
+          aria-describedby={
+            runBlockedReason ? "job-run-blocked-reason" : undefined
+          }
           onClick={() => {
             setDetailActionError(null);
             void onRunNow(job).catch((error) =>
@@ -184,6 +195,32 @@ function JobDetail({
           Run now
         </Button>
       </div>
+
+      {runBlockedReason ? (
+        <p
+          id="job-run-blocked-reason"
+          role="status"
+          className="mt-2 text-right text-xs text-muted-foreground"
+        >
+          {runBlockedReason}
+        </p>
+      ) : null}
+
+      {job.continuationEnabled ? (
+        <div className="mt-4 rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
+          <div className="font-medium text-foreground">
+            Loop{" "}
+            {job.lastRunIteration ? `• run ${job.lastRunIteration}` : "enabled"}
+          </div>
+          <div className="mt-1 text-xs text-muted-foreground">
+            {job.continuationPending
+              ? "Preparing the next run."
+              : job.maxIterations === null
+                ? "No run limit."
+                : `Up to ${job.maxIterations} runs.`}
+          </div>
+        </div>
+      ) : null}
 
       {attachedAgent ? (
         <div
@@ -244,6 +281,10 @@ function JobDetail({
             <Button
               size="sm"
               variant="primary"
+              disabled={Boolean(runBlockedReason)}
+              aria-describedby={
+                runBlockedReason ? "job-run-blocked-reason" : undefined
+              }
               onClick={() => {
                 setDetailActionError(null);
                 void onRunNow(job).catch((error) =>
@@ -258,7 +299,7 @@ function JobDetail({
               <Button
                 size="sm"
                 variant="default"
-                disabled={!job.schedule}
+                disabled={!job.schedule && !job.continuationEnabled}
                 onClick={() => {
                   setDetailActionError(null);
                   void onSetEnabled(job, true).catch((error) =>
@@ -266,7 +307,7 @@ function JobDetail({
                   );
                 }}
               >
-                Enable schedule
+                {job.continuationEnabled ? "Enable job" : "Enable schedule"}
               </Button>
             ) : null}
             <Button

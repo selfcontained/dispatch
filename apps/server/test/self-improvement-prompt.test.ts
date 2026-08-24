@@ -22,8 +22,9 @@ describe("buildSelfImprovementGuidance", () => {
     });
 
     expect(guidance).toContain(
-      'use update_job with name "Test Enforcer", directory "/Users/someone/dev/apps/dispatch", and the complete revised prompt.'
+      'use update_job with name "Test Enforcer" and directory "/Users/someone/dev/apps/dispatch".'
     );
+    expect(guidance).toContain("done-when criteria, or recovery instructions");
     expect(guidance).not.toContain("update_template");
   });
 

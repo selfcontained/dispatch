@@ -65,6 +65,51 @@ export function registerJobTools(
           .optional(),
       })
     ),
+    continuation: z
+      .object({
+        action: z
+          .enum(["default", "continue", "pause", "finish"])
+          .default("default")
+          .describe(
+            "Whether the Loop should start another run, pause, or finish. Default continues when more runs are allowed."
+          ),
+        phase: z
+          .string()
+          .min(1)
+          .max(200)
+          .optional()
+          .describe("Optional short name for the current phase of work."),
+        summary: z
+          .string()
+          .min(1)
+          .max(4000)
+          .optional()
+          .describe("Optional compact handoff summary for the next run."),
+        nextIntent: z
+          .string()
+          .min(1)
+          .max(4000)
+          .optional()
+          .describe(
+            "What the next run should do first. Required when the Loop will continue."
+          ),
+        filePaths: z
+          .array(z.string().min(1).max(1000))
+          .max(50)
+          .optional()
+          .describe(
+            "Files or directories containing context relevant to the next run."
+          ),
+        blockers: z
+          .array(z.string().min(1).max(1000))
+          .max(50)
+          .optional()
+          .describe("Unresolved blockers the next run must know about."),
+      })
+      .optional()
+      .describe(
+        "Run-to-run handoff for Loop jobs. Dispatch stores it and gives it to the successor run."
+      ),
   });
 
   server.registerTool(

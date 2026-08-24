@@ -14,6 +14,12 @@ import {
   JobWorktreeOption,
   SwitchToggle,
 } from "@/components/app/jobs-form-fields";
+import {
+  LoopSetup,
+  continuationMaxIterations,
+  defaultContinuationDraft,
+  normalizeLoopItems,
+} from "@/components/app/jobs-continuation-fields";
 import { cronError, msFromMinutes } from "@/components/app/jobs-helpers";
 import { errorMessage } from "@/lib/errors";
 import { ActivityBars } from "@/components/ui/activity-bars";
@@ -101,6 +107,7 @@ export function AddJobFlow({
   const [singleton, setSingleton] = useState(true);
   const [enableImmediately, setEnableImmediately] = useState(false);
   const [selfImprove, setSelfImprove] = useState(false);
+  const [continuation, setContinuation] = useState(defaultContinuationDraft);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const {
@@ -110,13 +117,21 @@ export function AddJobFlow({
     add: addCwdHistory,
     remove: removeCwdHistory,
   } = useCwdHistory();
-  const effectiveEnabled = schedule.trim() ? enableImmediately : false;
-  const scheduleError = cronError(schedule, effectiveEnabled);
+  const effectiveEnabled =
+    schedule.trim() || continuation.enabled ? enableImmediately : false;
+  const scheduleError = cronError(
+    schedule,
+    effectiveEnabled,
+    continuation.enabled
+  );
   const canAdd =
     !!displayName.trim() &&
     !!directory.trim() &&
     !!prompt.trim() &&
     !scheduleError &&
+    (!continuation.enabled ||
+      !continuation.maxIterations.trim() ||
+      Boolean(continuationMaxIterations(continuation.maxIterations))) &&
     !!msFromMinutes(timeoutMinutes) &&
     !!msFromMinutes(needsInputTimeoutMinutes);
 
@@ -170,7 +185,12 @@ export function AddJobFlow({
                 schedule={schedule}
                 scheduleError={scheduleError}
                 enabled={enableImmediately}
-                enabledHelperText="Run this job on its schedule after creating it."
+                enabledHelperText={
+                  continuation.enabled
+                    ? "Allow manual or scheduled starts after creating it."
+                    : "Run this job on its schedule after creating it."
+                }
+                showEnabledWithoutSchedule={continuation.enabled}
                 onScheduleChange={setSchedule}
                 onEnabledChange={setEnableImmediately}
               />
@@ -231,10 +251,10 @@ export function AddJobFlow({
                 className="text-sm font-medium text-foreground"
                 htmlFor="job-prompt"
               >
-                Prompt
+                Task prompt
               </label>
               <p className="text-xs text-muted-foreground">
-                The instructions the agent will follow when this job runs.
+                What each run should work on.
               </p>
             </div>
             <textarea
@@ -261,6 +281,21 @@ export function AddJobFlow({
               />
             </label>
           </div>
+
+          <LoopSetup
+            draft={continuation}
+            onChange={(next) => {
+              setContinuation(next);
+              if (next.enabled) {
+                if (!continuation.enabled) setEnableImmediately(true);
+                setKeepAgent(false);
+                setUseWorktree(false);
+              } else if (!schedule.trim()) {
+                setEnableImmediately(false);
+              }
+            }}
+            idPrefix="job-continuation"
+          />
 
           <div className="min-w-0 rounded-md border border-white/[0.12] bg-white/[0.04] p-4">
             <button
@@ -334,6 +369,12 @@ export function AddJobFlow({
                     onBaseBranchChange={setBaseBranch}
                     onBranchNameChange={setBranchName}
                     testIdPrefix="job-create"
+                    disabled={continuation.enabled}
+                    helperText={
+                      continuation.enabled
+                        ? "Unavailable while the loop is on."
+                        : undefined
+                    }
                   />
                   <JobFullAccessOption
                     checked={fullAccess}
@@ -342,6 +383,12 @@ export function AddJobFlow({
                   <JobKeepAgentOption
                     checked={keepAgent}
                     onCheckedChange={setKeepAgent}
+                    disabled={continuation.enabled}
+                    helperText={
+                      continuation.enabled
+                        ? "Unavailable while the loop is on."
+                        : undefined
+                    }
                   />
                 </div>
               </div>
@@ -380,11 +427,24 @@ export function AddJobFlow({
               baseBranch: useWorktree ? baseBranch : null,
               branchName: useWorktree ? branchName : null,
               fullAccess,
-              autoArchive: !keepAgent,
+              autoArchive: continuation.enabled ? true : !keepAgent,
               callable,
               singleton,
               enabled: effectiveEnabled,
               selfImprove,
+              ...(continuation.enabled
+                ? {
+                    continuationEnabled: true,
+                    maxIterations: continuationMaxIterations(
+                      continuation.maxIterations
+                    ),
+                    completionCriteria: normalizeLoopItems(
+                      continuation.completionCriteria
+                    ),
+                    recoveryInstructions:
+                      continuation.recoveryInstructions.trim() || null,
+                  }
+                : {}),
             })
               .then(() => addCwdHistory(trimmedDirectory))
               .catch((error) => setSubmitError(errorMessage(error)));

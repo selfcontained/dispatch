@@ -152,6 +152,20 @@ export function JobListContent({
                         </span>
                       </>
                     ) : null}
+                    {job.continuationEnabled ? (
+                      <>
+                        <span className="shrink-0 text-muted-foreground/70">
+                          •
+                        </span>
+                        <span className="shrink-0">
+                          {job.continuationPending
+                            ? "next run pending"
+                            : job.lastRunIteration
+                              ? `run ${job.lastRunIteration}`
+                              : "loop"}
+                        </span>
+                      </>
+                    ) : null}
                     {!job.autoArchive ? (
                       <>
                         <span className="shrink-0 text-muted-foreground/70">

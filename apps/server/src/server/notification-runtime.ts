@@ -87,8 +87,10 @@ export function createNotificationRuntime(deps: CreateNotificationRuntimeDeps) {
 
     async maybeAutoArchiveJobRun(
       run: {
+        id?: string;
         status: string;
         agentId: string | null;
+        continuationPending?: boolean;
         config?: { autoArchive?: boolean } | null;
       },
       terminalStatuses: Set<string>

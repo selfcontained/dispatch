@@ -113,7 +113,7 @@ function fillRequiredFields({
   fireEvent.change(screen.getByTestId("job-directory-input"), {
     target: { value: directory },
   });
-  fireEvent.change(screen.getByLabelText("Prompt"), {
+  fireEvent.change(screen.getByLabelText("Task prompt"), {
     target: { value: prompt },
   });
 }
@@ -283,6 +283,30 @@ describe("add payload", () => {
 });
 
 describe("enable-immediately gating", () => {
+  it("arms a continuation job without starting it or requiring cron", async () => {
+    const { onAddJob } = renderFlow();
+    fillRequiredFields();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Run as a loop" }));
+
+    expect(
+      screen
+        .getByRole("switch", { name: "Enable job" })
+        .getAttribute("aria-checked")
+    ).toBe("true");
+    fireEvent.click(addButton());
+
+    await waitFor(() => expect(onAddJob).toHaveBeenCalledTimes(1));
+    expect(onAddJob).toHaveBeenCalledWith({
+      ...basePayload(),
+      enabled: true,
+      continuationEnabled: true,
+      maxIterations: 10,
+      completionCriteria: null,
+      recoveryInstructions: null,
+    });
+  });
+
   it("keeps enabled false when the schedule is blank", async () => {
     const { onAddJob } = renderFlow();
     fillRequiredFields();

@@ -61,6 +61,7 @@ export function JobScheduleField({
   enabled,
   enabledHelperText,
   showEnabled = true,
+  showEnabledWithoutSchedule = false,
   onScheduleChange,
   onEnabledChange,
 }: {
@@ -70,6 +71,7 @@ export function JobScheduleField({
   enabled: boolean;
   enabledHelperText: string;
   showEnabled?: boolean;
+  showEnabledWithoutSchedule?: boolean;
   onScheduleChange: (value: string) => void;
   onEnabledChange: (enabled: boolean) => void;
 }) {
@@ -99,7 +101,7 @@ export function JobScheduleField({
           Leave blank for an on-demand job.
         </div>
       ) : null}
-      {showEnabled && schedule.trim() ? (
+      {showEnabled && (schedule.trim() || showEnabledWithoutSchedule) ? (
         <label className="mt-2 flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
           <span>
             <span className="block font-medium text-foreground">Enabled</span>
@@ -158,6 +160,8 @@ export function JobWorktreeOption({
   onBaseBranchChange,
   onBranchNameChange,
   testIdPrefix,
+  disabled = false,
+  helperText,
 }: {
   checked: boolean;
   cwd: string;
@@ -167,13 +171,21 @@ export function JobWorktreeOption({
   onBaseBranchChange: (value: string) => void;
   onBranchNameChange: (value: string) => void;
   testIdPrefix?: string;
+  disabled?: boolean;
+  helperText?: string;
 }) {
   return (
     <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
-      <label className="flex cursor-pointer items-start gap-3">
+      <label
+        className={cn(
+          "flex items-start gap-3",
+          disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+        )}
+      >
         <Checkbox
           checked={checked}
           onCheckedChange={() => onCheckedChange(!checked)}
+          disabled={disabled}
           className="mt-0.5"
           title="Toggle git worktree"
         />
@@ -183,7 +195,8 @@ export function JobWorktreeOption({
             Run in a git worktree
           </span>
           <span className="block text-xs text-muted-foreground">
-            Creates an isolated worktree and branch when this job runs.
+            {helperText ??
+              "Creates an isolated worktree and branch when this job runs."}
           </span>
         </span>
       </label>
@@ -206,15 +219,25 @@ export function JobWorktreeOption({
 export function JobKeepAgentOption({
   checked,
   onCheckedChange,
+  disabled = false,
+  helperText,
 }: {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  disabled?: boolean;
+  helperText?: string;
 }) {
   return (
-    <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
+    <label
+      className={cn(
+        "flex items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2",
+        disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"
+      )}
+    >
       <Checkbox
         checked={checked}
         onCheckedChange={() => onCheckedChange(!checked)}
+        disabled={disabled}
         className="mt-0.5"
         title="Keep agent after run completes"
       />
@@ -223,8 +246,8 @@ export function JobKeepAgentOption({
           Keep agent after run completes
         </span>
         <span className="block text-xs text-muted-foreground">
-          The agent stays in your Agents list so you can continue the session
-          after the job finishes.
+          {helperText ??
+            "The agent stays in your Agents list so you can continue the session after the job finishes."}
         </span>
       </span>
     </label>

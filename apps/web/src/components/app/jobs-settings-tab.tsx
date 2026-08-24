@@ -70,9 +70,14 @@ export function SettingsTab({
   const [removeError, setRemoveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [saved, setSaved] = useState(false);
-  const effectiveEnabled = schedule.trim() ? enabled : false;
+  const effectiveEnabled =
+    schedule.trim() || job.continuationEnabled ? enabled : false;
   const hasSavedSchedule = Boolean(job.schedule?.trim());
-  const scheduleError = cronError(schedule, effectiveEnabled);
+  const scheduleError = cronError(
+    schedule,
+    effectiveEnabled,
+    Boolean(job.continuationEnabled)
+  );
   const canSave =
     !!displayName.trim() &&
     !scheduleError &&
@@ -113,14 +118,20 @@ export function SettingsTab({
           <span className="block font-medium text-foreground">Enabled</span>
           <span className="block text-xs text-muted-foreground">
             {hasSavedSchedule
-              ? "Allow this job to run on its schedule."
-              : "Save a schedule before enabling this job."}
+              ? "Allow manual and scheduled starts."
+              : job.continuationEnabled
+                ? "Allow this loop to start."
+                : "Save a schedule before enabling this job."}
           </span>
         </span>
         <SwitchToggle
           checked={enabled}
           onCheckedChange={(nextEnabled) => {
-            if (!hasSavedSchedule || isUpdatingEnabled) return;
+            if (
+              (!hasSavedSchedule && !job.continuationEnabled) ||
+              isUpdatingEnabled
+            )
+              return;
             setEnabled(nextEnabled);
             setEnabledError(null);
             setIsUpdatingEnabled(true);
@@ -137,8 +148,10 @@ export function SettingsTab({
                 setIsUpdatingEnabled(false);
               });
           }}
-          ariaLabel="Enable schedule"
-          disabled={!hasSavedSchedule || isUpdatingEnabled}
+          ariaLabel={job.continuationEnabled ? "Enable job" : "Enable schedule"}
+          disabled={
+            (!hasSavedSchedule && !job.continuationEnabled) || isUpdatingEnabled
+          }
         />
       </label>
       {enabledError ? (
@@ -232,6 +245,12 @@ export function SettingsTab({
             onBaseBranchChange={setBaseBranch}
             onBranchNameChange={setBranchName}
             testIdPrefix={`job-settings-${job.id}`}
+            disabled={Boolean(job.continuationEnabled)}
+            helperText={
+              job.continuationEnabled
+                ? "Unavailable while the loop is on."
+                : undefined
+            }
           />
           <JobFullAccessOption
             checked={fullAccess}
@@ -240,6 +259,12 @@ export function SettingsTab({
           <JobKeepAgentOption
             checked={keepAgent}
             onCheckedChange={setKeepAgent}
+            disabled={Boolean(job.continuationEnabled)}
+            helperText={
+              job.continuationEnabled
+                ? "Unavailable while the loop is on."
+                : undefined
+            }
           />
           <label className="flex items-center justify-between gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3 text-sm">
             <span>
@@ -326,7 +351,7 @@ export function SettingsTab({
                 baseBranch: useWorktree ? baseBranch : null,
                 branchName: useWorktree ? branchName : null,
                 fullAccess,
-                autoArchive: !keepAgent,
+                autoArchive: job.continuationEnabled ? true : !keepAgent,
                 callable,
                 singleton,
                 webhookEnabled,

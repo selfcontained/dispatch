@@ -330,6 +330,14 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   reconciliationTracker,
   activityTracker,
+  onAgentsArchived: async (agentIds) => {
+    for (const agentId of agentIds) {
+      const run = await jobService.getLatestRunForAgent(agentId);
+      if (run?.continuationPending) {
+        await jobService.launchPendingContinuation(run.id);
+      }
+    }
+  },
 });
 const serviceResources = new ServiceResources({
   pool,
@@ -414,6 +422,7 @@ const authRuntime = createAuthRuntime({
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
 const brainStore = new BrainStore(pool);
+jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,
   mediaRoot: config.mediaRoot,
@@ -851,6 +860,7 @@ export async function initializeApp(options?: {
   const shouldReconcileState = options?.reconcileState ?? true;
   if (shouldReconcileState) {
     await agentManager.reconcileAgents();
+    await agentLifecycleRuntime.restorePendingContinuations(jobService);
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
     // If we crashed/restarted mid-assisted-update, repopulate the
