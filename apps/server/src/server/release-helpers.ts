@@ -1,6 +1,10 @@
 import path from "node:path";
 
 import { resolveConfiguredPath } from "../shared/lib/resolve-tilde.js";
+// Re-exported for existing importers — the implementation lives in
+// shared/lib so non-release code (plugin-status.ts) can use it without
+// reaching into server/.
+export { compareSemver } from "../shared/lib/compare-semver.js";
 
 export type RunCommand = (
   command: string,
@@ -136,18 +140,6 @@ export function parseGhJson<T>(stdout: string): T {
   } catch {
     throw new Error("Failed to parse GitHub CLI output");
   }
-}
-
-export function compareSemver(a: string, b: string): number {
-  const parse = (v: string) =>
-    v.replace(/^v/, "").split("-")[0]!.split(".").map(Number);
-  const pa = parse(a);
-  const pb = parse(b);
-  for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-    const diff = (pa[i] ?? 0) - (pb[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
 }
 
 export function fixedRuntimePath(serverDir: string): string {

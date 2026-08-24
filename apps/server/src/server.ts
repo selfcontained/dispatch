@@ -118,6 +118,7 @@ import { registerReleaseRoutes } from "./routes/release.js";
 import { createAutoCheckRuntime } from "./release-auto-check.js";
 import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
+import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
 import {
   dateTruncTz,
@@ -675,6 +676,8 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
+
+  await registerPluginRoutes(app, { pool, config, appLog: app.log });
 
   await registerBrainRoutes(app, {
     brainStore,

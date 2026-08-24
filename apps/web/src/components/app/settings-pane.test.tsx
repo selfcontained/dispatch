@@ -57,6 +57,10 @@ vi.mock(
   "@/components/app/launch-guidance-settings",
   stubModule("LaunchGuidanceSettings")
 );
+vi.mock(
+  "@/components/app/plugin-update-settings",
+  stubModule("PluginUpdateSettings")
+);
 vi.mock("@/components/app/ide-settings", stubModule("IdeSettings"));
 vi.mock(
   "@/components/app/instance-name-settings",
@@ -274,6 +278,7 @@ describe("SettingsContent", () => {
         "AgentTypeSettings",
         "IdeSettings",
         "LaunchGuidanceSettings",
+        "PluginUpdateSettings",
         "InjectionHoldSettings",
         "CrossRepoMessagingSettings",
         "WorktreeLocationSettings",
