@@ -35,20 +35,13 @@
 import path from "node:path";
 import { readFile } from "node:fs/promises";
 
-import { PLUGIN_AGENT_TYPES } from "./agent-types.js";
+import { isPluginAgentType, PLUGIN_AGENT_TYPES } from "./agent-types.js";
 import type { PluginAgentType } from "./agent-types.js";
 import { compareSemver } from "./lib/compare-semver.js";
 import { runCommand, type CommandRunner } from "./lib/run-command.js";
 
-export { PLUGIN_AGENT_TYPES };
+export { isPluginAgentType, PLUGIN_AGENT_TYPES };
 export type { PluginAgentType };
-
-export function isPluginAgentType(value: unknown): value is PluginAgentType {
-  return (
-    typeof value === "string" &&
-    (PLUGIN_AGENT_TYPES as readonly string[]).includes(value)
-  );
-}
 
 export type PluginStatus = {
   agentType: PluginAgentType;
@@ -63,6 +56,8 @@ export type PluginUpdateResult = {
   status: PluginStatus;
   ranCommands: string[];
   error: string | null;
+  /** Mirrors CheckOutcome.probeFailed for the re-check this result carries — see createPluginStatusChecker's `update`. */
+  probeFailed: boolean;
 };
 
 /** Minimal pino-shaped logger — matches `app.log.warn(obj, msg)` without importing Fastify's type into shared/. */
@@ -83,6 +78,12 @@ const MARKETPLACE_NAME = "dispatch";
 // would allow.
 const LOCAL_TIMEOUT_MS = 10_000;
 const MARKETPLACE_REFRESH_TIMEOUT_MS = 15_000;
+// `plugin update -y` / `plugin add` are installs, not reads — they copy the
+// plugin tree and rewrite config, and `claude plugin update` can touch the
+// network too. Distinct (longer) budget from LOCAL_TIMEOUT_MS's read-only
+// justification, so a slow disk/link doesn't turn a previously-succeeding
+// install into a timeout.
+const INSTALL_TIMEOUT_MS = 30_000;
 
 function notInstalled(agentType: PluginAgentType): PluginStatus {
   return {
@@ -124,10 +125,20 @@ async function runStep(
   }
 }
 
+/**
+ * Once `checkClaude`/`checkCodex` has already found the plugin in `plugin
+ * list`, its marketplace entry — and this manifest inside it — should exist
+ * too, so any failure to read it here is anomalous (a race with a concurrent
+ * refresh, a corrupted clone, a permissions issue), not a legitimate "no
+ * version" answer. Reports its own failure separately from "read fine, no
+ * version field" so the caller can fold it into `probeFailed` rather than
+ * caching a confident "no update" for an hour off an unreadable file.
+ */
 async function readManifestVersion(
   marketplaceRoot: string,
-  manifestSubdir: ".claude-plugin" | ".codex-plugin"
-): Promise<string | null> {
+  manifestSubdir: ".claude-plugin" | ".codex-plugin",
+  logger: PluginStatusLogger
+): Promise<{ version: string | null; failed: boolean }> {
   try {
     const raw = await readFile(
       path.join(
@@ -140,9 +151,16 @@ async function readManifestVersion(
       "utf8"
     );
     const parsed = JSON.parse(raw) as { version?: unknown };
-    return typeof parsed.version === "string" ? parsed.version : null;
-  } catch {
-    return null;
+    return {
+      version: typeof parsed.version === "string" ? parsed.version : null,
+      failed: false,
+    };
+  } catch (err) {
+    logger.warn(
+      { err, marketplaceRoot },
+      "plugin manifest read failed; latest version unknown"
+    );
+    return { version: null, failed: true };
   }
 }
 
@@ -170,13 +188,20 @@ function updateAvailable(
   );
 }
 
+/**
+ * Resolves the latest published version, and whether resolving it actually
+ * succeeded. `version: null` alone is ambiguous (genuinely no version found
+ * vs. couldn't tell), which is exactly the ambiguity `failed` exists to
+ * remove — the caller needs it to avoid caching "no update" at the full TTL
+ * off a probe that never really completed.
+ */
 async function readLatestVersion(
   run: CommandRunner,
   bin: string,
   agentType: PluginAgentType,
   refreshMarketplace: boolean,
   logger: PluginStatusLogger
-): Promise<string | null> {
+): Promise<{ version: string | null; failed: boolean }> {
   if (refreshMarketplace) {
     // Best-effort: a git fetch that fails just means we fall back to
     // whatever was already on disk from a previous refresh. Not fatal to
@@ -208,7 +233,7 @@ async function readLatestVersion(
       { err: listResult.error, agentType },
       "plugin marketplace list failed; latest version unknown"
     );
-    return null;
+    return { version: null, failed: true };
   }
 
   try {
@@ -218,21 +243,42 @@ async function readLatestVersion(
         installLocation?: unknown;
       }>;
       const mkt = marketplaces.find((m) => m.name === MARKETPLACE_NAME);
-      if (!mkt || typeof mkt.installLocation !== "string") return null;
-      return await readManifestVersion(mkt.installLocation, ".claude-plugin");
+      // The plugin is already confirmed installed at this point (the caller
+      // only reaches here after `plugin list` found it), so its marketplace
+      // not showing up here is an inconsistent/unexpected state, not a
+      // legitimate "no marketplace" answer — treat it the same as a probe
+      // failure rather than caching it as a confident one.
+      if (!mkt || typeof mkt.installLocation !== "string") {
+        logger.warn(
+          { agentType },
+          "installed plugin's marketplace missing from marketplace list; latest version unknown"
+        );
+        return { version: null, failed: true };
+      }
+      return await readManifestVersion(
+        mkt.installLocation,
+        ".claude-plugin",
+        logger
+      );
     }
     const parsed = JSON.parse(listResult.stdout) as {
       marketplaces?: Array<{ name?: unknown; root?: unknown }>;
     };
     const mkt = parsed.marketplaces?.find((m) => m.name === MARKETPLACE_NAME);
-    if (!mkt || typeof mkt.root !== "string") return null;
-    return await readManifestVersion(mkt.root, ".codex-plugin");
+    if (!mkt || typeof mkt.root !== "string") {
+      logger.warn(
+        { agentType },
+        "installed plugin's marketplace missing from marketplace list; latest version unknown"
+      );
+      return { version: null, failed: true };
+    }
+    return await readManifestVersion(mkt.root, ".codex-plugin", logger);
   } catch (err) {
     logger.warn(
       { err, agentType },
       "plugin marketplace list output didn't parse; latest version unknown"
     );
-    return null;
+    return { version: null, failed: true };
   }
 }
 
@@ -273,7 +319,7 @@ async function checkClaude(
   const currentVersion =
     typeof entry.version === "string" ? entry.version : null;
   const enabled = entry.enabled === true;
-  const latestVersion = await readLatestVersion(
+  const latest = await readLatestVersion(
     run,
     bin,
     "claude",
@@ -281,17 +327,22 @@ async function checkClaude(
     logger
   );
 
-  const partial = { enabled, currentVersion, latestVersion };
+  const partial = { enabled, currentVersion, latestVersion: latest.version };
   return {
     status: {
       agentType: "claude",
       installed: true,
       enabled,
       currentVersion,
-      latestVersion,
+      latestVersion: latest.version,
       updateAvailable: updateAvailable(partial),
     },
-    probeFailed: false,
+    // We already have a confident "installed" answer at this point — a
+    // failure to resolve the *latest* version doesn't change that, but it
+    // does mean `updateAvailable: false` here isn't a confident "no update",
+    // just "couldn't tell". Fold it into probeFailed so that reads as a
+    // short-TTL guess rather than a real answer.
+    probeFailed: latest.failed,
   };
 }
 
@@ -339,7 +390,7 @@ async function checkCodex(
   const currentVersion =
     typeof entry.version === "string" ? entry.version : null;
   const enabled = entry.enabled === true;
-  const latestVersion = await readLatestVersion(
+  const latest = await readLatestVersion(
     run,
     bin,
     "codex",
@@ -347,17 +398,17 @@ async function checkCodex(
     logger
   );
 
-  const partial = { enabled, currentVersion, latestVersion };
+  const partial = { enabled, currentVersion, latestVersion: latest.version };
   return {
     status: {
       agentType: "codex",
       installed: true,
       enabled,
       currentVersion,
-      latestVersion,
+      latestVersion: latest.version,
       updateAvailable: updateAvailable(partial),
     },
-    probeFailed: false,
+    probeFailed: latest.failed,
   };
 }
 
@@ -428,7 +479,7 @@ export async function applyPluginUpdate(
           {
             friendlyError: "Failed to update the plugin.",
             args: ["plugin", "update", PLUGIN_ID, "-y"],
-            timeoutMs: LOCAL_TIMEOUT_MS,
+            timeoutMs: INSTALL_TIMEOUT_MS,
           },
         ]
       : [
@@ -451,7 +502,7 @@ export async function applyPluginUpdate(
             // what keeps that structurally true here.
             friendlyError: "Failed to update the plugin.",
             args: ["plugin", "add", PLUGIN_ID],
-            timeoutMs: LOCAL_TIMEOUT_MS,
+            timeoutMs: INSTALL_TIMEOUT_MS,
           },
         ];
 
@@ -474,7 +525,12 @@ export async function applyPluginUpdate(
         true,
         logger
       );
-      return { status: outcome.status, ranCommands, error: step.friendlyError };
+      return {
+        status: outcome.status,
+        ranCommands,
+        error: step.friendlyError,
+        probeFailed: outcome.probeFailed,
+      };
     }
   }
 
@@ -489,7 +545,12 @@ export async function applyPluginUpdate(
     false,
     logger
   );
-  return { status: outcome.status, ranCommands, error: null };
+  return {
+    status: outcome.status,
+    ranCommands,
+    error: null,
+    probeFailed: outcome.probeFailed,
+  };
 }
 
 export type PluginStatusChecker = {
@@ -597,7 +658,12 @@ export function createPluginStatusChecker(deps: {
       );
       cache.set(agentType, {
         status: result.status,
-        expiresAt: now() + SUCCESS_TTL_MS,
+        // The post-update re-check is the probe most likely to fail (it
+        // runs immediately after an install that may still be settling) —
+        // give it the same probeFailed-aware TTL as getStatus rather than
+        // pinning a failed re-check at the full hour.
+        expiresAt:
+          now() + (result.probeFailed ? FAILURE_TTL_MS : SUCCESS_TTL_MS),
       });
       return result;
     });

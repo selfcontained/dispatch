@@ -379,6 +379,88 @@ describe("plugin-status", () => {
       expect(calls).toHaveLength(2);
     });
 
+    it("does not cache 'no update' at the full TTL when resolving the latest version itself failed", async () => {
+      // The plugin IS confirmed installed (first call succeeds) — only
+      // resolving *which* version is latest fails. That must still count as
+      // a probe failure, not a confident "no update", or a transient
+      // marketplace-list blip silently hides a real update for an hour.
+      await writeManifest(tmpRoot, ".claude-plugin", "0.2.0");
+      const { runner, calls } = fakeRunner([
+        ok(
+          JSON.stringify([
+            { id: "dispatch@dispatch", version: "0.1.0", enabled: true },
+          ])
+        ),
+        ok(""), // marketplace update (refresh, best-effort)
+        fail(), // marketplace list itself fails
+        // Queued for the second getStatus() call, once time advances — this
+        // time the marketplace list succeeds, so the test can also assert
+        // the retry actually recovers a real answer.
+        ok(
+          JSON.stringify([
+            { id: "dispatch@dispatch", version: "0.1.0", enabled: true },
+          ])
+        ),
+        ok(""),
+        ok(JSON.stringify([{ name: "dispatch", installLocation: tmpRoot }])),
+      ]);
+      let now = 1_000;
+      const checker = createPluginStatusChecker({
+        binFor: () => "claude",
+        commandRunner: runner,
+        now: () => now,
+      });
+
+      const first = await checker.getStatus("claude");
+      expect(first.installed).toBe(true);
+      expect(first.updateAvailable).toBe(false);
+
+      now += 5 * 60 * 1000; // past the short failure TTL, well within 1h
+      const second = await checker.getStatus("claude");
+
+      // Not served from a stale cache — the retry ran (6 calls, not 3) and
+      // recovered the real answer.
+      expect(calls).toHaveLength(6);
+      expect(second.updateAvailable).toBe(true);
+    });
+
+    it("does not pin a failed post-update re-check at the full success TTL", async () => {
+      await writeManifest(tmpRoot, ".claude-plugin", "0.2.0");
+      const { runner, calls } = fakeRunner([
+        ok(""), // marketplace update
+        ok(""), // plugin update -y
+        fail(), // re-check: plugin list fails — the probe most likely to hiccup right after an install
+        // Queued for the getStatus() re-probe below, once time advances:
+        ok(
+          JSON.stringify([
+            { id: "dispatch@dispatch", version: "0.2.0", enabled: true },
+          ])
+        ),
+        ok(""),
+        ok(JSON.stringify([{ name: "dispatch", installLocation: tmpRoot }])),
+      ]);
+      let now = 1_000;
+      const checker = createPluginStatusChecker({
+        binFor: () => "claude",
+        commandRunner: runner,
+        now: () => now,
+      });
+
+      const updateResult = await checker.update("claude");
+      // Re-check failed → fails open to "not installed", which is exactly
+      // the wrong answer this test exists to make sure doesn't get pinned.
+      expect(updateResult.status.installed).toBe(false);
+
+      now += 5 * 60 * 1000; // past the 1-minute failure TTL, well within the 1h success TTL
+      const status = await checker.getStatus("claude");
+
+      // If the failed re-check had cached at the full success TTL, this call
+      // would return the stale "not installed" answer with zero further CLI
+      // calls instead of re-probing.
+      expect(calls).toHaveLength(6);
+      expect(status.installed).toBe(true);
+    });
+
     it("forceRefresh bypasses the cache even within the TTL", async () => {
       const { runner, calls } = fakeRunner([
         ok(JSON.stringify([])),

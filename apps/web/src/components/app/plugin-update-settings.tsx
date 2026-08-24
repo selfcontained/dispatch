@@ -53,6 +53,7 @@ function PluginUpdateRow({
         <Button
           variant="primary"
           size="sm"
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           aria-disabled={isPending}
           aria-busy={isPending}
           onClick={() => {
@@ -68,6 +69,7 @@ function PluginUpdateRow({
         <Button
           variant="ghost"
           size="icon"
+          className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
           aria-disabled={isPending}
           aria-label={`Dismiss ${label} update`}
           onClick={() => {
