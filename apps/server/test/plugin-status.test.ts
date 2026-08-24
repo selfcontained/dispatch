@@ -6,15 +6,24 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   applyPluginUpdate,
   checkPluginStatus,
+  createPluginStatusChecker,
 } from "../src/shared/plugin-status.js";
 import type { RunCommandResult } from "../src/shared/lib/run-command.js";
 
 type Call = { command: string; args: string[] };
 
-/** Builds a fake CommandRunner from an ordered queue of canned results, recording every call. */
+/**
+ * Builds a fake CommandRunner from an ordered queue of canned results,
+ * recording every call. `fail(...)` throws (rejects), matching the real
+ * `runCommand`'s behavior: it rejects on any exit code outside its default
+ * `allowedExitCodes: [0]` rather than resolving with a non-zero `exitCode` —
+ * a fake that resolved instead would validate a code path production never
+ * takes.
+ */
 function fakeRunner(
   responses: Array<
     | RunCommandResult
+    | Error
     | ((call: Call) => RunCommandResult)
     | ((call: Call) => Promise<RunCommandResult>)
   >
@@ -27,6 +36,7 @@ function fakeRunner(
   ): Promise<RunCommandResult> => {
     calls.push({ command, args });
     const next = responses[i++];
+    if (next instanceof Error) throw next;
     if (typeof next === "function") return await next({ command, args });
     if (!next) throw new Error(`fakeRunner: no response queued for call ${i}`);
     return next;
@@ -39,11 +49,8 @@ const ok = (stdout: string): RunCommandResult => ({
   stdout,
   stderr: "",
 });
-const fail = (stderr = "boom"): RunCommandResult => ({
-  exitCode: 1,
-  stdout: "",
-  stderr,
-});
+const fail = (stderr = "boom"): Error =>
+  new Error(`Command failed, exitCode=1, stderr=${stderr}`);
 
 async function writeManifest(
   root: string,
@@ -128,7 +135,23 @@ describe("plugin-status", () => {
       expect(status.updateAvailable).toBe(false);
     });
 
-    it("fails open (not installed / no update) if `plugin list` exits non-zero", async () => {
+    it("does not nag about an update for a plugin the user disabled", async () => {
+      await writeManifest(tmpRoot, ".claude-plugin", "0.2.0");
+      const { runner } = fakeRunner([
+        ok(
+          JSON.stringify([
+            { id: "dispatch@dispatch", version: "0.1.0", enabled: false },
+          ])
+        ),
+        ok(""),
+        ok(JSON.stringify([{ name: "dispatch", installLocation: tmpRoot }])),
+      ]);
+      const status = await checkPluginStatus("claude", "claude", runner);
+      expect(status.enabled).toBe(false);
+      expect(status.updateAvailable).toBe(false);
+    });
+
+    it("fails open (not installed / no update) if `plugin list` rejects", async () => {
       const { runner } = fakeRunner([fail()]);
       const status = await checkPluginStatus("claude", "claude", runner);
       expect(status.installed).toBe(false);
@@ -210,7 +233,7 @@ describe("plugin-status", () => {
   });
 
   describe("applyPluginUpdate", () => {
-    it("runs claude's ordered commands (marketplace update THEN plugin update) and re-checks", async () => {
+    it("runs claude's ordered commands (marketplace update THEN plugin update), skips the re-check's own refresh, and re-checks", async () => {
       await writeManifest(tmpRoot, ".claude-plugin", "0.2.0");
       const { runner, calls } = fakeRunner([
         ok(""), // marketplace update
@@ -220,13 +243,13 @@ describe("plugin-status", () => {
             { id: "dispatch@dispatch", version: "0.2.0", enabled: true },
           ])
         ), // re-check: plugin list
-        ok(""), // re-check: marketplace update
-        ok(JSON.stringify([{ name: "dispatch", installLocation: tmpRoot }])), // re-check: marketplace list
+        ok(JSON.stringify([{ name: "dispatch", installLocation: tmpRoot }])), // re-check: marketplace list (no refresh call in between)
       ]);
       const result = await applyPluginUpdate("claude", "claude", runner);
       expect(result.error).toBeNull();
       expect(result.status.currentVersion).toBe("0.2.0");
       expect(result.status.updateAvailable).toBe(false);
+      expect(calls).toHaveLength(4);
       expect(calls[0].args).toEqual([
         "plugin",
         "marketplace",
@@ -238,6 +261,14 @@ describe("plugin-status", () => {
         "update",
         "dispatch@dispatch",
         "-y",
+      ]);
+      // The re-check's third call is `marketplace list`, not another
+      // `marketplace update` — the refresh from call 0 is not repeated.
+      expect(calls[3].args).toEqual([
+        "plugin",
+        "marketplace",
+        "list",
+        "--json",
       ]);
     });
 
@@ -257,7 +288,6 @@ describe("plugin-status", () => {
             ],
           })
         ), // re-check: plugin list
-        ok(JSON.stringify({ upgradedRoots: [] })), // re-check: marketplace upgrade
         ok(
           JSON.stringify({
             marketplaces: [{ name: "dispatch", root: tmpRoot }],
@@ -276,21 +306,149 @@ describe("plugin-status", () => {
       // The ordering trap this feature exists to avoid: `plugin add` must
       // never run without the marketplace upgrade immediately before it.
       expect(calls[1].args).toEqual(["plugin", "add", "dispatch@dispatch"]);
-      const addIndex = calls.findIndex((c) => c.args[1] === "add");
-      const upgradeIndex = calls.findIndex(
-        (c) => c.args.includes("upgrade") && c === calls[0]
-      );
-      expect(upgradeIndex).toBeLessThan(addIndex);
     });
 
-    it("surfaces the error and still returns a re-checked status when the marketplace refresh fails", async () => {
+    it("surfaces a curated friendly error (not raw CLI stderr) when the marketplace refresh rejects", async () => {
       const { runner } = fakeRunner([
-        fail("network unreachable"), // marketplace update fails
-        fail(), // re-check: plugin list (unrelated failure — fails open)
+        fail("network unreachable"), // marketplace update rejects
+        ok(JSON.stringify([])), // re-check: plugin list — genuinely not found
       ]);
       const result = await applyPluginUpdate("claude", "claude", runner);
-      expect(result.error).toBe("network unreachable");
+      expect(result.error).toBe("Failed to refresh the dispatch marketplace.");
       expect(result.status.installed).toBe(false);
+    });
+
+    it("surfaces a curated friendly error when the install/update step itself rejects", async () => {
+      await writeManifest(tmpRoot, ".claude-plugin", "0.1.0");
+      const { runner } = fakeRunner([
+        ok(""), // marketplace update succeeds
+        fail("plugin not found"), // plugin update rejects
+        ok(
+          JSON.stringify([
+            { id: "dispatch@dispatch", version: "0.1.0", enabled: true },
+          ])
+        ), // re-check: plugin list
+        ok(""), // re-check: marketplace update (refreshed again since the failure happened before the "both steps succeeded" point)
+        ok(JSON.stringify([{ name: "dispatch", installLocation: tmpRoot }])), // re-check: marketplace list
+      ]);
+      const result = await applyPluginUpdate("claude", "claude", runner);
+      expect(result.error).toBe("Failed to update the plugin.");
+      expect(result.status.currentVersion).toBe("0.1.0");
+    });
+  });
+
+  describe("createPluginStatusChecker", () => {
+    it("caches a successful check and does not re-run the CLI within the TTL", async () => {
+      const { runner, calls } = fakeRunner([
+        ok(JSON.stringify([])), // claude: not installed
+      ]);
+      let now = 1_000;
+      const checker = createPluginStatusChecker({
+        binFor: () => "claude",
+        commandRunner: runner,
+        now: () => now,
+      });
+
+      await checker.getStatus("claude");
+      now += 60 * 1000; // well within the 1h success TTL
+      await checker.getStatus("claude");
+
+      expect(calls).toHaveLength(1);
+    });
+
+    it("does not cache a probe failure at the full TTL — a later call retries", async () => {
+      const { runner, calls } = fakeRunner([
+        fail(), // plugin list rejects — a probe failure, not a real "not installed"
+        ok(JSON.stringify([])), // second call succeeds: genuinely not installed
+      ]);
+      let now = 1_000;
+      const checker = createPluginStatusChecker({
+        binFor: () => "claude",
+        commandRunner: runner,
+        now: () => now,
+      });
+
+      const first = await checker.getStatus("claude");
+      expect(first.installed).toBe(false);
+
+      // Well past the short failure TTL, well within the 1h success TTL —
+      // this only re-runs if the failure wasn't cached at the full TTL.
+      now += 5 * 60 * 1000;
+      await checker.getStatus("claude");
+
+      expect(calls).toHaveLength(2);
+    });
+
+    it("forceRefresh bypasses the cache even within the TTL", async () => {
+      const { runner, calls } = fakeRunner([
+        ok(JSON.stringify([])),
+        ok(JSON.stringify([])),
+      ]);
+      const checker = createPluginStatusChecker({
+        binFor: () => "claude",
+        commandRunner: runner,
+      });
+
+      await checker.getStatus("claude");
+      await checker.getStatus("claude", { forceRefresh: true });
+
+      expect(calls).toHaveLength(2);
+    });
+
+    it("serializes getStatus and update for the same agentType — never runs CLI commands concurrently", async () => {
+      let concurrent = 0;
+      let maxConcurrent = 0;
+      const trackedRunner = async (
+        _command: string,
+        _args: string[]
+      ): Promise<RunCommandResult> => {
+        concurrent++;
+        maxConcurrent = Math.max(maxConcurrent, concurrent);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        concurrent--;
+        return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
+      };
+      const checker = createPluginStatusChecker({
+        binFor: () => "claude",
+        commandRunner: trackedRunner,
+      });
+
+      // A status check and an update fired at the same instant for the same
+      // agent type — both do multiple sequential CLI calls internally.
+      await Promise.all([
+        checker.getStatus("claude", { forceRefresh: true }),
+        checker.update("claude"),
+      ]);
+
+      expect(maxConcurrent).toBe(1);
+    });
+
+    it("does not serialize across different agent types", async () => {
+      let claudeRunning = false;
+      let codexSawClaudeRunning = false;
+      const trackedRunner = async (
+        command: string
+      ): Promise<RunCommandResult> => {
+        if (command === "claude") {
+          claudeRunning = true;
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          claudeRunning = false;
+        } else {
+          codexSawClaudeRunning = claudeRunning;
+        }
+        return { exitCode: 0, stdout: JSON.stringify([]), stderr: "" };
+      };
+      const checker = createPluginStatusChecker({
+        binFor: (agentType) => agentType,
+        commandRunner: trackedRunner,
+      });
+
+      await Promise.all([
+        checker.getStatus("claude"),
+        checker.getStatus("codex"),
+      ]);
+
+      expect(codexSawClaudeRunning).toBe(true);
     });
   });
 });

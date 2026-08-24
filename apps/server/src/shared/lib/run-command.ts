@@ -36,12 +36,27 @@ export async function runCommand(
     let stdout = "";
     let stderr = "";
     let timeout: NodeJS.Timeout | null = null;
+    // SIGTERM is a request, not a guarantee — a child that's mid-syscall (a
+    // hung `git fetch`, for instance) can simply not act on it. Escalate to
+    // SIGKILL if it hasn't exited shortly after. This only reaches the
+    // direct child (no process-group kill) — a grandchild process the child
+    // itself spawned can still outlive us, which a `detached: true` +
+    // group-kill would close, but that changes kill semantics for every
+    // caller of this shared utility, not just the timeout path, so it's left
+    // out here deliberately.
+    let hardKill: NodeJS.Timeout | null = null;
+
+    const stopListening = (): void => {
+      child.stdout.removeAllListeners("data");
+      child.stderr.removeAllListeners("data");
+    };
 
     const fail = (error: Error): void => {
       if (settled) {
         return;
       }
       settled = true;
+      stopListening();
       if (timeout) {
         clearTimeout(timeout);
         timeout = null;
@@ -54,9 +69,14 @@ export async function runCommand(
         return;
       }
       settled = true;
+      stopListening();
       if (timeout) {
         clearTimeout(timeout);
         timeout = null;
+      }
+      if (hardKill) {
+        clearTimeout(hardKill);
+        hardKill = null;
       }
       resolve(result);
     };
@@ -66,6 +86,12 @@ export async function runCommand(
         try {
           child.kill("SIGTERM");
         } catch {}
+        hardKill = setTimeout(() => {
+          try {
+            child.kill("SIGKILL");
+          } catch {}
+        }, 5_000);
+        hardKill.unref();
         fail(
           new Error(
             `Command timed out (${command} ${args.join(" ")}), timeoutMs=${options.timeoutMs}`

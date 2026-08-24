@@ -6,13 +6,17 @@ import {
   createReleaseUpdateToken,
 } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
+import { PLUGIN_AGENT_TYPES } from "../../shared/agent-types.js";
 import { buildCursorDispatchToolGuidance } from "../../shared/mcp/cursor-dispatch-guidance.js";
 import type { AgentPin, AgentRole, AgentType } from "../types.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape } from "./quoting.js";
 import { agentIdFromSessionName } from "./session-name.js";
 
-const CLI_BY_AGENT_TYPE: Record<
+// Exported so other code that needs "which AppConfig field holds this agent
+// type's binary" (e.g. plugin-status.ts, which shells out to claude/codex
+// directly) doesn't redeclare the mapping.
+export const CLI_BY_AGENT_TYPE: Record<
   Exclude<AgentType, "terminal">,
   keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin" | "cursorBin">
 > = {
@@ -31,10 +35,9 @@ const DISPATCH_RELEASE_UPDATE_TOKEN_ENV = "DISPATCH_RELEASE_UPDATE_TOKEN";
  * they keep the full guidance even when the trim setting is on — otherwise
  * they'd lose that guidance with nothing replacing it.
  */
-const PLUGIN_CAPABLE_AGENT_TYPES: ReadonlySet<AgentType> = new Set([
-  "claude",
-  "codex",
-]);
+const PLUGIN_CAPABLE_AGENT_TYPES: ReadonlySet<AgentType> = new Set(
+  PLUGIN_AGENT_TYPES
+);
 
 /**
  * Pull a `--append-system-prompt <value>` pair out of an arg list (codex /

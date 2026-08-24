@@ -17,13 +17,21 @@ vi.mock("@/lib/api", async () => ({
   ...(await vi.importActual<typeof import("@/lib/api")>("@/lib/api")),
   api: vi.fn(),
 }));
+vi.mock("sonner", () => ({
+  toast: { success: vi.fn(), warning: vi.fn(), error: vi.fn() },
+}));
 
 const { api } = await import("@/lib/api");
 const apiMock = vi.mocked(api);
+const { toast } = await import("sonner");
+const toastSuccess = vi.mocked(toast.success);
+const toastWarning = vi.mocked(toast.warning);
 
 afterEach(() => {
   cleanup();
   apiMock.mockReset();
+  toastSuccess.mockReset();
+  toastWarning.mockReset();
   window.localStorage.clear();
 });
 
@@ -54,16 +62,16 @@ function renderWithProviders() {
 }
 
 describe("PluginUpdateSettings", () => {
-  it("renders nothing when nothing needs an update", async () => {
+  it("renders no visible section when nothing needs an update", async () => {
     apiMock.mockResolvedValueOnce({
       statuses: [
         statusFixture({ updateAvailable: false, currentVersion: "0.2.0" }),
       ],
     });
-    const { container } = renderWithProviders();
+    renderWithProviders();
 
     await waitFor(() => expect(apiMock).toHaveBeenCalled());
-    expect(container.firstChild).toBeNull();
+    expect(screen.queryByText("Plugin update")).toBeNull();
   });
 
   it("shows the available update with both versions", async () => {
@@ -75,7 +83,7 @@ describe("PluginUpdateSettings", () => {
     expect(screen.getByRole("button", { name: "Update" })).toBeTruthy();
   });
 
-  it("posts the update request and clears the row on success", async () => {
+  it("posts the update request, clears the row, and shows a success toast", async () => {
     apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
     apiMock.mockResolvedValueOnce({
       status: statusFixture({
@@ -100,9 +108,28 @@ describe("PluginUpdateSettings", () => {
     await waitFor(() =>
       expect(screen.queryByText("v0.1.0 → v0.2.0")).toBeNull()
     );
+    expect(toastSuccess).toHaveBeenCalledWith(
+      "Dispatch plugin updated for Claude Code."
+    );
   });
 
-  it("dismisses the row without clearing it for a future version", async () => {
+  it("warns instead of celebrating when the update ran but is still available", async () => {
+    apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
+    apiMock.mockResolvedValueOnce({
+      status: statusFixture(), // still updateAvailable: true, same versions
+    });
+    renderWithProviders();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Update" }));
+
+    await waitFor(() => expect(toastWarning).toHaveBeenCalled());
+    expect(toastSuccess).not.toHaveBeenCalled();
+    // The row is still there — this isn't a silent no-op from the user's
+    // point of view even though the click did trigger real commands.
+    expect(screen.getByText("v0.1.0 → v0.2.0")).toBeTruthy();
+  });
+
+  it("dismisses the row, announces it, without clearing it for a future version", async () => {
     apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
     renderWithProviders();
 
@@ -114,11 +141,14 @@ describe("PluginUpdateSettings", () => {
     expect(
       window.localStorage.getItem("dispatch:dismissedPluginUpdate:claude:0.2.0")
     ).toBe("true");
+    // Announced via the persistent live region rather than left silent —
+    // the row itself is gone, so nothing else confirms the click landed.
+    expect(screen.getByText("Claude Code update dismissed.")).toBeTruthy();
   });
 
-  it("hides the whole section once its only actionable row is dismissed", async () => {
+  it("hides the section header once its only actionable row is dismissed", async () => {
     apiMock.mockResolvedValueOnce({ statuses: [statusFixture()] });
-    const { container } = renderWithProviders();
+    renderWithProviders();
 
     fireEvent.click(
       await screen.findByRole("button", { name: "Dismiss Claude Code update" })
@@ -127,7 +157,6 @@ describe("PluginUpdateSettings", () => {
     // Regression check: the section header/description must not be left
     // standing over zero rows.
     expect(screen.queryByText("Plugin update")).toBeNull();
-    expect(container.firstChild).toBeNull();
   });
 
   it("shows the row again once the update key changes even if an older version was dismissed", async () => {

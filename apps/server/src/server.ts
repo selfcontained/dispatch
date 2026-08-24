@@ -668,7 +668,7 @@ async function registerRoutes() {
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
-  await registerPluginRoutes(app, { pool, config });
+  await registerPluginRoutes(app, { pool, config, appLog: app.log });
 
   await registerBrainRoutes(app, {
     brainStore,
