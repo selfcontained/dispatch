@@ -56,6 +56,10 @@ export type JobRecord = {
   templateId: string | null;
   defaultArgs: Record<string, string>;
   selfImprove: boolean;
+  continuationEnabled?: boolean;
+  maxIterations?: number | null;
+  completionCriteria?: string[] | null;
+  recoveryInstructions?: string | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -73,6 +77,20 @@ export type JobRunRecord = {
   completedAt: string | null;
   durationMs: number | null;
   createdAt: string;
+  chainId: string | null;
+  chainIteration: number | null;
+  continuation: ContinuationStatus | null;
+  continuationPending: boolean;
+  continuationRetries: number;
+};
+
+export type ContinuationStatus = {
+  action: "default" | "continue" | "pause" | "finish";
+  phase?: string;
+  summary?: string;
+  nextIntent?: string;
+  filePaths?: string[];
+  blockers?: string[];
 };
 
 const ACTIVE_RUN_STATUSES: JobRunStatus[] = [
@@ -88,6 +106,9 @@ export type JobWithLatestRun = JobRecord & {
   lastRunCompletedAt: string | null;
   lastRunDurationMs: number | null;
   lastRunReport: JobReport | null;
+  continuationPending: boolean;
+  lastRunChainId: string | null;
+  lastRunIteration: number | null;
 };
 
 export type JobRunConfig = {
@@ -97,8 +118,14 @@ export type JobRunConfig = {
   timeoutMs: number;
   needsInputTimeoutMs: number;
   notify: JobNotifyConfig;
-  triggerSource?: "manual" | "scheduled" | "webhook";
+  triggerSource?: "manual" | "scheduled" | "webhook" | "continuation";
   autoArchive?: boolean;
+  continuationEnabled?: boolean;
+  chainId?: string;
+  iteration?: number;
+  continuationOfRunId?: string;
+  recoveryAttempt?: number;
+  previousHandoffKey?: string;
 };
 
 export type AddJobInput = {
@@ -122,6 +149,10 @@ export type AddJobInput = {
   defaultArgs?: Record<string, string>;
   enabled?: boolean;
   selfImprove?: boolean;
+  continuationEnabled?: boolean;
+  maxIterations?: number | null;
+  completionCriteria?: string[] | null;
+  recoveryInstructions?: string | null;
 };
 
 export type JobConfigUpdate = {
@@ -145,6 +176,10 @@ export type JobConfigUpdate = {
   defaultArgs?: Record<string, string>;
   enabled?: boolean;
   selfImprove?: boolean;
+  continuationEnabled?: boolean;
+  maxIterations?: number | null;
+  completionCriteria?: string[] | null;
+  recoveryInstructions?: string | null;
 };
 
 export class JobStore {
@@ -172,13 +207,17 @@ export class JobStore {
     defaultArgs?: Record<string, string>;
     enabled: boolean;
     selfImprove?: boolean;
+    continuationEnabled?: boolean;
+    maxIterations?: number | null;
+    completionCriteria?: string[] | null;
+    recoveryInstructions?: string | null;
   }): Promise<JobRecord> {
     const id = randomUUID();
     try {
       const result = await this.pool.query(
         `
-        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, model, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled, self_improve)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, $22)
+        INSERT INTO jobs (id, directory, name, schedule, timeout_ms, needs_input_timeout_ms, prompt, full_access, agent_type, model, use_worktree, base_branch, branch_name, auto_archive, callable, singleton, webhook_enabled, webhook_secret, template_id, default_args, enabled, self_improve, continuation_enabled, max_iterations, completion_criteria, recovery_instructions)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20::jsonb, $21, $22, $23, $24, $25, $26)
         RETURNING ${this.jobColumns()}
         `,
         [
@@ -204,6 +243,10 @@ export class JobStore {
           JSON.stringify(input.defaultArgs ?? {}),
           input.enabled,
           input.selfImprove ?? false,
+          input.continuationEnabled ?? false,
+          input.maxIterations ?? null,
+          input.completionCriteria ?? null,
+          input.recoveryInstructions ?? null,
         ]
       );
       return mapJob(result.rows[0]);
@@ -231,19 +274,249 @@ export class JobStore {
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }
 
+  async findPendingContinuation(jobId: string): Promise<JobRunRecord | null> {
+    const result = await this.pool.query(
+      `SELECT ${this.runColumns()} FROM job_runs WHERE job_id = $1 AND continuation_pending = TRUE ORDER BY started_at DESC LIMIT 1`,
+      [jobId]
+    );
+    return result.rows[0] ? mapRun(result.rows[0]) : null;
+  }
+
+  async listPendingContinuations(): Promise<JobRunRecord[]> {
+    const result = await this.pool.query(
+      `SELECT ${this.runColumns()} FROM job_runs WHERE continuation_pending = TRUE ORDER BY started_at ASC`
+    );
+    return result.rows.map(mapRun);
+  }
+
+  /** Successors reserved before a process crash have an active barrier but no agent. */
+  async listReservedContinuationRuns(): Promise<JobRunRecord[]> {
+    const result = await this.pool.query(
+      `SELECT ${this.runColumns()} FROM job_runs
+       WHERE status = 'started' AND agent_id IS NULL
+         AND config->>'triggerSource' = 'continuation'
+       ORDER BY started_at ASC`
+    );
+    return result.rows.map(mapRun);
+  }
+
+  /** Mark one infrastructure failure as eligible for a same-iteration retry. */
+  async scheduleRecovery(runId: string): Promise<JobRunRecord | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      // All continuation state transitions take job then run locks. This also
+      // serializes a recovery against disable and successor reservation.
+      const jobResult = await client.query(
+        `SELECT j.id FROM jobs j JOIN job_runs r ON r.job_id = j.id
+         WHERE r.id = $1 FOR UPDATE OF j`,
+        [runId]
+      );
+      if (!jobResult.rows[0]) {
+        await client.query("COMMIT");
+        return null;
+      }
+      const result = await client.query(
+        `UPDATE job_runs r
+         SET continuation_pending = TRUE
+         FROM jobs j
+         WHERE r.id = $1 AND r.job_id = j.id
+           AND r.status = ANY($2::text[])
+           AND r.continuation_pending = FALSE
+           AND COALESCE((r.config->>'recoveryAttempt')::integer, 0) = 0
+           AND j.enabled = TRUE AND j.continuation_enabled = TRUE
+         RETURNING ${this.runColumns("r")}`,
+        [runId, ["crashed", "timed_out"]]
+      );
+      await client.query("COMMIT");
+      return result.rows[0] ? mapRun(result.rows[0]) : null;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  /**
+   * Atomically replace a pending predecessor with a started successor.  The
+   * successor row is deliberately created before the predecessor's pending
+   * marker is removed, so every trigger observes a run/pending barrier for
+   * the entire handoff.
+   */
+  async startPendingContinuation(
+    runId: string,
+    config: JobRunConfig
+  ): Promise<{ predecessor: JobRunRecord; successor: JobRunRecord } | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const jobResult = await client.query(
+        `SELECT j.* FROM jobs j JOIN job_runs r ON r.job_id = j.id
+         WHERE r.id = $1 FOR UPDATE OF j`,
+        [runId]
+      );
+      if (
+        !jobResult.rows[0]?.continuation_enabled ||
+        !jobResult.rows[0]?.enabled
+      ) {
+        await client.query("COMMIT");
+        return null;
+      }
+      const predecessorResult = await client.query(
+        `SELECT ${this.runColumns()} FROM job_runs WHERE id = $1 AND continuation_pending = TRUE FOR UPDATE`,
+        [runId]
+      );
+      if (!predecessorResult.rows[0]) {
+        await client.query("COMMIT");
+        return null;
+      }
+      const predecessor = mapRun(predecessorResult.rows[0]);
+      const successorResult = await client.query(
+        `INSERT INTO job_runs (id, job_id, status, config, chain_id, chain_iteration)
+         VALUES ($1, $2, 'started', $3::jsonb, $4, $5) RETURNING ${this.runColumns()}`,
+        [
+          randomUUID(),
+          predecessor.jobId,
+          JSON.stringify(config),
+          config.chainId ?? null,
+          config.iteration ?? null,
+        ]
+      );
+      await client.query(
+        `UPDATE job_runs SET continuation_pending = FALSE WHERE id = $1`,
+        [runId]
+      );
+      await client.query("COMMIT");
+      return { predecessor, successor: mapRun(successorResult.rows[0]) };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async restorePendingContinuation(
+    runId: string
+  ): Promise<JobRunRecord | null> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const job = await client.query(
+        `SELECT j.id FROM jobs j JOIN job_runs r ON r.job_id = j.id
+         WHERE r.id = $1 AND j.enabled = TRUE AND j.continuation_enabled = TRUE
+         FOR UPDATE OF j`,
+        [runId]
+      );
+      if (!job.rows[0]) {
+        await client.query("COMMIT");
+        return null;
+      }
+      const result = await client.query(
+        `UPDATE job_runs SET continuation_pending = TRUE,
+           continuation_retries = continuation_retries + 1
+         WHERE id = $1 RETURNING ${this.runColumns()}`,
+        [runId]
+      );
+      await client.query("COMMIT");
+      return result.rows[0] ? mapRun(result.rows[0]) : null;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async pausePendingContinuation(runId: string): Promise<void> {
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const job = await client.query(
+        `SELECT j.id FROM jobs j JOIN job_runs r ON r.job_id = j.id
+         WHERE r.id = $1 FOR UPDATE OF j`,
+        [runId]
+      );
+      if (job.rows[0])
+        await client.query(
+          `UPDATE job_runs SET continuation_pending = FALSE WHERE id = $1`,
+          [runId]
+        );
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async createRun(jobId: string, config: JobRunConfig): Promise<JobRunRecord> {
     const id = randomUUID();
+    const client = await this.pool.connect();
     try {
-      const result = await this.pool.query(
+      await client.query("BEGIN");
+      const jobResult = await client.query(
+        `SELECT singleton, continuation_enabled, enabled FROM jobs WHERE id = $1 FOR UPDATE`,
+        [jobId]
+      );
+      const job = jobResult.rows[0];
+      if (!job) throw new Error(`Job ${jobId} not found.`);
+      // Explicit Run now seeds a continuation loop even when it was merely
+      // armed. Scheduled and webhook triggers continue to respect enabled.
+      if (
+        config.triggerSource === "manual" &&
+        job.continuation_enabled &&
+        !job.enabled
+      ) {
+        await client.query(
+          `UPDATE jobs SET enabled = TRUE, updated_at = NOW() WHERE id = $1`,
+          [jobId]
+        );
+      }
+      if (
+        (config.triggerSource === "scheduled" ||
+          (config.triggerSource === "webhook" && job.continuation_enabled)) &&
+        !job.enabled
+      ) {
+        throw new Error(`Job ${jobId} is disabled.`);
+      }
+      if (job.singleton || job.continuation_enabled) {
+        const barrier = await client.query(
+          `SELECT id, status, continuation_pending FROM job_runs
+           WHERE job_id = $1
+             AND (status = ANY($2::text[]) OR continuation_pending = TRUE)
+           LIMIT 1 FOR UPDATE`,
+          [jobId, ACTIVE_RUN_STATUSES]
+        );
+        if (barrier.rows[0]) {
+          const existing = barrier.rows[0];
+          throw new Error(
+            existing.continuation_pending
+              ? `Job already has pending continuation work (${existing.id}).`
+              : `Job already has active run ${existing.id} (${existing.status}).`
+          );
+        }
+      }
+      const result = await client.query(
         `
-        INSERT INTO job_runs (id, job_id, status, config)
-        VALUES ($1, $2, 'started', $3::jsonb)
+        INSERT INTO job_runs (id, job_id, status, config, chain_id, chain_iteration)
+        VALUES ($1, $2, 'started', $3::jsonb, $4, $5)
         RETURNING ${this.runColumns()}
         `,
-        [id, jobId, JSON.stringify(config)]
+        [
+          id,
+          jobId,
+          JSON.stringify(config),
+          config.chainId ?? null,
+          config.iteration ?? null,
+        ]
       );
+      await client.query("COMMIT");
       return mapRun(result.rows[0]);
     } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
       if (isUniqueViolation(error)) {
         const activeRun = await this.findActiveRun(jobId);
         throw new Error(
@@ -251,6 +524,8 @@ export class JobStore {
         );
       }
       throw error;
+    } finally {
+      client.release();
     }
   }
 
@@ -259,7 +534,7 @@ export class JobStore {
       `
       UPDATE job_runs
       SET agent_id = $2, status = 'running', status_updated_at = NOW()
-      WHERE id = $1
+      WHERE id = $1 AND agent_id IS NULL
       RETURNING ${this.runColumns()}
       `,
       [runId, agentId]
@@ -272,11 +547,72 @@ export class JobStore {
     agentId: string,
     report: unknown
   ): Promise<JobRunRecord> {
-    return this.setTerminalRunForAgent(
-      agentId,
-      "completed",
-      validateTerminalJobReport(report, "completed")
-    );
+    const validated = validateTerminalJobReport(report, "completed");
+    const continuation = validateContinuationStatus(report) ?? {
+      action: "default" as const,
+      summary: validated.summary,
+    };
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const job = await client.query(
+        `SELECT j.* FROM jobs j JOIN job_runs r ON r.job_id = j.id
+         WHERE r.agent_id = $1 AND r.status = ANY($2::text[])
+         LIMIT 1 FOR UPDATE OF j`,
+        [agentId, ACTIVE_RUN_STATUSES]
+      );
+      if (!job.rows[0])
+        throw new Error(`No active job run found for agent ${agentId}.`);
+      const lockedRun = await client.query(
+        `SELECT ${this.runColumns()} FROM job_runs
+         WHERE agent_id = $1 AND status = ANY($2::text[])
+         LIMIT 1 FOR UPDATE`,
+        [agentId, ACTIVE_RUN_STATUSES]
+      );
+      if (!lockedRun.rows[0])
+        throw new Error(`No active job run found for agent ${agentId}.`);
+      let run = mapRun(lockedRun.rows[0]);
+      const enabled = Boolean(
+        job.rows[0]?.continuation_enabled && job.rows[0]?.enabled
+      );
+      const cap = job.rows[0]?.max_iterations as number | null | undefined;
+      const iteration = run.chainIteration ?? 1;
+      const shouldContinue =
+        enabled &&
+        (continuation.action === "continue" ||
+          continuation.action === "default") &&
+        (cap == null || iteration < cap);
+      if (shouldContinue && !continuation.nextIntent)
+        throw new Error(
+          "report.continuation.nextIntent is required when continuing a Loop job."
+        );
+      const result = await client.query(
+        `UPDATE job_runs SET status = 'completed', report = $2::jsonb,
+         continuation = $3::jsonb, continuation_pending = FALSE,
+         status_updated_at = NOW(), completed_at = NOW(),
+         duration_ms = GREATEST(0, FLOOR(EXTRACT(EPOCH FROM (NOW() - started_at)) * 1000)::integer)
+         WHERE id = $1 RETURNING ${this.runColumns()}`,
+        [run.id, JSON.stringify(validated), JSON.stringify(continuation)]
+      );
+      run = mapRun(result.rows[0]);
+      if (continuation.action === "finish")
+        await client.query(
+          `UPDATE jobs SET enabled = FALSE, updated_at = NOW() WHERE id = $1`,
+          [run.jobId]
+        );
+      const pending = await client.query(
+        `UPDATE job_runs SET continuation_pending = $2 WHERE id = $1 RETURNING ${this.runColumns()}`,
+        [run.id, shouldContinue]
+      );
+      run = mapRun(pending.rows[0]);
+      await client.query("COMMIT");
+      return run;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async failRunForAgent(
@@ -442,6 +778,10 @@ export class JobStore {
         j.template_id AS "templateId",
         j.default_args AS "defaultArgs",
         j.self_improve AS "selfImprove",
+        j.continuation_enabled AS "continuationEnabled",
+        j.max_iterations AS "maxIterations",
+        j.completion_criteria AS "completionCriteria",
+        j.recovery_instructions AS "recoveryInstructions",
         j.created_at AS "createdAt",
         j.updated_at AS "updatedAt",
         lr.id AS "lastRunId",
@@ -449,10 +789,13 @@ export class JobStore {
         lr.started_at AS "lastRunStartedAt",
         lr.completed_at AS "lastRunCompletedAt",
         lr.duration_ms AS "lastRunDurationMs",
-        lr.report AS "lastRunReport"
+        lr.report AS "lastRunReport",
+        EXISTS (SELECT 1 FROM job_runs pending WHERE pending.job_id = j.id AND pending.continuation_pending = TRUE) AS "continuationPending",
+        lr.chain_id AS "lastRunChainId",
+        lr.chain_iteration AS "lastRunIteration"
       FROM jobs j
       LEFT JOIN LATERAL (
-        SELECT id, status, started_at, completed_at, duration_ms, report
+        SELECT id, status, started_at, completed_at, duration_ms, report, continuation_pending, chain_id, chain_iteration
         FROM job_runs
         WHERE job_id = j.id
         ORDER BY started_at DESC
@@ -589,25 +932,35 @@ export class JobStore {
   }
 
   async setEnabled(jobId: string, enabled: boolean): Promise<JobRecord> {
-    const result = await this.pool.query(
-      `
-      UPDATE jobs
-      SET enabled = $2, updated_at = NOW()
-      WHERE id = $1
-      RETURNING ${this.jobColumns()}
-      `,
-      [jobId, enabled]
-    );
-    if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
-    return mapJob(result.rows[0]);
+    const client = await this.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `UPDATE jobs SET enabled = $2, updated_at = NOW()
+         WHERE id = $1 RETURNING ${this.jobColumns()}`,
+        [jobId, enabled]
+      );
+      if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
+      const updated = mapJob(result.rows[0]);
+      await this.clearDisabledContinuationBarriers(client, updated);
+      await client.query("COMMIT");
+      return updated;
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async updateJobConfig(
     jobId: string,
     input: JobConfigUpdate
   ): Promise<JobRecord> {
+    const client = await this.pool.connect();
     try {
-      const result = await this.pool.query(
+      await client.query("BEGIN");
+      const result = await client.query(
         `
         UPDATE jobs
         SET name = COALESCE($2, name),
@@ -630,6 +983,10 @@ export class JobStore {
             webhook_enabled = COALESCE($26, webhook_enabled),
             webhook_secret = CASE WHEN $27 THEN $28 ELSE webhook_secret END,
             self_improve = COALESCE($29, self_improve),
+            continuation_enabled = COALESCE($30, continuation_enabled),
+            max_iterations = CASE WHEN $31 THEN $32 ELSE max_iterations END,
+            completion_criteria = CASE WHEN $33 THEN $34 ELSE completion_criteria END,
+            recovery_instructions = CASE WHEN $35 THEN $36 ELSE recovery_instructions END,
             updated_at = NOW()
         WHERE id = $1
         RETURNING ${this.jobColumns()}
@@ -664,18 +1021,51 @@ export class JobStore {
           Object.prototype.hasOwnProperty.call(input, "webhookSecret"),
           input.webhookSecret ?? null,
           input.selfImprove,
+          input.continuationEnabled,
+          Object.prototype.hasOwnProperty.call(input, "maxIterations"),
+          input.maxIterations ?? null,
+          Object.prototype.hasOwnProperty.call(input, "completionCriteria"),
+          input.completionCriteria ?? null,
+          Object.prototype.hasOwnProperty.call(input, "recoveryInstructions"),
+          input.recoveryInstructions ?? null,
         ]
       );
       if (!result.rows[0]) throw new Error(`Job ${jobId} not found.`);
-      return mapJob(result.rows[0]);
+      const updated = mapJob(result.rows[0]);
+      await this.clearDisabledContinuationBarriers(client, updated);
+      await client.query("COMMIT");
+      return updated;
     } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
       if (isUniqueViolation(error)) {
         throw new Error(
           `A job named "${input.name}" already exists in this directory.`
         );
       }
       throw error;
+    } finally {
+      client.release();
     }
+  }
+
+  /** Caller holds the job-row lock; take run locks only after it. */
+  private async clearDisabledContinuationBarriers(
+    client: import("pg").PoolClient,
+    job: JobRecord
+  ): Promise<void> {
+    if (job.enabled && job.continuationEnabled) return;
+    await client.query(
+      `UPDATE job_runs SET continuation_pending = FALSE
+       WHERE job_id = $1 AND continuation_pending = TRUE`,
+      [job.id]
+    );
+    await client.query(
+      `UPDATE job_runs SET status = 'crashed', status_updated_at = NOW(),
+         completed_at = NOW(), duration_ms = 0
+       WHERE job_id = $1 AND status = 'started' AND agent_id IS NULL
+         AND config->>'triggerSource' = 'continuation'`,
+      [job.id]
+    );
   }
 
   async deleteJob(jobId: string): Promise<JobRecord> {
@@ -754,27 +1144,86 @@ export class JobStore {
       template_id AS "templateId",
       default_args AS "defaultArgs",
       self_improve AS "selfImprove",
+      continuation_enabled AS "continuationEnabled",
+      max_iterations AS "maxIterations",
+      completion_criteria AS "completionCriteria",
+      recovery_instructions AS "recoveryInstructions",
       created_at AS "createdAt",
       updated_at AS "updatedAt"
     `;
   }
 
-  private runColumns(): string {
+  private runColumns(table?: string): string {
+    const prefix = table ? `${table}.` : "";
     return `
-      id,
-      job_id AS "jobId",
-      agent_id AS "agentId",
-      status,
-      report,
-      config,
-      pending_question AS "pendingQuestion",
-      started_at AS "startedAt",
-      status_updated_at AS "statusUpdatedAt",
-      completed_at AS "completedAt",
-      duration_ms AS "durationMs",
-      created_at AS "createdAt"
+      ${prefix}id,
+      ${prefix}job_id AS "jobId",
+      ${prefix}agent_id AS "agentId",
+      ${prefix}status,
+      ${prefix}report,
+      ${prefix}config,
+      ${prefix}pending_question AS "pendingQuestion",
+      ${prefix}started_at AS "startedAt",
+      ${prefix}status_updated_at AS "statusUpdatedAt",
+      ${prefix}completed_at AS "completedAt",
+      ${prefix}duration_ms AS "durationMs",
+      ${prefix}created_at AS "createdAt"
+      ,${prefix}chain_id AS "chainId"
+      ,${prefix}chain_iteration AS "chainIteration"
+      ,${prefix}continuation
+      ,${prefix}continuation_pending AS "continuationPending"
+      ,${prefix}continuation_retries AS "continuationRetries"
     `;
   }
+}
+
+function validateContinuationStatus(value: unknown): ContinuationStatus | null {
+  if (!value || typeof value !== "object" || !("continuation" in value))
+    return null;
+  const raw = (value as Record<string, unknown>).continuation;
+  if (!raw || typeof raw !== "object" || Array.isArray(raw))
+    throw new Error("report.continuation must be an object.");
+  const valueRecord = raw as Record<string, unknown>;
+  const action = valueRecord.action ?? "default";
+  if (
+    action !== "default" &&
+    action !== "continue" &&
+    action !== "pause" &&
+    action !== "finish"
+  )
+    throw new Error(
+      "report.continuation.action must be default, continue, pause, or finish."
+    );
+  const readString = (key: string, max = 4000): string | undefined => {
+    const item = valueRecord[key];
+    if (item === undefined) return undefined;
+    if (typeof item !== "string" || !item.trim())
+      throw new Error(`report.continuation.${key} must be a non-empty string.`);
+    if (item.length > max)
+      throw new Error(`report.continuation.${key} exceeds ${max} characters.`);
+    return item.trim();
+  };
+  const readStrings = (key: string): string[] | undefined => {
+    const item = valueRecord[key];
+    if (item === undefined) return undefined;
+    if (
+      !Array.isArray(item) ||
+      item.length > 50 ||
+      item.some((v) => typeof v !== "string" || !v.trim() || v.length > 1000)
+    )
+      throw new Error(
+        `report.continuation.${key} must contain at most 50 non-empty strings.`
+      );
+    return item.map((v) => v.trim());
+  };
+  return {
+    action,
+    phase: readString("phase", 200),
+    summary: readString("summary"),
+    nextIntent: readString("nextIntent"),
+    filePaths: readStrings("filePaths"),
+    blockers: readStrings("blockers"),
+  };
 }
 
 function mapJob(row: Record<string, unknown>): JobRecord {

@@ -1,4 +1,4 @@
-import { randomBytes } from "node:crypto";
+import { randomBytes, randomUUID } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
@@ -16,6 +16,8 @@ import {
 import { errorMessage } from "../shared/lib/error-message.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import { sleep } from "../shared/lib/sleep.js";
+import { normalizePath, resolveRepoRoot } from "../shared/git/git-context.js";
+import { BrainStore } from "../brain/store.js";
 import {
   JobStore,
   type AddJobInput,
@@ -43,7 +45,11 @@ type RunJobInput = {
   name: string;
   directory: string;
   wait?: boolean;
-  triggerSource?: "manual" | "scheduled" | "webhook";
+  triggerSource?: "manual" | "scheduled" | "webhook" | "continuation";
+  chainId?: string;
+  iteration?: number;
+  continuationOfRunId?: string;
+  recoveryAttempt?: number;
 };
 
 export type { AddJobInput } from "./store.js";
@@ -80,6 +86,10 @@ export class JobService {
     Promise<JobRunRecord | undefined>
   >();
   private readonly schedulers = new Map<string, Cron>();
+  private readonly brainRetryTimers = new Map<
+    string,
+    { timer: NodeJS.Timeout | null; attempts: number; jobId: string }
+  >();
   private readonly onRunStateChangeCallbacks: JobRunCallback[] = [];
   private stopping = false;
 
@@ -87,7 +97,8 @@ export class JobService {
     pool: Pool,
     private readonly agentManager: AgentManager,
     private readonly logger: FastifyBaseLogger,
-    private readonly config: AppConfig
+    private readonly config: AppConfig,
+    private brainStore?: BrainStore
   ) {
     this.store = new JobStore(pool);
     this.templateStore = new TemplateStore(pool);
@@ -96,6 +107,10 @@ export class JobService {
   /** Register a callback that fires when a job run reaches a notable state. */
   onRunStateChange(cb: JobRunCallback): void {
     this.onRunStateChangeCallbacks.push(cb);
+  }
+
+  setBrainStore(brainStore: BrainStore): void {
+    this.brainStore = brainStore;
   }
 
   getRuntimeMetrics(): { scheduledJobs: number; activeMonitors: number } {
@@ -157,18 +172,17 @@ export class JobService {
       resolvedPrompt = rawPrompt;
     }
 
-    if (job.singleton) {
-      const activeRun = await this.store.findActiveRun(job.id);
-      if (activeRun) {
-        throw new Error(
-          `Job "${job.name}" already has active run ${activeRun.id} (${activeRun.status}).`
-        );
-      }
-    }
-
+    // createRun owns singleton/continuation admission under the job-row lock.
     let run = await this.store.createRun(
       job.id,
-      buildRunConfig(job, input.triggerSource ?? "manual")
+      buildRunConfig(
+        job,
+        input.triggerSource ?? "manual",
+        input.chainId ?? (job.continuationEnabled ? randomUUID() : undefined),
+        input.iteration ?? (job.continuationEnabled ? 1 : undefined),
+        input.continuationOfRunId,
+        input.recoveryAttempt
+      )
     );
     this.emitRunStateChange(run);
 
@@ -177,7 +191,7 @@ export class JobService {
       prompt: resolvedPrompt,
       selfImprove: agentConfig.selfImprove,
     };
-    const prompt = buildJobPrompt(jobLikeForPrompt, run.id);
+    const prompt = buildJobPrompt(jobLikeForPrompt, run);
 
     try {
       const agent = await this.agentManager.createAgent({
@@ -210,6 +224,21 @@ export class JobService {
         `Job failed to start: ${message}`,
         "spawn-agent"
       );
+      if (crashed.continuationPending) {
+        try {
+          // No archive callback exists when agent creation itself failed.
+          const recovered = await this.launchPendingContinuation(
+            crashed.id,
+            false
+          );
+          if (recovered) return recovered;
+        } catch (recoveryError) {
+          this.logger.warn(
+            { err: recoveryError, runId: crashed.id },
+            "Immediate continuation recovery launch failed"
+          );
+        }
+      }
       throw new Error(`Job run ${crashed.id} failed to start: ${message}`);
     }
   }
@@ -232,6 +261,147 @@ export class JobService {
     }
   }
 
+  async listPendingContinuations(): Promise<JobRunRecord[]> {
+    return this.store.listPendingContinuations();
+  }
+
+  async listReservedContinuationRuns(): Promise<JobRunRecord[]> {
+    return this.store.listReservedContinuationRuns();
+  }
+
+  /** Resume a successor reservation left between row creation and attachment. */
+  async recoverReservedContinuation(
+    runId: string
+  ): Promise<RunJobResult | null> {
+    const run = await this.store.getRun(runId);
+    if (
+      !run ||
+      run.status !== "started" ||
+      run.agentId ||
+      run.config.triggerSource !== "continuation"
+    )
+      return null;
+    const job = await this.store.getJob(run.jobId);
+    if (!job || !job.enabled || !job.continuationEnabled) return null;
+    // createAgent can commit before a process dies. Its name carries the run
+    // prefix, so reattach a live matching agent instead of creating a twin.
+    const suffix = `-${run.id.slice(0, 8)}`;
+    const existing = (await this.agentManager.listAgents()).find(
+      (agent) =>
+        agent.name.endsWith(suffix) &&
+        ["creating", "running", "stopping"].includes(agent.status)
+    );
+    if (existing) {
+      const attached = await this.store.attachAgent(run.id, existing.id);
+      this.emitRunStateChange(attached);
+      this.startMonitor(attached.id);
+      return {
+        jobId: job.id,
+        runId: attached.id,
+        agentId: existing.id,
+        status: attached.status,
+        report: attached.report,
+      };
+    }
+    try {
+      return await this.launchExistingRun(job, run, false);
+    } catch (error) {
+      await this.markCrashed(
+        run,
+        `Reserved continuation successor failed to launch: ${errorMessage(error)}`,
+        "recover-reserved-successor",
+        false
+      );
+      const predecessorId = run.config.continuationOfRunId;
+      if (predecessorId) {
+        const restored =
+          await this.store.restorePendingContinuation(predecessorId);
+        if (restored) {
+          try {
+            return await this.launchPendingContinuation(predecessorId, false);
+          } catch {
+            // launchPendingContinuation has paused the barrier after its one
+            // allowed retry; retain the original launch error for diagnostics.
+          }
+        }
+      }
+      throw error;
+    }
+  }
+
+  /** Called only after the terminal agent's archive completed successfully. */
+  async launchPendingContinuation(
+    runId: string,
+    retrySuccessor = true
+  ): Promise<RunJobResult | null> {
+    const completed = await this.store.getRun(runId);
+    if (!completed || !completed.continuationPending) {
+      this.clearBrainRetry(runId);
+      return null;
+    }
+    const job = await this.store.getJob(completed.jobId);
+    if (!job || !job.enabled || !job.continuationEnabled) {
+      this.clearBrainRetry(runId);
+      return null;
+    }
+    // A failed sync must not interfere with terminal processing, but a
+    // successor must never start before its durable handoff is available.
+    try {
+      await this.syncContinuationHandoff(completed);
+      this.clearBrainRetry(runId);
+    } catch (error) {
+      this.scheduleBrainRetry(completed);
+      throw error;
+    }
+    const recovery =
+      (completed.status === "crashed" || completed.status === "timed_out") &&
+      (completed.config.recoveryAttempt ?? 0) === 0;
+    const config = buildRunConfig(
+      job,
+      "continuation",
+      completed.chainId ?? randomUUID(),
+      recovery
+        ? (completed.chainIteration ?? 1)
+        : (completed.chainIteration ?? 1) + 1,
+      completed.id,
+      recovery ? 1 : (completed.config.recoveryAttempt ?? 0),
+      continuationBrainKey(job.id)
+    );
+    let handoff:
+      | Awaited<ReturnType<JobStore["startPendingContinuation"]>>
+      | undefined;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        handoff = await this.store.startPendingContinuation(runId, config);
+        break;
+      } catch (error) {
+        if (attempt === 1) throw error;
+        this.logger.warn(
+          { err: error, runId },
+          "Retrying continuation handoff"
+        );
+      }
+    }
+    if (!handoff) return null;
+    try {
+      return await this.launchExistingRun(job, handoff.successor, false);
+    } catch (error) {
+      // The started successor remains the barrier while it is marked crashed.
+      await this.markCrashed(
+        handoff.successor,
+        `Continuation successor failed to launch: ${errorMessage(error)}`,
+        "launch-successor",
+        false
+      );
+      const restored = await this.store.restorePendingContinuation(runId);
+      if (restored && retrySuccessor && restored.continuationRetries <= 1) {
+        return await this.launchPendingContinuation(runId, false);
+      }
+      if (restored) await this.store.pausePendingContinuation(runId);
+      throw error;
+    }
+  }
+
   async getActiveRunForAgent(agentId: string): Promise<JobRunRecord | null> {
     return await this.store.getActiveRunForAgent(agentId);
   }
@@ -245,8 +415,145 @@ export class JobService {
     report: unknown
   ): Promise<JobRunRecord> {
     const run = await this.store.completeRunForAgent(agentId, report);
+    try {
+      await this.syncContinuationHandoff(run);
+    } catch (error) {
+      // The pending barrier remains durable; launchPendingContinuation retries
+      // the sync before starting a successor. Do not block notifications or
+      // archiving after the terminal state has already been committed.
+      this.logger.warn(
+        { err: error, runId: run.id },
+        "Continuation Brain handoff sync deferred"
+      );
+    }
     this.emitRunStateChange(run);
     return run;
+  }
+
+  private async launchExistingRun(
+    job: JobRecord,
+    run: JobRunRecord,
+    wait: boolean
+  ): Promise<RunJobResult> {
+    const template = job.templateId
+      ? await this.templateStore.getTemplate(job.templateId)
+      : null;
+    const agentConfig = template ?? job;
+    if (!agentConfig.prompt)
+      throw new Error(`Job "${job.name}" has no prompt configured.`);
+    let resolvedPrompt = agentConfig.prompt;
+    try {
+      resolvedPrompt =
+        template && Object.keys(job.defaultArgs).length > 0
+          ? substituteArgs(agentConfig.prompt, job.defaultArgs)
+          : agentConfig.prompt;
+    } catch {
+      // Keep a legacy/raw prompt launchable when arguments are incomplete.
+    }
+    const prompt = buildJobPrompt(
+      {
+        ...job,
+        prompt: resolvedPrompt,
+        selfImprove: agentConfig.selfImprove,
+      },
+      run
+    );
+    const agent = await this.agentManager.createAgent({
+      name: `job-${sanitizeAgentName(job.name)}-${run.id.slice(0, 8)}`,
+      type: agentConfig.agentType as JobAgentType,
+      model: agentConfig.model ?? undefined,
+      cwd: job.directory,
+      agentArgs: buildAgentArgs(
+        agentConfig.agentType as JobAgentType,
+        prompt,
+        agentConfig.fullAccess
+      ),
+      fullAccess: agentConfig.fullAccess,
+      ...templateWorktreeConfig(agentConfig),
+      jobRunId: run.id,
+    });
+    const attached = await this.store.attachAgent(run.id, agent.id);
+    this.emitRunStateChange(attached);
+    this.startMonitor(attached.id);
+    const terminal = wait ? await this.waitForTerminal(attached.id) : attached;
+    return {
+      jobId: job.id,
+      runId: terminal.id,
+      agentId: agent.id,
+      status: terminal.status,
+      report: terminal.report,
+    };
+  }
+
+  private async syncContinuationHandoff(run: JobRunRecord): Promise<void> {
+    if (!this.brainStore || !run.agentId) return;
+    const job = await this.store.getJob(run.jobId);
+    if (!job?.continuationEnabled) return;
+    let repoRoot: string;
+    try {
+      repoRoot = await resolveRepoRoot(job.directory);
+    } catch {
+      // Brain is scoped by a stable repository root when possible; plain
+      // directories are still valid job targets and use their normalized path.
+      repoRoot = normalizePath(job.directory);
+    }
+    const key = continuationBrainKey(job.id);
+    const terminalStatus =
+      run.continuation?.action === "finish"
+        ? "finished"
+        : run.continuation?.action === "pause"
+          ? "paused"
+          : !run.continuationPending &&
+              job.maxIterations != null &&
+              (run.chainIteration ?? 1) >= job.maxIterations
+            ? "capped"
+            : (run.continuation?.action ?? "default");
+    const value = {
+      jobId: job.id,
+      chainId: run.chainId,
+      runId: run.id,
+      iteration: run.chainIteration,
+      status: terminalStatus,
+      action: run.continuation?.action ?? "default",
+      phase: run.continuation?.phase,
+      summary: run.continuation?.summary ?? run.report?.summary ?? "",
+      nextIntent: run.continuation?.nextIntent,
+      filePaths: run.continuation?.filePaths ?? [],
+      blockers: run.continuation?.blockers ?? [],
+      recoveryAttempt: run.config.recoveryAttempt ?? 0,
+      updatedAt: new Date().toISOString(),
+    };
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const existing = await this.brainStore.getObject(
+          repoRoot,
+          "job-continuations",
+          key
+        );
+        const existingValue = existing?.value as
+          | {
+              runId?: string;
+              chainId?: string | null;
+              iteration?: number | null;
+            }
+          | undefined;
+        if (
+          existingValue?.runId === run.id &&
+          existingValue.chainId === run.chainId &&
+          existingValue.iteration === run.chainIteration
+        )
+          return;
+        await this.brainStore.storeObject(repoRoot, run.agentId, {
+          collection: "job-continuations",
+          name: key,
+          value,
+          expectedRevision: existing?.revision,
+        });
+        return;
+      } catch (error) {
+        if (attempt === 1) throw error;
+      }
+    }
   }
 
   async failRunForAgent(
@@ -286,9 +593,14 @@ export class JobService {
         `Job "${displayName}" has an invalid cron expression: "${schedule}"`
       );
     }
-    if (input.enabled && !schedule) {
+    if (input.enabled && !schedule && !input.continuationEnabled) {
       throw new Error(
-        `Job "${displayName}" needs a schedule before it can be enabled.`
+        `Job "${displayName}" needs a schedule or continuation enabled before it can be enabled.`
+      );
+    }
+    if (input.continuationEnabled && input.useWorktree) {
+      throw new Error(
+        "Continuation Jobs do not support per-run worktrees; use a shared checkout so each iteration sees the prior state."
       );
     }
 
@@ -337,7 +649,9 @@ export class JobService {
         baseBranch: input.baseBranch ?? null,
         branchName: input.branchName ?? null,
         fullAccess: input.fullAccess ?? false,
-        autoArchive: input.autoArchive ?? true,
+        autoArchive: input.continuationEnabled
+          ? true
+          : (input.autoArchive ?? true),
         callable: input.callable ?? false,
         singleton: input.singleton ?? true,
         webhookEnabled,
@@ -346,6 +660,14 @@ export class JobService {
         defaultArgs: {},
         enabled: input.enabled ?? false,
         selfImprove: input.selfImprove ?? false,
+        continuationEnabled: input.continuationEnabled ?? false,
+        maxIterations: input.continuationEnabled
+          ? input.maxIterations === undefined
+            ? 10
+            : input.maxIterations
+          : (input.maxIterations ?? null),
+        completionCriteria: input.completionCriteria ?? null,
+        recoveryInstructions: input.recoveryInstructions ?? null,
       });
     } catch (error) {
       await this.templateStore
@@ -377,9 +699,19 @@ export class JobService {
         `Job "${input.displayName ?? existing.name}" has an invalid cron expression: "${nextSchedule}"`
       );
     }
-    if (input.enabled && !nextSchedule) {
+    const nextContinuationEnabled =
+      input.continuationEnabled ?? existing.continuationEnabled;
+    if (
+      nextContinuationEnabled &&
+      (input.useWorktree ?? existing.useWorktree)
+    ) {
       throw new Error(
-        `Job "${input.displayName ?? existing.name}" needs a schedule before it can be enabled.`
+        "Continuation Jobs do not support per-run worktrees; use a shared checkout so each iteration sees the prior state."
+      );
+    }
+    if (input.enabled && !nextSchedule && !nextContinuationEnabled) {
+      throw new Error(
+        `Job "${input.displayName ?? existing.name}" needs a schedule or continuation enabled before it can be enabled.`
       );
     }
 
@@ -425,7 +757,9 @@ export class JobService {
     if (baseBranch !== undefined) config.baseBranch = baseBranch;
     if (branchName !== undefined) config.branchName = branchName;
     if (input.fullAccess !== undefined) config.fullAccess = input.fullAccess;
-    if (input.autoArchive !== undefined) config.autoArchive = input.autoArchive;
+    if (nextContinuationEnabled) config.autoArchive = true;
+    else if (input.autoArchive !== undefined)
+      config.autoArchive = input.autoArchive;
     if (input.callable !== undefined) config.callable = input.callable;
     if (input.singleton !== undefined) config.singleton = input.singleton;
     if (input.webhookEnabled !== undefined) {
@@ -438,8 +772,25 @@ export class JobService {
     }
     if (input.enabled !== undefined) config.enabled = input.enabled;
     if (input.selfImprove !== undefined) config.selfImprove = input.selfImprove;
+    if (input.continuationEnabled !== undefined) {
+      config.continuationEnabled = input.continuationEnabled;
+      if (
+        input.continuationEnabled &&
+        !existing.continuationEnabled &&
+        input.maxIterations === undefined
+      )
+        config.maxIterations = 10;
+    }
+    if (input.maxIterations !== undefined)
+      config.maxIterations = input.maxIterations;
+    if (input.completionCriteria !== undefined)
+      config.completionCriteria = input.completionCriteria;
+    if (input.recoveryInstructions !== undefined)
+      config.recoveryInstructions = input.recoveryInstructions;
 
     const updated = await this.store.updateJobConfig(existing.id, config);
+    if (!updated.enabled || !updated.continuationEnabled)
+      this.clearBrainRetriesForJob(updated.id);
 
     // Propagate agent-config changes to the backing template
     if (updated.templateId) {
@@ -494,15 +845,17 @@ export class JobService {
   }): Promise<JobRecord> {
     const job = await this.getJobOrThrow(input.directory, input.name);
     const schedule = job.schedule;
-    if (!schedule) {
-      throw new Error(`Job "${job.name}" has no schedule configured.`);
+    if (!schedule && !job.continuationEnabled) {
+      throw new Error(
+        `Job "${job.name}" has no schedule configured; enable continuation first.`
+      );
     }
-    if (!validateCronExpression(schedule)) {
+    if (schedule && !validateCronExpression(schedule)) {
       throw new Error(
         `Job "${job.name}" has an invalid cron expression: "${schedule}"`
       );
     }
-    const intervalError = validateCronInterval(schedule);
+    const intervalError = schedule ? validateCronInterval(schedule) : null;
     if (intervalError) {
       throw new Error(`Job "${job.name}": ${intervalError}`);
     }
@@ -521,6 +874,7 @@ export class JobService {
   }): Promise<JobRecord> {
     const job = await this.getJobOrThrow(input.directory, input.name);
     const updated = await this.store.setEnabled(job.id, false);
+    this.clearBrainRetriesForJob(updated.id);
     this.stopScheduler(updated.id);
     this.logger.info(
       { jobId: updated.id, name: updated.name },
@@ -534,6 +888,7 @@ export class JobService {
     directory: string;
   }): Promise<JobRecord> {
     const job = await this.getJobOrThrow(input.directory, input.name);
+    this.clearBrainRetriesForJob(job.id);
     const activeRun = await this.store.findActiveRun(job.id);
     if (activeRun) {
       throw new Error(
@@ -651,6 +1006,10 @@ export class JobService {
       cron.stop();
     }
     this.schedulers.clear();
+    for (const { timer } of this.brainRetryTimers.values()) {
+      if (timer) clearTimeout(timer);
+    }
+    this.brainRetryTimers.clear();
   }
 
   /** Stop schedulers and wait for all in-flight monitors to finish. */
@@ -658,6 +1017,41 @@ export class JobService {
     this.stopAllSchedulers();
     const pending = [...this.monitors.values()];
     await Promise.allSettled(pending);
+  }
+
+  private scheduleBrainRetry(run: JobRunRecord): void {
+    if (!run.continuationPending || this.stopping) return;
+    const existing = this.brainRetryTimers.get(run.id);
+    if (existing?.timer) return;
+    const attempts = (existing?.attempts ?? 0) + 1;
+    const delayMs = Math.min(30_000, 1_000 * 2 ** (attempts - 1));
+    const entry = existing ?? { timer: null, attempts: 0, jobId: run.jobId };
+    entry.attempts = attempts;
+    entry.jobId = run.jobId;
+    entry.timer = setTimeout(async () => {
+      entry.timer = null;
+      try {
+        await this.launchPendingContinuation(run.id);
+      } catch (error) {
+        this.logger.warn(
+          { err: error, runId: run.id, attempts: entry.attempts },
+          "Retrying deferred continuation Brain handoff failed"
+        );
+      }
+    }, delayMs);
+    this.brainRetryTimers.set(run.id, entry);
+  }
+
+  private clearBrainRetry(runId: string): void {
+    const entry = this.brainRetryTimers.get(runId);
+    if (entry?.timer) clearTimeout(entry.timer);
+    this.brainRetryTimers.delete(runId);
+  }
+
+  private clearBrainRetriesForJob(jobId: string): void {
+    for (const [runId, entry] of this.brainRetryTimers) {
+      if (entry.jobId === jobId) this.clearBrainRetry(runId);
+    }
   }
 
   private scheduleJob(job: JobRecord): void {
@@ -671,16 +1065,6 @@ export class JobService {
         const current = await this.store.getJob(jobId);
         if (!current || !current.enabled) return;
 
-        if (current.singleton) {
-          const activeRun = await this.store.findActiveRun(jobId);
-          if (activeRun) {
-            this.logger.info(
-              { jobId, name: current.name, activeRunId: activeRun.id },
-              "Skipping scheduled run — job already has an active run"
-            );
-            return;
-          }
-        }
         await this.runJob({
           name: current.name,
           directory: current.directory,
@@ -820,14 +1204,14 @@ export class JobService {
         },
       ],
     });
-    this.emitRunStateChange(updated);
-    return updated;
+    return await this.scheduleInfrastructureRecovery(updated);
   }
 
   private async markCrashed(
     run: JobRunRecord,
     message: string,
-    taskName = "guardrails"
+    taskName = "guardrails",
+    scheduleRecovery = true
   ): Promise<JobRunRecord> {
     const diagnostics = run.agentId
       ? await this.readAgentDiagnostics(run.agentId)
@@ -852,6 +1236,16 @@ export class JobService {
         },
       ],
     });
+    return scheduleRecovery
+      ? await this.scheduleInfrastructureRecovery(updated)
+      : (this.emitRunStateChange(updated), updated);
+  }
+
+  private async scheduleInfrastructureRecovery(
+    run: JobRunRecord
+  ): Promise<JobRunRecord> {
+    const recovery = await this.store.scheduleRecovery(run.id);
+    const updated = recovery ?? run;
     this.emitRunStateChange(updated);
     return updated;
   }
@@ -909,7 +1303,12 @@ function buildAgentArgs(
 
 function buildRunConfig(
   job: JobRecord,
-  triggerSource: "manual" | "scheduled" | "webhook"
+  triggerSource: "manual" | "scheduled" | "webhook" | "continuation",
+  chainId?: string,
+  iteration?: number,
+  continuationOfRunId?: string,
+  recoveryAttempt?: number,
+  previousHandoffKey?: string
 ): JobRunConfig {
   return {
     directory: job.directory,
@@ -921,18 +1320,39 @@ function buildRunConfig(
     notify: job.notify ?? { onComplete: [], onError: [], onNeedsInput: [] },
     triggerSource,
     autoArchive: job.autoArchive,
+    continuationEnabled: job.continuationEnabled,
+    chainId,
+    iteration,
+    continuationOfRunId,
+    recoveryAttempt,
+    previousHandoffKey,
   };
 }
 
-function buildJobPrompt(job: JobRecord, runId: string): string {
+function buildJobPrompt(job: JobRecord, run: JobRunRecord): string {
   return [
     "You are running as a Dispatch Job agent.",
     `Job ID: ${job.id}`,
-    `Run ID: ${runId}`,
+    `Run ID: ${run.id}`,
     "Use the job-specific MCP tools for lifecycle control.",
     "Call job_log for task-level progress.",
     "Call exactly one terminal tool before stopping: job_complete(report), job_failed(report), or job_needs_input(question).",
     "Terminal completed/failed states must include a structured report with status, summary, and tasks.",
+    ...(job.continuationEnabled
+      ? [
+          "This is a Loop job. Before completing the run, call job_complete with continuation { action: continue|pause|finish, phase, summary, nextIntent, filePaths, blockers }.",
+          "When another run should start, nextIntent is required. Keep detailed context in the locations defined by the job prompt; filePaths should identify only the files relevant to the next run.",
+          `Completion criteria:\n${formatCompletionCriteria(job.completionCriteria)}`,
+          `Recovery instructions: ${job.recoveryInstructions ?? "Not specified."}`,
+          ...(run.config.triggerSource === "continuation"
+            ? [
+                `Continuation chain: ${run.chainId ?? "unknown"}; iteration: ${run.chainIteration ?? "unknown"}; previous run: ${run.config.continuationOfRunId ?? "unknown"}.`,
+                `Previous compact handoff Brain object: job-continuations/${run.config.previousHandoffKey ?? continuationBrainKey(job.id)}. Read repository handoff files and the durable previous run handoff; do not expect a report in this prompt.`,
+                `Recovery attempt: ${run.config.recoveryAttempt ?? 0}.`,
+              ]
+            : []),
+        ]
+      : []),
     "Use repo tools when they are relevant to the job.",
     "\nJob prompt:",
     job.prompt!,
@@ -946,6 +1366,17 @@ function buildJobPrompt(job: JobRecord, runId: string): string {
         ]
       : []),
   ].join("\n");
+}
+
+function continuationBrainKey(jobId: string): string {
+  return `job-${jobId}`;
+}
+
+function formatCompletionCriteria(
+  criteria: string[] | null | undefined
+): string {
+  if (!criteria?.length) return "Not specified.";
+  return criteria.map((criterion) => `- ${criterion}`).join("\n");
 }
 
 function normalizeOptionalString(

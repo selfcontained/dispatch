@@ -39,6 +39,10 @@ const AddJobBodySchema = JobEnableDisableBodySchema.extend({
   defaultArgs: z.record(z.string(), z.string()).optional(),
   enabled: z.boolean().optional(),
   selfImprove: z.boolean().optional(),
+  continuationEnabled: z.boolean().optional(),
+  maxIterations: z.number().int().positive().nullable().optional(),
+  completionCriteria: z.array(z.string().trim().min(1)).nullable().optional(),
+  recoveryInstructions: z.string().nullable().optional(),
 });
 const JobHistoryParamsSchema = z.object({
   name: z.string().min(1, "Job name is required."),

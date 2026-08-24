@@ -129,10 +129,10 @@ describe("msFromMinutes", () => {
 describe("cronError", () => {
   it("requires a schedule only when the job is enabled", () => {
     expect(cronError("", true)).toBe(
-      "Add a cron schedule before enabling this job."
+      "Add a cron schedule or turn on the loop before enabling this job."
     );
     expect(cronError("   ", true)).toBe(
-      "Add a cron schedule before enabling this job."
+      "Add a cron schedule or turn on the loop before enabling this job."
     );
     expect(cronError("", false)).toBeNull();
     expect(cronError("   ", false)).toBeNull();

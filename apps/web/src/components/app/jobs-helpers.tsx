@@ -69,10 +69,16 @@ export function msFromMinutes(value: string): number | undefined {
   return minutes * 60_000;
 }
 
-export function cronError(schedule: string, enabled: boolean): string | null {
+export function cronError(
+  schedule: string,
+  enabled: boolean,
+  continuationEnabled = false
+): string | null {
   const trimmed = schedule.trim();
   if (!trimmed)
-    return enabled ? "Add a cron schedule before enabling this job." : null;
+    return enabled && !continuationEnabled
+      ? "Add a cron schedule or turn on the loop before enabling this job."
+      : null;
   const fields = trimmed.split(/\s+/);
   if (fields.length !== 5)
     return "Use a 5-field cron expression like */30 * * * *.";

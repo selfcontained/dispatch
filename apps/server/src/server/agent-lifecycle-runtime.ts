@@ -4,6 +4,7 @@ import type { ActivityMonitor } from "../agents/activity-monitor.js";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { StreamManager } from "../stream-manager.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
+import type { JobService } from "../jobs/service.js";
 
 type CreateAgentLifecycleRuntimeDeps = {
   agentManager: AgentManager;
@@ -17,6 +18,7 @@ type CreateAgentLifecycleRuntimeDeps = {
   publishUiEvent: (event: unknown) => void;
   reconciliationTracker?: SubsystemTracker;
   activityTracker?: SubsystemTracker;
+  onAgentsArchived?: (agentIds: string[]) => Promise<void>;
 };
 
 export function createAgentLifecycleRuntime(
@@ -43,6 +45,14 @@ export function createAgentLifecycleRuntime(
       activeArchives.delete(archivePromise);
       archivingAgentIds.delete(agentId);
     });
+  }
+
+  async function notifyAgentsArchived(agentIds: string[]): Promise<void> {
+    try {
+      await deps.onAgentsArchived?.(agentIds);
+    } catch (error) {
+      appLog.error({ err: error, agentIds }, "Archive completion hook failed");
+    }
   }
 
   return {
@@ -100,6 +110,7 @@ export function createAgentLifecycleRuntime(
               archivingAgentIds.delete(deletedId);
             }
             activeArchives.delete(archivePromise);
+            void notifyAgentsArchived(deletedIds);
           },
           onError: () => {
             archivingAgentIds.delete(agentId);
@@ -164,6 +175,7 @@ export function createAgentLifecycleRuntime(
                     agentId: deletedId,
                   });
                 }
+                void notifyAgentsArchived(deletedIds);
               },
               onError: (error) => {
                 appLog.error(
@@ -211,6 +223,65 @@ export function createAgentLifecycleRuntime(
           type: "agent.deleted",
           agentId: deletedId,
         });
+      }
+      void notifyAgentsArchived(deletedIds);
+    },
+
+    /** Restore durable continuation barriers after startup without polling. */
+    async restorePendingContinuations(jobService: JobService): Promise<void> {
+      // A reservation is already an active-run barrier. Recover it first so a
+      // restart between successor row creation and agent attachment is prompt.
+      for (const run of await jobService.listReservedContinuationRuns()) {
+        try {
+          await jobService.recoverReservedContinuation(run.id);
+        } catch (err) {
+          appLog.error(
+            { err, runId: run.id },
+            "Reserved continuation recovery failed"
+          );
+        }
+      }
+      for (const run of await jobService.listPendingContinuations()) {
+        if (!run.agentId) {
+          void jobService
+            .launchPendingContinuation(run.id)
+            .catch((err) =>
+              appLog.error(
+                { err, runId: run.id },
+                "Restored continuation launch failed"
+              )
+            );
+          continue;
+        }
+        const agent = await agentManager.getAgent(run.agentId);
+        if (!agent) {
+          void jobService
+            .launchPendingContinuation(run.id)
+            .catch((err) =>
+              appLog.error(
+                { err, runId: run.id },
+                "Restored continuation launch failed"
+              )
+            );
+          continue;
+        }
+        if (agent.status === "archiving") {
+          if (!archivingAgentIds.has(agent.id)) {
+            const archivePromise = agentManager.executeArchive(agent.id, {
+              onPhaseChange: (updated) =>
+                publishUiEvent({
+                  type: "agent.upsert",
+                  agent: withStreamFlag(updated),
+                }),
+              onComplete: (deletedIds) =>
+                this.onArchivedAgentsDeleted(deletedIds),
+              onError: (error) => this.onArchiveError(agent.id, error),
+            });
+            trackArchive(agent.id, archivePromise);
+          }
+          continue;
+        }
+        await this.autoArchiveJobAgent(agent.id);
       }
     },
 

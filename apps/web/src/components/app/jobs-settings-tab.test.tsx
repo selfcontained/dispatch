@@ -58,6 +58,10 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     templateId: null,
     defaultArgs: {},
     selfImprove: false,
+    continuationEnabled: false,
+    maxIterations: null,
+    completionCriteria: null,
+    recoveryInstructions: null,
     createdAt: "2026-07-15T12:00:00.000Z",
     updatedAt: "2026-07-15T12:00:00.000Z",
     lastRunId: null,
@@ -66,6 +70,9 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     lastRunCompletedAt: null,
     lastRunDurationMs: null,
     lastRunReport: null,
+    continuationPending: false,
+    lastRunChainId: null,
+    lastRunIteration: null,
     nextRun: null,
     ...overrides,
   };
@@ -322,6 +329,26 @@ describe("schedule field", () => {
 });
 
 describe("enabled toggle", () => {
+  it("can arm a saved continuation job without cron", async () => {
+    const { onUpdateJob } = renderTab(
+      makeJob({ schedule: null, enabled: false, continuationEnabled: true })
+    );
+    const continuationSwitch = screen.getByRole("switch", {
+      name: "Enable job",
+    }) as HTMLButtonElement;
+
+    expect(continuationSwitch.disabled).toBe(false);
+    fireEvent.click(continuationSwitch);
+
+    await waitFor(() =>
+      expect(onUpdateJob).toHaveBeenCalledWith({
+        name: "nightly-audit",
+        directory: "/repo",
+        enabled: true,
+      })
+    );
+  });
+
   it("stays disabled until a schedule has been saved", () => {
     const { onUpdateJob } = renderTab(makeJob({ schedule: null }));
 

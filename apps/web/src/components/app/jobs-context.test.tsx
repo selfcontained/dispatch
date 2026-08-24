@@ -49,6 +49,10 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     templateId: null,
     defaultArgs: {},
     selfImprove: false,
+    continuationEnabled: false,
+    maxIterations: null,
+    completionCriteria: null,
+    recoveryInstructions: null,
     createdAt: "2026-07-01T00:00:00.000Z",
     updatedAt: "2026-07-01T00:00:00.000Z",
     lastRunId: null,
@@ -57,6 +61,9 @@ function makeJob(overrides: Partial<Job> = {}): Job {
     lastRunCompletedAt: null,
     lastRunDurationMs: null,
     lastRunReport: null,
+    continuationPending: false,
+    lastRunChainId: null,
+    lastRunIteration: null,
     nextRun: null,
   };
   return { ...base, ...overrides };

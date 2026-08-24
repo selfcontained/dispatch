@@ -44,6 +44,33 @@ function toTemplateListing(template: TemplateRecord) {
     : base;
 }
 
+function loopItemsFromText(value: unknown): string[] {
+  if (typeof value !== "string") return [];
+  return value
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.replace(/^(?:[-*+] |\d+[.)] )/, "").trim());
+}
+
+function withLoopFields(job: unknown) {
+  if (!job || typeof job !== "object") return job;
+  const {
+    continuationEnabled,
+    maxIterations,
+    completionCriteria,
+    recoveryInstructions,
+    ...rest
+  } = job as Record<string, unknown>;
+  return {
+    ...rest,
+    loopEnabled: continuationEnabled,
+    maxRuns: maxIterations,
+    doneWhen: Array.isArray(completionCriteria) ? completionCriteria : [],
+    recoverySteps: loopItemsFromText(recoveryInstructions),
+  };
+}
+
 /**
  * Job listing: same prompt trim, minus the webhook secret. A listing is for
  * picking a job to inspect or run; the secret is a credential the caller has no
@@ -51,10 +78,9 @@ function toTemplateListing(template: TemplateRecord) {
  */
 function toJobListing(job: unknown) {
   if (!job || typeof job !== "object") return job;
-  const { webhookSecret: _webhookSecret, ...rest } = job as Record<
-    string,
-    unknown
-  > & { webhookSecret?: unknown };
+  const { webhookSecret: _webhookSecret, ...rest } = withLoopFields(
+    job
+  ) as Record<string, unknown> & { webhookSecret?: unknown };
   return withoutPrompt(rest as { prompt: string | null });
 }
 
@@ -108,6 +134,26 @@ function modelSchema(
     );
 }
 
+function loopItemsSchema(description: string) {
+  return z
+    .array(z.string().trim().min(1))
+    .nullable()
+    .optional()
+    .describe(`${description} Pass [] or null to clear the list.`);
+}
+
+function loopItemsToText(items: string[] | null | undefined) {
+  if (items === undefined) return undefined;
+  if (!items?.length) return null;
+  return items.map((item) => `- ${item.trim()}`).join("\n");
+}
+
+function normalizeLoopItems(items: string[] | null | undefined) {
+  if (items === undefined) return undefined;
+  const normalized = items?.map((item) => item.trim()).filter(Boolean) ?? [];
+  return normalized.length ? normalized : null;
+}
+
 export type CrudToolCallbacks = {
   listJobs: (directory?: string) => Promise<unknown>;
   getJobById: (jobId: string) => Promise<unknown>;
@@ -130,6 +176,10 @@ export type CrudToolCallbacks = {
     singleton?: boolean;
     enabled?: boolean;
     selfImprove?: boolean;
+    continuationEnabled?: boolean;
+    maxIterations?: number | null;
+    completionCriteria?: string[] | null;
+    recoveryInstructions?: string | null;
   }) => Promise<unknown>;
   updateJob: (input: {
     name: string;
@@ -150,6 +200,10 @@ export type CrudToolCallbacks = {
     singleton?: boolean;
     enabled?: boolean;
     selfImprove?: boolean;
+    continuationEnabled?: boolean;
+    maxIterations?: number | null;
+    completionCriteria?: string[] | null;
+    recoveryInstructions?: string | null;
   }) => Promise<unknown>;
   deleteJob: (name: string, directory: string) => Promise<unknown>;
   runJob: (name: string, directory: string) => Promise<unknown>;
@@ -280,7 +334,7 @@ export function registerCrudTools(
               );
           if (!result) return toToolError(new Error("Job not found."));
           return {
-            content: [{ type: "text", text: jsonText(result) }],
+            content: [{ type: "text", text: jsonText(withLoopFields(result)) }],
           };
         } catch (error) {
           return toToolError(error);
@@ -359,13 +413,36 @@ export function registerCrudTools(
             .boolean()
             .default(false)
             .describe("Let agents improve this prompt after a run."),
+          loopEnabled: z
+            .boolean()
+            .default(false)
+            .describe("Keep starting new runs until the work is done."),
+          maxRuns: z
+            .number()
+            .int()
+            .positive()
+            .nullable()
+            .optional()
+            .describe("Maximum runs in one loop; null is unlimited."),
+          doneWhen: loopItemsSchema(
+            "Checklist of outcomes that mean the loop is complete."
+          ),
+          recoverySteps: loopItemsSchema(
+            "What to do when a run is interrupted by infrastructure failure."
+          ),
         },
       },
       async (args) => {
         try {
+          const { loopEnabled, maxRuns, doneWhen, recoverySteps, ...jobArgs } =
+            args;
           const result = await callbacks.createJob({
-            ...args,
+            ...jobArgs,
             directory: resolveDir(args.directory),
+            continuationEnabled: loopEnabled,
+            maxIterations: maxRuns,
+            completionCriteria: normalizeLoopItems(doneWhen),
+            recoveryInstructions: loopItemsToText(recoverySteps),
           });
           return {
             content: [{ type: "text", text: jsonText(toWriteAck(result)) }],
@@ -455,13 +532,36 @@ export function registerCrudTools(
             .boolean()
             .optional()
             .describe("Let agents improve this prompt after a run."),
+          loopEnabled: z
+            .boolean()
+            .optional()
+            .describe("Keep starting new runs until the work is done."),
+          maxRuns: z
+            .number()
+            .int()
+            .positive()
+            .nullable()
+            .optional()
+            .describe("Maximum runs in one loop; null is unlimited."),
+          doneWhen: loopItemsSchema(
+            "Checklist of outcomes that mean the loop is complete."
+          ),
+          recoverySteps: loopItemsSchema(
+            "What to do when a run is interrupted by infrastructure failure."
+          ),
         },
       },
       async (args) => {
         try {
+          const { loopEnabled, maxRuns, doneWhen, recoverySteps, ...jobArgs } =
+            args;
           const result = await callbacks.updateJob({
-            ...args,
+            ...jobArgs,
             directory: resolveDir(args.directory),
+            continuationEnabled: loopEnabled,
+            maxIterations: maxRuns,
+            completionCriteria: normalizeLoopItems(doneWhen),
+            recoveryInstructions: loopItemsToText(recoverySteps),
           });
           return {
             content: [{ type: "text", text: jsonText(toWriteAck(result)) }],

@@ -13,7 +13,7 @@ export function buildSelfImprovementGuidance(
   const updateInstruction =
     source.kind === "template"
       ? `use update_template with templateId "${source.templateId}" and the complete revised prompt.`
-      : `use update_job with name "${source.name}", directory "${source.directory}", and the complete revised prompt.`;
+      : `use update_job with name "${source.name}" and directory "${source.directory}". For a Loop job, you may make a small targeted update to the main prompt, done-when criteria, or recovery instructions; otherwise update only the main prompt.`;
 
   return [
     "\nSelf-improvement:",
