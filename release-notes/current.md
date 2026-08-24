@@ -1,5 +1,6 @@
 ## What's Changed
-* Add Loop jobs with durable iteration handoffs by @selfcontained in https://github.com/selfcontained/dispatch/pull/999
+* Detect stale Dispatch plugin installs and offer a dismissible update by @selfcontained in https://github.com/selfcontained/dispatch/pull/1000
+* Cover the agents view's orchestration wiring by @selfcontained in https://github.com/selfcontained/dispatch/pull/1001
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.35.3...v0.36.0
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.36.0...v0.36.1
