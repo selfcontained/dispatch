@@ -116,6 +116,15 @@ export const whiteboardAgentDrewAtomFamily = atomFamily((_agentId: string) =>
   atom(false)
 );
 
+// Per-version dismissal for the plugin-update affordance, keyed by
+// `<agentType>:<latestVersion>`. Unlike a first-install dismissal (which is
+// correctly permanent), an update nudge must not silence every future
+// version after one "not now" — a new latestVersion gets its own key and
+// shows again on its own.
+export const dismissedPluginUpdateAtomFamily = atomFamily((key: string) =>
+  atomWithLocalStorage<boolean>(`dispatch:dismissedPluginUpdate:${key}`, false)
+);
+
 /**
  * Whether one pin group is collapsed, keyed by `<agentId>::<group>`.
  *

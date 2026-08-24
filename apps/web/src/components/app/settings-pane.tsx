@@ -11,6 +11,7 @@ import { InstanceNameSettings } from "@/components/app/instance-name-settings";
 import { DocsContent, DOCS_SECTION_NAV } from "@/components/app/docs-pane";
 import { NotificationSettings } from "@/components/app/notification-settings";
 import { PersonalitySettings } from "@/components/app/personality-settings";
+import { PluginUpdateSettings } from "@/components/app/plugin-update-settings";
 import { ReleasesAdmin } from "@/components/app/release-admin";
 import { UpdatesSection } from "@/components/app/updates-section";
 import { SecuritySettings } from "@/components/app/security-settings";
@@ -211,6 +212,7 @@ export function SettingsContent({
             <div className="border-t border-border">
               <LaunchGuidanceSettings />
             </div>
+            <PluginUpdateSettings />
             <div className="border-t border-border">
               <InjectionHoldSettings />
             </div>
