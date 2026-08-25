@@ -16,8 +16,7 @@ import {
   type DiffFileStatus,
 } from "@/hooks/use-agent-diff";
 import type { DiffViewType } from "@/lib/store";
-import type { DraftComment } from "@/components/app/review-mode";
-import type { ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
+import type { DiffReviewAnnotationProps } from "@/components/app/diff-review-annotation-props";
 import { UnifiedDiffView } from "@/components/app/unified-diff-view";
 import { type LineSelection } from "@/components/app/unified-diff-utils";
 
@@ -48,21 +47,7 @@ type DiffPaneProps = {
   ignoreWhitespace: boolean;
   scrollRef: React.RefObject<HTMLDivElement>;
   onScroll: () => void;
-  reviewMode?: boolean;
-  draftComments?: DraftComment[];
-  onAddDraft?: (
-    filePath: string,
-    startLine: number,
-    endLine: number,
-    comment: string
-  ) => void;
-  onRemoveDraft?: (id: string) => void;
-  onUpdateDraft?: (id: string, comment: string) => void;
-  onStartReview?: () => void;
-  feedbackItems?: ReviewFeedbackItem[];
-  focusedFeedbackItemId?: number | null;
-  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
-};
+} & DiffReviewAnnotationProps;
 
 export function DiffPane({
   agentId,
@@ -144,21 +129,7 @@ type FileDiffSectionProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
-  reviewMode?: boolean;
-  draftComments?: DraftComment[];
-  onAddDraft?: (
-    filePath: string,
-    startLine: number,
-    endLine: number,
-    comment: string
-  ) => void;
-  onRemoveDraft?: (id: string) => void;
-  onUpdateDraft?: (id: string, comment: string) => void;
-  onStartReview?: () => void;
-  feedbackItems?: ReviewFeedbackItem[];
-  focusedFeedbackItemId?: number | null;
-  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
-};
+} & DiffReviewAnnotationProps;
 
 function FileDiffSection({
   agentId,
@@ -262,21 +233,7 @@ type FileDiffContentProps = {
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
   ignoreWhitespace: boolean;
-  reviewMode?: boolean;
-  draftComments?: DraftComment[];
-  onAddDraft?: (
-    filePath: string,
-    startLine: number,
-    endLine: number,
-    comment: string
-  ) => void;
-  onRemoveDraft?: (id: string) => void;
-  onUpdateDraft?: (id: string, comment: string) => void;
-  onStartReview?: () => void;
-  feedbackItems?: ReviewFeedbackItem[];
-  focusedFeedbackItemId?: number | null;
-  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
-};
+} & DiffReviewAnnotationProps;
 
 function FileDiffContent({
   agentId,
