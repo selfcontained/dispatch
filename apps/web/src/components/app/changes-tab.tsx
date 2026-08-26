@@ -13,7 +13,7 @@ import {
   diffViewStateAtomFamily,
   reviewDraftAtomFamily,
 } from "@/lib/store";
-import { excludeTestFiles } from "@/lib/test-files";
+import { useVisibleDiffFiles } from "@/hooks/use-visible-diff";
 import { ReviewModeBar } from "@/components/app/review-mode";
 import { useAllReviewFeedbackItems } from "@/hooks/use-agent-reviews";
 import {
@@ -171,14 +171,7 @@ export const ChangesTab = memo(function ChangesTab({
   const navLineTarget = searchParams.get("line");
   const navFeedbackTarget = searchParams.get("feedback");
 
-  const files = useMemo(
-    () =>
-      (hideTestFiles
-        ? excludeTestFiles(data?.files ?? [], navFileTarget)
-        : [...(data?.files ?? [])]
-      ).sort((a, b) => a.path.localeCompare(b.path)),
-    [data?.files, hideTestFiles, navFileTarget]
-  );
+  const files = useVisibleDiffFiles(data, navFileTarget);
 
   const scrollToFile = useCallback(
     (path: string) => {

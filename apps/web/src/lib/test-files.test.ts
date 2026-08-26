@@ -16,6 +16,12 @@ describe("isTestFile", () => {
     "src/AppTests.java",
     "src/AppSpec.kt",
     "cypress/e2e/login.cy.ts",
+    "test/fixtures/user.json",
+    "src/__tests__/snapshot.json",
+    "haskell/AuthSpec.hs",
+    "features/checkout_spec.feature",
+    "julia/test_solver.jl",
+    "ocaml/test_parser.ml",
   ])("recognizes %s as a test file", (path) => {
     expect(isTestFile(path)).toBe(true);
   });
@@ -28,6 +34,11 @@ describe("isTestFile", () => {
     "src/widget.test.helper.ts",
     "fixtures/test-user.json",
     "src/Contest.java",
+    "docs/03-api-spec.md",
+    "docs/openapi-spec.json",
+    "config/test_defaults.json",
+    "tsconfig.test.json",
+    "src/schema.spec.graphql",
     "src/Protest.kt",
     "src/Latest.swift",
   ])("does not hide %s", (path) => {
