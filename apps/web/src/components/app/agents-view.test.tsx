@@ -295,8 +295,12 @@ vi.mock("@/hooks/use-agent-messages", () => ({
 vi.mock("@/hooks/use-agent-focus", () => ({ useAgentFocus: vi.fn() }));
 
 vi.mock("@/hooks/use-agent-diff-stats", () => ({
-  useAgentDiffStats: (agentId: string, enabled: boolean) => {
-    H.record("useAgentDiffStats", { agentId, enabled });
+  useVisibleDiffStats: (
+    agentId: string,
+    enabled: boolean,
+    changesVisible: boolean
+  ) => {
+    H.record("useVisibleDiffStats", { agentId, enabled, changesVisible });
     return { diffStats: undefined, refresh: H.state.unused };
   },
 }));

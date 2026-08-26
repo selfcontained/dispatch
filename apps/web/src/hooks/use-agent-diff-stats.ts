@@ -1,10 +1,15 @@
-import { useCallback } from "react";
+import { useCallback, useMemo } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtomValue } from "jotai";
 
 import type { DiffStats } from "@/components/app/types";
 import { api } from "@/lib/api";
-import { diffIncludeUncommittedAtom } from "@/lib/store";
+import { useAgentDiff } from "@/hooks/use-agent-diff";
+import { diffFileTotals, useVisibleDiffFiles } from "@/hooks/use-visible-diff";
+import {
+  diffIgnoreWhitespaceAtom,
+  diffIncludeUncommittedAtom,
+} from "@/lib/store";
 
 type DiffStatsResponse = { diffStats: DiffStats | null };
 
@@ -58,4 +63,60 @@ export function useAgentDiffStats(
   }, [agentId, includeUncommitted, queryClient]);
 
   return { diffStats: query.data, refresh };
+}
+
+/**
+ * Diff stats for the header badge, derived from the Changes tab's own file list
+ * whenever that list is on screen.
+ *
+ * The rule is deliberately unconditional: while the Changes tab is visible the
+ * badge is `diffFileTotals` of exactly the files rendered below it, so the two
+ * cannot disagree for any reason — not the test-file filter, and not the
+ * whitespace one either (`/diff-stats` computes without `-w` while `/diff`
+ * honours it, so a whitespace-only file counts on the server but never appears
+ * in the list). It reuses the payload the tab already has cached, so it costs
+ * no extra request.
+ *
+ * With the tab closed there is no list to agree with, and a cached diff would
+ * go stale while `/diff-stats` keeps polling — a frozen badge is worse than an
+ * unfiltered one — so the server totals are used as-is.
+ */
+export function useVisibleDiffStats(
+  agentId: string,
+  enabled: boolean,
+  changesVisible: boolean
+): {
+  diffStats: DiffStats | null | undefined;
+  refresh: () => void;
+} {
+  const { diffStats, refresh: refreshStats } = useAgentDiffStats(
+    agentId,
+    enabled
+  );
+  const ignoreWhitespace = useAtomValue(diffIgnoreWhitespaceAtom);
+  // Only ever reads the query the visible Changes tab is already driving —
+  // same key, shared cache. This hook must never be what fetches a full diff.
+  const { data, refresh: refreshDiff } = useAgentDiff(
+    agentId,
+    enabled && changesVisible,
+    ignoreWhitespace
+  );
+  const visibleFiles = useVisibleDiffFiles(data);
+
+  const refresh = useCallback(() => {
+    refreshStats();
+    refreshDiff();
+  }, [refreshStats, refreshDiff]);
+
+  return useMemo(() => {
+    // A truncated list is missing files the server did count, so its totals
+    // would understate the change — keep the server's in that case.
+    if (!changesVisible || !diffStats || !data || data.truncatedFileCount) {
+      return { diffStats, refresh };
+    }
+    return {
+      diffStats: { ...diffStats, ...diffFileTotals(visibleFiles) },
+      refresh,
+    };
+  }, [changesVisible, diffStats, data, visibleFiles, refresh]);
 }

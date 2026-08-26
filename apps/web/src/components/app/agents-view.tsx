@@ -12,7 +12,7 @@ import { ChangesTab } from "@/components/app/changes-tab";
 import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { CenterPaneSplit } from "@/components/app/center-pane-split";
-import { useAgentDiffStats } from "@/hooks/use-agent-diff-stats";
+import { useVisibleDiffStats } from "@/hooks/use-agent-diff-stats";
 import { useCenterPaneLayout } from "@/hooks/use-center-pane-layout";
 
 import { AgentListContent } from "@/components/app/agent-sidebar";
@@ -275,9 +275,15 @@ export function AgentsView({
 
   useAgentFocus(focusedAgentId, "authenticated");
 
-  const { diffStats: focusedDiffStats } = useAgentDiffStats(
+  const changesVisible =
+    (isSplit &&
+      (splitState.left === "changes" || splitState.right === "changes")) ||
+    (!isSplit && changesMatch);
+
+  const { diffStats: focusedDiffStats } = useVisibleDiffStats(
     focusedAgentId ?? "",
-    !!focusedAgentId
+    !!focusedAgentId,
+    changesVisible
   );
 
   const prevLeftOpenRef = useRef(leftPanelOpen);
@@ -475,10 +481,6 @@ export function AgentsView({
     />
   );
 
-  const changesVisible =
-    (isSplit &&
-      (splitState.left === "changes" || splitState.right === "changes")) ||
-    (!isSplit && changesMatch);
   const changesElement = changesVisible ? (
     <ChangesTab
       agentId={focusedAgentId}
