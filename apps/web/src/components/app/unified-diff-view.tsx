@@ -5,7 +5,7 @@ import { MessageSquare } from "lucide-react";
 
 import { type DiffViewType } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { type DraftComment } from "@/components/app/review-mode";
+import { type DiffReviewAnnotationProps } from "@/components/app/diff-review-annotation-props";
 import {
   languageFromPath,
   refractorAdapter,
@@ -17,9 +17,8 @@ import {
   type LineSelection,
 } from "@/components/app/unified-diff-utils";
 import { useDiffWidgets } from "@/components/app/use-diff-widgets";
-import { type ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
 
-type UnifiedDiffViewProps = {
+type UnifiedDiffViewProps = DiffReviewAnnotationProps & {
   agentId: string | null;
   diffText: string;
   filePath: string;
@@ -28,20 +27,6 @@ type UnifiedDiffViewProps = {
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
   viewType: DiffViewType;
-  reviewMode?: boolean;
-  draftComments?: DraftComment[];
-  onAddDraft?: (
-    filePath: string,
-    startLine: number,
-    endLine: number,
-    comment: string
-  ) => void;
-  onRemoveDraft?: (id: string) => void;
-  onUpdateDraft?: (id: string, comment: string) => void;
-  onStartReview?: () => void;
-  feedbackItems?: ReviewFeedbackItem[];
-  focusedFeedbackItemId?: number | null;
-  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
 };
 
 export const UnifiedDiffView = memo(function UnifiedDiffView({
