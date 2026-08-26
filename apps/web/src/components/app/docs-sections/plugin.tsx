@@ -143,6 +143,20 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
       <Section>
         <H3 id="plugin-updating">Keeping it updated</H3>
         <P>
+          <strong>Settings → Agents</strong> shows a dismissible card when a
+          newer plugin version is available, with an <strong>Update</strong>{" "}
+          button that runs the refresh-then-install sequence below for you.
+          Detection shells out to <Code>claude plugin list --json</Code> /{" "}
+          <Code>codex plugin list --json</Code> and their{" "}
+          <Code>marketplace list --json</Code> counterparts — it reads the real
+          CLI state, not Dispatch's assertion — and caches each result for up to
+          an hour. It only checks enabled agent types (
+          <strong>Settings → Agents</strong>) and fails open to showing no card
+          on any spawn, parse, or exit-code error, so a missing card means
+          "couldn't tell," not "you're current." Dismissing a card silences only
+          that version; the next release prompts again.
+        </P>
+        <P>
           The plugin carries an explicit version in its manifests, so updates
           only ship when that version is bumped — routine commits to the repo
           don't register as a plugin update.
@@ -157,11 +171,11 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
         </P>
         <P>
           <strong>Codex</strong> — there is no update subcommand. Re-run{" "}
-          <Code>codex plugin add dispatch@dispatch</Code> to upgrade; it
-          replaces the cached copy.{" "}
-          <Code>codex plugin marketplace upgrade</Code> only refreshes the
-          catalog snapshot, not the installed plugin, and{" "}
-          <Code>codex plugin list</Code> won't tell you a newer version exists.
+          <Code>codex plugin add dispatch@dispatch</Code> to upgrade, but only
+          after <Code>codex plugin marketplace upgrade</Code> refreshes the
+          catalog snapshot — running <Code>add</Code> alone reinstalls the stale
+          version while reporting success. <Code>codex plugin list</Code> won't
+          tell you a newer version exists.
         </P>
       </Section>
     </>

@@ -98,6 +98,14 @@ export function MediaContent() {
           the terminal — tell the agent about the file afterward so it knows to
           look.
         </P>
+        <P>
+          Attaching files in the <strong>create agent</strong> dialog's context
+          picker works differently again: up to ten files are seeded into the
+          new agent's media store before it starts, and its startup prompt lists
+          them in an <em>Attached files</em> section pointing at shared media —
+          there's no terminal yet to type <Code>[File&nbsp;#N]</Code> lines
+          into.
+        </P>
       </Section>
 
       <Section>
@@ -129,8 +137,12 @@ export function MediaContent() {
           The <strong>Pins</strong> tab shows values the agent has surfaced via{" "}
           <Code>dispatch_pin</Code> — URLs, ports, branch names, file paths, and
           other key info. Setting a pin again with the same label updates it in
-          place, <Code>dispatch_pins</Code> writes a whole set at once, and
-          agents can remove stale pins with <Code>dispatch_list_pins</Code> +{" "}
+          place, and <Code>dispatch_pins</Code> writes several at once: by
+          default it merges each entry in — updating or creating it without
+          touching anything else — or with <Code>mode: "replace"</Code> and a{" "}
+          <Code>group</Code>, it makes that group contain exactly the passed
+          entries, deleting any existing member left out. Agents can remove
+          stale pins with <Code>dispatch_list_pins</Code> +{" "}
           <Code>dispatch_delete_pin</Code> — one, several, or a whole group at a
           time. Agents can also pin a <strong>shortcut</strong> — a button that
           injects a prompt into that agent's session when you click it, exactly
