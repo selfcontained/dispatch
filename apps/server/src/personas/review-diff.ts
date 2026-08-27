@@ -12,8 +12,17 @@ function trimTrailingWhitespace(value: string): string {
   return value.replace(/\s+$/u, "");
 }
 
+/**
+ * A file-level map of the review target — never the diff itself.
+ *
+ * Reviewers run in the worktree (`dispatch_launch_persona` uses the
+ * parent's cwd), so they can read any hunk they want with the git
+ * commands the prompt hands them. Embedding the diff bought nothing a
+ * `git diff` couldn't, went stale the moment it was assembled, and was
+ * the single largest contributor to a launch payload that has a hard
+ * ceiling — see `assemblePersonaPrompt`.
+ */
 export type ReviewDiffResult = {
-  diff: string;
   /** `git diff --stat <baseRef>...HEAD` — committed changes only. */
   stat: string;
   /** `git diff --stat HEAD` — uncommitted working tree changes. */
@@ -21,7 +30,8 @@ export type ReviewDiffResult = {
   /** Untracked file paths (from `git ls-files --others`). */
   untrackedFiles: string[];
   baseRef: string;
-  diffByteSize: number;
+  /** Whether anything at all changed — drives the "nothing to review" copy. */
+  hasChanges: boolean;
 };
 
 export async function buildPersonaReviewDiff(
@@ -29,27 +39,16 @@ export async function buildPersonaReviewDiff(
   baseRef: string,
   runCommand: RunCommandFn
 ): Promise<ReviewDiffResult> {
-  const baseName = baseRef.replace(/^origin\//, "");
-
   try {
-    const [
-      committedResult,
-      uncommittedResult,
-      untrackedResult,
-      statResult,
-      uncommittedStatResult,
-    ] = await Promise.all([
-      runCommand("git", ["diff", `${baseRef}...HEAD`], { cwd }),
-      runCommand("git", ["diff", "HEAD"], { cwd }),
-      runCommand("git", ["ls-files", "--others", "--exclude-standard"], {
-        cwd,
-      }),
-      runCommand("git", ["diff", "--stat", `${baseRef}...HEAD`], { cwd }),
-      runCommand("git", ["diff", "--stat", "HEAD"], { cwd }),
-    ]);
+    const [untrackedResult, statResult, uncommittedStatResult] =
+      await Promise.all([
+        runCommand("git", ["ls-files", "--others", "--exclude-standard"], {
+          cwd,
+        }),
+        runCommand("git", ["diff", "--stat", `${baseRef}...HEAD`], { cwd }),
+        runCommand("git", ["diff", "--stat", "HEAD"], { cwd }),
+      ]);
 
-    const committedDiff = trimTrailingWhitespace(committedResult.stdout);
-    const uncommittedDiff = trimTrailingWhitespace(uncommittedResult.stdout);
     const untrackedFiles = untrackedResult.stdout
       .split("\n")
       .map((line) => line.trim())
@@ -59,52 +58,20 @@ export async function buildPersonaReviewDiff(
       uncommittedStatResult.stdout
     );
 
-    const sections: string[] = [];
-
-    if (committedDiff) {
-      sections.push(
-        `### Committed changes since ${baseName}\n${committedDiff}`
-      );
-    }
-
-    if (uncommittedDiff) {
-      sections.push(`### Uncommitted working tree changes\n${uncommittedDiff}`);
-    }
-
-    if (untrackedFiles.length > 0) {
-      sections.push(
-        `### Untracked files\n${untrackedFiles.map((file) => `- ${file}`).join("\n")}`
-      );
-    }
-
-    if (sections.length === 0) {
-      return {
-        diff: "(no committed or uncommitted changes detected)",
-        stat: "",
-        uncommittedStat: "",
-        untrackedFiles: [],
-        baseRef,
-        diffByteSize: 0,
-      };
-    }
-
-    const diff = sections.join("\n\n");
     return {
-      diff,
       stat,
       uncommittedStat,
       untrackedFiles,
       baseRef,
-      diffByteSize: Buffer.byteLength(diff, "utf-8"),
+      hasChanges: Boolean(stat || uncommittedStat || untrackedFiles.length),
     };
   } catch {
     return {
-      diff: "(unable to generate diff)",
       stat: "",
       uncommittedStat: "",
       untrackedFiles: [],
       baseRef,
-      diffByteSize: 0,
+      hasChanges: false,
     };
   }
 }

@@ -344,7 +344,7 @@ export function registerPersonaInteractionTools(
             .boolean()
             .default(true)
             .describe(
-              "Whether to include the git diff in the persona prompt. Set to false for non-code reviews (PRDs, docs, media) where the diff is not the review target."
+              "Whether the reviewer is reviewing a code change. When true it gets a file-level map of the change plus the git commands to read it (the diff itself is never embedded — the reviewer runs in the worktree). Set to false for non-code reviews (PRDs, docs, media) where a code change is not the review target."
             ),
         },
       },
