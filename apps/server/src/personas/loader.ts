@@ -26,7 +26,62 @@ type PersonaFrontmatter = {
 };
 
 const PERSONAS_DIR = ".dispatch/personas";
-export const INLINE_DIFF_THRESHOLD_BYTES = 15 * 1024;
+
+/**
+ * Hard ceiling on the assembled persona prompt.
+ *
+ * This prompt is handed to the CLI as an `--append-system-prompt`
+ * argument, and on a restart that argument is re-escaped into the
+ * `tmux new-session` command, which tmux refuses somewhere above 16KB.
+ * Overshooting produced `command too long` and left the reviewer
+ * unstartable, so the size is enforced here — at assembly, on the raw
+ * text — rather than discovered at launch. 8KB leaves room for the
+ * launch guidance, MCP config and env prefix that share that budget.
+ *
+ * Trimming is visible in the prompt (see `capPromptSection`); a
+ * reviewer that lost part of its briefing should be able to tell.
+ */
+export const MAX_PERSONA_PROMPT_BYTES = 8 * 1024;
+
+/** Per-section ceiling for the file-level stat blocks. */
+const MAX_STAT_LINES = 40;
+
+/**
+ * Truncate to a byte budget on a line boundary, leaving a marker so the
+ * reviewer knows something is missing rather than silently reading a
+ * half-briefing as if it were whole.
+ */
+function capText(value: string, maxBytes: number, what: string): string {
+  const total = Buffer.byteLength(value, "utf-8");
+  if (total <= maxBytes) return value;
+
+  // Reserve room for the marker first — it is part of the output, so a
+  // budget that only covers the kept lines overshoots by its length.
+  const marker = (omittedKB: number) =>
+    `\n[${what} trimmed — ${omittedKB}KB omitted; read the worktree directly]`;
+  const budget = Math.max(
+    0,
+    maxBytes - Buffer.byteLength(marker(9999), "utf-8")
+  );
+
+  const kept: string[] = [];
+  let used = 0;
+  for (const line of value.split("\n")) {
+    const cost = Buffer.byteLength(line, "utf-8") + 1;
+    if (used + cost > budget) break;
+    kept.push(line);
+    used += cost;
+  }
+  return `${kept.join("\n")}${marker(Math.ceil((total - used) / 1024))}`;
+}
+
+/** Cap a stat block by line count, noting how many files were dropped. */
+function capStat(stat: string): string {
+  const lines = stat.split("\n");
+  if (lines.length <= MAX_STAT_LINES) return stat;
+  const kept = lines.slice(0, MAX_STAT_LINES);
+  return `${kept.join("\n")}\n… and ${lines.length - MAX_STAT_LINES} more (use the git commands below)`;
+}
 
 export function parseFrontmatter(content: string): {
   frontmatter: PersonaFrontmatter;
@@ -213,26 +268,32 @@ function buildDiffCommands(baseRef: string): string {
   ].join("\n");
 }
 
-function buildDiffGuidance(result: ReviewDiffResult): string {
-  const { baseRef } = result;
-  const sizeKB = Math.round(result.diffByteSize / 1024);
-  const hasStat =
-    !!result.stat ||
-    !!result.uncommittedStat ||
-    result.untrackedFiles.length > 0;
+function buildChangeMap(result: ReviewDiffResult): string {
+  if (!result.hasChanges) {
+    return [
+      "No committed or uncommitted changes were detected against " +
+        `${result.baseRef}. Confirm with the commands below before ` +
+        "concluding there is nothing to review.",
+      "",
+      buildDiffCommands(result.baseRef),
+    ].join("\n");
+  }
 
+  const baseName = result.baseRef.replace(/^origin\//, "");
   const lines = [
-    hasStat
-      ? `The full diff is too large to include inline (~${sizeKB}KB). A file-level summary is below — use the provided git commands to inspect specific files in the worktree.`
-      : `The full diff is too large to include inline (~${sizeKB}KB). Use the git commands below to inspect changes in the worktree.`,
+    "A file-level map of the change is below. The diff itself is not " +
+      "included — you are running in the worktree, so read the hunks you " +
+      "care about with the commands at the end of this section. They are " +
+      "authoritative; this map may be stale if work continued after you " +
+      "were launched.",
     "",
   ];
 
   if (result.stat) {
     lines.push(
-      `**Committed changes (vs ${baseRef}):**`,
+      `**Committed changes (vs ${baseName}):**`,
       "```",
-      result.stat,
+      capStat(result.stat),
       "```",
       ""
     );
@@ -242,21 +303,25 @@ function buildDiffGuidance(result: ReviewDiffResult): string {
     lines.push(
       "**Uncommitted working tree changes:**",
       "```",
-      result.uncommittedStat,
+      capStat(result.uncommittedStat),
       "```",
       ""
     );
   }
 
   if (result.untrackedFiles.length > 0) {
+    const shown = result.untrackedFiles.slice(0, MAX_STAT_LINES);
     lines.push(
       "**Untracked files:**",
-      ...result.untrackedFiles.map((f) => `- ${f}`),
+      ...shown.map((f) => `- ${f}`),
+      ...(result.untrackedFiles.length > shown.length
+        ? [`- … and ${result.untrackedFiles.length - shown.length} more`]
+        : []),
       ""
     );
   }
 
-  lines.push(buildDiffCommands(baseRef));
+  lines.push(buildDiffCommands(result.baseRef));
 
   return lines.join("\n");
 }
@@ -280,16 +345,20 @@ export function assemblePersonaPrompt(
     sections.push(buildCursorDispatchToolGuidance());
   }
   sections.push(buildStandardFeedbackGuidance(includeDiff));
-  sections.push(`## Context from parent agent\n${context}`);
+  sections.push(
+    `## Context from parent agent\n${capText(context, MAX_PERSONA_PROMPT_BYTES / 2, "Briefing")}`
+  );
   if (includeDiff && diffResult) {
-    if (diffResult.diffByteSize <= INLINE_DIFF_THRESHOLD_BYTES) {
-      sections.push(
-        `## Changes to review\n${diffResult.diff}\n\n${buildDiffCommands(diffResult.baseRef)}`
-      );
-    } else {
-      sections.push(`## Changes to review\n${buildDiffGuidance(diffResult)}`);
-    }
+    sections.push(`## Changes to review\n${buildChangeMap(diffResult)}`);
   }
 
-  return sections.join("\n\n");
+  // Belt and braces. The per-section caps above cover the two inputs that
+  // actually grow (briefing, change map), but a persona file is authored
+  // by hand and nothing bounds it — and blowing the budget costs a
+  // reviewer that cannot be restarted at all.
+  return capText(
+    sections.join("\n\n"),
+    MAX_PERSONA_PROMPT_BYTES,
+    "Persona prompt"
+  );
 }

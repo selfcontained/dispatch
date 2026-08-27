@@ -64,7 +64,9 @@ summary. Include:
   summary back; one that poses questions gets findings.
 
 Set `includeDiff: false` only for non-code reviews (a plan, a document, media)
-where the diff is not the review target.
+where a code change is not the review target. When it is on, the reviewer gets a
+file-level map of the change and the git commands to read it — never the diff
+itself, since it is already in the worktree.
 
 ## Working the feedback
 
