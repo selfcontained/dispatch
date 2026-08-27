@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { excludeTestFiles, isTestFile } from "./test-files";
+import { isTestFile } from "../src/shared/git/test-files.js";
 
 describe("isTestFile", () => {
   it.each([
@@ -43,12 +43,5 @@ describe("isTestFile", () => {
     "src/Latest.swift",
   ])("does not hide %s", (path) => {
     expect(isTestFile(path)).toBe(false);
-  });
-
-  it("keeps an explicitly navigated test file visible", () => {
-    const files = [{ path: "src/app.ts" }, { path: "src/app.test.ts" }];
-
-    expect(excludeTestFiles(files, "src/app.test.ts")).toEqual(files);
-    expect(excludeTestFiles(files, null)).toEqual([{ path: "src/app.ts" }]);
   });
 });

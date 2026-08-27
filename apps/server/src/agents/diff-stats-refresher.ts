@@ -223,5 +223,12 @@ function statsEqual(
   if (a === b) return true;
   if (a === undefined || b === undefined) return false;
   if (a === null || b === null) return a === b;
-  return a.added === b.added && a.deleted === b.deleted && a.files === b.files;
+  return (
+    a.added === b.added &&
+    a.deleted === b.deleted &&
+    a.files === b.files &&
+    a.excludingTests.added === b.excludingTests.added &&
+    a.excludingTests.deleted === b.excludingTests.deleted &&
+    a.excludingTests.files === b.excludingTests.files
+  );
 }

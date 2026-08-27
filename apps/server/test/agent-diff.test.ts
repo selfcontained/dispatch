@@ -217,6 +217,34 @@ describe("getAgentDiff truncation", () => {
     expect(file.status).toBe("renamed");
   });
 
+  it("flags test files so the client never re-derives the rule", async () => {
+    const runner = makeMockRunner(
+      [
+        "4\t0\tsrc/app.ts",
+        "9\t1\tsrc/app.test.ts",
+        // A move into a test directory: classified by where it lands, the
+        // same way getDiffStats counts it.
+        "1\t1\tsrc/{lib => test}/helper.ts",
+        // Prose that merely looks spec-ish stays a normal file.
+        "2\t0\tdocs/api-spec.md",
+      ].join("\n"),
+      "",
+      ""
+    );
+
+    const result = await getAgentDiff(WORKTREE, BASE_REF, runner);
+    const flags = Object.fromEntries(
+      result!.files.map((file) => [file.path, file.isTest])
+    );
+
+    expect(flags).toEqual({
+      "src/app.ts": false,
+      "src/app.test.ts": true,
+      "src/test/helper.ts": true,
+      "docs/api-spec.md": false,
+    });
+  });
+
   it("excludes lock files from results", async () => {
     const diff = generateDiffLines("pnpm-lock.yaml", 100);
     const runner = makeMockRunner(

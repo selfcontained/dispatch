@@ -53,6 +53,9 @@ importers:
 
   apps/server:
     dependencies:
+      "@dispatch/shared":
+        specifier: workspace:*
+        version: link:../../packages/shared
       "@fastify/cookie":
         specifier: ^11.0.2
         version: 11.0.2
@@ -132,6 +135,9 @@ importers:
 
   apps/web:
     dependencies:
+      "@dispatch/shared":
+        specifier: workspace:*
+        version: link:../../packages/shared
       "@excalidraw/excalidraw":
         specifier: ^0.18.1
         version: 0.18.1(@types/react-dom@18.3.7(@types/react@18.3.28))(@types/react@18.3.28)(immer@11.1.4)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -310,6 +316,8 @@ importers:
       vitest:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@24.12.0)(happy-dom@18.0.1)(jsdom@29.1.1)(sass@1.51.0)(terser@5.46.1)
+
+  packages/shared: {}
 
 packages:
   "@alloc/quick-lru@5.2.0":

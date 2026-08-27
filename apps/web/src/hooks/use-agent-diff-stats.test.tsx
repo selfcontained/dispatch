@@ -8,7 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { diffHideTestFilesAtom } from "@/lib/store";
 
 import { useAgentDiff } from "./use-agent-diff";
-import { useVisibleDiffStats } from "./use-agent-diff-stats";
+import { useAgentDiffStats, useVisibleDiffStats } from "./use-agent-diff-stats";
 import { diffFileTotals, useVisibleDiffFiles } from "./use-visible-diff";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
@@ -17,14 +17,36 @@ const { api } = await import("@/lib/api");
 const apiMock = vi.mocked(api);
 
 // The server computes stats without `-w`, so its totals include a
-// whitespace-only 4th file that the `-w` diff below never lists.
-const SERVER_STATS = { added: 123, deleted: 43, files: 4, computedAt: 1_000 };
+// whitespace-only 4th file that the `-w` diff below never lists. Its
+// excluding-tests cut drops `src/app.test.ts` (15/8) from the same numbers.
+const SERVER_STATS = {
+  added: 123,
+  deleted: 43,
+  files: 4,
+  excludingTests: { added: 108, deleted: 35, files: 3 },
+  computedAt: 1_000,
+};
 
+/** What every badge shows from the server totals with the filter on. */
+const SERVER_STATS_HIDING_TESTS = {
+  ...SERVER_STATS,
+  added: 108,
+  deleted: 35,
+  files: 3,
+};
+
+// `isTest` comes from the server, so the fixture carries it the way the wire
+// does rather than re-deriving it from the path here.
 const DIFF_FILES = [
   { path: "src/app.ts", status: "modified", added: 100, deleted: 30 },
   { path: "src/app.test.ts", status: "modified", added: 15, deleted: 8 },
   { path: "docs/api-spec.md", status: "modified", added: 5, deleted: 2 },
-].map((file) => ({ ...file, diff: null, truncated: false }));
+].map((file) => ({
+  ...file,
+  diff: null,
+  truncated: false,
+  isTest: file.path === "src/app.test.ts",
+}));
 
 function respond(diffOverrides: Record<string, unknown> = {}) {
   apiMock.mockImplementation(async (url: string) => {
@@ -55,6 +77,68 @@ afterEach(() => {
   cleanup();
   queryClient.clear();
   apiMock.mockReset();
+});
+
+describe("useAgentDiffStats", () => {
+  // The sidebar card and the session settings dialog show a badge with no
+  // file list next to it, so the setting has to reach them through the
+  // server's excluding-tests totals.
+  it("honours the hide-test-files setting with no diff fetched", async () => {
+    respond();
+    store.set(diffHideTestFilesAtom, true);
+
+    const { result } = renderHook(() => useAgentDiffStats("a1", true), {
+      wrapper,
+    });
+
+    await waitFor(() =>
+      expect(result.current.diffStats).toEqual(SERVER_STATS_HIDING_TESTS)
+    );
+    expect(
+      apiMock.mock.calls.some(([url]) => String(url).includes("/diff?"))
+    ).toBe(false);
+  });
+
+  it("reports the full totals with the setting off", async () => {
+    respond();
+    store.set(diffHideTestFilesAtom, false);
+
+    const { result } = renderHook(() => useAgentDiffStats("a1", true), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.diffStats).toEqual(SERVER_STATS));
+  });
+
+  it("follows the setting without refetching", async () => {
+    respond();
+    store.set(diffHideTestFilesAtom, false);
+
+    const { result } = renderHook(() => useAgentDiffStats("a1", true), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.diffStats?.files).toBe(4));
+    const callsBefore = apiMock.mock.calls.length;
+    store.set(diffHideTestFilesAtom, true);
+
+    await waitFor(() => expect(result.current.diffStats?.files).toBe(3));
+    expect(apiMock.mock.calls.length).toBe(callsBefore);
+  });
+
+  it("falls back to the full totals when the server omits the split", async () => {
+    const { excludingTests, ...legacy } = SERVER_STATS;
+    void excludingTests;
+    apiMock.mockImplementation(async () => ({ diffStats: legacy }));
+    store.set(diffHideTestFilesAtom, true);
+
+    const { result } = renderHook(() => useAgentDiffStats("a1", true), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.diffStats?.added).toBe(123));
+    expect(result.current.diffStats?.files).toBe(4);
+  });
 });
 
 describe("useVisibleDiffStats", () => {
@@ -126,7 +210,9 @@ describe("useVisibleDiffStats", () => {
         apiMock.mock.calls.some(([url]) => String(url).includes("/diff?"))
       ).toBe(true)
     );
-    await waitFor(() => expect(result.current.diffStats).toEqual(SERVER_STATS));
+    await waitFor(() =>
+      expect(result.current.diffStats).toEqual(SERVER_STATS_HIDING_TESTS)
+    );
   });
 
   it("uses live server totals, and fetches no diff, while the tab is closed", async () => {
@@ -138,7 +224,9 @@ describe("useVisibleDiffStats", () => {
       { wrapper }
     );
 
-    await waitFor(() => expect(result.current.diffStats).toEqual(SERVER_STATS));
+    await waitFor(() =>
+      expect(result.current.diffStats).toEqual(SERVER_STATS_HIDING_TESTS)
+    );
     expect(
       apiMock.mock.calls.some(([url]) => String(url).includes("/diff?"))
     ).toBe(false);
@@ -160,7 +248,7 @@ describe("useVisibleDiffStats", () => {
     // server totals rather than freeze on that snapshot.
     view.rerender({ visible: false });
     await waitFor(() =>
-      expect(view.result.current.diffStats).toEqual(SERVER_STATS)
+      expect(view.result.current.diffStats).toEqual(SERVER_STATS_HIDING_TESTS)
     );
   });
 
