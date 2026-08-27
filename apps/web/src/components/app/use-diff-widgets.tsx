@@ -1,7 +1,7 @@
 import { useMemo } from "react";
 import { type FileData } from "react-diff-view";
 
-import { type DraftComment } from "@/components/app/review-mode";
+import type { DiffReviewAnnotationProps } from "@/components/app/diff-review-annotation-props";
 import { InlineCommentForm } from "@/components/app/diff-comment-form";
 import { InlineDraftAnnotation } from "@/components/app/diff-draft-annotation";
 import { InlineFeedbackAnnotation } from "@/components/app/diff-feedback-annotation";
@@ -9,9 +9,8 @@ import {
   findLastChangeKeyInRange,
   type LineSelection,
 } from "@/components/app/unified-diff-utils";
-import { type ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
 
-type UseDiffWidgetsOptions = {
+type UseDiffWidgetsOptions = DiffReviewAnnotationProps & {
   file: FileData | null;
   agentId: string | null;
   filePath: string;
@@ -19,20 +18,6 @@ type UseDiffWidgetsOptions = {
   onLineSelection: (sel: LineSelection | null) => void;
   commentOpen: boolean;
   onCommentOpen: (open: boolean) => void;
-  reviewMode?: boolean;
-  draftComments?: DraftComment[];
-  onAddDraft?: (
-    filePath: string,
-    startLine: number,
-    endLine: number,
-    comment: string
-  ) => void;
-  onRemoveDraft?: (id: string) => void;
-  onUpdateDraft?: (id: string, comment: string) => void;
-  onStartReview?: () => void;
-  feedbackItems?: ReviewFeedbackItem[];
-  focusedFeedbackItemId?: number | null;
-  onFeedbackFocusComplete?: (feedbackItemId: number) => void;
 };
 
 export function useDiffWidgets({
