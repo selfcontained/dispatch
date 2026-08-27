@@ -169,6 +169,9 @@ export function PersonaLauncher({
     );
   };
 
+  const launchErrorMessage =
+    launchMutation.error instanceof Error ? launchMutation.error.message : null;
+
   const reviewButton = (
     <Button
       variant="ghost"
@@ -254,7 +257,10 @@ export function PersonaLauncher({
         setSelectedPersonas={setSelectedPersonas}
         note={note}
         setNote={setNote}
-        launchMutation={launchMutation}
+        launchError={launchErrorMessage}
+        isLaunching={launchMutation.isPending}
+        onResetLaunchError={() => launchMutation.reset()}
+        onSubmit={() => void launchMutation.mutateAsync(selectedPersonas)}
       />
     </>
   );

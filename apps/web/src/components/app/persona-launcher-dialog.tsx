@@ -1,6 +1,5 @@
 import { Check, ChevronDown } from "lucide-react";
 import type { Dispatch, RefObject, SetStateAction } from "react";
-import type { UseMutationResult } from "@tanstack/react-query";
 
 import { AgentModelSelect } from "@/components/app/agent-model-select";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -53,7 +52,10 @@ export function PersonaLauncherDialog({
   setSelectedPersonas,
   note,
   setNote,
-  launchMutation,
+  launchError,
+  isLaunching,
+  onResetLaunchError,
+  onSubmit,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -74,11 +76,15 @@ export function PersonaLauncherDialog({
   setSelectedPersonas: Dispatch<SetStateAction<string[]>>;
   note: string;
   setNote: Dispatch<SetStateAction<string>>;
-  launchMutation: UseMutationResult<void, unknown, string[], unknown>;
+  /** Error message from the last launch attempt, or null. */
+  launchError: string | null;
+  /** True while a launch request is in flight. */
+  isLaunching: boolean;
+  /** Clears a stale launch error/result once the form changes. */
+  onResetLaunchError: () => void;
+  /** Submits the currently selected personas for launch. */
+  onSubmit: () => void;
 }): JSX.Element {
-  const launchErrorMessage =
-    launchMutation.error instanceof Error ? launchMutation.error.message : null;
-
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       {open ? (
@@ -174,7 +180,7 @@ export function PersonaLauncherDialog({
                                   value={agentType}
                                   onSelect={() => {
                                     setSelectedAgentType(agentType);
-                                    launchMutation.reset();
+                                    onResetLaunchError();
                                     setTypeDropdownOpen(false);
                                     requestAnimationFrame(() =>
                                       typeTriggerRef.current?.focus()
@@ -205,7 +211,7 @@ export function PersonaLauncherDialog({
                       options={modelOptions}
                       onChange={(model) => {
                         setSelectedModel(model);
-                        launchMutation.reset();
+                        onResetLaunchError();
                       }}
                       loading={modelCatalogLoading}
                       id="launch-reviewer-model"
@@ -256,7 +262,7 @@ export function PersonaLauncherDialog({
                                 ? prev.filter((slug) => slug !== persona.slug)
                                 : [...prev, persona.slug]
                             );
-                            launchMutation.reset();
+                            onResetLaunchError();
                           }}
                           className={cn(
                             "flex w-full items-start gap-3 rounded-md border px-3 py-3 text-left transition-colors",
@@ -318,7 +324,7 @@ export function PersonaLauncherDialog({
                     value={note}
                     onChange={(e) => {
                       setNote(e.target.value);
-                      launchMutation.reset();
+                      onResetLaunchError();
                     }}
                     maxLength={MAX_NOTE_LENGTH}
                     rows={3}
@@ -334,12 +340,12 @@ export function PersonaLauncherDialog({
             </div>
 
             <div className="flex justify-end gap-2 pt-3">
-              {launchErrorMessage ? (
+              {launchError ? (
                 <p
                   className="mr-auto max-w-[28rem] text-sm text-destructive"
                   data-testid="launch-reviewer-error"
                 >
-                  {launchErrorMessage}
+                  {launchError}
                 </p>
               ) : null}
               <Button
@@ -354,14 +360,14 @@ export function PersonaLauncherDialog({
                 variant="primary"
                 disabled={
                   selectedPersonas.length === 0 ||
-                  launchMutation.isPending ||
+                  isLaunching ||
                   // Launching mid-load would send model: null and silently
                   // drop the stored preference the select is about to show.
                   modelCatalogLoading
                 }
                 onClick={() => {
                   if (selectedPersonas.length === 0) return;
-                  void launchMutation.mutateAsync(selectedPersonas);
+                  onSubmit();
                 }}
                 data-testid="launch-reviewer-submit"
               >
