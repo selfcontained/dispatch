@@ -7,6 +7,7 @@ import { api } from "@/lib/api";
 import { useAgentDiff } from "@/hooks/use-agent-diff";
 import { diffFileTotals, useVisibleDiffFiles } from "@/hooks/use-visible-diff";
 import {
+  diffHideTestFilesAtom,
   diffIgnoreWhitespaceAtom,
   diffIncludeUncommittedAtom,
 } from "@/lib/store";
@@ -21,6 +22,25 @@ export function diffStatsQueryKey(
 }
 
 /**
+ * Applies the Changes tab's "Hide test files" setting to server totals.
+ *
+ * `/diff-stats` reports both cuts of the numbers, so every badge honours the
+ * setting without pulling down a whole diff to filter a file list — which is
+ * what the sidebar and session-settings badges need, since neither has a file
+ * list on screen to derive totals from.
+ */
+function applyTestFileFilter(
+  stats: DiffStats | null | undefined,
+  hideTestFiles: boolean
+): DiffStats | null | undefined {
+  if (!stats || !hideTestFiles) return stats;
+  // A server that predates the split sends no `excludingTests` at all; leaving
+  // the unfiltered numbers alone is the only honest thing to show in that case.
+  if (!stats.excludingTests) return stats;
+  return { ...stats, ...stats.excludingTests };
+}
+
+/**
  * Server-pushed diff stats for one agent. Live updates flow through
  * `agent.diff_state_changed` SSE whenever the agent emits a status event,
  * which covers the common "agent is actively working" case. While the
@@ -28,6 +48,13 @@ export function diffStatsQueryKey(
  * so the badge stays current during quiet periods (no agent events) and
  * after returning from another tab. `refresh()` is the tap-to-refresh
  * entry point. Polling stops automatically when `enabled` flips false.
+ *
+ * The returned totals honour the Changes tab's "Hide test files" setting, and
+ * the raw cut is not exposed. Filtering here rather than at each call site is
+ * deliberate: a badge added later is covered by default, where the per-call-site
+ * version is what let the sidebar drift out of sync in the first place. A
+ * consumer that genuinely needs unfiltered totals should widen this hook rather
+ * than read the query around it.
  */
 const DIFF_STATS_POLL_INTERVAL_MS = 10_000;
 const DIFF_STATS_STALE_TIME_MS = 15_000;
@@ -41,6 +68,7 @@ export function useAgentDiffStats(
 } {
   const queryClient = useQueryClient();
   const includeUncommitted = useAtomValue(diffIncludeUncommittedAtom);
+  const hideTestFiles = useAtomValue(diffHideTestFilesAtom);
 
   const query = useQuery<DiffStats | null>({
     queryKey: diffStatsQueryKey(agentId, includeUncommitted),
@@ -62,7 +90,12 @@ export function useAgentDiffStats(
     });
   }, [agentId, includeUncommitted, queryClient]);
 
-  return { diffStats: query.data, refresh };
+  const diffStats = useMemo(
+    () => applyTestFileFilter(query.data, hideTestFiles),
+    [query.data, hideTestFiles]
+  );
+
+  return { diffStats, refresh };
 }
 
 /**
@@ -78,8 +111,10 @@ export function useAgentDiffStats(
  * no extra request.
  *
  * With the tab closed there is no list to agree with, and a cached diff would
- * go stale while `/diff-stats` keeps polling — a frozen badge is worse than an
- * unfiltered one — so the server totals are used as-is.
+ * go stale while `/diff-stats` keeps polling — a frozen badge is worse than a
+ * slightly differently-derived one — so the server totals are used as-is.
+ * Those already honour "Hide test files"; what the list adds on top is the
+ * whitespace agreement, which only `/diff` can settle.
  */
 export function useVisibleDiffStats(
   agentId: string,

@@ -1,7 +1,9 @@
 /**
- * Recognizes conventional test locations and filenames across common languages.
- * This is intentionally filename-based: it never inspects file contents or
- * excludes adjacent test data, fixtures, or snapshots on their own.
+ * Server-only. The web client never imports these rules: `getAgentDiff` stamps
+ * `isTest` on every `DiffFile` and `getDiffStats` applies the same predicate to
+ * build the excluding-tests totals, so the Changes tab and the badges both act
+ * on a classification the server already made. That is what keeps the file list
+ * and the +/- counts from disagreeing about whether a file is a test.
  */
 
 /**
@@ -17,6 +19,11 @@ const CODE_EXTENSION =
 const TEST_DIRECTORY =
   /(?:^|\/)(?:__tests?__|tests?|specs?|e2e|cypress|playwright)(?:\/|$)/i;
 
+/**
+ * Recognizes conventional test locations and filenames across common languages.
+ * This is intentionally filename-based: it never inspects file contents or
+ * excludes adjacent test data, fixtures, or snapshots on their own.
+ */
 export function isTestFile(path: string): boolean {
   const normalizedPath = path.replaceAll("\\", "/");
   const fileName = normalizedPath.split("/").at(-1) ?? "";
@@ -29,15 +36,5 @@ export function isTestFile(path: string): boolean {
     /^test_/i.test(fileName) ||
     /_test\.(?:go|py|rb|rs)$/i.test(fileName) ||
     /(?:Test|Tests|Spec)\.(?:java|kt|kts|php|swift|hs)$/.test(fileName)
-  );
-}
-
-/** Excludes recognized tests unless a direct navigation explicitly targets one. */
-export function excludeTestFiles<T extends { path: string }>(
-  files: T[],
-  preservePath: string | null
-): T[] {
-  return files.filter(
-    (file) => file.path === preservePath || !isTestFile(file.path)
   );
 }

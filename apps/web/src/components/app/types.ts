@@ -1,3 +1,5 @@
+import type { DiffStats as ServerDiffStats } from "@dispatch/shared";
+
 export type AgentStatus =
   | "creating"
   | "running"
@@ -126,9 +128,13 @@ export type InjectionHoldState = {
   quietMs: number;
 };
 
-export type DiffStats = {
-  added: number;
-  deleted: number;
-  files: number;
-  computedAt: number;
-};
+/**
+ * Wire shape of the server's diff stats. Derived from the shared contract
+ * rather than restated so a field can't be added on one side and missed — the
+ * one divergence is deliberate: `excludingTests` is optional over the wire,
+ * because a server that predates it can still be pushing stats over SSE while
+ * a newer bundle is loaded, and a badge that falls back to the unfiltered
+ * totals beats one that renders NaN.
+ */
+export type DiffStats = Omit<ServerDiffStats, "excludingTests"> &
+  Partial<Pick<ServerDiffStats, "excludingTests">>;

@@ -1,13 +1,18 @@
+import type { DiffStats, DiffTotals } from "@dispatch/shared";
+
 import { resolveBaseRef } from "./base-ref.js";
-import { readUntrackedFile, shouldExcludePath } from "./diff-file-rules.js";
+import {
+  readUntrackedFile,
+  resolveRenamePath,
+  shouldExcludePath,
+} from "./diff-file-rules.js";
+import { isTestFile } from "./test-files.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
-export type DiffStats = {
-  added: number;
-  deleted: number;
-  files: number;
-  computedAt: number;
-};
+// The diff stats shape is a contract with the web client, so it lives in
+// @dispatch/shared. Re-exported here because this module is where the rest of
+// the server reaches for it.
+export type { DiffStats, DiffTotals } from "@dispatch/shared";
 
 export type DiffStatsComputation =
   | { kind: "success"; stats: DiffStats }
@@ -122,6 +127,7 @@ export async function getDiffStatsComputation(
 
     let added = 0;
     let deleted = 0;
+    const excludingTests: DiffTotals = { added: 0, deleted: 0, files: 0 };
     const seenFiles = new Set<string>();
 
     for (const line of tracked.stdout.split("\n")) {
@@ -135,9 +141,23 @@ export async function getDiffStatsComputation(
       if (ignoredPaths.has(filePath)) continue;
       if (seenFiles.has(filePath)) continue;
       seenFiles.add(filePath);
+      // Classify by where the file ends up, not by git's brace-compressed
+      // rename string — `src/{lib => test}/helper.ts` matches no directory
+      // rule as written, while the Changes tab is deciding about
+      // `src/test/helper.ts`. Only this decision uses the resolved path;
+      // `seenFiles` and `shouldExcludePath` stay on the raw one so the
+      // unfiltered totals keep counting exactly what they counted before.
+      const countsAsTest = isTestFile(resolveRenamePath(filePath).dest);
+      if (!countsAsTest) excludingTests.files += 1;
       if (a === "-" && d === "-") continue;
-      added += Number.parseInt(a, 10) || 0;
-      deleted += Number.parseInt(d, 10) || 0;
+      const fileAdded = Number.parseInt(a, 10) || 0;
+      const fileDeleted = Number.parseInt(d, 10) || 0;
+      added += fileAdded;
+      deleted += fileDeleted;
+      if (!countsAsTest) {
+        excludingTests.added += fileAdded;
+        excludingTests.deleted += fileDeleted;
+      }
     }
 
     for (const filePath of untracked.stdout.split("\n")) {
@@ -147,12 +167,17 @@ export async function getDiffStatsComputation(
       seenFiles.add(filePath);
       const { lines } = await readUntrackedFile(worktreePath, filePath);
       added += lines;
+      if (!isTestFile(filePath)) {
+        excludingTests.files += 1;
+        excludingTests.added += lines;
+      }
     }
 
     const stats = {
       added,
       deleted,
       files: seenFiles.size,
+      excludingTests,
       computedAt: Date.now(),
     };
     return probeErrors.length > 0

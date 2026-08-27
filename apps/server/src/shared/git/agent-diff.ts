@@ -1,37 +1,29 @@
+import type {
+  DiffFile,
+  DiffFileStatus,
+  DiffResponse,
+  FileDiffResponse,
+} from "@dispatch/shared";
+
 import { resolveBaseRef } from "./base-ref.js";
+import { isTestFile } from "./test-files.js";
 import {
   countLines,
   readUntrackedFile,
+  resolveRenamePath,
   shouldExcludePath,
 } from "./diff-file-rules.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
-export type DiffFileStatus = "modified" | "added" | "deleted" | "renamed";
-
-export type DiffFile = {
-  path: string;
-  status: DiffFileStatus;
-  oldPath?: string;
-  added: number;
-  deleted: number;
-  diff: string | null;
-  truncated: boolean;
-};
-
-export type DiffResponse = {
-  baseRef: string;
-  files: DiffFile[];
-  truncatedFileCount?: number;
-};
-
-export type FileDiffResponse = {
-  path: string;
-  status: DiffFileStatus;
-  oldPath?: string;
-  added: number;
-  deleted: number;
-  diff: string;
-};
+// The diff wire shapes are a contract with the web client, so they live in
+// @dispatch/shared. Re-exported here because this module is where the rest of
+// the server reaches for them.
+export type {
+  DiffFile,
+  DiffFileStatus,
+  DiffResponse,
+  FileDiffResponse,
+} from "@dispatch/shared";
 
 const GIT_TIMEOUT_MS = 15_000;
 const DIFF_TRUNCATION_BYTES = 100_000;
@@ -59,19 +51,6 @@ type NumstatEntry = {
   added: number;
   deleted: number;
 };
-
-function resolveRenamePath(raw: string): { dest: string; src?: string } {
-  const braceMatch = /^(.*)\{(.+) => (.+)\}(.*)$/.exec(raw);
-  if (!braceMatch) return { dest: raw };
-  const prefix = braceMatch[1]!;
-  const oldPart = braceMatch[2]!;
-  const newPart = braceMatch[3]!;
-  const suffix = braceMatch[4]!;
-  return {
-    dest: prefix + newPart + suffix,
-    src: prefix + oldPart + suffix,
-  };
-}
 
 function parseNumstatWithStatus(
   numstatOutput: string,
@@ -267,6 +246,7 @@ export async function getAgentDiff(
       deleted: entry.deleted,
       diff: truncated ? null : rawDiff,
       truncated,
+      isTest: isTestFile(entry.path),
     };
   });
 
@@ -285,6 +265,7 @@ export async function getAgentDiff(
         deleted: 0,
         diff: null,
         truncated: false,
+        isTest: isTestFile(filePath),
       });
     } else {
       const syntheticDiff = buildUntrackedDiff(filePath, content!);
@@ -296,6 +277,7 @@ export async function getAgentDiff(
         deleted: 0,
         diff: truncated ? null : syntheticDiff,
         truncated,
+        isTest: isTestFile(filePath),
       });
     }
   }

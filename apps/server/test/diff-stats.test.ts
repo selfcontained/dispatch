@@ -394,4 +394,113 @@ describe("getDiffStats", () => {
     const result = await getDiffStats(worktreePath, "main", { runCommand });
     expect(result).toMatchObject({ added: 0, deleted: 0, files: 1 });
   });
+
+  describe("excluding-tests totals", () => {
+    it("splits tracked test files out of a second set of totals", async () => {
+      const worktreePath = tempRoot;
+      const runCommand = withCommands(worktreePath, "main", {
+        [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
+          ok(
+            [
+              "10\t2\tsrc/foo.ts",
+              "40\t5\tsrc/foo.test.ts",
+              "7\t1\ttest/helpers.ts",
+              "3\t0\tdocs/api-spec.md",
+            ].join("\n")
+          ),
+      });
+
+      const result = await getDiffStats(worktreePath, "main", { runCommand });
+
+      expect(result).toMatchObject({
+        added: 60,
+        deleted: 8,
+        files: 4,
+        // `docs/api-spec.md` is prose, not a spec file, so it survives.
+        excludingTests: {
+          added: 13,
+          deleted: 2,
+          files: 2,
+        },
+      });
+    });
+
+    it("splits untracked test files out too", async () => {
+      const worktreePath = tempRoot;
+      await mkdir(path.join(worktreePath, "src"), { recursive: true });
+      await writeFile(path.join(worktreePath, "src/new.ts"), "a\nb\nc\n");
+      await writeFile(
+        path.join(worktreePath, "src/new.test.ts"),
+        "a\nb\nc\nd\n"
+      );
+
+      const runCommand = withCommands(worktreePath, "main", {
+        [`-C ${worktreePath} ls-files --others --exclude-standard`]: () =>
+          ok("src/new.ts\nsrc/new.test.ts"),
+      });
+
+      const result = await getDiffStats(worktreePath, "main", { runCommand });
+
+      expect(result).toMatchObject({
+        added: 7,
+        files: 2,
+        excludingTests: {
+          added: 3,
+          deleted: 0,
+          files: 1,
+        },
+      });
+    });
+
+    it("classifies a rename by its destination, not git's brace form", async () => {
+      const worktreePath = tempRoot;
+      const runCommand = withCommands(worktreePath, "main", {
+        [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
+          ok(
+            [
+              // A helper that is only a test by virtue of where it lands.
+              // The raw numstat string matches no directory rule, so
+              // classifying it unresolved would leave it in the totals while
+              // the Changes tab drops it from the list.
+              "10\t2\tsrc/{lib => test}/helper.ts",
+              "6\t1\tsrc/app.ts",
+            ].join("\n")
+          ),
+      });
+
+      const result = await getDiffStats(worktreePath, "main", { runCommand });
+
+      expect(result).toMatchObject({
+        added: 16,
+        deleted: 3,
+        files: 2,
+        excludingTests: {
+          added: 6,
+          deleted: 1,
+          files: 1,
+        },
+      });
+    });
+
+    it("counts a binary test file as a file with no lines on both cuts", async () => {
+      const worktreePath = tempRoot;
+      const runCommand = withCommands(worktreePath, "main", {
+        [`-C ${worktreePath} diff ${MERGE_BASE_SHA} --numstat`]: () =>
+          ok("-\t-\ttest/fixture.png\n4\t1\tsrc/foo.ts"),
+      });
+
+      const result = await getDiffStats(worktreePath, "main", { runCommand });
+
+      expect(result).toMatchObject({
+        added: 4,
+        deleted: 1,
+        files: 2,
+        excludingTests: {
+          added: 4,
+          deleted: 1,
+          files: 1,
+        },
+      });
+    });
+  });
 });

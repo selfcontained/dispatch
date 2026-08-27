@@ -143,6 +143,10 @@ function diffFile(path: string, overrides: Partial<DiffFile> = {}): DiffFile {
     deleted: 1,
     diff: DIFF,
     truncated: false,
+    // The server classifies; this stands in for what it would send. Kept
+    // deliberately crude so these tests exercise the tab's use of the flag,
+    // not a second copy of the real rule.
+    isTest: /\.(?:test|spec)\./.test(path),
     ...overrides,
   };
 }

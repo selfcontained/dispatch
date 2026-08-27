@@ -24,6 +24,26 @@ export function shouldExcludePath(filePath: string): boolean {
   return EXCLUDED_BASENAMES.has(path.basename(filePath));
 }
 
+/**
+ * Expand git's brace-compressed rename form into the paths it stands for.
+ * `git diff --numstat` reports a move as `apps/{web/src => server/test}/x.ts`
+ * rather than as a plain path, so anything that classifies a numstat row by
+ * where the file *is* has to resolve it first — the raw string matches no
+ * directory rule and misses the destination's extension too.
+ */
+export function resolveRenamePath(raw: string): { dest: string; src?: string } {
+  const braceMatch = /^(.*)\{(.+) => (.+)\}(.*)$/.exec(raw);
+  if (!braceMatch) return { dest: raw };
+  const prefix = braceMatch[1]!;
+  const oldPart = braceMatch[2]!;
+  const newPart = braceMatch[3]!;
+  const suffix = braceMatch[4]!;
+  return {
+    dest: prefix + newPart + suffix,
+    src: prefix + oldPart + suffix,
+  };
+}
+
 export function looksBinary(buffer: Buffer): boolean {
   const probeLength = Math.min(buffer.length, BINARY_PROBE_BYTES);
   for (let i = 0; i < probeLength; i++) {

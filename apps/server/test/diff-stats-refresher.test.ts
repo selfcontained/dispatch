@@ -43,6 +43,7 @@ describe("DiffStatsRefresher", () => {
         added: 5,
         deleted: 1,
         files: 2,
+        excludingTests: { added: 5, deleted: 1, files: 2 },
         computedAt: Date.now(),
       })
     );
@@ -79,6 +80,7 @@ describe("DiffStatsRefresher", () => {
         added: 5,
         deleted: 1,
         files: 2,
+        excludingTests: { added: 5, deleted: 1, files: 2 },
         computedAt: Date.now(),
       })
     );
@@ -105,6 +107,7 @@ describe("DiffStatsRefresher", () => {
         added: 5,
         deleted: 1,
         files: 2,
+        excludingTests: { added: 5, deleted: 1, files: 2 },
         computedAt: Date.now(),
       })
     );
@@ -132,6 +135,7 @@ describe("DiffStatsRefresher", () => {
         added: 5,
         deleted: 1,
         files: 2,
+        excludingTests: { added: 5, deleted: 1, files: 2 },
         computedAt: Date.now(),
       })
     );
@@ -161,6 +165,7 @@ describe("DiffStatsRefresher", () => {
         added: call === 1 ? 5 : 12,
         deleted: 1,
         files: 2,
+        excludingTests: { added: call === 1 ? 5 : 12, deleted: 1, files: 2 },
         computedAt: Date.now(),
       };
     });
@@ -210,6 +215,7 @@ describe("DiffStatsRefresher", () => {
       added: 1,
       deleted: 0,
       files: 1,
+      excludingTests: { added: 1, deleted: 0, files: 1 },
       computedAt: Date.now(),
     });
     await Promise.all([a, b, c]);
@@ -226,6 +232,7 @@ describe("DiffStatsRefresher", () => {
         added: 5,
         deleted: 1,
         files: 2,
+        excludingTests: { added: 5, deleted: 1, files: 2 },
         computedAt: Date.now(),
       })
     );
@@ -257,6 +264,7 @@ describe("DiffStatsRefresher", () => {
         added: 5,
         deleted: 1,
         files: 2,
+        excludingTests: { added: 5, deleted: 1, files: 2 },
         computedAt: Date.now(),
       })
     );
@@ -289,6 +297,7 @@ describe("DiffStatsRefresher", () => {
         added: 7,
         deleted: 0,
         files: 1,
+        excludingTests: { added: 7, deleted: 0, files: 1 },
         computedAt: Date.now(),
       })
     );
@@ -322,6 +331,7 @@ describe("DiffStatsRefresher", () => {
         added: 7,
         deleted: 3,
         files: 2,
+        excludingTests: { added: 7, deleted: 3, files: 2 },
         computedAt: Date.now(),
       })
     );
@@ -371,6 +381,7 @@ describe("DiffStatsRefresher", () => {
         added: 0,
         deleted: 0,
         files: 0,
+        excludingTests: { added: 0, deleted: 0, files: 0 },
         computedAt: Date.now(),
       })
     );
@@ -399,6 +410,7 @@ describe("DiffStatsRefresher", () => {
       added: 5,
       deleted: 1,
       files: 2,
+      excludingTests: { added: 5, deleted: 1, files: 2 },
       computedAt: Date.now(),
     };
     let call = 0;
