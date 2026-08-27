@@ -92,9 +92,13 @@ jobs:
               --jq '.body' > release-notes/current.md
           fi
 
+          # Stage every version-bearing manifest the workspace bump touched.
+          # `pnpm -r` walks all pnpm-workspace.yaml packages, so this list must
+          # cover them too — a missed one is left unstaged and breaks the rebase.
           git add \
             package.json \
             apps/*/package.json \
+            packages/*/package.json \
             apps/browser-extension/public/manifest.json \
             pnpm-lock.yaml \
             release-notes/current.md
@@ -108,6 +112,14 @@ jobs:
             git rm "$META"
             git add release-notes/current.md
             git commit --amend --no-edit
+          fi
+
+          # `git pull --rebase` aborts on unstaged tracked changes. Catch that
+          # here so the cause is obvious instead of a bare exit 128 from rebase.
+          if ! git diff --quiet; then
+            echo "error: tracked files were modified but never staged into the release commit:" >&2
+            git diff --name-only >&2
+            exit 1
           fi
 
           git pull --rebase origin main
