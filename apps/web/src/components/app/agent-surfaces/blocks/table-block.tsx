@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useId, useState } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -18,7 +18,14 @@ function formatCell(value: Scalar, format: TableColumn["format"]): string {
   if (value === null || value === undefined) return "—";
   if (format === "date" && typeof value === "string") {
     const parsed = new Date(value);
-    return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
+    if (Number.isNaN(parsed.getTime())) return value;
+    if (/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+      // Date-only values represent authored calendar days, not UTC instants.
+      // Pin formatting to UTC so a viewer west of UTC cannot see yesterday.
+      if (parsed.toISOString().slice(0, 10) !== value) return value;
+      return parsed.toLocaleDateString(undefined, { timeZone: "UTC" });
+    }
+    return parsed.toLocaleDateString();
   }
   return String(value);
 }
@@ -92,6 +99,11 @@ function TableRowView({
   hasActionColumn: boolean;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
+  const detailsId = useId();
+  const rowLabel = formatCell(
+    row.cells[primaryColumns[0]?.id] ?? row.id,
+    primaryColumns[0]?.format
+  );
 
   return (
     <>
@@ -105,7 +117,8 @@ function TableRowView({
               type="button"
               onClick={() => setExpanded((v) => !v)}
               aria-expanded={expanded}
-              aria-label={expanded ? "Hide details" : "Show details"}
+              aria-controls={detailsId}
+              aria-label={`${expanded ? "Hide" : "Show"} details for ${rowLabel}`}
               className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
             >
               <ChevronRight
@@ -162,8 +175,15 @@ function TableRowView({
           </td>
         ) : null}
       </tr>
-      {expanded && secondaryColumns.length > 0 ? (
-        <tr className="block border-b border-border/50 last:border-0 md:table-row">
+      {secondaryColumns.length > 0 ? (
+        <tr
+          id={detailsId}
+          hidden={!expanded}
+          className={cn(
+            "border-b border-border/50 last:border-0",
+            expanded ? "block md:table-row" : "hidden"
+          )}
+        >
           <td
             colSpan={primaryColumns.length + 1 + (hasActionColumn ? 1 : 0)}
             className="block p-2 align-middle md:table-cell"

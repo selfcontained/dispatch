@@ -16,6 +16,7 @@ vi.mock("@/hooks/use-agent-surfaces", () => ({
 afterEach(() => {
   cleanup();
   mutate.mockReset();
+  vi.restoreAllMocks();
 });
 
 function linkTable(value: string): TableBlock {
@@ -84,15 +85,48 @@ describe("TableBlockView URL cells", () => {
     };
 
     renderTable(block);
-    const disclosure = screen.getByRole("button", { name: "Show details" });
+    const disclosure = screen.getByRole("button", {
+      name: "Show details for https://example.com",
+    });
     expect(disclosure.className).toContain("h-6");
     expect(disclosure.className).toContain("[@media(pointer:coarse)]:h-11");
     expect(disclosure.className).toContain("[@media(pointer:coarse)]:w-11");
+    const detailsId = disclosure.getAttribute("aria-controls");
+    expect(detailsId).toBeTruthy();
+    const detailsRow = document.getElementById(detailsId!);
+    expect(detailsRow?.hidden).toBe(true);
+    expect(detailsRow?.className).toContain("hidden");
 
     fireEvent.click(disclosure);
     expect(screen.getByText("More information")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
-    expect(screen.queryByText("More information")).toBeNull();
+    expect(detailsRow?.hidden).toBe(false);
+    expect(detailsRow?.className).toContain("md:table-row");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Hide details for https://example.com",
+      })
+    );
+    expect(detailsRow?.hidden).toBe(true);
+    expect(detailsRow?.className).toContain("hidden");
+  });
+
+  it("preserves authored calendar days when formatting date-only values", () => {
+    const format = vi.spyOn(Date.prototype, "toLocaleDateString");
+    renderTable({
+      id: "dates",
+      type: "table",
+      columns: [{ id: "checked", label: "Checked", format: "date" }],
+      rows: [{ id: "one", cells: { checked: "2026-08-27" } }],
+    });
+
+    expect(format).toHaveBeenCalledWith(undefined, { timeZone: "UTC" });
+    expect(
+      screen.getByText(
+        new Date("2026-08-27T00:00:00.000Z").toLocaleDateString(undefined, {
+          timeZone: "UTC",
+        })
+      )
+    ).toBeTruthy();
   });
 
   it("renders a decision-critical badge column (e.g. Risk) inline, without needing expansion", () => {
@@ -130,7 +164,9 @@ describe("TableBlockView URL cells", () => {
     expect(screen.getByText("Lower")).not.toBeNull();
     expect(screen.getByText("Higher")).not.toBeNull();
     // No disclosure affordance at all — nothing is behind a click.
-    expect(screen.queryByRole("button", { name: "Show details" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Show details for/ })
+    ).toBeNull();
   });
 
   it("keeps row actions inline at a safe width and submits with the row id", () => {
