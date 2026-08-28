@@ -842,6 +842,93 @@ describe("executeArchive", () => {
       expect(cb.onError).not.toHaveBeenCalled();
     });
 
+    it("cleans up a cascaded child's worktree, same as the parent's", async () => {
+      const parent = makeAgent("parent");
+      const child = makeAgent("child", {
+        parentAgentId: "parent",
+        status: "stopped",
+        worktreePath: "/tmp/wt-child",
+        worktreeBranch: "agt/child",
+      });
+
+      const pool = makeChildQueryPool([
+        { id: "child", parentAgentId: "parent" },
+      ]);
+      const lookup = makeAgentLookup([parent, child]);
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: lookup,
+        getAgent: lookup,
+      });
+
+      await executeArchive(deps, "parent", makeCallbacks());
+
+      // Leaving it behind would register a worktree no agent record can reach.
+      expect(cleanupGitWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/tmp/wt-child", deleteBranch: true })
+      );
+    });
+
+    it("preserves a cascaded child's worktree when it has outstanding work", async () => {
+      const parent = makeAgent("parent");
+      const child = makeAgent("child", {
+        parentAgentId: "parent",
+        status: "stopped",
+        worktreePath: "/tmp/wt-child",
+        worktreeBranch: "agt/child",
+      });
+      vi.mocked(getUncommittedChanges).mockResolvedValue({
+        hasUncommittedChanges: true,
+        uncommittedFiles: ["src/wip.ts"],
+      });
+
+      const pool = makeChildQueryPool([
+        { id: "child", parentAgentId: "parent" },
+      ]);
+      const lookup = makeAgentLookup([parent, child]);
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: lookup,
+        getAgent: lookup,
+      });
+
+      await executeArchive(deps, "parent", makeCallbacks());
+
+      // `auto` protects a child's unfinished work exactly as it protects the
+      // parent's — the agent record goes, the work stays.
+      expect(cleanupGitWorktree).not.toHaveBeenCalled();
+    });
+
+    it("propagates a force cleanup to cascaded children", async () => {
+      const parent = makeAgent("parent", { archiveCleanupMode: "force" });
+      const child = makeAgent("child", {
+        parentAgentId: "parent",
+        status: "stopped",
+        worktreePath: "/tmp/wt-child",
+        worktreeBranch: "agt/child",
+      });
+      vi.mocked(getUncommittedChanges).mockResolvedValue({
+        hasUncommittedChanges: true,
+        uncommittedFiles: ["src/wip.ts"],
+      });
+
+      const pool = makeChildQueryPool([
+        { id: "child", parentAgentId: "parent" },
+      ]);
+      const lookup = makeAgentLookup([parent, child]);
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: lookup,
+        getAgent: lookup,
+      });
+
+      await executeArchive(deps, "parent", makeCallbacks());
+
+      expect(cleanupGitWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/tmp/wt-child" })
+      );
+    });
+
     it("does not cascade when the agent has no children", async () => {
       const parent = makeAgent("parent");
 

@@ -64,6 +64,93 @@ async function getChildAgentIds(
   return result.rows.map((row) => row.id);
 }
 
+/**
+ * Applies the archive's worktree policy to one agent.
+ *
+ * Shared by the parent's own archive and by every agent the cascade sweeps up,
+ * so a child is disposed of exactly the way the parent was: `force` always
+ * removes, `keep` never does, and `auto` removes only a worktree with nothing
+ * unmerged or uncommitted in it. Leaving a cascaded child's worktree registered
+ * with no agent record to reach it is precisely the orphaning this avoids.
+ *
+ * Never throws: a worktree that cannot be removed is logged and left on disk
+ * rather than failing the archive around it.
+ */
+async function cleanupAgentWorktree(
+  logger: FastifyBaseLogger,
+  agent: AgentRecord,
+  cleanupWorktree: WorktreeCleanupMode,
+  durations: Record<string, number>,
+  onCleanupStart?: () => Promise<void>
+): Promise<void> {
+  if (!agent.worktreePath) return;
+  const id = agent.id;
+
+  try {
+    const tCheck = Date.now();
+    let shouldCleanup = cleanupWorktree === "force";
+    let preserveReason: string | undefined;
+
+    if (!shouldCleanup && cleanupWorktree === "auto") {
+      const [unmerged, uncommitted] = await Promise.all([
+        getUnmergedChanges(agent.worktreePath),
+        getUncommittedChanges(agent.worktreePath),
+      ]);
+      const hasChanges =
+        unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
+      shouldCleanup = !hasChanges;
+      if (hasChanges) {
+        const reasons: string[] = [];
+        if (unmerged.hasUnmergedCommits)
+          reasons.push(`${unmerged.changedFiles.length} unmerged file(s)`);
+        if (uncommitted.hasUncommittedChanges)
+          reasons.push(
+            `${uncommitted.uncommittedFiles.length} uncommitted file(s)`
+          );
+        preserveReason = reasons.join(", ");
+      }
+    } else if (!shouldCleanup && cleanupWorktree === "keep") {
+      preserveReason = "user chose keep";
+    }
+    durations.outstandingChangesCheck = Date.now() - tCheck;
+
+    if (shouldCleanup) {
+      await onCleanupStart?.();
+
+      const tCleanup = Date.now();
+      const dispatchOwnsBranch =
+        !!agent.worktreeBranch &&
+        (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch);
+      await cleanupGitWorktree({
+        cwd: agent.worktreePath,
+        deleteBranch: dispatchOwnsBranch,
+        force: true,
+        originalBranch: agent.worktreeBranch,
+      });
+      durations.worktreeCleanup = Date.now() - tCleanup;
+      logger.info(
+        { agentId: id, worktreePath: agent.worktreePath },
+        "Cleaned up agent worktree."
+      );
+    } else {
+      logger.info(
+        {
+          agentId: id,
+          worktreePath: agent.worktreePath,
+          cleanupWorktree,
+          preserveReason,
+        },
+        `Preserved agent worktree: ${preserveReason}.`
+      );
+    }
+  } catch (error) {
+    logger.warn(
+      { err: error, agentId: id },
+      "Worktree cleanup failed; leaving on disk."
+    );
+  }
+}
+
 export async function beginArchive(
   deps: ArchiveDeps,
   id: string,
@@ -144,72 +231,9 @@ export async function executeArchive(
     // Phase: worktree-check
     await publishPhase("worktree-check");
 
-    if (agent.worktreePath) {
-      try {
-        const tCheck = Date.now();
-        let shouldCleanup = cleanupWorktree === "force";
-        let preserveReason: string | undefined;
-
-        if (!shouldCleanup && cleanupWorktree === "auto") {
-          const [unmerged, uncommitted] = await Promise.all([
-            getUnmergedChanges(agent.worktreePath),
-            getUncommittedChanges(agent.worktreePath),
-          ]);
-          const hasChanges =
-            unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
-          shouldCleanup = !hasChanges;
-          if (hasChanges) {
-            const reasons: string[] = [];
-            if (unmerged.hasUnmergedCommits)
-              reasons.push(`${unmerged.changedFiles.length} unmerged file(s)`);
-            if (uncommitted.hasUncommittedChanges)
-              reasons.push(
-                `${uncommitted.uncommittedFiles.length} uncommitted file(s)`
-              );
-            preserveReason = reasons.join(", ");
-          }
-        } else if (!shouldCleanup && cleanupWorktree === "keep") {
-          preserveReason = "user chose keep";
-        }
-        durations.outstandingChangesCheck = Date.now() - tCheck;
-
-        if (shouldCleanup) {
-          // Phase: worktree-cleanup
-          await publishPhase("worktree-cleanup");
-
-          const tCleanup = Date.now();
-          const dispatchOwnsBranch =
-            !!agent.worktreeBranch &&
-            (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch);
-          await cleanupGitWorktree({
-            cwd: agent.worktreePath,
-            deleteBranch: dispatchOwnsBranch,
-            force: true,
-            originalBranch: agent.worktreeBranch,
-          });
-          durations.worktreeCleanup = Date.now() - tCleanup;
-          logger.info(
-            { agentId: id, worktreePath: agent.worktreePath },
-            "Cleaned up agent worktree."
-          );
-        } else {
-          logger.info(
-            {
-              agentId: id,
-              worktreePath: agent.worktreePath,
-              cleanupWorktree,
-              preserveReason,
-            },
-            `Preserved agent worktree: ${preserveReason}.`
-          );
-        }
-      } catch (error) {
-        logger.warn(
-          { err: error, agentId: id },
-          "Worktree cleanup failed; leaving on disk."
-        );
-      }
-    }
+    await cleanupAgentWorktree(logger, agent, cleanupWorktree, durations, () =>
+      publishPhase("worktree-cleanup")
+    );
 
     // Phase: finalizing
     await publishPhase("finalizing");
@@ -402,6 +426,10 @@ export async function deleteAgentDirect(
      WHERE agent_id = $1 AND status IN ('queued', 'notified', 'claimed')`,
     [id]
   );
+  // Same worktree policy the parent got. A cascaded child that kept its
+  // worktree would leave it registered with no agent record able to reach it.
+  await cleanupAgentWorktree(logger, agent, cleanupWorktree, durations);
+
   await pool.query(
     `UPDATE agents
      SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW()
