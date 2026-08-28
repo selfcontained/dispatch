@@ -1,11 +1,23 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { vi } from "vitest";
 
 import { TableBlockView } from "./table-block";
 import type { TableBlock } from "../types";
 
-afterEach(() => cleanup());
+const mutate = vi.fn();
+vi.mock("@/hooks/use-agent-surfaces", () => ({
+  makeIdempotencyKey: () => "idem-test",
+  useSubmitSurfaceInteraction: () => ({ mutate }),
+}));
+
+afterEach(() => {
+  cleanup();
+  mutate.mockReset();
+  vi.restoreAllMocks();
+});
 
 function linkTable(value: string): TableBlock {
   return {
@@ -16,13 +28,33 @@ function linkTable(value: string): TableBlock {
   };
 }
 
+function renderTable(block: TableBlock) {
+  const client = new QueryClient({
+    defaultOptions: { mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <TableBlockView
+        block={block}
+        agentId="agt_test"
+        surfaceId="surface_test"
+        surfaceRevision={1}
+        interactions={new Map()}
+        onRequestRefresh={async () => {}}
+        readOnly={false}
+        idPrefix="test"
+      />
+    </QueryClientProvider>
+  );
+}
+
 describe("TableBlockView URL cells", () => {
   it.each([
     "https://example.com/path",
     "http://example.com",
     "mailto:hello@example.com",
   ])("renders an allowed URL as a link: %s", (value) => {
-    render(<TableBlockView block={linkTable(value)} />);
+    renderTable(linkTable(value));
     expect(screen.getByRole("link", { name: value }).getAttribute("href")).toBe(
       value
     );
@@ -31,7 +63,7 @@ describe("TableBlockView URL cells", () => {
   it.each(["javascript:alert(1)", "data:text/html,bad", "/relative"])(
     "renders an unsafe or version-skewed URL as inert text: %s",
     (value) => {
-      render(<TableBlockView block={linkTable(value)} />);
+      renderTable(linkTable(value));
       expect(screen.queryByRole("link", { name: value })).toBeNull();
       expect(screen.getByText(value).tagName).toBe("SPAN");
     }
@@ -52,16 +84,51 @@ describe("TableBlockView URL cells", () => {
       ],
     };
 
-    render(<TableBlockView block={block} />);
-    const disclosure = screen.getByRole("button", { name: "Show details" });
+    renderTable(block);
+    const disclosure = screen.getByRole("button", {
+      name: "Show details for https://example.com",
+    });
     expect(disclosure.className).toContain("h-6");
-    expect(disclosure.className).toContain("[@media(pointer:coarse)]:h-11");
-    expect(disclosure.className).toContain("[@media(pointer:coarse)]:w-11");
+    expect(disclosure.className).toContain("w-full");
+    expect(disclosure.className).toContain("h-8");
+    expect(disclosure.className).toContain("[@media(pointer:coarse)]:min-h-11");
+    expect(disclosure.textContent).toContain("Show");
+    const detailsId = disclosure.getAttribute("aria-controls");
+    expect(detailsId).toBeTruthy();
+    const detailsRow = document.getElementById(detailsId!);
+    expect(detailsRow?.hidden).toBe(true);
+    expect(detailsRow?.className).toContain("hidden");
 
     fireEvent.click(disclosure);
     expect(screen.getByText("More information")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Hide details" }));
-    expect(screen.queryByText("More information")).toBeNull();
+    expect(detailsRow?.hidden).toBe(false);
+    expect(detailsRow?.className).toContain("md:table-row");
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "Hide details for https://example.com",
+      })
+    );
+    expect(detailsRow?.hidden).toBe(true);
+    expect(detailsRow?.className).toContain("hidden");
+  });
+
+  it("preserves authored calendar days when formatting date-only values", () => {
+    const format = vi.spyOn(Date.prototype, "toLocaleDateString");
+    renderTable({
+      id: "dates",
+      type: "table",
+      columns: [{ id: "checked", label: "Checked", format: "date" }],
+      rows: [{ id: "one", cells: { checked: "2026-08-27" } }],
+    });
+
+    expect(format).toHaveBeenCalledWith(undefined, { timeZone: "UTC" });
+    expect(
+      screen.getByText(
+        new Date("2026-08-27T00:00:00.000Z").toLocaleDateString(undefined, {
+          timeZone: "UTC",
+        })
+      )
+    ).toBeTruthy();
   });
 
   it("renders a decision-critical badge column (e.g. Risk) inline, without needing expansion", () => {
@@ -94,11 +161,89 @@ describe("TableBlockView URL cells", () => {
       ],
     };
 
-    render(<TableBlockView block={block} />);
+    renderTable(block);
 
     expect(screen.getByText("Lower")).not.toBeNull();
     expect(screen.getByText("Higher")).not.toBeNull();
     // No disclosure affordance at all — nothing is behind a click.
-    expect(screen.queryByRole("button", { name: "Show details" })).toBeNull();
+    expect(
+      screen.queryByRole("button", { name: /Show details for/ })
+    ).toBeNull();
+  });
+
+  it("keeps row actions inline at a safe width and submits with the row id", () => {
+    const block: TableBlock = {
+      id: "deployments",
+      type: "table",
+      title: "Deployments",
+      showItemCount: true,
+      columns: [
+        { id: "name", label: "Name" },
+        { id: "detail", label: "Detail", priority: "secondary" },
+      ],
+      rows: [
+        {
+          id: "one",
+          cells: { name: "One", detail: "First detail" },
+          action: { id: "approve", label: "Approve", intent: "approve" },
+        },
+        { id: "two", cells: { name: "Two", detail: "Second detail" } },
+      ],
+    };
+    const { container } = renderTable(block);
+    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Action" })).toBeTruthy();
+    const rows = document.querySelectorAll("tbody tr[data-row-id]");
+    expect(rows[0].querySelectorAll("td").length).toBe(
+      rows[1].querySelectorAll("td").length
+    );
+    const actionCell = rows[0].querySelector("td:last-child");
+    expect(actionCell?.className).toContain("md:min-w-32");
+    expect(actionCell?.querySelector("button")?.className).toContain(
+      "md:whitespace-nowrap"
+    );
+    expect(actionCell?.querySelector("button")?.className).toContain("min-h-8");
+    expect(rows[0].className).toContain("grid");
+    expect(rows[0].className).toContain("md:table-row");
+    expect(container.querySelector("table")?.className).toContain("md:table");
+    expect(actionCell?.className).toContain("order-3");
+    const disclosureCell = rows[0].querySelector("td:first-child");
+    expect(disclosureCell?.className).toContain("order-2");
+    expect(disclosureCell?.textContent).toContain("Show");
+    expect(rows[1].querySelector("td:last-child")?.className).toContain(
+      "hidden"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Approve for One" }));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: "one", actionId: "approve" }),
+      expect.any(Object)
+    );
+  });
+
+  it("distinguishes repeated action labels with primary row context", () => {
+    renderTable({
+      id: "deployments",
+      type: "table",
+      columns: [{ id: "name", label: "Name" }],
+      rows: [
+        {
+          id: "one",
+          cells: { name: "Canary" },
+          action: { id: "retry", label: "Retry", intent: "retry" },
+        },
+        {
+          id: "two",
+          cells: { name: "Production" },
+          action: { id: "retry", label: "Retry", intent: "retry" },
+        },
+      ],
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Retry for Canary" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Retry for Production" })
+    ).toBeTruthy();
   });
 });

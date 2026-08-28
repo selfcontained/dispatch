@@ -115,6 +115,9 @@ function toInteractionSummary(row: InteractionRow): SurfaceInteractionSummary {
     tabRevision: row.surface_revision,
     blockId: String(row.payload.blockId),
     actionId: String(row.payload.actionId),
+    ...(typeof row.payload.itemId === "string"
+      ? { itemId: row.payload.itemId }
+      : {}),
     kind: row.kind,
     status: row.status,
     ...(row.outcome_message ? { outcomeMessage: row.outcome_message } : {}),
@@ -193,10 +196,10 @@ export class SurfaceService {
     const bySurface = new Map<string, SurfaceInteractionSummary[]>();
     if (!surfaceIds.length) return bySurface;
     const result = await this.pool.query<InteractionRow>(
-      `SELECT DISTINCT ON (surface_id, payload->>'blockId', payload->>'actionId') *
+      `SELECT DISTINCT ON (surface_id, payload->>'blockId', payload->>'itemId', payload->>'actionId') *
        FROM agent_surface_interactions
        WHERE surface_id=ANY($1)
-       ORDER BY surface_id, payload->>'blockId', payload->>'actionId', created_at DESC, id DESC`,
+       ORDER BY surface_id, payload->>'blockId', payload->>'itemId', payload->>'actionId', created_at DESC, id DESC`,
       [surfaceIds]
     );
     for (const row of result.rows) {
@@ -647,31 +650,66 @@ function validateAndCapture(
   snapshot: Record<string, unknown>;
   onceFormBlockId: string | null;
 } {
-  const block = surface.blocks.find(
-    (candidate) => candidate.id === request.blockId
-  );
+  const findBlock = (blocks: SurfaceBlock[]): SurfaceBlock | undefined => {
+    for (const candidate of blocks) {
+      if (candidate.id === request.blockId) return candidate;
+      if (candidate.type === "section") {
+        const nested = findBlock(candidate.blocks);
+        if (nested) return nested;
+      }
+    }
+    return undefined;
+  };
+  const block = findBlock(surface.blocks);
   if (!block) throw new SurfaceError("Referenced block does not exist.");
+  const itemId = request.kind === "action" ? request.itemId : undefined;
+  if (
+    request.kind === "action" &&
+    (block.type === "list" || block.type === "table") &&
+    !itemId
+  )
+    throw new SurfaceError("Item actions must include an itemId.");
+  if (
+    request.kind === "action" &&
+    (block.type === "actions" || block.type === "form") &&
+    itemId
+  )
+    throw new SurfaceError("This action does not accept an itemId.");
+  const item =
+    block.type === "list"
+      ? block.items.find((candidate) => candidate.id === itemId)
+      : block.type === "table"
+        ? block.rows.find((candidate) => candidate.id === itemId)
+        : undefined;
   const action =
     block.type === "actions"
       ? block.actions.find((a) => a.id === request.actionId)
-      : block.type === "form" && block.submit.id === request.actionId
-        ? block.submit
-        : undefined;
+      : item?.action?.id === request.actionId
+        ? item.action
+        : block.type === "form" && block.submit.id === request.actionId
+          ? block.submit
+          : undefined;
   if (!action) throw new SurfaceError("Referenced action does not exist.");
-  if (action.disabled)
+  if ("disabled" in action && action.disabled)
     throw new SurfaceError(
-      action.disabledReason ?? "This action is disabled.",
+      "disabledReason" in action && typeof action.disabledReason === "string"
+        ? action.disabledReason
+        : "This action is disabled.",
       409
     );
   if (request.kind === "action") {
-    if (block.type !== "actions")
+    if (block.type !== "actions" && !item)
       throw new SurfaceError(
-        "Action interactions must reference an actions block."
+        "Action interactions must reference an actions block or an item action."
       );
     return {
       intent: action.intent,
-      payload: { blockId: block.id, actionId: action.id },
-      snapshot: { block, action },
+      payload: {
+        blockId: block.id,
+        ...(item ? { itemId: item.id } : {}),
+        actionId: action.id,
+      },
+      snapshot: { block, ...(item ? { item } : {}), action },
       onceFormBlockId: null,
     };
   }

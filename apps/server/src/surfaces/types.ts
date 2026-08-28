@@ -79,6 +79,17 @@ const actionSchema = z
     disabledReason: z.string().max(240).optional(),
   })
   .strict();
+const itemActionSchema = actionSchema.pick({
+  id: true,
+  label: true,
+  intent: true,
+});
+const collapseSchema = z
+  .object({
+    after: z.number().int().min(1).max(99),
+    label: z.string().trim().min(1).max(80).optional(),
+  })
+  .strict();
 
 const optionSchema = z
   .object({
@@ -143,7 +154,7 @@ const fieldSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
-export const surfaceBlockSchema = z.discriminatedUnion("type", [
+const leafBlockSchema = z.discriminatedUnion("type", [
   z
     .object({
       ...base,
@@ -162,20 +173,32 @@ export const surfaceBlockSchema = z.discriminatedUnion("type", [
             .object({
               id: idSchema,
               text: constrainedMarkdown(500),
-              state: z
-                .enum(["pending", "active", "done", "blocked"])
-                .optional(),
+              status: z.string().trim().min(1).max(80).optional(),
+              tone: toneSchema.optional(),
+              checked: z.boolean().optional(),
               detail: constrainedMarkdown(240).optional(),
+              url: z
+                .string()
+                .max(2000)
+                .refine(isAllowedTableUrl, {
+                  message: "List item URL must use http, https, or mailto",
+                })
+                .optional(),
+              group: z.string().trim().min(1).max(80).optional(),
+              action: itemActionSchema.optional(),
             })
             .strict()
         )
         .max(100),
+      collapse: collapseSchema.optional(),
+      showItemCount: z.boolean().optional(),
     })
     .strict(),
   z
     .object({
       ...base,
       type: z.literal("table"),
+      showItemCount: z.boolean().optional(),
       columns: z
         .array(
           z
@@ -209,6 +232,7 @@ export const surfaceBlockSchema = z.discriminatedUnion("type", [
             .object({
               id: idSchema,
               cells: z.record(z.string(), tableCellScalarSchema),
+              action: itemActionSchema.optional(),
             })
             .strict()
         )
@@ -256,16 +280,63 @@ export const surfaceBlockSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
+const MAX_SECTION_DEPTH = 4;
+const MAX_SECTION_CHILDREN = 20;
+const MAX_NESTED_BLOCKS = 100;
+export const MAX_SURFACE_TOP_LEVEL_BLOCKS = 100;
+const sectionCollapseSchema = z
+  .object({ initiallyCollapsed: z.boolean().optional() })
+  .strict();
+
+function blockSchemaAtDepth(depth: number): z.ZodType<SharedSurfaceBlock> {
+  const childSchema =
+    depth < MAX_SECTION_DEPTH ? blockSchemaAtDepth(depth + 1) : z.never();
+  return z.union([
+    leafBlockSchema,
+    z
+      .object({
+        ...base,
+        type: z.literal("section"),
+        // A section heading is always visible, including when its body is collapsed.
+        title: titleSchema,
+        blocks: z.array(childSchema).min(1).max(MAX_SECTION_CHILDREN),
+        collapse: sectionCollapseSchema.optional(),
+      })
+      .strict(),
+  ]) as z.ZodType<SharedSurfaceBlock>;
+}
+
+/**
+ * Nested sections are limited to four levels below the document root and 20
+ * children per section. Top-level blocks have a 100-item cap; the
+ * document refinement separately caps nested descendants at 100.
+ */
+export const surfaceBlockSchema = blockSchemaAtDepth(0);
+
 export const surfaceDocumentSchema = z
   .object({
     title: z.string().trim().min(1).max(32),
     icon: surfaceIconSchema.optional(),
-    blocks: z.array(surfaceBlockSchema).max(40),
+    blocks: z.array(surfaceBlockSchema).max(MAX_SURFACE_TOP_LEVEL_BLOCKS),
   })
   .strict()
   .superRefine((doc, ctx) => {
     const blockIds = new Set<string>();
-    for (const block of doc.blocks) {
+    const blocks: SharedSurfaceBlock[] = [];
+    const visit = (items: SharedSurfaceBlock[]) => {
+      for (const block of items) {
+        blocks.push(block);
+        if (block.type === "section") visit(block.blocks);
+      }
+    };
+    visit(doc.blocks);
+    const nestedBlockCount = blocks.length - doc.blocks.length;
+    if (nestedBlockCount > MAX_NESTED_BLOCKS)
+      ctx.addIssue({
+        code: "custom",
+        message: "Surface supports at most 100 nested blocks",
+      });
+    for (const block of blocks) {
       if (blockIds.has(block.id))
         ctx.addIssue({
           code: "custom",
@@ -432,6 +503,7 @@ export const interactionRequestSchema = z.discriminatedUnion("kind", [
       kind: z.literal("action"),
       blockId: idSchema,
       actionId: idSchema,
+      itemId: idSchema.optional(),
       baseRevision: z.number().int().positive(),
     })
     .strict(),

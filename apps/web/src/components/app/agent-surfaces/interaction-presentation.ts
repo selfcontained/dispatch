@@ -261,8 +261,12 @@ export type SurfaceInteractionIndex = ReadonlyMap<
   SurfaceInteractionSummary
 >;
 
-function interactionKey(blockId: string, actionId: string): string {
-  return `${blockId} ${actionId}`;
+function interactionKey(
+  blockId: string,
+  actionId: string,
+  itemId?: string
+): string {
+  return [blockId, itemId ?? "", actionId].join("\\0");
 }
 
 export function indexInteractions(
@@ -270,7 +274,10 @@ export function indexInteractions(
 ): SurfaceInteractionIndex {
   const index = new Map<string, SurfaceInteractionSummary>();
   for (const summary of summaries ?? []) {
-    index.set(interactionKey(summary.blockId, summary.actionId), summary);
+    index.set(
+      interactionKey(summary.blockId, summary.actionId, summary.itemId),
+      summary
+    );
   }
   return index;
 }
@@ -278,7 +285,8 @@ export function indexInteractions(
 export function findInteraction(
   index: SurfaceInteractionIndex,
   blockId: string,
-  actionId: string
+  actionId: string,
+  itemId?: string
 ): SurfaceInteractionSummary | undefined {
-  return index.get(interactionKey(blockId, actionId));
+  return index.get(interactionKey(blockId, actionId, itemId));
 }

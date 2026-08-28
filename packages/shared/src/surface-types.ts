@@ -23,16 +23,32 @@ type BlockBase = {
 
 export type TextBlock = BlockBase & { type: "text"; text: string };
 
+/** A compact action scoped to one list item or table row. */
+export type SurfaceItemAction = Pick<ActionRef, "id" | "label" | "intent">;
+
 export type SurfaceListItem = {
   id: string;
   text: string;
-  state?: "pending" | "active" | "done" | "blocked";
+  /** Freeform visible state; use `tone` to express its semantic color. */
+  status?: string;
+  tone?: Tone;
+  /** Completion independent of the freeform status, used by check-style lists. */
+  checked?: boolean;
   detail?: string;
+  /** Safe external link shown as a secondary affordance. */
+  url?: string;
+  /** A small subheading that groups adjacent items in this list. */
+  group?: string;
+  action?: SurfaceItemAction;
 };
 
 export type ListBlock = BlockBase & {
   type: "list";
   style?: "bullet" | "number" | "check";
+  /** Controls an expandable long-list tail without introducing a new block. */
+  collapse?: { after: number; label?: string };
+  /** Shows the total item count alongside the list heading. */
+  showItemCount?: boolean;
   items: SurfaceListItem[];
 };
 
@@ -55,10 +71,13 @@ export type TableColumn = {
 export type TableRow = {
   id: string;
   cells: Record<string, Scalar>;
+  action?: SurfaceItemAction;
 };
 
 export type TableBlock = BlockBase & {
   type: "table";
+  /** Shows the total row count alongside the table heading. */
+  showItemCount?: boolean;
   columns: TableColumn[];
   rows: TableRow[];
 };
@@ -147,6 +166,15 @@ export type FormBlock = BlockBase & {
   submitMode?: "once" | "repeatable";
 };
 
+/** A titled group of blocks, optionally rendered with a collapsed body. */
+export type SurfaceSectionBlock = BlockBase & {
+  type: "section";
+  /** Required so a collapsed section always retains a visible header. */
+  title: string;
+  blocks: SurfaceBlock[];
+  collapse?: { initiallyCollapsed?: boolean };
+};
+
 export type SurfaceBlock =
   | TextBlock
   | ListBlock
@@ -154,7 +182,8 @@ export type SurfaceBlock =
   | StatusBlock
   | ProgressBlock
   | ActionsBlock
-  | FormBlock;
+  | FormBlock
+  | SurfaceSectionBlock;
 
 export type SurfaceDocumentInput = {
   title: string;
@@ -179,6 +208,8 @@ export type SurfaceInteractionRequest =
       kind: "action";
       blockId: string;
       actionId: string;
+      /** Required for actions scoped to a list item or table row. */
+      itemId?: string;
       baseRevision: number;
     }
   | {
@@ -196,6 +227,7 @@ export type SurfaceInteractionSummary = {
   tabRevision: number;
   blockId: string;
   actionId: string;
+  itemId?: string;
   kind: "action" | "form_submit";
   status: SurfaceInteractionStatus;
   outcomeMessage?: string;

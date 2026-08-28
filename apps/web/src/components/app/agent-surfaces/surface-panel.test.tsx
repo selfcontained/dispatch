@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { SurfacePanel } from "./surface-panel";
@@ -67,6 +67,13 @@ const actionsBlock = {
   id: "actions-1",
   type: "actions" as const,
   actions: [{ id: "go", label: "Go", intent: "go" }],
+};
+
+const sectionBlock = {
+  id: "section-1",
+  type: "section" as const,
+  title: "Deployment",
+  blocks: [{ id: "note-1", type: "text" as const, text: "Ready to ship." }],
 };
 
 describe("SurfacePanel block fallback", () => {
@@ -142,5 +149,134 @@ describe("SurfacePanel interaction hydration", () => {
     expect(screen.getByTestId("interaction-status-caption").textContent).toBe(
       "Completed — Shipped to canary."
     );
+  });
+});
+
+describe("SurfacePanel sections", () => {
+  it("renders a static grouping with its visible heading and nested content", () => {
+    renderPanel(surface({ blocks: [sectionBlock] }));
+
+    expect(screen.getByText("Deployment")).toBeTruthy();
+    expect(screen.getByText("Ready to ship.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Deployment" })).toBeNull();
+  });
+
+  it("renders collapsible content expanded by default and toggles it", () => {
+    renderPanel(
+      surface({
+        blocks: [
+          {
+            ...sectionBlock,
+            description: "Expand for release status.",
+            collapse: {},
+          },
+        ],
+      })
+    );
+
+    const toggle = screen.getByRole("button", { name: "Deployment" });
+    const content = document.getElementById(
+      toggle.getAttribute("aria-controls")!
+    )!;
+    expect(toggle.getAttribute("aria-expanded")).toBe("true");
+    expect(content.hidden).toBe(false);
+    expect(screen.getByText("Ready to ship.")).toBeTruthy();
+    expect(screen.getByText("Expand for release status.")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(content.hidden).toBe(true);
+    expect(screen.getByText("Ready to ship.")).toBeTruthy();
+    expect(screen.getByText("Expand for release status.")).toBeTruthy();
+
+    fireEvent.click(toggle);
+    expect(content.hidden).toBe(false);
+    expect(screen.getByText("Ready to ship.")).toBeTruthy();
+  });
+
+  it("starts initially collapsed and preserves durable interaction state when reopened", () => {
+    renderPanel(
+      surface({
+        blocks: [
+          {
+            id: "section-1",
+            type: "section",
+            title: "Deploy",
+            collapse: { initiallyCollapsed: true },
+            blocks: [actionsBlock],
+          },
+        ] as Surface["blocks"],
+        latestInteractions: [summary({ status: "claimed" })],
+      })
+    );
+
+    const toggle = screen.getByRole("button", { name: "Deploy" });
+    const content = document.getElementById(
+      toggle.getAttribute("aria-controls")!
+    )!;
+    expect(screen.getByRole("heading", { name: "Deploy" })).toBeTruthy();
+    expect(toggle.getAttribute("aria-expanded")).toBe("false");
+    expect(content.hidden).toBe(true);
+    expect(screen.queryByRole("button", { name: "Go" })).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(content.hidden).toBe(false);
+    expect(
+      screen.getByRole("button", { name: "Go" }).hasAttribute("disabled")
+    ).toBe(true);
+    expect(
+      screen.getByTestId("interaction-status-caption").textContent
+    ).toContain("In progress");
+  });
+
+  it("preserves an unsubmitted nested form draft when the section is reopened", () => {
+    renderPanel(
+      surface({
+        blocks: [
+          {
+            id: "section-1",
+            type: "section",
+            title: "Feedback",
+            collapse: {},
+            blocks: [
+              {
+                id: "feedback-1",
+                type: "form",
+                fields: [{ id: "note", type: "text", label: "Note" }],
+                submit: { id: "send", label: "Send", intent: "send" },
+              },
+            ],
+          },
+        ] as Surface["blocks"],
+      })
+    );
+
+    const toggle = screen.getByRole("button", { name: "Feedback" });
+    const input = screen.getByLabelText("Note") as HTMLInputElement;
+    fireEvent.change(input, { target: { value: "Keep this draft" } });
+
+    fireEvent.click(toggle);
+    fireEvent.click(toggle);
+    expect((screen.getByLabelText("Note") as HTMLInputElement).value).toBe(
+      "Keep this draft"
+    );
+  });
+
+  it("keeps nested section indentation compact", () => {
+    renderPanel(
+      surface({
+        blocks: [
+          {
+            ...sectionBlock,
+            blocks: [{ ...sectionBlock, id: "section-2" }],
+          },
+        ] as Surface["blocks"],
+      })
+    );
+
+    expect(
+      document.querySelectorAll('[data-block-type="section"]')
+    ).toHaveLength(2);
+    expect(document.querySelectorAll(".border-l")).toHaveLength(2);
   });
 });

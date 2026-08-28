@@ -376,6 +376,27 @@ describe("indexInteractions", () => {
     expect(findInteraction(index, "a", "b c")?.id).toBe("b");
   });
 
+  it("keeps identical actions on different items independent", () => {
+    const index = indexInteractions([
+      summary({
+        id: "first",
+        blockId: "b1",
+        actionId: "approve",
+        itemId: "item-a",
+      }),
+      summary({
+        id: "second",
+        blockId: "b1",
+        actionId: "approve",
+        itemId: "item-b",
+      }),
+    ]);
+    expect(findInteraction(index, "b1", "approve", "item-a")?.id).toBe("first");
+    expect(findInteraction(index, "b1", "approve", "item-b")?.id).toBe(
+      "second"
+    );
+  });
+
   it("tolerates a payload with no interactions at all", () => {
     expect(
       findInteraction(indexInteractions(undefined), "b", "a")

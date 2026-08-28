@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useInjectApp } from "./helpers/inject-app.js";
 import { surfaceExamples } from "../src/db/seed/surfaces.js";
 import { SurfaceService } from "../src/surfaces/service.js";
-import { surfaceDocumentSchema } from "../src/surfaces/types.js";
+import {
+  MAX_SURFACE_TOP_LEVEL_BLOCKS,
+  surfaceDocumentSchema,
+} from "../src/surfaces/types.js";
 
 const ctx = useInjectApp();
 let agentId: string;
@@ -204,6 +207,317 @@ describe("surface API", () => {
 });
 
 describe("surface authoring and inbox", () => {
+  it("accepts rich list items and rejects the retired state enum", () => {
+    const document = {
+      title: "Deployment steps",
+      blocks: [
+        {
+          id: "steps",
+          type: "list" as const,
+          style: "check" as const,
+          showItemCount: true,
+          collapse: { after: 2, label: "Show remaining steps" },
+          items: [
+            {
+              id: "prepare",
+              text: "Prepare release",
+              status: "In progress",
+              tone: "info" as const,
+              checked: false,
+              group: "Before rollout",
+              url: "https://example.com/runbook",
+              action: {
+                id: "open-runbook",
+                label: "Open runbook",
+                intent: "open_release_runbook",
+              },
+            },
+            { id: "verify", text: "Verify health" },
+            { id: "announce", text: "Announce release" },
+          ],
+        },
+      ],
+    };
+    expect(surfaceDocumentSchema.safeParse(document).success).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [
+          {
+            ...document.blocks[0],
+            collapse: { after: 3 },
+            items: [{ id: "legacy", text: "Legacy", state: "done" }],
+          },
+        ],
+      }).success
+    ).toBe(false);
+    // A collapse setting that currently hides nothing is valid: it remains
+    // useful when a dynamic list grows again.
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [{ ...document.blocks[0], collapse: { after: 3 } }],
+      }).success
+    ).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [{ ...document.blocks[0], collapse: { after: 0 } }],
+      }).success
+    ).toBe(false);
+  });
+
+  it("captures list and table item actions with unambiguous durable identity", async () => {
+    const surface = await service.create(agentId, {
+      title: "Action queue",
+      blocks: [
+        {
+          id: "tasks",
+          type: "list",
+          items: [
+            {
+              id: "first",
+              text: "First task",
+              action: { id: "run", label: "Run", intent: "run_first" },
+            },
+            {
+              id: "second",
+              text: "Second task",
+              action: { id: "run", label: "Run", intent: "run_second" },
+            },
+          ],
+        },
+        {
+          id: "services",
+          type: "table",
+          showItemCount: true,
+          columns: [{ id: "name", label: "Service" }],
+          rows: [
+            {
+              id: "api",
+              cells: { name: "API" },
+              action: {
+                id: "restart",
+                label: "Restart",
+                intent: "restart_api",
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const list = await service.submitInteraction(agentId, surface.id, {
+      idempotencyKey: "list-item",
+      kind: "action",
+      blockId: "tasks",
+      itemId: "second",
+      actionId: "run",
+      baseRevision: 1,
+    });
+    expect(list.interaction).toMatchObject({
+      intent: "run_second",
+      payload: { blockId: "tasks", itemId: "second", actionId: "run" },
+      definitionSnapshot: {
+        item: { id: "second" },
+        action: { id: "run", intent: "run_second" },
+      },
+    });
+    const secondListItem = await service.submitInteraction(
+      agentId,
+      surface.id,
+      {
+        idempotencyKey: "list-first-item",
+        kind: "action",
+        blockId: "tasks",
+        itemId: "first",
+        actionId: "run",
+        baseRevision: 1,
+      }
+    );
+    expect(secondListItem.interaction.intent).toBe("run_first");
+    const table = await service.submitInteraction(agentId, surface.id, {
+      idempotencyKey: "table-row",
+      kind: "action",
+      blockId: "services",
+      itemId: "api",
+      actionId: "restart",
+      baseRevision: 1,
+    });
+    expect(table.interaction.payload).toEqual({
+      blockId: "services",
+      itemId: "api",
+      actionId: "restart",
+    });
+    await expect(
+      service.submitInteraction(agentId, surface.id, {
+        idempotencyKey: "missing-item",
+        kind: "action",
+        blockId: "tasks",
+        actionId: "run",
+        baseRevision: 1,
+      })
+    ).rejects.toThrow(/must include an itemId/);
+    expect((await service.get(surface.id))?.latestInteractions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blockId: "tasks",
+          itemId: "first",
+          actionId: "run",
+        }),
+        expect.objectContaining({
+          blockId: "tasks",
+          itemId: "second",
+          actionId: "run",
+        }),
+        expect.objectContaining({
+          blockId: "services",
+          itemId: "api",
+          actionId: "restart",
+        }),
+      ])
+    );
+  });
+
+  it("validates bounded recursive sections and captures nested interactions", async () => {
+    const document = {
+      title: "Release plan",
+      blocks: [
+        {
+          id: "rollout",
+          type: "section" as const,
+          title: "Rollout",
+          description: "The current deployment steps.",
+          collapse: { initiallyCollapsed: true },
+          blocks: [
+            {
+              id: "deploy",
+              type: "actions" as const,
+              actions: [
+                { id: "start", label: "Start", intent: "start_deploy" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(surfaceDocumentSchema.safeParse(document).success).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [{ ...document.blocks[0], title: "   " }],
+      }).success
+    ).toBe(false);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [
+          ...document.blocks,
+          {
+            id: "other-section",
+            type: "section" as const,
+            title: "Other",
+            blocks: [
+              { id: "deploy", type: "text" as const, text: "Duplicate" },
+            ],
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [
+          {
+            ...document.blocks[0],
+            blocks: Array.from({ length: 21 }, (_, index) => ({
+              id: `child-${index}`,
+              type: "text" as const,
+              text: "Step",
+            })),
+          },
+        ],
+      }).success
+    ).toBe(false);
+    const maximumSizedDocument = {
+      title: "Maximum surface",
+      blocks: [
+        ...Array.from({ length: 5 }, (_, section) => ({
+          id: `max-section-${section}`,
+          type: "section" as const,
+          title: `Section ${section}`,
+          blocks: Array.from({ length: 20 }, (_, child) => ({
+            id: `max-child-${section}-${child}`,
+            type: "text" as const,
+            text: "Nested block",
+          })),
+        })),
+        ...Array.from({ length: 95 }, (_, index) => ({
+          id: `max-top-level-${index}`,
+          type: "text" as const,
+          text: "Top-level block",
+        })),
+      ],
+    };
+    expect(surfaceDocumentSchema.safeParse(maximumSizedDocument).success).toBe(
+      true
+    );
+    const tooManyNested = {
+      ...document,
+      blocks: Array.from({ length: 6 }, (_, section) => ({
+        id: `section-${section}`,
+        type: "section" as const,
+        title: `Section ${section}`,
+        blocks: Array.from({ length: 20 }, (_, child) => ({
+          id: `block-${section}-${child}`,
+          type: "text" as const,
+          text: "Step",
+        })),
+      })),
+    };
+    expect(surfaceDocumentSchema.safeParse(tooManyNested).success).toBe(false);
+
+    const surface = await service.create(agentId, document);
+    const result = await service.submitInteraction(agentId, surface.id, {
+      idempotencyKey: "nested-start",
+      kind: "action",
+      blockId: "deploy",
+      actionId: "start",
+      baseRevision: 1,
+    });
+    expect(result.interaction).toMatchObject({
+      intent: "start_deploy",
+      payload: { blockId: "deploy", actionId: "start" },
+      definitionSnapshot: {
+        block: { id: "deploy", type: "actions" },
+        action: { id: "start", intent: "start_deploy" },
+      },
+    });
+  });
+
+  it("accepts up to 100 top-level blocks", () => {
+    const blocks = Array.from(
+      { length: MAX_SURFACE_TOP_LEVEL_BLOCKS },
+      (_, index) => ({
+        id: `top-level-${index}`,
+        type: "text" as const,
+        text: "Block",
+      })
+    );
+
+    expect(
+      surfaceDocumentSchema.safeParse({ title: "Full surface", blocks }).success
+    ).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        title: "Overfull surface",
+        blocks: [
+          ...blocks,
+          { id: "top-level-overflow", type: "text", text: "Too many" },
+        ],
+      }).success
+    ).toBe(false);
+  });
+
   it("accepts the complete seed gallery and semantic badge variants", () => {
     expect(surfaceExamples).toHaveLength(8);
     for (const example of surfaceExamples) {

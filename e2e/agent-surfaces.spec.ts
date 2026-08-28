@@ -99,29 +99,90 @@ async function seedSurfaces(agentId: string): Promise<void> {
           label: "5 of 8 complete",
         },
         {
-          id: "status-table",
-          type: "table",
-          columns: [
-            { id: "name", label: "Item" },
+          id: "release-details",
+          type: "section",
+          title: "Release details",
+          collapse: { initiallyCollapsed: true },
+          blocks: [
             {
-              id: "state",
-              label: "State",
-              format: "badge",
-              badgeVariants: { done: "success", blocked: "danger" },
+              id: "release-items",
+              type: "list",
+              title: "Release work",
+              style: "check",
+              showItemCount: true,
+              collapse: { after: 2, label: "Show all release work" },
+              items: [
+                {
+                  id: "schema",
+                  text: "Finalize schema",
+                  status: "Complete",
+                  tone: "success",
+                  checked: true,
+                  group: "Completed",
+                },
+                {
+                  id: "migration",
+                  text: "Apply migration",
+                  status: "Needs approval",
+                  tone: "warning",
+                  group: "Next steps",
+                  url: "https://example.com/runbooks/migration",
+                  action: {
+                    id: "queue-migration",
+                    label: "Queue migration",
+                    intent: "queue_release_migration",
+                  },
+                },
+                {
+                  id: "a11y",
+                  text: "Accessibility review",
+                  status: "Blocked by prototype",
+                  tone: "danger",
+                  group: "Next steps",
+                },
+                {
+                  id: "notes",
+                  text: "Publish release notes",
+                  status: "Not started",
+                  tone: "neutral",
+                  group: "Next steps",
+                },
+              ],
             },
             {
-              id: "risk",
-              label: "Risk",
-              format: "badge",
-              priority: "secondary",
-              badgeVariants: { low: "success", high: "danger" },
-            },
-          ],
-          rows: [
-            { id: "r1", cells: { name: "Build", state: "done", risk: "low" } },
-            {
-              id: "r2",
-              cells: { name: "Deploy", state: "blocked", risk: "high" },
+              id: "status-table",
+              type: "table",
+              columns: [
+                { id: "name", label: "Item" },
+                {
+                  id: "state",
+                  label: "State",
+                  format: "badge",
+                  badgeVariants: { done: "success", blocked: "danger" },
+                },
+                {
+                  id: "risk",
+                  label: "Risk",
+                  format: "badge",
+                  priority: "secondary",
+                  badgeVariants: { low: "success", high: "danger" },
+                },
+              ],
+              rows: [
+                {
+                  id: "r1",
+                  cells: { name: "Build", state: "done", risk: "low" },
+                },
+                {
+                  id: "r2",
+                  cells: { name: "Deploy", state: "blocked", risk: "high" },
+                  action: {
+                    id: "retry-deploy",
+                    label: "Retry deploy",
+                    intent: "retry_release_deploy",
+                  },
+                },
+              ],
             },
           ],
         },
@@ -181,6 +242,32 @@ async function unresolvedCount(
     body.surfaces.find((surface) => surface.title === title)
       ?.unresolvedInteractionCount ?? 0
   );
+}
+
+async function resolveItemInteraction(
+  agentId: string,
+  surfaceId: string,
+  itemId: string,
+  outcomeMessage: string
+): Promise<void> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString)
+    throw new Error(
+      "DATABASE_URL is required to resolve surface interactions."
+    );
+
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    const result = await pool.query(
+      `UPDATE agent_surface_interactions
+       SET status = 'completed', outcome_message = $4, resolved_at = NOW()
+       WHERE agent_id = $1 AND surface_id = $2 AND payload->>'itemId' = $3`,
+      [agentId, surfaceId, itemId, outcomeMessage]
+    );
+    expect(result.rowCount).toBe(1);
+  } finally {
+    await pool.end();
+  }
 }
 
 test.describe("Agent-authored sidebar surfaces", () => {
@@ -274,6 +361,13 @@ test.describe("Agent-authored sidebar surfaces", () => {
       '[data-block-type="progress"] [role="progressbar"] > div'
     );
     await expect(progressBar).toHaveClass(/bg-status-working/);
+
+    const releaseDetails = sidebar.getByRole("button", {
+      name: "Release details",
+    });
+    await expect(releaseDetails).toHaveAttribute("aria-expanded", "false");
+    await releaseDetails.click();
+    await expect(releaseDetails).toHaveAttribute("aria-expanded", "true");
 
     // Table column badgeVariants apply per-value tones to badge cells.
     const table = sidebar.locator('[data-block-type="table"]');
@@ -461,6 +555,120 @@ test.describe("Agent-authored sidebar surfaces", () => {
     // The active tab was selected before the desktop-to-mobile resize; it
     // should still be selected and readable without a second click.
     await expect(mobileSidebar.getByText("Nominal")).toBeVisible();
+  });
+
+  test("submits and resolves item actions across expanded v2 list and table fixtures", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-surfaces-v2-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+    await seedSurfaces(agent.id);
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("toggle-media-sidebar").click();
+
+    const sidebar = page.getByTestId("media-sidebar");
+    await sidebar
+      .getByTestId("surface-tab-row")
+      .getByRole("button", { name: "Release work" })
+      .click();
+
+    const releaseDetails = sidebar.getByRole("button", {
+      name: "Release details",
+    });
+    await expect(releaseDetails).toHaveAttribute("aria-expanded", "false");
+    await releaseDetails.click();
+    await expect(releaseDetails).toHaveAttribute("aria-expanded", "true");
+
+    const list = sidebar.locator('[data-block-id="release-items"]');
+    // The list's header includes its authored total, while only its first two
+    // rows render initially. This prevents a long status list from taking over
+    // the sidebar without hiding the amount of outstanding work.
+    await expect(list.getByText("Release work", { exact: true })).toBeVisible();
+    await expect(list.getByText("4", { exact: true })).toBeVisible();
+    await expect(list.locator("[data-item-id]")).toHaveCount(2);
+    await expect(list.getByText("Completed", { exact: true })).toBeVisible();
+    await expect(list.getByText("Next steps", { exact: true })).toBeVisible();
+    await expect(list.locator('[data-check-state="checked"]')).toHaveCount(1);
+    await expect(list.locator('[data-check-state="unchecked"]')).toHaveCount(1);
+    const approvalBadge = list.getByText("Needs approval", { exact: true });
+    await expect(approvalBadge).toHaveClass(/text-status-waiting/);
+    const migrationLink = list.getByRole("link", {
+      name: "Open Apply migration",
+    });
+    await expect(migrationLink).toHaveAttribute(
+      "href",
+      "https://example.com/runbooks/migration"
+    );
+
+    const expandList = list.getByRole("button", {
+      name: "Show all release work",
+    });
+    await expect(expandList).toHaveAttribute("aria-expanded", "false");
+    await expandList.click();
+    await expect(
+      list.getByRole("button", { name: "Show less" })
+    ).toHaveAttribute("aria-expanded", "true");
+    await expect(list.locator("[data-item-id]")).toHaveCount(4);
+    await expect(list.getByText("Blocked by prototype")).toBeVisible();
+    await list.getByRole("button", { name: "Show less" }).click();
+    await expect(list.locator("[data-item-id]")).toHaveCount(2);
+
+    const queueMigration = list.getByRole("button", {
+      name: "Queue migration",
+    });
+    await queueMigration.click();
+    await expect(queueMigration).toBeDisabled();
+    const listCaption = list
+      .getByTestId("interaction-status-caption")
+      .filter({ hasText: /Queued|Sent to the agent|In progress/ });
+    await expect(listCaption).toHaveAttribute("data-caption-kind", "pending");
+    await expect
+      .poll(() => unresolvedCount(request, agent.id, "Release work"))
+      .toBe(1);
+
+    // Resolve out-of-band as the owning agent would, then reload to prove the
+    // settled treatment hydrates from the durable record rather than local UI
+    // mutation state.
+    await resolveItemInteraction(
+      agent.id,
+      `${agent.id}-work`,
+      "migration",
+      "Migration has been scheduled."
+    );
+    await page.reload({ waitUntil: "domcontentloaded" });
+    const reloadedSidebar = page.getByTestId("media-sidebar");
+    await reloadedSidebar
+      .getByTestId("surface-tab-row")
+      .getByRole("button", { name: "Release work" })
+      .click();
+    await reloadedSidebar
+      .getByRole("button", { name: "Release details" })
+      .click();
+    const resolvedList = reloadedSidebar.locator(
+      '[data-block-id="release-items"]'
+    );
+    await resolvedList
+      .getByRole("button", { name: "Show all release work" })
+      .click();
+    await expect(
+      resolvedList.getByText("Migration has been scheduled.")
+    ).toBeVisible();
+    await expect(
+      resolvedList.getByTestId("interaction-status-caption")
+    ).toHaveAttribute("data-caption-kind", "outcome");
+
+    const table = reloadedSidebar.locator('[data-block-id="status-table"]');
+    await table.getByRole("button", { name: "Retry deploy" }).click();
+    await expect(
+      table.getByRole("button", { name: "Retry deploy" })
+    ).toBeDisabled();
+    await expect
+      .poll(() => unresolvedCount(request, agent.id, "Release work"))
+      .toBe(1);
   });
 
   test("manage-tabs menu supports keyboard navigation between row controls", async ({
