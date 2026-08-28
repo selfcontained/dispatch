@@ -258,14 +258,14 @@ export function buildLaunchGuidance(
       // One rule instead of two: surface values, and ask questions, with pins.
       // The tool schema carries the types, shortcut mechanics, and deletion.
       rules.push(
-        "Surface important data to the user with dispatch_pin — anything they may need to read or copy — and use shortcut pins to offer a next step or ask them to pick between options."
+        "Surface important data to the user with dispatch_pin — anything they may need to read or copy — and use shortcut pins to offer a next step. Route a structured decision, form, or status view to dispatch_surface_create instead."
       );
     } else {
       rules.push(
         "Pin key info with dispatch_pin so it surfaces in the sidebar — especially values users may need to copy/paste: URLs, commands, branch names, IDs, tokens, simulator UDIDs. Types: url (dev servers, docs), port (server ports), pr (PR links), filename (key files), code (short snippets, env vars, IDs), string (status, decisions), markdown (short structured summaries), shortcut (a button that sends a prompt back to you when clicked). To delete a stale pin, call dispatch_list_pins then dispatch_delete_pin with its id. For longer artifacts, write a file via dispatch_share_file and pin a reference."
       );
       rules.push(
-        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, pick an approach). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you."
+        "Offer a shortcut pin when you can name the user's likely next move (launch this, re-run that, confirm a single choice). Set confirm on destructive ones, and emit waiting_user alongside when the pin answers something blocking you. For a structured decision, form, or status view — several related values, or something the user must fill in — use dispatch_surface_create instead of a shortcut pin."
       );
     }
     rules.push(

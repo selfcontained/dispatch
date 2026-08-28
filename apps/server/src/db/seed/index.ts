@@ -10,6 +10,7 @@ import { seedTokenUsage } from "./token-usage.js";
 import { seedMedia } from "./media.js";
 import { seedJobs } from "./jobs.js";
 import { seedReviews } from "./reviews.js";
+import { seedSurfaces } from "./surfaces.js";
 
 type SeedOptions = {
   databaseUrl: string;
@@ -77,6 +78,7 @@ export async function seedDevData(
     await client.query("BEGIN");
     await clearSeeded(client);
     await seedAgents(client);
+    await seedSurfaces(client);
     await seedActivityEvents(client);
     await seedTokenUsage(client);
     await seedReviews(client);

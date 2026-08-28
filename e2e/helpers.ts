@@ -26,7 +26,7 @@ export function trackAgent(id: string): void {
 }
 
 /** Return Authorization header for API requests. */
-function authHeaders(): Record<string, string> {
+export function authHeaders(): Record<string, string> {
   return { Authorization: `Bearer ${AUTH_TOKEN}` };
 }
 

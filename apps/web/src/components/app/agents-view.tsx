@@ -49,6 +49,8 @@ import {
   useMarkMessagesRead,
 } from "@/hooks/use-agent-messages";
 import { useAgents } from "@/hooks/use-agents";
+import { useAgentSurfaces } from "@/hooks/use-agent-surfaces";
+import { useSurfaceSeen } from "@/components/app/agent-surfaces/use-surface-seen";
 import { useMedia } from "@/hooks/use-media";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
 import { useTerminal } from "@/hooks/use-terminal";
@@ -250,6 +252,16 @@ export function AgentsView({
 
   const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
   const markMessagesRead = useMarkMessagesRead(focusedAgentId);
+
+  // Closed-sidebar external signal for #2019: reuses the same surfaces query
+  // and seen-state atom the tab strip itself reads (see SurfaceTabRow), so a
+  // new agent-authored decision/input surface is visible from the header
+  // toggle without opening the sidebar first.
+  const { surfaces: agentSurfaces } = useAgentSurfaces(focusedAgentId);
+  const { isNew: isSurfaceNew } = useSurfaceSeen(focusedAgentId);
+  const unseenSurfaceCount = agentSurfaces.filter((surface) =>
+    isSurfaceNew(surface.id)
+  ).length;
 
   // Only mark read when the sidebar is actually open on the Messages tab.
   // MediaSidebarContent stays mounted while closed and the active tab is
@@ -603,6 +615,7 @@ export function AgentsView({
                 setMediaOpen={setMediaOpen}
                 unseenMediaCount={unseenMediaCount}
                 unreadMessageCount={unreadMessageCount}
+                unseenSurfaceCount={unseenSurfaceCount}
               />
               <div
                 className={cn(
@@ -742,6 +755,7 @@ export function AgentsView({
             mediaViewportRef={mediaViewportRef}
             activeTab={mediaActiveTab}
             setActiveTab={setMediaActiveTab}
+            isSidebarVisible={mobileMediaOpen}
             hasStream={focusedAgentHasStream}
             streamUrl={focusedAgentStreamUrl}
             openLightbox={openLightbox}

@@ -2,13 +2,16 @@ import { type RefObject } from "react";
 import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 
 import { type AgentPin, type MediaFile } from "@/components/app/types";
-import { type MediaSidebarTab } from "@/lib/store";
+import { isSystemSidebarTab, type MediaSidebarTab } from "@/lib/store";
 import { MediaContent } from "@/components/app/media-content";
 import { MessagesPanel } from "@/components/app/messages-panel";
 import { PinsPanel } from "@/components/app/pins-panel";
 import { ReviewsSidebarContent } from "@/components/app/reviews-sidebar";
 import { useAgentReviews } from "@/hooks/use-agent-reviews";
 import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
+import { SurfaceTabRow } from "@/components/app/agent-surfaces/surface-tab-row";
+import { SurfacePanel } from "@/components/app/agent-surfaces/surface-panel";
+import { useAgentSurfaces } from "@/hooks/use-agent-surfaces";
 import { Button } from "@/components/ui/button";
 import { glassPanel } from "@/lib/glass";
 import { cn } from "@/lib/utils";
@@ -65,6 +68,8 @@ type MediaSidebarContentProps = MediaSidebarSharedProps & {
   pinned?: boolean;
   onTogglePin?: () => void;
   className?: string;
+  /** Re-triggers active-surface scrolling when a drawer/sheet opens. */
+  isSidebarVisible?: boolean;
 };
 
 export function MediaSidebarContent({
@@ -91,6 +96,7 @@ export function MediaSidebarContent({
   onUploadFile,
   onNavigateToFile,
   onShortcutRun,
+  isSidebarVisible,
 }: MediaSidebarContentProps & {
   unseenMediaCount: number;
   unreadMessageCount: number;
@@ -101,6 +107,14 @@ export function MediaSidebarContent({
     (sum, r) => sum + (r.itemCount - r.resolvedCount),
     0
   );
+  const {
+    surfaces,
+    isLoading: surfacesLoading,
+    isError: surfacesError,
+    refetch: refetchSurfaces,
+  } = useAgentSurfaces(selectedAgentId);
+  const isSystemTab = isSystemSidebarTab(activeTab);
+  const activeSurface = surfaces.find((s) => s.id === activeTab);
   return (
     <aside
       data-testid="media-sidebar"
@@ -227,6 +241,14 @@ export function MediaSidebarContent({
         </div>
       </div>
 
+      <SurfaceTabRow
+        agentId={selectedAgentId}
+        activeTab={activeTab}
+        setActiveTab={setActiveTab}
+        surfaces={surfaces}
+        isSidebarVisible={isSidebarVisible}
+      />
+
       {/* Tab content — both panels stay mounted so refs (e.g. IntersectionObserver) remain attached */}
       <div
         className={cn(
@@ -301,6 +323,19 @@ export function MediaSidebarContent({
       >
         <MessagesPanel agentId={selectedAgentId} />
       </div>
+      {!isSystemTab && selectedAgentId ? (
+        <div className="flex min-h-0 flex-1 flex-col">
+          <SurfacePanel
+            agentId={selectedAgentId}
+            surface={activeSurface}
+            isLoading={surfacesLoading}
+            isError={surfacesError}
+            onRequestRefresh={async () => {
+              await refetchSurfaces();
+            }}
+          />
+        </div>
+      ) : null}
     </aside>
   );
 }
@@ -336,6 +371,7 @@ export function MediaSidebar({
         >
           <MediaSidebarContent
             {...props}
+            isSidebarVisible={mediaOpen}
             onRequestClose={() => setMediaOpen(false)}
             closeButtonIcon="chevron"
             pinned={pinned}
@@ -369,6 +405,7 @@ export function MediaSidebar({
     >
       <MediaSidebarContent
         {...props}
+        isSidebarVisible={mediaOpen}
         onRequestClose={() => setMediaOpen(false)}
         closeButtonIcon="chevron"
         pinned={pinned}

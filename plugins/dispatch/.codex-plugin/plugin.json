@@ -1,7 +1,7 @@
 {
   "name": "dispatch",
-  "version": "0.2.0",
-  "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, sharing artifacts, review workflow, whiteboard, jobs, and templates.",
+  "version": "0.3.0",
+  "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, sharing artifacts, interactive surfaces, review workflow, whiteboard, jobs, and templates.",
   "author": {
     "name": "Dispatch",
     "url": "https://github.com/selfcontained/dispatch"
@@ -12,8 +12,15 @@
   "interface": {
     "displayName": "Dispatch",
     "shortDescription": "Skills that teach agents how to use Dispatch's own capabilities.",
+    "longDescription": "Use Dispatch-native memory, subagents, interactive sidebar surfaces, artifact sharing, review workflows, jobs, and repository tools.",
     "developerName": "Dispatch",
     "category": "workflow",
-    "websiteURL": "https://github.com/selfcontained/dispatch"
+    "capabilities": ["Interactive", "Write"],
+    "websiteURL": "https://github.com/selfcontained/dispatch",
+    "defaultPrompt": [
+      "Present this decision as an interactive Dispatch sidebar surface.",
+      "Record this decision so other Dispatch agents can find it later.",
+      "Delegate the independent parts of this task to Dispatch subagents."
+    ]
   }
 }

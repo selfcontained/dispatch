@@ -40,6 +40,8 @@ import { loadRepoTools, type RepoToolParam } from "./repo-tools.js";
 import { VALID_PIN_SHORTCUT_ICONS } from "../../pins.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
+import { registerSurfaceTools } from "./surface-tools.js";
+import type { SurfaceService } from "../../surfaces/service.js";
 
 /** One pin spec as an agent supplies it, shared by the single and batch tools. */
 type McpPinInput = {
@@ -146,6 +148,15 @@ const AGENT_TOOLS = new Set([
   "dispatch_send_message",
   "dispatch_launch_agent",
   "dispatch_archive_agent",
+  "dispatch_surface_create",
+  "dispatch_surface_update",
+  "dispatch_surface_list",
+  "dispatch_surface_get",
+  "dispatch_surface_delete",
+  "dispatch_surface_reorder",
+  "dispatch_surface_interactions",
+  "dispatch_surface_claim",
+  "dispatch_surface_resolve",
   "get_activity_summary",
   "get_feedback_summary",
   "whiteboard_get",
@@ -206,6 +217,15 @@ const JOB_TOOLS = new Set([
   "dispatch_send_message",
   "dispatch_launch_agent",
   "dispatch_archive_agent",
+  "dispatch_surface_create",
+  "dispatch_surface_update",
+  "dispatch_surface_list",
+  "dispatch_surface_get",
+  "dispatch_surface_delete",
+  "dispatch_surface_reorder",
+  "dispatch_surface_interactions",
+  "dispatch_surface_claim",
+  "dispatch_surface_resolve",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -255,6 +275,15 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_review_add_message",
   "dispatch_review_resolve",
   "whiteboard_get",
+  "dispatch_surface_create",
+  "dispatch_surface_update",
+  "dispatch_surface_list",
+  "dispatch_surface_get",
+  "dispatch_surface_delete",
+  "dispatch_surface_reorder",
+  "dispatch_surface_interactions",
+  "dispatch_surface_claim",
+  "dispatch_surface_resolve",
 ]);
 
 type AgentCapabilityType = "agent" | "job" | "review";
@@ -280,6 +309,7 @@ export type McpRequestContext = {
   agent: McpAgent | null;
   repoRoot: string | null;
   worktreeRoot: string | null;
+  surfaces?: SurfaceService;
   sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
   upsertEvent?: (
     agentId: string,
@@ -720,6 +750,10 @@ async function createDispatchMcpServer(
       agentId: context.agent.id,
       archiveAgent: context.archiveAgent,
       whenResponseFinished: context.whenResponseFinished,
+    });
+    registerSurfaceTools(server, allowed, {
+      agentId: context.agent.id,
+      surfaces: context.surfaces,
     });
   }
 

@@ -50,6 +50,7 @@ export type AgentRouteDeps = {
   onArchiveError: (agentId: string, error: unknown) => void;
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
+  onAgentStarted: (agentId: string) => Promise<void>;
 };
 
 export function escapeHtml(s: string): string {

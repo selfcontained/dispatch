@@ -17,6 +17,7 @@ import {
 } from "../shared/git/git-context.js";
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
+import type { SurfaceService } from "../surfaces/service.js";
 
 /**
  * Resolves once the response has left the server — `finish` when it was
@@ -96,6 +97,7 @@ type McpRouteDeps = {
   mcpSendMessage: unknown;
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
+  surfaces: SurfaceService;
 };
 
 function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
@@ -269,6 +271,7 @@ export async function registerMcpRoutes(
       crudTools: buildCrudCallbacks(deps),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
+      surfaces: deps.surfaces,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
@@ -365,6 +368,7 @@ export async function registerMcpRoutes(
       crudTools: buildCrudCallbacks(deps),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
+      surfaces: deps.surfaces,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
