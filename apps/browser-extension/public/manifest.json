@@ -2,7 +2,7 @@
   "manifest_version": 3,
   "name": "Dispatch Browser Feedback",
   "description": "Select live page elements and send focused feedback to a Dispatch agent.",
-  "version": "0.36.3",
+  "version": "0.37.0",
   "minimum_chrome_version": "114",
   "permissions": ["scripting", "storage", "sidePanel"],
   "optional_host_permissions": ["<all_urls>"],
