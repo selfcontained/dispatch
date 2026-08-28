@@ -1,9 +1,9 @@
 /**
  * Runtime-free wire contract for the `/api/v1/events` SSE stream.
  *
- * `SharedUiEvent` covers every member whose payload is identical on both
- * sides. Four members are deliberately left out and stay declared per side —
- * see the comment on `SharedUiEvent` for why.
+ * `SharedUiEvent` covers every member both sides can agree on. Four members
+ * are deliberately left out and stay declared per side — see the comment on
+ * `SharedUiEvent` for why.
  */
 
 import type { SurfaceChangedEvent } from "./surface-types.js";
@@ -30,7 +30,17 @@ export type InjectionHoldState = {
 };
 
 /**
- * The SSE members both sides agree on verbatim.
+ * The SSE members both sides agree on.
+ *
+ * All but two were already declared identically on each side. The exceptions
+ * are `review.updated` and `review_feedback.updated`, where the web copy
+ * listed only `agentId`: the server has published `reviewId`/`status` and
+ * `feedbackItemId` on these ever since the events were introduced (#730, same
+ * commit as the web copy), and does so at every publish site in
+ * `server/mcp-review-handlers.ts` and `routes/reviews.ts`. So this is drift
+ * being closed, not a contract being narrowed — there is no server old enough
+ * to send these events without those fields, which is what separates them
+ * from the version-skew exclusions listed below.
  *
  * NOT here, on purpose — each side declares these four itself because the
  * payload types genuinely differ:
