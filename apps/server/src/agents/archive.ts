@@ -23,7 +23,6 @@ export type ArchiveDeps = {
   diffStatsRefresher: { clear(agentId: string): void } | null;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
-  stopAgent: (id: string, input: { force?: boolean }) => Promise<AgentRecord>;
   harvestAgentTokens: (agent: AgentRecord) => Promise<void>;
   setAgentStatus: (
     id: string,
@@ -351,8 +350,29 @@ export async function deleteAgentDirect(
 
   if (agent.status !== "stopped") {
     const t = Date.now();
+    // Tear the session down directly rather than through stopAgent: that path
+    // writes `stopping` and then `stopped`, which would release the claim taken
+    // above and let a fresh archive claim this agent mid-teardown. The row stays
+    // `archiving` until the delete lands. Same reason executeArchive does it
+    // this way for its own agent.
     try {
-      await deps.stopAgent(id, { force: true });
+      await runLifecycleHook("stop", agent, logger).catch((err) =>
+        logger.warn(
+          { err, agentId: id },
+          "Stop hook failed during delete; continuing"
+        )
+      );
+      if (agent.tmuxSession && sessionExists) {
+        await runtime.stopSession(agent.tmuxSession, true);
+      }
+      deps
+        .harvestAgentTokens(agent)
+        .catch((err) =>
+          logger.warn(
+            { err, agentId: id },
+            "Token harvest failed during delete"
+          )
+        );
     } catch (err) {
       logger.warn(
         { err, agentId: id },
