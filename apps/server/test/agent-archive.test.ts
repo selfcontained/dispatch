@@ -85,6 +85,7 @@ const makeAgent = (
   gitContextUpdatedAt: null,
   persona: null,
   parentAgentId: null,
+  launchedByAgentId: null,
   personaContext: null,
   reviewAgentType: null,
   baseBranch: null,
@@ -617,38 +618,75 @@ describe("executeArchive", () => {
   });
 
   describe("cascade child deletion", () => {
-    it("deletes review child agents", async () => {
-      const parent = makeAgent("parent");
-      const child = makeAgent("child", {
-        parentAgentId: "parent",
-        status: "stopped",
-      });
-
-      const pool = makePool(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("role = 'review'")) {
-          return params?.[0] === "parent"
-            ? { rows: [{ id: "child" }], rowCount: 1 }
-            : { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("INSERT INTO agent_events")) {
-          return { rows: [], rowCount: 0 };
+    /**
+     * Stands in for the `agents` table when the cascade asks for a target's
+     * children. Rows are keyed the way the DB is: `parentAgentId` is set only
+     * for `child: true` launches, `launchedByAgentId` for every
+     * agent-initiated launch including `child: false` ones.
+     *
+     * The handler answers from whichever column the SQL actually names, so a
+     * query widened to `OR launched_by_agent_id = $1` would return the
+     * independent agents too and the assertions below would fail — which is
+     * the point.
+     */
+    const makeChildQueryPool = (
+      rows: {
+        id: string;
+        parentAgentId?: string | null;
+        launchedByAgentId?: string | null;
+      }[]
+    ) =>
+      makePool(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("FROM agents") && sql.includes("parent_agent_id")) {
+          const targetId = params?.[0];
+          const matched = rows
+            .filter(
+              (row) =>
+                row.parentAgentId === targetId ||
+                (sql.includes("launched_by_agent_id") &&
+                  row.launchedByAgentId === targetId)
+            )
+            .map((row) => ({ id: row.id }));
+          return { rows: matched, rowCount: matched.length };
         }
         if (sql.includes("UPDATE agents SET deleted_at")) {
           return { rows: [], rowCount: 1 };
         }
         return { rows: [], rowCount: 0 };
       });
-      const getRequiredAgent = vi
-        .fn()
-        .mockImplementation(async (id: string) => {
-          return id === "parent" ? parent : child;
-        });
+
+    const makeAgentLookup = (agents: AgentRecord[]) =>
+      vi.fn().mockImplementation(async (id: string) => {
+        const found = agents.find((agent) => agent.id === id);
+        if (!found) throw new Error(`agent not found: ${id}`);
+        return found;
+      });
+
+    const deletedAgentIds = (pool: ReturnType<typeof makePool>) =>
+      pool.query.mock.calls
+        .filter(
+          ([sql]: [string]) =>
+            typeof sql === "string" &&
+            sql.includes("UPDATE agents SET deleted_at")
+        )
+        .map(([, params]: [string, unknown[]?]) => params?.[0]);
+
+    it("deletes review child agents", async () => {
+      const parent = makeAgent("parent");
+      const child = makeAgent("child", {
+        parentAgentId: "parent",
+        role: "review",
+        status: "stopped",
+      });
+
+      const pool = makeChildQueryPool([
+        { id: "child", parentAgentId: "parent" },
+      ]);
+      const lookup = makeAgentLookup([parent, child]);
       const deps = makeDeps({
         pool: pool as never,
-        getRequiredAgent,
-        getAgent: vi.fn().mockImplementation(async (id: string) => {
-          return id === "parent" ? parent : child;
-        }),
+        getRequiredAgent: lookup,
+        getAgent: lookup,
       });
       const cb = makeCallbacks();
 
@@ -657,18 +695,101 @@ describe("executeArchive", () => {
       expect(cb.onComplete).toHaveBeenCalledWith(["parent", "child"]);
     });
 
-    it("does not cascade to non-review child agents", async () => {
+    it("deletes plain (non-review) child agents too", async () => {
+      const parent = makeAgent("parent");
+      const child = makeAgent("child", {
+        parentAgentId: "parent",
+        role: "standard",
+        status: "stopped",
+      });
+
+      const pool = makeChildQueryPool([
+        { id: "child", parentAgentId: "parent" },
+      ]);
+      const lookup = makeAgentLookup([parent, child]);
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: lookup,
+        getAgent: lookup,
+      });
+      const cb = makeCallbacks();
+
+      await executeArchive(deps, "parent", cb);
+
+      expect(cb.onComplete).toHaveBeenCalledWith(["parent", "child"]);
+    });
+
+    it("archives a child:true agent but spares a child:false one the same parent launched", async () => {
+      const parent = makeAgent("parent");
+      // child: true — parent_agent_id points back at the parent.
+      const trueChild = makeAgent("true-child", {
+        parentAgentId: "parent",
+        launchedByAgentId: "parent",
+        status: "stopped",
+      });
+      // child: false — launched by the same parent but deliberately
+      // independent, so only launched_by_agent_id points back.
+      const independent = makeAgent("independent", {
+        parentAgentId: null,
+        launchedByAgentId: "parent",
+        status: "stopped",
+      });
+
+      const pool = makeChildQueryPool([
+        { id: "true-child", parentAgentId: "parent" },
+        { id: "independent", parentAgentId: null, launchedByAgentId: "parent" },
+      ]);
+      const lookup = makeAgentLookup([parent, trueChild, independent]);
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: lookup,
+        getAgent: lookup,
+      });
+      const cb = makeCallbacks();
+
+      await executeArchive(deps, "parent", cb);
+
+      expect(cb.onComplete).toHaveBeenCalledWith(["parent", "true-child"]);
+      expect(deletedAgentIds(pool)).not.toContain("independent");
+    });
+
+    it("reports grandchildren in the deleted set", async () => {
+      const parent = makeAgent("parent");
+      const child = makeAgent("child", {
+        parentAgentId: "parent",
+        status: "stopped",
+      });
+      const grandchild = makeAgent("grandchild", {
+        parentAgentId: "child",
+        role: "review",
+        status: "stopped",
+      });
+
+      const pool = makeChildQueryPool([
+        { id: "child", parentAgentId: "parent" },
+        { id: "grandchild", parentAgentId: "child" },
+      ]);
+      const lookup = makeAgentLookup([parent, child, grandchild]);
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: lookup,
+        getAgent: lookup,
+      });
+      const cb = makeCallbacks();
+
+      await executeArchive(deps, "parent", cb);
+
+      expect(cb.onComplete).toHaveBeenCalledWith([
+        "parent",
+        "child",
+        "grandchild",
+      ]);
+    });
+
+    it("does not cascade when the agent has no children", async () => {
       const parent = makeAgent("parent");
 
-      const pool = makePool(async (sql: string) => {
-        if (sql.includes("INSERT INTO agent_events")) {
-          return { rows: [], rowCount: 0 };
-        }
-        if (sql.includes("UPDATE agents SET deleted_at")) {
-          return { rows: [], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
-      });
+      const pool = makeChildQueryPool([]);
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(parent),
@@ -685,7 +806,7 @@ describe("executeArchive", () => {
       const parent = makeAgent("parent");
 
       const pool = makePool(async (sql: string, params?: unknown[]) => {
-        if (sql.includes("role = 'review'")) {
+        if (sql.includes("FROM agents") && sql.includes("parent_agent_id")) {
           return params?.[0] === "parent"
             ? { rows: [{ id: "bad-child" }], rowCount: 1 }
             : { rows: [], rowCount: 0 };
@@ -908,12 +1029,14 @@ describe("deleteAgentDirect", () => {
     );
   });
 
-  it("cascades to review child agents recursively", async () => {
+  it("cascades to child agents recursively", async () => {
     const parent = makeAgent("p1", { status: "stopped" });
     const child = makeAgent("c1", { status: "stopped", parentAgentId: "p1" });
 
     const pool = makePool(async (sql: string, params?: unknown[]) =>
-      sql.includes("role = 'review'") && params?.[0] === "p1"
+      sql.includes("FROM agents") &&
+      sql.includes("parent_agent_id") &&
+      params?.[0] === "p1"
         ? { rows: [{ id: "c1" }], rowCount: 1 }
         : { rows: [], rowCount: 0 }
     );
@@ -956,7 +1079,9 @@ describe("deleteAgentDirect", () => {
     });
 
     const pool = makePool(async (sql: string, params?: unknown[]) =>
-      sql.includes("role = 'review'") && params?.[0] === "p1"
+      sql.includes("FROM agents") &&
+      sql.includes("parent_agent_id") &&
+      params?.[0] === "p1"
         ? { rows: [{ id: "c1" }], rowCount: 1 }
         : { rows: [], rowCount: 0 }
     );

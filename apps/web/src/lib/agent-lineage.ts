@@ -22,9 +22,10 @@
  * rows of its own — so a grandchild resolved to its direct parent would render
  * nowhere at all. Resolving to the root flattens any depth into one list.
  *
- * A parent that is not in `agents` ends the walk: a plain child outlives its
- * parent's archive (only review children cascade), so it becomes its own card
- * rather than disappearing with the parent.
+ * A parent that is not in `agents` ends the walk. An archive cascades to
+ * every child, so a missing parent is normally transient — but a child whose
+ * parent is merely absent from this list becomes its own card rather than
+ * disappearing along with it.
  */
 export function cardIdForAgent(
   agent: { id: string; parentAgentId?: string | null },
@@ -76,4 +77,41 @@ export function partitionAgentsByLineage<
     else subAgentsByCardId.set(cardId, [agent]);
   }
   return { topLevel, subAgentsByCardId };
+}
+
+/**
+ * Every agent that would go with `rootId` when it is archived: its direct
+ * children by `parentAgentId`, and theirs, to any depth.
+ *
+ * Mirrors the server cascade, which walks `parent_agent_id` and nothing else —
+ * an agent launched with `child: false` has no parent link and is deliberately
+ * left out, even though the same agent launched it.
+ */
+export function descendantAgents<
+  T extends { id: string; parentAgentId?: string | null },
+>(rootId: string, agents: T[]): T[] {
+  const childrenByParent = new Map<string, T[]>();
+  for (const agent of agents) {
+    const parentId = agent.parentAgentId;
+    if (!parentId) continue;
+    const siblings = childrenByParent.get(parentId);
+    if (siblings) siblings.push(agent);
+    else childrenByParent.set(parentId, [agent]);
+  }
+
+  const collected: T[] = [];
+  // Bounded by the set size: a corrupted parent link can form a cycle, and
+  // without `seen` the walk would never terminate.
+  const seen = new Set<string>([rootId]);
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const currentId = queue.shift() as string;
+    for (const child of childrenByParent.get(currentId) ?? []) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      collected.push(child);
+      queue.push(child.id);
+    }
+  }
+  return collected;
 }

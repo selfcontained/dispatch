@@ -34,7 +34,19 @@ export type ArchiveDeps = {
   setArchivePhase: (id: string, phase: ArchivePhase) => Promise<void>;
 };
 
-async function getReviewChildAgentIds(
+/**
+ * The agents an archive cascades to: every agent launched as a true child of
+ * this one, review or not.
+ *
+ * The filter is `parent_agent_id` and only `parent_agent_id`. The sibling
+ * column `launched_by_agent_id` is deliberately excluded: it is populated for
+ * every agent-initiated launch, including `child: false` ones that were
+ * explicitly asked to be independent top-level agents. Widening this to
+ * `parent_agent_id = $1 OR launched_by_agent_id = $1` would sweep those
+ * independent agents into the parent's archive, which is exactly what
+ * `child: false` exists to prevent.
+ */
+async function getChildAgentIds(
   pool: Pool,
   parentAgentId: string
 ): Promise<string[]> {
@@ -42,7 +54,6 @@ async function getReviewChildAgentIds(
     `SELECT id
      FROM agents
      WHERE parent_agent_id = $1
-       AND role = 'review'
        AND deleted_at IS NULL`,
     [parentAgentId]
   );
@@ -226,12 +237,17 @@ export async function executeArchive(
     durations.db = Date.now() - tDb;
     diffStatsRefresher?.clear(id);
 
-    // Cascade: archive review child agents only (not regular launched agents)
+    // Cascade: archive every true child (parent_agent_id), review or not.
+    // deleteAgentDirect recurses, so the whole subtree goes with the parent
+    // rather than being left behind as orphaned top-level agents.
     const tCascade = Date.now();
-    const reviewChildIds = await getReviewChildAgentIds(pool, id);
-    for (const childId of reviewChildIds) {
+    const childIds = await getChildAgentIds(pool, id);
+    const cascadedIds: string[] = [];
+    for (const childId of childIds) {
       try {
-        await deleteAgentDirect(deps, childId, true, cleanupWorktree);
+        cascadedIds.push(
+          ...(await deleteAgentDirect(deps, childId, true, cleanupWorktree))
+        );
       } catch (err) {
         logger.warn(
           { err, childId, parentId: id },
@@ -239,7 +255,7 @@ export async function executeArchive(
         );
       }
     }
-    if (reviewChildIds.length > 0) {
+    if (childIds.length > 0) {
       durations.cascadeChildren = Date.now() - tCascade;
     }
 
@@ -249,7 +265,7 @@ export async function executeArchive(
       .join(", ");
     logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
 
-    const deletedIds = [id, ...reviewChildIds];
+    const deletedIds = [id, ...cascadedIds];
     callbacks.onComplete(deletedIds);
   } catch (error) {
     logger.error({ err: error, agentId: id }, "Archive failed");
@@ -267,12 +283,20 @@ export async function executeArchive(
   }
 }
 
+/**
+ * Deletes one agent and, recursively, every true child beneath it.
+ *
+ * Returns the ids actually deleted — this agent first, then its descendants in
+ * the order they were removed. Callers publish `agent.deleted` for each, so a
+ * grandchild that goes with the subtree has to appear here or the UI keeps
+ * rendering a row for an agent the database no longer has.
+ */
 export async function deleteAgentDirect(
   deps: ArchiveDeps,
   id: string,
   force = false,
   cleanupWorktree: WorktreeCleanupMode = "auto"
-): Promise<void> {
+): Promise<string[]> {
   const { pool, logger, runtime, diffStatsRefresher } = deps;
   const deleteStart = Date.now();
   const durations: Record<string, number> = {};
@@ -328,11 +352,16 @@ export async function deleteAgentDirect(
   durations.db = Date.now() - tDb;
   diffStatsRefresher?.clear(id);
 
-  // Cascade to review children only (not regular launched agents)
-  const reviewChildIds = await getReviewChildAgentIds(pool, id);
-  for (const childId of reviewChildIds) {
+  // Cascade to every true child (parent_agent_id), review or not. This agent's
+  // row is already soft-deleted above, so the query cannot hand back an
+  // ancestor and a corrupted parent link cannot make the recursion loop.
+  const deletedIds = [id];
+  const childIds = await getChildAgentIds(pool, id);
+  for (const childId of childIds) {
     try {
-      await deleteAgentDirect(deps, childId, true, cleanupWorktree);
+      deletedIds.push(
+        ...(await deleteAgentDirect(deps, childId, true, cleanupWorktree))
+      );
     } catch (err) {
       logger.warn(
         { err, childId, parentId: id },
@@ -346,4 +375,6 @@ export async function deleteAgentDirect(
     .map(([k, v]) => `${k}=${v}ms`)
     .join(", ");
   logger.info({ agentId: id, durations }, `Archive durations: ${parts}`);
+
+  return deletedIds;
 }

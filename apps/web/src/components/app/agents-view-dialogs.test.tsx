@@ -73,6 +73,7 @@ type Props = ComponentProps<typeof AgentsViewDialogs>;
 
 function baseProps(): Props {
   return {
+    agents: [],
     paletteOpen: false,
     setPaletteOpen: vi.fn(),
     paletteActions: [],
