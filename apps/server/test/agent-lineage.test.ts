@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  ancestorChain,
   createLineageIndex,
   delegationChain,
   formatDelegationChain,
@@ -19,20 +18,20 @@ const TREE = [
 
 const INDEX = createLineageIndex(TREE);
 
-describe("ancestorChain", () => {
+describe("lineage index ancestors", () => {
   it("walks from the nearest parent up to the root", () => {
-    expect(ancestorChain(INDEX, "agt_research").map((a) => a.id)).toEqual([
+    expect(INDEX.ancestors("agt_research").map((a) => a.id)).toEqual([
       "agt_planner",
       "agt_root",
     ]);
   });
 
   it("is empty for a rootless agent", () => {
-    expect(ancestorChain(INDEX, "agt_root")).toEqual([]);
+    expect(INDEX.ancestors("agt_root")).toEqual([]);
   });
 
   it("is empty for an agent that is not in the set", () => {
-    expect(ancestorChain(INDEX, "agt_missing")).toEqual([]);
+    expect(INDEX.ancestors("agt_missing")).toEqual([]);
   });
 
   it("stops at the first ancestor missing from the set", () => {
@@ -40,7 +39,7 @@ describe("ancestorChain", () => {
       { id: "agt_a", name: "a", parentAgentId: "agt_gone" },
       { id: "agt_root", name: "root", parentAgentId: null },
     ];
-    expect(ancestorChain(createLineageIndex(partial), "agt_a")).toEqual([]);
+    expect(createLineageIndex(partial).ancestors("agt_a")).toEqual([]);
   });
 
   it("terminates on a parent cycle instead of looping forever", () => {
@@ -49,13 +48,15 @@ describe("ancestorChain", () => {
       { id: "agt_b", name: "b", parentAgentId: "agt_a" },
     ];
     expect(
-      ancestorChain(createLineageIndex(cyclic), "agt_a").map((a) => a.id)
+      createLineageIndex(cyclic)
+        .ancestors("agt_a")
+        .map((a) => a.id)
     ).toEqual(["agt_b"]);
   });
 
   it("terminates on a self-parent", () => {
     const selfParent = [{ id: "agt_a", name: "a", parentAgentId: "agt_a" }];
-    expect(ancestorChain(createLineageIndex(selfParent), "agt_a")).toEqual([]);
+    expect(createLineageIndex(selfParent).ancestors("agt_a")).toEqual([]);
   });
 
   it("reports a deep chain in full rather than truncating it", () => {
@@ -68,7 +69,7 @@ describe("ancestorChain", () => {
       parentAgentId: i === 0 ? null : `agt_${i - 1}`,
     }));
     const index = createLineageIndex(deep);
-    expect(ancestorChain(index, "agt_39")).toHaveLength(39);
+    expect(index.ancestors("agt_39")).toHaveLength(39);
     expect(relationTo(index, "agt_0", "agt_39")).toBe("descendant");
   });
 
