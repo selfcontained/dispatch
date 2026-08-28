@@ -57,10 +57,44 @@ describe("checkSubtreeWorktreeStatus", () => {
     expect(String(query.mock.calls[0]?.[0])).toContain("status <> 'archiving'");
   });
 
+  it("bounds the query itself rather than filtering in memory", async () => {
+    const { manager, query } = makeManager([]);
+    await manager.checkSubtreeWorktreeStatus("root");
+
+    // A large subtree must never materialize here just to be sliced.
+    const sql = String(query.mock.calls[0]?.[0]);
+    expect(sql).toContain("worktree_path IS NOT NULL");
+    expect(sql).toContain("LIMIT $2");
+    // One over the cap, so an oversized subtree is detectable.
+    expect(query.mock.calls[0]?.[1]).toEqual(["root", 51]);
+  });
+
+  it("marks the preview incomplete when a status read outruns the budget", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(readWorktreeStatus).mockImplementationOnce(
+        () => new Promise(() => {}) as never
+      );
+      const { manager } = makeManager([
+        { id: "root", name: "root", worktree_path: "/wt/root" },
+      ]);
+
+      const pending = manager.checkSubtreeWorktreeStatus("root");
+      await vi.advanceTimersByTimeAsync(21_000);
+      const result = await pending;
+
+      // git cannot be aborted, so the read is abandoned rather than awaited —
+      // and the preview says so instead of looking clean.
+      expect(result.complete).toBe(false);
+      expect(result.statuses).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("reports only agents that actually have a worktree, target first", async () => {
     const { manager } = makeManager([
       { id: "root", name: "root", worktree_path: "/wt/root" },
-      { id: "no-wt", name: "no-wt", worktree_path: null },
       { id: "child", name: "a-child", worktree_path: "/wt/dirty-child" },
     ]);
 
@@ -73,7 +107,8 @@ describe("checkSubtreeWorktreeStatus", () => {
   });
 
   it("marks the preview incomplete when the subtree exceeds the budget", async () => {
-    const rows = Array.from({ length: 60 }, (_, i) => ({
+    // 51 rows: the query asks for one over the cap precisely so this is visible.
+    const rows = Array.from({ length: 51 }, (_, i) => ({
       id: `a${i}`,
       name: `a${i}`,
       worktree_path: `/wt/a${i}`,

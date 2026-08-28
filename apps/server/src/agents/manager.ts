@@ -1173,13 +1173,18 @@ export class AgentManager {
            AND NOT (a.id = ANY(s.path))
        )
        SELECT DISTINCT ON (id) id, name, worktree_path
-       FROM subtree`,
-      [id]
+       FROM subtree
+       WHERE worktree_path IS NOT NULL
+       LIMIT $2`,
+      [id, SUBTREE_WORKTREE_STATUS_MAX + 1]
     );
 
-    const withWorktrees = result.rows.filter((row) => row.worktree_path);
-    const budgeted = withWorktrees.slice(0, SUBTREE_WORKTREE_STATUS_MAX);
-    let complete = budgeted.length === withWorktrees.length;
+    // One row over the cap is the signal that more exist. The filter and the
+    // limit both live in SQL so a large subtree never materializes here; the
+    // traversal itself is bounded by the agents table, since the path guard
+    // lets the walk reach each agent at most once.
+    const budgeted = result.rows.slice(0, SUBTREE_WORKTREE_STATUS_MAX);
+    let complete = result.rows.length <= SUBTREE_WORKTREE_STATUS_MAX;
 
     // Each status runs a `git fetch`, so a wide subtree is bounded three ways:
     // how many run at once, how many run at all, and how long the whole thing
@@ -1192,11 +1197,26 @@ export class AgentManager {
       { length: Math.min(4, queue.length) },
       async () => {
         for (let row = queue.shift(); row; row = queue.shift()) {
-          if (Date.now() >= deadline) {
+          // The deadline bounds each read, not just the decision to start one:
+          // `readWorktreeStatus` runs git and cannot be aborted, so a read that
+          // began just under the wire could otherwise carry the request well
+          // past the budget while still reporting a complete preview.
+          const remaining = deadline - Date.now();
+          if (remaining <= 0) {
             complete = false;
             return;
           }
-          const status = await readWorktreeStatus(row.worktree_path as string);
+          const status = await Promise.race([
+            readWorktreeStatus(row.worktree_path as string),
+            new Promise<null>((resolve) => {
+              const timer = setTimeout(() => resolve(null), remaining);
+              timer.unref?.();
+            }),
+          ]);
+          if (!status) {
+            complete = false;
+            return;
+          }
           statuses.push({
             agentId: row.id,
             agentName: row.name,
