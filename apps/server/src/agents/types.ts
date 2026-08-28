@@ -80,6 +80,7 @@ export type WorktreeCleanupMode = "auto" | "keep" | "force";
 // here so existing importers (manager.ts's public surface, and through
 // it routes/agents.ts) keep resolving without churn.
 export type { WorktreeStatus } from "../shared/git/worktree-status.js";
+import type { WorktreeStatus } from "../shared/git/worktree-status.js";
 
 export type AgentTerminalAccess =
   | { mode: "tmux"; sessionName: string }
@@ -89,6 +90,14 @@ export type AgentLatestEventInput = {
   type: AgentLatestEventType;
   message: string;
   metadata?: Record<string, unknown>;
+};
+
+/** One agent's worktree status inside an archive's cascade preview. */
+export type AgentWorktreeStatus = WorktreeStatus & {
+  agentId: string;
+  agentName: string;
+  /** True for the agent the archive was requested on, false for a descendant. */
+  isTarget: boolean;
 };
 
 export type AgentRecord = {

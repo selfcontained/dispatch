@@ -117,6 +117,9 @@ function renderDialogs(overrides: Partial<Props> = {}) {
 
 beforeEach(() => {
   apiMock.mockReset();
+  // The archive dialog fetches its cascade's worktree status on open, for any
+  // target — a worktree-less parent can still have children that have one.
+  apiMock.mockResolvedValue({ statuses: [] });
   // cmdk scrolls the selected option into view and observes the list's size;
   // jsdom provides neither API.
   Element.prototype.scrollIntoView = vi.fn();
@@ -147,7 +150,11 @@ describe("AgentsViewDialogs", () => {
     expect(screen.getByText(/Archive "worker-a"\?/)).toBeTruthy();
     expect(screen.queryByText(/worker-b/)).toBeNull();
 
-    fireEvent.click(screen.getByTestId("delete-agent-confirm"));
+    // Archive stays disabled until the cascade's worktree status lands — a
+    // click before then would archive without knowing what it destroys.
+    const confirm = screen.getByTestId("delete-agent-confirm");
+    await waitFor(() => expect(confirm.hasAttribute("disabled")).toBe(false));
+    fireEvent.click(confirm);
 
     await waitFor(() =>
       expect(props.setDeleteConfirmOpen).toHaveBeenCalledWith(false)

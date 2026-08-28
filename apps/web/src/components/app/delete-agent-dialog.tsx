@@ -24,6 +24,17 @@ type WorktreeStatus = {
   uncommittedFiles: string[];
 };
 
+/** One agent's worktree in the cascade the archive is about to sweep. */
+type AgentWorktreeStatus = WorktreeStatus & {
+  agentId: string;
+  agentName: string;
+  isTarget: boolean;
+};
+
+const hasOutstandingWork = (status: AgentWorktreeStatus) =>
+  status.hasWorktree &&
+  (status.hasUnmergedCommits || status.hasUncommittedChanges);
+
 type DeleteStep = "confirm" | "worktree-choice";
 
 type DeleteAgentDialogProps = {
@@ -45,9 +56,9 @@ export function DeleteAgentDialog({
   onDelete,
 }: DeleteAgentDialogProps): JSX.Element {
   const [step, setStep] = useState<DeleteStep>("confirm");
-  const [worktreeStatus, setWorktreeStatus] = useState<WorktreeStatus | null>(
-    null
-  );
+  const [worktreeStatuses, setWorktreeStatuses] = useState<
+    AgentWorktreeStatus[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
 
@@ -65,33 +76,34 @@ export function DeleteAgentDialog({
         } archived too.`
       : "";
 
-  // Fetch worktree status when dialog opens for an agent with a worktree
+  // Worktree status for the whole cascade, not just the target: archiving the
+  // parent discards its children's worktrees too, so the confirmation has to be
+  // able to show what is in them before offering that. The server walks the
+  // subtree — asking per agent from here would be a round trip each, and each
+  // one shells out to git.
   useEffect(() => {
     if (!open || !deleteTarget) {
       setStep("confirm");
-      setWorktreeStatus(null);
+      setWorktreeStatuses([]);
       setLoading(false);
       setDeleting(false);
       return;
     }
 
-    if (!deleteTarget.worktreePath) {
-      setWorktreeStatus(null);
-      return;
-    }
-
     let cancelled = false;
     setLoading(true);
-    api<WorktreeStatus>(`/api/v1/agents/${deleteTarget.id}/worktree-status`)
-      .then((status) => {
+    api<{ statuses: AgentWorktreeStatus[] }>(
+      `/api/v1/agents/${deleteTarget.id}/worktree-status/subtree`
+    )
+      .then((payload) => {
         if (!cancelled) {
-          setWorktreeStatus(status);
+          setWorktreeStatuses(payload.statuses ?? []);
           setLoading(false);
         }
       })
       .catch(() => {
         if (!cancelled) {
-          setWorktreeStatus(null);
+          setWorktreeStatuses([]);
           setLoading(false);
         }
       });
@@ -101,15 +113,18 @@ export function DeleteAgentDialog({
     };
   }, [open, deleteTarget]);
 
+  const outstanding = useMemo(
+    () => worktreeStatuses.filter(hasOutstandingWork),
+    [worktreeStatuses]
+  );
+
   const handleConfirmDelete = useCallback(async () => {
     if (!deleteTarget) return;
 
-    // If there's a worktree with unmerged commits or uncommitted changes, transition to choice step
-    if (
-      worktreeStatus?.hasWorktree &&
-      (worktreeStatus.hasUnmergedCommits ||
-        worktreeStatus.hasUncommittedChanges)
-    ) {
+    // Anything in the cascade holding work sends the user to the choice step —
+    // a child's unfinished work is as much a reason to stop and ask as the
+    // target's own.
+    if (outstanding.length > 0) {
       setStep("worktree-choice");
       return;
     }
@@ -123,7 +138,7 @@ export function DeleteAgentDialog({
     } finally {
       setDeleting(false);
     }
-  }, [deleteTarget, worktreeStatus, onDelete, setOpen, setDeleteTarget]);
+  }, [deleteTarget, outstanding, onDelete, setOpen, setDeleteTarget]);
 
   const handleWorktreeChoice = useCallback(
     async (cleanupMode: "keep" | "force") => {
@@ -146,61 +161,91 @@ export function DeleteAgentDialog({
     setDeleteTarget(null);
   }, [setOpen, setDeleteTarget]);
 
-  if (step === "worktree-choice" && worktreeStatus) {
-    const hasUnmerged =
-      worktreeStatus.hasUnmergedCommits &&
-      worktreeStatus.changedFiles.length > 0;
-    const hasUncommitted =
-      worktreeStatus.hasUncommittedChanges &&
-      worktreeStatus.uncommittedFiles.length > 0;
+  if (step === "worktree-choice" && outstanding.length > 0) {
+    const multiple = outstanding.length > 1;
 
     return (
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Worktree Has Outstanding Changes</DialogTitle>
+            <DialogTitle>
+              {multiple
+                ? `${outstanding.length} Worktrees Have Outstanding Changes`
+                : "Worktree Has Outstanding Changes"}
+            </DialogTitle>
           </DialogHeader>
 
-          <div className="flex flex-col gap-3">
-            {hasUnmerged && (
-              <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                  <span>
-                    Branch{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 text-xs">
-                      {worktreeStatus.branchName}
-                    </code>{" "}
-                    has commits not merged to origin.
-                  </span>
-                </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
-                  {worktreeStatus.changedFiles.map((file) => (
-                    <div key={file}>{file}</div>
-                  ))}
-                </div>
-              </div>
-            )}
+          <div className="flex max-h-[50vh] flex-col gap-3 overflow-y-auto">
+            {outstanding.map((status) => {
+              const hasUnmerged =
+                status.hasUnmergedCommits && status.changedFiles.length > 0;
+              const hasUncommitted =
+                status.hasUncommittedChanges &&
+                status.uncommittedFiles.length > 0;
 
-            {hasUncommitted && (
-              <div className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground">
-                <div className="flex items-start gap-2">
-                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
-                  <span>Worktree has uncommitted changes.</span>
-                </div>
-                <div className="ml-6 max-h-40 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
-                  {worktreeStatus.uncommittedFiles.map((file) => (
-                    <div key={file}>{file}</div>
-                  ))}
-                </div>
-              </div>
-            )}
+              return (
+                <div
+                  key={status.agentId}
+                  className="flex flex-col gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-sm text-foreground"
+                  data-testid={`worktree-outstanding-${status.agentId}`}
+                >
+                  <div className="flex items-start gap-2">
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-500" />
+                    <span>
+                      <span className="font-medium">{status.agentName}</span>
+                      {status.isTarget ? null : (
+                        <span className="text-muted-foreground">
+                          {" "}
+                          (sub agent)
+                        </span>
+                      )}
+                      {status.branchName ? (
+                        <>
+                          {" — "}
+                          <code className="rounded bg-muted px-1 py-0.5 text-xs">
+                            {status.branchName}
+                          </code>
+                        </>
+                      ) : null}
+                    </span>
+                  </div>
 
-            <p className="text-sm text-muted-foreground">
-              The agent will be archived either way.
-              {cascadeNote}
-            </p>
+                  {hasUnmerged && (
+                    <div className="ml-6 flex flex-col gap-1">
+                      <span className="text-xs text-muted-foreground">
+                        Commits not merged to origin:
+                      </span>
+                      <div className="max-h-32 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                        {status.changedFiles.map((file) => (
+                          <div key={file}>{file}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {hasUncommitted && (
+                    <div className="ml-6 flex flex-col gap-1">
+                      <span className="text-xs text-muted-foreground">
+                        Uncommitted changes:
+                      </span>
+                      <div className="max-h-32 overflow-y-auto rounded bg-muted/50 px-2 py-1.5 text-xs font-mono leading-relaxed text-muted-foreground">
+                        {status.uncommittedFiles.map((file) => (
+                          <div key={file}>{file}</div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
+
+          <p className="text-sm text-muted-foreground">
+            {multiple
+              ? "Removing worktrees discards the work listed above in all of them."
+              : "The agent will be archived either way."}
+            {cascadeNote}
+          </p>
 
           <div className="grid gap-2 pt-1 sm:grid-cols-[auto,minmax(0,1fr),minmax(0,1fr)]">
             <Button
@@ -219,7 +264,7 @@ export function DeleteAgentDialog({
               className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
             >
               <GitBranch className="mr-1.5 h-4 w-4" />
-              Archive, keep worktree
+              {multiple ? "Archive, keep worktrees" : "Archive, keep worktree"}
             </Button>
             <Button
               variant="destructive"
@@ -229,7 +274,9 @@ export function DeleteAgentDialog({
               className="h-auto w-full min-w-0 whitespace-normal py-2 text-center"
             >
               {deleting ? <ActivityBars size={16} className="mr-1.5" /> : null}
-              Archive and remove worktree
+              {multiple
+                ? "Archive and remove worktrees"
+                : "Archive and remove worktree"}
             </Button>
           </div>
         </DialogContent>

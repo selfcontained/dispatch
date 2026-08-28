@@ -83,6 +83,7 @@ import type {
   SetupPhase,
   WorktreeCleanupMode,
   WorktreeStatus,
+  AgentWorktreeStatus,
 } from "./types.js";
 import * as telemetry from "./telemetry.js";
 
@@ -1105,6 +1106,72 @@ export class AgentManager {
     }
 
     return readWorktreeStatus(agent.worktreePath);
+  }
+
+  /**
+   * Worktree status for an agent and every agent that would be archived with
+   * it — the whole `parent_agent_id` subtree the cascade sweeps.
+   *
+   * The archive confirmation offers to discard worktrees across that subtree,
+   * so it has to be able to show what is in them; asking per agent from the
+   * browser would mean one round trip each, and each one shells out to git.
+   * Agents without a worktree are dropped rather than reported as empty — the
+   * caller only cares about worktrees that could be destroyed.
+   */
+  async checkSubtreeWorktreeStatus(id: string): Promise<AgentWorktreeStatus[]> {
+    await this.getRequiredAgent(id);
+
+    // Recursive walk of `parent_agent_id`, matching the archive cascade
+    // exactly — `launched_by_agent_id` is excluded, so an independent
+    // `child: false` agent never appears here. The depth cap keeps a
+    // corrupted parent link from looping forever.
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      worktree_path: string | null;
+    }>(
+      `WITH RECURSIVE subtree AS (
+         SELECT id, name, worktree_path, 0 AS depth
+         FROM agents
+         WHERE id = $1 AND deleted_at IS NULL
+         UNION ALL
+         SELECT a.id, a.name, a.worktree_path, s.depth + 1
+         FROM agents a
+         JOIN subtree s ON a.parent_agent_id = s.id
+         WHERE a.deleted_at IS NULL AND s.depth < 20
+       )
+       SELECT DISTINCT ON (id) id, name, worktree_path
+       FROM subtree`,
+      [id]
+    );
+
+    const withWorktrees = result.rows.filter((row) => row.worktree_path);
+
+    // Bounded: each status runs a git fetch, and a wide fan-out would
+    // otherwise start one per child at once.
+    const statuses: AgentWorktreeStatus[] = [];
+    const queue = [...withWorktrees];
+    const workers = Array.from(
+      { length: Math.min(4, queue.length) },
+      async () => {
+        for (let row = queue.shift(); row; row = queue.shift()) {
+          const status = await readWorktreeStatus(row.worktree_path as string);
+          statuses.push({
+            agentId: row.id,
+            agentName: row.name,
+            isTarget: row.id === id,
+            ...status,
+          });
+        }
+      }
+    );
+    await Promise.all(workers);
+
+    // Target first, then a stable order the UI can render without resorting.
+    return statuses.sort((a, b) => {
+      if (a.isTarget !== b.isTarget) return a.isTarget ? -1 : 1;
+      return a.agentName.localeCompare(b.agentName);
+    });
   }
 
   async upsertLatestEvent(
