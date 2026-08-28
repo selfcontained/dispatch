@@ -195,7 +195,56 @@ export function reconcileAgentSidebarOrder(
   return nextOrder;
 }
 
-export type MediaSidebarTab = "pins" | "media" | "reviews" | "messages";
+export const SYSTEM_SIDEBAR_TABS = [
+  "pins",
+  "media",
+  "reviews",
+  "messages",
+] as const;
+
+export type SystemSidebarTab = (typeof SYSTEM_SIDEBAR_TABS)[number];
+
+export function isSystemSidebarTab(
+  tab: MediaSidebarTab
+): tab is SystemSidebarTab {
+  return (SYSTEM_SIDEBAR_TABS as readonly string[]).includes(tab);
+}
+
+// A custom tab's active id is the agent-issued surface id (e.g. "srf_...").
+// Widened to `string` rather than kept as a literal union — unlike the four
+// system tabs, the set of valid values is open-ended and server-issued.
+export type MediaSidebarTab = SystemSidebarTab | (string & {});
+
+type AgentScopedStorageDomain = {
+  prefix: string;
+  agentIdFromSuffix?: (suffix: string) => string | undefined;
+};
+
+/** Removes stale agent-owned keys in one pass without touching other storage. */
+function reconcileAgentScopedStorageDomains(
+  agentIds: Iterable<string>,
+  domains: readonly AgentScopedStorageDomain[]
+): void {
+  if (typeof window === "undefined") return;
+
+  const liveAgentIds = new Set(agentIds);
+  const keysToDelete: string[] = [];
+
+  for (let i = 0; i < window.localStorage.length; i += 1) {
+    const key = window.localStorage.key(i);
+    if (!key) continue;
+
+    const domain = domains.find(({ prefix }) => key.startsWith(prefix));
+    if (!domain) continue;
+
+    const suffix = key.slice(domain.prefix.length);
+    const agentId = (domain.agentIdFromSuffix?.(suffix) ?? suffix).trim();
+    if (!agentId || liveAgentIds.has(agentId)) continue;
+    keysToDelete.push(key);
+  }
+
+  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+}
 
 export type MediaSidebarState = {
   isOpen: boolean;
@@ -228,21 +277,9 @@ export const mediaSidebarStateAtomFamily = atomFamily((agentId: string) =>
 export function reconcileMediaSidebarStateStorage(
   agentIds: Iterable<string>
 ): void {
-  if (typeof window === "undefined") return;
-
-  const liveAgentIds = new Set(agentIds);
-  const keysToDelete: string[] = [];
-
-  for (let i = 0; i < window.localStorage.length; i += 1) {
-    const key = window.localStorage.key(i);
-    if (!key?.startsWith(MEDIA_SIDEBAR_STATE_STORAGE_PREFIX)) continue;
-
-    const agentId = key.slice(MEDIA_SIDEBAR_STATE_STORAGE_PREFIX.length).trim();
-    if (!agentId || liveAgentIds.has(agentId)) continue;
-    keysToDelete.push(key);
-  }
-
-  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+  reconcileAgentScopedStorageDomains(agentIds, [
+    { prefix: MEDIA_SIDEBAR_STATE_STORAGE_PREFIX },
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -291,17 +328,9 @@ export const reviewDraftAtomFamily = atomFamily((agentId: string) =>
 );
 
 export function reconcileReviewDraftStorage(agentIds: Iterable<string>): void {
-  if (typeof window === "undefined") return;
-  const liveAgentIds = new Set(agentIds);
-  const keysToDelete: string[] = [];
-  for (let i = 0; i < window.localStorage.length; i += 1) {
-    const key = window.localStorage.key(i);
-    if (!key?.startsWith(REVIEW_DRAFTS_STORAGE_PREFIX)) continue;
-    const agentId = key.slice(REVIEW_DRAFTS_STORAGE_PREFIX.length).trim();
-    if (!agentId || liveAgentIds.has(agentId)) continue;
-    keysToDelete.push(key);
-  }
-  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+  reconcileAgentScopedStorageDomains(agentIds, [
+    { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
+  ]);
 }
 
 export const DIFF_VIEW_STATE_STORAGE_PREFIX = "dispatch:diffViewState:";
@@ -316,21 +345,9 @@ export const diffViewStateAtomFamily = atomFamily((agentId: string) =>
 export function reconcileDiffViewStateStorage(
   agentIds: Iterable<string>
 ): void {
-  if (typeof window === "undefined") return;
-
-  const liveAgentIds = new Set(agentIds);
-  const keysToDelete: string[] = [];
-
-  for (let i = 0; i < window.localStorage.length; i += 1) {
-    const key = window.localStorage.key(i);
-    if (!key?.startsWith(DIFF_VIEW_STATE_STORAGE_PREFIX)) continue;
-
-    const agentId = key.slice(DIFF_VIEW_STATE_STORAGE_PREFIX.length).trim();
-    if (!agentId || liveAgentIds.has(agentId)) continue;
-    keysToDelete.push(key);
-  }
-
-  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+  reconcileAgentScopedStorageDomains(agentIds, [
+    { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -369,21 +386,106 @@ export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
 export function reconcileSplitPaneStateStorage(
   agentIds: Iterable<string>
 ): void {
-  if (typeof window === "undefined") return;
+  reconcileAgentScopedStorageDomains(agentIds, [
+    { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
+  ]);
+}
 
-  const liveAgentIds = new Set(agentIds);
-  const keysToDelete: string[] = [];
+// ---------------------------------------------------------------------------
+// Agent-authored surface tab presentation prefs — per-agent user-chosen order
+// and hidden set, layered over the server's canonical sortOrder. The server
+// document (blocks, titles, sortOrder) is never mutated from here; see
+// use-surface-tab-prefs.ts for how these are merged with live surface data.
+// ---------------------------------------------------------------------------
 
-  for (let i = 0; i < window.localStorage.length; i += 1) {
-    const key = window.localStorage.key(i);
-    if (!key?.startsWith(SPLIT_PANE_STATE_STORAGE_PREFIX)) continue;
+export const CUSTOM_TAB_ORDER_STORAGE_PREFIX = "dispatch:customTabOrder:";
 
-    const agentId = key.slice(SPLIT_PANE_STATE_STORAGE_PREFIX.length).trim();
-    if (!agentId || liveAgentIds.has(agentId)) continue;
-    keysToDelete.push(key);
-  }
+export const customTabOrderAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<string[]>(
+    `${CUSTOM_TAB_ORDER_STORAGE_PREFIX}${agentId}`,
+    []
+  )
+);
 
-  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+export function reconcileCustomTabOrderStorage(
+  agentIds: Iterable<string>
+): void {
+  reconcileAgentScopedStorageDomains(agentIds, [
+    { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
+  ]);
+}
+
+export const CUSTOM_TAB_HIDDEN_STORAGE_PREFIX = "dispatch:customTabHidden:";
+
+export const customTabHiddenAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<string[]>(
+    `${CUSTOM_TAB_HIDDEN_STORAGE_PREFIX}${agentId}`,
+    []
+  )
+);
+
+export function reconcileCustomTabHiddenStorage(
+  agentIds: Iterable<string>
+): void {
+  reconcileAgentScopedStorageDomains(agentIds, [
+    { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Seen surface ids — per-agent record of which agent-authored tabs the user
+// has already opened, so the tab strip can flag a newly-encountered surface
+// id as "new" until it's viewed. See surface-tab-row.tsx.
+// ---------------------------------------------------------------------------
+
+export const SEEN_SURFACE_IDS_STORAGE_PREFIX = "dispatch:seenSurfaceIds:";
+
+export const seenSurfaceIdsAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<string[]>(
+    `${SEEN_SURFACE_IDS_STORAGE_PREFIX}${agentId}`,
+    []
+  )
+);
+
+export function reconcileSeenSurfaceIdsStorage(
+  agentIds: Iterable<string>
+): void {
+  reconcileAgentScopedStorageDomains(agentIds, [
+    { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },
+  ]);
+}
+
+// ---------------------------------------------------------------------------
+// Surface form drafts — unsubmitted input for one form block, keyed by
+// `<agentId>:<surfaceId>:<blockId>`. Typing never notifies the agent; a draft
+// survives tab switches and reloads, then clears on successful submit or
+// explicit Reset (see use-surface-form-draft.ts).
+// ---------------------------------------------------------------------------
+
+export type SurfaceFormDraft = Record<
+  string,
+  string | number | boolean | null | string[]
+>;
+
+export const SURFACE_FORM_DRAFT_STORAGE_PREFIX = "dispatch:surfaceFormDraft:";
+
+export const surfaceFormDraftAtomFamily = atomFamily((draftKey: string) =>
+  atomWithLocalStorage<SurfaceFormDraft | null>(
+    `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}${draftKey}`,
+    null
+  )
+);
+
+/** Drops drafts whose `<agentId>:...` prefix no longer names a live agent. */
+export function reconcileSurfaceFormDraftStorage(
+  agentIds: Iterable<string>
+): void {
+  reconcileAgentScopedStorageDomains(agentIds, [
+    {
+      prefix: SURFACE_FORM_DRAFT_STORAGE_PREFIX,
+      agentIdFromSuffix: (draftKey) => draftKey.split(":")[0],
+    },
+  ]);
 }
 
 // ---------------------------------------------------------------------------
@@ -403,21 +505,27 @@ export const messageGroupsCollapsedAtomFamily = atomFamily((agentId: string) =>
 export function reconcileMessageGroupsStateStorage(
   agentIds: Iterable<string>
 ): void {
-  if (typeof window === "undefined") return;
+  reconcileAgentScopedStorageDomains(agentIds, [
+    { prefix: MESSAGE_GROUPS_STATE_STORAGE_PREFIX },
+  ]);
+}
 
-  const liveAgentIds = new Set(agentIds);
-  const keysToDelete: string[] = [];
+const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
+  { prefix: MEDIA_SIDEBAR_STATE_STORAGE_PREFIX },
+  { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
+  { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
+  { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
+  { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
+  { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
+  { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },
+  {
+    prefix: SURFACE_FORM_DRAFT_STORAGE_PREFIX,
+    agentIdFromSuffix: (draftKey) => draftKey.split(":")[0],
+  },
+  { prefix: MESSAGE_GROUPS_STATE_STORAGE_PREFIX },
+];
 
-  for (let i = 0; i < window.localStorage.length; i += 1) {
-    const key = window.localStorage.key(i);
-    if (!key?.startsWith(MESSAGE_GROUPS_STATE_STORAGE_PREFIX)) continue;
-
-    const agentId = key
-      .slice(MESSAGE_GROUPS_STATE_STORAGE_PREFIX.length)
-      .trim();
-    if (!agentId || liveAgentIds.has(agentId)) continue;
-    keysToDelete.push(key);
-  }
-
-  keysToDelete.forEach((key) => window.localStorage.removeItem(key));
+/** Reconciles every per-agent persisted UI state in a single storage scan. */
+export function reconcileAgentScopedStorage(agentIds: Iterable<string>): void {
+  reconcileAgentScopedStorageDomains(agentIds, AGENT_SCOPED_STORAGE_DOMAINS);
 }

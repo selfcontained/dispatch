@@ -108,6 +108,7 @@ import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerMessagesRoutes } from "./routes/messages.js";
+import { registerSurfaceRoutes } from "./routes/surfaces.js";
 import { registerWhiteboardRoutes } from "./routes/whiteboard.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
 import { registerPersonaRoutes } from "./routes/personas.js";
@@ -120,6 +121,7 @@ import { registerStaticRoutes } from "./routes/static.js";
 import { registerSystemRoutes } from "./routes/system.js";
 import { registerPluginRoutes } from "./routes/plugin.js";
 import { registerResourceRoutes } from "./routes/resources.js";
+import { SurfaceService } from "./surfaces/service.js";
 import {
   dateTruncTz,
   loadScopedActivityEvents,
@@ -423,6 +425,10 @@ const authRuntime = createAuthRuntime({
   sessionCleanupIntervalMs: 60 * 60 * 1000,
 });
 const brainStore = new BrainStore(pool);
+const surfaceService = new SurfaceService(pool, {
+  publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  sendAgentPrompt: injectAgentPrompt,
+});
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,
@@ -663,6 +669,7 @@ async function registerRoutes() {
     mcpJobNeedsInput: mcpHandlers.jobNeedsInput,
     mcpJobLog: mcpHandlers.jobLog,
     mcpMethodNotAllowed,
+    surfaces: surfaceService,
   });
 
   await registerSystemRoutes(app, {
@@ -757,6 +764,8 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 
+  await registerSurfaceRoutes(app, { surfaces: surfaceService });
+
   await registerWhiteboardRoutes(app, {
     pool,
     mediaRoot: config.mediaRoot,
@@ -799,6 +808,8 @@ async function registerRoutes() {
       agentLifecycleRuntime.trackArchivePromise(agentId, archivePromise),
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
+    onAgentStarted: (agentId) =>
+      surfaceService.notifyQueuedAfterResume(agentId),
   });
 
   // --- Personas ---

@@ -5,11 +5,7 @@ import { MEDIA_SIDEBAR_SETTLE_FALLBACK_MS } from "@/components/app/media-sidebar
 import {
   inactiveMediaSidebarStateAtom,
   mediaSidebarStateAtomFamily,
-  reconcileMediaSidebarStateStorage,
-  reconcileDiffViewStateStorage,
-  reconcileSplitPaneStateStorage,
-  reconcileReviewDraftStorage,
-  reconcileMessageGroupsStateStorage,
+  reconcileAgentScopedStorage,
   type MediaSidebarTab,
 } from "@/lib/store";
 
@@ -97,11 +93,7 @@ export function useMediaSidebarState({
   const prevMediaShiftsLayoutRef = useRef(mediaShiftsLayout);
   useEffect(() => {
     if (agentIds.length === 0) return;
-    reconcileMediaSidebarStateStorage(agentIds as string[]);
-    reconcileDiffViewStateStorage(agentIds as string[]);
-    reconcileSplitPaneStateStorage(agentIds as string[]);
-    reconcileReviewDraftStorage(agentIds as string[]);
-    reconcileMessageGroupsStateStorage(agentIds as string[]);
+    reconcileAgentScopedStorage(agentIds);
   }, [agentIds]);
 
   useEffect(() => {

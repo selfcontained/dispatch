@@ -10,6 +10,12 @@ import {
   DIFF_VIEW_STATE_STORAGE_PREFIX,
   reconcileSplitPaneStateStorage,
   SPLIT_PANE_STATE_STORAGE_PREFIX,
+  reconcileSeenSurfaceIdsStorage,
+  SEEN_SURFACE_IDS_STORAGE_PREFIX,
+  isSystemSidebarTab,
+  reconcileAgentScopedStorage,
+  CUSTOM_TAB_ORDER_STORAGE_PREFIX,
+  SURFACE_FORM_DRAFT_STORAGE_PREFIX,
 } from "./store";
 
 describe("reconcileAgentSidebarOrder", () => {
@@ -29,6 +35,54 @@ describe("reconcileAgentSidebarOrder", () => {
         ["agt_1", "agt_2"]
       )
     ).toEqual(["agt_2", "agt_1"]);
+  });
+});
+
+describe("sidebar tab and scoped storage helpers", () => {
+  beforeEach(() => window.localStorage.clear());
+  afterEach(() => window.localStorage.clear());
+
+  it("keeps system tabs explicit while permitting dynamic surface ids", () => {
+    expect(isSystemSidebarTab("pins")).toBe(true);
+    expect(isSystemSidebarTab("surface-a")).toBe(false);
+    expect(isSystemSidebarTab("review")).toBe(false);
+  });
+
+  it("reconciles all per-agent storage in one pass with safe draft extraction", () => {
+    window.localStorage.setItem(
+      `${MEDIA_SIDEBAR_STATE_STORAGE_PREFIX}agt_live`,
+      "{}"
+    );
+    window.localStorage.setItem(
+      `${CUSTOM_TAB_ORDER_STORAGE_PREFIX}agt_dead`,
+      "[]"
+    );
+    window.localStorage.setItem(
+      `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}agt_live:surface:block`,
+      "{}"
+    );
+    window.localStorage.setItem(
+      `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}agt_dead:surface:block`,
+      "{}"
+    );
+    window.localStorage.setItem("dispatch:unrelated", "keep");
+
+    reconcileAgentScopedStorage(["agt_live"]);
+
+    expect(window.localStorage.getItem("dispatch:unrelated")).toBe("keep");
+    expect(
+      window.localStorage.getItem(`${CUSTOM_TAB_ORDER_STORAGE_PREFIX}agt_dead`)
+    ).toBeNull();
+    expect(
+      window.localStorage.getItem(
+        `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}agt_live:surface:block`
+      )
+    ).not.toBeNull();
+    expect(
+      window.localStorage.getItem(
+        `${SURFACE_FORM_DRAFT_STORAGE_PREFIX}agt_dead:surface:block`
+      )
+    ).toBeNull();
   });
 });
 
@@ -332,6 +386,51 @@ describe("reconcileSplitPaneStateStorage", () => {
     ).not.toBeNull();
     expect(
       window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_2`)
+    ).toBeNull();
+  });
+});
+
+describe("reconcileSeenSurfaceIdsStorage", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  const storeForAgent = (agentId: string) => {
+    window.localStorage.setItem(
+      `${SEEN_SURFACE_IDS_STORAGE_PREFIX}${agentId}`,
+      JSON.stringify(["surface-a"])
+    );
+  };
+
+  it("removes keys for agents not in the live set", () => {
+    storeForAgent("agt_1");
+    storeForAgent("agt_2");
+
+    reconcileSeenSurfaceIdsStorage(["agt_1"]);
+
+    expect(
+      window.localStorage.getItem(`${SEEN_SURFACE_IDS_STORAGE_PREFIX}agt_1`)
+    ).not.toBeNull();
+    expect(
+      window.localStorage.getItem(`${SEEN_SURFACE_IDS_STORAGE_PREFIX}agt_2`)
+    ).toBeNull();
+  });
+
+  it("leaves unrelated keys untouched", () => {
+    window.localStorage.setItem("dispatch:leftSidebarOpen", "true");
+    storeForAgent("agt_dead");
+
+    reconcileSeenSurfaceIdsStorage([]);
+
+    expect(window.localStorage.getItem("dispatch:leftSidebarOpen")).toBe(
+      "true"
+    );
+    expect(
+      window.localStorage.getItem(`${SEEN_SURFACE_IDS_STORAGE_PREFIX}agt_dead`)
     ).toBeNull();
   });
 });

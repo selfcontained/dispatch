@@ -200,6 +200,16 @@ export async function executeArchive(
     await publishPhase("finalizing");
 
     const tDb = Date.now();
+    await pool.query(
+      `UPDATE agent_surfaces SET lifecycle = 'frozen', revision = revision + 1, updated_at = NOW()
+       WHERE agent_id = $1 AND deleted_at IS NULL AND lifecycle = 'active'`,
+      [id]
+    );
+    await pool.query(
+      `UPDATE agent_surface_interactions SET status = 'orphaned', resolved_at = NOW()
+       WHERE agent_id = $1 AND status IN ('queued', 'notified', 'claimed')`,
+      [id]
+    );
     await pool
       .query(
         `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
@@ -301,6 +311,16 @@ export async function deleteAgentDirect(
     )
     .catch((err) => logger.warn({ err }, "Failed to insert delete event"));
 
+  await pool.query(
+    `UPDATE agent_surfaces SET lifecycle = 'frozen', revision = revision + 1, updated_at = NOW()
+     WHERE agent_id = $1 AND deleted_at IS NULL AND lifecycle = 'active'`,
+    [id]
+  );
+  await pool.query(
+    `UPDATE agent_surface_interactions SET status = 'orphaned', resolved_at = NOW()
+     WHERE agent_id = $1 AND status IN ('queued', 'notified', 'claimed')`,
+    [id]
+  );
   await pool.query(
     "UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
     [id]

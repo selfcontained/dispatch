@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Surfaces"
+  short_description: "Build interactive sidebar views for users"
+  default_prompt: "Use $surfaces to present this work as an interactive sidebar view."

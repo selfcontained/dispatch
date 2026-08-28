@@ -865,6 +865,23 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     expect(pinRules(text)).toBe(1);
   });
 
+  it("routes structured decisions/forms/status views to dispatch_surface_create, trimmed or not", () => {
+    for (const trimmedGuidance of [true, false]) {
+      const text = guidance({ agentType: "claude", trimmedGuidance });
+      expect(text).toContain("dispatch_surface_create");
+    }
+  });
+
+  it("no longer tells shortcut pins to offer a choice between options", () => {
+    // dispatch_surface_create is the tool for a structured decision — a
+    // shortcut pin fires one fixed prompt and can't present a comparison.
+    for (const trimmedGuidance of [true, false]) {
+      const text = guidance({ agentType: "claude", trimmedGuidance });
+      expect(text).not.toContain("pick between options");
+      expect(text).not.toContain("pick an approach");
+    }
+  });
+
   it("ignores the setting for agent types with no Dispatch plugin", () => {
     for (const agentType of ["opencode", "cursor"] as const) {
       const text = guidance({

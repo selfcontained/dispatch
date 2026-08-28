@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import type { SurfaceChangedEvent } from "@dispatch/shared";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "jotai";
 import {
@@ -10,6 +11,7 @@ import {
   type TerminalUiState,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
+import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
@@ -95,7 +97,8 @@ type UiEvent =
   | {
       type: "release.cached_info_changed";
       snapshot: ReleaseInfoSnapshot | null;
-    };
+    }
+  | SurfaceChangedEvent;
 
 function patchAgentHasStream(
   queryClient: ReturnType<typeof useQueryClient>,
@@ -381,6 +384,14 @@ export function useSSE(authState: AuthState): void {
         if (payload.type === "release.cached_info_changed") {
           queryClient.setQueryData(CACHED_RELEASE_INFO_QUERY_KEY, {
             snapshot: payload.snapshot,
+          });
+          return;
+        }
+
+        if (payload.type === "surface.changed") {
+          void queryClient.invalidateQueries({
+            queryKey: surfacesQueryKey(payload.agentId),
+            exact: true,
           });
           return;
         }

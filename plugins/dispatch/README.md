@@ -2,9 +2,9 @@
 
 Skills that teach agents how to use Dispatch's own capabilities. Install it in
 Claude Code or Codex and agents get shared memory, subagent orchestration, repo
-tools, artifact sharing, the review workflow, UI validation, personas, the
-whiteboard, jobs, templates, and personalities as discoverable skills instead of
-tribal knowledge.
+tools, artifact sharing, interactive surfaces, the review workflow, UI
+validation, personas, the whiteboard, jobs, templates, and personalities as
+discoverable skills instead of tribal knowledge.
 
 ## Install
 
@@ -93,6 +93,7 @@ The rest of the tree is documentation: `skills/` (the skill bodies agents load),
 | `subagents`       | Work should be delegated, or another agent needs coordinating |
 | `repo-tools`      | A repo script should become a first-class tool                |
 | `sharing`         | An artifact needs to reach the user                           |
+| `surfaces`        | Structured status, choices, or user input belong in a sidebar |
 | `review-workflow` | A PR is going up, or review feedback needs working            |
 | `ui-validation`   | A UI change needs proving in a browser                        |
 | `personas`        | This repo needs a reviewer with a domain lens                 |
@@ -111,7 +112,7 @@ labels ("artifact sharing API"): an agent that does not know a capability exists
 will never match its name, but will match a description of the situation it is
 currently in.
 
-**Narrow skills, not mega-skills.** Eleven narrow skills cost eleven short
+**Narrow skills, not mega-skills.** Twelve narrow skills cost twelve short
 descriptions always-on and load exactly one body on a match. Folding them into
 three broad skills would load four unrelated bodies every time one of them fired.
 The binding budget is total description bytes (currently ~2.3 KB), not skill

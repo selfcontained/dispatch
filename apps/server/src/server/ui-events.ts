@@ -1,4 +1,5 @@
 import type { AgentRecord } from "../agents/manager.js";
+import type { SurfaceChangedEvent } from "@dispatch/shared";
 import type { ReleaseInfoSnapshot } from "../release-info.js";
 
 import type { DiffStats } from "../shared/git/diff-stats.js";
@@ -38,6 +39,7 @@ export type UiEvent =
       recipientAgentId: string;
     }
   | { type: "message.read"; agentId: string }
+  | SurfaceChangedEvent
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
   | {

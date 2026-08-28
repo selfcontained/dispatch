@@ -292,6 +292,30 @@ vi.mock("@/hooks/use-agent-messages", () => ({
   },
 }));
 
+vi.mock("@/hooks/use-agent-surfaces", () => ({
+  useAgentSurfaces: (agentId: string | null) => {
+    H.record("useAgentSurfaces", { agentId });
+    const s = H.state;
+    return {
+      surfaces: (s.agentSurfaces as Array<{ id: string }>) ?? [],
+      isLoading: false,
+      isError: false,
+      refetch: s.unused,
+    };
+  },
+}));
+
+vi.mock("@/components/app/agent-surfaces/use-surface-seen", () => ({
+  useSurfaceSeen: (agentId: string | null) => {
+    H.record("useSurfaceSeen", { agentId });
+    const seen = (H.state.surfaceSeenIds as string[]) ?? [];
+    return {
+      isNew: (id: string) => !seen.includes(id),
+      markSeen: H.state.unused,
+    };
+  },
+}));
+
 vi.mock("@/hooks/use-agent-focus", () => ({ useAgentFocus: vi.fn() }));
 
 vi.mock("@/hooks/use-agent-diff-stats", () => ({
@@ -457,6 +481,8 @@ beforeEach(() => {
     mediaViewportRef: { current: null },
     refreshMedia: vi.fn(),
     markMessagesRead: vi.fn(),
+    agentSurfaces: [] as Array<{ id: string }>,
+    surfaceSeenIds: [] as string[],
   };
 });
 
@@ -519,6 +545,22 @@ describe("AgentsView focused agent", () => {
     expect(propsOf("AgentsViewHeader").focusedAgentId).toBe("a2");
     expect(propsOf("AgentsViewHeader").focusedAgentName).toBe("agent a2");
     expect(propsOf("MediaSidebar").selectedAgentId).toBe("a2");
+  });
+
+  it("counts unseen agent-authored surfaces into the header's closed-sidebar badge", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+      connState: "connected",
+      connectedAgentId: "a1",
+      agentSurfaces: [{ id: "s1" }, { id: "s2" }, { id: "s3" }],
+      surfaceSeenIds: ["s2"],
+    });
+    mount();
+
+    // s1 and s3 are unseen; s2 was already viewed — reuses the same
+    // seen-state atom the tab strip itself reads, no duplicate server state.
+    expect(propsOf("AgentsViewHeader").unseenSurfaceCount).toBe(2);
   });
 
   it("pins focus to the selected agent while the terminal is resyncing", () => {
