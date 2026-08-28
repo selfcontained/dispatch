@@ -111,7 +111,7 @@ function TableRowView({
       <tr
         data-row-id={row.id}
         className={cn(
-          "grid grid-cols-2 border-b border-border/50 p-2 last:border-0 md:table-row md:p-0",
+          "grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] border-b border-border/50 p-2 last:border-0 md:table-row md:p-0",
           expanded && "border-b-0 md:border-b"
         )}
       >
@@ -119,7 +119,8 @@ function TableRowView({
           <td
             className={cn(
               "mt-1 border-t border-border/50 p-1.5 align-middle md:table-cell md:w-8 md:border-0 md:p-2",
-              row.action ? "order-3 col-span-1" : "order-2 col-span-2"
+              "order-2",
+              row.action ? "col-span-1" : "col-span-2"
             )}
           >
             <Button
@@ -130,7 +131,7 @@ function TableRowView({
               aria-expanded={expanded}
               aria-controls={detailsId}
               aria-label={`${expanded ? "Hide" : "Show"} details for ${rowLabel}`}
-              className="h-11 w-full gap-1.5 px-2 text-[11px] text-muted-foreground md:h-6 md:w-6 md:p-0"
+              className="h-8 w-full gap-1.5 px-2 text-[11px] text-muted-foreground md:h-6 md:w-6 md:p-0 [@media(pointer:coarse)]:min-h-11"
             >
               <ChevronRight
                 className={cn(
@@ -138,9 +139,7 @@ function TableRowView({
                   expanded && "rotate-90"
                 )}
               />
-              <span className="md:sr-only">
-                {expanded ? "Hide details" : "Details"}
-              </span>
+              <span className="md:sr-only">{expanded ? "Hide" : "Show"}</span>
             </Button>
           </td>
         ) : null}
@@ -164,7 +163,7 @@ function TableRowView({
         {hasActionColumn ? (
           <td
             className={cn(
-              "order-2 col-span-1 mt-1 min-w-0 border-t border-border/50 p-1.5 text-right align-middle md:table-cell md:w-px md:min-w-32 md:border-0 md:p-2",
+              "order-3 col-span-1 mt-1 min-w-0 border-t border-border/50 p-1.5 text-right align-middle md:table-cell md:w-px md:min-w-32 md:border-0 md:p-2",
               row.action ? "block" : "hidden"
             )}
           >
@@ -173,7 +172,7 @@ function TableRowView({
                 action={row.action}
                 itemId={row.id}
                 blockId={block.id}
-                buttonClassName="min-h-11 w-full whitespace-normal break-words md:min-h-7 md:w-auto md:whitespace-nowrap md:break-normal"
+                buttonClassName="min-h-8 w-full whitespace-normal break-words md:min-h-7 md:w-auto md:whitespace-nowrap md:break-normal"
                 ariaLabel={`${row.action.label} for ${formatCell(
                   row.cells[primaryColumns[0]?.id] ?? row.id,
                   primaryColumns[0]?.format

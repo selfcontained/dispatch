@@ -90,8 +90,9 @@ describe("TableBlockView URL cells", () => {
     });
     expect(disclosure.className).toContain("h-6");
     expect(disclosure.className).toContain("w-full");
-    expect(disclosure.className).toContain("h-11");
-    expect(disclosure.textContent).toContain("Details");
+    expect(disclosure.className).toContain("h-8");
+    expect(disclosure.className).toContain("[@media(pointer:coarse)]:min-h-11");
+    expect(disclosure.textContent).toContain("Show");
     const detailsId = disclosure.getAttribute("aria-controls");
     expect(detailsId).toBeTruthy();
     const detailsRow = document.getElementById(detailsId!);
@@ -201,16 +202,14 @@ describe("TableBlockView URL cells", () => {
     expect(actionCell?.querySelector("button")?.className).toContain(
       "md:whitespace-nowrap"
     );
-    expect(actionCell?.querySelector("button")?.className).toContain(
-      "min-h-11"
-    );
+    expect(actionCell?.querySelector("button")?.className).toContain("min-h-8");
     expect(rows[0].className).toContain("grid");
     expect(rows[0].className).toContain("md:table-row");
     expect(container.querySelector("table")?.className).toContain("md:table");
-    expect(actionCell?.className).toContain("order-2");
+    expect(actionCell?.className).toContain("order-3");
     const disclosureCell = rows[0].querySelector("td:first-child");
-    expect(disclosureCell?.className).toContain("order-3");
-    expect(disclosureCell?.textContent).toContain("Details");
+    expect(disclosureCell?.className).toContain("order-2");
+    expect(disclosureCell?.textContent).toContain("Show");
     expect(rows[1].querySelector("td:last-child")?.className).toContain(
       "hidden"
     );
