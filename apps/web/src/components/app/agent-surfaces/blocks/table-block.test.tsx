@@ -89,8 +89,9 @@ describe("TableBlockView URL cells", () => {
       name: "Show details for https://example.com",
     });
     expect(disclosure.className).toContain("h-6");
-    expect(disclosure.className).toContain("[@media(pointer:coarse)]:h-11");
-    expect(disclosure.className).toContain("[@media(pointer:coarse)]:w-11");
+    expect(disclosure.className).toContain("w-full");
+    expect(disclosure.className).toContain("h-11");
+    expect(disclosure.textContent).toContain("Details");
     const detailsId = disclosure.getAttribute("aria-controls");
     expect(detailsId).toBeTruthy();
     const detailsRow = document.getElementById(detailsId!);
@@ -175,20 +176,23 @@ describe("TableBlockView URL cells", () => {
       type: "table",
       title: "Deployments",
       showItemCount: true,
-      columns: [{ id: "name", label: "Name" }],
+      columns: [
+        { id: "name", label: "Name" },
+        { id: "detail", label: "Detail", priority: "secondary" },
+      ],
       rows: [
         {
           id: "one",
-          cells: { name: "One" },
+          cells: { name: "One", detail: "First detail" },
           action: { id: "approve", label: "Approve", intent: "approve" },
         },
-        { id: "two", cells: { name: "Two" } },
+        { id: "two", cells: { name: "Two", detail: "Second detail" } },
       ],
     };
     const { container } = renderTable(block);
     expect(screen.getByText("2")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Action" })).toBeTruthy();
-    const rows = document.querySelectorAll("tbody tr");
+    const rows = document.querySelectorAll("tbody tr[data-row-id]");
     expect(rows[0].querySelectorAll("td").length).toBe(
       rows[1].querySelectorAll("td").length
     );
@@ -197,10 +201,16 @@ describe("TableBlockView URL cells", () => {
     expect(actionCell?.querySelector("button")?.className).toContain(
       "md:whitespace-nowrap"
     );
+    expect(actionCell?.querySelector("button")?.className).toContain(
+      "min-h-11"
+    );
     expect(rows[0].className).toContain("grid");
     expect(rows[0].className).toContain("md:table-row");
     expect(container.querySelector("table")?.className).toContain("md:table");
-    expect(actionCell?.textContent).toContain("Action");
+    expect(actionCell?.className).toContain("order-2");
+    const disclosureCell = rows[0].querySelector("td:first-child");
+    expect(disclosureCell?.className).toContain("order-3");
+    expect(disclosureCell?.textContent).toContain("Details");
     expect(rows[1].querySelector("td:last-child")?.className).toContain(
       "hidden"
     );

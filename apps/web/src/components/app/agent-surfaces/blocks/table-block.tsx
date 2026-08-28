@@ -2,6 +2,7 @@ import { useId, useState } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import type {
   Scalar,
@@ -109,17 +110,27 @@ function TableRowView({
     <>
       <tr
         data-row-id={row.id}
-        className="grid border-b border-border/50 p-2 last:border-0 md:table-row md:p-0"
+        className={cn(
+          "grid grid-cols-2 border-b border-border/50 p-2 last:border-0 md:table-row md:p-0",
+          expanded && "border-b-0 md:border-b"
+        )}
       >
         {secondaryColumns.length > 0 ? (
-          <td className="order-last flex justify-end px-2 py-1 align-middle md:table-cell md:w-8 md:p-2">
-            <button
+          <td
+            className={cn(
+              "mt-1 border-t border-border/50 p-1.5 align-middle md:table-cell md:w-8 md:border-0 md:p-2",
+              row.action ? "order-3 col-span-1" : "order-2 col-span-2"
+            )}
+          >
+            <Button
               type="button"
+              variant="ghost"
+              size="sm"
               onClick={() => setExpanded((v) => !v)}
               aria-expanded={expanded}
               aria-controls={detailsId}
               aria-label={`${expanded ? "Hide" : "Show"} details for ${rowLabel}`}
-              className="inline-flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11"
+              className="h-11 w-full gap-1.5 px-2 text-[11px] text-muted-foreground md:h-6 md:w-6 md:p-0"
             >
               <ChevronRight
                 className={cn(
@@ -127,14 +138,17 @@ function TableRowView({
                   expanded && "rotate-90"
                 )}
               />
-            </button>
+              <span className="md:sr-only">
+                {expanded ? "Hide details" : "Details"}
+              </span>
+            </Button>
           </td>
         ) : null}
         {primaryColumns.map((column) => (
           <td
             key={column.id}
             className={cn(
-              "grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-2 px-2 py-1.5 align-middle text-xs md:table-cell md:p-2",
+              "order-1 col-span-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-2 px-2 py-1.5 align-middle text-xs md:table-cell md:p-2",
               column.align === "right" && "md:text-right",
               column.align === "center" && "md:text-center"
             )}
@@ -150,27 +164,22 @@ function TableRowView({
         {hasActionColumn ? (
           <td
             className={cn(
-              "min-w-0 items-start gap-2 px-2 py-1.5 text-right align-middle md:table-cell md:w-px md:min-w-32 md:p-2",
-              row.action ? "grid grid-cols-[5rem_minmax(0,1fr)]" : "hidden"
+              "order-2 col-span-1 mt-1 min-w-0 border-t border-border/50 p-1.5 text-right align-middle md:table-cell md:w-px md:min-w-32 md:border-0 md:p-2",
+              row.action ? "block" : "hidden"
             )}
           >
             {row.action ? (
-              <>
-                <span className="text-left text-[10px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
-                  Action
-                </span>
-                <ItemAction
-                  action={row.action}
-                  itemId={row.id}
-                  blockId={block.id}
-                  buttonClassName="w-full whitespace-normal break-words md:w-auto md:whitespace-nowrap md:break-normal"
-                  ariaLabel={`${row.action.label} for ${formatCell(
-                    row.cells[primaryColumns[0]?.id] ?? row.id,
-                    primaryColumns[0]?.format
-                  )}`}
-                  {...interactionProps}
-                />
-              </>
+              <ItemAction
+                action={row.action}
+                itemId={row.id}
+                blockId={block.id}
+                buttonClassName="min-h-11 w-full whitespace-normal break-words md:min-h-7 md:w-auto md:whitespace-nowrap md:break-normal"
+                ariaLabel={`${row.action.label} for ${formatCell(
+                  row.cells[primaryColumns[0]?.id] ?? row.id,
+                  primaryColumns[0]?.format
+                )}`}
+                {...interactionProps}
+              />
             ) : null}
           </td>
         ) : null}
@@ -186,13 +195,13 @@ function TableRowView({
         >
           <td
             colSpan={primaryColumns.length + 1 + (hasActionColumn ? 1 : 0)}
-            className="block p-2 align-middle md:table-cell"
+            className="block bg-muted/25 px-4 py-3 align-middle md:table-cell md:bg-transparent md:p-2"
           >
-            <dl className="ml-6 space-y-0.5">
+            <dl className="space-y-1.5 md:ml-6 md:space-y-0.5">
               {secondaryColumns.map((column) => (
                 <div
                   key={column.id}
-                  className="flex items-center gap-1.5 text-[11px]"
+                  className="grid grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-2 text-[11px] md:flex md:items-center md:gap-1.5"
                 >
                   <dt className="shrink-0 text-muted-foreground">
                     {column.label}:
