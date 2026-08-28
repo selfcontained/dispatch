@@ -119,3 +119,20 @@ export function findLastChangeKeyInRange(
   }
   return lastKey;
 }
+
+export type HunkSeparatorLabel = {
+  /** The `@@ -a,b +c,d @@` range marker. */
+  range: string;
+  /** Trailing context git emits after the range (usually the enclosing symbol). */
+  context: string;
+};
+
+/**
+ * Split a hunk's header line into its range marker and trailing context so the
+ * separator row can render them with different emphasis.
+ */
+export function parseHunkHeader(content: string): HunkSeparatorLabel {
+  const match = /^(@@[^@]*@@)\s?(.*)$/.exec(content);
+  if (!match) return { range: content.trim(), context: "" };
+  return { range: match[1]!, context: match[2]!.trim() };
+}

@@ -1323,6 +1323,51 @@ html[data-hidden] .animate-sidebar-nav-pulse {
 .changes-diff-view .diff-hunk-header-content {
   padding: 4px 12px;
 }
+/* The separator has to read as chrome, not as another line of code. Three cues
+ * carry that, because any one alone is too weak against a dense syntax-
+ * highlighted table: a banded background between visible rules, a text indent
+ * that deliberately does NOT line up with .diff-code's 12px, and an italic
+ * context — the app is monospace throughout, so slanting it is the strongest
+ * "not source" signal available without importing a face used nowhere else.
+ * Text opacities are the lowest that clear WCAG AA (4.5:1) against the band in
+ * both the dark and light --diff-bg/--diff-fg pairs. */
+.changes-diff-view .diff-hunk-separator > tr > td {
+  background: hsl(var(--diff-fg) / 0.1);
+  border-top: 1px solid hsl(var(--diff-fg) / 0.28);
+  border-bottom: 1px solid hsl(var(--diff-fg) / 0.28);
+  color: hsl(var(--diff-fg) / 0.85);
+  user-select: none;
+}
+/* Keep the gutter/code rule running through the separator so the row reads as a
+ * band laid over the diff rather than a break in it. The cell spans both
+ * gutters in unified and the single gutter in split, so this lands on the code
+ * boundary either way. */
+.changes-diff-view .diff-hunk-separator > tr > td.diff-decoration-gutter {
+  border-right: 1px solid hsl(var(--diff-fg) / 0.1);
+}
+.changes-diff-view .diff-hunk-separator-gutter {
+  display: block;
+  padding: 3px 8px;
+  text-align: right;
+  line-height: 1.5;
+}
+/* `pre` keeps the header readable in unified, where the table is max-content and
+ * grows anyway. In split the table is fixed-layout, so overflow+ellipsis clips a
+ * long funcname instead of letting this row alone decide the diff's scroll
+ * width — every .diff-code around it wraps and never scrolls sideways. */
+.changes-diff-view .diff-hunk-separator-label {
+  display: block;
+  padding: 3px 12px 3px 20px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.changes-diff-view .diff-hunk-separator-context {
+  margin-left: 12px;
+  color: hsl(var(--diff-fg) / 0.7);
+  font-style: italic;
+}
 
 /* Syntax highlighting — dark mode (GitHub Dark) */
 .changes-diff-view .token.comment,

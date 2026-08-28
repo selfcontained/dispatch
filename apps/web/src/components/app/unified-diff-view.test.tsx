@@ -280,6 +280,83 @@ describe("UnifiedDiffView", () => {
   });
 });
 
+// A file with two hunks: without a separator the gutter jumps 6 -> 40 with
+// nothing to mark the gap, which is exactly what the separator row exists to
+// make visible.
+const TWO_HUNK_DIFF = `diff --git a/src/example.ts b/src/example.ts
+index 1111111..2222222 100644
+--- a/src/example.ts
++++ b/src/example.ts
+@@ -1,4 +1,5 @@
+ const a = 1;
+-const b = 2;
++const b = 3;
++const c = 4;
+ console.log(a);
+ console.log(b);
+@@ -40,3 +41,3 @@ export function tail() {
+ const x = 1;
+-const y = 2;
++const y = 3;
+`;
+
+// Same shape as TWO_HUNK_DIFF but with nothing trailing the second `@@`, which
+// is what git emits when its funcname heuristic finds no enclosing declaration.
+const NO_FUNCNAME_DIFF = TWO_HUNK_DIFF.replace(
+  "@@ -40,3 +41,3 @@ export function tail() {",
+  "@@ -40,3 +41,3 @@"
+);
+
+describe("UnifiedDiffView hunk separators", () => {
+  it("marks the boundary between hunks but not the top of the file", () => {
+    const { container } = renderView({ diffText: TWO_HUNK_DIFF });
+
+    const separators = container.querySelectorAll(".diff-hunk-separator");
+    expect(separators).toHaveLength(1);
+    expect(separators[0]!.textContent).toContain("@@ -40,3 +41,3 @@");
+    expect(separators[0]!.textContent).toContain("export function tail()");
+  });
+
+  it("places the separator between the two hunks' rows", () => {
+    const { container } = renderView({ diffText: TWO_HUNK_DIFF });
+
+    const bodies = Array.from(container.querySelectorAll("table.diff tbody"));
+    const separatorIndex = bodies.findIndex((el) =>
+      el.classList.contains("diff-hunk-separator")
+    );
+    const lastFirstHunkRow = rowFor(container, "console.log(b);");
+    const firstSecondHunkRow = rowFor(container, "const x = 1;");
+
+    expect(bodies.indexOf(lastFirstHunkRow.closest("tbody")!)).toBeLessThan(
+      separatorIndex
+    );
+    expect(
+      bodies.indexOf(firstSecondHunkRow.closest("tbody")!)
+    ).toBeGreaterThan(separatorIndex);
+  });
+
+  // Decoration was chosen precisely because it emits a different cell shape per
+  // view type; without this the split layout could break silently.
+  it("spans the split view's columns", () => {
+    const { container } = renderView({
+      diffText: TWO_HUNK_DIFF,
+      viewType: "split",
+    });
+
+    const cells = container.querySelectorAll(".diff-hunk-separator td");
+    expect(cells).toHaveLength(2);
+    expect(cells[1]!.getAttribute("colspan")).toBe("3");
+  });
+
+  it("omits the context span for a header git gave no funcname", () => {
+    const { container } = renderView({ diffText: NO_FUNCNAME_DIFF });
+
+    const separator = container.querySelector(".diff-hunk-separator")!;
+    expect(separator.textContent).toContain("@@ -40,3 +41,3 @@");
+    expect(separator.querySelector(".diff-hunk-separator-context")).toBeNull();
+  });
+});
+
 describe("UnifiedDiffView feedback annotations", () => {
   it("anchors a feedback annotation to the last changed line in its range", () => {
     const { container } = renderView({

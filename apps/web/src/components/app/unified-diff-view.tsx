@@ -1,5 +1,11 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { Diff, Hunk, parseDiff, type EventMap } from "react-diff-view";
+import {
+  Decoration,
+  Diff,
+  Hunk,
+  parseDiff,
+  type EventMap,
+} from "react-diff-view";
 import "react-diff-view/style/index.css";
 import { MessageSquare } from "lucide-react";
 
@@ -13,6 +19,7 @@ import {
 import {
   collectSelectedChangeKeys,
   getNewLineNumber,
+  parseHunkHeader,
   tokenizeHunksIndependently,
   type LineSelection,
 } from "@/components/app/unified-diff-utils";
@@ -248,7 +255,38 @@ export const UnifiedDiffView = memo(function UnifiedDiffView({
           widgets={widgets}
         >
           {(hunks) =>
-            hunks.map((hunk) => <Hunk key={hunk.content} hunk={hunk} />)
+            hunks.flatMap((hunk, index) => {
+              const key = `${hunk.oldStart}-${hunk.newStart}-${index}`;
+              const nodes = [<Hunk key={key} hunk={hunk} />];
+              // Skip the leading separator: the file header already marks the
+              // start of the diff, so one there would only add noise.
+              if (index === 0) return nodes;
+              const { range, context } = parseHunkHeader(hunk.content);
+              nodes.unshift(
+                <Decoration key={`sep-${key}`} className="diff-hunk-separator">
+                  <span
+                    className="diff-hunk-separator-gutter"
+                    aria-hidden="true"
+                  >
+                    &#8943;
+                  </span>
+                  <span className="diff-hunk-separator-label">
+                    {/* The range marker alone reads as punctuation when
+                        announced; say what the row actually means. */}
+                    <span className="sr-only">
+                      Skipped to line {hunk.newStart}.{" "}
+                    </span>
+                    <span className="diff-hunk-separator-range">{range}</span>
+                    {context ? (
+                      <span className="diff-hunk-separator-context">
+                        {context}
+                      </span>
+                    ) : null}
+                  </span>
+                </Decoration>
+              );
+              return nodes;
+            })
           }
         </Diff>
       </div>
