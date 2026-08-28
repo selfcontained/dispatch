@@ -314,7 +314,8 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalledWith(
-        expect.objectContaining({ cwd: "/tmp/wt" })
+        expect.objectContaining({ cwd: "/tmp/wt" }),
+        expect.any(Function)
       );
     });
 
@@ -450,7 +451,8 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalledWith(
-        expect.objectContaining({ deleteBranch: true })
+        expect.objectContaining({ deleteBranch: true }),
+        expect.any(Function)
       );
     });
 
@@ -471,7 +473,8 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalledWith(
-        expect.objectContaining({ deleteBranch: false })
+        expect.objectContaining({ deleteBranch: false }),
+        expect.any(Function)
       );
     });
 
@@ -491,7 +494,8 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalledWith(
-        expect.objectContaining({ deleteBranch: false })
+        expect.objectContaining({ deleteBranch: false }),
+        expect.any(Function)
       );
     });
 
@@ -512,7 +516,8 @@ describe("executeArchive", () => {
       await executeArchive(deps, "a1", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalledWith(
-        expect.objectContaining({ deleteBranch: true })
+        expect.objectContaining({ deleteBranch: true }),
+        expect.any(Function)
       );
     });
   });
@@ -865,7 +870,8 @@ describe("executeArchive", () => {
 
       // Leaving it behind would register a worktree no agent record can reach.
       expect(cleanupGitWorktree).toHaveBeenCalledWith(
-        expect.objectContaining({ cwd: "/tmp/wt-child", deleteBranch: true })
+        expect.objectContaining({ cwd: "/tmp/wt-child", deleteBranch: true }),
+        expect.any(Function)
       );
     });
 
@@ -925,8 +931,94 @@ describe("executeArchive", () => {
       await executeArchive(deps, "parent", makeCallbacks());
 
       expect(cleanupGitWorktree).toHaveBeenCalledWith(
-        expect.objectContaining({ cwd: "/tmp/wt-child" })
+        expect.objectContaining({ cwd: "/tmp/wt-child" }),
+        expect.any(Function)
       );
+    });
+
+    it("keeps cascading when one child's worktree cleanup hangs", async () => {
+      vi.useFakeTimers();
+      try {
+        const parent = makeAgent("parent");
+        const stuck = makeAgent("stuck", {
+          parentAgentId: "parent",
+          status: "stopped",
+          worktreePath: "/tmp/wt-stuck",
+          worktreeBranch: "agt/stuck",
+        });
+        const sibling = makeAgent("sibling", {
+          parentAgentId: "parent",
+          status: "stopped",
+        });
+        // git never returns — a held index or config lock looks exactly like
+        // this from here.
+        vi.mocked(cleanupGitWorktree).mockReturnValueOnce(
+          new Promise(() => {}) as never
+        );
+
+        const pool = makeChildQueryPool([
+          { id: "stuck", parentAgentId: "parent" },
+          { id: "sibling", parentAgentId: "parent" },
+        ]);
+        const lookup = makeAgentLookup([parent, stuck, sibling]);
+        const deps = makeDeps({
+          pool: pool as never,
+          getRequiredAgent: lookup,
+          getAgent: lookup,
+        });
+        const cb = makeCallbacks();
+
+        const archive = executeArchive(deps, "parent", cb);
+        await vi.advanceTimersByTimeAsync(61_000);
+        await archive;
+
+        // The hung child is still archived (its worktree just stays on disk),
+        // and the sibling queued behind it is not stranded.
+        expect(cb.onComplete).toHaveBeenCalledWith([
+          "parent",
+          "stuck",
+          "sibling",
+        ]);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("leaves a worktree alone when another live agent also references it", async () => {
+      const parent = makeAgent("parent");
+      const child = makeAgent("child", {
+        parentAgentId: "parent",
+        status: "stopped",
+        worktreePath: "/tmp/wt-shared",
+        worktreeBranch: "agt/shared",
+      });
+
+      const pool = makePool(async (sql: string, params?: unknown[]) => {
+        if (sql.includes("worktree_path = $2")) {
+          // A second live row points at the same worktree.
+          return { rows: [{ id: "other" }], rowCount: 1 };
+        }
+        if (sql.includes("FROM agents") && sql.includes("parent_agent_id")) {
+          return params?.[0] === "parent"
+            ? { rows: [{ id: "child" }], rowCount: 1 }
+            : { rows: [], rowCount: 0 };
+        }
+        return defaultQueryImpl(sql);
+      });
+      const lookup = makeAgentLookup([parent, child]);
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: lookup,
+        getAgent: lookup,
+      });
+      const cb = makeCallbacks();
+
+      await executeArchive(deps, "parent", cb);
+
+      // Removing it would take the other agent's work with it.
+      expect(cleanupGitWorktree).not.toHaveBeenCalled();
+      // The agent records still go — only the worktree is spared.
+      expect(cb.onComplete).toHaveBeenCalledWith(["parent", "child"]);
     });
 
     it("does not cascade when the agent has no children", async () => {

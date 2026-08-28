@@ -2,6 +2,7 @@ import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
 
 import { cleanupGitWorktree } from "../shared/git/worktree.js";
+import { runCommand, type CommandRunner } from "../shared/lib/run-command.js";
 import {
   getUncommittedChanges,
   getUnmergedChanges,
@@ -65,6 +66,36 @@ async function getChildAgentIds(
 }
 
 /**
+ * Ceiling on the git work one agent's worktree cleanup may take.
+ *
+ * Cleanup shells out to git, and git blocks indefinitely on a held index or
+ * config lock. The cascade walks children one at a time, so an unbounded hang
+ * on any one of them would strand it in `archiving` and stop every sibling
+ * behind it from being archived at all. Generous enough that only a genuinely
+ * stuck repository trips it.
+ */
+const WORKTREE_CLEANUP_TIMEOUT_MS = 60_000;
+
+/** Rejects if `work` outruns `ms`, always clearing its own timer. */
+async function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  message: string
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      work,
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+      }),
+    ]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+/**
  * Applies the archive's worktree policy to one agent.
  *
  * Shared by the parent's own archive and by every agent the cascade sweeps up,
@@ -77,6 +108,7 @@ async function getChildAgentIds(
  * rather than failing the archive around it.
  */
 async function cleanupAgentWorktree(
+  pool: Pool,
   logger: FastifyBaseLogger,
   agent: AgentRecord,
   cleanupWorktree: WorktreeCleanupMode,
@@ -85,16 +117,46 @@ async function cleanupAgentWorktree(
 ): Promise<void> {
   if (!agent.worktreePath) return;
   const id = agent.id;
+  const worktreePath = agent.worktreePath;
 
-  try {
+  const run = async () => {
+    // Nothing stops two live agent rows recording the same worktree or branch
+    // — `agents` has no uniqueness constraint on either column, and
+    // `completeSetup` persists whatever it is handed. Removing a worktree
+    // another live agent is sitting in would take that agent's work with it,
+    // so a shared path or branch forfeits cleanup. A failure here throws and
+    // is caught below, which also leaves the worktree alone: when ownership
+    // cannot be established, the safe answer is to keep it.
+    const coOwner = await pool.query<{ id: string }>(
+      `SELECT id
+       FROM agents
+       WHERE deleted_at IS NULL
+         AND id <> $1
+         AND (worktree_path = $2 OR ($3::text IS NOT NULL AND worktree_branch = $3))
+       LIMIT 1`,
+      [id, worktreePath, agent.worktreeBranch]
+    );
+    if ((coOwner.rowCount ?? 0) > 0) {
+      logger.warn(
+        {
+          agentId: id,
+          worktreePath,
+          worktreeBranch: agent.worktreeBranch,
+          sharedWithAgentId: coOwner.rows[0]?.id,
+        },
+        "Another live agent references this worktree; leaving it on disk."
+      );
+      return;
+    }
+
     const tCheck = Date.now();
     let shouldCleanup = cleanupWorktree === "force";
     let preserveReason: string | undefined;
 
     if (!shouldCleanup && cleanupWorktree === "auto") {
       const [unmerged, uncommitted] = await Promise.all([
-        getUnmergedChanges(agent.worktreePath),
-        getUncommittedChanges(agent.worktreePath),
+        getUnmergedChanges(worktreePath),
+        getUncommittedChanges(worktreePath),
       ]);
       const hasChanges =
         unmerged.hasUnmergedCommits || uncommitted.hasUncommittedChanges;
@@ -121,31 +183,51 @@ async function cleanupAgentWorktree(
       const dispatchOwnsBranch =
         !!agent.worktreeBranch &&
         (!agent.baseBranch || agent.worktreeBranch !== agent.baseBranch);
-      await cleanupGitWorktree({
-        cwd: agent.worktreePath,
-        deleteBranch: dispatchOwnsBranch,
-        force: true,
-        originalBranch: agent.worktreeBranch,
-      });
+      const boundedGit: CommandRunner = (command, args, options) =>
+        runCommand(command, args, {
+          ...options,
+          timeoutMs: options?.timeoutMs ?? WORKTREE_CLEANUP_TIMEOUT_MS,
+        });
+      await cleanupGitWorktree(
+        {
+          cwd: worktreePath,
+          deleteBranch: dispatchOwnsBranch,
+          force: true,
+          originalBranch: agent.worktreeBranch,
+        },
+        boundedGit
+      );
       durations.worktreeCleanup = Date.now() - tCleanup;
       logger.info(
-        { agentId: id, worktreePath: agent.worktreePath },
+        { agentId: id, worktreePath: worktreePath },
         "Cleaned up agent worktree."
       );
     } else {
       logger.info(
         {
           agentId: id,
-          worktreePath: agent.worktreePath,
+          worktreePath: worktreePath,
           cleanupWorktree,
           preserveReason,
         },
         `Preserved agent worktree: ${preserveReason}.`
       );
     }
+  };
+
+  // Every failure lands here, timeout included, and the worktree is simply
+  // left on disk. Cleanup is never allowed to fail the archive around it —
+  // least of all a cascade, where the siblings queued behind this one still
+  // have to be archived.
+  try {
+    await withTimeout(
+      run(),
+      WORKTREE_CLEANUP_TIMEOUT_MS,
+      `Worktree cleanup timed out after ${WORKTREE_CLEANUP_TIMEOUT_MS}ms`
+    );
   } catch (error) {
     logger.warn(
-      { err: error, agentId: id },
+      { err: error, agentId: id, worktreePath },
       "Worktree cleanup failed; leaving on disk."
     );
   }
@@ -231,8 +313,13 @@ export async function executeArchive(
     // Phase: worktree-check
     await publishPhase("worktree-check");
 
-    await cleanupAgentWorktree(logger, agent, cleanupWorktree, durations, () =>
-      publishPhase("worktree-cleanup")
+    await cleanupAgentWorktree(
+      pool,
+      logger,
+      agent,
+      cleanupWorktree,
+      durations,
+      () => publishPhase("worktree-cleanup")
     );
 
     // Phase: finalizing
@@ -428,7 +515,7 @@ export async function deleteAgentDirect(
   );
   // Same worktree policy the parent got. A cascaded child that kept its
   // worktree would leave it registered with no agent record able to reach it.
-  await cleanupAgentWorktree(logger, agent, cleanupWorktree, durations);
+  await cleanupAgentWorktree(pool, logger, agent, cleanupWorktree, durations);
 
   await pool.query(
     `UPDATE agents
