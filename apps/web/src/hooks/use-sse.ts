@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { SurfaceChangedEvent } from "@dispatch/shared";
+import type { SharedUiEvent } from "@dispatch/shared";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "jotai";
 import {
@@ -44,61 +44,24 @@ const MAX_RECONNECT_DELAY_MS = 30_000;
  */
 const STABLE_CONNECTION_MS = 10_000;
 
+/**
+ * The four members whose payloads differ from the server's declaration — see
+ * `SharedUiEvent` in `@dispatch/shared` for why each one stays per side.
+ * Every other member of the stream comes from that shared union.
+ */
 type UiEvent =
   | { type: "snapshot"; agents: Agent[] }
   | { type: "agent.upsert"; agent: Agent }
-  | {
-      type: "agent.terminal_state_changed";
-      agentId: string;
-      terminalState: TerminalUiState;
-    }
-  | {
-      type: "agent.injection_hold_changed";
-      agentId: string;
-      holdState: InjectionHoldState;
-    }
   | {
       type: "agent.diff_state_changed";
       agentId: string;
       diffStats: DiffStats | null;
     }
-  | { type: "agent.deleted"; agentId: string }
-  | { type: "media.changed"; agentId: string }
-  | {
-      type: "whiteboard.changed";
-      agentId: string;
-      version: number;
-      source: "user" | "agent";
-    }
-  | { type: "media.seen"; agentId: string; keys: string[] }
-  | { type: "stream.started"; agentId: string }
-  | { type: "stream.stopped"; agentId: string }
-  | {
-      type: "review.created";
-      agentId: string;
-      reviewId: number;
-      reviewerAgentId?: string | null;
-    }
-  | { type: "review.updated"; agentId: string }
-  | { type: "review_feedback.updated"; agentId: string }
-  | { type: "job.changed" }
-  | { type: "template.changed" }
-  | { type: "brain.changed"; repoRoot: string }
-  | { type: "message.created"; senderAgentId: string; recipientAgentId: string }
-  | { type: "message.read"; agentId: string }
-  | {
-      type: "notification";
-      notificationId: string;
-      agentId: string;
-      agentName: string;
-      eventType: string;
-      message: string;
-    }
   | {
       type: "release.cached_info_changed";
       snapshot: ReleaseInfoSnapshot | null;
     }
-  | SurfaceChangedEvent;
+  | SharedUiEvent;
 
 function patchAgentHasStream(
   queryClient: ReturnType<typeof useQueryClient>,

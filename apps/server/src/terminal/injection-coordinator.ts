@@ -1,14 +1,9 @@
 import type { FastifyBaseLogger } from "fastify";
+import type { InjectionHoldState } from "@dispatch/shared";
 
-export type InjectionHoldState = {
-  // True while a delivery is actively waiting out the user-activity quiet gate.
-  held: boolean;
-  // Gated injections enqueued but not yet delivered (includes the held one).
-  pendingCount: number;
-  // The quiet window the gate waits for, so clients can render delivery ETA
-  // from their own local typing activity.
-  quietMs: number;
-};
+// Canonical home is `@dispatch/shared` — the state is a wire payload the web
+// client reads too. Re-exported so existing importers keep resolving.
+export type { InjectionHoldState } from "@dispatch/shared";
 
 // The web terminal and automated flows (reviews, agent messages, quick
 // phrases, media drops) all write into the same tmux pane. The coordinator

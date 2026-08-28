@@ -43,3 +43,9 @@ export type {
   TextBlock,
   Tone,
 } from "./surface-types.js";
+export type {
+  InjectionHoldState,
+  SharedUiEvent,
+  TerminalCopyMode,
+  TerminalUiState,
+} from "./ui-event-types.js";
