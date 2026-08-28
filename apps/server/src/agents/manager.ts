@@ -225,6 +225,15 @@ export type DiffStatsRefresherHandle = {
  */
 const SUBTREE_WORKTREE_STATUS_MAX = 50;
 const SUBTREE_WORKTREE_STATUS_BUDGET_MS = 20_000;
+/** Traversal cap, so one request can never walk an unbounded number of rows. */
+const SUBTREE_WORKTREE_STATUS_NODE_MAX = 5_000;
+/**
+ * Previews in flight across all requests. An overrunning read is detached
+ * rather than cancelled — git exposes no way to abort it — so this is what
+ * actually bounds how much git work concurrent callers can stack up.
+ */
+const SUBTREE_WORKTREE_STATUS_MAX_INFLIGHT = 3;
+let subtreeWorktreeStatusInFlight = 0;
 
 export class AgentManager {
   private readonly pool: Pool;
@@ -1144,6 +1153,28 @@ export class AgentManager {
   async checkSubtreeWorktreeStatus(id: string): Promise<SubtreeWorktreeStatus> {
     await this.getRequiredAgent(id);
 
+    // Detached reads keep running after their request returns, so admission
+    // control — not the per-request budget — is what stops concurrent callers
+    // stacking up git work. Refusing reports an incomplete preview, which the
+    // caller already knows not to offer a destructive cleanup on.
+    if (subtreeWorktreeStatusInFlight >= SUBTREE_WORKTREE_STATUS_MAX_INFLIGHT) {
+      this.logger.warn(
+        { agentId: id, inFlight: subtreeWorktreeStatusInFlight },
+        "Too many worktree previews in flight; returning an incomplete one."
+      );
+      return { statuses: [], complete: false };
+    }
+    subtreeWorktreeStatusInFlight += 1;
+    try {
+      return await this.readSubtreeWorktreeStatus(id);
+    } finally {
+      subtreeWorktreeStatusInFlight -= 1;
+    }
+  }
+
+  private async readSubtreeWorktreeStatus(
+    id: string
+  ): Promise<SubtreeWorktreeStatus> {
     // Recursive walk of `parent_agent_id`, matching the archive cascade: no
     // `launched_by_agent_id`, so an independent `child: false` agent never
     // appears, and agents already archiving are skipped and not descended
@@ -1172,19 +1203,27 @@ export class AgentManager {
            AND a.status <> 'archiving'
            AND NOT (a.id = ANY(s.path))
        )
-       SELECT DISTINCT ON (id) id, name, worktree_path
+       SELECT id, name, worktree_path
        FROM subtree
-       WHERE worktree_path IS NOT NULL
        LIMIT $2`,
-      [id, SUBTREE_WORKTREE_STATUS_MAX + 1]
+      [id, SUBTREE_WORKTREE_STATUS_NODE_MAX + 1]
     );
 
-    // One row over the cap is the signal that more exist. The filter and the
-    // limit both live in SQL so a large subtree never materializes here; the
-    // traversal itself is bounded by the agents table, since the path guard
-    // lets the walk reach each agent at most once.
-    const budgeted = result.rows.slice(0, SUBTREE_WORKTREE_STATUS_MAX);
-    let complete = result.rows.length <= SUBTREE_WORKTREE_STATUS_MAX;
+    // No DISTINCT: each agent has exactly one parent, so the walk is a tree and
+    // an id cannot repeat. Dropping it matters because DISTINCT would have to
+    // consume the entire recursion before the LIMIT could apply, which is the
+    // opposite of bounding the work.
+    //
+    // Both limits ask for one row over the cap, so exceeding either is visible
+    // rather than silently truncating into something that reads as clean.
+    const traversalTruncated =
+      result.rows.length > SUBTREE_WORKTREE_STATUS_NODE_MAX;
+    const withWorktrees = result.rows
+      .slice(0, SUBTREE_WORKTREE_STATUS_NODE_MAX)
+      .filter((row) => row.worktree_path);
+    const budgeted = withWorktrees.slice(0, SUBTREE_WORKTREE_STATUS_MAX);
+    let complete =
+      !traversalTruncated && budgeted.length === withWorktrees.length;
 
     // Each status runs a `git fetch`, so a wide subtree is bounded three ways:
     // how many run at once, how many run at all, and how long the whole thing

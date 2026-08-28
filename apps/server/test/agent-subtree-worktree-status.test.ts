@@ -26,6 +26,7 @@ function makeManager(rows: Row[]) {
   const manager = Object.create(AgentManager.prototype) as AgentManager;
   Object.assign(manager, {
     pool: { query },
+    logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
     getRequiredAgent: vi.fn(async (id: string) => ({ id })),
   });
   return { manager, query };
@@ -57,39 +58,77 @@ describe("checkSubtreeWorktreeStatus", () => {
     expect(String(query.mock.calls[0]?.[0])).toContain("status <> 'archiving'");
   });
 
-  it("bounds the query itself rather than filtering in memory", async () => {
+  it("caps the traversal in SQL without a blocking DISTINCT", async () => {
     const { manager, query } = makeManager([]);
     await manager.checkSubtreeWorktreeStatus("root");
 
-    // A large subtree must never materialize here just to be sliced.
     const sql = String(query.mock.calls[0]?.[0]);
-    expect(sql).toContain("worktree_path IS NOT NULL");
+    // DISTINCT would force the whole recursion to be consumed before LIMIT
+    // could apply — the opposite of bounding the work. One parent per agent
+    // makes the walk a tree, so ids cannot repeat and it is not needed.
+    expect(sql).not.toContain("DISTINCT");
     expect(sql).toContain("LIMIT $2");
-    // One over the cap, so an oversized subtree is detectable.
-    expect(query.mock.calls[0]?.[1]).toEqual(["root", 51]);
+    // One over the node cap, so an oversized traversal is detectable.
+    expect(query.mock.calls[0]?.[1]).toEqual(["root", 5001]);
   });
 
-  it("marks the preview incomplete when a status read outruns the budget", async () => {
-    vi.useFakeTimers();
-    try {
+  it("marks the preview incomplete when the traversal hits the node cap", async () => {
+    const rows = Array.from({ length: 5001 }, (_, i) => ({
+      id: `a${i}`,
+      name: `a${i}`,
+      worktree_path: null,
+    }));
+    const { manager } = makeManager(rows);
+
+    const result = await manager.checkSubtreeWorktreeStatus("a0");
+
+    // Nothing to show, but the walk was cut short — saying so keeps the caller
+    // from reading an empty list as "nothing to lose".
+    expect(result.complete).toBe(false);
+    expect(result.statuses).toEqual([]);
+  });
+
+  it("refuses rather than piling up concurrent git work", async () => {
+    const rows = [{ id: "root", name: "root", worktree_path: "/wt/root" }];
+    const release: Array<() => void> = [];
+    // Three reads held open on purpose, then released — no timers involved, so
+    // the gate's own bookkeeping is what the assertions exercise.
+    for (let i = 0; i < 3; i += 1) {
       vi.mocked(readWorktreeStatus).mockImplementationOnce(
-        () => new Promise(() => {}) as never
+        () =>
+          new Promise((resolve) => {
+            release.push(() =>
+              resolve({
+                hasWorktree: true,
+                hasUnmergedCommits: false,
+                hasUncommittedChanges: false,
+                worktreePath: "/wt/root",
+                branchName: "agt/x",
+                changedFiles: [],
+                uncommittedFiles: [],
+              })
+            );
+          })
       );
-      const { manager } = makeManager([
-        { id: "root", name: "root", worktree_path: "/wt/root" },
-      ]);
-
-      const pending = manager.checkSubtreeWorktreeStatus("root");
-      await vi.advanceTimersByTimeAsync(21_000);
-      const result = await pending;
-
-      // git cannot be aborted, so the read is abandoned rather than awaited —
-      // and the preview says so instead of looking clean.
-      expect(result.complete).toBe(false);
-      expect(result.statuses).toEqual([]);
-    } finally {
-      vi.useRealTimers();
     }
+
+    const managers = Array.from({ length: 4 }, () => makeManager(rows).manager);
+    const pending = managers
+      .slice(0, 3)
+      .map((m) => m.checkSubtreeWorktreeStatus("root"));
+    await vi.waitFor(() => expect(release).toHaveLength(3));
+
+    // Detached reads outlive their request, so admission control is what
+    // actually bounds the git load.
+    const refused = await managers[3]!.checkSubtreeWorktreeStatus("root");
+    expect(refused).toEqual({ statuses: [], complete: false });
+
+    release.forEach((fn) => fn());
+    await Promise.all(pending);
+
+    // The gate reopens once they finish.
+    const afterDrain = await managers[3]!.checkSubtreeWorktreeStatus("root");
+    expect(afterDrain.complete).toBe(true);
   });
 
   it("reports only agents that actually have a worktree, target first", async () => {
@@ -107,7 +146,6 @@ describe("checkSubtreeWorktreeStatus", () => {
   });
 
   it("marks the preview incomplete when the subtree exceeds the budget", async () => {
-    // 51 rows: the query asks for one over the cap precisely so this is visible.
     const rows = Array.from({ length: 51 }, (_, i) => ({
       id: `a${i}`,
       name: `a${i}`,
