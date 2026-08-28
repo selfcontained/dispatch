@@ -16,6 +16,7 @@ import { StatusBlockView } from "@/components/app/agent-surfaces/blocks/status-b
 import { ProgressBlockView } from "@/components/app/agent-surfaces/blocks/progress-block";
 import { ActionsBlockView } from "@/components/app/agent-surfaces/blocks/actions-block";
 import { FormBlockView } from "@/components/app/agent-surfaces/blocks/form-block";
+import { SectionBlockView } from "@/components/app/agent-surfaces/blocks/section-block";
 
 function UnsupportedBlockView({
   blockType,
@@ -106,6 +107,24 @@ function BlockRenderer({
           readOnly={readOnly}
           idPrefix={idPrefix}
         />
+      );
+    case "section":
+      return (
+        <SectionBlockView block={block}>
+          {block.blocks.map((child) => (
+            <BlockRenderer
+              key={child.id}
+              block={child}
+              agentId={agentId}
+              surfaceId={surfaceId}
+              surfaceRevision={surfaceRevision}
+              interactions={interactions}
+              onRequestRefresh={onRequestRefresh}
+              readOnly={readOnly}
+              idPrefix={idPrefix}
+            />
+          ))}
+        </SectionBlockView>
       );
     default: {
       // Keep this assignment so adding a SurfaceBlock variant requires an

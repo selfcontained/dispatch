@@ -38,6 +38,7 @@ export type {
   SurfaceItemAction,
   SurfaceLifecycle,
   SurfaceListItem,
+  SurfaceSectionBlock,
   TableBlock,
   TableColumn,
   TableRow,

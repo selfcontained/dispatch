@@ -38,7 +38,7 @@ function renderList(block: ListBlock) {
 }
 
 describe("ListBlockView v2", () => {
-  it("renders explicit checked and unchecked boxes without inferring from tone", () => {
+  it("renders explicit completion markers without inferring from tone", () => {
     renderList({
       id: "work",
       type: "list",

@@ -7,6 +7,7 @@ export type {
   ListBlock,
   ProgressBlock,
   Scalar,
+  SurfaceSectionBlock,
   StatusBlock,
   Surface,
   SurfaceBlock,

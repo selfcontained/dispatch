@@ -79,6 +79,13 @@ parents may read a direct child's surfaces but cannot edit them.
 - `form`: text, textarea, number, checkbox, radio, and single/multi-select input
   submitted together. Use `submitMode: "once"` for decisions and approvals,
   `"repeatable"` for intake or ongoing feedback.
+- `section`: a titled grouping container for related blocks. Its `title` is
+  required; add `description` for context. Set
+  `collapse: { initiallyCollapsed: true }` when the renderer may hide its
+  body while keeping the header visible. Without `collapse`, it is a static
+  group. Sections may nest four levels, contain up to 20 direct children, and
+  surfaces allow up to 100 nested blocks in addition to the 40 top-level
+  blocks.
 
 ## Use-case recipes
 

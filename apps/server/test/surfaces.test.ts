@@ -375,6 +375,99 @@ describe("surface authoring and inbox", () => {
     );
   });
 
+  it("validates bounded recursive sections and captures nested interactions", async () => {
+    const document = {
+      title: "Release plan",
+      blocks: [
+        {
+          id: "rollout",
+          type: "section" as const,
+          title: "Rollout",
+          description: "The current deployment steps.",
+          collapse: { initiallyCollapsed: true },
+          blocks: [
+            {
+              id: "deploy",
+              type: "actions" as const,
+              actions: [
+                { id: "start", label: "Start", intent: "start_deploy" },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    expect(surfaceDocumentSchema.safeParse(document).success).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [{ ...document.blocks[0], title: "   " }],
+      }).success
+    ).toBe(false);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [
+          ...document.blocks,
+          {
+            id: "other-section",
+            type: "section" as const,
+            title: "Other",
+            blocks: [
+              { id: "deploy", type: "text" as const, text: "Duplicate" },
+            ],
+          },
+        ],
+      }).success
+    ).toBe(false);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [
+          {
+            ...document.blocks[0],
+            blocks: Array.from({ length: 21 }, (_, index) => ({
+              id: `child-${index}`,
+              type: "text" as const,
+              text: "Step",
+            })),
+          },
+        ],
+      }).success
+    ).toBe(false);
+    const tooManyNested = {
+      ...document,
+      blocks: Array.from({ length: 6 }, (_, section) => ({
+        id: `section-${section}`,
+        type: "section" as const,
+        title: `Section ${section}`,
+        blocks: Array.from({ length: 20 }, (_, child) => ({
+          id: `block-${section}-${child}`,
+          type: "text" as const,
+          text: "Step",
+        })),
+      })),
+    };
+    expect(surfaceDocumentSchema.safeParse(tooManyNested).success).toBe(false);
+
+    const surface = await service.create(agentId, document);
+    const result = await service.submitInteraction(agentId, surface.id, {
+      idempotencyKey: "nested-start",
+      kind: "action",
+      blockId: "deploy",
+      actionId: "start",
+      baseRevision: 1,
+    });
+    expect(result.interaction).toMatchObject({
+      intent: "start_deploy",
+      payload: { blockId: "deploy", actionId: "start" },
+      definitionSnapshot: {
+        block: { id: "deploy", type: "actions" },
+        action: { id: "start", intent: "start_deploy" },
+      },
+    });
+  });
+
   it("accepts the complete seed gallery and semantic badge variants", () => {
     expect(surfaceExamples).toHaveLength(8);
     for (const example of surfaceExamples) {

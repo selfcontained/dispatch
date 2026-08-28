@@ -99,79 +99,90 @@ async function seedSurfaces(agentId: string): Promise<void> {
           label: "5 of 8 complete",
         },
         {
-          id: "release-items",
-          type: "list",
-          title: "Release work",
-          style: "check",
-          showItemCount: true,
-          collapse: { after: 2, label: "Show all release work" },
-          items: [
+          id: "release-details",
+          type: "section",
+          title: "Release details",
+          collapse: { initiallyCollapsed: true },
+          blocks: [
             {
-              id: "schema",
-              text: "Finalize schema",
-              status: "Complete",
-              tone: "success",
-              checked: true,
-              group: "Completed",
+              id: "release-items",
+              type: "list",
+              title: "Release work",
+              style: "check",
+              showItemCount: true,
+              collapse: { after: 2, label: "Show all release work" },
+              items: [
+                {
+                  id: "schema",
+                  text: "Finalize schema",
+                  status: "Complete",
+                  tone: "success",
+                  checked: true,
+                  group: "Completed",
+                },
+                {
+                  id: "migration",
+                  text: "Apply migration",
+                  status: "Needs approval",
+                  tone: "warning",
+                  group: "Next steps",
+                  url: "https://example.com/runbooks/migration",
+                  action: {
+                    id: "queue-migration",
+                    label: "Queue migration",
+                    intent: "queue_release_migration",
+                  },
+                },
+                {
+                  id: "a11y",
+                  text: "Accessibility review",
+                  status: "Blocked by prototype",
+                  tone: "danger",
+                  group: "Next steps",
+                },
+                {
+                  id: "notes",
+                  text: "Publish release notes",
+                  status: "Not started",
+                  tone: "neutral",
+                  group: "Next steps",
+                },
+              ],
             },
             {
-              id: "migration",
-              text: "Apply migration",
-              status: "Needs approval",
-              tone: "warning",
-              group: "Next steps",
-              url: "https://example.com/runbooks/migration",
-              action: {
-                id: "queue-migration",
-                label: "Queue migration",
-                intent: "queue_release_migration",
-              },
-            },
-            {
-              id: "a11y",
-              text: "Accessibility review",
-              status: "Blocked by prototype",
-              tone: "danger",
-              group: "Next steps",
-            },
-            {
-              id: "notes",
-              text: "Publish release notes",
-              status: "Not started",
-              tone: "neutral",
-              group: "Next steps",
-            },
-          ],
-        },
-        {
-          id: "status-table",
-          type: "table",
-          columns: [
-            { id: "name", label: "Item" },
-            {
-              id: "state",
-              label: "State",
-              format: "badge",
-              badgeVariants: { done: "success", blocked: "danger" },
-            },
-            {
-              id: "risk",
-              label: "Risk",
-              format: "badge",
-              priority: "secondary",
-              badgeVariants: { low: "success", high: "danger" },
-            },
-          ],
-          rows: [
-            { id: "r1", cells: { name: "Build", state: "done", risk: "low" } },
-            {
-              id: "r2",
-              cells: { name: "Deploy", state: "blocked", risk: "high" },
-              action: {
-                id: "retry-deploy",
-                label: "Retry deploy",
-                intent: "retry_release_deploy",
-              },
+              id: "status-table",
+              type: "table",
+              columns: [
+                { id: "name", label: "Item" },
+                {
+                  id: "state",
+                  label: "State",
+                  format: "badge",
+                  badgeVariants: { done: "success", blocked: "danger" },
+                },
+                {
+                  id: "risk",
+                  label: "Risk",
+                  format: "badge",
+                  priority: "secondary",
+                  badgeVariants: { low: "success", high: "danger" },
+                },
+              ],
+              rows: [
+                {
+                  id: "r1",
+                  cells: { name: "Build", state: "done", risk: "low" },
+                },
+                {
+                  id: "r2",
+                  cells: { name: "Deploy", state: "blocked", risk: "high" },
+                  action: {
+                    id: "retry-deploy",
+                    label: "Retry deploy",
+                    intent: "retry_release_deploy",
+                  },
+                },
+              ],
             },
           ],
         },
@@ -350,6 +361,13 @@ test.describe("Agent-authored sidebar surfaces", () => {
       '[data-block-type="progress"] [role="progressbar"] > div'
     );
     await expect(progressBar).toHaveClass(/bg-status-working/);
+
+    const releaseDetails = sidebar.getByRole("button", {
+      name: "Release details",
+    });
+    await expect(releaseDetails).toHaveAttribute("aria-expanded", "false");
+    await releaseDetails.click();
+    await expect(releaseDetails).toHaveAttribute("aria-expanded", "true");
 
     // Table column badgeVariants apply per-value tones to badge cells.
     const table = sidebar.locator('[data-block-type="table"]');
@@ -558,6 +576,13 @@ test.describe("Agent-authored sidebar surfaces", () => {
       .getByRole("button", { name: "Release work" })
       .click();
 
+    const releaseDetails = sidebar.getByRole("button", {
+      name: "Release details",
+    });
+    await expect(releaseDetails).toHaveAttribute("aria-expanded", "false");
+    await releaseDetails.click();
+    await expect(releaseDetails).toHaveAttribute("aria-expanded", "true");
+
     const list = sidebar.locator('[data-block-id="release-items"]');
     // The list's header includes its authored total, while only its first two
     // rows render initially. This prevents a long status list from taking over
@@ -619,6 +644,9 @@ test.describe("Agent-authored sidebar surfaces", () => {
     await reloadedSidebar
       .getByTestId("surface-tab-row")
       .getByRole("button", { name: "Release work" })
+      .click();
+    await reloadedSidebar
+      .getByRole("button", { name: "Release details" })
       .click();
     const resolvedList = reloadedSidebar.locator(
       '[data-block-id="release-items"]'

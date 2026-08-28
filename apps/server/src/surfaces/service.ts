@@ -650,9 +650,17 @@ function validateAndCapture(
   snapshot: Record<string, unknown>;
   onceFormBlockId: string | null;
 } {
-  const block = surface.blocks.find(
-    (candidate) => candidate.id === request.blockId
-  );
+  const findBlock = (blocks: SurfaceBlock[]): SurfaceBlock | undefined => {
+    for (const candidate of blocks) {
+      if (candidate.id === request.blockId) return candidate;
+      if (candidate.type === "section") {
+        const nested = findBlock(candidate.blocks);
+        if (nested) return nested;
+      }
+    }
+    return undefined;
+  };
+  const block = findBlock(surface.blocks);
   if (!block) throw new SurfaceError("Referenced block does not exist.");
   const itemId = request.kind === "action" ? request.itemId : undefined;
   if (

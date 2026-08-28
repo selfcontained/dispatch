@@ -1,10 +1,5 @@
 import { Fragment, useId, useState } from "react";
-import {
-  ArrowUpRight,
-  ChevronDown,
-  Square,
-  SquareCheckBig,
-} from "lucide-react";
+import { ArrowUpRight, Check, ChevronDown, Minus } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Markdown } from "@/components/ui/markdown";
@@ -69,22 +64,22 @@ function ListItemRow({
     <li data-item-id={item.id} className="flex items-start gap-2 py-0.5">
       {style === "check" ? (
         item.checked ? (
-          <SquareCheckBig
+          <Check
             data-check-state="checked"
             role="img"
             aria-label="Completed"
             className={cn(
-              "mt-0.5 h-3.5 w-3.5 shrink-0",
+              "mt-0.5 h-3.5 w-3.5 shrink-0 stroke-[2.5]",
               TONE_CLASSES[statusTone].text
             )}
           />
         ) : (
-          <Square
+          <Minus
             data-check-state="unchecked"
             role="img"
             aria-label="Not completed"
             className={cn(
-              "mt-0.5 h-3.5 w-3.5 shrink-0",
+              "mt-0.5 h-3.5 w-3.5 shrink-0 stroke-[2.5]",
               TONE_CLASSES[statusTone].text
             )}
           />

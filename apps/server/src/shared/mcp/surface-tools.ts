@@ -34,7 +34,7 @@ export function registerSurfaceTools(
 
   register(
     "dispatch_surface_create",
-    "Create a one-column custom sidebar tab. Blocks support text, list, table, status, progress, actions, and form. Keep block, item, and field IDs stable; list/table action IDs are scoped to their item or row.",
+    "Create a one-column custom sidebar tab. Blocks support text, list, table, status, progress, actions, form, and titled section groups. A section may nest up to four levels, hold 20 children, and use collapse: { initiallyCollapsed? }; its title remains visible. Keep block, item, and field IDs stable; list/table action IDs are scoped to their item or row.",
     {
       title: z.string().min(1).max(32),
       icon: surfaceIconSchema.optional(),
@@ -48,7 +48,7 @@ export function registerSurfaceTools(
 
   register(
     "dispatch_surface_update",
-    "Replace all or part of an owned surface document using expectedRevision. Whole-document blocks replacement only; no JSON Patch.",
+    "Replace all or part of an owned surface document using expectedRevision. Whole-document blocks replacement only; no JSON Patch. Section groups use a required title, nested blocks, and optional collapse: { initiallyCollapsed? }.",
     {
       tabId: z.string().min(1),
       expectedRevision: z.number().int().positive(),

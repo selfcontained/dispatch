@@ -154,7 +154,7 @@ const fieldSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
-export const surfaceBlockSchema = z.discriminatedUnion("type", [
+const leafBlockSchema = z.discriminatedUnion("type", [
   z
     .object({
       ...base,
@@ -280,6 +280,38 @@ export const surfaceBlockSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
+const MAX_SECTION_DEPTH = 4;
+const MAX_SECTION_CHILDREN = 20;
+const MAX_NESTED_BLOCKS = 100;
+const sectionCollapseSchema = z
+  .object({ initiallyCollapsed: z.boolean().optional() })
+  .strict();
+
+function blockSchemaAtDepth(depth: number): z.ZodType<SharedSurfaceBlock> {
+  const childSchema =
+    depth < MAX_SECTION_DEPTH ? blockSchemaAtDepth(depth + 1) : z.never();
+  return z.union([
+    leafBlockSchema,
+    z
+      .object({
+        ...base,
+        type: z.literal("section"),
+        // A section heading is always visible, including when its body is collapsed.
+        title: titleSchema,
+        blocks: z.array(childSchema).min(1).max(MAX_SECTION_CHILDREN),
+        collapse: sectionCollapseSchema.optional(),
+      })
+      .strict(),
+  ]) as z.ZodType<SharedSurfaceBlock>;
+}
+
+/**
+ * Nested sections are limited to four levels below the document root and 20
+ * children per section. Top-level blocks retain their 40-item cap; the
+ * document refinement separately caps nested descendants at 100.
+ */
+export const surfaceBlockSchema = blockSchemaAtDepth(0);
+
 export const surfaceDocumentSchema = z
   .object({
     title: z.string().trim().min(1).max(32),
@@ -289,7 +321,21 @@ export const surfaceDocumentSchema = z
   .strict()
   .superRefine((doc, ctx) => {
     const blockIds = new Set<string>();
-    for (const block of doc.blocks) {
+    const blocks: SharedSurfaceBlock[] = [];
+    const visit = (items: SharedSurfaceBlock[]) => {
+      for (const block of items) {
+        blocks.push(block);
+        if (block.type === "section") visit(block.blocks);
+      }
+    };
+    visit(doc.blocks);
+    const nestedBlockCount = blocks.length - doc.blocks.length;
+    if (nestedBlockCount > MAX_NESTED_BLOCKS)
+      ctx.addIssue({
+        code: "custom",
+        message: "Surface supports at most 100 nested blocks",
+      });
+    for (const block of blocks) {
       if (blockIds.has(block.id))
         ctx.addIssue({
           code: "custom",

@@ -166,6 +166,15 @@ export type FormBlock = BlockBase & {
   submitMode?: "once" | "repeatable";
 };
 
+/** A titled group of blocks, optionally rendered with a collapsed body. */
+export type SurfaceSectionBlock = BlockBase & {
+  type: "section";
+  /** Required so a collapsed section always retains a visible header. */
+  title: string;
+  blocks: SurfaceBlock[];
+  collapse?: { initiallyCollapsed?: boolean };
+};
+
 export type SurfaceBlock =
   | TextBlock
   | ListBlock
@@ -173,7 +182,8 @@ export type SurfaceBlock =
   | StatusBlock
   | ProgressBlock
   | ActionsBlock
-  | FormBlock;
+  | FormBlock
+  | SurfaceSectionBlock;
 
 export type SurfaceDocumentInput = {
   title: string;
