@@ -108,13 +108,13 @@ async function withTimeout<T>(
 }
 
 /**
- * Applies the archive's worktree policy to one agent.
+ * Applies a worktree cleanup mode to one agent: `force` always removes, `keep`
+ * never does, `auto` removes only a worktree with nothing unmerged or
+ * uncommitted in it.
  *
- * Shared by the parent's own archive and by every agent the cascade sweeps up,
- * so a child is disposed of exactly the way the parent was: `force` always
- * removes, `keep` never does, and `auto` removes only a worktree with nothing
- * unmerged or uncommitted in it. Leaving a cascaded child's worktree registered
- * with no agent record to reach it is precisely the orphaning this avoids.
+ * All three modes are reachable for the agent the user archived, since that is
+ * what the confirmation asks about. Cascaded children always arrive here as
+ * `force` — see CASCADED_CHILD_CLEANUP.
  *
  * Never throws: a worktree that cannot be removed is logged and left on disk
  * rather than failing the archive around it.
@@ -377,14 +377,7 @@ export async function executeArchive(
       const childIds = await getChildAgentIds(pool, id);
       for (const childId of childIds) {
         try {
-          cascadedIds.push(
-            ...(await deleteAgentDirect(
-              deps,
-              childId,
-              true,
-              CASCADED_CHILD_CLEANUP
-            ))
-          );
+          cascadedIds.push(...(await deleteAgentDirect(deps, childId)));
         } catch (err) {
           logger.warn(
             { err, childId, parentId: id },
@@ -429,6 +422,10 @@ export async function executeArchive(
 /**
  * Deletes one agent and, recursively, every true child beneath it.
  *
+ * Only the cascade reaches this, and it always force-stops and force-cleans: a
+ * descendant is not separately the user's to decide about, and the
+ * still-running check belongs to the archive the user actually asked for.
+ *
  * Returns the ids actually deleted — this agent first, then its descendants in
  * the order they were removed. Callers publish `agent.deleted` for each, so a
  * grandchild that goes with the subtree has to appear here or the UI keeps
@@ -436,9 +433,7 @@ export async function executeArchive(
  */
 export async function deleteAgentDirect(
   deps: ArchiveDeps,
-  id: string,
-  force = false,
-  cleanupWorktree: WorktreeCleanupMode = "auto"
+  id: string
 ): Promise<string[]> {
   const { pool, logger, runtime, diffStatsRefresher } = deps;
   const deleteStart = Date.now();
@@ -447,13 +442,6 @@ export async function deleteAgentDirect(
   const sessionExists = agent.tmuxSession
     ? await runtime.hasSession(agent.tmuxSession)
     : false;
-
-  if (agent.status === "running" && sessionExists && !force) {
-    throw new AgentError(
-      "Agent is running. Stop it first or use force delete.",
-      409
-    );
-  }
 
   // Claim the agent before any teardown. The same row can be reached twice —
   // by its own archive and by an ancestor's cascade — and everything below is
@@ -530,9 +518,15 @@ export async function deleteAgentDirect(
      WHERE agent_id = $1 AND status IN ('queued', 'notified', 'claimed')`,
     [id]
   );
-  // Same worktree policy the parent got. A cascaded child that kept its
-  // worktree would leave it registered with no agent record able to reach it.
-  await cleanupAgentWorktree(pool, logger, agent, cleanupWorktree, durations);
+  // Always `force`: keeping a cascaded child's worktree would leave it
+  // registered with no agent record able to reach it.
+  await cleanupAgentWorktree(
+    pool,
+    logger,
+    agent,
+    CASCADED_CHILD_CLEANUP,
+    durations
+  );
 
   await pool.query(
     `UPDATE agents
@@ -555,14 +549,7 @@ export async function deleteAgentDirect(
     const childIds = await getChildAgentIds(pool, id);
     for (const childId of childIds) {
       try {
-        deletedIds.push(
-          ...(await deleteAgentDirect(
-            deps,
-            childId,
-            true,
-            CASCADED_CHILD_CLEANUP
-          ))
-        );
+        deletedIds.push(...(await deleteAgentDirect(deps, childId)));
       } catch (err) {
         logger.warn(
           { err, childId, parentId: id },

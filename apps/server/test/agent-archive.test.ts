@@ -1151,7 +1151,7 @@ describe("deleteAgentDirect", () => {
       getRequiredAgent: vi.fn().mockResolvedValue(agent),
     });
 
-    await deleteAgentDirect(deps, "a1", true);
+    await deleteAgentDirect(deps, "a1");
 
     // stopAgent would write `stopping` then `stopped`, releasing the archive
     // claim taken moments earlier and reopening the double-teardown race.
@@ -1165,24 +1165,7 @@ describe("deleteAgentDirect", () => {
     );
   });
 
-  it("throws 409 for a running agent with active session without force", async () => {
-    const agent = makeAgent("a1", { status: "running", tmuxSession: "s1" });
-    const runtime = makeRuntime({
-      hasSession: vi.fn().mockResolvedValue(true),
-    });
-    const pool = makePool();
-    const deps = makeDeps({
-      pool: pool as never,
-      runtime,
-      getRequiredAgent: vi.fn().mockResolvedValue(agent),
-    });
-
-    await expect(deleteAgentDirect(deps, "a1", false)).rejects.toThrow(
-      "Agent is running. Stop it first or use force delete."
-    );
-  });
-
-  it("allows deleting a running agent without session (no force needed)", async () => {
+  it("deletes a running agent that has no session", async () => {
     const agent = makeAgent("a1", { status: "running", tmuxSession: null });
     const pool = makePool();
     const runtime = makeRuntime();
@@ -1192,7 +1175,7 @@ describe("deleteAgentDirect", () => {
       getRequiredAgent: vi.fn().mockResolvedValue(agent),
     });
 
-    await deleteAgentDirect(deps, "a1", false);
+    await deleteAgentDirect(deps, "a1");
 
     expect(runtime.stopSession).not.toHaveBeenCalled();
     expect(runLifecycleHook).toHaveBeenCalled();
@@ -1210,7 +1193,7 @@ describe("deleteAgentDirect", () => {
       getRequiredAgent: vi.fn().mockResolvedValue(agent),
     });
 
-    await deleteAgentDirect(deps, "a1", false);
+    await deleteAgentDirect(deps, "a1");
 
     expect(runtime.stopSession).not.toHaveBeenCalled();
   });
@@ -1228,7 +1211,7 @@ describe("deleteAgentDirect", () => {
       getRequiredAgent: vi.fn().mockResolvedValue(agent),
     });
 
-    await deleteAgentDirect(deps, "a1", true);
+    await deleteAgentDirect(deps, "a1");
 
     expect(pool.query).toHaveBeenCalledWith(
       expect.stringContaining("SET deleted_at = NOW()"),
@@ -1276,7 +1259,7 @@ describe("deleteAgentDirect", () => {
       getRequiredAgent: vi.fn().mockResolvedValue(parent),
     });
 
-    const deleted = await deleteAgentDirect(deps, "p1", true);
+    const deleted = await deleteAgentDirect(deps, "p1");
 
     expect(deleted).toEqual([]);
     // Nothing effectful runs: the winner stops the session and recurses.
@@ -1311,7 +1294,7 @@ describe("deleteAgentDirect", () => {
       getRequiredAgent: vi.fn().mockResolvedValue(agent),
     });
 
-    await deleteAgentDirect(deps, "a1", true);
+    await deleteAgentDirect(deps, "a1");
 
     expect(order).toEqual(["claim", "stop"]);
   });
@@ -1348,7 +1331,7 @@ describe("deleteAgentDirect", () => {
     expect(diffStatsRefresher.clear).toHaveBeenCalledWith("a1");
   });
 
-  it("cascades to a child regardless of the mode it was called with", async () => {
+  it("cascades to a child agent", async () => {
     const parent = makeAgent("p1", { status: "stopped" });
     const child = makeAgent("c1", {
       status: "stopped",
@@ -1369,7 +1352,7 @@ describe("deleteAgentDirect", () => {
       }),
     });
 
-    await deleteAgentDirect(deps, "p1", false, "force");
+    await deleteAgentDirect(deps, "p1");
 
     expect(deps.getRequiredAgent).toHaveBeenCalledWith("c1");
     const childDeleteCalls = pool.query.mock.calls.filter(

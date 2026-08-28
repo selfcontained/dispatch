@@ -49,6 +49,8 @@ export function registerAgentArchiveTools(
         "retire your own session once your work is finished and reported rather than idling until " +
         "someone archives you from outside. Archiving an agent you did not launch is rejected. " +
         "Stops the agent's session and soft-deletes it; this cannot be undone. " +
+        "Any sub agents it launched with child: true are archived with it, along with their worktrees — " +
+        "an agent launched with child: false is independent and is left running. " +
         "When the target is yourself, your session stops shortly after this returns — make it the last " +
         "thing you do, and send any final message or report first.",
       inputSchema: {
