@@ -1,11 +1,22 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { vi } from "vitest";
 
 import { TableBlockView } from "./table-block";
 import type { TableBlock } from "../types";
 
-afterEach(() => cleanup());
+const mutate = vi.fn();
+vi.mock("@/hooks/use-agent-surfaces", () => ({
+  makeIdempotencyKey: () => "idem-test",
+  useSubmitSurfaceInteraction: () => ({ mutate }),
+}));
+
+afterEach(() => {
+  cleanup();
+  mutate.mockReset();
+});
 
 function linkTable(value: string): TableBlock {
   return {
@@ -16,13 +27,33 @@ function linkTable(value: string): TableBlock {
   };
 }
 
+function renderTable(block: TableBlock) {
+  const client = new QueryClient({
+    defaultOptions: { mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <TableBlockView
+        block={block}
+        agentId="agt_test"
+        surfaceId="surface_test"
+        surfaceRevision={1}
+        interactions={new Map()}
+        onRequestRefresh={async () => {}}
+        readOnly={false}
+        idPrefix="test"
+      />
+    </QueryClientProvider>
+  );
+}
+
 describe("TableBlockView URL cells", () => {
   it.each([
     "https://example.com/path",
     "http://example.com",
     "mailto:hello@example.com",
   ])("renders an allowed URL as a link: %s", (value) => {
-    render(<TableBlockView block={linkTable(value)} />);
+    renderTable(linkTable(value));
     expect(screen.getByRole("link", { name: value }).getAttribute("href")).toBe(
       value
     );
@@ -31,7 +62,7 @@ describe("TableBlockView URL cells", () => {
   it.each(["javascript:alert(1)", "data:text/html,bad", "/relative"])(
     "renders an unsafe or version-skewed URL as inert text: %s",
     (value) => {
-      render(<TableBlockView block={linkTable(value)} />);
+      renderTable(linkTable(value));
       expect(screen.queryByRole("link", { name: value })).toBeNull();
       expect(screen.getByText(value).tagName).toBe("SPAN");
     }
@@ -52,7 +83,7 @@ describe("TableBlockView URL cells", () => {
       ],
     };
 
-    render(<TableBlockView block={block} />);
+    renderTable(block);
     const disclosure = screen.getByRole("button", { name: "Show details" });
     expect(disclosure.className).toContain("h-6");
     expect(disclosure.className).toContain("[@media(pointer:coarse)]:h-11");
@@ -94,11 +125,40 @@ describe("TableBlockView URL cells", () => {
       ],
     };
 
-    render(<TableBlockView block={block} />);
+    renderTable(block);
 
     expect(screen.getByText("Lower")).not.toBeNull();
     expect(screen.getByText("Higher")).not.toBeNull();
     // No disclosure affordance at all — nothing is behind a click.
     expect(screen.queryByRole("button", { name: "Show details" })).toBeNull();
+  });
+
+  it("keeps mixed action rows aligned and submits the action with its row id", () => {
+    const block: TableBlock = {
+      id: "deployments",
+      type: "table",
+      title: "Deployments",
+      showItemCount: true,
+      columns: [{ id: "name", label: "Name" }],
+      rows: [
+        {
+          id: "one",
+          cells: { name: "One" },
+          action: { id: "approve", label: "Approve", intent: "approve" },
+        },
+        { id: "two", cells: { name: "Two" } },
+      ],
+    };
+    renderTable(block);
+    expect(screen.getByText("2")).toBeTruthy();
+    const rows = document.querySelectorAll("tbody tr");
+    expect(rows[0].querySelectorAll("td").length).toBe(
+      rows[1].querySelectorAll("td").length
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ itemId: "one", actionId: "approve" }),
+      expect.any(Object)
+    );
   });
 });

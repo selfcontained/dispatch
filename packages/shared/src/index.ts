@@ -35,6 +35,7 @@ export type {
   SurfaceInteractionResponse,
   SurfaceInteractionStatus,
   SurfaceInteractionSummary,
+  SurfaceItemAction,
   SurfaceLifecycle,
   SurfaceListItem,
   TableBlock,

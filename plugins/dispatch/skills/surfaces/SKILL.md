@@ -61,8 +61,13 @@ parents may read a direct child's surfaces but cannot edit them.
 - `text`: short Markdown explanation or result.
 - `status`: one current state, semantic tone, detail, and optional timestamp.
 - `progress`: bounded progress; omit `tone` for normal success-green progress.
-- `list`: bullets, numbered steps, or checklist-like workflow states.
+- `list`: bullets, numbered steps, or checklist-like workflow states. Items may
+  carry a freeform `status` plus semantic `tone` (not a closed state enum), a
+  safe `url`, a `group` subheading, and one `{ id, label, intent }` action.
+  Use `collapse: { after, label? }` for long lists and `showItemCount: true`
+  when the total matters.
 - `table`: compact repeated data; use badge variants for semantic values.
+  Set `showItemCount: true` when the total row count is useful context.
   Secondary columns are always collapsed behind a per-row disclosure, so mark
   a column `secondary` only for verbose diagnostics the user doesn't need to
   compare at a glance — a decision-critical value (a risk/status badge, the
@@ -211,10 +216,12 @@ action buttons carry intent but do not collect text.
 
 ### Show progress and workflow
 
-Combine `progress`, a check-style `list`, and targeted actions. Item states are
-`pending`, `active`, `done`, and `blocked`. This supports release checklists,
-incident handoffs, onboarding, and review queues without pretending to be a
-full board.
+Combine `progress`, a check-style `list`, and targeted actions. Give an item a
+freeform `status` such as `Waiting for approval` and a `tone` such as `warning`;
+do not use a closed state enum. Use `group` for small list subheadings and an
+item action when the next step belongs to exactly one item. This supports release
+checklists, incident handoffs, onboarding, and review queues without pretending
+to be a full board.
 
 ### Request approval
 
@@ -230,7 +237,9 @@ a table for services or checks. Map badge cell values to semantic tones with
 
 ## Interaction discipline
 
-- Keep action `intent` and field IDs stable across revisions.
+- Keep action `intent` and field IDs stable across revisions. Item and row
+  actions use an item-scoped `itemId` in their durable interaction payload, so
+  action IDs may repeat across different items but must remain stable per item.
 - Claim before doing work so retries or resumed sessions cannot process the same
   interaction twice.
 - Resolve with a short outcome message the UI can show.

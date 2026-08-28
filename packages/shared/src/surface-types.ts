@@ -23,16 +23,30 @@ type BlockBase = {
 
 export type TextBlock = BlockBase & { type: "text"; text: string };
 
+/** A compact action scoped to one list item or table row. */
+export type SurfaceItemAction = Pick<ActionRef, "id" | "label" | "intent">;
+
 export type SurfaceListItem = {
   id: string;
   text: string;
-  state?: "pending" | "active" | "done" | "blocked";
+  /** Freeform visible state; use `tone` to express its semantic color. */
+  status?: string;
+  tone?: Tone;
   detail?: string;
+  /** Safe external link shown as a secondary affordance. */
+  url?: string;
+  /** A small subheading that groups adjacent items in this list. */
+  group?: string;
+  action?: SurfaceItemAction;
 };
 
 export type ListBlock = BlockBase & {
   type: "list";
   style?: "bullet" | "number" | "check";
+  /** Controls an expandable long-list tail without introducing a new block. */
+  collapse?: { after: number; label?: string };
+  /** Shows the total item count alongside the list heading. */
+  showItemCount?: boolean;
   items: SurfaceListItem[];
 };
 
@@ -55,10 +69,13 @@ export type TableColumn = {
 export type TableRow = {
   id: string;
   cells: Record<string, Scalar>;
+  action?: SurfaceItemAction;
 };
 
 export type TableBlock = BlockBase & {
   type: "table";
+  /** Shows the total row count alongside the table heading. */
+  showItemCount?: boolean;
   columns: TableColumn[];
   rows: TableRow[];
 };
@@ -179,6 +196,8 @@ export type SurfaceInteractionRequest =
       kind: "action";
       blockId: string;
       actionId: string;
+      /** Required for actions scoped to a list item or table row. */
+      itemId?: string;
       baseRevision: number;
     }
   | {
@@ -196,6 +215,7 @@ export type SurfaceInteractionSummary = {
   tabRevision: number;
   blockId: string;
   actionId: string;
+  itemId?: string;
   kind: "action" | "form_submit";
   status: SurfaceInteractionStatus;
   outcomeMessage?: string;

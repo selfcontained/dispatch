@@ -34,7 +34,7 @@ export function registerSurfaceTools(
 
   register(
     "dispatch_surface_create",
-    "Create a one-column custom sidebar tab. Blocks support text, list, table, status, progress, actions, and form; IDs must be stable and unique within their block.",
+    "Create a one-column custom sidebar tab. Blocks support text, list, table, status, progress, actions, and form. Keep block, item, and field IDs stable; list/table action IDs are scoped to their item or row.",
     {
       title: z.string().min(1).max(32),
       icon: surfaceIconSchema.optional(),

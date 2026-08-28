@@ -9,6 +9,9 @@ import type {
   TableColumn,
 } from "@/components/app/agent-surfaces/types";
 import { BlockHeader } from "@/components/app/agent-surfaces/blocks/block-header";
+import { ItemAction } from "@/components/app/agent-surfaces/blocks/item-action";
+import type { SurfaceInteractionIndex } from "@/components/app/agent-surfaces/interaction-presentation";
+import { isAllowedSurfaceUrl } from "@/components/app/agent-surfaces/surface-url";
 import { TONE_CLASSES } from "@/components/app/agent-surfaces/tone";
 
 function formatCell(value: Scalar, format: TableColumn["format"]): string {
@@ -18,17 +21,6 @@ function formatCell(value: Scalar, format: TableColumn["format"]): string {
     return Number.isNaN(parsed.getTime()) ? value : parsed.toLocaleDateString();
   }
   return String(value);
-}
-
-function isAllowedTableUrl(value: string): boolean {
-  try {
-    const protocol = new URL(value).protocol;
-    return (
-      protocol === "http:" || protocol === "https:" || protocol === "mailto:"
-    );
-  } catch {
-    return false;
-  }
 }
 
 function Cell({
@@ -61,7 +53,7 @@ function Cell({
   if (
     column.format === "url" &&
     typeof value === "string" &&
-    isAllowedTableUrl(value)
+    isAllowedSurfaceUrl(value)
   ) {
     return (
       <a
@@ -85,10 +77,19 @@ function TableRowView({
   row,
   primaryColumns,
   secondaryColumns,
+  block,
+  interactionProps,
+  hasActionColumn,
 }: {
   row: TableBlock["rows"][number];
   primaryColumns: TableColumn[];
   secondaryColumns: TableColumn[];
+  block: TableBlock;
+  interactionProps: Omit<
+    React.ComponentProps<typeof ItemAction>,
+    "action" | "itemId" | "blockId"
+  >;
+  hasActionColumn: boolean;
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
 
@@ -128,10 +129,25 @@ function TableRowView({
             <Cell value={row.cells[column.id] ?? null} column={column} />
           </td>
         ))}
+        {hasActionColumn ? (
+          <td className="p-2 align-middle">
+            {row.action ? (
+              <ItemAction
+                action={row.action}
+                itemId={row.id}
+                blockId={block.id}
+                {...interactionProps}
+              />
+            ) : null}
+          </td>
+        ) : null}
       </tr>
       {expanded && secondaryColumns.length > 0 ? (
         <tr className="border-b border-border/50 last:border-0">
-          <td colSpan={primaryColumns.length + 1} className="p-2 align-middle">
+          <td
+            colSpan={primaryColumns.length + 1 + (hasActionColumn ? 1 : 0)}
+            className="p-2 align-middle"
+          >
             <dl className="ml-6 space-y-0.5">
               {secondaryColumns.map((column) => (
                 <div
@@ -157,7 +173,19 @@ function TableRowView({
   );
 }
 
-export function TableBlockView({ block }: { block: TableBlock }): JSX.Element {
+export function TableBlockView({
+  block,
+  ...interactionProps
+}: {
+  block: TableBlock;
+  agentId: string;
+  surfaceId: string;
+  surfaceRevision: number;
+  interactions: SurfaceInteractionIndex;
+  onRequestRefresh: () => Promise<void>;
+  readOnly: boolean;
+  idPrefix: string;
+}): JSX.Element {
   const primaryColumns = block.columns.filter(
     (c) => c.priority !== "secondary"
   );
@@ -168,10 +196,15 @@ export function TableBlockView({ block }: { block: TableBlock }): JSX.Element {
   const effectivePrimary =
     primaryColumns.length > 0 ? primaryColumns : block.columns;
   const effectiveSecondary = primaryColumns.length > 0 ? secondaryColumns : [];
+  const hasActionColumn = block.rows.some((row) => row.action);
 
   return (
     <div data-block-id={block.id} data-block-type="table">
-      <BlockHeader title={block.title} description={block.description} />
+      <BlockHeader
+        title={block.title}
+        description={block.description}
+        count={block.showItemCount ? block.rows.length : undefined}
+      />
       <div className="overflow-x-auto rounded-md border border-border/50">
         <table className="w-full border-collapse">
           <thead>
@@ -191,6 +224,11 @@ export function TableBlockView({ block }: { block: TableBlock }): JSX.Element {
                   {column.label}
                 </th>
               ))}
+              {hasActionColumn ? (
+                <th className="w-1 p-2">
+                  <span className="sr-only">Action</span>
+                </th>
+              ) : null}
             </tr>
           </thead>
           <tbody>
@@ -200,6 +238,9 @@ export function TableBlockView({ block }: { block: TableBlock }): JSX.Element {
                 row={row}
                 primaryColumns={effectivePrimary}
                 secondaryColumns={effectiveSecondary}
+                block={block}
+                interactionProps={interactionProps}
+                hasActionColumn={hasActionColumn}
               />
             ))}
           </tbody>

@@ -160,23 +160,43 @@ export const surfaceExamples = [
           {
             id: "schema",
             text: "Finalize interaction schema",
-            state: "done",
+            status: "Complete",
+            tone: "success",
             detail: "Validated against the client contract.",
+            group: "Completed",
           },
           {
             id: "migration",
             text: "Apply production migration",
-            state: "active",
-            detail: "Queued after approval.",
+            status: "Needs approval",
+            tone: "warning",
+            detail: "Queue it once the release owner approves.",
+            url: "https://example.com/runbooks/migration",
+            group: "Next steps",
+            action: {
+              id: "queue_migration",
+              label: "Queue migration",
+              intent: "queue_release_migration",
+            },
           },
           {
             id: "a11y",
             text: "Accessibility review",
-            state: "blocked",
+            status: "Waiting on prototype",
+            tone: "danger",
             detail: "Waiting for the latest prototype.",
+            group: "Next steps",
           },
-          { id: "notes", text: "Publish release notes", state: "pending" },
+          {
+            id: "notes",
+            text: "Publish release notes",
+            status: "Not started",
+            tone: "neutral",
+            group: "Next steps",
+          },
         ],
+        collapse: { after: 2, label: "Show all release work" },
+        showItemCount: true,
       },
       {
         id: "queued_action",
@@ -222,12 +242,23 @@ export const surfaceExamples = [
         title: "Timeline",
         style: "number",
         items: [
-          { id: "detect", text: "Alert fired at 15:08 UTC", state: "done" },
-          { id: "rollback", text: "Rolled back pricing worker", state: "done" },
+          {
+            id: "detect",
+            text: "Alert fired at 15:08 UTC",
+            status: "Complete",
+            tone: "success",
+          },
+          {
+            id: "rollback",
+            text: "Rolled back pricing worker",
+            status: "Complete",
+            tone: "success",
+          },
           {
             id: "observe",
             text: "Observe regional error rate",
-            state: "active",
+            status: "Monitoring",
+            tone: "info",
           },
         ],
       },
@@ -265,6 +296,7 @@ export const surfaceExamples = [
         id: "health",
         type: "table",
         title: "Production checks",
+        showItemCount: true,
         columns: [
           { id: "service", label: "Service", priority: "primary" },
           {
@@ -310,6 +342,11 @@ export const surfaceExamples = [
               trace: "https://example.com/traces/api",
               build: "api@4.18.0",
             },
+            action: {
+              id: "inspect_api",
+              label: "Inspect API",
+              intent: "inspect_api_health",
+            },
           },
           {
             id: "search",
@@ -320,6 +357,11 @@ export const surfaceExamples = [
               checked: "2026-08-27",
               trace: "https://example.com/traces/search",
               build: "search@4.18.0",
+            },
+            action: {
+              id: "retry_search",
+              label: "Retry search check",
+              intent: "retry_search_health_check",
             },
           },
           {

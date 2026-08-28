@@ -204,6 +204,176 @@ describe("surface API", () => {
 });
 
 describe("surface authoring and inbox", () => {
+  it("accepts rich list items and rejects the retired state enum", () => {
+    const document = {
+      title: "Deployment steps",
+      blocks: [
+        {
+          id: "steps",
+          type: "list" as const,
+          style: "check" as const,
+          showItemCount: true,
+          collapse: { after: 2, label: "Show remaining steps" },
+          items: [
+            {
+              id: "prepare",
+              text: "Prepare release",
+              status: "In progress",
+              tone: "info" as const,
+              group: "Before rollout",
+              url: "https://example.com/runbook",
+              action: {
+                id: "open-runbook",
+                label: "Open runbook",
+                intent: "open_release_runbook",
+              },
+            },
+            { id: "verify", text: "Verify health" },
+            { id: "announce", text: "Announce release" },
+          ],
+        },
+      ],
+    };
+    expect(surfaceDocumentSchema.safeParse(document).success).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [
+          {
+            ...document.blocks[0],
+            collapse: { after: 3 },
+            items: [{ id: "legacy", text: "Legacy", state: "done" }],
+          },
+        ],
+      }).success
+    ).toBe(false);
+    // A collapse setting that currently hides nothing is valid: it remains
+    // useful when a dynamic list grows again.
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [{ ...document.blocks[0], collapse: { after: 3 } }],
+      }).success
+    ).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        blocks: [{ ...document.blocks[0], collapse: { after: 0 } }],
+      }).success
+    ).toBe(false);
+  });
+
+  it("captures list and table item actions with unambiguous durable identity", async () => {
+    const surface = await service.create(agentId, {
+      title: "Action queue",
+      blocks: [
+        {
+          id: "tasks",
+          type: "list",
+          items: [
+            {
+              id: "first",
+              text: "First task",
+              action: { id: "run", label: "Run", intent: "run_first" },
+            },
+            {
+              id: "second",
+              text: "Second task",
+              action: { id: "run", label: "Run", intent: "run_second" },
+            },
+          ],
+        },
+        {
+          id: "services",
+          type: "table",
+          showItemCount: true,
+          columns: [{ id: "name", label: "Service" }],
+          rows: [
+            {
+              id: "api",
+              cells: { name: "API" },
+              action: {
+                id: "restart",
+                label: "Restart",
+                intent: "restart_api",
+              },
+            },
+          ],
+        },
+      ],
+    });
+    const list = await service.submitInteraction(agentId, surface.id, {
+      idempotencyKey: "list-item",
+      kind: "action",
+      blockId: "tasks",
+      itemId: "second",
+      actionId: "run",
+      baseRevision: 1,
+    });
+    expect(list.interaction).toMatchObject({
+      intent: "run_second",
+      payload: { blockId: "tasks", itemId: "second", actionId: "run" },
+      definitionSnapshot: {
+        item: { id: "second" },
+        action: { id: "run", intent: "run_second" },
+      },
+    });
+    const secondListItem = await service.submitInteraction(
+      agentId,
+      surface.id,
+      {
+        idempotencyKey: "list-first-item",
+        kind: "action",
+        blockId: "tasks",
+        itemId: "first",
+        actionId: "run",
+        baseRevision: 1,
+      }
+    );
+    expect(secondListItem.interaction.intent).toBe("run_first");
+    const table = await service.submitInteraction(agentId, surface.id, {
+      idempotencyKey: "table-row",
+      kind: "action",
+      blockId: "services",
+      itemId: "api",
+      actionId: "restart",
+      baseRevision: 1,
+    });
+    expect(table.interaction.payload).toEqual({
+      blockId: "services",
+      itemId: "api",
+      actionId: "restart",
+    });
+    await expect(
+      service.submitInteraction(agentId, surface.id, {
+        idempotencyKey: "missing-item",
+        kind: "action",
+        blockId: "tasks",
+        actionId: "run",
+        baseRevision: 1,
+      })
+    ).rejects.toThrow(/must include an itemId/);
+    expect((await service.get(surface.id))?.latestInteractions).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          blockId: "tasks",
+          itemId: "first",
+          actionId: "run",
+        }),
+        expect.objectContaining({
+          blockId: "tasks",
+          itemId: "second",
+          actionId: "run",
+        }),
+        expect.objectContaining({
+          blockId: "services",
+          itemId: "api",
+          actionId: "restart",
+        }),
+      ])
+    );
+  });
+
   it("accepts the complete seed gallery and semantic badge variants", () => {
     expect(surfaceExamples).toHaveLength(8);
     for (const example of surfaceExamples) {

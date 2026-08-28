@@ -79,6 +79,17 @@ const actionSchema = z
     disabledReason: z.string().max(240).optional(),
   })
   .strict();
+const itemActionSchema = actionSchema.pick({
+  id: true,
+  label: true,
+  intent: true,
+});
+const collapseSchema = z
+  .object({
+    after: z.number().int().min(1).max(99),
+    label: z.string().trim().min(1).max(80).optional(),
+  })
+  .strict();
 
 const optionSchema = z
   .object({
@@ -162,20 +173,31 @@ export const surfaceBlockSchema = z.discriminatedUnion("type", [
             .object({
               id: idSchema,
               text: constrainedMarkdown(500),
-              state: z
-                .enum(["pending", "active", "done", "blocked"])
-                .optional(),
+              status: z.string().trim().min(1).max(80).optional(),
+              tone: toneSchema.optional(),
               detail: constrainedMarkdown(240).optional(),
+              url: z
+                .string()
+                .max(2000)
+                .refine(isAllowedTableUrl, {
+                  message: "List item URL must use http, https, or mailto",
+                })
+                .optional(),
+              group: z.string().trim().min(1).max(80).optional(),
+              action: itemActionSchema.optional(),
             })
             .strict()
         )
         .max(100),
+      collapse: collapseSchema.optional(),
+      showItemCount: z.boolean().optional(),
     })
     .strict(),
   z
     .object({
       ...base,
       type: z.literal("table"),
+      showItemCount: z.boolean().optional(),
       columns: z
         .array(
           z
@@ -209,6 +231,7 @@ export const surfaceBlockSchema = z.discriminatedUnion("type", [
             .object({
               id: idSchema,
               cells: z.record(z.string(), tableCellScalarSchema),
+              action: itemActionSchema.optional(),
             })
             .strict()
         )
@@ -432,6 +455,7 @@ export const interactionRequestSchema = z.discriminatedUnion("kind", [
       kind: z.literal("action"),
       blockId: idSchema,
       actionId: idSchema,
+      itemId: idSchema.optional(),
       baseRevision: z.number().int().positive(),
     })
     .strict(),

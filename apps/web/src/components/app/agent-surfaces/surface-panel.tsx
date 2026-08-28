@@ -52,9 +52,31 @@ function BlockRenderer({
     case "text":
       return <TextBlockView block={block} />;
     case "list":
-      return <ListBlockView block={block} />;
+      return (
+        <ListBlockView
+          block={block}
+          agentId={agentId}
+          surfaceId={surfaceId}
+          surfaceRevision={surfaceRevision}
+          interactions={interactions}
+          onRequestRefresh={onRequestRefresh}
+          readOnly={readOnly}
+          idPrefix={idPrefix}
+        />
+      );
     case "table":
-      return <TableBlockView block={block} />;
+      return (
+        <TableBlockView
+          block={block}
+          agentId={agentId}
+          surfaceId={surfaceId}
+          surfaceRevision={surfaceRevision}
+          interactions={interactions}
+          onRequestRefresh={onRequestRefresh}
+          readOnly={readOnly}
+          idPrefix={idPrefix}
+        />
+      );
     case "status":
       return <StatusBlockView block={block} />;
     case "progress":
