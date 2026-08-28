@@ -1,11 +1,10 @@
+import type { TerminalUiState } from "@dispatch/shared";
+
 import { TmuxTerminal } from "./tmux-terminal.js";
 
-export type TerminalCopyMode = "live" | "copy" | "exiting";
-
-export type TerminalUiState = {
-  copyMode: TerminalCopyMode;
-  lastObservedAt: number;
-};
+// Canonical home is `@dispatch/shared` — the state is a wire payload the web
+// client reads too. Re-exported so existing importers keep resolving.
+export type { TerminalCopyMode, TerminalUiState } from "@dispatch/shared";
 
 type InteractionType = "scroll" | "exit_copy_mode";
 

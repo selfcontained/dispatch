@@ -1,79 +1,27 @@
 import type { AgentRecord } from "../agents/manager.js";
-import type { SurfaceChangedEvent } from "@dispatch/shared";
+import type { SharedUiEvent } from "@dispatch/shared";
 import type { ReleaseInfoSnapshot } from "../release-info.js";
 
 import type { DiffStats } from "../shared/git/diff-stats.js";
-import type { TerminalUiState } from "../terminal/copy-mode-observer.js";
-import type { InjectionHoldState } from "../terminal/injection-coordinator.js";
 
+/**
+ * The four members whose payloads the web client models differently — see
+ * `SharedUiEvent` in `@dispatch/shared` for why each one stays per side.
+ * Every other member of the stream lives in that shared union.
+ */
 export type UiEvent =
   | { type: "snapshot"; agents: AgentRecord[] }
   | { type: "agent.upsert"; agent: AgentRecord }
-  | {
-      type: "agent.terminal_state_changed";
-      agentId: string;
-      terminalState: TerminalUiState;
-    }
-  | {
-      type: "agent.injection_hold_changed";
-      agentId: string;
-      holdState: InjectionHoldState;
-    }
   | {
       type: "agent.diff_state_changed";
       agentId: string;
       diffStats: DiffStats | null;
     }
-  | { type: "agent.deleted"; agentId: string }
-  | { type: "media.changed"; agentId: string }
-  | {
-      type: "whiteboard.changed";
-      agentId: string;
-      version: number;
-      source: "user" | "agent";
-    }
-  | { type: "media.seen"; agentId: string; keys: string[] }
-  | {
-      type: "message.created";
-      senderAgentId: string;
-      recipientAgentId: string;
-    }
-  | { type: "message.read"; agentId: string }
-  | SurfaceChangedEvent
-  | { type: "stream.started"; agentId: string }
-  | { type: "stream.stopped"; agentId: string }
-  | {
-      type: "review.created";
-      agentId: string;
-      reviewId: number;
-      reviewerAgentId?: string | null;
-    }
-  | {
-      type: "review.updated";
-      agentId: string;
-      reviewId: number;
-      status: string;
-    }
-  | {
-      type: "review_feedback.updated";
-      agentId: string;
-      feedbackItemId: number;
-    }
-  | { type: "job.changed" }
-  | { type: "template.changed" }
-  | { type: "brain.changed"; repoRoot: string }
-  | {
-      type: "notification";
-      notificationId: string;
-      agentId: string;
-      agentName: string;
-      eventType: string;
-      message: string;
-    }
   | {
       type: "release.cached_info_changed";
       snapshot: ReleaseInfoSnapshot | null;
-    };
+    }
+  | SharedUiEvent;
 
 export class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
