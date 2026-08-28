@@ -206,6 +206,12 @@ function JobDetail({
         </p>
       ) : null}
 
+      {detailActionError ? (
+        <div className="mt-2 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">
+          {detailActionError}
+        </div>
+      ) : null}
+
       {job.continuationEnabled ? (
         <div className="mt-4 rounded-md border border-border/70 bg-muted/20 p-3 text-sm">
           <div className="font-medium text-foreground">
@@ -272,11 +278,6 @@ function JobDetail({
                 ? "This job is saved but not enabled on a schedule yet."
                 : "This job is on-demand — use Run now to start it."}
           </div>
-          {detailActionError ? (
-            <div className="mt-3 rounded border border-status-blocked/30 bg-status-blocked/10 p-2 text-sm text-status-blocked">
-              {detailActionError}
-            </div>
-          ) : null}
           <div className="mt-4 flex flex-wrap gap-2">
             <Button
               size="sm"
