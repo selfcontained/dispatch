@@ -875,7 +875,7 @@ describe("executeArchive", () => {
       );
     });
 
-    it("preserves a cascaded child's worktree when it has outstanding work", async () => {
+    it("removes a cascaded child's worktree even when it holds work", async () => {
       const parent = makeAgent("parent");
       const child = makeAgent("child", {
         parentAgentId: "parent",
@@ -900,22 +900,28 @@ describe("executeArchive", () => {
 
       await executeArchive(deps, "parent", makeCallbacks());
 
-      // `auto` protects a child's unfinished work exactly as it protects the
-      // parent's — the agent record goes, the work stays.
-      expect(cleanupGitWorktree).not.toHaveBeenCalled();
+      // The user answered for the whole cascade when they confirmed the
+      // parent; leaving this behind would strand a worktree no agent record
+      // can reach.
+      expect(cleanupGitWorktree).toHaveBeenCalledWith(
+        expect.objectContaining({ cwd: "/tmp/wt-child" }),
+        expect.any(Function)
+      );
     });
 
-    it("does not extend a force cleanup to a child holding work", async () => {
-      const parent = makeAgent("parent", { archiveCleanupMode: "force" });
+    it("clears child worktrees even when the parent's own is kept", async () => {
+      // "Archive, keep worktree" is an answer about the parent's worktree. The
+      // children still go — the archive leaves nothing of them behind.
+      const parent = makeAgent("parent", {
+        archiveCleanupMode: "keep",
+        worktreePath: "/tmp/wt-parent",
+        worktreeBranch: "agt/parent",
+      });
       const child = makeAgent("child", {
         parentAgentId: "parent",
         status: "stopped",
         worktreePath: "/tmp/wt-child",
         worktreeBranch: "agt/child",
-      });
-      vi.mocked(getUncommittedChanges).mockResolvedValue({
-        hasUncommittedChanges: true,
-        uncommittedFiles: ["src/wip.ts"],
       });
 
       const pool = makeChildQueryPool([
@@ -927,17 +933,14 @@ describe("executeArchive", () => {
         getRequiredAgent: lookup,
         getAgent: lookup,
       });
-      const cb = makeCallbacks();
 
-      await executeArchive(deps, "parent", cb);
+      await executeArchive(deps, "parent", makeCallbacks());
 
-      // The confirmation showed the parent's changes, not this child's, so a
-      // one-click discard must not reach it. The record still goes.
-      expect(cleanupGitWorktree).not.toHaveBeenCalledWith(
-        expect.objectContaining({ cwd: "/tmp/wt-child" }),
-        expect.any(Function)
-      );
-      expect(cb.onComplete).toHaveBeenCalledWith(["parent", "child"]);
+      const cleaned = vi
+        .mocked(cleanupGitWorktree)
+        .mock.calls.map(([input]) => input.cwd);
+      expect(cleaned).toContain("/tmp/wt-child");
+      expect(cleaned).not.toContain("/tmp/wt-parent");
     });
 
     it("leaves a worktree alone when another live agent also references it", async () => {

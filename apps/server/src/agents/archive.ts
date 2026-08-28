@@ -35,16 +35,16 @@ export type ArchiveDeps = {
 };
 
 /**
- * Cascaded children always get `auto`, whatever the parent chose.
+ * Cascaded children always get `force`, whatever the parent was archived with.
  *
- * A child's worktree is cleaned when it holds nothing and kept when it holds
- * work, so a cascade tidies up after itself without ever destroying something
- * unseen. The parent's `force` deliberately does not reach them: the
- * confirmation shows the parent's outstanding changes, and extending a
- * one-click discard to worktrees the user was never shown would need a second
- * prompt per child to be honest — which is worse than simply keeping them.
+ * Archiving a parent leaves nothing of it behind: no child agents, and no child
+ * worktrees. The confirmation already asks about the parent's own outstanding
+ * work, and that one answer covers the whole cascade — children are managed by
+ * their parent, so their worktrees are not separately the user's to decide
+ * about. Checking each child instead would either strand worktrees with no
+ * agent record able to reach them, or need a prompt per child to clear them.
  */
-const CASCADED_CHILD_CLEANUP: WorktreeCleanupMode = "auto";
+const CASCADED_CHILD_CLEANUP: WorktreeCleanupMode = "force";
 
 /**
  * The agents an archive cascades to: every agent launched as a true child of
