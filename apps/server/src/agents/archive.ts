@@ -45,6 +45,10 @@ export type ArchiveDeps = {
  * `parent_agent_id = $1 OR launched_by_agent_id = $1` would sweep those
  * independent agents into the parent's archive, which is exactly what
  * `child: false` exists to prevent.
+ *
+ * A child already in `archiving` is skipped: its own archive owns it and is
+ * cascading to its descendants itself, so taking it here would run the whole
+ * teardown twice over one subtree.
  */
 async function getChildAgentIds(
   pool: Pool,
@@ -54,7 +58,8 @@ async function getChildAgentIds(
     `SELECT id
      FROM agents
      WHERE parent_agent_id = $1
-       AND deleted_at IS NULL`,
+       AND deleted_at IS NULL
+       AND status != 'archiving'`,
     [parentAgentId]
   );
   return result.rows.map((row) => row.id);
@@ -240,23 +245,34 @@ export async function executeArchive(
     // Cascade: archive every true child (parent_agent_id), review or not.
     // deleteAgentDirect recurses, so the whole subtree goes with the parent
     // rather than being left behind as orphaned top-level agents.
+    //
+    // This agent's row is gone by now, so a failure here must not reach the
+    // outer catch: that path reports an error instead of completing, and the
+    // deleted agent would never be published as deleted.
     const tCascade = Date.now();
-    const childIds = await getChildAgentIds(pool, id);
     const cascadedIds: string[] = [];
-    for (const childId of childIds) {
-      try {
-        cascadedIds.push(
-          ...(await deleteAgentDirect(deps, childId, true, cleanupWorktree))
-        );
-      } catch (err) {
-        logger.warn(
-          { err, childId, parentId: id },
-          "Failed to cascade-delete child agent"
-        );
+    try {
+      const childIds = await getChildAgentIds(pool, id);
+      for (const childId of childIds) {
+        try {
+          cascadedIds.push(
+            ...(await deleteAgentDirect(deps, childId, true, cleanupWorktree))
+          );
+        } catch (err) {
+          logger.warn(
+            { err, childId, parentId: id },
+            "Failed to cascade-delete child agent"
+          );
+        }
       }
-    }
-    if (childIds.length > 0) {
-      durations.cascadeChildren = Date.now() - tCascade;
+      if (childIds.length > 0) {
+        durations.cascadeChildren = Date.now() - tCascade;
+      }
+    } catch (err) {
+      logger.warn(
+        { err, agentId: id },
+        "Failed to look up child agents during cascade; children may be orphaned"
+      );
     }
 
     durations.total = Date.now() - deleteStart;
@@ -312,6 +328,27 @@ export async function deleteAgentDirect(
     );
   }
 
+  // Claim the agent before any teardown. The same row can be reached twice —
+  // by its own archive and by an ancestor's cascade — and everything below is
+  // effectful: stop hooks fire, the session dies, events are written. The CAS
+  // is the same one `beginArchive` takes, so the two paths contend for one
+  // lock rather than each having their own. A claim left behind by a crash is
+  // picked up by the archiving-status reconciler on the next start.
+  const claimed = await pool.query(
+    `UPDATE agents
+     SET status = 'archiving', archive_phase = 'stopping', updated_at = NOW()
+     WHERE id = $1 AND deleted_at IS NULL AND status != 'archiving'
+     RETURNING id`,
+    [id]
+  );
+  if (claimed.rowCount === 0) {
+    logger.info(
+      { agentId: id },
+      "Agent is already being archived or deleted; skipping cascade."
+    );
+    return [];
+  }
+
   if (agent.status !== "stopped") {
     const t = Date.now();
     try {
@@ -346,7 +383,9 @@ export async function deleteAgentDirect(
     [id]
   );
   await pool.query(
-    "UPDATE agents SET deleted_at = NOW(), updated_at = NOW() WHERE id = $1",
+    `UPDATE agents
+     SET deleted_at = NOW(), archive_phase = NULL, archive_cleanup_mode = NULL, updated_at = NOW()
+     WHERE id = $1`,
     [id]
   );
   durations.db = Date.now() - tDb;
@@ -355,19 +394,30 @@ export async function deleteAgentDirect(
   // Cascade to every true child (parent_agent_id), review or not. This agent's
   // row is already soft-deleted above, so the query cannot hand back an
   // ancestor and a corrupted parent link cannot make the recursion loop.
+  //
+  // `deletedIds` carries this agent from here on. Nothing below may throw past
+  // this point: the row is gone, and a caller that never learns the id would
+  // leave the UI rendering a row for an agent the database no longer has.
   const deletedIds = [id];
-  const childIds = await getChildAgentIds(pool, id);
-  for (const childId of childIds) {
-    try {
-      deletedIds.push(
-        ...(await deleteAgentDirect(deps, childId, true, cleanupWorktree))
-      );
-    } catch (err) {
-      logger.warn(
-        { err, childId, parentId: id },
-        "Failed to cascade-delete child agent"
-      );
+  try {
+    const childIds = await getChildAgentIds(pool, id);
+    for (const childId of childIds) {
+      try {
+        deletedIds.push(
+          ...(await deleteAgentDirect(deps, childId, true, cleanupWorktree))
+        );
+      } catch (err) {
+        logger.warn(
+          { err, childId, parentId: id },
+          "Failed to cascade-delete child agent"
+        );
+      }
     }
+  } catch (err) {
+    logger.warn(
+      { err, agentId: id },
+      "Failed to look up child agents during cascade; children may be orphaned"
+    );
   }
 
   durations.total = Date.now() - deleteStart;

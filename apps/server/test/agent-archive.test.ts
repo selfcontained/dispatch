@@ -111,8 +111,24 @@ const makeRuntime = (overrides: Partial<AgentRuntime> = {}): AgentRuntime => ({
   ...overrides,
 });
 
+/** The CAS `deleteAgentDirect` takes before any teardown. */
+const isArchiveClaim = (sql: unknown) =>
+  typeof sql === "string" &&
+  sql.includes("SET status = 'archiving'") &&
+  sql.includes("RETURNING id");
+
+/**
+ * The claim only matches while the row is live and unclaimed, so the default
+ * answers it the way Postgres would for an agent nobody else is archiving. A
+ * test that wants to lose that race passes its own impl.
+ */
+const defaultQueryImpl = async (sql: unknown) =>
+  isArchiveClaim(sql)
+    ? { rows: [{ id: "claimed" }], rowCount: 1 }
+    : { rows: [], rowCount: 0 };
+
 const makePool = (queryImpl?: (...args: unknown[]) => unknown) => ({
-  query: vi.fn(queryImpl ?? (async () => ({ rows: [], rowCount: 0 }))),
+  query: vi.fn(queryImpl ?? defaultQueryImpl),
 });
 
 const makeDeps = (overrides: Partial<ArchiveDeps> = {}): ArchiveDeps => {
@@ -238,7 +254,7 @@ describe("executeArchive", () => {
         worktreeBranch: "feat/test",
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -265,7 +281,7 @@ describe("executeArchive", () => {
         worktreePath: "/tmp/wt",
         archiveCleanupMode: "keep",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -289,7 +305,7 @@ describe("executeArchive", () => {
         worktreeBranch: "feat/test",
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -312,7 +328,7 @@ describe("executeArchive", () => {
         worktreePath: "/tmp/wt",
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -333,7 +349,7 @@ describe("executeArchive", () => {
         worktreePath: "/tmp/wt",
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -358,7 +374,7 @@ describe("executeArchive", () => {
         worktreePath: "/tmp/wt",
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -382,7 +398,7 @@ describe("executeArchive", () => {
         worktreeBranch: "feat/test",
         archiveCleanupMode: "force",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -402,7 +418,7 @@ describe("executeArchive", () => {
         worktreePath: "/tmp/wt",
         archiveCleanupMode: "keep",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -425,7 +441,7 @@ describe("executeArchive", () => {
         baseBranch: "main",
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -446,7 +462,7 @@ describe("executeArchive", () => {
         baseBranch: "main",
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -466,7 +482,7 @@ describe("executeArchive", () => {
         worktreeBranch: null,
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -487,7 +503,7 @@ describe("executeArchive", () => {
         baseBranch: null,
         archiveCleanupMode: "auto",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -505,7 +521,7 @@ describe("executeArchive", () => {
   describe("no worktree path", () => {
     it("skips worktree cleanup when agent has no worktreePath", async () => {
       const agent = makeAgent("a1", { worktreePath: null });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -526,7 +542,7 @@ describe("executeArchive", () => {
         stopSession: vi.fn().mockResolvedValue(undefined),
       });
       const agent = makeAgent("a1", { tmuxSession: "session-a1" });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         runtime,
@@ -543,7 +559,7 @@ describe("executeArchive", () => {
     it("skips session stop when tmuxSession is null", async () => {
       const runtime = makeRuntime();
       const agent = makeAgent("a1", { tmuxSession: null });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         runtime,
@@ -563,7 +579,7 @@ describe("executeArchive", () => {
         stopSession: vi.fn(),
       });
       const agent = makeAgent("a1", { tmuxSession: "session-a1" });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         runtime,
@@ -581,7 +597,7 @@ describe("executeArchive", () => {
   describe("lifecycle hook", () => {
     it("runs the stop lifecycle hook", async () => {
       const agent = makeAgent("a1");
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -602,7 +618,7 @@ describe("executeArchive", () => {
         new Error("hook failed")
       );
       const agent = makeAgent("a1");
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -649,10 +665,7 @@ describe("executeArchive", () => {
             .map((row) => ({ id: row.id }));
           return { rows: matched, rowCount: matched.length };
         }
-        if (sql.includes("UPDATE agents SET deleted_at")) {
-          return { rows: [], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
+        return defaultQueryImpl(sql);
       });
 
     const makeAgentLookup = (agents: AgentRecord[]) =>
@@ -666,8 +679,7 @@ describe("executeArchive", () => {
       pool.query.mock.calls
         .filter(
           ([sql]: [string]) =>
-            typeof sql === "string" &&
-            sql.includes("UPDATE agents SET deleted_at")
+            typeof sql === "string" && sql.includes("SET deleted_at = NOW()")
         )
         .map(([, params]: [string, unknown[]?]) => params?.[0]);
 
@@ -786,6 +798,51 @@ describe("executeArchive", () => {
       ]);
     });
 
+    it("skips a child that is already archiving itself", async () => {
+      const parent = makeAgent("parent");
+      // The child query excludes status = 'archiving', so the fixture pool's
+      // filter never sees it — assert the SQL carries that guard.
+      const pool = makeChildQueryPool([]);
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: vi.fn().mockResolvedValue(parent),
+        getAgent: vi.fn().mockResolvedValue(parent),
+      });
+      const cb = makeCallbacks();
+
+      await executeArchive(deps, "parent", cb);
+
+      const childQuery = pool.query.mock.calls.find(
+        ([sql]: [string]) =>
+          typeof sql === "string" &&
+          sql.includes("FROM agents") &&
+          sql.includes("parent_agent_id")
+      );
+      expect(childQuery?.[0]).toContain("status != 'archiving'");
+    });
+
+    it("still completes when the child lookup fails after the parent is deleted", async () => {
+      const parent = makeAgent("parent");
+      const pool = makePool(async (sql: string) => {
+        if (sql.includes("FROM agents") && sql.includes("parent_agent_id")) {
+          throw new Error("connection reset");
+        }
+        return defaultQueryImpl(sql);
+      });
+      const deps = makeDeps({
+        pool: pool as never,
+        getRequiredAgent: vi.fn().mockResolvedValue(parent),
+        getAgent: vi.fn().mockResolvedValue(parent),
+      });
+      const cb = makeCallbacks();
+
+      await executeArchive(deps, "parent", cb);
+
+      // onError here would leave the UI showing an agent the DB has deleted.
+      expect(cb.onComplete).toHaveBeenCalledWith(["parent"]);
+      expect(cb.onError).not.toHaveBeenCalled();
+    });
+
     it("does not cascade when the agent has no children", async () => {
       const parent = makeAgent("parent");
 
@@ -814,10 +871,7 @@ describe("executeArchive", () => {
         if (sql.includes("INSERT INTO agent_events")) {
           return { rows: [], rowCount: 0 };
         }
-        if (sql.includes("UPDATE agents SET deleted_at")) {
-          return { rows: [], rowCount: 1 };
-        }
-        return { rows: [], rowCount: 0 };
+        return defaultQueryImpl(sql);
       });
       const deps = makeDeps({
         pool: pool as never,
@@ -869,7 +923,7 @@ describe("executeArchive", () => {
         worktreeBranch: "feat",
         archiveCleanupMode: "force",
       });
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -890,7 +944,7 @@ describe("executeArchive", () => {
   describe("diffStatsRefresher", () => {
     it("clears diff stats for the archived agent", async () => {
       const agent = makeAgent("a1");
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const diffStatsRefresher = { clear: vi.fn() };
       const deps = makeDeps({
         pool: pool as never,
@@ -906,7 +960,7 @@ describe("executeArchive", () => {
 
     it("tolerates null diffStatsRefresher", async () => {
       const agent = makeAgent("a1");
-      const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+      const pool = makePool();
       const deps = makeDeps({
         pool: pool as never,
         diffStatsRefresher: null,
@@ -930,7 +984,7 @@ describe("deleteAgentDirect", () => {
 
   it("deletes a stopped agent without calling stopAgent", async () => {
     const agent = makeAgent("a1", { status: "stopped" });
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool();
     const deps = makeDeps({
       pool: pool as never,
       getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -940,7 +994,7 @@ describe("deleteAgentDirect", () => {
 
     expect(deps.stopAgent).not.toHaveBeenCalled();
     expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE agents SET deleted_at"),
+      expect.stringContaining("SET deleted_at = NOW()"),
       ["a1"]
     );
   });
@@ -950,7 +1004,7 @@ describe("deleteAgentDirect", () => {
     const runtime = makeRuntime({
       hasSession: vi.fn().mockResolvedValue(true),
     });
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool();
     const deps = makeDeps({
       pool: pool as never,
       runtime,
@@ -968,7 +1022,7 @@ describe("deleteAgentDirect", () => {
     const runtime = makeRuntime({
       hasSession: vi.fn().mockResolvedValue(true),
     });
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool();
     const deps = makeDeps({
       pool: pool as never,
       runtime,
@@ -982,7 +1036,7 @@ describe("deleteAgentDirect", () => {
 
   it("allows deleting a running agent without session (no force needed)", async () => {
     const agent = makeAgent("a1", { status: "running", tmuxSession: null });
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool();
     const deps = makeDeps({
       pool: pool as never,
       getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -999,7 +1053,7 @@ describe("deleteAgentDirect", () => {
     const runtime = makeRuntime({
       hasSession: vi.fn().mockResolvedValue(false),
     });
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool();
     const deps = makeDeps({
       pool: pool as never,
       runtime,
@@ -1014,7 +1068,7 @@ describe("deleteAgentDirect", () => {
 
   it("continues deletion even if stopAgent fails", async () => {
     const agent = makeAgent("a1", { status: "running", tmuxSession: null });
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool();
     const deps = makeDeps({
       pool: pool as never,
       getRequiredAgent: vi.fn().mockResolvedValue(agent),
@@ -1024,7 +1078,7 @@ describe("deleteAgentDirect", () => {
     await deleteAgentDirect(deps, "a1", true);
 
     expect(pool.query).toHaveBeenCalledWith(
-      expect.stringContaining("UPDATE agents SET deleted_at"),
+      expect.stringContaining("SET deleted_at = NOW()"),
       ["a1"]
     );
   });
@@ -1038,7 +1092,7 @@ describe("deleteAgentDirect", () => {
       sql.includes("parent_agent_id") &&
       params?.[0] === "p1"
         ? { rows: [{ id: "c1" }], rowCount: 1 }
-        : { rows: [], rowCount: 0 }
+        : defaultQueryImpl(sql)
     );
     const deps = makeDeps({
       pool: pool as never,
@@ -1051,14 +1105,82 @@ describe("deleteAgentDirect", () => {
 
     const deleteCalls = pool.query.mock.calls.filter(
       ([sql]: [string]) =>
-        typeof sql === "string" && sql.includes("UPDATE agents SET deleted_at")
+        typeof sql === "string" && sql.includes("SET deleted_at = NOW()")
     );
     expect(deleteCalls).toHaveLength(2);
   });
 
+  it("skips an agent a concurrent archive already claimed", async () => {
+    const parent = makeAgent("p1", { status: "running" });
+    // The claim matches nothing: another archive got the row first.
+    const pool = makePool(async (sql: string) =>
+      isArchiveClaim(sql)
+        ? { rows: [], rowCount: 0 }
+        : { rows: [{ id: "c1" }], rowCount: 1 }
+    );
+    const deps = makeDeps({
+      pool: pool as never,
+      getRequiredAgent: vi.fn().mockResolvedValue(parent),
+    });
+
+    const deleted = await deleteAgentDirect(deps, "p1", true);
+
+    expect(deleted).toEqual([]);
+    // Nothing effectful runs: the winner stops the session and recurses.
+    expect(deps.stopAgent).not.toHaveBeenCalled();
+    expect(deps.diffStatsRefresher?.clear).not.toHaveBeenCalled();
+    expect(
+      pool.query.mock.calls.some(
+        ([sql]: [string]) =>
+          typeof sql === "string" &&
+          sql.includes("UPDATE agents") &&
+          sql.includes("deleted_at = NOW()")
+      )
+    ).toBe(false);
+  });
+
+  it("claims the agent before stopping it", async () => {
+    const agent = makeAgent("a1", { status: "running", tmuxSession: "s1" });
+    const pool = makePool();
+    const order: string[] = [];
+    pool.query.mockImplementation(async (sql: unknown) => {
+      if (isArchiveClaim(sql)) order.push("claim");
+      return defaultQueryImpl(sql);
+    });
+    const deps = makeDeps({
+      pool: pool as never,
+      getRequiredAgent: vi.fn().mockResolvedValue(agent),
+      stopAgent: vi.fn().mockImplementation(async () => {
+        order.push("stop");
+        return agent;
+      }),
+    });
+
+    await deleteAgentDirect(deps, "a1", true);
+
+    expect(order).toEqual(["claim", "stop"]);
+  });
+
+  it("still reports itself when the child lookup fails after the delete", async () => {
+    const parent = makeAgent("p1", { status: "stopped" });
+    const pool = makePool(async (sql: string) => {
+      if (sql.includes("FROM agents") && sql.includes("parent_agent_id")) {
+        throw new Error("connection reset");
+      }
+      return defaultQueryImpl(sql);
+    });
+    const deps = makeDeps({
+      pool: pool as never,
+      getRequiredAgent: vi.fn().mockResolvedValue(parent),
+    });
+
+    // The row is already gone; dropping the id would leave the UI rendering it.
+    await expect(deleteAgentDirect(deps, "p1")).resolves.toEqual(["p1"]);
+  });
+
   it("clears diffStatsRefresher", async () => {
     const agent = makeAgent("a1", { status: "stopped" });
-    const pool = makePool(async () => ({ rows: [], rowCount: 0 }));
+    const pool = makePool();
     const diffStatsRefresher = { clear: vi.fn() };
     const deps = makeDeps({
       pool: pool as never,
@@ -1083,7 +1205,7 @@ describe("deleteAgentDirect", () => {
       sql.includes("parent_agent_id") &&
       params?.[0] === "p1"
         ? { rows: [{ id: "c1" }], rowCount: 1 }
-        : { rows: [], rowCount: 0 }
+        : defaultQueryImpl(sql)
     );
     const deps = makeDeps({
       pool: pool as never,
@@ -1098,7 +1220,7 @@ describe("deleteAgentDirect", () => {
     const childDeleteCalls = pool.query.mock.calls.filter(
       ([sql, params]: [string, unknown[]?]) =>
         typeof sql === "string" &&
-        sql.includes("UPDATE agents SET deleted_at") &&
+        sql.includes("SET deleted_at = NOW()") &&
         params?.[0] === "c1"
     );
     expect(childDeleteCalls).toHaveLength(1);
