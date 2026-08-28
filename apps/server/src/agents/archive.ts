@@ -35,6 +35,18 @@ export type ArchiveDeps = {
 };
 
 /**
+ * Cascaded children always get `auto`, whatever the parent chose.
+ *
+ * A child's worktree is cleaned when it holds nothing and kept when it holds
+ * work, so a cascade tidies up after itself without ever destroying something
+ * unseen. The parent's `force` deliberately does not reach them: the
+ * confirmation shows the parent's outstanding changes, and extending a
+ * one-click discard to worktrees the user was never shown would need a second
+ * prompt per child to be honest — which is worse than simply keeping them.
+ */
+const CASCADED_CHILD_CLEANUP: WorktreeCleanupMode = "auto";
+
+/**
  * The agents an archive cascades to: every agent launched as a true child of
  * this one, review or not.
  *
@@ -366,7 +378,12 @@ export async function executeArchive(
       for (const childId of childIds) {
         try {
           cascadedIds.push(
-            ...(await deleteAgentDirect(deps, childId, true, cleanupWorktree))
+            ...(await deleteAgentDirect(
+              deps,
+              childId,
+              true,
+              CASCADED_CHILD_CLEANUP
+            ))
           );
         } catch (err) {
           logger.warn(
@@ -539,7 +556,12 @@ export async function deleteAgentDirect(
     for (const childId of childIds) {
       try {
         deletedIds.push(
-          ...(await deleteAgentDirect(deps, childId, true, cleanupWorktree))
+          ...(await deleteAgentDirect(
+            deps,
+            childId,
+            true,
+            CASCADED_CHILD_CLEANUP
+          ))
         );
       } catch (err) {
         logger.warn(

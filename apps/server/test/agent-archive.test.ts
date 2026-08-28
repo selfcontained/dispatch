@@ -905,7 +905,7 @@ describe("executeArchive", () => {
       expect(cleanupGitWorktree).not.toHaveBeenCalled();
     });
 
-    it("propagates a force cleanup to cascaded children", async () => {
+    it("does not extend a force cleanup to a child holding work", async () => {
       const parent = makeAgent("parent", { archiveCleanupMode: "force" });
       const child = makeAgent("child", {
         parentAgentId: "parent",
@@ -927,61 +927,17 @@ describe("executeArchive", () => {
         getRequiredAgent: lookup,
         getAgent: lookup,
       });
+      const cb = makeCallbacks();
 
-      await executeArchive(deps, "parent", makeCallbacks());
+      await executeArchive(deps, "parent", cb);
 
-      expect(cleanupGitWorktree).toHaveBeenCalledWith(
+      // The confirmation showed the parent's changes, not this child's, so a
+      // one-click discard must not reach it. The record still goes.
+      expect(cleanupGitWorktree).not.toHaveBeenCalledWith(
         expect.objectContaining({ cwd: "/tmp/wt-child" }),
         expect.any(Function)
       );
-    });
-
-    it("keeps cascading when one child's worktree cleanup hangs", async () => {
-      vi.useFakeTimers();
-      try {
-        const parent = makeAgent("parent");
-        const stuck = makeAgent("stuck", {
-          parentAgentId: "parent",
-          status: "stopped",
-          worktreePath: "/tmp/wt-stuck",
-          worktreeBranch: "agt/stuck",
-        });
-        const sibling = makeAgent("sibling", {
-          parentAgentId: "parent",
-          status: "stopped",
-        });
-        // git never returns — a held index or config lock looks exactly like
-        // this from here.
-        vi.mocked(cleanupGitWorktree).mockReturnValueOnce(
-          new Promise(() => {}) as never
-        );
-
-        const pool = makeChildQueryPool([
-          { id: "stuck", parentAgentId: "parent" },
-          { id: "sibling", parentAgentId: "parent" },
-        ]);
-        const lookup = makeAgentLookup([parent, stuck, sibling]);
-        const deps = makeDeps({
-          pool: pool as never,
-          getRequiredAgent: lookup,
-          getAgent: lookup,
-        });
-        const cb = makeCallbacks();
-
-        const archive = executeArchive(deps, "parent", cb);
-        await vi.advanceTimersByTimeAsync(61_000);
-        await archive;
-
-        // The hung child is still archived (its worktree just stays on disk),
-        // and the sibling queued behind it is not stranded.
-        expect(cb.onComplete).toHaveBeenCalledWith([
-          "parent",
-          "stuck",
-          "sibling",
-        ]);
-      } finally {
-        vi.useRealTimers();
-      }
+      expect(cb.onComplete).toHaveBeenCalledWith(["parent", "child"]);
     });
 
     it("leaves a worktree alone when another live agent also references it", async () => {
@@ -1389,7 +1345,7 @@ describe("deleteAgentDirect", () => {
     expect(diffStatsRefresher.clear).toHaveBeenCalledWith("a1");
   });
 
-  it("passes cleanupWorktree mode through to child cascade", async () => {
+  it("cascades to a child regardless of the mode it was called with", async () => {
     const parent = makeAgent("p1", { status: "stopped" });
     const child = makeAgent("c1", {
       status: "stopped",

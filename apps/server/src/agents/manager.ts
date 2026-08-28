@@ -83,8 +83,6 @@ import type {
   SetupPhase,
   WorktreeCleanupMode,
   WorktreeStatus,
-  AgentWorktreeStatus,
-  SubtreeWorktreeStatus,
 } from "./types.js";
 import * as telemetry from "./telemetry.js";
 
@@ -216,24 +214,6 @@ export type DiffStatsRefresherHandle = {
   signal: (agentId: string) => Promise<void>;
   clear: (agentId: string) => void;
 };
-
-/**
- * Caps on the archive confirmation's worktree preview. Each entry shells out to
- * `git fetch`, so a wide subtree could otherwise hold an API request for
- * minutes. Exceeding either cap marks the preview incomplete rather than
- * silently returning a short list that reads as "nothing to lose".
- */
-const SUBTREE_WORKTREE_STATUS_MAX = 50;
-const SUBTREE_WORKTREE_STATUS_BUDGET_MS = 20_000;
-/** Traversal cap, so one request can never walk an unbounded number of rows. */
-const SUBTREE_WORKTREE_STATUS_NODE_MAX = 5_000;
-/**
- * Previews in flight across all requests. An overrunning read is detached
- * rather than cancelled — git exposes no way to abort it — so this is what
- * actually bounds how much git work concurrent callers can stack up.
- */
-const SUBTREE_WORKTREE_STATUS_MAX_INFLIGHT = 3;
-let subtreeWorktreeStatusInFlight = 0;
 
 export class AgentManager {
   private readonly pool: Pool;
@@ -1125,155 +1105,6 @@ export class AgentManager {
     }
 
     return readWorktreeStatus(agent.worktreePath);
-  }
-
-  /**
-   * Worktree status for an agent and every agent that would be archived with
-   * it — the whole `parent_agent_id` subtree the cascade sweeps.
-   *
-   * The archive confirmation offers to discard worktrees across that subtree,
-   * so it has to be able to show what is in them; asking per agent from the
-   * browser would mean one round trip each, and each one shells out to git.
-   * Agents without a worktree are dropped rather than reported as empty — the
-   * caller only cares about worktrees that could be destroyed.
-   */
-  /**
-   * Worktree status for an agent and every agent that would be archived with
-   * it — the whole `parent_agent_id` subtree the cascade sweeps.
-   *
-   * The archive confirmation offers to discard worktrees across that subtree,
-   * so it has to show what is in them; asking per agent from the browser would
-   * be a round trip each, and each one shells out to git. Agents without a
-   * worktree are dropped — the caller only cares about what could be destroyed.
-   *
-   * `complete: false` means the preview does not account for the whole cascade,
-   * and the caller must not offer a destructive cleanup on the strength of it:
-   * an unlisted worktree would still be removed.
-   */
-  async checkSubtreeWorktreeStatus(id: string): Promise<SubtreeWorktreeStatus> {
-    await this.getRequiredAgent(id);
-
-    // Detached reads keep running after their request returns, so admission
-    // control — not the per-request budget — is what stops concurrent callers
-    // stacking up git work. Refusing reports an incomplete preview, which the
-    // caller already knows not to offer a destructive cleanup on.
-    if (subtreeWorktreeStatusInFlight >= SUBTREE_WORKTREE_STATUS_MAX_INFLIGHT) {
-      this.logger.warn(
-        { agentId: id, inFlight: subtreeWorktreeStatusInFlight },
-        "Too many worktree previews in flight; returning an incomplete one."
-      );
-      return { statuses: [], complete: false };
-    }
-    subtreeWorktreeStatusInFlight += 1;
-    try {
-      return await this.readSubtreeWorktreeStatus(id);
-    } finally {
-      subtreeWorktreeStatusInFlight -= 1;
-    }
-  }
-
-  private async readSubtreeWorktreeStatus(
-    id: string
-  ): Promise<SubtreeWorktreeStatus> {
-    // Recursive walk of `parent_agent_id`, matching the archive cascade: no
-    // `launched_by_agent_id`, so an independent `child: false` agent never
-    // appears, and agents already archiving are skipped and not descended
-    // through — their own archive owns that subtree, and it may be running a
-    // different cleanup mode.
-    //
-    // Cycles are stopped by the visited path rather than a depth cap: the
-    // cascade itself has no depth limit, so capping here would hide a deep
-    // descendant's worktree that a force cleanup would still delete. Each
-    // agent has exactly one parent, so the walk is a tree — the path can only
-    // ever repeat on a corrupted link, never on a legitimate diamond.
-    const result = await this.pool.query<{
-      id: string;
-      name: string;
-      worktree_path: string | null;
-    }>(
-      `WITH RECURSIVE subtree AS (
-         SELECT id, name, worktree_path, ARRAY[id] AS path
-         FROM agents
-         WHERE id = $1 AND deleted_at IS NULL
-         UNION ALL
-         SELECT a.id, a.name, a.worktree_path, s.path || a.id
-         FROM agents a
-         JOIN subtree s ON a.parent_agent_id = s.id
-         WHERE a.deleted_at IS NULL
-           AND a.status <> 'archiving'
-           AND NOT (a.id = ANY(s.path))
-       )
-       SELECT id, name, worktree_path
-       FROM subtree
-       LIMIT $2`,
-      [id, SUBTREE_WORKTREE_STATUS_NODE_MAX + 1]
-    );
-
-    // No DISTINCT: each agent has exactly one parent, so the walk is a tree and
-    // an id cannot repeat. Dropping it matters because DISTINCT would have to
-    // consume the entire recursion before the LIMIT could apply, which is the
-    // opposite of bounding the work.
-    //
-    // Both limits ask for one row over the cap, so exceeding either is visible
-    // rather than silently truncating into something that reads as clean.
-    const traversalTruncated =
-      result.rows.length > SUBTREE_WORKTREE_STATUS_NODE_MAX;
-    const withWorktrees = result.rows
-      .slice(0, SUBTREE_WORKTREE_STATUS_NODE_MAX)
-      .filter((row) => row.worktree_path);
-    const budgeted = withWorktrees.slice(0, SUBTREE_WORKTREE_STATUS_MAX);
-    let complete =
-      !traversalTruncated && budgeted.length === withWorktrees.length;
-
-    // Each status runs a `git fetch`, so a wide subtree is bounded three ways:
-    // how many run at once, how many run at all, and how long the whole thing
-    // may take. Whatever is unfinished when the deadline passes leaves the
-    // preview explicitly incomplete rather than looking clean.
-    const deadline = Date.now() + SUBTREE_WORKTREE_STATUS_BUDGET_MS;
-    const statuses: AgentWorktreeStatus[] = [];
-    const queue = [...budgeted];
-    const workers = Array.from(
-      { length: Math.min(4, queue.length) },
-      async () => {
-        for (let row = queue.shift(); row; row = queue.shift()) {
-          // The deadline bounds each read, not just the decision to start one:
-          // `readWorktreeStatus` runs git and cannot be aborted, so a read that
-          // began just under the wire could otherwise carry the request well
-          // past the budget while still reporting a complete preview.
-          const remaining = deadline - Date.now();
-          if (remaining <= 0) {
-            complete = false;
-            return;
-          }
-          const status = await Promise.race([
-            readWorktreeStatus(row.worktree_path as string),
-            new Promise<null>((resolve) => {
-              const timer = setTimeout(() => resolve(null), remaining);
-              timer.unref?.();
-            }),
-          ]);
-          if (!status) {
-            complete = false;
-            return;
-          }
-          statuses.push({
-            agentId: row.id,
-            agentName: row.name,
-            isTarget: row.id === id,
-            ...status,
-          });
-        }
-      }
-    );
-    await Promise.all(workers);
-
-    // Target first, then a stable order the UI can render without resorting.
-    statuses.sort((a, b) => {
-      if (a.isTarget !== b.isTarget) return a.isTarget ? -1 : 1;
-      return a.agentName.localeCompare(b.agentName);
-    });
-
-    return { statuses, complete };
   }
 
   async upsertLatestEvent(

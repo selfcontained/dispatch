@@ -49,30 +49,6 @@ type WorktreeStatus = {
   uncommittedFiles: string[];
 };
 
-type AgentWorktreeStatus = WorktreeStatus & {
-  agentId: string;
-  agentName: string;
-  isTarget: boolean;
-};
-
-/** One agent's entry in the subtree payload. */
-function agentStatus(
-  overrides: Partial<AgentWorktreeStatus> = {}
-): AgentWorktreeStatus {
-  return {
-    agentId: "agt_target",
-    agentName: "worker-1",
-    isTarget: true,
-    ...worktreeStatus(overrides),
-    ...overrides,
-  };
-}
-
-/** The subtree endpoint's response envelope. */
-function subtree(...statuses: AgentWorktreeStatus[]) {
-  return { statuses };
-}
-
 function worktreeStatus(
   overrides: Partial<WorktreeStatus> = {}
 ): WorktreeStatus {
@@ -121,8 +97,10 @@ afterEach(cleanup);
 describe("DeleteAgentDialog", () => {
   it("archives with auto cleanup and closes when the agent has no worktree", async () => {
     const agent = makeAgent();
-    apiMock.mockResolvedValueOnce(subtree());
     const { setOpen, setDeleteTarget, onDelete } = renderDialog(agent);
+
+    // No worktree — the status endpoint must not be queried at all.
+    expect(apiMock).not.toHaveBeenCalled();
 
     fireEvent.click(await archiveButtonReady());
 
@@ -136,12 +114,12 @@ describe("DeleteAgentDialog", () => {
     const agent = makeAgent({
       worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
-    apiMock.mockResolvedValueOnce(subtree(agentStatus()));
+    apiMock.mockResolvedValueOnce(worktreeStatus());
     const { setOpen, onDelete } = renderDialog(agent);
 
     await waitFor(() =>
       expect(apiMock).toHaveBeenCalledWith(
-        "/api/v1/agents/agt_target/worktree-status/subtree"
+        "/api/v1/agents/agt_target/worktree-status"
       )
     );
     fireEvent.click(await archiveButtonReady());
@@ -155,9 +133,9 @@ describe("DeleteAgentDialog", () => {
     const agent = makeAgent({
       worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
-    let resolveStatus!: (value: { statuses: AgentWorktreeStatus[] }) => void;
+    let resolveStatus!: (value: WorktreeStatus) => void;
     apiMock.mockReturnValueOnce(
-      new Promise<{ statuses: AgentWorktreeStatus[] }>((resolve) => {
+      new Promise<WorktreeStatus>((resolve) => {
         resolveStatus = resolve;
       }) as ReturnType<typeof api>
     );
@@ -170,7 +148,7 @@ describe("DeleteAgentDialog", () => {
     fireEvent.click(confirm);
     expect(onDelete).not.toHaveBeenCalled();
 
-    resolveStatus(subtree(agentStatus({ hasUnmergedCommits: true })));
+    resolveStatus(worktreeStatus({ hasUnmergedCommits: true }));
     await waitFor(() => expect(confirm.hasAttribute("disabled")).toBe(false));
   });
 
@@ -179,12 +157,10 @@ describe("DeleteAgentDialog", () => {
       worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
     apiMock.mockResolvedValueOnce(
-      subtree(
-        agentStatus({
-          hasUnmergedCommits: true,
-          changedFiles: ["src/a.ts", "src/b.ts"],
-        })
-      )
+      worktreeStatus({
+        hasUnmergedCommits: true,
+        changedFiles: ["src/a.ts", "src/b.ts"],
+      })
     );
     const { setOpen, onDelete } = renderDialog(agent);
 
@@ -204,22 +180,19 @@ describe("DeleteAgentDialog", () => {
       worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
     apiMock.mockResolvedValueOnce(
-      subtree(
-        agentStatus({
-          hasUncommittedChanges: true,
-          uncommittedFiles: ["src/wip.ts"],
-        })
-      )
+      worktreeStatus({
+        hasUncommittedChanges: true,
+        uncommittedFiles: ["src/wip.ts"],
+      })
     );
     renderDialog(agent);
 
     fireEvent.click(await archiveButtonReady());
 
-    await screen.findByText("Worktree Has Outstanding Changes");
-    expect(screen.getByText("Uncommitted changes:")).toBeTruthy();
+    await screen.findByText("Worktree has uncommitted changes.");
     expect(screen.getByText("src/wip.ts")).toBeTruthy();
     // The unmerged-commits panel must not render for this leg.
-    expect(screen.queryByText("Commits not merged to origin:")).toBeNull();
+    expect(screen.queryByText(/has commits not merged/)).toBeNull();
   });
 
   it("keeps the worktree when that choice is made", async () => {
@@ -227,9 +200,7 @@ describe("DeleteAgentDialog", () => {
       worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
     apiMock.mockResolvedValueOnce(
-      subtree(
-        agentStatus({ hasUnmergedCommits: true, changedFiles: ["src/a.ts"] })
-      )
+      worktreeStatus({ hasUnmergedCommits: true, changedFiles: ["src/a.ts"] })
     );
     const { setOpen, setDeleteTarget, onDelete } = renderDialog(agent);
 
@@ -247,9 +218,7 @@ describe("DeleteAgentDialog", () => {
       worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
     apiMock.mockResolvedValueOnce(
-      subtree(
-        agentStatus({ hasUnmergedCommits: true, changedFiles: ["src/a.ts"] })
-      )
+      worktreeStatus({ hasUnmergedCommits: true, changedFiles: ["src/a.ts"] })
     );
     const { setOpen, onDelete } = renderDialog(agent);
 
@@ -261,123 +230,45 @@ describe("DeleteAgentDialog", () => {
     expect(onDelete).toHaveBeenCalledWith(agent, "force");
   });
 
-  it("stops on a sub agent's outstanding work even when the target is clean", async () => {
-    const agent = makeAgent({
-      worktreePath: "/repo/.dispatch/worktrees/worker-1",
-    });
-    apiMock.mockResolvedValueOnce(
-      subtree(
-        agentStatus(),
-        agentStatus({
-          agentId: "agt_child",
-          agentName: "builder-3",
-          isTarget: false,
-          branchName: "agt/builder-3",
-          hasUncommittedChanges: true,
-          uncommittedFiles: ["src/wip.ts"],
-        })
-      )
-    );
-    const { onDelete } = renderDialog(agent);
-
-    fireEvent.click(await archiveButtonReady());
-
-    // The whole point: the parent looks clean, but archiving it discards the
-    // child's work, so the user is asked rather than told afterwards.
-    await screen.findByText("Worktree Has Outstanding Changes");
-    expect(onDelete).not.toHaveBeenCalled();
-    expect(screen.getByText("builder-3")).toBeTruthy();
-    expect(screen.getByText("(sub agent)")).toBeTruthy();
-    expect(screen.getByText("src/wip.ts")).toBeTruthy();
-  });
-
-  it("counts every dirty worktree in the cascade in the heading", async () => {
-    const agent = makeAgent({
-      worktreePath: "/repo/.dispatch/worktrees/worker-1",
-    });
-    apiMock.mockResolvedValueOnce(
-      subtree(
-        agentStatus({
-          hasUncommittedChanges: true,
-          uncommittedFiles: ["src/a.ts"],
-        }),
-        agentStatus({
-          agentId: "agt_child",
-          agentName: "builder-3",
-          isTarget: false,
-          hasUncommittedChanges: true,
-          uncommittedFiles: ["src/b.ts"],
-        })
-      )
-    );
-    renderDialog(agent);
-
-    fireEvent.click(await archiveButtonReady());
-
-    await screen.findByText("2 Worktrees Have Outstanding Changes");
-    expect(screen.getByTestId("delete-agent-force-worktree").textContent).toBe(
-      "Archive and remove worktrees"
-    );
-  });
-
-  it("blocks archiving and offers a retry when the status check fails", async () => {
+  it("falls back to a plain auto archive when the status fetch fails", async () => {
     const agent = makeAgent({
       worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
     apiMock.mockRejectedValueOnce(new Error("boom"));
     const { setOpen, onDelete } = renderDialog(agent);
 
-    // Falling through to an archive here would skip the worktree confirmation
-    // at the one moment we cannot say what it would discard.
-    await screen.findByTestId("worktree-check-failed");
-    expect(screen.queryByTestId("delete-agent-confirm")).toBeNull();
-    expect(onDelete).not.toHaveBeenCalled();
-    expect(setOpen).not.toHaveBeenCalled();
-  });
-
-  it("archives normally once a retried status check succeeds", async () => {
-    const agent = makeAgent({
-      worktreePath: "/repo/.dispatch/worktrees/worker-1",
-    });
-    apiMock.mockRejectedValueOnce(new Error("boom"));
-    apiMock.mockResolvedValueOnce(subtree(agentStatus()));
-    const { setOpen, onDelete } = renderDialog(agent);
-
-    fireEvent.click(await screen.findByTestId("delete-agent-retry-status"));
-
     fireEvent.click(await archiveButtonReady());
+
     await waitFor(() => expect(setOpen).toHaveBeenCalledWith(false));
     expect(onDelete).toHaveBeenCalledWith(agent, "auto");
+    expect(screen.queryByText("Worktree Has Outstanding Changes")).toBeNull();
   });
 
-  it("withholds the destructive choice when the preview is incomplete", async () => {
-    const agent = makeAgent({
-      worktreePath: "/repo/.dispatch/worktrees/worker-1",
+  it("names the sub agents that archive with the target", async () => {
+    const agent = makeAgent();
+    const child = makeAgent({ id: "agt_child", parentAgentId: "agt_target" });
+    const grandchild = makeAgent({
+      id: "agt_grandchild",
+      parentAgentId: "agt_child",
     });
-    apiMock.mockResolvedValueOnce({
-      statuses: [agentStatus()],
-      complete: false,
-    });
-    const { onDelete } = renderDialog(agent);
+    renderDialog(agent, [child, grandchild]);
 
-    fireEvent.click(await archiveButtonReady());
+    expect(
+      screen.getByText(/Its 2 sub agents are archived too\./)
+    ).toBeTruthy();
+  });
 
-    // Nothing looked dirty, but the walk was cut short — so the archive must
-    // not proceed silently, and removing worktrees must not be on offer.
-    await screen.findByTestId("worktree-preview-incomplete");
-    expect(onDelete).not.toHaveBeenCalled();
-    expect(
-      screen.getByTestId("delete-agent-force-worktree").hasAttribute("disabled")
-    ).toBe(true);
-    // Keeping them is still a safe way out.
-    expect(
-      screen.getByTestId("delete-agent-keep-worktree").hasAttribute("disabled")
-    ).toBe(false);
+  it("leaves out an independent agent the target merely launched", async () => {
+    const agent = makeAgent();
+    // child: false — no parentAgentId, so the server cascade skips it.
+    const independent = makeAgent({ id: "agt_independent" });
+    renderDialog(agent, [independent]);
+
+    expect(screen.queryByText(/sub agent/)).toBeNull();
   });
 
   it("cancel closes and clears the target without deleting", async () => {
     const agent = makeAgent();
-    apiMock.mockResolvedValueOnce(subtree());
     const { setOpen, setDeleteTarget, onDelete } = renderDialog(agent);
 
     fireEvent.click(screen.getByTestId("delete-agent-cancel"));

@@ -80,7 +80,6 @@ export type WorktreeCleanupMode = "auto" | "keep" | "force";
 // here so existing importers (manager.ts's public surface, and through
 // it routes/agents.ts) keep resolving without churn.
 export type { WorktreeStatus } from "../shared/git/worktree-status.js";
-import type { WorktreeStatus } from "../shared/git/worktree-status.js";
 
 export type AgentTerminalAccess =
   | { mode: "tmux"; sessionName: string }
@@ -90,26 +89,6 @@ export type AgentLatestEventInput = {
   type: AgentLatestEventType;
   message: string;
   metadata?: Record<string, unknown>;
-};
-
-/** One agent's worktree status inside an archive's cascade preview. */
-export type AgentWorktreeStatus = WorktreeStatus & {
-  agentId: string;
-  agentName: string;
-  /** True for the agent the archive was requested on, false for a descendant. */
-  isTarget: boolean;
-};
-
-/**
- * The archive confirmation's view of a cascade's worktrees.
- *
- * `complete: false` means the walk was cut short by its work budget, so the
- * list under-reports what an archive would remove. A caller must not offer a
- * destructive cleanup on an incomplete preview.
- */
-export type SubtreeWorktreeStatus = {
-  statuses: AgentWorktreeStatus[];
-  complete: boolean;
 };
 
 export type AgentRecord = {

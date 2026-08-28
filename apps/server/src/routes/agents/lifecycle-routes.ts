@@ -317,22 +317,6 @@ export async function registerAgentLifecycleRoutes(
     }
   });
 
-  // The archive confirmation needs the whole cascade's worktrees, not just the
-  // target's — it offers to discard all of them in one click.
-  app.get(
-    "/api/v1/agents/:id/worktree-status/subtree",
-    async (request, reply) => {
-      const params = request.params as { id?: string };
-      const id = params.id ?? "";
-
-      try {
-        return await deps.agentManager.checkSubtreeWorktreeStatus(id);
-      } catch (error) {
-        return deps.handleAgentError(reply, error);
-      }
-    }
-  );
-
   app.get("/api/v1/agents/:id/diff-stats", async (request, reply) => {
     const params = request.params as { id?: string };
     const id = params.id ?? "";
