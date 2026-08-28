@@ -35,32 +35,17 @@ export type ArchiveDeps = {
 };
 
 /**
- * Cascaded children always get `force`, whatever the parent was archived with.
- *
- * Archiving a parent leaves nothing of it behind: no child agents, and no child
- * worktrees. The confirmation already asks about the parent's own outstanding
- * work, and that one answer covers the whole cascade — children are managed by
- * their parent, so their worktrees are not separately the user's to decide
- * about. Checking each child instead would either strand worktrees with no
- * agent record able to reach them, or need a prompt per child to clear them.
+ * Children go with the parent, worktrees included. The parent's confirmation is
+ * the one answer for the whole cascade, so children are never checked or asked
+ * about separately.
  */
 const CASCADED_CHILD_CLEANUP: WorktreeCleanupMode = "force";
 
 /**
- * The agents an archive cascades to: every agent launched as a true child of
- * this one, review or not.
- *
- * The filter is `parent_agent_id` and only `parent_agent_id`. The sibling
- * column `launched_by_agent_id` is deliberately excluded: it is populated for
- * every agent-initiated launch, including `child: false` ones that were
- * explicitly asked to be independent top-level agents. Widening this to
- * `parent_agent_id = $1 OR launched_by_agent_id = $1` would sweep those
- * independent agents into the parent's archive, which is exactly what
- * `child: false` exists to prevent.
- *
- * A child already in `archiving` is skipped: its own archive owns it and is
- * cascading to its descendants itself, so taking it here would run the whole
- * teardown twice over one subtree.
+ * Every true child of this agent. `parent_agent_id` only — never
+ * `launched_by_agent_id`, which is also set for `child: false` launches that
+ * asked to be independent. An agent already `archiving` belongs to its own
+ * archive, which is cascading to that subtree itself.
  */
 async function getChildAgentIds(
   pool: Pool,
@@ -78,13 +63,8 @@ async function getChildAgentIds(
 }
 
 /**
- * Ceiling on the git work one agent's worktree cleanup may take.
- *
- * Cleanup shells out to git, and git blocks indefinitely on a held index or
- * config lock. The cascade walks children one at a time, so an unbounded hang
- * on any one of them would strand it in `archiving` and stop every sibling
- * behind it from being archived at all. Generous enough that only a genuinely
- * stuck repository trips it.
+ * git blocks indefinitely on a held index lock, and the cascade is sequential —
+ * one hang would strand every sibling behind it.
  */
 const WORKTREE_CLEANUP_TIMEOUT_MS = 60_000;
 
@@ -108,16 +88,8 @@ async function withTimeout<T>(
 }
 
 /**
- * Applies a worktree cleanup mode to one agent: `force` always removes, `keep`
- * never does, `auto` removes only a worktree with nothing unmerged or
- * uncommitted in it.
- *
- * All three modes are reachable for the agent the user archived, since that is
- * what the confirmation asks about. Cascaded children always arrive here as
- * `force` — see CASCADED_CHILD_CLEANUP.
- *
- * Never throws: a worktree that cannot be removed is logged and left on disk
- * rather than failing the archive around it.
+ * `force` always removes, `keep` never does, `auto` removes only a worktree
+ * holding nothing. Never throws — an unremovable worktree is left on disk.
  */
 async function cleanupAgentWorktree(
   pool: Pool,
@@ -132,13 +104,8 @@ async function cleanupAgentWorktree(
   const worktreePath = agent.worktreePath;
 
   const run = async () => {
-    // Nothing stops two live agent rows recording the same worktree or branch
-    // — `agents` has no uniqueness constraint on either column, and
-    // `completeSetup` persists whatever it is handed. Removing a worktree
-    // another live agent is sitting in would take that agent's work with it,
-    // so a shared path or branch forfeits cleanup. A failure here throws and
-    // is caught below, which also leaves the worktree alone: when ownership
-    // cannot be established, the safe answer is to keep it.
+    // No uniqueness constraint on either column, so two live rows can name one
+    // worktree; removing it would take the other agent's work.
     const coOwner = await pool.query<{ id: string }>(
       `SELECT id
        FROM agents
@@ -227,10 +194,7 @@ async function cleanupAgentWorktree(
     }
   };
 
-  // Every failure lands here, timeout included, and the worktree is simply
-  // left on disk. Cleanup is never allowed to fail the archive around it —
-  // least of all a cascade, where the siblings queued behind this one still
-  // have to be archived.
+  // Cleanup never fails the archive around it — siblings still have to run.
   try {
     await withTimeout(
       run(),
@@ -364,13 +328,8 @@ export async function executeArchive(
     durations.db = Date.now() - tDb;
     diffStatsRefresher?.clear(id);
 
-    // Cascade: archive every true child (parent_agent_id), review or not.
-    // deleteAgentDirect recurses, so the whole subtree goes with the parent
-    // rather than being left behind as orphaned top-level agents.
-    //
-    // This agent's row is gone by now, so a failure here must not reach the
-    // outer catch: that path reports an error instead of completing, and the
-    // deleted agent would never be published as deleted.
+    // Already deleted: the outer catch would report an error and never publish
+    // the deletion.
     const tCascade = Date.now();
     const cascadedIds: string[] = [];
     try {
@@ -420,16 +379,9 @@ export async function executeArchive(
 }
 
 /**
- * Deletes one agent and, recursively, every true child beneath it.
- *
- * Only the cascade reaches this, and it always force-stops and force-cleans: a
- * descendant is not separately the user's to decide about, and the
- * still-running check belongs to the archive the user actually asked for.
- *
- * Returns the ids actually deleted — this agent first, then its descendants in
- * the order they were removed. Callers publish `agent.deleted` for each, so a
- * grandchild that goes with the subtree has to appear here or the UI keeps
- * rendering a row for an agent the database no longer has.
+ * Deletes one agent and every true child beneath it, returning the ids removed.
+ * Callers publish `agent.deleted` per id, so anything missing here leaves the
+ * UI rendering an agent the database no longer has.
  */
 export async function deleteAgentDirect(
   deps: ArchiveDeps,
@@ -443,12 +395,8 @@ export async function deleteAgentDirect(
     ? await runtime.hasSession(agent.tmuxSession)
     : false;
 
-  // Claim the agent before any teardown. The same row can be reached twice —
-  // by its own archive and by an ancestor's cascade — and everything below is
-  // effectful: stop hooks fire, the session dies, events are written. The CAS
-  // is the same one `beginArchive` takes, so the two paths contend for one
-  // lock rather than each having their own. A claim left behind by a crash is
-  // picked up by the archiving-status reconciler on the next start.
+  // Claim before any teardown — an agent's own archive and an ancestor's
+  // cascade can reach it at once. Same CAS `beginArchive` takes.
   const claimed = await pool.query(
     `UPDATE agents
      SET status = 'archiving', archive_phase = 'stopping', updated_at = NOW()
@@ -466,11 +414,8 @@ export async function deleteAgentDirect(
 
   if (agent.status !== "stopped") {
     const t = Date.now();
-    // Tear the session down directly rather than through stopAgent: that path
-    // writes `stopping` and then `stopped`, which would release the claim taken
-    // above and let a fresh archive claim this agent mid-teardown. The row stays
-    // `archiving` until the delete lands. Same reason executeArchive does it
-    // this way for its own agent.
+    // Not stopAgent: it writes `stopping`/`stopped`, releasing the claim above
+    // and letting a fresh archive take this agent mid-teardown.
     try {
       await runLifecycleHook("stop", agent, logger).catch((err) =>
         logger.warn(
@@ -518,8 +463,7 @@ export async function deleteAgentDirect(
      WHERE agent_id = $1 AND status IN ('queued', 'notified', 'claimed')`,
     [id]
   );
-  // Always `force`: keeping a cascaded child's worktree would leave it
-  // registered with no agent record able to reach it.
+  // Keeping it would leave a worktree no agent record can reach.
   await cleanupAgentWorktree(
     pool,
     logger,
@@ -537,13 +481,9 @@ export async function deleteAgentDirect(
   durations.db = Date.now() - tDb;
   diffStatsRefresher?.clear(id);
 
-  // Cascade to every true child (parent_agent_id), review or not. This agent's
-  // row is already soft-deleted above, so the query cannot hand back an
-  // ancestor and a corrupted parent link cannot make the recursion loop.
-  //
-  // `deletedIds` carries this agent from here on. Nothing below may throw past
-  // this point: the row is gone, and a caller that never learns the id would
-  // leave the UI rendering a row for an agent the database no longer has.
+  // This row is soft-deleted above, so the query cannot return an ancestor and
+  // a corrupted parent link cannot loop. Nothing below may throw: the id has to
+  // reach the caller or the UI keeps rendering a deleted agent.
   const deletedIds = [id];
   try {
     const childIds = await getChildAgentIds(pool, id);

@@ -117,11 +117,7 @@ const isArchiveClaim = (sql: unknown) =>
   sql.includes("SET status = 'archiving'") &&
   sql.includes("RETURNING id");
 
-/**
- * The claim only matches while the row is live and unclaimed, so the default
- * answers it the way Postgres would for an agent nobody else is archiving. A
- * test that wants to lose that race passes its own impl.
- */
+/** Answers the claim as Postgres would for an unclaimed agent. */
 const defaultQueryImpl = async (sql: unknown) =>
   isArchiveClaim(sql)
     ? { rows: [{ id: "claimed" }], rowCount: 1 }
@@ -639,15 +635,8 @@ describe("executeArchive", () => {
 
   describe("cascade child deletion", () => {
     /**
-     * Stands in for the `agents` table when the cascade asks for a target's
-     * children. Rows are keyed the way the DB is: `parentAgentId` is set only
-     * for `child: true` launches, `launchedByAgentId` for every
-     * agent-initiated launch including `child: false` ones.
-     *
-     * The handler answers from whichever column the SQL actually names, so a
-     * query widened to `OR launched_by_agent_id = $1` would return the
-     * independent agents too and the assertions below would fail — which is
-     * the point.
+     * Answers from whichever column the SQL names, so widening the query to
+     * `OR launched_by_agent_id = $1` fails the assertions below.
      */
     const makeChildQueryPool = (
       rows: {
@@ -804,8 +793,6 @@ describe("executeArchive", () => {
 
     it("skips a child that is already archiving itself", async () => {
       const parent = makeAgent("parent");
-      // The child query excludes status = 'archiving', so the fixture pool's
-      // filter never sees it — assert the SQL carries that guard.
       const pool = makeChildQueryPool([]);
       const deps = makeDeps({
         pool: pool as never,
@@ -842,7 +829,6 @@ describe("executeArchive", () => {
 
       await executeArchive(deps, "parent", cb);
 
-      // onError here would leave the UI showing an agent the DB has deleted.
       expect(cb.onComplete).toHaveBeenCalledWith(["parent"]);
       expect(cb.onError).not.toHaveBeenCalled();
     });
@@ -900,9 +886,7 @@ describe("executeArchive", () => {
 
       await executeArchive(deps, "parent", makeCallbacks());
 
-      // The user answered for the whole cascade when they confirmed the
-      // parent; leaving this behind would strand a worktree no agent record
-      // can reach.
+      // The parent's confirmation answered for the whole cascade.
       expect(cleanupGitWorktree).toHaveBeenCalledWith(
         expect.objectContaining({ cwd: "/tmp/wt-child" }),
         expect.any(Function)
@@ -910,8 +894,7 @@ describe("executeArchive", () => {
     });
 
     it("clears child worktrees even when the parent's own is kept", async () => {
-      // "Archive, keep worktree" is an answer about the parent's worktree. The
-      // children still go — the archive leaves nothing of them behind.
+      // "keep" is an answer about the parent's own worktree.
       const parent = makeAgent("parent", {
         archiveCleanupMode: "keep",
         worktreePath: "/tmp/wt-parent",
@@ -974,7 +957,6 @@ describe("executeArchive", () => {
 
       await executeArchive(deps, "parent", cb);
 
-      // Removing it would take the other agent's work with it.
       expect(cleanupGitWorktree).not.toHaveBeenCalled();
       // The agent records still go — only the worktree is spared.
       expect(cb.onComplete).toHaveBeenCalledWith(["parent", "child"]);
@@ -1153,8 +1135,7 @@ describe("deleteAgentDirect", () => {
 
     await deleteAgentDirect(deps, "a1");
 
-    // stopAgent would write `stopping` then `stopped`, releasing the archive
-    // claim taken moments earlier and reopening the double-teardown race.
+    // stopAgent would write `stopping`/`stopped` and release the claim.
     expect(runtime.stopSession).toHaveBeenCalledWith("s1", true);
     expect(runLifecycleHook).toHaveBeenCalled();
     const statuses = pool.query.mock.calls
@@ -1262,7 +1243,6 @@ describe("deleteAgentDirect", () => {
     const deleted = await deleteAgentDirect(deps, "p1");
 
     expect(deleted).toEqual([]);
-    // Nothing effectful runs: the winner stops the session and recurses.
     expect(deps.diffStatsRefresher?.clear).not.toHaveBeenCalled();
     expect(
       pool.query.mock.calls.some(
@@ -1312,7 +1292,6 @@ describe("deleteAgentDirect", () => {
       getRequiredAgent: vi.fn().mockResolvedValue(parent),
     });
 
-    // The row is already gone; dropping the id would leave the UI rendering it.
     await expect(deleteAgentDirect(deps, "p1")).resolves.toEqual(["p1"]);
   });
 

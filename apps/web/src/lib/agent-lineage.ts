@@ -80,12 +80,8 @@ export function partitionAgentsByLineage<
 }
 
 /**
- * Every agent that would go with `rootId` when it is archived: its direct
- * children by `parentAgentId`, and theirs, to any depth.
- *
- * Mirrors the server cascade, which walks `parent_agent_id` and nothing else —
- * an agent launched with `child: false` has no parent link and is deliberately
- * left out, even though the same agent launched it.
+ * Everything that would be archived with `rootId`, to any depth. Mirrors the
+ * server cascade: `parentAgentId` only, so a `child: false` agent is left out.
  */
 export function descendantAgents<
   T extends { id: string; parentAgentId?: string | null },
@@ -100,8 +96,7 @@ export function descendantAgents<
   }
 
   const collected: T[] = [];
-  // Bounded by the set size: a corrupted parent link can form a cycle, and
-  // without `seen` the walk would never terminate.
+  // `seen` terminates the walk if a corrupted parent link forms a cycle.
   const seen = new Set<string>([rootId]);
   const queue = [rootId];
   while (queue.length > 0) {
