@@ -175,6 +175,7 @@ export const surfaceBlockSchema = z.discriminatedUnion("type", [
               text: constrainedMarkdown(500),
               status: z.string().trim().min(1).max(80).optional(),
               tone: toneSchema.optional(),
+              checked: z.boolean().optional(),
               detail: constrainedMarkdown(240).optional(),
               url: z
                 .string()

@@ -41,6 +41,7 @@ export function ActionRefButton({
   authoredDisabled = false,
   onClick,
   disabledReasonId,
+  ariaLabel,
 }: {
   action: ActionRef;
   type?: "button" | "submit";
@@ -50,6 +51,7 @@ export function ActionRefButton({
   authoredDisabled?: boolean;
   onClick?: () => void;
   disabledReasonId?: string;
+  ariaLabel?: string;
 }): JSX.Element {
   const blocked = disabled || authoredDisabled;
   return (
@@ -67,6 +69,7 @@ export function ActionRefButton({
       disabled={disabled}
       aria-disabled={!disabled && authoredDisabled ? true : undefined}
       aria-describedby={disabledReasonId}
+      aria-label={ariaLabel}
       onClick={() => {
         if (blocked) return;
         onClick?.();

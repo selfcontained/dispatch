@@ -133,7 +133,7 @@ describe("TableBlockView URL cells", () => {
     expect(screen.queryByRole("button", { name: "Show details" })).toBeNull();
   });
 
-  it("keeps mixed action rows aligned and submits the action with its row id", () => {
+  it("keeps row actions inline at a safe width and submits with the row id", () => {
     const block: TableBlock = {
       id: "deployments",
       type: "table",
@@ -151,14 +151,47 @@ describe("TableBlockView URL cells", () => {
     };
     renderTable(block);
     expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByRole("columnheader", { name: "Action" })).toBeTruthy();
     const rows = document.querySelectorAll("tbody tr");
     expect(rows[0].querySelectorAll("td").length).toBe(
       rows[1].querySelectorAll("td").length
     );
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    const actionCell = rows[0].querySelector("td:last-child");
+    expect(actionCell?.className).toContain("min-w-32");
+    expect(actionCell?.querySelector("button")?.className).toContain(
+      "whitespace-nowrap"
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Approve for One" }));
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: "one", actionId: "approve" }),
       expect.any(Object)
     );
+  });
+
+  it("distinguishes repeated action labels with primary row context", () => {
+    renderTable({
+      id: "deployments",
+      type: "table",
+      columns: [{ id: "name", label: "Name" }],
+      rows: [
+        {
+          id: "one",
+          cells: { name: "Canary" },
+          action: { id: "retry", label: "Retry", intent: "retry" },
+        },
+        {
+          id: "two",
+          cells: { name: "Production" },
+          action: { id: "retry", label: "Retry", intent: "retry" },
+        },
+      ],
+    });
+
+    expect(
+      screen.getByRole("button", { name: "Retry for Canary" })
+    ).toBeTruthy();
+    expect(
+      screen.getByRole("button", { name: "Retry for Production" })
+    ).toBeTruthy();
   });
 });

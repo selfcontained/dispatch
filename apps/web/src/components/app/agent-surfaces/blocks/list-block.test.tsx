@@ -38,6 +38,38 @@ function renderList(block: ListBlock) {
 }
 
 describe("ListBlockView v2", () => {
+  it("renders explicit checked and unchecked boxes without inferring from tone", () => {
+    renderList({
+      id: "work",
+      type: "list",
+      style: "check",
+      items: [
+        {
+          id: "done",
+          text: "Done",
+          status: "Complete",
+          tone: "success",
+          checked: true,
+        },
+        {
+          id: "pending",
+          text: "Pending",
+          status: "Waiting",
+          tone: "warning",
+        },
+      ],
+    });
+
+    expect(
+      document.querySelectorAll('[data-check-state="checked"]')
+    ).toHaveLength(1);
+    expect(
+      document.querySelectorAll('[data-check-state="unchecked"]')
+    ).toHaveLength(1);
+    expect(screen.getByRole("img", { name: "Completed" })).toBeTruthy();
+    expect(screen.getByRole("img", { name: "Not completed" })).toBeTruthy();
+  });
+
   it("renders count, grouped items, a toned freeform status, and a safe link", () => {
     renderList({
       id: "work",

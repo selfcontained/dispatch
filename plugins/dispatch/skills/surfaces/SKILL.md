@@ -62,8 +62,9 @@ parents may read a direct child's surfaces but cannot edit them.
 - `status`: one current state, semantic tone, detail, and optional timestamp.
 - `progress`: bounded progress; omit `tone` for normal success-green progress.
 - `list`: bullets, numbered steps, or checklist-like workflow states. Items may
-  carry a freeform `status` plus semantic `tone` (not a closed state enum), a
-  safe `url`, a `group` subheading, and one `{ id, label, intent }` action.
+  carry a freeform `status` plus semantic `tone` (not a closed state enum), an
+  independent `checked` boolean for check-style lists, a safe `url`, a `group`
+  subheading, and one `{ id, label, intent }` action.
   Use `collapse: { after, label? }` for long lists and `showItemCount: true`
   when the total matters.
 - `table`: compact repeated data; use badge variants for semantic values.
@@ -218,7 +219,8 @@ action buttons carry intent but do not collect text.
 
 Combine `progress`, a check-style `list`, and targeted actions. Give an item a
 freeform `status` such as `Waiting for approval` and a `tone` such as `warning`;
-do not use a closed state enum. Use `group` for small list subheadings and an
+use `checked: true` only when that item is complete. Do not infer completion from
+the status label or tone, and do not use a closed state enum. Use `group` for small list subheadings and an
 item action when the next step belongs to exactly one item. This supports release
 checklists, incident handoffs, onboarding, and review queues without pretending
 to be a full board.

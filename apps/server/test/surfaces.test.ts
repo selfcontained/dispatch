@@ -220,6 +220,7 @@ describe("surface authoring and inbox", () => {
               text: "Prepare release",
               status: "In progress",
               tone: "info" as const,
+              checked: false,
               group: "Before rollout",
               url: "https://example.com/runbook",
               action: {

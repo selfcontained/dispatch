@@ -162,6 +162,7 @@ export const surfaceExamples = [
             text: "Finalize interaction schema",
             status: "Complete",
             tone: "success",
+            checked: true,
             detail: "Validated against the client contract.",
             group: "Completed",
           },

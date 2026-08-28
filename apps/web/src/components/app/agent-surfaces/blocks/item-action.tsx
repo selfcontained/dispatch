@@ -14,6 +14,7 @@ import {
   resolveInteractionPresentation,
   type SurfaceInteractionIndex,
 } from "@/components/app/agent-surfaces/interaction-presentation";
+import { cn } from "@/lib/utils";
 
 /** A compact action attached to one authored list item or table row. */
 export function ItemAction({
@@ -27,6 +28,8 @@ export function ItemAction({
   onRequestRefresh,
   readOnly,
   idPrefix,
+  ariaLabel,
+  buttonClassName,
 }: {
   action: SurfaceItemAction;
   itemId: string;
@@ -38,6 +41,8 @@ export function ItemAction({
   onRequestRefresh: () => Promise<void>;
   readOnly: boolean;
   idPrefix: string;
+  ariaLabel?: string;
+  buttonClassName?: string;
 }): JSX.Element {
   const mutation = useSubmitSurfaceInteraction(agentId, surfaceId);
   const { states, submit, clear } = useKeyedInteractionState(
@@ -73,10 +78,14 @@ export function ItemAction({
     <div className="min-w-0 max-w-full text-right">
       <ActionRefButton
         action={action}
-        className="h-auto min-h-7 max-w-full whitespace-normal break-words px-2 py-1 text-[11px]"
+        className={cn(
+          "h-auto min-h-7 max-w-full whitespace-normal break-words px-2 py-1 text-[11px]",
+          buttonClassName
+        )}
         busy={presentation.busy}
         disabled={presentation.locked}
         authoredDisabled={false}
+        ariaLabel={ariaLabel}
         onClick={() => {
           if (readOnly) return;
           run();

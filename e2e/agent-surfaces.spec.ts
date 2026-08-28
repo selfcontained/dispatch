@@ -111,6 +111,7 @@ async function seedSurfaces(agentId: string): Promise<void> {
               text: "Finalize schema",
               status: "Complete",
               tone: "success",
+              checked: true,
               group: "Completed",
             },
             {
@@ -566,6 +567,8 @@ test.describe("Agent-authored sidebar surfaces", () => {
     await expect(list.locator("[data-item-id]")).toHaveCount(2);
     await expect(list.getByText("Completed", { exact: true })).toBeVisible();
     await expect(list.getByText("Next steps", { exact: true })).toBeVisible();
+    await expect(list.locator('[data-check-state="checked"]')).toHaveCount(1);
+    await expect(list.locator('[data-check-state="unchecked"]')).toHaveCount(1);
     const approvalBadge = list.getByText("Needs approval", { exact: true });
     await expect(approvalBadge).toHaveClass(/text-status-waiting/);
     const migrationLink = list.getByRole("link", {

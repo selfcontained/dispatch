@@ -130,12 +130,17 @@ function TableRowView({
           </td>
         ))}
         {hasActionColumn ? (
-          <td className="p-2 align-middle">
+          <td className="w-px min-w-32 p-2 text-right align-middle">
             {row.action ? (
               <ItemAction
                 action={row.action}
                 itemId={row.id}
                 blockId={block.id}
+                buttonClassName="whitespace-nowrap break-normal"
+                ariaLabel={`${row.action.label} for ${formatCell(
+                  row.cells[primaryColumns[0]?.id] ?? row.id,
+                  primaryColumns[0]?.format
+                )}`}
                 {...interactionProps}
               />
             ) : null}
@@ -197,7 +202,6 @@ export function TableBlockView({
     primaryColumns.length > 0 ? primaryColumns : block.columns;
   const effectiveSecondary = primaryColumns.length > 0 ? secondaryColumns : [];
   const hasActionColumn = block.rows.some((row) => row.action);
-
   return (
     <div data-block-id={block.id} data-block-type="table">
       <BlockHeader
@@ -225,8 +229,8 @@ export function TableBlockView({
                 </th>
               ))}
               {hasActionColumn ? (
-                <th className="w-1 p-2">
-                  <span className="sr-only">Action</span>
+                <th className="w-px min-w-32 p-2 text-right align-middle font-medium">
+                  Action
                 </th>
               ) : null}
             </tr>

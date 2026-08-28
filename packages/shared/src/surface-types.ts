@@ -32,6 +32,8 @@ export type SurfaceListItem = {
   /** Freeform visible state; use `tone` to express its semantic color. */
   status?: string;
   tone?: Tone;
+  /** Completion independent of the freeform status, used by check-style lists. */
+  checked?: boolean;
   detail?: string;
   /** Safe external link shown as a secondary affordance. */
   url?: string;
