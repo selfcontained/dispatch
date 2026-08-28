@@ -84,8 +84,9 @@ parents may read a direct child's surfaces but cannot edit them.
   `collapse: { initiallyCollapsed: true }` when the renderer may hide its
   body while keeping the header visible. Without `collapse`, it is a static
   group. Sections may nest four levels, contain up to 20 direct children, and
-  surfaces allow up to 100 nested blocks in addition to the 40 top-level
-  blocks.
+  surfaces allow up to 100 nested blocks in addition to the 100 top-level
+  blocks. These are independent limits; nested descendants do not consume the
+  top-level allowance.
 
 ## Use-case recipes
 

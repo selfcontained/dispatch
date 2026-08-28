@@ -283,6 +283,7 @@ const leafBlockSchema = z.discriminatedUnion("type", [
 const MAX_SECTION_DEPTH = 4;
 const MAX_SECTION_CHILDREN = 20;
 const MAX_NESTED_BLOCKS = 100;
+export const MAX_SURFACE_TOP_LEVEL_BLOCKS = 100;
 const sectionCollapseSchema = z
   .object({ initiallyCollapsed: z.boolean().optional() })
   .strict();
@@ -307,7 +308,7 @@ function blockSchemaAtDepth(depth: number): z.ZodType<SharedSurfaceBlock> {
 
 /**
  * Nested sections are limited to four levels below the document root and 20
- * children per section. Top-level blocks retain their 40-item cap; the
+ * children per section. Top-level blocks have a 100-item cap; the
  * document refinement separately caps nested descendants at 100.
  */
 export const surfaceBlockSchema = blockSchemaAtDepth(0);
@@ -316,7 +317,7 @@ export const surfaceDocumentSchema = z
   .object({
     title: z.string().trim().min(1).max(32),
     icon: surfaceIconSchema.optional(),
-    blocks: z.array(surfaceBlockSchema).max(40),
+    blocks: z.array(surfaceBlockSchema).max(MAX_SURFACE_TOP_LEVEL_BLOCKS),
   })
   .strict()
   .superRefine((doc, ctx) => {

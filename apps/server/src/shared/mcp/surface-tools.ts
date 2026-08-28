@@ -1,7 +1,11 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import * as z from "zod/v4";
 import type { SurfaceService } from "../../surfaces/service.js";
-import { surfaceBlockSchema, surfaceIconSchema } from "../../surfaces/types.js";
+import {
+  MAX_SURFACE_TOP_LEVEL_BLOCKS,
+  surfaceBlockSchema,
+  surfaceIconSchema,
+} from "../../surfaces/types.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
@@ -34,11 +38,11 @@ export function registerSurfaceTools(
 
   register(
     "dispatch_surface_create",
-    "Create a one-column custom sidebar tab. Blocks support text, list, table, status, progress, actions, form, and titled section groups. A section may nest up to four levels, hold 20 children, and use collapse: { initiallyCollapsed? }; its title remains visible. Keep block, item, and field IDs stable; list/table action IDs are scoped to their item or row.",
+    "Create a one-column custom sidebar tab with up to 100 top-level blocks and 100 additional nested blocks. Blocks support text, list, table, status, progress, actions, form, and titled section groups. A section may nest up to four levels, hold 20 direct children, and use collapse: { initiallyCollapsed? }; its title remains visible. Keep block, item, and field IDs stable; list/table action IDs are scoped to their item or row.",
     {
       title: z.string().min(1).max(32),
       icon: surfaceIconSchema.optional(),
-      blocks: z.array(surfaceBlockSchema).max(40),
+      blocks: z.array(surfaceBlockSchema).max(MAX_SURFACE_TOP_LEVEL_BLOCKS),
     },
     async ({ title, icon, blocks }) => {
       const s = await service.create(context.agentId, { title, icon, blocks });
@@ -57,7 +61,10 @@ export function registerSurfaceTools(
         .union([surfaceIconSchema, z.null()])
         .optional()
         .describe("Set null to clear the icon."),
-      blocks: z.array(surfaceBlockSchema).max(40).optional(),
+      blocks: z
+        .array(surfaceBlockSchema)
+        .max(MAX_SURFACE_TOP_LEVEL_BLOCKS)
+        .optional(),
       lifecycle: z.enum(["active", "frozen"]).optional(),
     },
     async ({ tabId, expectedRevision, ...patch }) => {

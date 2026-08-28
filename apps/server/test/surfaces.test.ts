@@ -3,7 +3,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { useInjectApp } from "./helpers/inject-app.js";
 import { surfaceExamples } from "../src/db/seed/surfaces.js";
 import { SurfaceService } from "../src/surfaces/service.js";
-import { surfaceDocumentSchema } from "../src/surfaces/types.js";
+import {
+  MAX_SURFACE_TOP_LEVEL_BLOCKS,
+  surfaceDocumentSchema,
+} from "../src/surfaces/types.js";
 
 const ctx = useInjectApp();
 let agentId: string;
@@ -435,6 +438,29 @@ describe("surface authoring and inbox", () => {
         ],
       }).success
     ).toBe(false);
+    const maximumSizedDocument = {
+      title: "Maximum surface",
+      blocks: [
+        ...Array.from({ length: 5 }, (_, section) => ({
+          id: `max-section-${section}`,
+          type: "section" as const,
+          title: `Section ${section}`,
+          blocks: Array.from({ length: 20 }, (_, child) => ({
+            id: `max-child-${section}-${child}`,
+            type: "text" as const,
+            text: "Nested block",
+          })),
+        })),
+        ...Array.from({ length: 95 }, (_, index) => ({
+          id: `max-top-level-${index}`,
+          type: "text" as const,
+          text: "Top-level block",
+        })),
+      ],
+    };
+    expect(surfaceDocumentSchema.safeParse(maximumSizedDocument).success).toBe(
+      true
+    );
     const tooManyNested = {
       ...document,
       blocks: Array.from({ length: 6 }, (_, section) => ({
@@ -466,6 +492,30 @@ describe("surface authoring and inbox", () => {
         action: { id: "start", intent: "start_deploy" },
       },
     });
+  });
+
+  it("accepts up to 100 top-level blocks", () => {
+    const blocks = Array.from(
+      { length: MAX_SURFACE_TOP_LEVEL_BLOCKS },
+      (_, index) => ({
+        id: `top-level-${index}`,
+        type: "text" as const,
+        text: "Block",
+      })
+    );
+
+    expect(
+      surfaceDocumentSchema.safeParse({ title: "Full surface", blocks }).success
+    ).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        title: "Overfull surface",
+        blocks: [
+          ...blocks,
+          { id: "top-level-overflow", type: "text", text: "Too many" },
+        ],
+      }).success
+    ).toBe(false);
   });
 
   it("accepts the complete seed gallery and semantic badge variants", () => {
