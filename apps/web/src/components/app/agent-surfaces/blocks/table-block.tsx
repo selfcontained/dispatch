@@ -69,10 +69,10 @@ function Cell({
   return <span className="text-foreground">{text}</span>;
 }
 
-/** One row: primary columns inline, secondary columns always behind a
- * disclosure — the rail is a fixed width, not a responsive breakpoint, so
- * this doesn't vary with viewport size. Agents should reserve `secondary`
- * for verbose diagnostics; decision-critical values belong in `primary`. */
+/** One row: primary columns stay visible and reflow into a labeled card when
+ * the containing rail is narrow. Secondary columns remain behind a disclosure.
+ * Agents should reserve `secondary` for verbose diagnostics; decision-critical
+ * values belong in `primary`. */
 function TableRowView({
   row,
   primaryColumns,
@@ -97,10 +97,10 @@ function TableRowView({
     <>
       <tr
         data-row-id={row.id}
-        className="border-b border-border/50 last:border-0"
+        className="grid border-b border-border/50 p-2 last:border-0 md:table-row md:p-0"
       >
         {secondaryColumns.length > 0 ? (
-          <td className="w-8 p-2 align-middle">
+          <td className="order-last flex justify-end px-2 py-1 align-middle md:table-cell md:w-8 md:p-2">
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
@@ -121,37 +121,52 @@ function TableRowView({
           <td
             key={column.id}
             className={cn(
-              "p-2 align-middle text-xs",
-              column.align === "right" && "text-right",
-              column.align === "center" && "text-center"
+              "grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-2 px-2 py-1.5 align-middle text-xs md:table-cell md:p-2",
+              column.align === "right" && "md:text-right",
+              column.align === "center" && "md:text-center"
             )}
           >
-            <Cell value={row.cells[column.id] ?? null} column={column} />
+            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
+              {column.label}
+            </span>
+            <span className="min-w-0 break-words">
+              <Cell value={row.cells[column.id] ?? null} column={column} />
+            </span>
           </td>
         ))}
         {hasActionColumn ? (
-          <td className="w-px min-w-32 p-2 text-right align-middle">
+          <td
+            className={cn(
+              "min-w-0 items-start gap-2 px-2 py-1.5 text-right align-middle md:table-cell md:w-px md:min-w-32 md:p-2",
+              row.action ? "grid grid-cols-[5rem_minmax(0,1fr)]" : "hidden"
+            )}
+          >
             {row.action ? (
-              <ItemAction
-                action={row.action}
-                itemId={row.id}
-                blockId={block.id}
-                buttonClassName="whitespace-nowrap break-normal"
-                ariaLabel={`${row.action.label} for ${formatCell(
-                  row.cells[primaryColumns[0]?.id] ?? row.id,
-                  primaryColumns[0]?.format
-                )}`}
-                {...interactionProps}
-              />
+              <>
+                <span className="text-left text-[10px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
+                  Action
+                </span>
+                <ItemAction
+                  action={row.action}
+                  itemId={row.id}
+                  blockId={block.id}
+                  buttonClassName="w-full whitespace-normal break-words md:w-auto md:whitespace-nowrap md:break-normal"
+                  ariaLabel={`${row.action.label} for ${formatCell(
+                    row.cells[primaryColumns[0]?.id] ?? row.id,
+                    primaryColumns[0]?.format
+                  )}`}
+                  {...interactionProps}
+                />
+              </>
             ) : null}
           </td>
         ) : null}
       </tr>
       {expanded && secondaryColumns.length > 0 ? (
-        <tr className="border-b border-border/50 last:border-0">
+        <tr className="block border-b border-border/50 last:border-0 md:table-row">
           <td
             colSpan={primaryColumns.length + 1 + (hasActionColumn ? 1 : 0)}
-            className="p-2 align-middle"
+            className="block p-2 align-middle md:table-cell"
           >
             <dl className="ml-6 space-y-0.5">
               {secondaryColumns.map((column) => (
@@ -209,46 +224,48 @@ export function TableBlockView({
         description={block.description}
         count={block.showItemCount ? block.rows.length : undefined}
       />
-      <div className="overflow-x-auto rounded-md border border-border/50">
-        <table className="w-full border-collapse">
-          <thead>
-            <tr className="border-b border-border/50 text-[11px] uppercase tracking-wide text-muted-foreground">
-              {effectiveSecondary.length > 0 ? (
-                <th className="w-8 p-2" />
-              ) : null}
-              {effectivePrimary.map((column) => (
-                <th
-                  key={column.id}
-                  className={cn(
-                    "p-2 text-left align-middle font-medium",
-                    column.align === "right" && "text-right",
-                    column.align === "center" && "text-center"
-                  )}
-                >
-                  {column.label}
-                </th>
+      <div className="rounded-md border border-border/50">
+        <div className="overflow-hidden md:overflow-x-auto">
+          <table className="block w-full border-collapse md:table">
+            <thead className="hidden md:table-header-group">
+              <tr className="border-b border-border/50 text-[11px] uppercase tracking-wide text-muted-foreground">
+                {effectiveSecondary.length > 0 ? (
+                  <th className="w-8 p-2" />
+                ) : null}
+                {effectivePrimary.map((column) => (
+                  <th
+                    key={column.id}
+                    className={cn(
+                      "p-2 text-left align-middle font-medium",
+                      column.align === "right" && "text-right",
+                      column.align === "center" && "text-center"
+                    )}
+                  >
+                    {column.label}
+                  </th>
+                ))}
+                {hasActionColumn ? (
+                  <th className="w-px min-w-32 p-2 text-right align-middle font-medium">
+                    Action
+                  </th>
+                ) : null}
+              </tr>
+            </thead>
+            <tbody className="block md:table-row-group">
+              {block.rows.map((row) => (
+                <TableRowView
+                  key={row.id}
+                  row={row}
+                  primaryColumns={effectivePrimary}
+                  secondaryColumns={effectiveSecondary}
+                  block={block}
+                  interactionProps={interactionProps}
+                  hasActionColumn={hasActionColumn}
+                />
               ))}
-              {hasActionColumn ? (
-                <th className="w-px min-w-32 p-2 text-right align-middle font-medium">
-                  Action
-                </th>
-              ) : null}
-            </tr>
-          </thead>
-          <tbody>
-            {block.rows.map((row) => (
-              <TableRowView
-                key={row.id}
-                row={row}
-                primaryColumns={effectivePrimary}
-                secondaryColumns={effectiveSecondary}
-                block={block}
-                interactionProps={interactionProps}
-                hasActionColumn={hasActionColumn}
-              />
-            ))}
-          </tbody>
-        </table>
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );

@@ -149,7 +149,7 @@ describe("TableBlockView URL cells", () => {
         { id: "two", cells: { name: "Two" } },
       ],
     };
-    renderTable(block);
+    const { container } = renderTable(block);
     expect(screen.getByText("2")).toBeTruthy();
     expect(screen.getByRole("columnheader", { name: "Action" })).toBeTruthy();
     const rows = document.querySelectorAll("tbody tr");
@@ -157,9 +157,16 @@ describe("TableBlockView URL cells", () => {
       rows[1].querySelectorAll("td").length
     );
     const actionCell = rows[0].querySelector("td:last-child");
-    expect(actionCell?.className).toContain("min-w-32");
+    expect(actionCell?.className).toContain("md:min-w-32");
     expect(actionCell?.querySelector("button")?.className).toContain(
-      "whitespace-nowrap"
+      "md:whitespace-nowrap"
+    );
+    expect(rows[0].className).toContain("grid");
+    expect(rows[0].className).toContain("md:table-row");
+    expect(container.querySelector("table")?.className).toContain("md:table");
+    expect(actionCell?.textContent).toContain("Action");
+    expect(rows[1].querySelector("td:last-child")?.className).toContain(
+      "hidden"
     );
     fireEvent.click(screen.getByRole("button", { name: "Approve for One" }));
     expect(mutate).toHaveBeenCalledWith(
