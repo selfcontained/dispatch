@@ -320,43 +320,59 @@ describe("DeleteAgentDialog", () => {
     );
   });
 
-  it("falls back to a plain auto archive when the status fetch fails", async () => {
+  it("blocks archiving and offers a retry when the status check fails", async () => {
     const agent = makeAgent({
       worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
     apiMock.mockRejectedValueOnce(new Error("boom"));
     const { setOpen, onDelete } = renderDialog(agent);
 
-    fireEvent.click(await archiveButtonReady());
+    // Falling through to an archive here would skip the worktree confirmation
+    // at the one moment we cannot say what it would discard.
+    await screen.findByTestId("worktree-check-failed");
+    expect(screen.queryByTestId("delete-agent-confirm")).toBeNull();
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(setOpen).not.toHaveBeenCalled();
+  });
 
+  it("archives normally once a retried status check succeeds", async () => {
+    const agent = makeAgent({
+      worktreePath: "/repo/.dispatch/worktrees/worker-1",
+    });
+    apiMock.mockRejectedValueOnce(new Error("boom"));
+    apiMock.mockResolvedValueOnce(subtree(agentStatus()));
+    const { setOpen, onDelete } = renderDialog(agent);
+
+    fireEvent.click(await screen.findByTestId("delete-agent-retry-status"));
+
+    fireEvent.click(await archiveButtonReady());
     await waitFor(() => expect(setOpen).toHaveBeenCalledWith(false));
     expect(onDelete).toHaveBeenCalledWith(agent, "auto");
-    expect(screen.queryByText("Worktree Has Outstanding Changes")).toBeNull();
   });
 
-  it("names the sub agents that archive with the target", async () => {
-    const agent = makeAgent();
-    apiMock.mockResolvedValueOnce(subtree());
-    const child = makeAgent({ id: "agt_child", parentAgentId: "agt_target" });
-    const grandchild = makeAgent({
-      id: "agt_grandchild",
-      parentAgentId: "agt_child",
+  it("withholds the destructive choice when the preview is incomplete", async () => {
+    const agent = makeAgent({
+      worktreePath: "/repo/.dispatch/worktrees/worker-1",
     });
-    renderDialog(agent, [child, grandchild]);
+    apiMock.mockResolvedValueOnce({
+      statuses: [agentStatus()],
+      complete: false,
+    });
+    const { onDelete } = renderDialog(agent);
 
+    fireEvent.click(await archiveButtonReady());
+
+    // Nothing looked dirty, but the walk was cut short — so the archive must
+    // not proceed silently, and removing worktrees must not be on offer.
+    await screen.findByTestId("worktree-preview-incomplete");
+    expect(onDelete).not.toHaveBeenCalled();
     expect(
-      screen.getByText(/Its 2 sub agents are archived too\./)
-    ).toBeTruthy();
-  });
-
-  it("leaves out an independent agent the target merely launched", async () => {
-    const agent = makeAgent();
-    apiMock.mockResolvedValueOnce(subtree());
-    // child: false — no parentAgentId, so the server cascade skips it.
-    const independent = makeAgent({ id: "agt_independent" });
-    renderDialog(agent, [independent]);
-
-    expect(screen.queryByText(/sub agent/)).toBeNull();
+      screen.getByTestId("delete-agent-force-worktree").hasAttribute("disabled")
+    ).toBe(true);
+    // Keeping them is still a safe way out.
+    expect(
+      screen.getByTestId("delete-agent-keep-worktree").hasAttribute("disabled")
+    ).toBe(false);
   });
 
   it("cancel closes and clears the target without deleting", async () => {

@@ -326,8 +326,7 @@ export async function registerAgentLifecycleRoutes(
       const id = params.id ?? "";
 
       try {
-        const statuses = await deps.agentManager.checkSubtreeWorktreeStatus(id);
-        return { statuses };
+        return await deps.agentManager.checkSubtreeWorktreeStatus(id);
       } catch (error) {
         return deps.handleAgentError(reply, error);
       }

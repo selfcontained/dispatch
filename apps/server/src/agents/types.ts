@@ -100,6 +100,18 @@ export type AgentWorktreeStatus = WorktreeStatus & {
   isTarget: boolean;
 };
 
+/**
+ * The archive confirmation's view of a cascade's worktrees.
+ *
+ * `complete: false` means the walk was cut short by its work budget, so the
+ * list under-reports what an archive would remove. A caller must not offer a
+ * destructive cleanup on an incomplete preview.
+ */
+export type SubtreeWorktreeStatus = {
+  statuses: AgentWorktreeStatus[];
+  complete: boolean;
+};
+
 export type AgentRecord = {
   id: string;
   name: string;
