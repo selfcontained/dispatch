@@ -1,6 +1,7 @@
 ## What's Changed
-* Share the SSE UiEvent union between server and web by @selfcontained in https://github.com/selfcontained/dispatch/pull/1016
-* Extend agent surfaces with item-level interactions by @selfcontained in https://github.com/selfcontained/dispatch/pull/1017
+* Docs audit: document the new Agent Surfaces feature by @selfcontained in https://github.com/selfcontained/dispatch/pull/1019
+* Extract the optimistic toggle-setting hook shared by three settings panels by @selfcontained in https://github.com/selfcontained/dispatch/pull/1020
+* Cascade an archive to every child agent, not just review children by @selfcontained in https://github.com/selfcontained/dispatch/pull/1018
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.37.0...v0.37.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.37.1...v0.37.2
