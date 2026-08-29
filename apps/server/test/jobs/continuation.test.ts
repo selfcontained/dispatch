@@ -101,7 +101,16 @@ beforeEach(async () => {
   await pool.query("DELETE FROM jobs");
   await pool.query("DELETE FROM agents WHERE id LIKE 'agt_cont_%'");
   vi.mocked(agents.createAgent).mockReset();
-  vi.mocked(agents.getAgent).mockReset();
+  // An unstubbed getAgent resolves undefined, which JobService reads as a dead
+  // session: its background monitor then marks a freshly launched run crashed
+  // on its first poll, racing whatever the test does next. Mirror
+  // service.test.ts and hand back a live agent so the inert runtime short-
+  // circuit keeps the monitor idle.
+  vi.mocked(agents.getAgent).mockResolvedValue({
+    id: "mock",
+    status: "running",
+    tmuxSession: null,
+  } as Awaited<ReturnType<AgentManager["getAgent"]>>);
 });
 
 describe("continuation jobs", () => {
@@ -316,7 +325,7 @@ describe("continuation jobs", () => {
     expect(await store.scheduleRecovery(disabledRun.id)).toBeNull();
   });
 
-  it("retries one crash at the same iteration but never retries job_failed", async () => {
+  it("seeds exactly one same-iteration recovery and never retries job_failed", async () => {
     const store = new JobStore(pool);
     const record = await job();
     const crash = await store.createRun(record.id, runConfig(record.name, 4));
@@ -329,18 +338,27 @@ describe("continuation jobs", () => {
       true
     );
 
-    const service = new JobService(pool, agents, logger, config);
-    await addAgent("agt_cont_recovery");
-    vi.mocked(agents.createAgent).mockResolvedValue({
-      id: "agt_cont_recovery",
-    } as never);
-    const successor = await service.launchPendingContinuation(crash.id);
-    const recovered = await store.getRun(successor!.runId);
+    const handoff = await store.startPendingContinuation(crash.id, {
+      ...runConfig(record.name, 4),
+      triggerSource: "continuation",
+      continuationOfRunId: crash.id,
+      recoveryAttempt: 1,
+    });
+    const recovered = (await store.getRun(handoff!.successor.id))!;
     expect(recovered).toMatchObject({ chainId: "chain-1", chainIteration: 4 });
-    expect(recovered!.config).toMatchObject({
+    expect(recovered.config).toMatchObject({
       recoveryAttempt: 1,
       continuationOfRunId: crash.id,
     });
+    expect((await store.getRun(crash.id))!.continuationPending).toBe(false);
+
+    // A recovery attempt that crashes in turn is the end of the chain.
+    await store.markCrashed(recovered.id, {
+      status: "failed",
+      summary: "crashed again",
+      tasks: [],
+    });
+    expect(await store.scheduleRecovery(recovered.id)).toBeNull();
 
     const failed = await store.createRun(record.id, runConfig(record.name, 5));
     await addAgent("agt_cont_failed");
@@ -351,7 +369,52 @@ describe("continuation jobs", () => {
       tasks: [],
     });
     expect(await store.scheduleRecovery(failed.id)).toBeNull();
+  });
+
+  it("launches the recovery successor at the same iteration with its own agent", async () => {
+    const store = new JobStore(pool);
+    const record = await job();
+    const crash = await store.createRun(record.id, runConfig(record.name, 4));
+    await store.markCrashed(crash.id, {
+      status: "failed",
+      summary: "crashed",
+      tasks: [],
+    });
+    await store.scheduleRecovery(crash.id);
+
+    const service = new JobService(pool, agents, logger, config);
+    await addAgent("agt_cont_recovery");
+    vi.mocked(agents.createAgent).mockResolvedValue({
+      id: "agt_cont_recovery",
+    } as never);
+    const successor = await service.launchPendingContinuation(crash.id);
+    expect(successor).toMatchObject({
+      agentId: "agt_cont_recovery",
+      status: "running",
+    });
+    const recovered = (await store.getRun(successor!.runId))!;
+    expect(recovered).toMatchObject({
+      chainId: "chain-1",
+      chainIteration: 4,
+      agentId: "agt_cont_recovery",
+    });
+    expect(recovered.config).toMatchObject({
+      triggerSource: "continuation",
+      recoveryAttempt: 1,
+      continuationOfRunId: crash.id,
+    });
+
+    // launchPendingContinuation leaves a monitor polling the successor. Settle
+    // it here and drain the monitor in shutdown so nothing writes to this run
+    // after the test returns.
+    await store.completeRunForAgent("agt_cont_recovery", {
+      status: "completed",
+      summary: "recovered",
+      tasks: [],
+      continuation: { action: "pause" },
+    });
     await service.shutdown();
+    expect((await store.getRun(recovered.id))!.status).toBe("completed");
   });
 
   it("keeps one predecessor barrier during a failed successor launch and pauses it after the retry fails", async () => {
