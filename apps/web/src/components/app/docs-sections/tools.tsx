@@ -416,8 +416,9 @@ export function ToolsContent() {
           list, the same place persona reviewers render. Pass{" "}
           <Code>child: false</Code> for a top-level agent outside the launcher's
           lineage; that is the only launch a sub agent itself can make.
-          Archiving the parent does not cascade to launched agents — only
-          persona reviewers are archived with their parent.
+          Archiving the parent cascades to its children — persona reviewers and
+          plain child agents alike. An agent launched with{" "}
+          <Code>child: false</Code> is independent and is left running.
         </P>
         <P>
           Use <Code>list_agents</Code> to discover running agents and{" "}

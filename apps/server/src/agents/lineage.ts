@@ -82,14 +82,6 @@ export function createLineageIndex(agents: LineageAgent[]): LineageIndex {
   return { get: (agentId) => byId.get(agentId), ancestors };
 }
 
-/** Ancestors of `agentId`, nearest first: [parent, grandparent, ...root]. */
-export function ancestorChain(
-  index: LineageIndex,
-  agentId: string
-): LineageNode[] {
-  return index.ancestors(agentId);
-}
-
 /**
  * Where `otherId` sits relative to `viewerId`. Ancestry is checked before
  * siblinghood so a parent is never also reported as a sibling.

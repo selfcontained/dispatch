@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AlertTriangle, Archive, GitBranch } from "lucide-react";
 
 import { type Agent } from "@/components/app/types";
@@ -11,6 +11,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { descendantAgents } from "@/lib/agent-lineage";
 import { api } from "@/lib/api";
 
 type WorktreeStatus = {
@@ -28,6 +29,8 @@ type DeleteStep = "confirm" | "worktree-choice";
 type DeleteAgentDialogProps = {
   open: boolean;
   deleteTarget: Agent | null;
+  /** Every agent currently known, so the dialog can name what archives with the target. */
+  agents: Agent[];
   setOpen: (open: boolean) => void;
   setDeleteTarget: (agent: Agent | null) => void;
   onDelete: (agent: Agent, cleanupWorktree?: string) => Promise<void>;
@@ -36,6 +39,7 @@ type DeleteAgentDialogProps = {
 export function DeleteAgentDialog({
   open,
   deleteTarget,
+  agents,
   setOpen,
   setDeleteTarget,
   onDelete,
@@ -46,6 +50,20 @@ export function DeleteAgentDialog({
   );
   const [loading, setLoading] = useState(false);
   const [deleting, setDeleting] = useState(false);
+
+  // Archiving cascades to the target's sub agents, so the confirmation has to
+  // say how many go with it — otherwise a parent's archive silently takes out
+  // work the user never had in view.
+  const cascadeCount = useMemo(
+    () => (deleteTarget ? descendantAgents(deleteTarget.id, agents).length : 0),
+    [deleteTarget, agents]
+  );
+  const cascadeNote =
+    cascadeCount > 0
+      ? ` Its ${cascadeCount} sub agent${cascadeCount === 1 ? "" : "s"} ${
+          cascadeCount === 1 ? "is" : "are"
+        } archived too.`
+      : "";
 
   // Fetch worktree status when dialog opens for an agent with a worktree
   useEffect(() => {
@@ -180,6 +198,7 @@ export function DeleteAgentDialog({
 
             <p className="text-sm text-muted-foreground">
               The agent will be archived either way.
+              {cascadeNote}
             </p>
           </div>
 
@@ -225,7 +244,7 @@ export function DeleteAgentDialog({
           <DialogTitle>Archive Agent</DialogTitle>
           <DialogDescription>
             {deleteTarget
-              ? `Archive "${deleteTarget.name}"? This removes the agent record and all media files.`
+              ? `Archive "${deleteTarget.name}"? This removes the agent record and all media files.${cascadeNote}`
               : "Archive this agent?"}
           </DialogDescription>
         </DialogHeader>

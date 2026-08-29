@@ -22,9 +22,10 @@
  * rows of its own — so a grandchild resolved to its direct parent would render
  * nowhere at all. Resolving to the root flattens any depth into one list.
  *
- * A parent that is not in `agents` ends the walk: a plain child outlives its
- * parent's archive (only review children cascade), so it becomes its own card
- * rather than disappearing with the parent.
+ * A parent that is not in `agents` ends the walk. An archive cascades to
+ * every child, so a missing parent is normally transient — but a child whose
+ * parent is merely absent from this list becomes its own card rather than
+ * disappearing along with it.
  */
 export function cardIdForAgent(
   agent: { id: string; parentAgentId?: string | null },
@@ -76,4 +77,36 @@ export function partitionAgentsByLineage<
     else subAgentsByCardId.set(cardId, [agent]);
   }
   return { topLevel, subAgentsByCardId };
+}
+
+/**
+ * Everything that would be archived with `rootId`, to any depth. Mirrors the
+ * server cascade: `parentAgentId` only, so a `child: false` agent is left out.
+ */
+export function descendantAgents<
+  T extends { id: string; parentAgentId?: string | null },
+>(rootId: string, agents: T[]): T[] {
+  const childrenByParent = new Map<string, T[]>();
+  for (const agent of agents) {
+    const parentId = agent.parentAgentId;
+    if (!parentId) continue;
+    const siblings = childrenByParent.get(parentId);
+    if (siblings) siblings.push(agent);
+    else childrenByParent.set(parentId, [agent]);
+  }
+
+  const collected: T[] = [];
+  // `seen` terminates the walk if a corrupted parent link forms a cycle.
+  const seen = new Set<string>([rootId]);
+  const queue = [rootId];
+  while (queue.length > 0) {
+    const currentId = queue.shift() as string;
+    for (const child of childrenByParent.get(currentId) ?? []) {
+      if (seen.has(child.id)) continue;
+      seen.add(child.id);
+      collected.push(child);
+      queue.push(child.id);
+    }
+  }
+  return collected;
 }

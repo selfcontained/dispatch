@@ -476,11 +476,11 @@ async function handleLaunchAgent(
       409
     );
   }
-  // An archive stops the parent moments from now, and only review children are
-  // cascaded — so a child launched after the archive was claimed would be
-  // orphaned the instant it started. True whoever claimed that archive; the
-  // window is simply widest when the parent archived itself and is still alive
-  // to make this very call.
+  // An archive stops the parent moments from now and sweeps its children with
+  // it — so a child launched after the archive was claimed would be torn down
+  // the instant it started, or miss the cascade and be orphaned. True whoever
+  // claimed that archive; the window is simply widest when the parent archived
+  // itself and is still alive to make this very call.
   if (parent.status === "archiving") {
     throw new AgentError(
       "This agent is being archived; it cannot launch new agents.",

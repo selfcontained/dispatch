@@ -306,8 +306,8 @@ describe("useAgentHotkeys", () => {
     });
 
     it("cycles an orphaned child whose parent is gone", () => {
-      // Only review children cascade on archive, so a plain child outlives its
-      // parent. It gets its own card, and must stay reachable.
+      // A child whose parent is absent from the list gets its own card, and
+      // must stay reachable.
       const orphan = makeAgent("agt_orphan", { parentAgentId: "agt_missing" });
       const { pathname } = renderAgentHotkeys(
         defaultArgs({

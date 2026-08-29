@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { cardIdForAgent, partitionAgentsByLineage } from "./agent-lineage";
+import {
+  cardIdForAgent,
+  descendantAgents,
+  partitionAgentsByLineage,
+} from "./agent-lineage";
 
 describe("cardIdForAgent", () => {
   const byId = (agents: Array<{ id: string; parentAgentId?: string | null }>) =>
@@ -130,6 +134,43 @@ describe("partitionAgentsByLineage", () => {
     expect(subAgentsByCardId.get("a")?.map((agent) => agent.id)).toEqual([
       "c2",
       "c1",
+    ]);
+  });
+});
+
+describe("descendantAgents", () => {
+  it("returns nothing for an agent with no children", () => {
+    expect(descendantAgents("a", [{ id: "a" }, { id: "b" }])).toEqual([]);
+  });
+
+  it("collects children and grandchildren", () => {
+    const agents = [
+      { id: "a" },
+      { id: "b", parentAgentId: "a" },
+      { id: "c", parentAgentId: "b" },
+      { id: "d" },
+    ];
+    expect(descendantAgents("a", agents).map((agent) => agent.id)).toEqual([
+      "b",
+      "c",
+    ]);
+  });
+
+  it("skips an agent that was merely launched by the root", () => {
+    // child: false leaves parentAgentId null, so the cascade never reaches it.
+    const agents = [{ id: "a" }, { id: "independent" }];
+    expect(descendantAgents("a", agents)).toEqual([]);
+  });
+
+  it("terminates on a parent cycle", () => {
+    const agents = [
+      { id: "a" },
+      { id: "b", parentAgentId: "a" },
+      { id: "c", parentAgentId: "d" },
+      { id: "d", parentAgentId: "c" },
+    ];
+    expect(descendantAgents("a", agents).map((agent) => agent.id)).toEqual([
+      "b",
     ]);
   });
 });

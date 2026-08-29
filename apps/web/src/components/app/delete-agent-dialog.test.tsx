@@ -64,7 +64,7 @@ function worktreeStatus(
   };
 }
 
-function renderDialog(deleteTarget: Agent) {
+function renderDialog(deleteTarget: Agent, agents: Agent[] = []) {
   const setOpen = vi.fn();
   const setDeleteTarget = vi.fn();
   const onDelete = vi.fn().mockResolvedValue(undefined);
@@ -72,6 +72,7 @@ function renderDialog(deleteTarget: Agent) {
     <DeleteAgentDialog
       open
       deleteTarget={deleteTarget}
+      agents={[deleteTarget, ...agents]}
       setOpen={setOpen}
       setDeleteTarget={setDeleteTarget}
       onDelete={onDelete}
@@ -241,6 +242,29 @@ describe("DeleteAgentDialog", () => {
     await waitFor(() => expect(setOpen).toHaveBeenCalledWith(false));
     expect(onDelete).toHaveBeenCalledWith(agent, "auto");
     expect(screen.queryByText("Worktree Has Outstanding Changes")).toBeNull();
+  });
+
+  it("names the sub agents that archive with the target", async () => {
+    const agent = makeAgent();
+    const child = makeAgent({ id: "agt_child", parentAgentId: "agt_target" });
+    const grandchild = makeAgent({
+      id: "agt_grandchild",
+      parentAgentId: "agt_child",
+    });
+    renderDialog(agent, [child, grandchild]);
+
+    expect(
+      screen.getByText(/Its 2 sub agents are archived too\./)
+    ).toBeTruthy();
+  });
+
+  it("leaves out an independent agent the target merely launched", async () => {
+    const agent = makeAgent();
+    // child: false — no parentAgentId, so the server cascade skips it.
+    const independent = makeAgent({ id: "agt_independent" });
+    renderDialog(agent, [independent]);
+
+    expect(screen.queryByText(/sub agent/)).toBeNull();
   });
 
   it("cancel closes and clears the target without deleting", async () => {
