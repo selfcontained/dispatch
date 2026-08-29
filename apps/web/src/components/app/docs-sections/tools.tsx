@@ -215,6 +215,23 @@ export function ToolsContent() {
             whole <Code>group</Code>
           </li>
           <li>
+            <Code>dispatch_surface_create</Code>,{" "}
+            <Code>dispatch_surface_update</Code>,{" "}
+            <Code>dispatch_surface_list</Code>,{" "}
+            <Code>dispatch_surface_get</Code>,{" "}
+            <Code>dispatch_surface_delete</Code>,{" "}
+            <Code>dispatch_surface_reorder</Code> — author a custom sidebar tab
+            (up to 8 per agent) built from status, progress, list, table,
+            actions, form, and section blocks (see the Agent Surfaces section);
+            available to standard agents, jobs, and persona reviewers alike
+          </li>
+          <li>
+            <Code>dispatch_surface_interactions</Code>,{" "}
+            <Code>dispatch_surface_claim</Code>,{" "}
+            <Code>dispatch_surface_resolve</Code> — read, claim, and resolve the
+            durable interactions a surface's actions and forms produce
+          </li>
+          <li>
             <Code>list_personas</Code> — list persona reviewers defined for the
             current repo
           </li>

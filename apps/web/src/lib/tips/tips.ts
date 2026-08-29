@@ -325,6 +325,14 @@ export const tips: Tip[] = [
     surfaces: ["ambient"],
   },
   {
+    id: "agent-surfaces",
+    title: "Agent Surfaces",
+    body: "Agents can build custom sidebar tabs — status, tables, forms, and action buttons — instead of only chat and pins. Submit a form or click an action and the agent reads back what you sent.",
+    docsSection: "agent-surfaces",
+    since: "0.37.0",
+    surfaces: ["ambient"],
+  },
+  {
     id: "status-correction",
     title: "Status Correction",
     body: 'Agent statuses are self-reported, so Dispatch cross-checks them against terminal activity. An expanded card showing "Activity detected" or "No recent activity detected" is that correction, not something the agent reported.',
