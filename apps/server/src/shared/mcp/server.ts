@@ -20,6 +20,7 @@ import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
 import { registerJobTools, type JobTools } from "./job-tools.js";
+import { registerLoginLinkTools } from "./login-link-tools.js";
 import {
   registerMessagingTools,
   type AgentListing,
@@ -118,6 +119,7 @@ export type MediaResult = {
 const AGENT_TOOLS = new Set([
   "create_pr",
   "get_pr_status",
+  "dispatch_login_link",
   "dispatch_event",
   "dispatch_rename_session",
   "dispatch_notify",
@@ -260,6 +262,7 @@ const JOB_TOOLS = new Set([
 ]);
 
 const REVIEW_AGENT_TOOLS = new Set([
+  "dispatch_login_link",
   "dispatch_event",
   "dispatch_pin",
   "dispatch_pins",
@@ -311,6 +314,7 @@ export type McpRequestContext = {
   worktreeRoot: string | null;
   surfaces?: SurfaceService;
   sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
+  issueLoginLink?: () => string | Promise<string>;
   upsertEvent?: (
     agentId: string,
     event: { type: string; message: string; metadata?: Record<string, unknown> }
@@ -659,6 +663,11 @@ async function createDispatchMcpServer(
         ? "job"
         : "agent";
   const allowed = new Set(TOOL_SETS[agentType]);
+
+  // ── Agent browser login link ─────────────────────────────────────
+  registerLoginLinkTools(server, allowed, {
+    issueLoginLink: context.issueLoginLink,
+  });
 
   // ── PR tools (create_pr, get_pr_status) ────────────────────────────
   registerPrTools(server, allowed, {
