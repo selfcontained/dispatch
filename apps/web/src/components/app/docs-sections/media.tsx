@@ -129,9 +129,10 @@ export function MediaContent() {
           Click the media sidebar button at the right of the terminal's top bar
           (or press <Code>Mod+Shift+&gt;</Code>) to open the sidebar. The button
           shows a count badge when there are unseen media items or unread
-          messages. The sidebar has four tabs: <strong>Pins</strong>,{" "}
+          messages. The sidebar has four built-in tabs: <strong>Pins</strong>,{" "}
           <strong>Media</strong>, <strong>Reviews</strong>, and{" "}
-          <strong>Messages</strong>.
+          <strong>Messages</strong> — plus one tab per custom tab an agent has
+          created (see the Agent Surfaces section).
         </P>
         <P>
           The <strong>Pins</strong> tab shows values the agent has surfaced via{" "}

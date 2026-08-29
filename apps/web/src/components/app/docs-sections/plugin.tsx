@@ -7,10 +7,10 @@ export function PluginContent() {
         Dispatch publishes an official plugin for <strong>Claude Code</strong>{" "}
         and <strong>Codex</strong>. It ships skills that teach agents how to use
         the capabilities documented here — the Brain, subagents, repo tools,
-        artifact sharing, the review workflow, the whiteboard, jobs, templates,
-        reviewers, personalities, and UI validation — so an agent discovers them
-        at the moment it needs one instead of having to be told. The Dispatch
-        repo doubles as the marketplace it's served from.
+        artifact sharing, agent surfaces, the review workflow, the whiteboard,
+        jobs, templates, reviewers, personalities, and UI validation — so an
+        agent discovers them at the moment it needs one instead of having to be
+        told. The Dispatch repo doubles as the marketplace it's served from.
       </P>
 
       <Section>
@@ -64,7 +64,7 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
       <Section>
         <H3 id="plugin-skills">What's in it</H3>
         <P>
-          Eleven narrow skills, each written to fire on a situation rather than
+          Twelve narrow skills, each written to fire on a situation rather than
           a feature name — an agent that doesn't know a capability exists will
           never match its name, but will match a description of the spot it's
           currently in.
@@ -110,6 +110,10 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
           <li>
             <Code>personalities</Code> — the user is commenting on how agents
             talk
+          </li>
+          <li>
+            <Code>surfaces</Code> — the user needs status, progress, options, or
+            input richer than a pin or chat message
           </li>
         </ul>
         <P>
