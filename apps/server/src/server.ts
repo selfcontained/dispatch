@@ -622,6 +622,7 @@ async function registerRoutes() {
   await registerMcpRoutes(app, {
     config,
     pool,
+    loginLinkStore,
     agentManager,
     jobService,
     templateService,

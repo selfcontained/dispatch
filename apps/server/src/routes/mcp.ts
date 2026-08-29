@@ -5,6 +5,7 @@ import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
 import * as telemetry from "../agents/telemetry.js";
+import type { LoginLinkStore } from "../auth.js";
 import type { BrainStore } from "../brain/store.js";
 import type { AddJobInput, JobService } from "../jobs/service.js";
 import type {
@@ -40,6 +41,7 @@ type McpRouteDeps = {
     authToken: string;
   };
   pool: Pool;
+  loginLinkStore: LoginLinkStore;
   agentManager: AgentManager;
   jobService: JobService;
   templateService: TemplateService;
@@ -352,6 +354,7 @@ export async function registerMcpRoutes(
       getReviewFeedbackItem: deps.mcpGetReviewFeedbackItem,
       sendMessage: deps.mcpSendMessage,
       listAgentsForAgent: deps.mcpListAgentsForAgent,
+      issueLoginLink: () => deps.loginLinkStore.issue(),
       upsertPin: deps.mcpUpsertPin,
       upsertPins: deps.mcpUpsertPins,
       deletePin: deps.mcpDeletePin,
