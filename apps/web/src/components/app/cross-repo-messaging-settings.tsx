@@ -1,11 +1,8 @@
-import { useCallback, useEffect, useRef, useState } from "react";
 import { useAtom } from "jotai";
 
 import { Checkbox } from "@/components/ui/checkbox";
-import { api } from "@/lib/api";
+import { useOptimisticToggleSetting } from "@/hooks/use-optimistic-toggle-setting";
 import { crossRepoMessagingEnabledAtom } from "@/lib/store";
-
-type CrossRepoMessagingResponse = { enabled: boolean };
 
 const ENDPOINT = "/api/v1/app/settings/cross-repo-messaging";
 
@@ -19,51 +16,13 @@ const ENDPOINT = "/api/v1/app/settings/cross-repo-messaging";
  * server on its own.
  */
 export function CrossRepoMessagingSettings(): JSX.Element {
-  const [enabled, setEnabled] = useAtom(crossRepoMessagingEnabledAtom);
-  const [error, setError] = useState("");
-  const latestReq = useRef(0);
-  const confirmedValue = useRef(enabled);
-
-  useEffect(() => {
-    const seq = (latestReq.current += 1);
-    void api<CrossRepoMessagingResponse>(ENDPOINT)
-      .then((data) => {
-        if (seq === latestReq.current) {
-          confirmedValue.current = data.enabled;
-          setEnabled(data.enabled);
-        }
-      })
-      .catch(() => {
-        if (seq === latestReq.current) {
-          setError("Failed to load cross-repo messaging setting.");
-        }
-      });
-  }, [setEnabled]);
-
-  const handleToggle = useCallback(
-    (next: boolean) => {
-      const seq = (latestReq.current += 1);
-      setError("");
-      setEnabled(next);
-      void api<CrossRepoMessagingResponse>(ENDPOINT, {
-        method: "POST",
-        body: JSON.stringify({ enabled: next }),
-      })
-        .then(() => {
-          if (seq === latestReq.current) confirmedValue.current = next;
-        })
-        .catch((err) => {
-          if (seq !== latestReq.current) return;
-          setEnabled(confirmedValue.current);
-          setError(
-            err instanceof Error
-              ? err.message
-              : "Failed to save cross-repo messaging setting."
-          );
-        });
-    },
-    [setEnabled]
-  );
+  const atomState = useAtom(crossRepoMessagingEnabledAtom);
+  const { enabled, error, setEnabled } = useOptimisticToggleSetting({
+    endpoint: ENDPOINT,
+    loadErrorMessage: "Failed to load cross-repo messaging setting.",
+    saveErrorMessage: "Failed to save cross-repo messaging setting.",
+    state: atomState,
+  });
 
   return (
     <div className="p-6">
@@ -80,7 +39,7 @@ export function CrossRepoMessagingSettings(): JSX.Element {
         <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
           <Checkbox
             checked={enabled}
-            onCheckedChange={(checked) => handleToggle(checked === true)}
+            onCheckedChange={(checked) => setEnabled(checked === true)}
             data-testid="cross-repo-messaging-toggle"
           />
           <div className="min-w-0">

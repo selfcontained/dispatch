@@ -1,9 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-
 import { Checkbox } from "@/components/ui/checkbox";
-import { api } from "@/lib/api";
-
-type InjectionHoldResponse = { enabled: boolean };
+import { useOptimisticToggleSetting } from "@/hooks/use-optimistic-toggle-setting";
 
 const ENDPOINT = "/api/v1/app/settings/injection-hold";
 
@@ -14,48 +10,11 @@ const ENDPOINT = "/api/v1/app/settings/injection-hold";
  * default — automated prompts inject immediately, pre-gate behavior.
  */
 export function InjectionHoldSettings(): JSX.Element {
-  const [enabled, setEnabled] = useState(false);
-  const [error, setError] = useState("");
-  const latestReq = useRef(0);
-  const confirmedValue = useRef(false);
-
-  useEffect(() => {
-    const seq = (latestReq.current += 1);
-    void api<InjectionHoldResponse>(ENDPOINT)
-      .then((data) => {
-        if (seq === latestReq.current) {
-          confirmedValue.current = data.enabled;
-          setEnabled(data.enabled);
-        }
-      })
-      .catch(() => {
-        if (seq === latestReq.current) {
-          setError("Failed to load prompt delivery setting.");
-        }
-      });
-  }, []);
-
-  const handleToggle = useCallback((next: boolean) => {
-    const seq = (latestReq.current += 1);
-    setError("");
-    setEnabled(next);
-    void api<InjectionHoldResponse>(ENDPOINT, {
-      method: "POST",
-      body: JSON.stringify({ enabled: next }),
-    })
-      .then(() => {
-        if (seq === latestReq.current) confirmedValue.current = next;
-      })
-      .catch((err) => {
-        if (seq !== latestReq.current) return;
-        setEnabled(confirmedValue.current);
-        setError(
-          err instanceof Error
-            ? err.message
-            : "Failed to save prompt delivery setting."
-        );
-      });
-  }, []);
+  const { enabled, error, setEnabled } = useOptimisticToggleSetting({
+    endpoint: ENDPOINT,
+    loadErrorMessage: "Failed to load prompt delivery setting.",
+    saveErrorMessage: "Failed to save prompt delivery setting.",
+  });
 
   return (
     <div className="p-6">
@@ -72,7 +31,7 @@ export function InjectionHoldSettings(): JSX.Element {
         <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
           <Checkbox
             checked={enabled}
-            onCheckedChange={(checked) => handleToggle(checked === true)}
+            onCheckedChange={(checked) => setEnabled(checked === true)}
             data-testid="injection-hold-toggle"
           />
           <div className="min-w-0">

@@ -1,9 +1,5 @@
-import { useCallback, useEffect, useRef, useState } from "react";
-
 import { Checkbox } from "@/components/ui/checkbox";
-import { api } from "@/lib/api";
-
-type LaunchGuidanceTrimResponse = { enabled: boolean };
+import { useOptimisticToggleSetting } from "@/hooks/use-optimistic-toggle-setting";
 
 const ENDPOINT = "/api/v1/app/settings/launch-guidance-trim";
 
@@ -20,57 +16,11 @@ const ENDPOINT = "/api/v1/app/settings/launch-guidance-trim";
  * the guidance of every agent launched afterwards.
  */
 export function LaunchGuidanceSettings(): JSX.Element {
-  const [enabled, setEnabled] = useState(false);
-  const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState("");
-  const latestReq = useRef(0);
-  const confirmedValue = useRef(false);
-  // Writes are chained, not just sequence-guarded: two quick toggles could
-  // otherwise land at the server out of order and leave it on the older
-  // value while the UI showed the newer one.
-  const pendingWrite = useRef<Promise<unknown>>(Promise.resolve());
-
-  useEffect(() => {
-    const seq = (latestReq.current += 1);
-    void api<LaunchGuidanceTrimResponse>(ENDPOINT)
-      .then((data) => {
-        if (seq !== latestReq.current) return;
-        confirmedValue.current = data.enabled;
-        setEnabled(data.enabled);
-        setLoaded(true);
-      })
-      .catch(() => {
-        if (seq === latestReq.current) {
-          setError("Failed to load launch guidance setting.");
-        }
-      });
-  }, []);
-
-  const handleToggle = useCallback((next: boolean) => {
-    const seq = (latestReq.current += 1);
-    setError("");
-    setEnabled(next);
-    pendingWrite.current = pendingWrite.current
-      .catch(() => undefined)
-      .then(() =>
-        api<LaunchGuidanceTrimResponse>(ENDPOINT, {
-          method: "POST",
-          body: JSON.stringify({ enabled: next }),
-        })
-          .then(() => {
-            if (seq === latestReq.current) confirmedValue.current = next;
-          })
-          .catch((err) => {
-            if (seq !== latestReq.current) return;
-            setEnabled(confirmedValue.current);
-            setError(
-              err instanceof Error
-                ? err.message
-                : "Failed to save launch guidance setting."
-            );
-          })
-      );
-  }, []);
+  const { enabled, loaded, error, setEnabled } = useOptimisticToggleSetting({
+    endpoint: ENDPOINT,
+    loadErrorMessage: "Failed to load launch guidance setting.",
+    saveErrorMessage: "Failed to save launch guidance setting.",
+  });
 
   return (
     <div className="p-6">
@@ -86,7 +36,7 @@ export function LaunchGuidanceSettings(): JSX.Element {
         <Checkbox
           checked={enabled}
           disabled={!loaded}
-          onCheckedChange={(checked) => handleToggle(checked === true)}
+          onCheckedChange={(checked) => setEnabled(checked === true)}
           data-testid="launch-guidance-trim-toggle"
         />
         Use short startup rules
