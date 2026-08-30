@@ -367,6 +367,36 @@ describe("worktree gating", () => {
     });
   });
 
+  it("keeps the worktree option usable while the loop is on", async () => {
+    const { onAddJob } = renderFlow();
+    fillRequiredFields();
+
+    fireEvent.click(screen.getByRole("switch", { name: "Run as a loop" }));
+    openAdvanced();
+
+    const worktreeToggle = advancedCheckbox(/Run in a git worktree/);
+    expect(worktreeToggle.getAttribute("disabled")).toBeNull();
+    fireEvent.click(worktreeToggle);
+    fireEvent.change(screen.getByTestId("job-create-worktree-branch"), {
+      target: { value: "loop-branch" },
+    });
+
+    fireEvent.click(addButton());
+
+    await waitFor(() => expect(onAddJob).toHaveBeenCalledTimes(1));
+    expect(onAddJob).toHaveBeenCalledWith({
+      ...basePayload(),
+      enabled: true,
+      continuationEnabled: true,
+      maxIterations: 10,
+      completionCriteria: null,
+      recoveryInstructions: null,
+      useWorktree: true,
+      baseBranch: "main",
+      branchName: "loop-branch",
+    });
+  });
+
   it("sends both branches once the worktree option is checked", async () => {
     const { onAddJob } = renderFlow();
     fillRequiredFields();

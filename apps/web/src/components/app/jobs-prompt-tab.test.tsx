@@ -77,7 +77,6 @@ describe("PromptTab loop setup", () => {
       completionCriteria: ["Every planned slice is shipped."],
       recoveryInstructions: null,
       autoArchive: true,
-      useWorktree: false,
     });
   });
 });

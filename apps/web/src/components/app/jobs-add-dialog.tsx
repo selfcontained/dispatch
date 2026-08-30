@@ -289,7 +289,6 @@ export function AddJobFlow({
               if (next.enabled) {
                 if (!continuation.enabled) setEnableImmediately(true);
                 setKeepAgent(false);
-                setUseWorktree(false);
               } else if (!schedule.trim()) {
                 setEnableImmediately(false);
               }
@@ -369,12 +368,6 @@ export function AddJobFlow({
                     onBaseBranchChange={setBaseBranch}
                     onBranchNameChange={setBranchName}
                     testIdPrefix="job-create"
-                    disabled={continuation.enabled}
-                    helperText={
-                      continuation.enabled
-                        ? "Unavailable while the loop is on."
-                        : undefined
-                    }
                   />
                   <JobFullAccessOption
                     checked={fullAccess}

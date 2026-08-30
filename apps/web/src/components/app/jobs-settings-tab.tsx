@@ -245,12 +245,6 @@ export function SettingsTab({
             onBaseBranchChange={setBaseBranch}
             onBranchNameChange={setBranchName}
             testIdPrefix={`job-settings-${job.id}`}
-            disabled={Boolean(job.continuationEnabled)}
-            helperText={
-              job.continuationEnabled
-                ? "Unavailable while the loop is on."
-                : undefined
-            }
           />
           <JobFullAccessOption
             checked={fullAccess}
