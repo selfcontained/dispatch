@@ -598,11 +598,6 @@ export class JobService {
         `Job "${displayName}" needs a schedule or continuation enabled before it can be enabled.`
       );
     }
-    if (input.continuationEnabled && input.useWorktree) {
-      throw new Error(
-        "Continuation Jobs do not support per-run worktrees; use a shared checkout so each iteration sees the prior state."
-      );
-    }
 
     // Create a backing template for this job (hidden from Cmd+K by default).
     // If job creation fails, clean up the template to avoid orphans.
@@ -701,14 +696,6 @@ export class JobService {
     }
     const nextContinuationEnabled =
       input.continuationEnabled ?? existing.continuationEnabled;
-    if (
-      nextContinuationEnabled &&
-      (input.useWorktree ?? existing.useWorktree)
-    ) {
-      throw new Error(
-        "Continuation Jobs do not support per-run worktrees; use a shared checkout so each iteration sees the prior state."
-      );
-    }
     if (input.enabled && !nextSchedule && !nextContinuationEnabled) {
       throw new Error(
         `Job "${input.displayName ?? existing.name}" needs a schedule or continuation enabled before it can be enabled.`

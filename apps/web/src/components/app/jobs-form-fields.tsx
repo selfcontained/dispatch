@@ -160,8 +160,6 @@ export function JobWorktreeOption({
   onBaseBranchChange,
   onBranchNameChange,
   testIdPrefix,
-  disabled = false,
-  helperText,
 }: {
   checked: boolean;
   cwd: string;
@@ -171,21 +169,13 @@ export function JobWorktreeOption({
   onBaseBranchChange: (value: string) => void;
   onBranchNameChange: (value: string) => void;
   testIdPrefix?: string;
-  disabled?: boolean;
-  helperText?: string;
 }) {
   return (
     <div className="space-y-2 rounded-md border border-border/70 bg-muted/20 px-3 py-3 md:col-span-2">
-      <label
-        className={cn(
-          "flex items-start gap-3",
-          disabled ? "cursor-not-allowed opacity-70" : "cursor-pointer"
-        )}
-      >
+      <label className="flex cursor-pointer items-start gap-3">
         <Checkbox
           checked={checked}
           onCheckedChange={() => onCheckedChange(!checked)}
-          disabled={disabled}
           className="mt-0.5"
           title="Toggle git worktree"
         />
@@ -195,8 +185,7 @@ export function JobWorktreeOption({
             Run in a git worktree
           </span>
           <span className="block text-xs text-muted-foreground">
-            {helperText ??
-              "Creates an isolated worktree and branch when this job runs."}
+            Creates an isolated worktree and branch when this job runs.
           </span>
         </span>
       </label>

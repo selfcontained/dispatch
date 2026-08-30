@@ -130,9 +130,7 @@ export function PromptTab({
                 recoveryInstructions: continuation.enabled
                   ? continuation.recoveryInstructions.trim() || null
                   : null,
-                ...(continuation.enabled
-                  ? { autoArchive: true, useWorktree: false }
-                  : {}),
+                ...(continuation.enabled ? { autoArchive: true } : {}),
               })
                 .then(() => {
                   setSaved(true);

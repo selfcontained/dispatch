@@ -249,6 +249,25 @@ describe("save payload", () => {
     expect(onUpdateJob).toHaveBeenLastCalledWith(basePayload());
   });
 
+  it("lets a loop job turn its worktree on", async () => {
+    const { onUpdateJob } = renderTab(makeJob({ continuationEnabled: true }));
+
+    const worktreeToggle = screen.getByTitle("Toggle git worktree");
+    expect(worktreeToggle.getAttribute("disabled")).toBeNull();
+    fireEvent.click(worktreeToggle);
+    fireEvent.change(screen.getByTestId("job-settings-job_1-worktree-branch"), {
+      target: { value: "loop-branch" },
+    });
+
+    await clickSave();
+    expect(onUpdateJob).toHaveBeenLastCalledWith({
+      ...basePayload(),
+      useWorktree: true,
+      baseBranch: "main",
+      branchName: "loop-branch",
+    });
+  });
+
   it("inverts and forwards every advanced toggle", async () => {
     const { onUpdateJob } = renderTab(makeJob());
 
