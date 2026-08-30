@@ -5,6 +5,7 @@ import {
   filterHistoryOptions,
   getHistoryOptions,
   ghostCompletionSuffix,
+  mergeHistoryOptions,
 } from "./path-input-utils";
 
 describe("path input completion", () => {
@@ -76,5 +77,57 @@ describe("path input history", () => {
     expect(
       filterHistoryOptions(options, "customer").map((option) => option.path)
     ).toEqual(["~/work/customer-portal"]);
+  });
+});
+
+describe("path input option merging", () => {
+  it("fills in a missing iconUrl from the secondary source instead of dropping it", () => {
+    const primary = getHistoryOptions(["~/dev/apps/dispatch"], {
+      "~/dev/apps/dispatch": { usageCount: 3 },
+    });
+    const secondary = getHistoryOptions(["~/dev/apps/dispatch"], {
+      "~/dev/apps/dispatch": {
+        usageCount: 3,
+        iconUrl: "/api/v1/agents/agt_1/repo-icon",
+      },
+    });
+
+    const merged = mergeHistoryOptions(primary, secondary);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].iconUrl).toBe("/api/v1/agents/agt_1/repo-icon");
+  });
+
+  it("keeps the primary source's iconUrl when both sides have one", () => {
+    const primary = getHistoryOptions(["~/dev/apps/dispatch"], {
+      "~/dev/apps/dispatch": { usageCount: 3, iconUrl: "/primary-icon" },
+    });
+    const secondary = getHistoryOptions(["~/dev/apps/dispatch"], {
+      "~/dev/apps/dispatch": { usageCount: 3, iconUrl: "/secondary-icon" },
+    });
+
+    expect(mergeHistoryOptions(primary, secondary)[0].iconUrl).toBe(
+      "/primary-icon"
+    );
+  });
+
+  it("takes the higher usage count across sources", () => {
+    const primary = getHistoryOptions(["~/dev/apps/dispatch"], {
+      "~/dev/apps/dispatch": { usageCount: 2 },
+    });
+    const secondary = getHistoryOptions(["~/dev/apps/dispatch"], {
+      "~/dev/apps/dispatch": { usageCount: 9 },
+    });
+
+    expect(mergeHistoryOptions(primary, secondary)[0].usageCount).toBe(9);
+  });
+
+  it("keeps entries unique to either source", () => {
+    const primary = getHistoryOptions(["~/a"], {});
+    const secondary = getHistoryOptions(["~/b"], {});
+
+    expect(
+      mergeHistoryOptions(primary, secondary).map((option) => option.path)
+    ).toEqual(["~/a", "~/b"]);
   });
 });

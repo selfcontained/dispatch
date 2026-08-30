@@ -58,6 +58,34 @@ export function getHistoryOptions(
     });
 }
 
+/**
+ * Merge two option lists that may describe the same paths (the caller's own
+ * local/cached list, plus a fresher live-search result). A plain first-source
+ * dedup can let a stale entry with no iconUrl permanently shadow a fresher
+ * one that has it, so duplicates are combined instead: iconUrl and
+ * usageCount are taken from whichever source actually has them, everything
+ * else (label, ordering) comes from the first-seen entry.
+ */
+export function mergeHistoryOptions(
+  primary: HistoryOption[],
+  secondary: HistoryOption[]
+): HistoryOption[] {
+  const byPath = new Map<string, HistoryOption>();
+  for (const option of [...primary, ...secondary]) {
+    const existing = byPath.get(option.path);
+    if (!existing) {
+      byPath.set(option.path, option);
+      continue;
+    }
+    byPath.set(option.path, {
+      ...existing,
+      iconUrl: existing.iconUrl ?? option.iconUrl,
+      usageCount: Math.max(existing.usageCount, option.usageCount),
+    });
+  }
+  return Array.from(byPath.values());
+}
+
 export function filterHistoryOptions(
   options: HistoryOption[],
   query: string
