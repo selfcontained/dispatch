@@ -33,6 +33,21 @@ export function edgeFadeMask(
 }
 
 /**
+ * Horizontally scrolls `strip` by the smallest amount that brings `tab` fully
+ * inside it, leaving it alone when the tab already fits. Rects (not
+ * `offsetLeft`) because the strip is not the tab's offset parent.
+ */
+export function scrollTabStrip(strip: HTMLElement, tab: HTMLElement): void {
+  const stripRect = strip.getBoundingClientRect();
+  const tabRect = tab.getBoundingClientRect();
+  if (tabRect.left < stripRect.left) {
+    strip.scrollLeft -= stripRect.left - tabRect.left;
+  } else if (tabRect.right > stripRect.right) {
+    strip.scrollLeft += tabRect.right - stripRect.right;
+  }
+}
+
+/**
  * Compact "these tabs came from the agent" marker, fixed at the start of the
  * strip so it never scrolls out of view with the tabs. The short text label
  * stays visible on mobile: provenance is more important than fitting one
@@ -132,10 +147,16 @@ export function SurfaceTabRow({
     if (!activeSurfaceId) return;
 
     const scrollActiveTabIntoView = () => {
-      const button = scrollRef.current?.querySelector<HTMLElement>(
+      const strip = scrollRef.current;
+      const button = strip?.querySelector<HTMLElement>(
         `[data-surface-id="${activeSurfaceId}"]`
       );
-      button?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      if (!strip || !button) return;
+      // Deliberately not `scrollIntoView` — that walks every scrollable
+      // ancestor, and in the unpinned sidebar's drawer mode the panel sits
+      // off-canvas inside the app row, so scrolling it into view drags the
+      // whole app sideways. Only this strip should ever move.
+      scrollTabStrip(strip, button);
     };
 
     scrollActiveTabIntoView();

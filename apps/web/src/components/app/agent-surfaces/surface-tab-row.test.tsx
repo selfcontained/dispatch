@@ -4,7 +4,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { Provider } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { edgeFadeMask, SurfaceTabRow } from "./surface-tab-row";
+import { edgeFadeMask, scrollTabStrip, SurfaceTabRow } from "./surface-tab-row";
 import type { Surface } from "@/components/app/agent-surfaces/types";
 import type { MediaSidebarTab } from "@/lib/store";
 
@@ -192,6 +192,64 @@ describe("SurfaceTabRow", () => {
     // fade appears since content now sits off-canvas behind the scroll.
     expect(strip.getAttribute("data-overflow-left")).toBe("true");
     expect(strip.getAttribute("data-overflow-right")).toBe("false");
+  });
+
+  it("never scrolls ancestors to reveal the active tab", () => {
+    renderRow("agt_no_ancestor_scroll", "surface-b");
+
+    // `scrollIntoView` walks every scrollable ancestor. In the unpinned
+    // sidebar's drawer mode the panel parks off-canvas inside the app row,
+    // so one such call drags the whole app sideways — see scrollTabStrip.
+    expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+  });
+});
+
+describe("scrollTabStrip", () => {
+  type Edges = { left: number; right: number };
+
+  // jsdom reports every rect as zero, so both boxes get an explicit one.
+  function withRect<T extends HTMLElement>(el: T, { left, right }: Edges): T {
+    el.getBoundingClientRect = () =>
+      ({ left, right, width: right - left }) as DOMRect;
+    return el;
+  }
+
+  function makeStrip(stripRect: Edges, tabRect: Edges, scrollLeft = 0) {
+    const strip = withRect(document.createElement("div"), stripRect);
+    const tab = withRect(document.createElement("button"), tabRect);
+    strip.appendChild(tab);
+    strip.scrollLeft = scrollLeft;
+    return { strip, tab };
+  }
+
+  it("scrolls right by exactly the amount the tab overhangs", () => {
+    const { strip, tab } = makeStrip(
+      { left: 0, right: 200 },
+      { left: 180, right: 260 },
+      50
+    );
+    scrollTabStrip(strip, tab);
+    expect(strip.scrollLeft).toBe(110);
+  });
+
+  it("scrolls left by exactly the amount the tab is cut off", () => {
+    const { strip, tab } = makeStrip(
+      { left: 0, right: 200 },
+      { left: -30, right: 40 },
+      90
+    );
+    scrollTabStrip(strip, tab);
+    expect(strip.scrollLeft).toBe(60);
+  });
+
+  it("leaves the strip alone when the tab already fits", () => {
+    const { strip, tab } = makeStrip(
+      { left: 0, right: 200 },
+      { left: 20, right: 120 },
+      35
+    );
+    scrollTabStrip(strip, tab);
+    expect(strip.scrollLeft).toBe(35);
   });
 });
 
