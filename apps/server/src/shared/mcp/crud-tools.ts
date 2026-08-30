@@ -9,6 +9,7 @@ import {
 } from "../agent-types.js";
 import { parseTemplateArgs } from "../../templates/arg-parser.js";
 import type { TemplateRecord } from "../../templates/store.js";
+import { parseLoopItems } from "../lib/loop-text.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
@@ -46,11 +47,7 @@ function toTemplateListing(template: TemplateRecord) {
 
 function loopItemsFromText(value: unknown): string[] {
   if (typeof value !== "string") return [];
-  return value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.replace(/^(?:[-*+] |\d+[.)] )/, "").trim());
+  return parseLoopItems(value);
 }
 
 function withLoopFields(job: unknown) {

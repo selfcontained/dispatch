@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 
 import { SwitchToggle } from "@/components/app/jobs-form-fields";
 
+import { parseLoopItems } from "../../../../server/src/shared/lib/loop-text";
+
 export type ContinuationDraft = {
   enabled: boolean;
   maxIterations: string;
@@ -27,11 +29,7 @@ export function continuationMaxIterations(value: string): number | null {
 }
 
 export function loopItemsFromText(value: string): string[] {
-  const lines = value
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => line.replace(/^(?:[-*+] |\d+[.)] )/, "").trim());
+  const lines = parseLoopItems(value);
   return lines.length ? lines : [""];
 }
 
