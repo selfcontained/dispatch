@@ -1441,6 +1441,17 @@ export class AgentManager {
         base_branch AS "baseBranch",
         template_id AS "templateId",
         auto_review AS "autoReview",
+        (
+          SELECT json_build_object(
+            'continuationEnabled',
+              COALESCE((job_runs.config ->> 'continuationEnabled')::boolean, false),
+            'iteration', job_runs.chain_iteration,
+            'maxIterations', (job_runs.config ->> 'maxIterations')::integer
+          )
+          FROM job_runs
+          WHERE job_runs.agent_id = agents.id
+          LIMIT 1
+        ) AS "jobRun",
         cli_session_id AS "cliSessionId",
         (
           SELECT unified_review.id

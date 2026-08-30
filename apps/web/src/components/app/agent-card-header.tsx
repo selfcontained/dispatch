@@ -4,6 +4,7 @@ import {
   ArrowDownToLine,
   ChevronDown,
   Play,
+  Repeat2,
   Tag,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -62,7 +63,12 @@ export function AgentCardHeader({
 }: AgentCardHeaderProps): JSX.Element {
   const [renamePromptPending, setRenamePromptPending] = React.useState(false);
   const needsAttention = agent.status === "error";
-  const isJobAgent = agent.name.startsWith("job-");
+  const isJobAgent = Boolean(agent.jobRun);
+  const loopIteration = agent.jobRun?.iteration ?? 1;
+  const isLoopJob = isJobAgent && agent.jobRun?.continuationEnabled;
+  const loopTooltip = agent.jobRun?.maxIterations
+    ? `Loop iteration ${loopIteration} of ${agent.jobRun.maxIterations}`
+    : `Loop iteration ${loopIteration}`;
   const isAssistedUpdateAgent = agent.role === "assisted_update";
   const canPromptRename =
     agent.status === "running" && hasDefaultSessionName(agent);
@@ -175,13 +181,26 @@ export function AgentCardHeader({
       ) : null}
 
       {isJobAgent ? (
-        <Badge
-          className="border-status-working/45 bg-status-working/15 text-status-working"
-          title="Job-spawned agent"
-        >
-          <AlarmClock className="mr-1 h-3 w-3" />
-          Job
-        </Badge>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className="inline-flex"
+              title={isLoopJob ? loopTooltip : "Job-spawned agent"}
+            >
+              <Badge className="border-status-working/45 bg-status-working/15 text-status-working">
+                {isLoopJob ? (
+                  <Repeat2 className="mr-1 h-3 w-3" />
+                ) : (
+                  <AlarmClock className="mr-1 h-3 w-3" />
+                )}
+                {isLoopJob ? "Loop" : "Job"}
+              </Badge>
+            </span>
+          </TooltipTrigger>
+          <TooltipContent>
+            {isLoopJob ? loopTooltip : "Job-spawned agent"}
+          </TooltipContent>
+        </Tooltip>
       ) : null}
 
       {isAssistedUpdateAgent ? (

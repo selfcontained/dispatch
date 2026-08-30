@@ -778,6 +778,7 @@ describe("useSSE message handling", () => {
     // event invalidates its own collection instead of all three sharing one.
     expect(invalidatedKeys(invalidateQueries)).toEqual([
       ["jobs"],
+      ["agents"],
       ["templates"],
       ["brain"],
     ]);
