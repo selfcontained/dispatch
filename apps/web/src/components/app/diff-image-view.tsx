@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useState } from "react";
 
 import { DIFF_IMAGE_MAX_BYTES, type DiffImageInfo } from "@dispatch/shared";
 import { useAtom, useAtomValue } from "jotai";
@@ -13,6 +13,14 @@ import type { DiffFileStatus } from "@/hooks/use-agent-diff";
 import { Slider } from "@/components/ui/slider";
 
 type Side = "old" | "new";
+
+/**
+ * Height held for an image that has not loaded yet. Nothing in the diff
+ * payload carries pixel dimensions, so the reserve is a flat guess — its job
+ * is only to stop a section collapsing to zero and then jumping the scroll
+ * position of whatever the reviewer is reading below it.
+ */
+const PREVIEW_RESERVE = "min-h-[8rem]";
 
 function formatBytes(bytes: number): string {
   return bytes >= 1024 * 1024
@@ -33,28 +41,55 @@ function imageUrl(
 
 type LoadedImage = { width: number; height: number };
 
+/** Aspect ratios within half a percent — tolerance for rounding, not resizes. */
+function aspectRatiosMatch(a: LoadedImage, b: LoadedImage): boolean {
+  if (a.height === 0 || b.height === 0) return false;
+  const ratioA = a.width / a.height;
+  const ratioB = b.width / b.height;
+  return Math.abs(ratioA - ratioB) / Math.max(ratioA, ratioB) < 0.005;
+}
+
+function readNaturalSize(
+  e: React.SyntheticEvent<HTMLImageElement>
+): LoadedImage {
+  return {
+    width: e.currentTarget.naturalWidth,
+    height: e.currentTarget.naturalHeight,
+  };
+}
+
+type SideState = {
+  src: string | null;
+  bytes: number | null;
+  dimensions: LoadedImage | null;
+  failed: boolean;
+  onLoad: (dim: LoadedImage) => void;
+  onError: () => void;
+};
+
+/** Why a side cannot be shown, or null when it can. */
+function blockedReason(side: SideState): string | null {
+  if (side.bytes !== null && side.bytes > DIFF_IMAGE_MAX_BYTES) {
+    return `Too large to preview (${formatBytes(side.bytes)})`;
+  }
+  if (side.src === null) return "Not present";
+  if (side.failed) return "Preview unavailable";
+  return null;
+}
+
 /** One side of the comparison: the picture plus its size/dimension caption. */
 function ImagePanel({
-  src,
+  side,
   label,
   tone,
-  bytes,
   className,
-  imgClassName,
-  onLoad,
-  dimensions,
 }: {
-  src: string | null;
+  side: SideState;
   label: string;
   tone: "old" | "new";
-  bytes: number | null;
   className?: string;
-  imgClassName?: string;
-  onLoad?: (dim: LoadedImage) => void;
-  dimensions?: LoadedImage | null;
 }): JSX.Element {
-  const [failed, setFailed] = useState(false);
-  const tooLarge = bytes !== null && bytes > DIFF_IMAGE_MAX_BYTES;
+  const blocked = blockedReason(side);
 
   return (
     <div className={cn("flex min-w-0 flex-col items-center gap-2", className)}>
@@ -68,36 +103,38 @@ function ImagePanel({
           {label}
         </span>
         <span className="font-mono text-muted-foreground normal-case tracking-normal">
-          {dimensions ? `${dimensions.width}×${dimensions.height}` : null}
-          {dimensions && bytes !== null ? " · " : null}
-          {bytes !== null ? formatBytes(bytes) : null}
+          {side.dimensions
+            ? `${side.dimensions.width}×${side.dimensions.height}`
+            : null}
+          {side.dimensions && side.bytes !== null ? " · " : null}
+          {side.bytes !== null ? formatBytes(side.bytes) : null}
         </span>
       </div>
-      {src === null || tooLarge || failed ? (
-        <div className="flex min-h-[4rem] w-full items-center justify-center rounded border border-dashed border-border/60 px-3 py-6 text-[11px] text-muted-foreground">
-          {tooLarge
-            ? `Too large to preview (${formatBytes(bytes!)})`
-            : src === null
-              ? "Not present"
-              : "Preview unavailable"}
+      {blocked !== null ? (
+        <div
+          className={cn(
+            "flex w-full items-center justify-center rounded border border-dashed border-border/60 px-3 py-6 text-[11px] text-muted-foreground",
+            PREVIEW_RESERVE
+          )}
+        >
+          {blocked}
         </div>
       ) : (
-        <img
-          src={src}
-          alt={label}
-          loading="lazy"
-          onError={() => setFailed(true)}
-          onLoad={(e) =>
-            onLoad?.({
-              width: e.currentTarget.naturalWidth,
-              height: e.currentTarget.naturalHeight,
-            })
-          }
+        <div
           className={cn(
-            "diff-image-checkerboard max-h-[26rem] max-w-full rounded border border-border/60 object-contain",
-            imgClassName
+            "flex w-full items-center justify-center",
+            side.dimensions ? null : PREVIEW_RESERVE
           )}
-        />
+        >
+          <img
+            src={side.src!}
+            alt={label}
+            loading="lazy"
+            onError={side.onError}
+            onLoad={(e) => side.onLoad(readNaturalSize(e))}
+            className="diff-image-checkerboard max-h-[26rem] max-w-full rounded border border-border/60 object-contain"
+          />
+        </div>
       )}
     </div>
   );
@@ -135,112 +172,140 @@ export function DiffImageView({
   const [mode, setMode] = useAtom(diffImageCompareModeAtom);
   const [oldDim, setOldDim] = useState<LoadedImage | null>(null);
   const [newDim, setNewDim] = useState<LoadedImage | null>(null);
+  const [oldFailed, setOldFailed] = useState(false);
+  const [newFailed, setNewFailed] = useState(false);
   const [position, setPosition] = useState(50);
 
   const hasOld = image.oldSize !== null;
   const hasNew = image.newSize !== null;
 
-  const oldSrc =
-    agentId && hasOld
-      ? imageUrl(agentId, oldPath ?? filePath, "old", includeUncommitted)
-      : null;
-  const newSrc =
-    agentId && hasNew
-      ? imageUrl(agentId, filePath, "new", includeUncommitted)
-      : null;
+  const oldSide: SideState = {
+    src:
+      agentId && hasOld
+        ? imageUrl(agentId, oldPath ?? filePath, "old", includeUncommitted)
+        : null,
+    bytes: image.oldSize,
+    dimensions: oldDim,
+    failed: oldFailed,
+    onLoad: setOldDim,
+    onError: useCallback(() => setOldFailed(true), []),
+  };
+  const newSide: SideState = {
+    src:
+      agentId && hasNew
+        ? imageUrl(agentId, filePath, "new", includeUncommitted)
+        : null,
+    bytes: image.newSize,
+    dimensions: newDim,
+    failed: newFailed,
+    onLoad: setNewDim,
+    onError: useCallback(() => setNewFailed(true), []),
+  };
 
   const oldLabel = status === "deleted" ? "Deleted" : "Before";
   const newLabel = status === "added" ? "Added" : "After";
 
   if (!hasOld || !hasNew) {
+    const only = hasNew ? newSide : oldSide;
     return (
       <div className="flex justify-center bg-muted/10 px-4 py-4">
         <ImagePanel
-          src={hasNew ? newSrc : oldSrc}
+          side={only}
           label={hasNew ? newLabel : oldLabel}
           tone={hasNew ? "new" : "old"}
-          bytes={hasNew ? image.newSize : image.oldSize}
-          dimensions={hasNew ? newDim : oldDim}
-          onLoad={hasNew ? setNewDim : setOldDim}
           className="max-w-full"
         />
       </div>
     );
   }
 
+  // Stacking two images only tells the truth when they occupy the same
+  // rectangle, so the overlay modes stay locked until both sides have loaded
+  // and reported the same aspect ratio. Everything else — a side over the size
+  // cap, a side that failed to load, a resized image — falls back to 2-up,
+  // where each side is captioned with what actually happened to it.
+  const unavailableReason =
+    blockedReason(oldSide) !== null || blockedReason(newSide) !== null
+      ? "One side cannot be previewed"
+      : !oldDim || !newDim
+        ? "Loading…"
+        : !aspectRatiosMatch(oldDim, newDim)
+          ? "Image was resized — overlays would not line up"
+          : null;
+  const effectiveMode = unavailableReason === null ? mode : "two-up";
+
   return (
     <div className="bg-muted/10 px-4 py-4">
-      <div className="mb-3 flex justify-center">
+      <div className="mb-3 flex flex-col items-center gap-1">
         <div
           role="group"
           aria-label="Image comparison mode"
           className="flex rounded-md border border-border/60 bg-muted/30 p-0.5"
         >
-          {MODES.map((m) => (
-            <button
-              key={m.value}
-              type="button"
-              aria-pressed={mode === m.value}
-              data-testid={`diff-image-mode:${m.value}`}
-              className={cn(
-                "whitespace-nowrap rounded-[3px] px-2.5 py-1 text-[11px] font-medium transition-colors",
-                mode === m.value
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-              onClick={() => setMode(m.value)}
-            >
-              {m.label}
-            </button>
-          ))}
+          {MODES.map((m) => {
+            const disabled = m.value !== "two-up" && unavailableReason !== null;
+            return (
+              <button
+                key={m.value}
+                type="button"
+                disabled={disabled}
+                aria-pressed={effectiveMode === m.value}
+                aria-describedby={
+                  disabled ? `diff-image-modes-hint-${filePath}` : undefined
+                }
+                data-testid={`diff-image-mode:${m.value}`}
+                className={cn(
+                  "whitespace-nowrap rounded-[3px] px-2.5 py-1 text-[11px] font-medium transition-colors",
+                  "disabled:cursor-not-allowed disabled:opacity-50",
+                  effectiveMode === m.value
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground hover:text-foreground"
+                )}
+                onClick={() => setMode(m.value)}
+              >
+                {m.label}
+              </button>
+            );
+          })}
         </div>
+        {unavailableReason !== null && unavailableReason !== "Loading…" ? (
+          <p
+            id={`diff-image-modes-hint-${filePath}`}
+            className="text-[10px] text-muted-foreground"
+          >
+            {unavailableReason}
+          </p>
+        ) : null}
       </div>
 
-      {mode === "two-up" ? (
+      {effectiveMode === "two-up" ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-          <ImagePanel
-            src={oldSrc}
-            label={oldLabel}
-            tone="old"
-            bytes={image.oldSize}
-            dimensions={oldDim}
-            onLoad={setOldDim}
-          />
-          <ImagePanel
-            src={newSrc}
-            label={newLabel}
-            tone="new"
-            bytes={image.newSize}
-            dimensions={newDim}
-            onLoad={setNewDim}
-          />
+          <ImagePanel side={oldSide} label={oldLabel} tone="old" />
+          <ImagePanel side={newSide} label={newLabel} tone="new" />
         </div>
       ) : (
-        <OverlayCompare
-          mode={mode}
-          oldSrc={oldSrc!}
-          newSrc={newSrc!}
-          position={position}
-          onPosition={setPosition}
-          onOldLoad={setOldDim}
-          onNewLoad={setNewDim}
-        />
-      )}
-
-      {/* 2-up already captions each side; the overlay modes stack the two
-          images, so this is the only place their sizes can be read. */}
-      {mode === "two-up" ? null : (
-        <div className="mt-3 flex items-center justify-center gap-3 text-[10px] font-mono text-muted-foreground">
-          <span className="text-status-blocked">
-            {oldDim ? `${oldDim.width}×${oldDim.height}` : "—"}
-            {image.oldSize !== null ? ` · ${formatBytes(image.oldSize)}` : ""}
-          </span>
-          <span>→</span>
-          <span className="text-status-working">
-            {newDim ? `${newDim.width}×${newDim.height}` : "—"}
-            {image.newSize !== null ? ` · ${formatBytes(image.newSize)}` : ""}
-          </span>
-        </div>
+        <>
+          <OverlayCompare
+            mode={effectiveMode}
+            oldSide={oldSide}
+            newSide={newSide}
+            position={position}
+            onPosition={setPosition}
+          />
+          {/* 2-up captions each side itself; stacked, this is the only place
+              the before/after numbers can be read. */}
+          <div className="mt-3 flex items-center justify-center gap-3 font-mono text-[10px] text-muted-foreground">
+            <span className="text-status-blocked">
+              {oldDim ? `${oldDim.width}×${oldDim.height}` : "—"}
+              {image.oldSize !== null ? ` · ${formatBytes(image.oldSize)}` : ""}
+            </span>
+            <span>→</span>
+            <span className="text-status-working">
+              {newDim ? `${newDim.width}×${newDim.height}` : "—"}
+              {image.newSize !== null ? ` · ${formatBytes(image.newSize)}` : ""}
+            </span>
+          </div>
+        </>
       )}
     </div>
   );
@@ -249,55 +314,41 @@ export function DiffImageView({
 /**
  * Swipe and onion share a stacked layout: both images sit in the same box so
  * corresponding pixels line up, and the slider changes only how much of the
- * new one is revealed (a clip for swipe, an opacity for onion).
+ * new one is revealed (a clip for swipe, an opacity for onion). The caller
+ * only mounts this once both sides are known to share an aspect ratio, which
+ * is what makes that correspondence real.
  */
 function OverlayCompare({
   mode,
-  oldSrc,
-  newSrc,
+  oldSide,
+  newSide,
   position,
   onPosition,
-  onOldLoad,
-  onNewLoad,
 }: {
   mode: Exclude<DiffImageCompareMode, "two-up">;
-  oldSrc: string;
-  newSrc: string;
+  oldSide: SideState;
+  newSide: SideState;
   position: number;
   onPosition: (value: number) => void;
-  onOldLoad: (dim: LoadedImage) => void;
-  onNewLoad: (dim: LoadedImage) => void;
 }): JSX.Element {
-  const boxRef = useRef<HTMLDivElement>(null);
-
-  const handleLoad = useCallback(
-    (cb: (dim: LoadedImage) => void) =>
-      (e: React.SyntheticEvent<HTMLImageElement>) => {
-        cb({
-          width: e.currentTarget.naturalWidth,
-          height: e.currentTarget.naturalHeight,
-        });
-      },
-    []
-  );
-
   return (
     <div className="flex flex-col items-center gap-3">
       <div
-        ref={boxRef}
         className="relative inline-block max-w-full"
         data-testid="diff-image-overlay"
       >
         <img
-          src={oldSrc}
+          src={oldSide.src!}
           alt="Before"
-          onLoad={handleLoad(onOldLoad)}
+          onError={oldSide.onError}
+          onLoad={(e) => oldSide.onLoad(readNaturalSize(e))}
           className="diff-image-checkerboard block max-h-[26rem] max-w-full rounded border border-border/60 object-contain"
         />
         <img
-          src={newSrc}
+          src={newSide.src!}
           alt="After"
-          onLoad={handleLoad(onNewLoad)}
+          onError={newSide.onError}
+          onLoad={(e) => newSide.onLoad(readNaturalSize(e))}
           className="diff-image-checkerboard absolute inset-0 h-full w-full rounded border border-border/60 object-contain"
           style={
             mode === "swipe"

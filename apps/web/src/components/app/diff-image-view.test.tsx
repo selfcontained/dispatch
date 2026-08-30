@@ -31,6 +31,30 @@ function renderView(
   };
 }
 
+/**
+ * jsdom never decodes images, so naturalWidth/Height stay 0 and the load event
+ * never fires on its own. Stamp the intrinsic size on and dispatch it by hand,
+ * which is what the aspect-ratio gate reads.
+ */
+function loadImage(img: HTMLImageElement, width: number, height: number): void {
+  Object.defineProperty(img, "naturalWidth", { value: width, writable: true });
+  Object.defineProperty(img, "naturalHeight", {
+    value: height,
+    writable: true,
+  });
+  fireEvent.load(img);
+}
+
+function loadBothSides(
+  container: HTMLElement,
+  oldSize: [number, number],
+  newSize: [number, number]
+): void {
+  const imgs = [...container.querySelectorAll("img")];
+  loadImage(imgs[0]!, ...oldSize);
+  loadImage(imgs[1]!, ...newSize);
+}
+
 describe("DiffImageView", () => {
   // Radix's Slider measures its thumb through ResizeObserver, which jsdom
   // does not implement.
@@ -110,9 +134,7 @@ describe("DiffImageView", () => {
 
   it("switches to the stacked overlay and persists the chosen mode", () => {
     const { store, getByTestId, container } = renderView();
-    expect(
-      container.querySelector("[data-testid='diff-image-overlay']")
-    ).toBeNull();
+    loadBothSides(container, [200, 100], [400, 200]);
 
     fireEvent.click(getByTestId("diff-image-mode:swipe"));
     const overlay = getByTestId("diff-image-overlay");
@@ -127,6 +149,64 @@ describe("DiffImageView", () => {
     ];
     expect(onionImgs[1]!.style.opacity).toBe("0.5");
     expect(onionImgs[1]!.style.clipPath).toBe("");
+  });
+
+  it("locks the overlay modes when the image was resized", () => {
+    const store = createStore();
+    store.set(diffImageCompareModeAtom, "swipe");
+    const { container, getByTestId, getByText, queryByTestId } = renderView(
+      {},
+      store
+    );
+    loadBothSides(container, [200, 100], [200, 300]);
+
+    expect(queryByTestId("diff-image-overlay")).toBeNull();
+    expect(
+      getByTestId("diff-image-mode:two-up").getAttribute("aria-pressed")
+    ).toBe("true");
+    for (const mode of ["swipe", "onion"]) {
+      expect(
+        getByTestId(`diff-image-mode:${mode}`).hasAttribute("disabled")
+      ).toBe(true);
+    }
+    expect(getByText(/Image was resized/)).toBeTruthy();
+  });
+
+  it("falls back to 2-up and explains when one side cannot be previewed", () => {
+    const store = createStore();
+    store.set(diffImageCompareModeAtom, "onion");
+    const { container, getByTestId, getByText, queryByTestId } = renderView(
+      { image: { oldSize: DIFF_IMAGE_MAX_BYTES + 1, newSize: 2000 } },
+      store
+    );
+
+    expect(queryByTestId("diff-image-overlay")).toBeNull();
+    expect(getByText(/Too large to preview/)).toBeTruthy();
+    expect(getByText(/One side cannot be previewed/)).toBeTruthy();
+    expect(getByTestId("diff-image-mode:onion").hasAttribute("disabled")).toBe(
+      true
+    );
+    // The renderable side is still shown rather than being hidden with it.
+    expect(container.querySelectorAll("img")).toHaveLength(1);
+  });
+
+  it("drops back to 2-up when a side fails to load mid-comparison", () => {
+    const store = createStore();
+    store.set(diffImageCompareModeAtom, "swipe");
+    const { container, getByTestId, getByText, queryByTestId } = renderView(
+      {},
+      store
+    );
+    loadBothSides(container, [200, 100], [200, 100]);
+    expect(getByTestId("diff-image-overlay")).toBeTruthy();
+
+    const overlayImgs = [
+      ...getByTestId("diff-image-overlay").querySelectorAll("img"),
+    ];
+    fireEvent.error(overlayImgs[1]!);
+
+    expect(queryByTestId("diff-image-overlay")).toBeNull();
+    expect(getByText("Preview unavailable")).toBeTruthy();
   });
 
   it("renders nothing requestable when there is no agent", () => {

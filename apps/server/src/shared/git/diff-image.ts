@@ -1,31 +1,19 @@
 import { spawn } from "node:child_process";
-import { lstat, readFile } from "node:fs/promises";
+import { constants } from "node:fs";
+import { lstat, open, type FileHandle } from "node:fs/promises";
 import path from "node:path";
 
 import { DIFF_IMAGE_MAX_BYTES, type DiffImageInfo } from "@dispatch/shared";
 
-import { isImageFile } from "../media-file-types.js";
+import { imageMimeType, isImageFile } from "../media-file-types.js";
+import { resolveBaseRef } from "./base-ref.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
-export { isImageFile };
+export { imageMimeType, isImageFile };
 
 const GIT_TIMEOUT_MS = 15_000;
 
 export type ImageSide = "old" | "new";
-
-/** The four extensions the Changes pane previews, mapped to what it serves. */
-const IMAGE_MIME: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-};
-
-export function imageMimeType(filePath: string): string | null {
-  const ext = path.extname(filePath).toLowerCase();
-  return IMAGE_MIME[ext] ?? null;
-}
 
 /**
  * Byte size of every requested path in a tree, keyed by path.
@@ -163,22 +151,59 @@ export async function readImageSide(
   if (fromWorktree) {
     const resolved = resolveInsideWorktree(worktreePath, filePath);
     if (!resolved) return { ok: false, reason: "not-found" };
-    try {
-      const info = await lstat(resolved);
-      if (!info.isFile()) return { ok: false, reason: "not-found" };
-      if (info.size > DIFF_IMAGE_MAX_BYTES) {
-        return { ok: false, reason: "too-large" };
-      }
-      return { ok: true, buffer: await readFile(resolved), contentType };
-    } catch {
-      return { ok: false, reason: "not-found" };
-    }
+    return await readWorktreeImage(resolved, contentType);
   }
 
   const buffer = await gitShowBinary(worktreePath, `${ref}:${filePath}`);
   if (buffer === "too-large") return { ok: false, reason: "too-large" };
   if (!buffer) return { ok: false, reason: "not-found" };
   return { ok: true, buffer, contentType };
+}
+
+/**
+ * Read a working-tree image through a single file handle.
+ *
+ * Opening with O_NOFOLLOW and then stat-ing and reading *that handle* keeps
+ * the symlink check, the size check and the read on one descriptor. The
+ * path-based lstat-then-readFile pair it replaces could be raced by anything
+ * writing in the worktree — the agent whose diff this is, most obviously —
+ * swapping the checked file for a symlink or a much larger one between the
+ * two calls, which would read past both the containment check and the cap.
+ */
+async function readWorktreeImage(
+  fullPath: string,
+  contentType: string
+): Promise<ImageBytesResult> {
+  let handle: FileHandle | null = null;
+  try {
+    handle = await open(fullPath, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const info = await handle.stat();
+    if (!info.isFile()) return { ok: false, reason: "not-found" };
+    if (info.size > DIFF_IMAGE_MAX_BYTES) {
+      return { ok: false, reason: "too-large" };
+    }
+    const buffer = Buffer.alloc(info.size);
+    let read = 0;
+    while (read < info.size) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        read,
+        info.size - read,
+        read
+      );
+      if (bytesRead === 0) break;
+      read += bytesRead;
+    }
+    return {
+      ok: true,
+      buffer: read === info.size ? buffer : buffer.subarray(0, read),
+      contentType,
+    };
+  } catch {
+    return { ok: false, reason: "not-found" };
+  } finally {
+    await handle?.close().catch(() => {});
+  }
 }
 
 function gitShowBinary(
@@ -217,4 +242,50 @@ function gitShowBinary(
       finish(code === 0 ? Buffer.concat(chunks) : null);
     });
   });
+}
+
+/**
+ * Read one side of an image change, resolving the diff range the same way
+ * `getAgentDiff` does.
+ *
+ * The route calls this rather than resolving the base ref itself, so the bytes
+ * served always come from the revision the diff metadata was computed against
+ * — the two cannot drift apart when the base-selection policy changes.
+ */
+export async function getAgentDiffImage(
+  worktreePath: string,
+  baseRef: string | null,
+  filePath: string,
+  side: ImageSide,
+  options: { includeUncommitted: boolean },
+  run: CommandRunner = runCommand
+): Promise<ImageBytesResult> {
+  if (!isImageFile(filePath)) return { ok: false, reason: "not-found" };
+
+  const resolvedBase = await resolveBaseRef(worktreePath, baseRef, {
+    runCommand: run,
+  });
+  const mergeBaseResult = resolvedBase
+    ? await run(
+        "git",
+        ["-C", worktreePath, "merge-base", "HEAD", resolvedBase],
+        { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
+      )
+    : null;
+  const mergeBaseSha =
+    mergeBaseResult?.exitCode === 0 ? mergeBaseResult.stdout.trim() : "";
+
+  if (side === "old") {
+    if (!mergeBaseSha) return { ok: false, reason: "not-found" };
+    return await readImageSide(worktreePath, mergeBaseSha, filePath, false);
+  }
+
+  // The new side is whatever the diff was computed against: the file on disk
+  // when uncommitted work is in scope, HEAD's blob when it is not.
+  return await readImageSide(
+    worktreePath,
+    "HEAD",
+    filePath,
+    options.includeUncommitted
+  );
 }

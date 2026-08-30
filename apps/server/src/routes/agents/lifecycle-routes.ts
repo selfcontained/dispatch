@@ -11,10 +11,8 @@ import {
 import { RENAME_PROMPT } from "../../agents/auto-rename-prompter.js";
 import { shouldSuggestSessionRename } from "../../agents/tmux/session-name.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
-import { resolveBaseRef } from "../../shared/git/base-ref.js";
-import { isImageFile, readImageSide } from "../../shared/git/diff-image.js";
+import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
 import { getDiffStats } from "../../shared/git/diff-stats.js";
-import { runCommand } from "../../shared/lib/run-command.js";
 import type { AgentRouteDeps } from "./shared.js";
 
 export async function registerAgentLifecycleRoutes(
@@ -512,26 +510,12 @@ export async function registerAgentLifecycleRoutes(
     const includeUncommitted = query.includeUncommitted !== "false";
 
     try {
-      const resolvedBase = await resolveBaseRef(worktreePath, baseRef);
-      const mergeBase = resolvedBase
-        ? await runCommand(
-            "git",
-            ["-C", worktreePath, "merge-base", "HEAD", resolvedBase],
-            { allowedExitCodes: [0, 1, 128], timeoutMs: 5_000 }
-          )
-        : null;
-      const mergeBaseSha = mergeBase?.stdout.trim() ?? "";
-      if (side === "old" && !mergeBaseSha) {
-        return reply.code(404).send({ error: "Base revision unavailable." });
-      }
-
-      // The new side is whatever the diff was computed against: the file on
-      // disk when uncommitted work is in scope, HEAD's blob when it is not.
-      const result = await readImageSide(
+      const result = await getAgentDiffImage(
         worktreePath,
-        side === "old" ? mergeBaseSha : "HEAD",
+        baseRef,
         query.path,
-        side === "new" && includeUncommitted
+        side,
+        { includeUncommitted }
       );
       if (!result.ok) {
         return reply

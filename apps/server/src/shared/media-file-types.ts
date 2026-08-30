@@ -8,7 +8,20 @@
  * dependency-free: no node imports, no browser globals.
  */
 
-const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+/**
+ * The image formats Dispatch renders, and what to serve them as. One table so
+ * a format cannot be accepted by one surface and refused by another: both the
+ * upload accept-list and the Changes pane's image previews derive from it.
+ */
+const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+const IMAGE_EXTENSIONS = Object.keys(IMAGE_MIME_BY_EXTENSION);
 const VIDEO_EXTENSIONS = [".mp4"];
 const DOCUMENT_EXTENSION_LIST = [".pdf"];
 
@@ -69,7 +82,6 @@ export const TEXT_EXTENSIONS: ReadonlySet<string> = new Set(
 const DOCUMENT_EXTENSIONS: ReadonlySet<string> = new Set(
   DOCUMENT_EXTENSION_LIST
 );
-const IMAGE_EXTENSION_SET: ReadonlySet<string> = new Set(IMAGE_EXTENSIONS);
 const IMAGE_VIDEO_EXTENSIONS: ReadonlySet<string> = new Set([
   ...IMAGE_EXTENSIONS,
   ...VIDEO_EXTENSIONS,
@@ -92,12 +104,17 @@ export function isDocumentFile(name: string): boolean {
 
 /**
  * Raster image formats every browser renders without a plugin. Deliberately
- * the same list the media uploader accepts, and deliberately without `.svg`:
- * SVG is text (so git already produces a real textual diff for it) and it
- * carries script, which an <img> in the Changes pane must never load.
+ * without `.svg`: SVG is text (so git already produces a real textual diff for
+ * it) and it carries script, which an <img> in the Changes pane must never
+ * load.
  */
 export function isImageFile(name: string): boolean {
-  return IMAGE_EXTENSION_SET.has(fileExtension(name));
+  return fileExtension(name) in IMAGE_MIME_BY_EXTENSION;
+}
+
+/** The MIME type to serve an image as, or null when it is not one we render. */
+export function imageMimeType(name: string): string | null {
+  return IMAGE_MIME_BY_EXTENSION[fileExtension(name)] ?? null;
 }
 
 export function isMediaFile(name: string): boolean {

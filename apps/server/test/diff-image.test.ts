@@ -1,13 +1,24 @@
-import { mkdtemp, rm, mkdir, writeFile, unlink } from "node:fs/promises";
+import {
+  mkdtemp,
+  rm,
+  mkdir,
+  symlink,
+  writeFile,
+  unlink,
+} from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import zlib from "node:zlib";
 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import { DIFF_IMAGE_MAX_BYTES } from "@dispatch/shared";
+
 import { getAgentDiff } from "../src/shared/git/agent-diff.js";
 import {
   collectImageInfo,
+  getAgentDiffImage,
   imageMimeType,
   isImageFile,
   readImageSide,
@@ -208,9 +219,75 @@ describe("readImageSide", () => {
     expect(result).toEqual({ ok: false, reason: "not-found" });
   });
 
+  it("refuses a symlink at the path even when its target is a real image", async () => {
+    const target = path.join(repo, "assets/added.png");
+    const link = path.join(repo, "assets/linked.png");
+    await symlink(target, link);
+    try {
+      // O_NOFOLLOW is what makes this deterministic: the check and the read
+      // share one descriptor, so there is no window in which the path could
+      // become a symlink after being approved as a regular file.
+      const result = await readImageSide(
+        repo,
+        "HEAD",
+        "assets/linked.png",
+        true
+      );
+      expect(result).toEqual({ ok: false, reason: "not-found" });
+    } finally {
+      await unlink(link);
+    }
+  });
+
+  it("refuses a working-tree file over the preview cap", async () => {
+    const big = path.join(repo, "assets/huge.png");
+    await writeFile(big, Buffer.alloc(DIFF_IMAGE_MAX_BYTES + 1));
+    try {
+      const result = await readImageSide(repo, "HEAD", "assets/huge.png", true);
+      expect(result).toEqual({ ok: false, reason: "too-large" });
+    } finally {
+      await unlink(big);
+    }
+  });
+
   it("refuses a non-image extension even when the file exists", async () => {
     expect(imageMimeType("notes.md")).toBeNull();
     const result = await readImageSide(repo, "HEAD", "notes.md", true);
+    expect(result).toEqual({ ok: false, reason: "not-found" });
+  });
+});
+
+describe("getAgentDiffImage", () => {
+  it("serves the merge-base blob for old and the working tree for new", async () => {
+    const oldSide = await getAgentDiffImage(
+      repo,
+      "main",
+      "assets/logo.png",
+      "old",
+      { includeUncommitted: true }
+    );
+    const newSide = await getAgentDiffImage(
+      repo,
+      "main",
+      "assets/logo.png",
+      "new",
+      { includeUncommitted: true }
+    );
+    expect(oldSide.ok && newSide.ok).toBe(true);
+    if (!oldSide.ok || !newSide.ok) return;
+    expect(oldSide.contentType).toBe("image/png");
+    expect(newSide.buffer.equals(oldSide.buffer)).toBe(false);
+
+    // The old side must be the base revision, not the file on disk.
+    const onDisk = await readFile(path.join(repo, "assets/logo.png"));
+    expect(newSide.buffer.equals(onDisk)).toBe(true);
+    expect(oldSide.buffer.equals(onDisk)).toBe(false);
+  });
+
+  it("refuses a non-image path before touching git", async () => {
+    const result = await getAgentDiffImage(repo, "main", "README.md", "new", {
+      includeUncommitted: true,
+    });
     expect(result).toEqual({ ok: false, reason: "not-found" });
   });
 });
