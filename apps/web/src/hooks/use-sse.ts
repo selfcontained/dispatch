@@ -297,6 +297,9 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "job.changed") {
           void queryClient.invalidateQueries({ queryKey: ["jobs"] });
+          // A job agent is announced before its run is attached. Refetch so
+          // the sidebar receives its loop iteration metadata immediately.
+          void queryClient.invalidateQueries({ queryKey: ["agents"] });
           return;
         }
 

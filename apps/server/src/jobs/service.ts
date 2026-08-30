@@ -1321,6 +1321,7 @@ function buildRunConfig(
     triggerSource,
     autoArchive: job.autoArchive,
     continuationEnabled: job.continuationEnabled,
+    maxIterations: job.maxIterations,
     chainId,
     iteration,
     continuationOfRunId,

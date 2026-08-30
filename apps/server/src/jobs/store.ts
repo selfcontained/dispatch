@@ -121,6 +121,7 @@ export type JobRunConfig = {
   triggerSource?: "manual" | "scheduled" | "webhook" | "continuation";
   autoArchive?: boolean;
   continuationEnabled?: boolean;
+  maxIterations?: number | null;
   chainId?: string;
   iteration?: number;
   continuationOfRunId?: string;

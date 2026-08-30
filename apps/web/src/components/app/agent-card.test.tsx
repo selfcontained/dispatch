@@ -331,13 +331,55 @@ describe("AgentCardHeader wiring", () => {
     );
     expect(screen.queryByText("Job")).toBeNull();
 
-    rerender({ agent: makeAgent({ name: "job-nightly" }) });
+    rerender({
+      agent: makeAgent({
+        name: "job-nightly",
+        jobRun: {
+          continuationEnabled: false,
+          iteration: null,
+          maxIterations: null,
+        },
+      }),
+    });
     expect(screen.getByText("Job")).toBeTruthy();
     expect(screen.queryByText("Attention")).toBeNull();
 
     rerender({ agent: makeAgent({ role: "assisted_update" }) });
     expect(screen.getByText("Update")).toBeTruthy();
     expect(screen.queryByText("Job")).toBeNull();
+  });
+
+  it("labels loop-job agents and describes their iteration cap", async () => {
+    const { rerender } = renderCard({
+      agent: makeAgent({
+        name: "job-nightly",
+        jobRun: {
+          continuationEnabled: true,
+          iteration: 3,
+          maxIterations: 5,
+        },
+      }),
+    });
+    const loopBadge = screen.getByText("Loop");
+    expect(screen.queryByText("Job")).toBeNull();
+
+    expect(loopBadge.parentElement?.getAttribute("title")).toBe(
+      "Loop iteration 3 of 5"
+    );
+
+    rerender({
+      agent: makeAgent({
+        name: "job-nightly",
+        jobRun: {
+          continuationEnabled: true,
+          iteration: 2,
+          maxIterations: null,
+        },
+      }),
+    });
+    expect(screen.getByText("Loop").parentElement?.getAttribute("title")).toBe(
+      "Loop iteration 2"
+    );
   });
 });
 

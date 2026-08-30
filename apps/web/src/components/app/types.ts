@@ -95,6 +95,11 @@ export type Agent = {
   baseBranch?: string | null;
   templateId?: string | null;
   autoReview?: boolean;
+  jobRun?: {
+    continuationEnabled: boolean;
+    iteration: number | null;
+    maxIterations: number | null;
+  } | null;
   hasStream?: boolean;
   createdAt: string;
   updatedAt: string;

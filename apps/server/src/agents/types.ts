@@ -129,6 +129,12 @@ export type AgentRecord = {
   baseBranch: string | null;
   templateId: string | null;
   autoReview: boolean;
+  /** Present when this agent was spawned for a job run. */
+  jobRun?: {
+    continuationEnabled: boolean;
+    iteration: number | null;
+    maxIterations: number | null;
+  } | null;
   cliSessionId: string | null;
   createdAt: string;
   updatedAt: string;
