@@ -648,4 +648,48 @@ describe("continuation jobs", () => {
     });
     await service.shutdown();
   });
+
+  it("hands a successor the job's stored branch name unchanged", async () => {
+    // A stored branch name reaches every iteration verbatim, so a fixed name
+    // means iteration 2 asks git for a branch and worktree path that already
+    // exist and the chain stops. That is the same dead end an ordinary
+    // scheduled job with a fixed branch name hits on its second run — the
+    // name is the user's, and neither job type rewrites it. Pinned here so a
+    // future change to that rule is deliberate rather than incidental.
+    const store = new JobStore(pool);
+    const record = await job({
+      useWorktree: true,
+      baseBranch: "main",
+      branchName: "pinned-branch",
+    });
+    const first = await store.createRun(record.id, runConfig(record.name, 1));
+    await addAgent("agt_cont_pinned_1");
+    await store.attachAgent(first.id, "agt_cont_pinned_1");
+    await store.completeRunForAgent("agt_cont_pinned_1", {
+      status: "completed",
+      summary: "iteration one",
+      tasks: [],
+      continuation: { action: "continue", nextIntent: "keep going" },
+    });
+
+    const service = new JobService(pool, agents, logger, config);
+    await addAgent("agt_cont_pinned_2");
+    vi.mocked(agents.createAgent).mockResolvedValue({
+      id: "agt_cont_pinned_2",
+    } as never);
+    const successor = await service.launchPendingContinuation(first.id);
+    expect(vi.mocked(agents.createAgent).mock.calls[0]?.[0]).toMatchObject({
+      useWorktree: true,
+      worktreeBranch: "pinned-branch",
+    });
+
+    await store.completeRunForAgent("agt_cont_pinned_2", {
+      status: "completed",
+      summary: "iteration two",
+      tasks: [],
+      continuation: { action: "finish" },
+    });
+    expect(successor).toMatchObject({ agentId: "agt_cont_pinned_2" });
+    await service.shutdown();
+  });
 });
