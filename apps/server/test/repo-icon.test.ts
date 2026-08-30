@@ -157,6 +157,14 @@ describe("detectRepoIcon", () => {
       );
     });
 
+    it("prefers png over ico within .dispatch when no svg exists", async () => {
+      await touch(".dispatch/logo.ico");
+      await touch(".dispatch/logo.png");
+      expect(await detectRepoIcon(tmpDir)).toBe(
+        path.join(".dispatch", "logo.png")
+      );
+    });
+
     it("ignores unrelated files under .dispatch and falls back to the generic scan", async () => {
       await touch(".dispatch/config.json");
       await touch("favicon.svg");
