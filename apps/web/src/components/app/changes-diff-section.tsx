@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronRight,
   FileCode2,
+  FileImage,
   FileMinus,
   FilePlus,
   FileText,
@@ -10,18 +11,18 @@ import {
 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
-import {
-  useAgentFileDiff,
-  type DiffFile,
-  type DiffFileStatus,
-} from "@/hooks/use-agent-diff";
+import { useAgentFileDiff, type DiffFile } from "@/hooks/use-agent-diff";
 import type { DiffViewType } from "@/lib/store";
 import type { DiffReviewAnnotationProps } from "@/components/app/diff-review-annotation-props";
+import { DiffImageView } from "@/components/app/diff-image-view";
 import { UnifiedDiffView } from "@/components/app/unified-diff-view";
 import { type LineSelection } from "@/components/app/unified-diff-utils";
 
-function statusIcon(status: DiffFileStatus): JSX.Element {
-  switch (status) {
+function statusIcon(file: DiffFile): JSX.Element {
+  if (file.image) {
+    return <FileImage className="h-3.5 w-3.5 text-muted-foreground" />;
+  }
+  switch (file.status) {
     case "added":
       return <FilePlus className="h-3.5 w-3.5 text-status-working" />;
     case "deleted":
@@ -169,7 +170,7 @@ function FileDiffSection({
         ) : (
           <ChevronDown className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
         )}
-        {statusIcon(file.status)}
+        {statusIcon(file)}
         <span className="min-w-0 flex-1 truncate font-mono text-xs">
           {file.oldPath ? (
             <>
@@ -292,6 +293,20 @@ function FileDiffContent({
         <Loader2 className="h-3 w-3 animate-spin" />
         Loading…
       </div>
+    );
+  }
+
+  // Images come before the diff-text check: git emits a "Binary files differ"
+  // stub for a tracked image, which is truthy but has no hunks to render.
+  if (file.image) {
+    return (
+      <DiffImageView
+        agentId={agentId}
+        filePath={file.path}
+        oldPath={file.oldPath}
+        status={file.status}
+        image={file.image}
+      />
     );
   }
 

@@ -13,6 +13,7 @@ import {
   resolveRenamePath,
   shouldExcludePath,
 } from "./diff-file-rules.js";
+import { collectImageInfo, isImageFile } from "./diff-image.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
 
 // The diff wire shapes are a contract with the web client, so they live in
@@ -280,6 +281,24 @@ export async function getAgentDiff(
         isTest: isTestFile(filePath),
       });
     }
+  }
+
+  const imageInfo = await collectImageInfo(
+    worktreePath,
+    mergeBaseSha,
+    files
+      .filter((f) => isImageFile(f.path))
+      .map((f) => ({
+        path: f.path,
+        ...(f.oldPath ? { oldPath: f.oldPath } : {}),
+        status: f.status,
+      })),
+    { includeUncommitted },
+    run
+  );
+  for (const file of files) {
+    const info = imageInfo.get(file.path);
+    if (info) file.image = info;
   }
 
   const totalFiles = files.length;

@@ -27,6 +27,24 @@ export type DiffStats = DiffTotals & {
 
 export type DiffFileStatus = "modified" | "added" | "deleted" | "renamed";
 
+/**
+ * Largest image the Changes pane will render inline, per side. Shared so the
+ * client can show the "too large to preview" note without first requesting
+ * bytes the image route would refuse to serve anyway.
+ */
+export const DIFF_IMAGE_MAX_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Byte sizes for the two sides of an image file's change, present on
+ * `DiffFile.image` only for paths the Changes pane can preview as an image.
+ * A side is null when the file does not exist there (added has no old side,
+ * deleted has no new side).
+ */
+export type DiffImageInfo = {
+  oldSize: number | null;
+  newSize: number | null;
+};
+
 /** One file's entry in an agent diff, as returned by `GET /agents/:id/diff`. */
 export type DiffFile = {
   path: string;
@@ -43,6 +61,13 @@ export type DiffFile = {
    * keeps the rendered list and the +/- badges from disagreeing.
    */
   isTest: boolean;
+  /**
+   * Set when the path is a previewable raster image, which is what tells the
+   * Changes pane to render the picture instead of the "binary file" note.
+   * Decided server-side alongside the byte sizes so the client never has to
+   * re-derive which extensions the image route will actually serve.
+   */
+  image?: DiffImageInfo;
 };
 
 export type DiffResponse = {

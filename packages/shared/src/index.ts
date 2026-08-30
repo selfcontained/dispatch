@@ -3,12 +3,15 @@
  *
  * Anything here is imported by `apps/server` and `apps/web` alike, so it must
  * stay dependency-free and runtime-free: no `node:` imports, no browser APIs.
- * Types only for now — a value would land in the browser bundle and in the
- * compiled server binary at once.
+ * Almost all of it is types; a value exported here lands in the browser bundle
+ * and in the compiled server binary at once, so keep those to plain constants
+ * that both sides genuinely have to agree on.
  */
+export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {
   DiffFile,
   DiffFileStatus,
+  DiffImageInfo,
   DiffResponse,
   DiffStats,
   DiffTotals,

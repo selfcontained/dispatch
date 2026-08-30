@@ -8,7 +8,20 @@
  * dependency-free: no node imports, no browser globals.
  */
 
-const IMAGE_EXTENSIONS = [".png", ".jpg", ".jpeg", ".gif", ".webp"];
+/**
+ * The image formats Dispatch renders, and what to serve them as. One table so
+ * a format cannot be accepted by one surface and refused by another: both the
+ * upload accept-list and the Changes pane's image previews derive from it.
+ */
+const IMAGE_MIME_BY_EXTENSION: Readonly<Record<string, string>> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+};
+
+const IMAGE_EXTENSIONS = Object.keys(IMAGE_MIME_BY_EXTENSION);
 const VIDEO_EXTENSIONS = [".mp4"];
 const DOCUMENT_EXTENSION_LIST = [".pdf"];
 
@@ -87,6 +100,26 @@ export function isTextFile(name: string): boolean {
 
 export function isDocumentFile(name: string): boolean {
   return DOCUMENT_EXTENSIONS.has(fileExtension(name));
+}
+
+/**
+ * Raster image formats every browser renders without a plugin. Deliberately
+ * without `.svg`: SVG is text (so git already produces a real textual diff for
+ * it) and it carries script, which an <img> in the Changes pane must never
+ * load.
+ */
+export function isImageFile(name: string): boolean {
+  return imageMimeType(name) !== null;
+}
+
+/** The MIME type to serve an image as, or null when it is not one we render. */
+export function imageMimeType(name: string): string | null {
+  const ext = fileExtension(name);
+  // Own-key only: the predicate and the MIME lookup must answer for the
+  // declared formats and nothing inherited from Object.prototype.
+  return Object.hasOwn(IMAGE_MIME_BY_EXTENSION, ext)
+    ? IMAGE_MIME_BY_EXTENSION[ext]!
+    : null;
 }
 
 export function isMediaFile(name: string): boolean {

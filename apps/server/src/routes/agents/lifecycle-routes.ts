@@ -11,6 +11,7 @@ import {
 import { RENAME_PROMPT } from "../../agents/auto-rename-prompter.js";
 import { shouldSuggestSessionRename } from "../../agents/tmux/session-name.js";
 import { getAgentDiff, getAgentFileDiff } from "../../shared/git/agent-diff.js";
+import { getAgentDiffImage, isImageFile } from "../../shared/git/diff-image.js";
 import { getDiffStats } from "../../shared/git/diff-stats.js";
 import type { AgentRouteDeps } from "./shared.js";
 
@@ -461,6 +462,76 @@ export async function registerAgentLifecycleRoutes(
         "Agent file diff failed"
       );
       return reply.code(500).send({ error: "Failed to compute file diff." });
+    }
+  });
+
+  app.get("/api/v1/agents/:id/diff/image", async (request, reply) => {
+    const params = request.params as { id?: string };
+    const query = request.query as {
+      path?: string;
+      side?: string;
+      includeUncommitted?: string;
+    };
+    const id = params.id ?? "";
+
+    if (!query.path) {
+      return reply.code(400).send({ error: "path query parameter required." });
+    }
+    // The path is a caller-supplied string that becomes both a git pathspec
+    // and (for the new side) a filesystem read, so it is checked here and
+    // re-anchored inside the worktree by readImageSide.
+    if (query.path.startsWith("/") || query.path.split("/").includes("..")) {
+      return reply.code(400).send({ error: "Invalid file path." });
+    }
+    if (!isImageFile(query.path)) {
+      return reply.code(400).send({ error: "Not a previewable image." });
+    }
+    const side = query.side === "old" ? "old" : "new";
+
+    const agent = await deps.agentManager.getAgent(id);
+    if (!agent) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+
+    const gitContextWorktreePath = agent.gitContext?.isWorktree
+      ? agent.gitContext.worktreePath
+      : null;
+    const worktreePath =
+      agent.worktreePath ?? gitContextWorktreePath ?? agent.cwd ?? null;
+    if (!worktreePath) {
+      return reply
+        .code(404)
+        .send({ error: "Agent has no associated worktree." });
+    }
+
+    const baseRef =
+      agent.baseBranch ??
+      (agent.worktreePath || gitContextWorktreePath ? "main" : null);
+    const includeUncommitted = query.includeUncommitted !== "false";
+
+    try {
+      const result = await getAgentDiffImage(
+        worktreePath,
+        baseRef,
+        query.path,
+        side,
+        { includeUncommitted }
+      );
+      if (!result.ok) {
+        return reply
+          .code(result.reason === "too-large" ? 413 : 404)
+          .send({ error: "Image not available." });
+      }
+
+      reply.header("X-Content-Type-Options", "nosniff");
+      reply.header("Cache-Control", "private, max-age=30");
+      return reply.type(result.contentType).send(result.buffer);
+    } catch (error) {
+      deps.appLog.warn(
+        { err: error, agentId: id, filePath: query.path },
+        "Agent diff image failed"
+      );
+      return reply.code(500).send({ error: "Failed to read image." });
     }
   });
 

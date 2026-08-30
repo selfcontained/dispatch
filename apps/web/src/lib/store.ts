@@ -162,6 +162,15 @@ export const diffHideTestFilesAtom = atomWithLocalStorage<boolean>(
   false
 );
 
+/** Which comparison the Changes pane uses for a modified image. */
+export type DiffImageCompareMode = "two-up" | "swipe" | "onion";
+
+export const diffImageCompareModeAtom =
+  atomWithLocalStorage<DiffImageCompareMode>(
+    "dispatch:diffImageCompareMode",
+    "two-up"
+  );
+
 export const diffFileTreeOpenAtom = atomWithLocalStorage<boolean>(
   "dispatch:diffFileTreeOpen",
   true
