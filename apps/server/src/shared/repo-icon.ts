@@ -1,7 +1,32 @@
-import { readdir } from "node:fs/promises";
+import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
 
 const ICON_EXTENSIONS = new Set([".svg", ".png", ".ico"]);
+
+// Conventional repo-supplied logo, e.g. `.dispatch/logo.png`. Checked before
+// the generic scan below (which skips dot-directories entirely) so a repo
+// can deliberately opt in without relying on incidental favicon/logo naming
+// elsewhere in the tree.
+const CONVENTIONAL_LOGO_DIR = ".dispatch";
+const CONVENTIONAL_LOGO_BASENAME = "logo";
+// Same svg > png > ico preference as EXT_PRIORITY below.
+const CONVENTIONAL_LOGO_EXTENSIONS = [".svg", ".png", ".ico"];
+
+async function findConventionalLogo(dir: string): Promise<string | null> {
+  for (const ext of CONVENTIONAL_LOGO_EXTENSIONS) {
+    const rel = path.join(
+      CONVENTIONAL_LOGO_DIR,
+      `${CONVENTIONAL_LOGO_BASENAME}${ext}`
+    );
+    try {
+      const stats = await stat(path.join(dir, rel));
+      if (stats.isFile()) return rel;
+    } catch {
+      // Not found at this extension — try the next.
+    }
+  }
+  return null;
+}
 
 const ICON_NAME_PATTERNS = [
   /^favicon\b/i,
@@ -82,6 +107,9 @@ async function scanForIcons(
 }
 
 export async function detectRepoIcon(dir: string): Promise<string | null> {
+  const conventional = await findConventionalLogo(dir);
+  if (conventional) return conventional;
+
   const candidates: string[] = [];
   await scanForIcons(dir, "", 0, candidates);
   if (candidates.length === 0) return null;

@@ -27,7 +27,7 @@ function RepoLabel({
         <img
           src={`/api/v1/agents/${agentId}/repo-icon`}
           alt=""
-          className="h-3.5 w-3.5 shrink-0 object-contain"
+          className="h-5 w-5 shrink-0 rounded-sm object-contain"
           onError={() => setIconError(true)}
         />
       ) : null}

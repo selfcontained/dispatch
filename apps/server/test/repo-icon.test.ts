@@ -131,4 +131,44 @@ describe("detectRepoIcon", () => {
       path.join("a", "b", "c", "d", "favicon.svg")
     );
   });
+
+  describe("conventional .dispatch/logo file", () => {
+    it("finds .dispatch/logo.png despite the dot-directory skip that applies to the generic scan", async () => {
+      await touch(".dispatch/logo.png");
+      expect(await detectRepoIcon(tmpDir)).toBe(
+        path.join(".dispatch", "logo.png")
+      );
+    });
+
+    it("takes priority over a root-level favicon", async () => {
+      await touch("favicon.svg");
+      await touch(".dispatch/logo.png");
+      expect(await detectRepoIcon(tmpDir)).toBe(
+        path.join(".dispatch", "logo.png")
+      );
+    });
+
+    it("prefers svg over png over ico within .dispatch", async () => {
+      await touch(".dispatch/logo.ico");
+      await touch(".dispatch/logo.png");
+      await touch(".dispatch/logo.svg");
+      expect(await detectRepoIcon(tmpDir)).toBe(
+        path.join(".dispatch", "logo.svg")
+      );
+    });
+
+    it("prefers png over ico within .dispatch when no svg exists", async () => {
+      await touch(".dispatch/logo.ico");
+      await touch(".dispatch/logo.png");
+      expect(await detectRepoIcon(tmpDir)).toBe(
+        path.join(".dispatch", "logo.png")
+      );
+    });
+
+    it("ignores unrelated files under .dispatch and falls back to the generic scan", async () => {
+      await touch(".dispatch/config.json");
+      await touch("favicon.svg");
+      expect(await detectRepoIcon(tmpDir)).toBe("favicon.svg");
+    });
+  });
 });

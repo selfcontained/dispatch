@@ -14,6 +14,7 @@ import {
   filterHistoryOptions,
   getHistoryOptions,
   ghostCompletionSuffix,
+  mergeHistoryOptions,
   type HistoryOption,
   type PathHistoryMetadata,
 } from "@/components/app/path-input-utils";
@@ -97,16 +98,15 @@ export function PathInput({
     () => new Set(removableHistory ?? history),
     [history, removableHistory]
   );
-  const options = useMemo<HistoryOption[]>(() => {
-    const seen = new Set<string>();
-    return [...filteredHistoryOptions, ...projectSuggestionOptions].filter(
-      (option) => {
-        if (seen.has(option.path)) return false;
-        seen.add(option.path);
-        return true;
-      }
-    );
-  }, [filteredHistoryOptions, projectSuggestionOptions]);
+  // filteredHistoryOptions (local cwd history + a capped, usage-ranked
+  // server snapshot fetched once by the parent) and projectSuggestionOptions
+  // (this component's own live, search-scoped fetch) frequently describe the
+  // same project — merge rather than dedup-by-first-source so a stale/
+  // rank-capped entry with no iconUrl can't shadow a fresher one that has it.
+  const options = useMemo<HistoryOption[]>(
+    () => mergeHistoryOptions(filteredHistoryOptions, projectSuggestionOptions),
+    [filteredHistoryOptions, projectSuggestionOptions]
+  );
   const [selectedIndex, setSelectedIndex] = useState(0);
   const projectSuggestionsRequestRef = useRef(0);
   const listboxRef = useRef<HTMLDivElement>(null);
