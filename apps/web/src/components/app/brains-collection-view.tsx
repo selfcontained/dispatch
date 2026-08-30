@@ -16,12 +16,10 @@ import {
   type BrainEntryType,
   type ScopeTotals,
 } from "@/hooks/use-brain";
-import {
-  CollapsibleSection,
-  ObjectCard,
-  ListCard,
-  EventCard,
-} from "@/components/app/brain-cards";
+import { CollapsibleSection } from "@/components/app/brain-collapsible-section";
+import { ObjectCard } from "@/components/app/brain-object-card";
+import { ListCard } from "@/components/app/brain-list-card";
+import { EventCard } from "@/components/app/brain-event-card";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
