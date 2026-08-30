@@ -109,12 +109,17 @@ export function isDocumentFile(name: string): boolean {
  * load.
  */
 export function isImageFile(name: string): boolean {
-  return fileExtension(name) in IMAGE_MIME_BY_EXTENSION;
+  return imageMimeType(name) !== null;
 }
 
 /** The MIME type to serve an image as, or null when it is not one we render. */
 export function imageMimeType(name: string): string | null {
-  return IMAGE_MIME_BY_EXTENSION[fileExtension(name)] ?? null;
+  const ext = fileExtension(name);
+  // Own-key only: the predicate and the MIME lookup must answer for the
+  // declared formats and nothing inherited from Object.prototype.
+  return Object.hasOwn(IMAGE_MIME_BY_EXTENSION, ext)
+    ? IMAGE_MIME_BY_EXTENSION[ext]!
+    : null;
 }
 
 export function isMediaFile(name: string): boolean {
