@@ -384,15 +384,19 @@ export function MediaSidebar({
   }
 
   // Drawer mode: floats over the terminal, slides in/out without shifting
-  // layout. The panel is positioned absolutely against the agents-view flex
-  // container (which sets `position: relative`), so it has a real hit-testable
-  // box at the right edge instead of being anchored inside a 0-width wrapper.
+  // layout. Anchored to the viewport rather than to the agents-view row, the
+  // same way the mobile slide-over in glass-sidebar.tsx is. That is what keeps
+  // the closed panel — parked off-canvas to the right — from counting as
+  // scrollable overflow on the row: a fixed box's containing block is the
+  // viewport, so it contributes none. As an absolute child it did, leaving the
+  // row a scroll container that any descendant `scrollIntoView` would scroll,
+  // dragging the whole app sideways.
   return (
     <div
       data-testid="media-sidebar-wrapper"
       data-pinned="false"
       className={cn(
-        "absolute bottom-0 right-0 top-0 z-30 transition-transform ease-out",
+        "fixed bottom-0 right-0 top-0 z-30 transition-transform ease-out",
         !mediaOpen && "pointer-events-none"
       )}
       style={{
