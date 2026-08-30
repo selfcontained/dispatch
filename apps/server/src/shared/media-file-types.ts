@@ -69,6 +69,7 @@ export const TEXT_EXTENSIONS: ReadonlySet<string> = new Set(
 const DOCUMENT_EXTENSIONS: ReadonlySet<string> = new Set(
   DOCUMENT_EXTENSION_LIST
 );
+const IMAGE_EXTENSION_SET: ReadonlySet<string> = new Set(IMAGE_EXTENSIONS);
 const IMAGE_VIDEO_EXTENSIONS: ReadonlySet<string> = new Set([
   ...IMAGE_EXTENSIONS,
   ...VIDEO_EXTENSIONS,
@@ -87,6 +88,16 @@ export function isTextFile(name: string): boolean {
 
 export function isDocumentFile(name: string): boolean {
   return DOCUMENT_EXTENSIONS.has(fileExtension(name));
+}
+
+/**
+ * Raster image formats every browser renders without a plugin. Deliberately
+ * the same list the media uploader accepts, and deliberately without `.svg`:
+ * SVG is text (so git already produces a real textual diff for it) and it
+ * carries script, which an <img> in the Changes pane must never load.
+ */
+export function isImageFile(name: string): boolean {
+  return IMAGE_EXTENSION_SET.has(fileExtension(name));
 }
 
 export function isMediaFile(name: string): boolean {
