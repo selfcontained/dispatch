@@ -513,14 +513,7 @@ export function AgentsView({
 
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
-      {/*
-        `overflow-clip`, not `overflow-hidden`: the unpinned media sidebar
-        parks itself off-canvas to the right of this row, which counts as
-        scrollable overflow. `overflow-hidden` would leave the row a scroll
-        container, so any descendant calling `scrollIntoView` while the drawer
-        is closed scrolls the entire app sideways. `clip` never scrolls.
-      */}
-      <div className="relative flex h-full min-h-0 min-w-0 overflow-clip py-2">
+      <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
         <GlassSidebar
           open={isMobile ? mobileLeftOpen : leftOpen}
           onOpenChange={(open) => {

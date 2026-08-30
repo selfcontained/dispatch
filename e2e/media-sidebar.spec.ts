@@ -673,4 +673,57 @@ test.describe("Media sidebar", () => {
       .poll(() => page.evaluate((k) => localStorage.getItem(k), key))
       .toBe("true");
   });
+
+  test("the closed unpinned drawer adds no scrollable overflow to the app row", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-drawer-overflow-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+    await setAgentPinsViaDB(agent.id, [
+      { id: "pin_overflow", label: "A pin", type: "string", value: "value" },
+    ]);
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, agent);
+    const wrapper = page.getByTestId("media-sidebar-wrapper");
+    await expect(wrapper).toHaveAttribute("data-pinned", "false");
+
+    await page
+      .getByTestId("media-sidebar")
+      .getByRole("button", { name: "Close sidebar" })
+      .click();
+    await expect
+      .poll(() => wrapper.evaluate((node) => node.getBoundingClientRect().left))
+      .toBeGreaterThanOrEqual(page.viewportSize()!.width);
+
+    // The closed drawer parks off-canvas to the right. Anchored to the
+    // viewport it contributes nothing to the app row; as an absolute child it
+    // gave the row 400px of scroll overflow, and any `scrollIntoView` inside
+    // the drawer then scrolled the row and dragged the whole app sideways.
+    const measure = () =>
+      page.evaluate(() => {
+        const main = document.querySelector("main")!;
+        const row = main.parentElement!;
+        return {
+          overflowing: row.scrollWidth > row.clientWidth,
+          scrollLeft: row.scrollLeft,
+          mainLeft: Math.round(main.getBoundingClientRect().left),
+        };
+      });
+    const before = await measure();
+    expect(before.overflowing).toBe(false);
+
+    await page
+      .getByTestId("media-sidebar")
+      .getByTestId("pin-item")
+      .first()
+      .evaluate((node) =>
+        node.scrollIntoView({ block: "nearest", inline: "nearest" })
+      );
+
+    expect(await measure()).toEqual(before);
+  });
 });
