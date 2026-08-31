@@ -165,14 +165,17 @@ export function useMedia(
     return mediaFiles.filter((file) => !file.seen).length;
   }, [mediaFiles]);
 
+  // File name is the stable identity for an open lightbox item (unique per
+  // agent). Deliberately not name:updatedAt — an agent rewriting the open
+  // file must not make the lookup below miss and unmount the lightbox.
   const openLightbox = useCallback((file: MediaFile) => {
-    setLightboxMediaKey(`${file.name}:${file.updatedAt}`);
+    setLightboxMediaKey(file.name);
   }, []);
 
   const lightboxItems = useMemo(
     () =>
       mediaFiles.map((file) => ({
-        key: `${file.name}:${file.updatedAt}`,
+        // Cache-buster stays here so a refreshed file's content actually loads.
         src: `${file.url}?t=${encodeURIComponent(file.updatedAt)}`,
         caption: file.description || "",
         file,
@@ -182,7 +185,9 @@ export function useMedia(
 
   const lightboxIndex = useMemo(() => {
     if (!lightboxMediaKey) return -1;
-    return lightboxItems.findIndex((item) => item.key === lightboxMediaKey);
+    return lightboxItems.findIndex(
+      (item) => item.file.name === lightboxMediaKey
+    );
   }, [lightboxItems, lightboxMediaKey]);
 
   const lightboxItem = lightboxIndex >= 0 ? lightboxItems[lightboxIndex] : null;
@@ -198,7 +203,7 @@ export function useMedia(
         return;
       }
 
-      setLightboxMediaKey(lightboxItems[nextIndex].key);
+      setLightboxMediaKey(lightboxItems[nextIndex].file.name);
     },
     [lightboxItems]
   );

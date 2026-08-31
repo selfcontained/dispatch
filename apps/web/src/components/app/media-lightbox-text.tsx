@@ -1,18 +1,32 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { highlightCode } from "@/components/app/media-lightbox-syntax";
 import { LogStream } from "@/components/ui/log-stream";
 import { Markdown } from "@/components/ui/markdown";
 
-function useFetchedText(src: string): {
+// `identityKey` (the file name) tells a src change apart from a real
+// navigation: an agent rewriting the open file changes `src` (cache-buster)
+// without changing identityKey. On that in-place refresh we keep the old
+// content mounted while the new text loads instead of dropping to the
+// loading state, so the scroll container never unmounts and the browser
+// preserves scrollTop across the swap for free. A real navigation (name
+// changes) clears content immediately, which is what resets scroll to top.
+function useFetchedText(
+  src: string,
+  identityKey: string
+): {
   content: string | null;
   error: string | null;
 } {
   const [content, setContent] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const lastIdentityRef = useRef<string | null>(null);
 
   useEffect(() => {
-    setContent(null);
+    const isRefresh = lastIdentityRef.current === identityKey;
+    lastIdentityRef.current = identityKey;
+
+    if (!isRefresh) setContent(null);
     setError(null);
     let cancelled = false;
     fetch(src)
@@ -30,7 +44,7 @@ function useFetchedText(src: string): {
     return () => {
       cancelled = true;
     };
-  }, [src]);
+  }, [src, identityKey]);
 
   return { content, error };
 }
@@ -81,8 +95,14 @@ function TextViewer({
   );
 }
 
-export function MarkdownViewer({ src }: { src: string }): JSX.Element {
-  const { content, error } = useFetchedText(src);
+export function MarkdownViewer({
+  src,
+  fileName,
+}: {
+  src: string;
+  fileName: string;
+}): JSX.Element {
+  const { content, error } = useFetchedText(src, fileName);
 
   if (error) return <TextError error={error} />;
   if (content === null) return <LoadingText />;
@@ -101,7 +121,7 @@ export function TextFileViewer({
   src: string;
   fileName: string;
 }): JSX.Element {
-  const { content, error } = useFetchedText(src);
+  const { content, error } = useFetchedText(src, fileName);
 
   if (error) return <TextError error={error} />;
   if (content === null) return <LoadingText />;
