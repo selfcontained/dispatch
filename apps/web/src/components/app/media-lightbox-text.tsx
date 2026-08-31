@@ -1,52 +1,53 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useMemo, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
 
 import { highlightCode } from "@/components/app/media-lightbox-syntax";
 import { LogStream } from "@/components/ui/log-stream";
 import { Markdown } from "@/components/ui/markdown";
 
-// `identityKey` (the file name) tells a src change apart from a real
-// navigation: an agent rewriting the open file changes `src` (cache-buster)
-// without changing identityKey. On that in-place refresh we keep the old
-// content mounted while the new text loads instead of dropping to the
-// loading state, so the scroll container never unmounts and the browser
-// preserves scrollTop across the swap for free. A real navigation (name
-// changes) clears content immediately, which is what resets scroll to top.
+// `fileName` (stable, unlike `src`) tells a real navigation apart from an
+// in-place refresh: an agent rewriting the open file changes `src` (cache-
+// buster) without changing fileName. `placeholderData` keeps showing the
+// previous fetch's text while a same-file refetch is in flight — content
+// only clears when fileName itself changes, which is what resets scroll to
+// top on a real navigation (see the scroll-container comments below).
 function useFetchedText(
   src: string,
-  identityKey: string
+  fileName: string
 ): {
   content: string | null;
   error: string | null;
 } {
-  const [content, setContent] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const lastIdentityRef = useRef<string | null>(null);
+  const { data, error, isError } = useQuery({
+    queryKey: ["media-lightbox-text", fileName, src],
+    queryFn: async () => {
+      const response = await fetch(src);
+      if (!response.ok) throw new Error(`Failed to load (${response.status})`);
+      return response.text();
+    },
+    placeholderData: (previousData, previousQuery) =>
+      previousQuery?.queryKey[1] === fileName ? previousData : undefined,
+    retry: false,
+  });
 
-  useEffect(() => {
-    const isRefresh = lastIdentityRef.current === identityKey;
-    lastIdentityRef.current = identityKey;
+  // React Query drops `data` back to undefined on a failed fetch, which
+  // would otherwise turn a transient refresh failure (e.g. the file mid-
+  // write) into the exact lost-content-and-position experience this hook
+  // exists to prevent. Keep the last successfully fetched text for the
+  // current file so a failed refresh falls back to it instead of an error.
+  const lastGoodRef = useRef<{ fileName: string; content: string } | null>(
+    null
+  );
+  if (data !== undefined) lastGoodRef.current = { fileName, content: data };
+  const retained =
+    lastGoodRef.current?.fileName === fileName
+      ? lastGoodRef.current.content
+      : undefined;
 
-    if (!isRefresh) setContent(null);
-    setError(null);
-    let cancelled = false;
-    fetch(src)
-      .then((response) => {
-        if (!response.ok)
-          throw new Error(`Failed to load (${response.status})`);
-        return response.text();
-      })
-      .then((text) => {
-        if (!cancelled) setContent(text);
-      })
-      .catch((fetchError) => {
-        if (!cancelled) setError(String(fetchError));
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [src, identityKey]);
-
-  return { content, error };
+  return {
+    content: data ?? retained ?? null,
+    error: isError && retained === undefined ? String(error) : null,
+  };
 }
 
 function LoadingText(): JSX.Element {
@@ -78,6 +79,9 @@ function TextViewer({
   );
 
   return (
+    // Scroll container: must stay mounted across an in-place content
+    // refresh (see useFetchedText) — that's what preserves scrollTop.
+    // Don't key this on src/content.
     <LogStream className="min-h-full overflow-auto p-0">
       {highlightedHtml ? (
         <pre className="p-4 text-sm leading-relaxed">
@@ -108,6 +112,9 @@ export function MarkdownViewer({
   if (content === null) return <LoadingText />;
 
   return (
+    // Scroll container: must stay mounted across an in-place content
+    // refresh (see useFetchedText) — that's what preserves scrollTop.
+    // Don't key this on src/content.
     <div className="h-full overflow-auto bg-background p-4">
       <Markdown headingAccents>{content}</Markdown>
     </div>

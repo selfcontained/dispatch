@@ -1,8 +1,18 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MarkdownViewer } from "@/components/app/media-lightbox-text";
+
+let queryClient: QueryClient;
+
+function wrapper({ children }: { children: ReactNode }) {
+  return (
+    <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+  );
+}
 
 afterEach(() => {
   cleanup();
@@ -18,13 +28,20 @@ function mockFetchOnce(text: string) {
 describe("MarkdownViewer", () => {
   // The container div only renders once content is loaded, so scroll
   // position (which lives on that div) survives a swap only if the div
-  // stays mounted across it — i.e. content must not get cleared to null.
-  it("keeps prior content mounted (no loading flash) when the same file refreshes", async () => {
+  // stays mounted across it — i.e. content must not get cleared to null,
+  // and the DOM node itself must not be recreated.
+  it("keeps the same scroll container mounted when the same file refreshes", async () => {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     mockFetchOnce("# v1");
-    const { rerender } = render(
-      <MarkdownViewer src="/media/report.md?t=1" fileName="report.md" />
+    const { container, rerender } = render(
+      <MarkdownViewer src="/media/report.md?t=1" fileName="report.md" />,
+      { wrapper }
     );
     await waitFor(() => expect(screen.getByText("v1")).toBeTruthy());
+    const scroller = container.querySelector(".overflow-auto");
+    expect(scroller).toBeTruthy();
 
     mockFetchOnce("# v2");
     // Same fileName, new cache-busted src — an in-place content refresh.
@@ -37,14 +54,20 @@ describe("MarkdownViewer", () => {
     expect(screen.getByText("v1")).toBeTruthy();
     expect(screen.queryByText("Loading...")).toBeNull();
 
-    // ... and once the new fetch resolves, it swaps in place.
+    // ... and once the new fetch resolves, it swaps in place on the same
+    // node — that's the actual property scrollTop preservation depends on.
     await waitFor(() => expect(screen.getByText("v2")).toBeTruthy());
+    expect(container.querySelector(".overflow-auto")).toBe(scroller);
   });
 
   it("shows the loading state when navigating to a different file", async () => {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
     mockFetchOnce("# v1");
     const { rerender } = render(
-      <MarkdownViewer src="/media/report.md?t=1" fileName="report.md" />
+      <MarkdownViewer src="/media/report.md?t=1" fileName="report.md" />,
+      { wrapper }
     );
     await waitFor(() => expect(screen.getByText("v1")).toBeTruthy());
 
@@ -62,5 +85,29 @@ describe("MarkdownViewer", () => {
 
     resolveFetch(new Response("# other", { status: 200 }));
     await waitFor(() => expect(screen.getByText("other")).toBeTruthy());
+  });
+
+  it("keeps showing prior content when a same-file refresh fetch fails", async () => {
+    queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    mockFetchOnce("# v1");
+    const { rerender } = render(
+      <MarkdownViewer src="/media/report.md?t=1" fileName="report.md" />,
+      { wrapper }
+    );
+    await waitFor(() => expect(screen.getByText("v1")).toBeTruthy());
+
+    // The refresh fails (e.g. the file is mid-write) — the reader should
+    // not lose their place to a full-pane error over a transient failure.
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response("nope", { status: 500 })
+    );
+    rerender(
+      <MarkdownViewer src="/media/report.md?t=2" fileName="report.md" />
+    );
+
+    await waitFor(() => expect(screen.getByText("v1")).toBeTruthy());
+    expect(screen.queryByText(/Failed to load/)).toBeNull();
   });
 });

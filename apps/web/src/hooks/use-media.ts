@@ -19,7 +19,7 @@ export function useMedia(
   const [animatingMediaKeys, setAnimatingMediaKeys] = useState<Set<string>>(
     new Set()
   );
-  const [lightboxMediaKey, setLightboxMediaKey] = useState<string | null>(null);
+  const [lightboxFileName, setLightboxFileName] = useState<string | null>(null);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
   const clearMediaAnimTimerRef = useRef<number | null>(null);
@@ -49,7 +49,7 @@ export function useMedia(
   // Reset on agent change.
   useEffect(() => {
     previousMediaKeysRef.current = new Set();
-    setLightboxMediaKey(null);
+    setLightboxFileName(null);
   }, [selectedAgentId]);
 
   // Clear media when no agent selected.
@@ -165,11 +165,12 @@ export function useMedia(
     return mediaFiles.filter((file) => !file.seen).length;
   }, [mediaFiles]);
 
-  // File name is the stable identity for an open lightbox item (unique per
-  // agent). Deliberately not name:updatedAt — an agent rewriting the open
-  // file must not make the lookup below miss and unmount the lightbox.
+  // The open lightbox item is tracked by file name alone, unlike the
+  // `name:updatedAt` media key used elsewhere in this hook (seen-tracking,
+  // animation) — an agent rewriting the open file must not make this lookup
+  // miss and unmount the lightbox, so identity here can't include updatedAt.
   const openLightbox = useCallback((file: MediaFile) => {
-    setLightboxMediaKey(file.name);
+    setLightboxFileName(file.name);
   }, []);
 
   const lightboxItems = useMemo(
@@ -184,18 +185,18 @@ export function useMedia(
   );
 
   const lightboxIndex = useMemo(() => {
-    if (!lightboxMediaKey) return -1;
+    if (!lightboxFileName) return -1;
     return lightboxItems.findIndex(
-      (item) => item.file.name === lightboxMediaKey
+      (item) => item.file.name === lightboxFileName
     );
-  }, [lightboxItems, lightboxMediaKey]);
+  }, [lightboxItems, lightboxFileName]);
 
   const lightboxItem = lightboxIndex >= 0 ? lightboxItems[lightboxIndex] : null;
 
   const setLightboxIndex = useCallback(
     (nextIndex: number | null) => {
       if (nextIndex === null) {
-        setLightboxMediaKey(null);
+        setLightboxFileName(null);
         return;
       }
 
@@ -203,7 +204,7 @@ export function useMedia(
         return;
       }
 
-      setLightboxMediaKey(lightboxItems[nextIndex].file.name);
+      setLightboxFileName(lightboxItems[nextIndex].file.name);
     },
     [lightboxItems]
   );
