@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { MediaActions } from "@/components/app/media-lightbox-actions";
@@ -51,6 +51,40 @@ export function MediaLightbox({
 }: MediaLightboxProps): JSX.Element | null {
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
+  const [updateAnnouncement, setUpdateAnnouncement] = useState<string | null>(
+    null
+  );
+  const [isTextContentStale, setIsTextContentStale] = useState(false);
+  const lastSeenRef = useRef<{ name: string; updatedAt: string } | null>(null);
+
+  // A visible + screen-reader cue when the open file's content changes in
+  // place (same identity, new updatedAt) — otherwise the same-scrollTop
+  // content swap (or an HTML/PDF iframe resetting to the top; see the
+  // sandbox comment below) reads as a glitch, not as "this was updated".
+  // Driven off item.file.updatedAt rather than per-viewer content diffing
+  // so it covers every lightbox type uniformly, markdown/text/HTML/PDF
+  // alike, without reaching into the sandboxed iframe.
+  useEffect(() => {
+    if (!item) {
+      lastSeenRef.current = null;
+      return;
+    }
+    const prev = lastSeenRef.current;
+    lastSeenRef.current = {
+      name: item.file.name,
+      updatedAt: item.file.updatedAt,
+    };
+    if (
+      !prev ||
+      prev.name !== item.file.name ||
+      prev.updatedAt === item.file.updatedAt
+    ) {
+      return;
+    }
+    setUpdateAnnouncement(`${item.file.name} was just updated.`);
+    const timer = window.setTimeout(() => setUpdateAnnouncement(null), 2200);
+    return () => window.clearTimeout(timer);
+  }, [item]);
 
   // Keep the page fixed behind the viewer. Image gestures are handled locally,
   // so the browser viewport never needs to zoom or scroll.
@@ -132,6 +166,17 @@ export function MediaLightbox({
           title={isImage && item.caption ? displayName : undefined}
         >
           {isImage && item.caption ? item.caption : displayName}
+        </span>
+        {updateAnnouncement && !isTextContentStale ? (
+          <span
+            className="flex-none rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary"
+            aria-hidden="true"
+          >
+            Updated
+          </span>
+        ) : null}
+        <span className="sr-only" role="status" aria-live="polite">
+          {isTextContentStale ? "" : (updateAnnouncement ?? "")}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <MediaActions
@@ -225,9 +270,17 @@ export function MediaLightbox({
           />
         ) : isText ? (
           isMarkdown ? (
-            <MarkdownViewer src={item.src} fileName={item.file.name} />
+            <MarkdownViewer
+              src={item.src}
+              fileName={item.file.name}
+              onStaleChange={setIsTextContentStale}
+            />
           ) : (
-            <TextFileViewer src={item.src} fileName={item.file.name} />
+            <TextFileViewer
+              src={item.src}
+              fileName={item.file.name}
+              onStaleChange={setIsTextContentStale}
+            />
           )
         ) : isVideo ? (
           <video

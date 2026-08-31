@@ -84,9 +84,11 @@ describe("useMedia lightbox identity", () => {
     );
   });
 
-  it("tracks the open item's new position when an update reorders the list", async () => {
+  it("keeps navigation order stable when an update reorders the underlying list", async () => {
     // List is ordered by COALESCE(updated_at, created_at) DESC — updating a
-    // file moves it to the front.
+    // file moves it to the front. Content still refreshes (that's looked up
+    // by name, independent of order), but the reader's prev/next frame and
+    // n/N must not reshuffle mid-read.
     let files: MediaFile[] = [
       file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
       file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
@@ -107,8 +109,9 @@ describe("useMedia lightbox identity", () => {
       )
     );
     expect(result.current.lightboxIndex).toBe(2);
+    expect(result.current.lightboxTotalItems).toBe(3);
 
-    // "c.md" gets updated and jumps to the front of the list.
+    // "c.md" gets updated and jumps to the front of the underlying list.
     files = [
       file({ name: "c.md", updatedAt: "2026-08-31T00:10:00Z" }),
       file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
@@ -119,9 +122,57 @@ describe("useMedia lightbox identity", () => {
     });
     rerender();
 
-    await waitFor(() => expect(result.current.lightboxIndex).toBe(0));
+    await waitFor(() =>
+      expect(result.current.lightboxItem?.file.updatedAt).toBe(
+        "2026-08-31T00:10:00Z"
+      )
+    );
+    // Content refreshed, but the reader's position in the frozen order
+    // (still "c.md" last, index 2) is unchanged.
+    expect(result.current.lightboxIndex).toBe(2);
     expect(result.current.lightboxItem?.file.name).toBe("c.md");
-    // Now at the front: no previous item.
+  });
+
+  it("appends a newly-arrived file at the end instead of reordering an open session", async () => {
+    let files: MediaFile[] = [
+      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+    ];
+    apiMock.mockImplementation(async () => ({ files }));
+
+    const { result, rerender } = renderHook(() => useMedia(AGENT_ID, true), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.mediaFiles).toHaveLength(2));
+
+    // Open "a.md" — first (and only prior) item, index 0, nothing to go back to.
+    act(() =>
+      result.current.openLightbox(
+        result.current.mediaFiles.find((f) => f.name === "a.md")!
+      )
+    );
     expect(result.current.lightboxIndex).toBe(0);
+    expect(result.current.lightboxTotalItems).toBe(2);
+
+    // An unrelated file is shared while the reader is mid-read. Sorted DESC,
+    // it would land at index 0 live — but the open session's order must not
+    // move "a.md" out from under the reader or silently enable "previous".
+    files = [
+      file({ name: "new.md", updatedAt: "2026-08-31T00:20:00Z" }),
+      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+    ];
+    await act(async () => {
+      await result.current.refreshMedia(AGENT_ID);
+    });
+    rerender();
+
+    await waitFor(() => expect(result.current.mediaFiles).toHaveLength(3));
+    expect(result.current.lightboxIndex).toBe(0);
+    expect(result.current.lightboxItem?.file.name).toBe("a.md");
+    // The new file is appended at the end of the frozen order, not inserted
+    // ahead of "a.md".
+    expect(result.current.lightboxTotalItems).toBe(3);
   });
 });

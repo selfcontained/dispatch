@@ -25,6 +25,15 @@ function mockFetchOnce(text: string) {
   );
 }
 
+// The hook retries once (retry: 1) before giving up — queue both responses
+// so the failure path is deterministic rather than falling through to a
+// real (network-less, jsdom) fetch on the second call.
+function mockFetchFailTwice(status = 500) {
+  vi.spyOn(globalThis, "fetch")
+    .mockResolvedValueOnce(new Response("nope", { status }))
+    .mockResolvedValueOnce(new Response("nope", { status }));
+}
+
 describe("MarkdownViewer", () => {
   // The container div only renders once content is loaded, so scroll
   // position (which lives on that div) survives a swap only if the div
@@ -87,27 +96,36 @@ describe("MarkdownViewer", () => {
     await waitFor(() => expect(screen.getByText("other")).toBeTruthy());
   });
 
-  it("keeps showing prior content when a same-file refresh fetch fails", async () => {
+  it("keeps showing prior content, with a stale notice, when a same-file refresh fails", async () => {
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     mockFetchOnce("# v1");
-    const { rerender } = render(
+    const { container, rerender } = render(
       <MarkdownViewer src="/media/report.md?t=1" fileName="report.md" />,
       { wrapper }
     );
     await waitFor(() => expect(screen.getByText("v1")).toBeTruthy());
+    const scroller = container.querySelector(".overflow-auto");
+    expect(scroller).toBeTruthy();
 
     // The refresh fails (e.g. the file is mid-write) — the reader should
-    // not lose their place to a full-pane error over a transient failure.
-    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
-      new Response("nope", { status: 500 })
-    );
+    // not lose their place to a full-pane error over a transient failure,
+    // and should be told the content on screen isn't the latest.
+    mockFetchFailTwice();
     rerender(
       <MarkdownViewer src="/media/report.md?t=2" fileName="report.md" />
     );
 
-    await waitFor(() => expect(screen.getByText("v1")).toBeTruthy());
+    await waitFor(() =>
+      expect(screen.getByText(/Couldn't load the latest update/)).toBeTruthy()
+    );
+    expect(screen.getByText("v1")).toBeTruthy();
     expect(screen.queryByText(/Failed to load/)).toBeNull();
-  });
+    // The scroll container itself must survive the banner appearing —
+    // an unkeyed sibling inserted before it would otherwise force a remount
+    // and silently defeat scroll preservation on exactly this path.
+    const container2 = container.querySelector(".overflow-auto");
+    expect(container2).toBe(scroller);
+  }, 10_000);
 });

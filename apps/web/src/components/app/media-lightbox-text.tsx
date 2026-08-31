@@ -17,6 +17,10 @@ function useFetchedText(
 ): {
   content: string | null;
   error: string | null;
+  // True when a same-file refresh failed and `content` is the last good
+  // fetch rather than what's actually on disk right now — distinct from
+  // `error`, which only fires when there's nothing to fall back to.
+  isStale: boolean;
 } {
   const { data, error, isError } = useQuery({
     queryKey: ["media-lightbox-text", fileName, src],
@@ -27,7 +31,10 @@ function useFetchedText(
     },
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[1] === fileName ? previousData : undefined,
-    retry: false,
+    // One quick retry covers the common transient case (the file mid-write)
+    // for free, before falling back to the retained copy below.
+    retry: 1,
+    retryDelay: 250,
     // `src` (cache-busted per refresh) is part of the key, so every
     // in-place refresh of a live-updating file is a distinct cache entry —
     // don't hold the default 5min of them.
@@ -35,8 +42,8 @@ function useFetchedText(
   });
 
   // React Query drops `data` back to undefined on a failed fetch, which
-  // would otherwise turn a transient refresh failure (e.g. the file mid-
-  // write) into the exact lost-content-and-position experience this hook
+  // would otherwise turn a refresh failure (e.g. the file mid-write, or
+  // deleted) into the exact lost-content-and-position experience this hook
   // exists to prevent. Keep the last successfully fetched text for the
   // current file so a failed refresh falls back to it instead of an error.
   const lastGoodRef = useRef<{ fileName: string; content: string } | null>(
@@ -53,7 +60,19 @@ function useFetchedText(
   return {
     content: data ?? retained ?? null,
     error: isError && retained === undefined ? String(error) : null,
+    isStale: data === undefined && retained !== undefined,
   };
+}
+
+function StaleBanner(): JSX.Element {
+  return (
+    <div
+      role="status"
+      className="flex-none border-b border-amber-300 bg-amber-50 px-4 py-1.5 text-xs text-amber-900 dark:border-amber-900 dark:bg-amber-950 dark:text-amber-200"
+    >
+      Couldn't load the latest update — showing the last version that loaded.
+    </div>
+  );
 }
 
 function LoadingText(): JSX.Element {
@@ -75,9 +94,11 @@ function TextError({ error }: { error: string }): JSX.Element {
 function TextViewer({
   content,
   fileName,
+  isStale,
 }: {
   content: string;
   fileName: string;
+  isStale: boolean;
 }): JSX.Element {
   const highlightedHtml = useMemo(
     () => highlightCode(content, fileName),
@@ -85,44 +106,63 @@ function TextViewer({
   );
 
   return (
-    // Scroll container: must stay mounted across an in-place content
-    // refresh (see useFetchedText) — that's what preserves scrollTop.
-    // Don't key this on src/content.
-    <LogStream className="min-h-full overflow-auto p-0">
-      {highlightedHtml ? (
-        <pre className="p-4 text-sm leading-relaxed">
-          <code
-            className="hljs"
-            dangerouslySetInnerHTML={{ __html: highlightedHtml }}
-          />
-        </pre>
-      ) : (
-        <pre className="p-4 text-sm leading-relaxed">
-          <code>{content}</code>
-        </pre>
-      )}
-    </LogStream>
+    <div className="flex h-full flex-col">
+      {isStale && <StaleBanner key="stale-banner" />}
+      {/* Scroll container: must stay mounted across an in-place content
+          refresh (see useFetchedText) — that's what preserves scrollTop.
+          Explicit key so an adjacent StaleBanner mounting/unmounting can't
+          shift this out of its reconciliation slot and force a remount. */}
+      <LogStream
+        key="scroll-container"
+        className="min-h-0 flex-1 overflow-auto p-0"
+      >
+        {highlightedHtml ? (
+          <pre className="p-4 text-sm leading-relaxed">
+            <code
+              className="hljs"
+              dangerouslySetInnerHTML={{ __html: highlightedHtml }}
+            />
+          </pre>
+        ) : (
+          <pre className="p-4 text-sm leading-relaxed">
+            <code>{content}</code>
+          </pre>
+        )}
+      </LogStream>
+    </div>
   );
 }
 
 export function MarkdownViewer({
   src,
   fileName,
+  onStaleChange,
 }: {
   src: string;
   fileName: string;
+  onStaleChange?: (isStale: boolean) => void;
 }): JSX.Element {
-  const { content, error } = useFetchedText(src, fileName);
+  const { content, error, isStale } = useFetchedText(src, fileName);
+  useEffect(() => {
+    onStaleChange?.(isStale);
+  }, [isStale, onStaleChange]);
 
   if (error) return <TextError error={error} />;
   if (content === null) return <LoadingText />;
 
   return (
-    // Scroll container: must stay mounted across an in-place content
-    // refresh (see useFetchedText) — that's what preserves scrollTop.
-    // Don't key this on src/content.
-    <div className="h-full overflow-auto bg-background p-4">
-      <Markdown headingAccents>{content}</Markdown>
+    <div className="flex h-full flex-col">
+      {isStale && <StaleBanner key="stale-banner" />}
+      {/* Scroll container: must stay mounted across an in-place content
+          refresh (see useFetchedText) — that's what preserves scrollTop.
+          Explicit key so an adjacent StaleBanner mounting/unmounting can't
+          shift this out of its reconciliation slot and force a remount. */}
+      <div
+        key="scroll-container"
+        className="min-h-0 flex-1 overflow-auto bg-background p-4"
+      >
+        <Markdown headingAccents>{content}</Markdown>
+      </div>
     </div>
   );
 }
@@ -130,14 +170,19 @@ export function MarkdownViewer({
 export function TextFileViewer({
   src,
   fileName,
+  onStaleChange,
 }: {
   src: string;
   fileName: string;
+  onStaleChange?: (isStale: boolean) => void;
 }): JSX.Element {
-  const { content, error } = useFetchedText(src, fileName);
+  const { content, error, isStale } = useFetchedText(src, fileName);
+  useEffect(() => {
+    onStaleChange?.(isStale);
+  }, [isStale, onStaleChange]);
 
   if (error) return <TextError error={error} />;
   if (content === null) return <LoadingText />;
 
-  return <TextViewer content={content} fileName={fileName} />;
+  return <TextViewer content={content} fileName={fileName} isStale={isStale} />;
 }

@@ -20,6 +20,8 @@ export function useMedia(
     new Set()
   );
   const [lightboxFileName, setLightboxFileName] = useState<string | null>(null);
+  // Snapshot of file names taken when the lightbox opens; see openLightbox.
+  const lightboxOrderRef = useRef<string[] | null>(null);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
   const clearMediaAnimTimerRef = useRef<number | null>(null);
@@ -49,6 +51,7 @@ export function useMedia(
   // Reset on agent change.
   useEffect(() => {
     previousMediaKeysRef.current = new Set();
+    lightboxOrderRef.current = null;
     setLightboxFileName(null);
   }, [selectedAgentId]);
 
@@ -169,9 +172,21 @@ export function useMedia(
   // `name:updatedAt` media key used elsewhere in this hook (seen-tracking,
   // animation) — an agent rewriting the open file must not make this lookup
   // miss and unmount the lightbox, so identity here can't include updatedAt.
-  const openLightbox = useCallback((file: MediaFile) => {
-    setLightboxFileName(file.name);
-  }, []);
+  const openLightbox = useCallback(
+    (file: MediaFile) => {
+      setLightboxFileName((current) => {
+        // Snapshot the navigation order only on the closed->open transition,
+        // not when switching the already-open item. The list is sorted by
+        // updated_at DESC, so leaving this live would reshuffle prev/next
+        // and n/N under the reader every time any file in the list updates.
+        if (current === null) {
+          lightboxOrderRef.current = mediaFiles.map((f) => f.name);
+        }
+        return file.name;
+      });
+    },
+    [mediaFiles]
+  );
 
   const lightboxItems = useMemo(
     () =>
@@ -184,29 +199,51 @@ export function useMedia(
     [mediaFiles]
   );
 
-  const lightboxIndex = useMemo(() => {
-    if (!lightboxFileName) return -1;
-    return lightboxItems.findIndex(
-      (item) => item.file.name === lightboxFileName
+  // Navigation order for one open-lightbox session: the snapshot taken at
+  // open time, minus files that have since disappeared, plus files that
+  // have since arrived (appended at the end, not reshuffled in). Content
+  // itself (lightboxItem below) is always looked up live by name, so a
+  // same-file refresh still shows fresh content — only traversal order and
+  // n/N are frozen.
+  const lightboxOrder = useMemo(() => {
+    const liveNames = new Set(lightboxItems.map((item) => item.file.name));
+    const frozen = (lightboxOrderRef.current ?? []).filter((name) =>
+      liveNames.has(name)
     );
-  }, [lightboxItems, lightboxFileName]);
+    const frozenSet = new Set(frozen);
+    for (const item of lightboxItems) {
+      if (!frozenSet.has(item.file.name)) frozen.push(item.file.name);
+    }
+    return frozen;
+  }, [lightboxItems]);
 
-  const lightboxItem = lightboxIndex >= 0 ? lightboxItems[lightboxIndex] : null;
+  const lightboxIndex = lightboxFileName
+    ? lightboxOrder.indexOf(lightboxFileName)
+    : -1;
+
+  const lightboxItem = useMemo(
+    () =>
+      lightboxFileName
+        ? (lightboxItems.find((item) => item.file.name === lightboxFileName) ??
+          null)
+        : null,
+    [lightboxItems, lightboxFileName]
+  );
 
   const setLightboxIndex = useCallback(
     (nextIndex: number | null) => {
       if (nextIndex === null) {
+        lightboxOrderRef.current = null;
         setLightboxFileName(null);
         return;
       }
 
-      if (nextIndex < 0 || nextIndex >= lightboxItems.length) {
-        return;
-      }
+      const name = lightboxOrder[nextIndex];
+      if (name === undefined) return;
 
-      setLightboxFileName(lightboxItems[nextIndex].file.name);
+      setLightboxFileName(name);
     },
-    [lightboxItems]
+    [lightboxOrder]
   );
 
   const refreshMedia = useCallback(
@@ -225,6 +262,10 @@ export function useMedia(
       animatingMediaKeys,
       unseenMediaCount,
       lightboxIndex,
+      // Total for n/N and bounds-checking, matching the frozen order
+      // lightboxIndex is computed against — not mediaFiles.length, which
+      // can differ if a file arrived or disappeared mid-session.
+      lightboxTotalItems: lightboxOrder.length,
       lightboxItem,
       setLightboxIndex,
       openLightbox,
@@ -236,6 +277,7 @@ export function useMedia(
       animatingMediaKeys,
       unseenMediaCount,
       lightboxIndex,
+      lightboxOrder,
       lightboxItem,
       setLightboxIndex,
       openLightbox,

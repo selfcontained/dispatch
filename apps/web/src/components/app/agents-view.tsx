@@ -243,6 +243,7 @@ export function AgentsView({
     animatingMediaKeys,
     unseenMediaCount,
     lightboxIndex,
+    lightboxTotalItems,
     lightboxItem,
     setLightboxIndex,
     openLightbox,
@@ -792,7 +793,7 @@ export function AgentsView({
         onStop={stopAgent}
         lightboxItem={lightboxItem}
         lightboxIndex={lightboxIndex}
-        mediaFileCount={mediaFiles.length}
+        mediaFileCount={lightboxTotalItems}
         setLightboxIndex={setLightboxIndex}
       />
 
