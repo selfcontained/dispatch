@@ -1,4 +1,4 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { useQuery } from "@tanstack/react-query";
 
 import { highlightCode } from "@/components/app/media-lightbox-syntax";
@@ -28,6 +28,10 @@ function useFetchedText(
     placeholderData: (previousData, previousQuery) =>
       previousQuery?.queryKey[1] === fileName ? previousData : undefined,
     retry: false,
+    // `src` (cache-busted per refresh) is part of the key, so every
+    // in-place refresh of a live-updating file is a distinct cache entry —
+    // don't hold the default 5min of them.
+    gcTime: 30_000,
   });
 
   // React Query drops `data` back to undefined on a failed fetch, which
@@ -38,7 +42,9 @@ function useFetchedText(
   const lastGoodRef = useRef<{ fileName: string; content: string } | null>(
     null
   );
-  if (data !== undefined) lastGoodRef.current = { fileName, content: data };
+  useEffect(() => {
+    if (data !== undefined) lastGoodRef.current = { fileName, content: data };
+  }, [data, fileName]);
   const retained =
     lastGoodRef.current?.fileName === fileName
       ? lastGoodRef.current.content
