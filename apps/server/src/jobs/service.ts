@@ -10,8 +10,8 @@ import type { AppConfig } from "../config.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { buildSelfImprovementGuidance } from "../shared/self-improvement-prompt.js";
 import {
-  getAgentModelOptions,
-  validateAgentModel,
+  applyAgentConfigDefaults,
+  resolveAgentModelForUpdate,
 } from "../shared/agent-models.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { runCommand } from "../shared/lib/run-command.js";
@@ -599,6 +599,8 @@ export class JobService {
       );
     }
 
+    const agentConfig = applyAgentConfigDefaults(input);
+
     // Create a backing template for this job (hidden from Cmd+K by default).
     // If job creation fails, clean up the template to avoid orphans.
     const template = await this.templateStore.createTemplate({
@@ -606,16 +608,7 @@ export class JobService {
       directory: input.directory,
       description: null,
       prompt: input.prompt ?? null,
-      agentType: input.agentType ?? "claude",
-      model:
-        validateAgentModel(
-          input.agentType ?? "claude",
-          input.model ?? undefined
-        ) ?? null,
-      useWorktree: input.useWorktree ?? false,
-      baseBranch: input.baseBranch ?? null,
-      branchName: input.branchName ?? null,
-      fullAccess: input.fullAccess ?? false,
+      ...agentConfig,
       callable: false,
       allowMedia: false,
       selfImprove: input.selfImprove ?? false,
@@ -634,16 +627,7 @@ export class JobService {
         timeoutMs: input.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         needsInputTimeoutMs:
           input.needsInputTimeoutMs ?? DEFAULT_NEEDS_INPUT_TIMEOUT_MS,
-        agentType: input.agentType ?? "claude",
-        model:
-          validateAgentModel(
-            input.agentType ?? "claude",
-            input.model ?? undefined
-          ) ?? null,
-        useWorktree: input.useWorktree ?? false,
-        baseBranch: input.baseBranch ?? null,
-        branchName: input.branchName ?? null,
-        fullAccess: input.fullAccess ?? false,
+        ...agentConfig,
         autoArchive: input.continuationEnabled
           ? true
           : (input.autoArchive ?? true),
@@ -723,20 +707,12 @@ export class JobService {
     if (input.timeoutMs !== undefined) config.timeoutMs = input.timeoutMs;
     if (input.needsInputTimeoutMs !== undefined)
       config.needsInputTimeoutMs = input.needsInputTimeoutMs;
-    const nextAgentType = input.agentType ?? existing.agentType;
-    let nextModel = existing.model;
-    if (input.model !== undefined) {
-      nextModel =
-        validateAgentModel(nextAgentType, input.model ?? undefined) ?? null;
-    } else if (
-      input.agentType !== undefined &&
-      existing.model !== null &&
-      !getAgentModelOptions(nextAgentType).some(
-        (option) => option.id === existing.model
-      )
-    ) {
-      nextModel = null;
-    }
+    const nextModel = resolveAgentModelForUpdate({
+      inputAgentType: input.agentType,
+      inputModel: input.model,
+      existingAgentType: existing.agentType,
+      existingModel: existing.model,
+    });
     if (input.agentType !== undefined) config.agentType = input.agentType;
     if (nextModel !== existing.model || input.model !== undefined)
       config.model = nextModel;

@@ -124,3 +124,77 @@ export function validateAgentModel(
     `Model "${normalizedModel}" is not supported for ${agentType}. Choose a configured model or omit model for the CLI default.`
   );
 }
+
+/** The agent-config fields every job/template create path defaults the same way. */
+export type AgentConfigInput<T extends AgentType = AgentType> = {
+  agentType?: T;
+  model?: string | null;
+  useWorktree?: boolean;
+  baseBranch?: string | null;
+  branchName?: string | null;
+  fullAccess?: boolean;
+};
+
+export type AgentConfigDefaults<T extends AgentType = AgentType> = {
+  agentType: T | "claude";
+  model: string | null;
+  useWorktree: boolean;
+  baseBranch: string | null;
+  branchName: string | null;
+  fullAccess: boolean;
+};
+
+/**
+ * Normalizes the agent-config half of a create payload: agent type falls back
+ * to claude, the model is validated against that type, and the worktree /
+ * access flags take their stored defaults.
+ *
+ * Shared by the jobs and templates create paths, which write the same six
+ * columns from the same optional inputs. Throws when the model is not in the
+ * resolved agent type's catalog, exactly as validateAgentModel does.
+ */
+export function applyAgentConfigDefaults<T extends AgentType = AgentType>(
+  input: AgentConfigInput<T>
+): AgentConfigDefaults<T> {
+  const agentType = input.agentType ?? "claude";
+  return {
+    agentType,
+    model: validateAgentModel(agentType, input.model ?? undefined) ?? null,
+    useWorktree: input.useWorktree ?? false,
+    baseBranch: input.baseBranch ?? null,
+    branchName: input.branchName ?? null,
+    fullAccess: input.fullAccess ?? false,
+  };
+}
+
+/**
+ * Resolves the model an update should store.
+ *
+ * An explicit model in the payload is validated against the agent type the
+ * record will end up with. Otherwise a stored model that the new agent type no
+ * longer offers is dropped, so switching agent type never leaves an
+ * incompatible model behind. Shared by the jobs and templates update paths.
+ */
+export function resolveAgentModelForUpdate(params: {
+  inputAgentType: AgentType | undefined;
+  inputModel: string | null | undefined;
+  existingAgentType: AgentType;
+  existingModel: string | null;
+}): string | null {
+  const nextAgentType = params.inputAgentType ?? params.existingAgentType;
+  if (params.inputModel !== undefined) {
+    return (
+      validateAgentModel(nextAgentType, params.inputModel ?? undefined) ?? null
+    );
+  }
+  if (
+    params.inputAgentType !== undefined &&
+    params.existingModel !== null &&
+    !getAgentModelOptions(nextAgentType).some(
+      (option) => option.id === params.existingModel
+    )
+  ) {
+    return null;
+  }
+  return params.existingModel;
+}

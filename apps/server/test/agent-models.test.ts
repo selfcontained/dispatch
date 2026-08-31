@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest";
 
 import {
   AGENT_MODEL_OPTIONS,
+  applyAgentConfigDefaults,
   describeAgentModelCatalog,
+  resolveAgentModelForUpdate,
   validateAgentModel,
 } from "../src/shared/agent-models.js";
 import { CLI_AGENT_TYPES, type AgentType } from "../src/shared/agent-types.js";
@@ -76,5 +78,101 @@ describe("describeAgentModelCatalog", () => {
     expect(describeAgentModelCatalog(["cursor", "opencode", "terminal"])).toBe(
       "cursor, opencode, and terminal accept no model override — omit model for those."
     );
+  });
+});
+
+describe("applyAgentConfigDefaults", () => {
+  it("falls back to claude and the stored flag defaults", () => {
+    expect(applyAgentConfigDefaults({})).toEqual({
+      agentType: "claude",
+      model: null,
+      useWorktree: false,
+      baseBranch: null,
+      branchName: null,
+      fullAccess: false,
+    });
+  });
+
+  it("keeps supplied values and validates the model against the agent type", () => {
+    expect(
+      applyAgentConfigDefaults({
+        agentType: "codex",
+        model: " gpt-5.5 ",
+        useWorktree: true,
+        baseBranch: "main",
+        branchName: "feature",
+        fullAccess: true,
+      })
+    ).toEqual({
+      agentType: "codex",
+      model: "gpt-5.5",
+      useWorktree: true,
+      baseBranch: "main",
+      branchName: "feature",
+      fullAccess: true,
+    });
+  });
+
+  it("rejects a model the resolved agent type does not offer", () => {
+    expect(() => applyAgentConfigDefaults({ model: "gpt-5.5" })).toThrow(
+      /not supported for claude/
+    );
+  });
+});
+
+describe("resolveAgentModelForUpdate", () => {
+  it("keeps the existing model when neither field is supplied", () => {
+    expect(
+      resolveAgentModelForUpdate({
+        inputAgentType: undefined,
+        inputModel: undefined,
+        existingAgentType: "claude",
+        existingModel: "opus",
+      })
+    ).toBe("opus");
+  });
+
+  it("validates an explicitly supplied model against the next agent type", () => {
+    expect(
+      resolveAgentModelForUpdate({
+        inputAgentType: "codex",
+        inputModel: "gpt-5.5",
+        existingAgentType: "claude",
+        existingModel: "opus",
+      })
+    ).toBe("gpt-5.5");
+  });
+
+  it("clears the model when the payload passes null", () => {
+    expect(
+      resolveAgentModelForUpdate({
+        inputAgentType: undefined,
+        inputModel: null,
+        existingAgentType: "claude",
+        existingModel: "opus",
+      })
+    ).toBeNull();
+  });
+
+  it("drops a stored model the new agent type no longer offers", () => {
+    expect(
+      resolveAgentModelForUpdate({
+        inputAgentType: "codex",
+        inputModel: undefined,
+        existingAgentType: "claude",
+        existingModel: "opus",
+      })
+    ).toBeNull();
+  });
+
+  it("keeps a stored model the new agent type still offers", () => {
+    expect(
+      resolveAgentModelForUpdate({
+        inputAgentType: "claude",
+        inputModel: undefined,
+        existingAgentType: "claude",
+        existingModel: "opus",
+      })
+    ).toBe("opus");
   });
 });
