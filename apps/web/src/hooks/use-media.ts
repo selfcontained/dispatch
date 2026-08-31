@@ -20,8 +20,14 @@ export function useMedia(
     new Set()
   );
   const [lightboxFileName, setLightboxFileName] = useState<string | null>(null);
-  // Snapshot of file names taken when the lightbox opens; see openLightbox.
-  const lightboxOrderRef = useRef<string[] | null>(null);
+  // Snapshot of file names taken when the lightbox opens; feeds lightboxOrder
+  // below. State, not a ref: lightboxOrder is a memo keyed on this value, and
+  // a ref write doesn't invalidate a memo — the fresh snapshot would only
+  // take effect on whatever unrelated render next changed lightboxItems,
+  // leaving n/N and prev/next wrong for everything in between.
+  const [lightboxOrderSnapshot, setLightboxOrderSnapshot] = useState<
+    string[] | null
+  >(null);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
   const clearMediaAnimTimerRef = useRef<number | null>(null);
@@ -51,7 +57,7 @@ export function useMedia(
   // Reset on agent change.
   useEffect(() => {
     previousMediaKeysRef.current = new Set();
-    lightboxOrderRef.current = null;
+    setLightboxOrderSnapshot(null);
     setLightboxFileName(null);
   }, [selectedAgentId]);
 
@@ -174,18 +180,18 @@ export function useMedia(
   // miss and unmount the lightbox, so identity here can't include updatedAt.
   const openLightbox = useCallback(
     (file: MediaFile) => {
-      setLightboxFileName((current) => {
-        // Snapshot the navigation order only on the closed->open transition,
-        // not when switching the already-open item. The list is sorted by
-        // updated_at DESC, so leaving this live would reshuffle prev/next
-        // and n/N under the reader every time any file in the list updates.
-        if (current === null) {
-          lightboxOrderRef.current = mediaFiles.map((f) => f.name);
-        }
-        return file.name;
-      });
+      // Snapshot the navigation order only on the closed->open transition,
+      // not when switching the already-open item. The list is sorted by
+      // updated_at DESC, so leaving this live would reshuffle prev/next
+      // and n/N under the reader every time any file in the list updates.
+      // (Plain read of lightboxFileName, not a functional setState updater —
+      // updaters must stay pure, and this needs to read mediaFiles too.)
+      if (lightboxFileName === null) {
+        setLightboxOrderSnapshot(mediaFiles.map((f) => f.name));
+      }
+      setLightboxFileName(file.name);
     },
-    [mediaFiles]
+    [lightboxFileName, mediaFiles]
   );
 
   const lightboxItems = useMemo(
@@ -207,7 +213,7 @@ export function useMedia(
   // n/N are frozen.
   const lightboxOrder = useMemo(() => {
     const liveNames = new Set(lightboxItems.map((item) => item.file.name));
-    const frozen = (lightboxOrderRef.current ?? []).filter((name) =>
+    const frozen = (lightboxOrderSnapshot ?? []).filter((name) =>
       liveNames.has(name)
     );
     const frozenSet = new Set(frozen);
@@ -215,7 +221,7 @@ export function useMedia(
       if (!frozenSet.has(item.file.name)) frozen.push(item.file.name);
     }
     return frozen;
-  }, [lightboxItems]);
+  }, [lightboxItems, lightboxOrderSnapshot]);
 
   const lightboxIndex = lightboxFileName
     ? lightboxOrder.indexOf(lightboxFileName)
@@ -233,7 +239,7 @@ export function useMedia(
   const setLightboxIndex = useCallback(
     (nextIndex: number | null) => {
       if (nextIndex === null) {
-        lightboxOrderRef.current = null;
+        setLightboxOrderSnapshot(null);
         setLightboxFileName(null);
         return;
       }

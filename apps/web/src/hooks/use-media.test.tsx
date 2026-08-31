@@ -175,4 +175,64 @@ describe("useMedia lightbox identity", () => {
     // ahead of "a.md".
     expect(result.current.lightboxTotalItems).toBe(3);
   });
+
+  it("computes the correct index at open, not one refetch later", async () => {
+    // The bug this pins: the frozen-order snapshot lived in a ref, and
+    // lightboxOrder was a useMemo keyed on lightboxItems. A ref write
+    // doesn't invalidate a memo, so closing a session (which reset the
+    // snapshot) never forced a recompute either — lightboxOrder kept
+    // showing that session's frozen order until some *unrelated* later
+    // change to lightboxItems happened to refresh it. Opening a new
+    // session in between read whatever stale value was left over: right
+    // at open, not one refetch later.
+    let files: MediaFile[] = [
+      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+      file({ name: "c.md", updatedAt: "2026-08-29T00:00:00Z" }),
+    ];
+    apiMock.mockImplementation(async () => ({ files }));
+
+    const { result, rerender } = renderHook(() => useMedia(AGENT_ID, true), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(result.current.mediaFiles).toHaveLength(3));
+
+    // Open "a.md" — this session's frozen order is [a,b,c].
+    act(() =>
+      result.current.openLightbox(
+        result.current.mediaFiles.find((f) => f.name === "a.md")!
+      )
+    );
+
+    // While "a.md" is still open, "c.md" gets updated and jumps to the
+    // front live — the open session correctly stays frozen at [a,b,c]
+    // (that's #2283's fix), so lightboxOrder is [a,b,c] going into close.
+    files = [
+      file({ name: "c.md", updatedAt: "2026-08-31T00:10:00Z" }),
+      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+    ];
+    await act(async () => {
+      await result.current.refreshMedia(AGENT_ID);
+    });
+    rerender();
+    await waitFor(() =>
+      expect(result.current.mediaFiles[0]?.name).toBe("c.md")
+    );
+    expect(result.current.lightboxIndex).toBe(0); // still "a.md", still frozen
+
+    act(() => result.current.setLightboxIndex(null));
+
+    // Open "b.md" — a fresh session, with no further mediaFiles change
+    // after this call. Live order is [c,a,b], so "b.md" is at index 2 —
+    // the stale session-1 frozen order ([a,b,c]) would instead put it at
+    // index 1.
+    act(() =>
+      result.current.openLightbox(
+        result.current.mediaFiles.find((f) => f.name === "b.md")!
+      )
+    );
+    expect(result.current.lightboxIndex).toBe(2);
+  });
 });
