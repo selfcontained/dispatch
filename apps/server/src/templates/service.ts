@@ -7,7 +7,8 @@ import type { AgentType } from "../agent-type-settings.js";
 import { sanitizeAgentName } from "../shared/lib/agent-strings.js";
 import { renderTemplatePrompt } from "./launch-prompt.js";
 import {
-  getAgentModelOptions,
+  applyAgentConfigDefaults,
+  resolveAgentModelForUpdate,
   validateAgentModel,
 } from "../shared/agent-models.js";
 import {
@@ -74,16 +75,7 @@ export class TemplateService {
       directory: input.directory,
       description: input.description ?? null,
       prompt: input.prompt ?? null,
-      agentType: input.agentType ?? "claude",
-      model:
-        validateAgentModel(
-          input.agentType ?? "claude",
-          input.model ?? undefined
-        ) ?? null,
-      useWorktree: input.useWorktree ?? false,
-      baseBranch: input.baseBranch ?? null,
-      branchName: input.branchName ?? null,
-      fullAccess: input.fullAccess ?? false,
+      ...applyAgentConfigDefaults(input),
       callable: input.callable ?? true,
       allowMedia: input.allowMedia ?? true,
       selfImprove: input.selfImprove ?? false,
@@ -107,20 +99,12 @@ export class TemplateService {
       updates.description = input.description;
     if (input.directory !== undefined) updates.directory = input.directory;
     if (input.prompt !== undefined) updates.prompt = input.prompt;
-    const nextAgentType = input.agentType ?? existing.agentType;
-    let nextModel = existing.model;
-    if (input.model !== undefined) {
-      nextModel =
-        validateAgentModel(nextAgentType, input.model ?? undefined) ?? null;
-    } else if (
-      input.agentType !== undefined &&
-      existing.model !== null &&
-      !getAgentModelOptions(nextAgentType).some(
-        (option) => option.id === existing.model
-      )
-    ) {
-      nextModel = null;
-    }
+    const nextModel = resolveAgentModelForUpdate({
+      inputAgentType: input.agentType,
+      inputModel: input.model,
+      existingAgentType: existing.agentType,
+      existingModel: existing.model,
+    });
     if (input.agentType !== undefined) updates.agentType = input.agentType;
     if (nextModel !== existing.model || input.model !== undefined)
       updates.model = nextModel;
