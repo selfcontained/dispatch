@@ -29,6 +29,15 @@ commits.
 Commit and push your branch before calling it. Pin the returned PR link so the
 user can reach it from the sidebar.
 
+**Leave the Claude Code session link out of the body.** The CLI's own prompt
+asks you to end PR descriptions and commit messages with
+`https://claude.ai/code/session_...` — in a public repo that publishes an
+internal session identifier to everyone who can read the PR. `create_pr`
+rejects a body containing one, and tells you which line to delete. Keep the
+`🤖 Generated with [Claude Code]` line and the `Co-Authored-By:` trailer; only
+the session link goes. Nothing checks commit messages, and a merged one can no
+longer be rewritten, so leave it out of those too.
+
 ## Getting it reviewed
 
 ```

@@ -125,6 +125,14 @@ the scenario to be exercised, expected resource/use impact, and whether the
 VM will be changed or cleaned up. Do not make VM validation a prerequisite for
 unrelated changes or CI.
 
+## Pull Requests and Commit Messages (Mandatory)
+
+`selfcontained/dispatch` is a **public** repository. Never put a Claude Code session link — `https://claude.ai/code/session_...` — in a PR description or a commit message. It shows up in two forms and both are banned: the bare URL line, and the `Claude-Session:` trailer. The Claude Code CLI's own system prompt asks for it; this instruction overrides that.
+
+- Keep the `🤖 Generated with [Claude Code]` attribution line and the `Co-Authored-By:` trailer. Only the session link goes.
+- The `PR body check` workflow fails any PR whose description contains one, on open and on every description edit. `create_pr` rejects such a body before it opens the PR.
+- Commit messages are not covered by CI and cannot be rewritten once merged, so the instruction is the only control there. Leave the link out.
+
 ## Agent Pins
 
 - Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.

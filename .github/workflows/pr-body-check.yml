@@ -1,0 +1,33 @@
+name: PR body check
+
+on:
+  pull_request:
+    # `edited` and `reopened` are the point of this trigger list: without them
+    # a session link can be edited back into the description behind the last
+    # green check. Kept separate from ci.yml so a description edit re-runs a
+    # ten-second job instead of the full suite.
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  session-links:
+    name: No session links in PR description
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Check PR description for Claude Code session links
+        env:
+          # Passed through the environment, never interpolated into the shell:
+          # the body is untrusted input on a public repo.
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: bun bin/check-pr-body.ts

@@ -3,6 +3,7 @@ import {
   resolveCurrentBranch,
 } from "../git/git-context.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
+import { findSessionLinks, formatSessionLinkFailure } from "./pr-body-lint.js";
 
 export type CreatePrInput = {
   cwd: string;
@@ -73,6 +74,18 @@ export async function createPr(
     throw new GitHubPrError(
       `Current branch is already "${baseBranch}". Create the PR from a feature branch instead.`,
       409
+    );
+  }
+
+  // Fast feedback before anything is published. The `pr-body-check` workflow
+  // is the actual gate — it also covers hand-opened PRs, later edits, and the
+  // `--fill` path below, where the body comes from commit messages this code
+  // never sees.
+  const sessionLinks = findSessionLinks(input.body ?? "");
+  if (sessionLinks.length > 0) {
+    throw new GitHubPrError(
+      formatSessionLinkFailure(sessionLinks, "The body passed to create_pr"),
+      400
     );
   }
 

@@ -163,6 +163,36 @@ describe("github pr services", () => {
     );
   });
 
+  it("rejects a body containing a Claude Code session link before pushing", async () => {
+    const repoRoot = "/tmp/repo";
+    const runner = vi.fn(async (_command: string, args: string[]) => {
+      const key = args.join(" ");
+      switch (key) {
+        case `-C ${repoRoot} rev-parse --show-toplevel`:
+          return { exitCode: 0, stdout: repoRoot, stderr: "" };
+        case `-C ${repoRoot} symbolic-ref --short -q HEAD`:
+          return { exitCode: 0, stdout: "feature/pr-tools", stderr: "" };
+        default:
+          throw new Error(`Unexpected command: ${key}`);
+      }
+    });
+
+    await expect(
+      createPr(
+        {
+          cwd: repoRoot,
+          title: "Add a thing",
+          body: "Summary.\n\nClaude-Session: https://claude.ai/code/session_01abc",
+        },
+        runner
+      )
+    ).rejects.toThrow(/line 3: Claude-Session:/);
+
+    // The `default` branch above would have thrown on any git call past
+    // `symbolic-ref`, which is what proves nothing was fetched or pushed.
+    expect(runner).toHaveBeenCalledTimes(2);
+  });
+
   it("reports PR status details", async () => {
     const repoRoot = "/tmp/repo";
     const runner = vi.fn(async (_command: string, args: string[]) => {

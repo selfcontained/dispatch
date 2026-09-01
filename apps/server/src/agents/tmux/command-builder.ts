@@ -275,7 +275,7 @@ export function buildLaunchGuidance(
     );
     if (!trimmed) {
       rules.push(
-        "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI."
+        "For pull requests, use the create_pr MCP tool — not built-in PR skills or gh CLI. Leave your Claude Code session link out of PR bodies and commit messages; the repo may be public. The Generated-with and Co-Authored-By lines are fine."
       );
     }
     if (autoReview) {
