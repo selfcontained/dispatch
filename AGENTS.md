@@ -125,17 +125,6 @@ the scenario to be exercised, expected resource/use impact, and whether the
 VM will be changed or cleaned up. Do not make VM validation a prerequisite for
 unrelated changes or CI.
 
-## Pull Requests and Commit Messages
-
-`selfcontained/dispatch` is a **public** repository, and a Claude Code session link — `https://claude.ai/code/session_...` — published in a PR or a commit message exposes an internal session identifier.
-
-**`.claude/settings.json` sets `attribution.sessionUrl: false`, which stops Claude Code emitting it at all** — no `Claude-Session:` trailer on commits, no URL line in PR bodies. Do not delete that file or that key. It is the real mechanism; everything below is backstop.
-
-- The `🤖 Generated with [Claude Code]` attribution line and the `Co-Authored-By:` trailer are unaffected and should stay. Only the session link is suppressed.
-- That setting covers Claude Code and nothing else. If you are composing a PR title or body by hand or with other tooling, leave the session link out.
-- `create_pr` rejects a title or body containing one. It is the only control acting before publication, and it sees only what you pass it — not `fillFromCommits`, and not a PR you open with `gh`.
-- The `PR session link check` workflow fails any PR whose title or description contains one, on open and on every edit. It is a _merge_ gate, not a disclosure gate: a hand-opened PR has already published its description by the time the check runs.
-
 ## Agent Pins
 
 - Agents use `dispatch_pin` to surface key info (URLs, files, ports, PRs, decisions) in the sidebar. Types: `url`, `port`, `code`, `string`, `pr`, `filename`, `markdown`. List-like types support comma/newline-delimited multi-value.

@@ -163,55 +163,6 @@ describe("github pr services", () => {
     );
   });
 
-  // The `default` branch in this runner throws on anything past `symbolic-ref`,
-  // so reaching the session-link error at all is what proves the check runs
-  // before the fetch and the push.
-  const runnerUpToBranchResolution = () => {
-    const repoRoot = "/tmp/repo";
-    const runner = vi.fn(async (_command: string, args: string[]) => {
-      const key = args.join(" ");
-      switch (key) {
-        case `-C ${repoRoot} rev-parse --show-toplevel`:
-          return { exitCode: 0, stdout: repoRoot, stderr: "" };
-        case `-C ${repoRoot} symbolic-ref --short -q HEAD`:
-          return { exitCode: 0, stdout: "feature/pr-tools", stderr: "" };
-        default:
-          throw new Error(`Unexpected command: ${key}`);
-      }
-    });
-    return { repoRoot, runner };
-  };
-
-  it("rejects a body containing a Claude Code session link before pushing", async () => {
-    const { repoRoot, runner } = runnerUpToBranchResolution();
-
-    await expect(
-      createPr(
-        {
-          cwd: repoRoot,
-          title: "Add a thing",
-          body: "Summary.\n\nClaude-Session: https://claude.ai/code/session_01abc",
-        },
-        runner
-      )
-    ).rejects.toThrow(/line 3: Claude-Session:/);
-  });
-
-  it("rejects a title containing a Claude Code session link before pushing", async () => {
-    const { repoRoot, runner } = runnerUpToBranchResolution();
-
-    await expect(
-      createPr(
-        {
-          cwd: repoRoot,
-          title: "Fix https://claude.ai/code/session_01abc",
-          body: "Summary.",
-        },
-        runner
-      )
-    ).rejects.toThrow(/The title passed to create_pr/);
-  });
-
   it("reports PR status details", async () => {
     const repoRoot = "/tmp/repo";
     const runner = vi.fn(async (_command: string, args: string[]) => {

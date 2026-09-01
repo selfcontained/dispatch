@@ -55,12 +55,7 @@ export function registerPrTools(
             .default(defaultBaseBranch)
             .describe("Base branch to target."),
           title: z.string().optional().describe("Explicit PR title."),
-          body: z
-            .string()
-            .optional()
-            .describe(
-              "Explicit PR body. Must not contain a Claude Code session link (claude.ai/code/session_...) — the repo may be public, and the call is rejected if the title or body does. Keep the Generated-with and Co-Authored-By lines."
-            ),
+          body: z.string().optional().describe("Explicit PR body."),
           draft: z
             .boolean()
             .default(false)

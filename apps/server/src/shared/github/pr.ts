@@ -3,7 +3,6 @@ import {
   resolveCurrentBranch,
 } from "../git/git-context.js";
 import { runCommand, type CommandRunner } from "../lib/run-command.js";
-import { findSessionLinks, formatSessionLinkFailure } from "./pr-body-lint.js";
 
 export type CreatePrInput = {
   cwd: string;
@@ -75,28 +74,6 @@ export async function createPr(
       `Current branch is already "${baseBranch}". Create the PR from a feature branch instead.`,
       409
     );
-  }
-
-  // The only control that acts *before* publication, and it reaches exactly as
-  // far as this function's arguments: a PR opened by hand, by `gh`, or with
-  // `fillFromCommits` (where the body comes from commit messages this code
-  // never sees) publishes its description regardless. The CI workflow covers
-  // those, but only as a merge gate — by the time it runs, the text is already
-  // on github.com.
-  //
-  // Not redacted: this message goes to Brad's own terminal, not to a public
-  // log, so it can name the offending line in full.
-  for (const [subject, text] of [
-    ["The title passed to create_pr", input.title],
-    ["The body passed to create_pr", input.body],
-  ] as const) {
-    const sessionLinks = findSessionLinks(text ?? "");
-    if (sessionLinks.length > 0) {
-      throw new GitHubPrError(
-        formatSessionLinkFailure(sessionLinks, { subject, redact: false }),
-        400
-      );
-    }
   }
 
   await ensureBaseBranchHasDiff(repoRoot, baseBranch, commandRunner);

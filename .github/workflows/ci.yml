@@ -9,6 +9,26 @@ jobs:
     runs-on: self-hosted
 
     steps:
+      # First, and before checkout, so a bad description fails in seconds
+      # rather than after the full suite. `.claude/settings.json` sets
+      # attribution.sessionUrl:false so Claude Code stops emitting these; this
+      # is the check that tells us if that ever stops working.
+      #
+      # Only line numbers are reported, never the matched text: this repo is
+      # public, so are its Actions logs, and echoing the link here would
+      # republish the identifier somewhere editing the PR cannot reach.
+      - name: No Claude Code session links in the PR title or description
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: |
+          lines=$(printf '%s\n%s' "$PR_TITLE" "$PR_BODY" \
+            | grep -in 'claude\.ai/code/session' | cut -d: -f1 | tr '\n' ' ') || true
+          if [ -n "$lines" ]; then
+            echo "::error::Remove the Claude Code session link from the PR title/description (line 1 is the title, line 2 onward is the description). Offending lines: $lines"
+            exit 1
+          fi
+
       - uses: actions/checkout@v6
         with:
           # ci.yml doesn't call gh/git push/private-registry work (that's release.yml).
