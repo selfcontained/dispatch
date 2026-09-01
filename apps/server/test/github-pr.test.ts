@@ -163,7 +163,10 @@ describe("github pr services", () => {
     );
   });
 
-  it("rejects a body containing a Claude Code session link before pushing", async () => {
+  // The `default` branch in this runner throws on anything past `symbolic-ref`,
+  // so reaching the session-link error at all is what proves the check runs
+  // before the fetch and the push.
+  const runnerUpToBranchResolution = () => {
     const repoRoot = "/tmp/repo";
     const runner = vi.fn(async (_command: string, args: string[]) => {
       const key = args.join(" ");
@@ -176,6 +179,11 @@ describe("github pr services", () => {
           throw new Error(`Unexpected command: ${key}`);
       }
     });
+    return { repoRoot, runner };
+  };
+
+  it("rejects a body containing a Claude Code session link before pushing", async () => {
+    const { repoRoot, runner } = runnerUpToBranchResolution();
 
     await expect(
       createPr(
@@ -187,10 +195,21 @@ describe("github pr services", () => {
         runner
       )
     ).rejects.toThrow(/line 3: Claude-Session:/);
+  });
 
-    // The `default` branch above would have thrown on any git call past
-    // `symbolic-ref`, which is what proves nothing was fetched or pushed.
-    expect(runner).toHaveBeenCalledTimes(2);
+  it("rejects a title containing a Claude Code session link before pushing", async () => {
+    const { repoRoot, runner } = runnerUpToBranchResolution();
+
+    await expect(
+      createPr(
+        {
+          cwd: repoRoot,
+          title: "Fix https://claude.ai/code/session_01abc",
+          body: "Summary.",
+        },
+        runner
+      )
+    ).rejects.toThrow(/The title passed to create_pr/);
   });
 
   it("reports PR status details", async () => {

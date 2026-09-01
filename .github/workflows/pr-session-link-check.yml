@@ -1,0 +1,48 @@
+name: PR session link check
+
+# `pull_request_target`, not `pull_request`, and this is the whole point of the
+# job: `pull_request` runs the workflow *and the code it checks out* from the
+# PR's own merge ref, so the same PR that adds a session link can edit the
+# checker to pass. `pull_request_target` runs the copy already on the base
+# branch, which the PR cannot touch.
+#
+# The usual `pull_request_target` footgun is checking out and executing PR head
+# code with an elevated token. This job never does: it checks out the base ref
+# explicitly, holds only `contents: read`, and reads nothing from the PR except
+# the title and body out of the event payload.
+#
+# The cost is that a PR editing this check runs the *previous* version of it,
+# including the PR that first adds the workflow — which therefore gets no check
+# at all. That is the correct trade: a gate you can disable from inside the
+# thing being gated is not a gate.
+on:
+  pull_request_target:
+    # `edited` and `reopened` matter as much as `opened`: without them a link
+    # can be edited back in behind the last green check.
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  session-links:
+    name: No session links in PR title or body
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.base.ref }}
+          persist-credentials: false
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: "1.3.13"
+
+      - name: Check PR title and body for Claude Code session links
+        env:
+          # Passed through the environment, never interpolated into the shell:
+          # both are untrusted, attacker-controlled input on a public repo.
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: bun bin/check-pr-body.ts
