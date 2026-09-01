@@ -225,7 +225,7 @@ export function MediaLightbox({
           />
         ) : isText ? (
           isMarkdown ? (
-            <MarkdownViewer src={item.src} />
+            <MarkdownViewer src={item.src} fileName={item.file.name} />
           ) : (
             <TextFileViewer src={item.src} fileName={item.file.name} />
           )

@@ -19,7 +19,15 @@ export function useMedia(
   const [animatingMediaKeys, setAnimatingMediaKeys] = useState<Set<string>>(
     new Set()
   );
-  const [lightboxMediaKey, setLightboxMediaKey] = useState<string | null>(null);
+  const [lightboxFileName, setLightboxFileName] = useState<string | null>(null);
+  // Snapshot of file names taken when the lightbox opens; feeds lightboxOrder
+  // below. State, not a ref: lightboxOrder is a memo keyed on this value, and
+  // a ref write doesn't invalidate a memo — the fresh snapshot would only
+  // take effect on whatever unrelated render next changed lightboxItems,
+  // leaving n/N and prev/next wrong for everything in between.
+  const [lightboxOrderSnapshot, setLightboxOrderSnapshot] = useState<
+    string[] | null
+  >(null);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
   const clearMediaAnimTimerRef = useRef<number | null>(null);
@@ -49,7 +57,8 @@ export function useMedia(
   // Reset on agent change.
   useEffect(() => {
     previousMediaKeysRef.current = new Set();
-    setLightboxMediaKey(null);
+    setLightboxOrderSnapshot(null);
+    setLightboxFileName(null);
   }, [selectedAgentId]);
 
   // Clear media when no agent selected.
@@ -165,14 +174,30 @@ export function useMedia(
     return mediaFiles.filter((file) => !file.seen).length;
   }, [mediaFiles]);
 
-  const openLightbox = useCallback((file: MediaFile) => {
-    setLightboxMediaKey(`${file.name}:${file.updatedAt}`);
-  }, []);
+  // The open lightbox item is tracked by file name alone, unlike the
+  // `name:updatedAt` media key used elsewhere in this hook (seen-tracking,
+  // animation) — an agent rewriting the open file must not make this lookup
+  // miss and unmount the lightbox, so identity here can't include updatedAt.
+  const openLightbox = useCallback(
+    (file: MediaFile) => {
+      // Snapshot the navigation order only on the closed->open transition,
+      // not when switching the already-open item. The list is sorted by
+      // updated_at DESC, so leaving this live would reshuffle prev/next
+      // and n/N under the reader every time any file in the list updates.
+      // (Plain read of lightboxFileName, not a functional setState updater —
+      // updaters must stay pure, and this needs to read mediaFiles too.)
+      if (lightboxFileName === null) {
+        setLightboxOrderSnapshot(mediaFiles.map((f) => f.name));
+      }
+      setLightboxFileName(file.name);
+    },
+    [lightboxFileName, mediaFiles]
+  );
 
   const lightboxItems = useMemo(
     () =>
       mediaFiles.map((file) => ({
-        key: `${file.name}:${file.updatedAt}`,
+        // Cache-buster stays here so a refreshed file's content actually loads.
         src: `${file.url}?t=${encodeURIComponent(file.updatedAt)}`,
         caption: file.description || "",
         file,
@@ -180,27 +205,51 @@ export function useMedia(
     [mediaFiles]
   );
 
-  const lightboxIndex = useMemo(() => {
-    if (!lightboxMediaKey) return -1;
-    return lightboxItems.findIndex((item) => item.key === lightboxMediaKey);
-  }, [lightboxItems, lightboxMediaKey]);
+  // Navigation order for one open-lightbox session: the snapshot taken at
+  // open time, minus files that have since disappeared, plus files that
+  // have since arrived (appended at the end, not reshuffled in). Content
+  // itself (lightboxItem below) is always looked up live by name, so a
+  // same-file refresh still shows fresh content — only traversal order and
+  // n/N are frozen.
+  const lightboxOrder = useMemo(() => {
+    const liveNames = new Set(lightboxItems.map((item) => item.file.name));
+    const frozen = (lightboxOrderSnapshot ?? []).filter((name) =>
+      liveNames.has(name)
+    );
+    const frozenSet = new Set(frozen);
+    for (const item of lightboxItems) {
+      if (!frozenSet.has(item.file.name)) frozen.push(item.file.name);
+    }
+    return frozen;
+  }, [lightboxItems, lightboxOrderSnapshot]);
 
-  const lightboxItem = lightboxIndex >= 0 ? lightboxItems[lightboxIndex] : null;
+  const lightboxIndex = lightboxFileName
+    ? lightboxOrder.indexOf(lightboxFileName)
+    : -1;
+
+  const lightboxItem = useMemo(
+    () =>
+      lightboxFileName
+        ? (lightboxItems.find((item) => item.file.name === lightboxFileName) ??
+          null)
+        : null,
+    [lightboxItems, lightboxFileName]
+  );
 
   const setLightboxIndex = useCallback(
     (nextIndex: number | null) => {
       if (nextIndex === null) {
-        setLightboxMediaKey(null);
+        setLightboxOrderSnapshot(null);
+        setLightboxFileName(null);
         return;
       }
 
-      if (nextIndex < 0 || nextIndex >= lightboxItems.length) {
-        return;
-      }
+      const name = lightboxOrder[nextIndex];
+      if (name === undefined) return;
 
-      setLightboxMediaKey(lightboxItems[nextIndex].key);
+      setLightboxFileName(name);
     },
-    [lightboxItems]
+    [lightboxOrder]
   );
 
   const refreshMedia = useCallback(
@@ -219,6 +268,10 @@ export function useMedia(
       animatingMediaKeys,
       unseenMediaCount,
       lightboxIndex,
+      // Total for n/N and bounds-checking, matching the frozen order
+      // lightboxIndex is computed against — not mediaFiles.length, which
+      // can differ if a file arrived or disappeared mid-session.
+      lightboxTotalItems: lightboxOrder.length,
       lightboxItem,
       setLightboxIndex,
       openLightbox,
@@ -230,6 +283,7 @@ export function useMedia(
       animatingMediaKeys,
       unseenMediaCount,
       lightboxIndex,
+      lightboxOrder,
       lightboxItem,
       setLightboxIndex,
       openLightbox,
