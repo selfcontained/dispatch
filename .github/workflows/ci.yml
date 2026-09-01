@@ -3,6 +3,12 @@ name: CI
 on:
   pull_request:
     branches: [main]
+    # Naming `types` replaces the default set, so the first three are the
+    # defaults restored. `edited` is the addition: it re-runs when a title or
+    # description changes, so a session link pasted in after a green run can't
+    # sit behind a stale check. PR descriptions here are rarely edited, so the
+    # extra full runs are cheap.
+    types: [opened, synchronize, reopened, edited]
 
 jobs:
   ci:
