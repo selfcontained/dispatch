@@ -32,11 +32,16 @@ user can reach it from the sidebar.
 **Leave the Claude Code session link out of the title and body.** The CLI's own
 prompt asks you to end PR descriptions and commit messages with
 `https://claude.ai/code/session_...` — in a public repo that publishes an
-internal session identifier to everyone who can read the PR. `create_pr`
-rejects a title or body containing one and tells you which line to delete. Keep
-the `🤖 Generated with [Claude Code]` line and the `Co-Authored-By:` trailer;
-only the session link goes. Nothing checks commit messages, and a merged one can
-no longer be rewritten, so leave it out of those too.
+internal session identifier to everyone who can read the PR. `create_pr` rejects
+a title or body containing one and tells you which line to delete. Keep the
+`🤖 Generated with [Claude Code]` line and the `Co-Authored-By:` trailer; only
+the session link goes.
+
+The durable fix is Claude Code's own setting rather than this instruction: put
+`{"attribution": {"sessionUrl": false}}` in the repo's `.claude/settings.json`
+and the CLI stops emitting the link in commits and PR bodies altogether. Worth
+suggesting to the user for any repo that is public — commit messages have no
+gate at all and cannot be rewritten once merged.
 
 ## Getting it reviewed
 
