@@ -2,6 +2,11 @@ import { useCallback, useState } from "react";
 import { toast } from "sonner";
 
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
+import {
+  EMPTY_TEMPLATE_DRAFT,
+  templateConfigFromDraft,
+  useTemplateDraft,
+} from "@/components/app/automations-template-draft";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
@@ -45,43 +50,21 @@ function CreateTemplateDialogContent({
   enabledAgentTypes: AgentType[];
 }): JSX.Element {
   const { addTemplate } = useTemplateActions();
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [directory, setDirectory] = useState("");
-  const [prompt, setPrompt] = useState("");
-  const [agentType, setAgentType] = useState<AgentType>("claude");
-  const [model, setModel] = useState<string | null>(null);
-  const [useWorktree, setUseWorktree] = useState(false);
-  const [baseBranch, setBaseBranch] = useState("main");
-  const [branchName, setBranchName] = useState("");
-  const [fullAccess, setFullAccess] = useState(false);
-  const [callable, setCallable] = useState(true);
-  const [allowMedia, setAllowMedia] = useState(true);
-  const [selfImprove, setSelfImprove] = useState(false);
+  const { draft, fieldProps } = useTemplateDraft(EMPTY_TEMPLATE_DRAFT);
   const [creating, setCreating] = useState(false);
   const { add: addCwdHistory } = useCwdHistory();
 
   const handleCreate = useCallback(() => {
-    const isTerminal = agentType === "terminal";
     setCreating(true);
     addTemplate
       .mutateAsync({
-        name,
-        description: description.trim() || null,
-        directory,
-        prompt: isTerminal ? null : prompt || null,
-        agentType,
-        model,
-        useWorktree: isTerminal ? false : useWorktree,
-        baseBranch: isTerminal ? null : useWorktree ? baseBranch : null,
-        branchName: isTerminal ? null : useWorktree ? branchName || null : null,
-        fullAccess: isTerminal ? false : fullAccess,
-        callable,
-        allowMedia: isTerminal ? false : allowMedia,
-        selfImprove: isTerminal ? false : selfImprove,
+        name: draft.name,
+        directory: draft.directory,
+        model: draft.model,
+        ...templateConfigFromDraft(draft),
       })
       .then(() => {
-        addCwdHistory(directory);
+        addCwdHistory(draft.directory);
         onOpenChange(false);
         toast.success("Template created.");
       })
@@ -89,26 +72,9 @@ function CreateTemplateDialogContent({
         toast.error(`Failed to create template: ${err.message}`);
       })
       .finally(() => setCreating(false));
-  }, [
-    addTemplate,
-    name,
-    description,
-    directory,
-    prompt,
-    agentType,
-    model,
-    useWorktree,
-    baseBranch,
-    branchName,
-    fullAccess,
-    callable,
-    allowMedia,
-    selfImprove,
-    addCwdHistory,
-    onOpenChange,
-  ]);
+  }, [addTemplate, draft, addCwdHistory, onOpenChange]);
 
-  const canCreate = name.trim() && directory.trim();
+  const canCreate = draft.name.trim() && draft.directory.trim();
 
   return (
     <DialogContent
@@ -134,33 +100,8 @@ function CreateTemplateDialogContent({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-1">
         <TemplateConfigFields
-          agentType={agentType}
-          onAgentTypeChange={setAgentType}
-          model={model}
-          onModelChange={setModel}
+          {...fieldProps}
           enabledAgentTypes={enabledAgentTypes}
-          name={name}
-          onNameChange={setName}
-          description={description}
-          onDescriptionChange={setDescription}
-          directory={directory}
-          onDirectoryChange={setDirectory}
-          useWorktree={useWorktree}
-          onUseWorktreeChange={setUseWorktree}
-          baseBranch={baseBranch}
-          onBaseBranchChange={setBaseBranch}
-          branchName={branchName}
-          onBranchNameChange={setBranchName}
-          fullAccess={fullAccess}
-          onFullAccessChange={setFullAccess}
-          callable={callable}
-          onCallableChange={setCallable}
-          allowMedia={allowMedia}
-          onAllowMediaChange={setAllowMedia}
-          selfImprove={selfImprove}
-          onSelfImproveChange={setSelfImprove}
-          prompt={prompt}
-          onPromptChange={setPrompt}
           autoFocusName
         />
       </div>

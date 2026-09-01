@@ -5,6 +5,11 @@ import { toast } from "sonner";
 
 import { TemplateConfigFields } from "@/components/app/automations-form-fields";
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
+import {
+  templateConfigFromDraft,
+  templateDraftFrom,
+  useTemplateDraft,
+} from "@/components/app/automations-template-draft";
 import { useCwdHistory } from "@/components/app/create-agent-dialog-utils";
 import { useAgentModelCatalog } from "@/hooks/use-agent-model-catalog";
 import type { AgentType } from "@/lib/agent-types";
@@ -62,38 +67,16 @@ function TemplateDetail({
     useTemplateActions();
   const { add: addCwdHistory } = useCwdHistory();
 
-  const [displayName, setDisplayName] = useState(template.name);
-  const [description, setDescription] = useState(template.description ?? "");
-  const [directory, setDirectory] = useState(template.directory);
-  const [prompt, setPrompt] = useState(template.prompt ?? "");
-  const [agentType, setAgentType] = useState<AgentType>(template.agentType);
-  const [model, setModel] = useState<string | null>(template.model);
-  const { normalizeModel } = useAgentModelCatalog(agentType);
-  const [useWorktree, setUseWorktree] = useState(template.useWorktree);
-  const [baseBranch, setBaseBranch] = useState(template.baseBranch ?? "main");
-  const [branchName, setBranchName] = useState(template.branchName ?? "");
-  const [fullAccess, setFullAccess] = useState(template.fullAccess);
-  const [callable, setCallable] = useState(template.callable);
-  const [allowMedia, setAllowMedia] = useState(template.allowMedia);
-  const [selfImprove, setSelfImprove] = useState(template.selfImprove);
+  const { draft, setDraft, fieldProps } = useTemplateDraft(
+    templateDraftFrom(template)
+  );
+  const { normalizeModel } = useAgentModelCatalog(draft.agentType);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [removeDialogOpen, setRemoveDialogOpen] = useState(false);
   const [launchDialogOpen, setLaunchDialogOpen] = useState(false);
 
   useEffect(() => {
-    setDisplayName(template.name);
-    setDescription(template.description ?? "");
-    setDirectory(template.directory);
-    setPrompt(template.prompt ?? "");
-    setAgentType(template.agentType);
-    setModel(template.model);
-    setUseWorktree(template.useWorktree);
-    setBaseBranch(template.baseBranch ?? "main");
-    setBranchName(template.branchName ?? "");
-    setFullAccess(template.fullAccess);
-    setCallable(template.callable);
-    setAllowMedia(template.allowMedia);
-    setSelfImprove(template.selfImprove);
+    setDraft(templateDraftFrom(template));
     setSaveError(null);
     setRemoveDialogOpen(false);
     setLaunchDialogOpen(false);
@@ -109,52 +92,24 @@ function TemplateDetail({
     setLaunchDialogOpen(true);
   }, []);
 
-  const canSave = !!displayName.trim() && !!directory.trim();
+  const canSave = !!draft.name.trim() && !!draft.directory.trim();
 
   const handleSave = useCallback(() => {
-    const isTerminal = agentType === "terminal";
     setSaveError(null);
     updateTemplate
       .mutateAsync({
         id: template.id,
-        name: displayName.trim(),
-        description: description.trim() || null,
-        directory: directory.trim(),
-        prompt: isTerminal ? null : prompt || null,
-        agentType,
-        model: normalizeModel(model),
-        useWorktree: isTerminal ? false : useWorktree,
-        baseBranch: isTerminal ? null : useWorktree ? baseBranch : null,
-        branchName: isTerminal ? null : useWorktree ? branchName || null : null,
-        fullAccess: isTerminal ? false : fullAccess,
-        callable,
-        allowMedia: isTerminal ? false : allowMedia,
-        selfImprove: isTerminal ? false : selfImprove,
+        name: draft.name.trim(),
+        directory: draft.directory.trim(),
+        model: normalizeModel(draft.model),
+        ...templateConfigFromDraft(draft),
       })
       .then(() => {
-        addCwdHistory(directory);
+        addCwdHistory(draft.directory);
         toast.success("Settings saved.");
       })
       .catch((err: Error) => setSaveError(err.message));
-  }, [
-    updateTemplate,
-    template.id,
-    displayName,
-    description,
-    directory,
-    prompt,
-    agentType,
-    model,
-    normalizeModel,
-    useWorktree,
-    baseBranch,
-    branchName,
-    fullAccess,
-    callable,
-    allowMedia,
-    selfImprove,
-    addCwdHistory,
-  ]);
+  }, [updateTemplate, template.id, draft, normalizeModel, addCwdHistory]);
 
   const handleDelete = useCallback(() => {
     removeTemplate
@@ -227,33 +182,8 @@ function TemplateDetail({
             </p>
             <div className="mt-4">
               <TemplateConfigFields
-                agentType={agentType}
-                onAgentTypeChange={setAgentType}
-                model={model}
-                onModelChange={setModel}
+                {...fieldProps}
                 enabledAgentTypes={enabledAgentTypes}
-                name={displayName}
-                onNameChange={setDisplayName}
-                description={description}
-                onDescriptionChange={setDescription}
-                directory={directory}
-                onDirectoryChange={setDirectory}
-                useWorktree={useWorktree}
-                onUseWorktreeChange={setUseWorktree}
-                baseBranch={baseBranch}
-                onBaseBranchChange={setBaseBranch}
-                branchName={branchName}
-                onBranchNameChange={setBranchName}
-                fullAccess={fullAccess}
-                onFullAccessChange={setFullAccess}
-                callable={callable}
-                onCallableChange={setCallable}
-                allowMedia={allowMedia}
-                onAllowMediaChange={setAllowMedia}
-                selfImprove={selfImprove}
-                onSelfImproveChange={setSelfImprove}
-                prompt={prompt}
-                onPromptChange={setPrompt}
               />
             </div>
 
