@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect } from "react";
 import { ChevronLeft, ChevronRight, X } from "lucide-react";
 
 import { MediaActions } from "@/components/app/media-lightbox-actions";
@@ -51,70 +51,6 @@ export function MediaLightbox({
 }: MediaLightboxProps): JSX.Element | null {
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
-  // "name:updatedAt" of the version currently flashing "Updated", or null.
-  const [announcedFor, setAnnouncedFor] = useState<string | null>(null);
-  const [isTextContentStale, setIsTextContentStale] = useState(false);
-  const lastSeenRef = useRef<{ name: string; updatedAt: string } | null>(null);
-  const chipTimerRef = useRef<number | null>(null);
-
-  const clearChipTimer = () => {
-    if (chipTimerRef.current !== null) {
-      window.clearTimeout(chipTimerRef.current);
-      chipTimerRef.current = null;
-    }
-  };
-
-  // A visible + screen-reader cue when the open file's content changes in
-  // place (same identity, new updatedAt) — otherwise the same-scrollTop
-  // content swap (or an HTML/PDF iframe resetting to the top; see the
-  // sandbox comment below) reads as a glitch, not as "this was updated".
-  // Driven off item.file.updatedAt rather than per-viewer content diffing
-  // so it covers every lightbox type uniformly, markdown/text/HTML/PDF
-  // alike, without reaching into the sandboxed iframe.
-  //
-  // Deps are the primitive name/updatedAt, not `item` itself: `item` is a
-  // fresh object on every mediaFiles refetch (including ones that change
-  // nothing), and depending on the object would re-run this effect — and
-  // clear+never-rearm the chip timer via the cleanup below — on every one
-  // of those, not just on a real update.
-  useEffect(() => {
-    if (!item) {
-      lastSeenRef.current = null;
-      setAnnouncedFor(null);
-      setIsTextContentStale(false);
-      clearChipTimer();
-      return;
-    }
-
-    const prev = lastSeenRef.current;
-    lastSeenRef.current = {
-      name: item.file.name,
-      updatedAt: item.file.updatedAt,
-    };
-
-    if (!prev || prev.name !== item.file.name) {
-      // First open, or a real navigation to a different file: clear any
-      // flash/stale state left over from whatever was open before — a
-      // text viewer's stale flag doesn't self-clear on unmount, and a
-      // lingering chip must not be read as describing the new file.
-      setAnnouncedFor(null);
-      setIsTextContentStale(false);
-      clearChipTimer();
-      return;
-    }
-
-    if (prev.updatedAt === item.file.updatedAt) return;
-
-    clearChipTimer();
-    setAnnouncedFor(`${item.file.name}:${item.file.updatedAt}`);
-    chipTimerRef.current = window.setTimeout(() => {
-      setAnnouncedFor(null);
-      chipTimerRef.current = null;
-    }, 2200);
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- narrower than `item` deliberately, see the comment above this effect.
-  }, [item?.file.name, item?.file.updatedAt]);
-
-  useEffect(() => clearChipTimer, []);
 
   // Keep the page fixed behind the viewer. Image gestures are handled locally,
   // so the browser viewport never needs to zoom or scroll.
@@ -165,12 +101,6 @@ export function MediaLightbox({
   const isVideo = /\.mp4/i.test(item.src);
   const isImage = !isDocument && !isText && !isVideo;
   const displayName = stripTimestamp(item.file.name);
-  // Gate directly on the current item's identity, not just on
-  // announcedFor being non-null — belt-and-suspenders against the chip
-  // ever describing a file other than the one on screen.
-  const showUpdatedChip =
-    !isTextContentStale &&
-    announcedFor === `${item.file.name}:${item.file.updatedAt}`;
   const sizeLabel =
     item.file.size >= 1024 * 1024
       ? `${(item.file.size / (1024 * 1024)).toFixed(1)} MB`
@@ -202,17 +132,6 @@ export function MediaLightbox({
           title={isImage && item.caption ? displayName : undefined}
         >
           {isImage && item.caption ? item.caption : displayName}
-        </span>
-        {showUpdatedChip ? (
-          <span
-            className="flex-none rounded bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-primary"
-            aria-hidden="true"
-          >
-            Updated
-          </span>
-        ) : null}
-        <span className="sr-only" role="status" aria-live="polite">
-          {showUpdatedChip ? `${displayName} was just updated.` : ""}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
           <MediaActions
@@ -306,17 +225,9 @@ export function MediaLightbox({
           />
         ) : isText ? (
           isMarkdown ? (
-            <MarkdownViewer
-              src={item.src}
-              fileName={item.file.name}
-              onStaleChange={setIsTextContentStale}
-            />
+            <MarkdownViewer src={item.src} fileName={item.file.name} />
           ) : (
-            <TextFileViewer
-              src={item.src}
-              fileName={item.file.name}
-              onStaleChange={setIsTextContentStale}
-            />
+            <TextFileViewer src={item.src} fileName={item.file.name} />
           )
         ) : isVideo ? (
           <video

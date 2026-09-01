@@ -96,36 +96,26 @@ describe("MarkdownViewer", () => {
     await waitFor(() => expect(screen.getByText("other")).toBeTruthy());
   });
 
-  it("keeps showing prior content, with a stale notice, when a same-file refresh fails", async () => {
+  it("shows an error (after one retry) when a refresh fails, without crashing", async () => {
     queryClient = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
     mockFetchOnce("# v1");
-    const { container, rerender } = render(
+    const { rerender } = render(
       <MarkdownViewer src="/media/report.md?t=1" fileName="report.md" />,
       { wrapper }
     );
     await waitFor(() => expect(screen.getByText("v1")).toBeTruthy());
-    const scroller = container.querySelector(".overflow-auto");
-    expect(scroller).toBeTruthy();
 
-    // The refresh fails (e.g. the file is mid-write) — the reader should
-    // not lose their place to a full-pane error over a transient failure,
-    // and should be told the content on screen isn't the latest.
+    // The refresh fails outright (e.g. the file was deleted). No retained-
+    // content fallback — a plain error, same as a first-load failure.
     mockFetchFailTwice();
     rerender(
       <MarkdownViewer src="/media/report.md?t=2" fileName="report.md" />
     );
 
     await waitFor(() =>
-      expect(screen.getByText(/Couldn't load the latest update/)).toBeTruthy()
+      expect(screen.getByText(/Failed to load/)).toBeTruthy()
     );
-    expect(screen.getByText("v1")).toBeTruthy();
-    expect(screen.queryByText(/Failed to load/)).toBeNull();
-    // The scroll container itself must survive the banner appearing —
-    // an unkeyed sibling inserted before it would otherwise force a remount
-    // and silently defeat scroll preservation on exactly this path.
-    const container2 = container.querySelector(".overflow-auto");
-    expect(container2).toBe(scroller);
   }, 10_000);
 });
