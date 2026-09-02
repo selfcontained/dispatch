@@ -617,6 +617,7 @@ async function registerRoutes() {
   await registerTemplateRoutes(app, {
     templateService,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    withStreamFlag,
   });
 
   await registerMcpRoutes(app, {
