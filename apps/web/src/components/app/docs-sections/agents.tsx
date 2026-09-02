@@ -113,7 +113,9 @@ export function AgentsContent() {
           </li>
           <li>
             <strong>Job</strong> — the agent was spawned by a scheduled or
-            on-demand job run.
+            on-demand job run. For a Loop job it shows as <strong>Loop</strong>{" "}
+            instead, and its tooltip names the current iteration (and the run
+            limit, if one is set).
           </li>
           <li>
             <strong>Update</strong> — the agent is performing an assisted

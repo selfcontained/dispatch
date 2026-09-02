@@ -134,6 +134,43 @@ The MCP tools `job_complete` / `job_failed` require a report:
 
 Report size limits: 1 MB total, 100 tasks, 500 logs per task, 10 KB summary and error-message strings, 5 KB log-message strings.
 
+### Continuation (Loop Jobs)
+
+A job with `continuationEnabled: true` is a **Loop job**: each completed run can start another one automatically, forming a chain. Four columns on `jobs` carry the config:
+
+| Field                  | Description                                                                                                                          |
+| ---------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `continuationEnabled`  | Turns looping on. `addJob`/`updateJob` require a schedule OR this before `enabled` can be true.                                      |
+| `maxIterations`        | Cap on runs per chain. On create, defaults to `10` if `continuationEnabled` is true and the field is omitted; `null` means no limit. |
+| `completionCriteria`   | String list injected into the run preamble as "Completion criteria" bullets.                                                         |
+| `recoveryInstructions` | Free text injected as "Recovery instructions"; `"Not specified."` if unset.                                                          |
+
+Creating a Loop job also forces `autoArchive: true` regardless of the caller's `autoArchive` input — each iteration's agent is archived once its run completes, since chain state travels through Brain and `job_runs`, not the agent record.
+
+Each run row additionally carries `chainId` (random per chain, i.e. per "Run now" or scheduled loop start), `chainIteration` (starts at 1, increments per successor), and `continuationOfRunId` (the predecessor run). A run started this way has `config.triggerSource = "continuation"`.
+
+`job_complete`'s report accepts an optional `continuation` object:
+
+```json
+{
+  "status": "completed",
+  "summary": "...",
+  "tasks": [...],
+  "continuation": {
+    "action": "continue",
+    "phase": "optional short phase name",
+    "summary": "outcome of this run",
+    "nextIntent": "what the next run should do first",
+    "filePaths": ["relevant/file.ts"],
+    "blockers": ["unresolved issue"]
+  }
+}
+```
+
+`action` is one of `continue`, `pause`, `finish`, or `default` (continue-if-under-cap, same as omitting `continuation` entirely). `nextIntent` is required whenever the run will continue. The successor only starts when: the job is still `enabled`, `continuationEnabled` is true, `action` is `continue`/`default`, and (`maxIterations` is null or `chainIteration < maxIterations`). Reaching the cap or `action: "pause"` ends the chain without touching `enabled` — a later cron trigger or "Run now" starts a fresh chain (`chainIteration` resets to 1). `action: "finish"` additionally sets `enabled = FALSE`.
+
+Between runs, the compact handoff (`action`, `phase`, `summary`, `nextIntent`, `filePaths`, `blockers`, plus `chainId`/`iteration`/`recoveryAttempt`) is written to the Brain object `job-continuations/job-<jobId>`, scoped to the job directory's shared repo root (`git --git-common-dir`) so a per-run worktree still resolves to the same object the previous run wrote. The next run's preamble points at that Brain key and does not expect the handoff to be repeated in its own prompt. Loop jobs may use `useWorktree`/`baseBranch`/`branchName` like any other job — a fresh worktree per run does not break the chain.
+
 ### Notifications
 
 `JobNotifier` is wired into the run-state-change callback and can route a run to Slack on three events — `onComplete` (`completed`), `onError` (`failed`, `timed_out`, `crashed`), and `onNeedsInput` — each with its own channel list, using the same `slack_webhook_url` setting as agent notifications.
