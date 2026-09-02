@@ -13,6 +13,7 @@ import {
   createStartupPins,
   parseOptionalStringArrayField,
 } from "./agent-startup.js";
+import type { AgentRecord } from "../agents/manager.js";
 import type { TemplateService } from "../templates/service.js";
 import { parseTemplateArgs } from "../templates/store.js";
 import {
@@ -88,6 +89,9 @@ function classifyErrorCode(message: string): number {
 type TemplateRouteDeps = {
   templateService: TemplateService;
   publishUiEvent: (event: unknown) => void;
+  withStreamFlag: <T extends AgentRecord>(
+    agent: T
+  ) => T & { hasStream: boolean };
 };
 
 export async function registerTemplateRoutes(
@@ -265,7 +269,7 @@ export async function registerTemplateRoutes(
         });
         deps.publishUiEvent({
           type: "agent.upsert",
-          agent: result.agent,
+          agent: deps.withStreamFlag(result.agent),
         });
         return { agent: result.agent };
       } catch (error) {
