@@ -1,7 +1,12 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
-import { clampFeedLimit, composeChatFeed } from "../src/chat/feed.js";
+import {
+  clampFeedLimit,
+  composeChatFeed,
+  decodeFeedCursor,
+  encodeFeedCursor,
+} from "../src/chat/feed.js";
 import { ChatStore } from "../src/chat/store.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
@@ -122,17 +127,18 @@ describe("composeChatFeed", () => {
     });
   });
 
-  it("pages backwards with before/limit and reports hasMore across sources", async () => {
+  it("pages backwards with cursor/limit and reports hasMore across sources", async () => {
     await seedAll();
     const page1 = await composeChatFeed(pool, A, { limit: 3 });
     expect(page1.hasMore).toBe(true);
+    expect(page1.nextCursor).toBeTruthy();
     expect(page1.entries.map((e) => e.at)).toEqual(
       [5, 6, 7].map((s) => at(s).toISOString())
     );
 
     const page2 = await composeChatFeed(pool, A, {
       limit: 3,
-      before: page1.entries[0].at,
+      cursor: decodeFeedCursor(page1.nextCursor!),
     });
     expect(page2.hasMore).toBe(true);
     expect(page2.entries.map((e) => e.at)).toEqual(
@@ -141,15 +147,101 @@ describe("composeChatFeed", () => {
 
     const page3 = await composeChatFeed(pool, A, {
       limit: 3,
-      before: page2.entries[0].at,
+      cursor: decodeFeedCursor(page2.nextCursor!),
     });
     expect(page3.hasMore).toBe(false);
+    expect(page3.nextCursor).toBeNull();
     expect(page3.entries.map((e) => e.type)).toEqual(["status"]);
+  });
+
+  it("never drops or repeats rows that share a timestamp across sources", async () => {
+    // Nine rows at the same instant (three per source kind plus chat) with
+    // microsecond-identical created_at, paged two at a time.
+    const t = at(10);
+    for (let i = 0; i < 3; i++) {
+      await pool.query(
+        `INSERT INTO agent_events (agent_id, event_type, message, created_at)
+         VALUES ($1, 'working', $2, $3)`,
+        [A, `ev${i}`, t]
+      );
+      await pool.query(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+         VALUES ($1, $2, 'screenshot', 1, $3)`,
+        [A, `f${i}.png`, t]
+      );
+      const m = await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        text: `c${i}`,
+      });
+      await pool.query(
+        `UPDATE agent_chat_messages SET created_at = $2 WHERE id = $1`,
+        [m.id, t]
+      );
+    }
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    let pages = 0;
+    for (;;) {
+      const page = await composeChatFeed(pool, A, {
+        limit: 2,
+        cursor: cursor ? decodeFeedCursor(cursor) : null,
+      });
+      pages += 1;
+      seen.push(...page.entries.map((e) => e.id));
+      expect(page.entries.length).toBeLessThanOrEqual(2);
+      if (!page.hasMore) {
+        expect(page.nextCursor).toBeNull();
+        break;
+      }
+      cursor = page.nextCursor;
+      expect(cursor).toBeTruthy();
+      expect(pages).toBeLessThan(20);
+    }
+    expect(new Set(seen).size).toBe(9);
+    expect(seen).toHaveLength(9);
+    expect(pages).toBe(5);
+  });
+
+  it("round-trips cursors and rejects foreign ones", () => {
+    const cursor = {
+      at: "2026-01-01 00:00:00.000123",
+      type: "chat" as const,
+      id: "x",
+    };
+    expect(decodeFeedCursor(encodeFeedCursor(cursor))).toEqual(cursor);
+    expect(decodeFeedCursor("not-a-cursor")).toBeNull();
+    expect(
+      decodeFeedCursor(Buffer.from("{}").toString("base64url"))
+    ).toBeNull();
+    expect(
+      decodeFeedCursor(
+        Buffer.from(
+          JSON.stringify({
+            at: "2026-01-01T00:00:00.000Z",
+            type: "chat",
+            id: "x",
+          })
+        ).toString("base64url")
+      )
+    ).toBeNull();
+    expect(
+      decodeFeedCursor(
+        Buffer.from(JSON.stringify({ ...cursor, type: "pin" })).toString(
+          "base64url"
+        )
+      )
+    ).toBeNull();
   });
 
   it("returns an empty feed for an agent with nothing", async () => {
     const feed = await composeChatFeed(pool, "agt_feed_nobody");
-    expect(feed).toEqual({ entries: [], hasMore: false, unreadCount: 0 });
+    expect(feed).toEqual({
+      entries: [],
+      hasMore: false,
+      nextCursor: null,
+      unreadCount: 0,
+    });
   });
 
   it("clamps the limit to the documented range", () => {

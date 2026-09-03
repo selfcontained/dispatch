@@ -159,12 +159,14 @@ export function buildStartupPrompt(
 }
 
 /**
- * The one chat-surface rule, added only when the flag is on. Kept to a single
- * sentence pair on purpose — `dispatch_chat_post`'s description carries the
- * kinds, question options, and attachment schema.
+ * The one chat-surface rule, added only when the flag is on. This is the only
+ * place that tells an agent to *prefer* Chat: the tool description stays
+ * capability-neutral because the tool is registered whether or not the user
+ * can see the Chat tab. The description carries the kinds, question options,
+ * and attachment schema.
  */
 export const CHAT_SURFACE_GUIDANCE_RULE =
-  "The user reads the Chat tab, not the terminal. Post your reply with dispatch_chat_post whenever you finish a turn or have something to tell them, and ask questions through it (kind: question, with options when the choice is finite) instead of asking in the terminal.";
+  "When Chat is enabled, send user-facing replies and questions with dispatch_chat_post; use kind: question with options for finite choices. Terminal output remains in Console.";
 
 /**
  * Build the numbered launch guidance text shared by all CLI agent types.

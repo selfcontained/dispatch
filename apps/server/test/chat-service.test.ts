@@ -15,7 +15,9 @@ beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   await pool.query(
-    `INSERT INTO agents (id, name, cwd, status) VALUES ($1, 'Svc', '/tmp', 'running')`,
+    `INSERT INTO agents (id, name, cwd, status)
+     VALUES ($1, 'Svc', '/tmp', 'running'),
+            ('agt_someone_else', 'Else', '/tmp', 'running')`,
     [A]
   );
   published = [];
@@ -59,54 +61,67 @@ describe("ChatService.post", () => {
     ).rejects.toThrow(/question .* required/);
   });
 
-  it("resolves file attachments to the media row by shared path or stored copy", async () => {
+  it("resolves file attachments by stored fileName or mediaId, never by path", async () => {
     await pool.query(
       `INSERT INTO media (agent_id, file_name, source, size_bytes)
        VALUES ($1, 'shot-2026-01-01-00-00-00-000.png', 'screenshot', 123),
-              ($1, 'shot-2026-01-02-00-00-00-000.png', 'screenshot', 456)`,
+              ($1, 'report.pdf', 'screenshot', 456),
+              ('agt_someone_else', 'theirs.png', 'screenshot', 1)`,
       [A]
+    );
+    const pdf = await pool.query<{ id: number }>(
+      `SELECT id FROM media WHERE file_name = 'report.pdf'`
     );
     const message = await service.post(A, {
       text: "see",
       attachments: [
-        { type: "file", path: "/tmp/shots/shot.png" },
-        {
-          type: "file",
-          path: "/tmp/media-root/agt/shot-2026-01-01-00-00-00-000.png",
-        },
+        { type: "file", fileName: "shot-2026-01-01-00-00-00-000.png" },
+        { type: "file", mediaId: pdf.rows[0].id },
         { type: "link", url: "https://example.com" },
         { type: "pin", pinId: "pin_1" },
       ],
     });
     expect(message.attachments).toHaveLength(4);
-    // Newest copy wins for the original path.
     expect(message.attachments[0]).toMatchObject({
       type: "file",
-      path: "/tmp/shots/shot.png",
-      fileName: "shot-2026-01-02-00-00-00-000.png",
-      sizeBytes: 456,
-      mimeType: "image/png",
-    });
-    expect(
-      (message.attachments[0] as { mediaId: number }).mediaId
-    ).toBeGreaterThan(0);
-    // The stored copy's own name resolves exactly.
-    expect(message.attachments[1]).toMatchObject({
       fileName: "shot-2026-01-01-00-00-00-000.png",
       sizeBytes: 123,
+      mimeType: "image/png",
+    });
+    expect(message.attachments[0]).not.toHaveProperty("path");
+    expect(message.attachments[1]).toMatchObject({
+      type: "file",
+      mediaId: pdf.rows[0].id,
+      fileName: "report.pdf",
+      sizeBytes: 456,
+      mimeType: "application/pdf",
     });
     expect(message.attachments[2]).toEqual({
       type: "link",
       url: "https://example.com",
     });
     expect(message.attachments[3]).toEqual({ type: "pin", pinId: "pin_1" });
+
+    // A basename that merely resembles a share, another agent's file, or a
+    // local path are all unknown.
+    for (const fileName of ["shot.png", "theirs.png", "/tmp/report.pdf"]) {
+      await expect(
+        service.post(A, {
+          text: "see",
+          attachments: [{ type: "file", fileName }],
+        })
+      ).rejects.toThrow(/Unknown file/);
+    }
+    await expect(
+      service.post(A, { text: "see", attachments: [{ type: "file" }] })
+    ).rejects.toThrow(/fileName .* or mediaId/);
   });
 
   it("rejects unknown files and unknown pins", async () => {
     await expect(
       service.post(A, {
         text: "see",
-        attachments: [{ type: "file", path: "/tmp/never-shared.png" }],
+        attachments: [{ type: "file", fileName: "never-shared.png" }],
       })
     ).rejects.toThrow(/Unknown file .* dispatch_share_file/);
     await expect(
@@ -115,6 +130,13 @@ describe("ChatService.post", () => {
         attachments: [{ type: "pin", pinId: "pin_missing" }],
       })
     ).rejects.toThrow(/Unknown pin/);
+    expect(published).toEqual([]);
+  });
+
+  it("rejects a malformed replyTo before touching the database", async () => {
+    await expect(
+      service.post(A, { text: "x", replyTo: "not-a-uuid" })
+    ).rejects.toThrow(/replyTo/);
     expect(published).toEqual([]);
   });
 });
@@ -133,6 +155,9 @@ describe("ChatService.update", () => {
     await expect(
       service.update("agt_other", mine.id, { text: "hijack" })
     ).rejects.toThrow(/only edits your own/);
+    await expect(
+      service.update(A, "not-a-uuid", { text: "x" })
+    ).rejects.toThrow(/messageId/);
 
     const userRow = await service.store.insert({
       agentId: A,

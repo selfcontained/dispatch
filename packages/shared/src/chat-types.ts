@@ -30,9 +30,12 @@ export type ChatAnswer = {
 export type ChatAttachment =
   | {
       type: "file";
-      /** Absolute path the agent shared via dispatch_share_file. */
-      path: string;
-      /** Resolved by the server from the media table. */
+      /**
+       * A file previously shared via dispatch_share_file, referenced by the
+       * stored `fileName` (or `mediaId`) that tool returned. The server fills
+       * these fields from the media row; the agent's local path is never
+       * stored.
+       */
       mediaId: number;
       fileName: string;
       sizeBytes: number;
@@ -53,7 +56,12 @@ export type ChatMessage = {
   question: ChatQuestion | null;
   answer: ChatAnswer | null;
   attachments: ChatAttachment[];
-  /** User messages only: whether pane injection succeeded. */
+  /**
+   * User messages only: whether pane injection succeeded. `null` means
+   * pending — the message is accepted and queued (possibly behind the quiet
+   * gate) but delivery has not completed yet; a `chat.changed` event follows
+   * once it settles. Always `null` on agent messages.
+   */
   delivered: boolean | null;
   /** Agent messages only: when the user saw it. */
   readAt: string | null;
@@ -111,19 +119,36 @@ export type ChatFeedEntry =
 export type ChatFeedResponse = {
   entries: ChatFeedEntry[];
   hasMore: boolean;
+  /**
+   * Opaque cursor for the next (older) page: pass it back as `?cursor=` to
+   * `GET /agents/:id/chat`. `null` when `hasMore` is false.
+   */
+  nextCursor: string | null;
   unreadCount: number;
+};
+
+/**
+ * `GET /api/v1/chat/unread`: per-agent counts for every non-deleted agent
+ * with a non-zero value. `unread` = agent messages the user has not seen;
+ * `pendingQuestions` = agent questions with no answer yet.
+ */
+export type ChatUnreadSummary = {
+  agents: Record<string, { unread: number; pendingQuestions: number }>;
 };
 
 export type ChatSendResponse = {
   message: ChatMessage;
-  delivered: boolean;
+  /** Mirrors `message.delivered`: `null` while delivery is still pending. */
+  delivered: boolean | null;
+  /** True when the injection is waiting out the terminal quiet gate. */
   held: boolean;
 };
 
 export type ChatAnswerResponse = {
   question: ChatMessage;
   reply: ChatMessage;
-  delivered: boolean;
+  /** Mirrors `reply.delivered`: `null` while delivery is still pending. */
+  delivered: boolean | null;
 };
 
 export type ChatChangedEvent = { type: "chat.changed"; agentId: string };

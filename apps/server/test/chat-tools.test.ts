@@ -69,9 +69,12 @@ describe("registerChatTools", () => {
     expect(onlyPost.tools.map((t) => t.name)).toEqual(["dispatch_chat_post"]);
   });
 
-  it("describes the intent and schema so launch guidance can stay short", () => {
+  it("describes the mechanics without asserting the user is reading Chat", () => {
     const description = tool("dispatch_chat_post").config.description;
-    expect(description).toContain("The user reads the Chat tab");
+    // The directive lives in the flag-gated launch rule; the tool is
+    // registered whether or not the Chat tab is enabled.
+    expect(description).not.toMatch(/user reads the Chat tab/i);
+    expect(description).toContain("optional Chat tab");
     expect(description).toContain("replyTo");
     expect(description).toMatch(/"question"/);
     expect(description).toContain("dispatch_share_file");
@@ -174,13 +177,25 @@ describe("registerChatTools", () => {
   });
 
   it("surfaces service errors (e.g. unknown file) as tool errors", async () => {
-    post.mockRejectedValueOnce(new Error('Unknown file "/tmp/x.png"'));
+    post.mockRejectedValueOnce(new Error('Unknown file "x.png"'));
     const result = await tool("dispatch_chat_post").handler({
       text: "see",
-      attachments: [{ type: "file", path: "/tmp/x.png" }],
+      attachments: [{ type: "file", fileName: "x.png" }],
     });
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain("Unknown file");
+  });
+
+  it("declares file attachments by fileName or mediaId, not path", () => {
+    const schema = tool("dispatch_chat_post").config.inputSchema
+      .attachments as { safeParse: (v: unknown) => { success: boolean } };
+    expect(
+      schema.safeParse([{ type: "file", fileName: "a.png" }]).success
+    ).toBe(true);
+    expect(schema.safeParse([{ type: "file", mediaId: 3 }]).success).toBe(true);
+    expect(
+      schema.safeParse([{ type: "file", path: "/tmp/a.png" }]).success
+    ).toBe(false);
   });
 
   it("updates a message and returns id + updatedAt", async () => {

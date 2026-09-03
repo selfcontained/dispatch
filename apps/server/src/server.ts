@@ -780,8 +780,8 @@ async function registerRoutes() {
     chat: chatService,
     agentManager,
     injectionCoordinator,
-    sendAgentPrompt: injectAgentPrompt,
     handleAgentError,
+    appLog: app.log,
   });
 
   await registerSurfaceRoutes(app, { surfaces: surfaceService });

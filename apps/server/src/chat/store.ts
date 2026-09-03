@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool } from "pg";
+import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
 import type {
   ChatAnswer,
   ChatAttachment,
@@ -7,7 +7,16 @@ import type {
   ChatMessage,
   ChatMessageKind,
   ChatQuestion,
+  ChatUnreadSummary,
 } from "@dispatch/shared";
+
+/** A pool or a checked-out client — lets one store run inside a transaction. */
+export type Queryable = {
+  query<R extends QueryResultRow = QueryResultRow>(
+    text: string,
+    values?: unknown[]
+  ): Promise<QueryResult<R>>;
+};
 
 export type InsertChatMessageInput = {
   agentId: string;
@@ -17,7 +26,7 @@ export type InsertChatMessageInput = {
   replyTo?: string | null;
   question?: ChatQuestion | null;
   attachments?: ChatAttachment[];
-  /** User messages only. */
+  /** User messages only; `null` = delivery pending. */
   delivered?: boolean | null;
 };
 
@@ -33,6 +42,14 @@ export type ListChatMessagesOptions = {
   before?: string | Date | null;
   limit: number;
 };
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Message ids are uuid columns: an ill-formed id is "not found", never a 500. */
+export function isChatMessageId(value: unknown): value is string {
+  return typeof value === "string" && UUID_RE.test(value);
+}
 
 type Row = {
   id: string;
@@ -75,10 +92,19 @@ function toCursor(before: string | Date | null | undefined): Date | null {
 }
 
 export class ChatStore {
-  constructor(private readonly pool: Pool) {}
+  constructor(private readonly db: Queryable) {}
+
+  /** The same store bound to a transaction client. */
+  withClient(client: PoolClient): ChatStore {
+    return new ChatStore(client);
+  }
+
+  static forPool(pool: Pool): ChatStore {
+    return new ChatStore(pool);
+  }
 
   async insert(input: InsertChatMessageInput): Promise<ChatMessage> {
-    const result = await this.pool.query<Row>(
+    const result = await this.db.query<Row>(
       `INSERT INTO agent_chat_messages
          (id, agent_id, author_kind, kind, text, reply_to, question,
           attachments, delivered)
@@ -107,6 +133,7 @@ export class ChatStore {
     id: string,
     patch: UpdateChatMessageInput
   ): Promise<ChatMessage | null> {
+    if (!isChatMessageId(id)) return null;
     const sets: string[] = [];
     const values: unknown[] = [];
     const push = (sql: string, value: unknown) => {
@@ -125,7 +152,7 @@ export class ChatStore {
     }
     if (sets.length === 0) return this.getById(id);
     values.push(id);
-    const result = await this.pool.query<Row>(
+    const result = await this.db.query<Row>(
       `UPDATE agent_chat_messages
           SET ${sets.join(", ")}, updated_at = now()
         WHERE id = $${values.length}
@@ -137,14 +164,16 @@ export class ChatStore {
 
   /** User messages only: record whether pane injection succeeded. */
   async setDelivered(id: string, delivered: boolean): Promise<void> {
-    await this.pool.query(
+    if (!isChatMessageId(id)) return;
+    await this.db.query(
       `UPDATE agent_chat_messages SET delivered = $2 WHERE id = $1`,
       [id, delivered]
     );
   }
 
   async getById(id: string): Promise<ChatMessage | null> {
-    const result = await this.pool.query<Row>(
+    if (!isChatMessageId(id)) return null;
+    const result = await this.db.query<Row>(
       `SELECT * FROM agent_chat_messages WHERE id = $1`,
       [id]
     );
@@ -160,7 +189,7 @@ export class ChatStore {
     opts: ListChatMessagesOptions
   ): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
     const limit = Math.max(1, Math.floor(opts.limit));
-    const result = await this.pool.query<Row>(
+    const result = await this.db.query<Row>(
       `SELECT * FROM agent_chat_messages
         WHERE agent_id = $1
           AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
@@ -179,8 +208,9 @@ export class ChatStore {
    * number of rows updated.
    */
   async markRead(agentId: string, upTo?: string | null): Promise<number> {
+    if (upTo != null && !isChatMessageId(upTo)) return 0;
     const result = upTo
-      ? await this.pool.query(
+      ? await this.db.query(
           `UPDATE agent_chat_messages AS m SET read_at = now()
             FROM agent_chat_messages AS bound
            WHERE bound.id = $2 AND bound.agent_id = $1
@@ -189,7 +219,7 @@ export class ChatStore {
              AND m.created_at <= bound.created_at`,
           [agentId, upTo]
         )
-      : await this.pool.query(
+      : await this.db.query(
           `UPDATE agent_chat_messages SET read_at = now()
             WHERE agent_id = $1 AND author_kind = 'agent' AND read_at IS NULL`,
           [agentId]
@@ -198,12 +228,41 @@ export class ChatStore {
   }
 
   async countUnread(agentId: string): Promise<number> {
-    const result = await this.pool.query<{ count: string }>(
+    const result = await this.db.query<{ count: string }>(
       `SELECT COUNT(*)::text AS count FROM agent_chat_messages
         WHERE agent_id = $1 AND author_kind = 'agent' AND read_at IS NULL`,
       [agentId]
     );
     return Number(result.rows[0].count);
+  }
+
+  /**
+   * Unread and unanswered-question counts for every non-deleted agent that
+   * has a non-zero value — one grouped query, for the sidebar badges.
+   */
+  async unreadSummary(): Promise<ChatUnreadSummary> {
+    const result = await this.db.query<{
+      agent_id: string;
+      unread: string;
+      pending: string;
+    }>(
+      `SELECT m.agent_id,
+              COUNT(*) FILTER (WHERE m.read_at IS NULL)::text AS unread,
+              COUNT(*) FILTER (WHERE m.kind = 'question' AND m.answer IS NULL)::text AS pending
+         FROM agent_chat_messages m
+         JOIN agents a ON a.id = m.agent_id AND a.deleted_at IS NULL
+        WHERE m.author_kind = 'agent'
+          AND (m.read_at IS NULL OR (m.kind = 'question' AND m.answer IS NULL))
+        GROUP BY m.agent_id`
+    );
+    const agents: ChatUnreadSummary["agents"] = {};
+    for (const row of result.rows) {
+      agents[row.agent_id] = {
+        unread: Number(row.unread),
+        pendingQuestions: Number(row.pending),
+      };
+    }
+    return { agents };
   }
 
   /**
@@ -215,7 +274,8 @@ export class ChatStore {
     questionId: string,
     answer: ChatAnswer
   ): Promise<ChatMessage | null> {
-    const result = await this.pool.query<Row>(
+    if (!isChatMessageId(questionId)) return null;
+    const result = await this.db.query<Row>(
       `UPDATE agent_chat_messages
           SET answer = $2::jsonb, updated_at = now()
         WHERE id = $1 AND kind = 'question' AND answer IS NULL

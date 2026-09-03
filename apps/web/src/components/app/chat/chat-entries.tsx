@@ -131,7 +131,7 @@ function FileAttachment({
       type="button"
       onClick={open}
       className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
-      title={attachment.path}
+      title={attachment.fileName}
       data-testid="chat-attachment-file"
     >
       <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />

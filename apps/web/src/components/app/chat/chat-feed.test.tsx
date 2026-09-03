@@ -273,14 +273,12 @@ describe("ChatFeed", () => {
             attachments: [
               {
                 type: "file",
-                path: "/tmp/shot.png",
                 mediaId: 7,
                 fileName: "shot.png",
                 sizeBytes: 2048,
               },
               {
                 type: "file",
-                path: "/tmp/notes.md",
                 mediaId: 8,
                 fileName: "notes.md",
                 sizeBytes: 100,

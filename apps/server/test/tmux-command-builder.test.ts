@@ -926,7 +926,8 @@ describe("buildLaunchGuidance — trimmed variant", () => {
 });
 
 describe("buildLaunchGuidance — chat surface rule", () => {
-  const RULE = "The user reads the Chat tab, not the terminal.";
+  const RULE =
+    "When Chat is enabled, send user-facing replies and questions with dispatch_chat_post; use kind: question with options for finite choices. Terminal output remains in Console.";
 
   it("is absent by default and when the flag is off", () => {
     expect(
@@ -949,9 +950,10 @@ describe("buildLaunchGuidance — chat surface rule", () => {
     });
     for (const text of [full, trimmed]) {
       expect(text).toContain(RULE);
-      expect(text).toContain("dispatch_chat_post");
-      expect(text).toContain("kind: question");
       expect(text.split(RULE)).toHaveLength(2);
+      // The directive lives here and only here: the tool description must
+      // not tell agents the user is reading Chat.
+      expect(text).not.toMatch(/user reads the Chat tab/i);
     }
     const ruleLine = (text: string) =>
       text
