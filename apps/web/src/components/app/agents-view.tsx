@@ -744,7 +744,7 @@ export function AgentsView({
               ) : null}
             </div>
 
-            {isMobile ? (
+            {isMobile && activeTab !== "chat" ? (
               <MobileTerminalToolbar
                 agentId={connectedAgentId}
                 onSendInput={sendTerminalInput}

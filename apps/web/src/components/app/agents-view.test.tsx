@@ -1212,6 +1212,19 @@ describe("AgentsView mobile chrome", () => {
     expect(renderedChildren()).not.toContain("BottomBar");
   });
 
+  it("hides the mobile terminal toolbar while the Chat tab is active", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+      connState: "connected",
+      connectedAgentId: "a1",
+      chatMatch: true,
+    });
+    mount({ path: "/agents/a1/chat", isMobile: true });
+
+    expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
+  });
+
   it("mounts the desktop chrome and no mobile toolbar on a wide screen", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
