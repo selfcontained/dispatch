@@ -25,6 +25,7 @@ const baseAgent: Agent = {
     type: "working",
     message: "Reviewing changed routes",
     updatedAt: "2026-07-15T12:00:00.000Z",
+    metadata: {},
   },
   mediaDir: null,
   persona: "security-review",
@@ -103,6 +104,7 @@ describe("ChildAgentRow", () => {
         type: "done",
         message: "Incorrect stale event",
         updatedAt: "2026-07-15T12:00:00.000Z",
+        metadata: {},
       },
     });
 
