@@ -329,7 +329,6 @@ describe("ChatPane", () => {
         agent={agent}
         terminalMode="tmux"
         active={true}
-        onOpenConsole={vi.fn()}
         openLightbox={vi.fn()}
         isMobile={false}
       />
