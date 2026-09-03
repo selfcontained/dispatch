@@ -10,7 +10,7 @@ import {
 
 import { type MediaFile, type SubAgentMedia } from "@/components/app/types";
 import { MediaCardList } from "@/components/app/media-item-card";
-import { SubAgentMediaGroup } from "@/components/app/sub-agent-media-group";
+import { OwnerSwitch } from "@/components/app/owner-switch";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
 import { STARTUP_FILE_ACCEPT } from "@/lib/media-accept";
@@ -18,14 +18,23 @@ import { STARTUP_FILE_ACCEPT } from "@/lib/media-accept";
 const EMPTY_SUB_AGENT_MEDIA: SubAgentMedia[] = [];
 
 export type MediaContentProps = {
+  /** The files to show: the selected agent's own, or the chosen sub agent's. */
   mediaFiles: MediaFile[];
   /**
-   * The selected agent's direct children and their media, rendered as one
-   * expanded group each after the agent's own files. Children with nothing
-   * shared are left out rather than shown as empty headings.
+   * The selected agent's direct children and their media. When present, an
+   * owner dropdown at the top of the tab picks whose files show, the same
+   * control the Pins tab uses. Inline per-child groups below the agent's own
+   * files were tried and rejected for the same reason as on Pins: their
+   * position depended on how much came before them.
    */
   subAgentMedia?: SubAgentMedia[];
+  /** The selected agent's own files, for the dropdown's counts while a sub agent is shown. */
+  ownMediaFiles?: MediaFile[];
+  /** null = the selected agent's own files. */
+  mediaOwnerId?: string | null;
+  onMediaOwnerChange?: (ownerId: string | null) => void;
   selectedAgentId: string | null;
+  selectedAgentName?: string | null;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   openLightbox: (file: MediaFile) => void;
@@ -84,7 +93,11 @@ function LiveStreamSection({
 export function MediaContent({
   mediaFiles,
   subAgentMedia = EMPTY_SUB_AGENT_MEDIA,
+  ownMediaFiles = mediaFiles,
+  mediaOwnerId = null,
+  onMediaOwnerChange,
   selectedAgentId,
+  selectedAgentName = null,
   animatingMediaKeys,
   mediaViewportRef,
   openLightbox,
@@ -128,22 +141,44 @@ export function MediaContent({
     fileInputRef.current?.click();
   }, []);
 
-  const subAgentGroups = subAgentMedia.filter(
-    (group) => group.files.length > 0
-  );
-  const nothingShared =
-    mediaFiles.length === 0 && subAgentGroups.length === 0 && !hasStream;
+  const viewingSubAgent = mediaOwnerId !== null;
+  const viewedSubAgent = viewingSubAgent
+    ? (subAgentMedia.find((group) => group.agent.id === mediaOwnerId) ?? null)
+    : null;
+  const ownSummary = {
+    count: ownMediaFiles.length,
+    unseen: ownMediaFiles.filter((file) => !file.seen).length,
+  };
+  const nothingShared = mediaFiles.length === 0 && !hasStream;
 
   return (
     <>
-      {hasStream && streamUrl && selectedAgentId ? (
+      {subAgentMedia.length > 0 && onMediaOwnerChange ? (
+        <OwnerSwitch
+          testIdPrefix="media-owner"
+          ariaLabel="Whose media to show"
+          selectedAgentId={selectedAgentId}
+          selectedAgentName={selectedAgentName}
+          own={ownSummary}
+          subAgents={subAgentMedia.map((group) => ({
+            agent: group.agent,
+            count: group.files.length,
+            unseen: group.files.filter((f) => !f.seen).length,
+          }))}
+          viewOwnerId={mediaOwnerId}
+          onChange={onMediaOwnerChange}
+        />
+      ) : null}
+      {/* Stream and upload belong to the selected agent; a sub agent's files
+          are read-only from here. */}
+      {!viewingSubAgent && hasStream && streamUrl && selectedAgentId ? (
         <LiveStreamSection
           streamUrl={streamUrl}
           selectedAgentId={selectedAgentId}
         />
       ) : null}
 
-      {selectedAgentId && onUploadFile ? (
+      {!viewingSubAgent && selectedAgentId && onUploadFile ? (
         <div className="border-b-2 border-border px-3 py-2">
           <div className="flex items-center gap-2">
             <input
@@ -201,7 +236,9 @@ export function MediaContent({
                 <FileIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               <div className="mt-4">
-                {selectedAgentId ? (
+                {viewedSubAgent ? (
+                  `${viewedSubAgent.agent.name} has not shared any media yet.`
+                ) : selectedAgentId ? (
                   <>
                     No media yet.{" "}
                     <button
@@ -220,24 +257,11 @@ export function MediaContent({
             </div>
           </div>
         ) : (
-          <>
-            <MediaCardList
-              files={mediaFiles}
-              animatingMediaKeys={animatingMediaKeys}
-              openLightbox={openLightbox}
-            />
-            {selectedAgentId
-              ? subAgentGroups.map((group) => (
-                  <SubAgentMediaGroup
-                    key={group.agent.id}
-                    group={group}
-                    collapseScope={selectedAgentId}
-                    animatingMediaKeys={animatingMediaKeys}
-                    openLightbox={openLightbox}
-                  />
-                ))
-              : null}
-          </>
+          <MediaCardList
+            files={mediaFiles}
+            animatingMediaKeys={animatingMediaKeys}
+            openLightbox={openLightbox}
+          />
         )}
       </div>
     </>

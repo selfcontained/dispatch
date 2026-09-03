@@ -267,7 +267,10 @@ export function AgentsView({
 
   const {
     mediaFiles,
+    visibleMediaFiles,
     subAgentMedia,
+    mediaOwnerId,
+    setMediaOwnerId,
     animatingMediaKeys,
     unseenMediaCount,
     lightboxIndex,
@@ -730,7 +733,7 @@ export function AgentsView({
         <div className="hidden shrink-0 md:block">
           <MediaSidebar
             mediaOpen={mediaOpen && hasActiveAgent}
-            mediaFiles={mediaFiles}
+            mediaFiles={visibleMediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
             selectedAgentWorkspaceRoot={
@@ -740,6 +743,9 @@ export function AgentsView({
             selectedAgentIsRunning={focusedAgent?.status === "running"}
             subAgentPins={focusedSubAgentPins}
             subAgentMedia={subAgentMedia}
+            ownMediaFiles={mediaFiles}
+            mediaOwnerId={mediaOwnerId}
+            onMediaOwnerChange={setMediaOwnerId}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             unreadMessageCount={unreadMessageCount}
@@ -771,7 +777,7 @@ export function AgentsView({
           label="Media sidebar"
         >
           <MediaSidebarContent
-            mediaFiles={mediaFiles}
+            mediaFiles={visibleMediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
             selectedAgentWorkspaceRoot={
@@ -781,6 +787,9 @@ export function AgentsView({
             selectedAgentIsRunning={focusedAgent?.status === "running"}
             subAgentPins={focusedSubAgentPins}
             subAgentMedia={subAgentMedia}
+            ownMediaFiles={mediaFiles}
+            mediaOwnerId={mediaOwnerId}
+            onMediaOwnerChange={setMediaOwnerId}
             onShortcutRun={() => setMobileMediaOpen(false)}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}

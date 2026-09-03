@@ -40,8 +40,12 @@ type MediaSidebarSharedProps = {
   selectedAgentIsRunning?: boolean;
   /** Direct children of the selected agent, grouped under its Pins tab. */
   subAgentPins?: SubAgentPins[];
-  /** Direct children of the selected agent, grouped under its Media tab. */
+  /** Direct children of the selected agent, selectable in its Media tab. */
   subAgentMedia?: SubAgentMedia[];
+  /** The selected agent's own files when `mediaFiles` is showing a sub agent's. */
+  ownMediaFiles?: MediaFile[];
+  mediaOwnerId?: string | null;
+  onMediaOwnerChange?: (ownerId: string | null) => void;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   openLightbox: (file: MediaFile) => void;
@@ -90,6 +94,9 @@ export function MediaSidebarContent({
   selectedAgentIsRunning,
   subAgentPins,
   subAgentMedia,
+  ownMediaFiles,
+  mediaOwnerId,
+  onMediaOwnerChange,
   animatingMediaKeys,
   mediaViewportRef,
   openLightbox,
@@ -308,8 +315,12 @@ export function MediaSidebarContent({
       >
         <MediaContent
           mediaFiles={mediaFiles}
+          ownMediaFiles={ownMediaFiles}
           subAgentMedia={subAgentMedia}
+          mediaOwnerId={mediaOwnerId}
+          onMediaOwnerChange={onMediaOwnerChange}
           selectedAgentId={selectedAgentId}
+          selectedAgentName={selectedAgentName}
           animatingMediaKeys={animatingMediaKeys}
           mediaViewportRef={mediaViewportRef}
           openLightbox={openLightbox}

@@ -126,6 +126,21 @@ export function useMedia(
     [mediaFiles, subAgentMedia]
   );
 
+  // Whose files the Media tab shows: null is the selected agent, otherwise
+  // one sub agent. Lives here rather than in the panel because the lightbox
+  // order and the seen observer both follow what is on screen. Falls back
+  // to the agent's own files if the chosen sub agent leaves the list.
+  const [mediaOwnerId, setMediaOwnerId] = useState<string | null>(null);
+  useEffect(() => {
+    setMediaOwnerId(null);
+  }, [selectedAgentId]);
+  const viewedSubAgent =
+    mediaOwnerId === null
+      ? null
+      : (subAgentMedia.find((group) => group.agent.id === mediaOwnerId) ??
+        null);
+  const visibleMediaFiles = viewedSubAgent ? viewedSubAgent.files : mediaFiles;
+
   useEffect(() => {
     if (!selectedAgentId || !mediaPanelOpen) return;
     void refetchMedia();
@@ -263,22 +278,24 @@ export function useMedia(
       // (Plain read of lightboxFileName, not a functional setState updater —
       // updaters must stay pure, and this needs to read mediaFiles too.)
       if (lightboxFileName === null) {
-        setLightboxOrderSnapshot(allFiles.map(fileId));
+        setLightboxOrderSnapshot(visibleMediaFiles.map(fileId));
       }
       setLightboxFileName(fileId(file));
     },
-    [lightboxFileName, allFiles]
+    [lightboxFileName, visibleMediaFiles]
   );
 
+  // Only the owner on screen: prev/next must not wander into files the
+  // panel is not showing.
   const lightboxItems = useMemo(
     () =>
-      allFiles.map((file) => ({
+      visibleMediaFiles.map((file) => ({
         // Cache-buster stays here so a refreshed file's content actually loads.
         src: `${file.url}?t=${encodeURIComponent(file.updatedAt)}`,
         caption: file.description || "",
         file,
       })),
-    [allFiles]
+    [visibleMediaFiles]
   );
 
   // Navigation order for one open-lightbox session: the snapshot taken at
@@ -342,8 +359,13 @@ export function useMedia(
 
   return useMemo(
     () => ({
+      /** The selected agent's own files. */
       mediaFiles,
+      /** The files the Media tab is showing: own, or the chosen sub agent's. */
+      visibleMediaFiles,
       subAgentMedia,
+      mediaOwnerId: viewedSubAgent?.agent.id ?? null,
+      setMediaOwnerId,
       animatingMediaKeys,
       unseenMediaCount,
       lightboxIndex,
@@ -359,7 +381,9 @@ export function useMedia(
     }),
     [
       mediaFiles,
+      visibleMediaFiles,
       subAgentMedia,
+      viewedSubAgent,
       animatingMediaKeys,
       unseenMediaCount,
       lightboxIndex,

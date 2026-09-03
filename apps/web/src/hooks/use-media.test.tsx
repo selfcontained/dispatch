@@ -280,7 +280,7 @@ describe("useMedia sub agent media", () => {
     expect(result.current.unseenMediaCount).toBe(1);
   });
 
-  it("navigates the lightbox across own and child files", async () => {
+  it("shows one owner's files at a time and scopes the lightbox to them", async () => {
     mockPerAgent({
       [AGENT_ID]: [file({ name: "own.png" })],
       agt_child: [file({ name: "shot.png" })],
@@ -293,12 +293,26 @@ describe("useMedia sub agent media", () => {
       expect(result.current.subAgentMedia[0]?.files).toHaveLength(1)
     );
 
-    act(() => result.current.openLightbox(result.current.mediaFiles[0]!));
-    expect(result.current.lightboxTotalItems).toBe(2);
-    expect(result.current.lightboxIndex).toBe(0);
-    act(() => result.current.setLightboxIndex(1));
+    expect(result.current.mediaOwnerId).toBeNull();
+    expect(result.current.visibleMediaFiles.map((f) => f.name)).toEqual([
+      "own.png",
+    ]);
+    act(() => result.current.setMediaOwnerId("agt_child"));
+    expect(result.current.mediaOwnerId).toBe("agt_child");
+    expect(result.current.visibleMediaFiles.map((f) => f.name)).toEqual([
+      "shot.png",
+    ]);
+
+    act(() =>
+      result.current.openLightbox(result.current.visibleMediaFiles[0]!)
+    );
+    expect(result.current.lightboxTotalItems).toBe(1);
     expect(result.current.lightboxItem?.file.ownerAgentId).toBe("agt_child");
-    expect(result.current.lightboxItem?.file.name).toBe("shot.png");
+
+    // A sub agent that disappears falls back to the agent's own files.
+    act(() => result.current.setMediaOwnerId("agt_gone"));
+    expect(result.current.mediaOwnerId).toBeNull();
+    expect(result.current.visibleMediaFiles[0]?.name).toBe("own.png");
   });
 
   it("marks a child's file seen against the child, not the parent", async () => {

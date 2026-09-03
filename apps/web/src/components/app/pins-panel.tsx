@@ -2,7 +2,7 @@ import { Pin } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { PinGroup, layoutPins } from "@/components/app/pin-group";
-import { PinsOwnerSwitch } from "@/components/app/pins-owner-switch";
+import { OwnerSwitch } from "@/components/app/owner-switch";
 import { PinItem } from "@/components/app/pin-item";
 import { type AgentPin, type SubAgentPins } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -191,11 +191,16 @@ export function PinsPanel({
   const viewedPins = viewedSubAgent ? viewedSubAgent.pins : pins;
   const ownerSwitch =
     subAgentPins.length > 0 ? (
-      <PinsOwnerSwitch
+      <OwnerSwitch
+        testIdPrefix="pins-owner"
+        ariaLabel="Whose pins to show"
         selectedAgentId={selectedAgentId}
         selectedAgentName={selectedAgentName}
-        ownPinCount={pins.length}
-        subAgentPins={subAgentPins}
+        own={{ count: pins.length }}
+        subAgents={subAgentPins.map(({ agent, pins: agentPins }) => ({
+          agent,
+          count: agentPins.length,
+        }))}
         viewOwnerId={viewedSubAgent?.agent.id ?? null}
         onChange={setViewOwnerId}
       />

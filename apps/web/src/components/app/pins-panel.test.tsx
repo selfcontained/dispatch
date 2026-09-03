@@ -406,7 +406,7 @@ describe("sub agent owner switch", () => {
     });
     const trigger = screen.getByTestId("pins-owner-switch");
     expect(trigger.textContent).toBe("agent1");
-    expect(trigger.dataset.pinsOwner).toBe("agt_parent");
+    expect(trigger.dataset.owner).toBe("agt_parent");
     expect(screen.getByRole("button", { name: /work on/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Merge it/ })).toBeNull();
     openSwitch();
@@ -427,7 +427,7 @@ describe("sub agent owner switch", () => {
     });
     openSwitch();
     fireEvent.click(await screen.findByRole("option", { name: /^builder/ }));
-    expect(screen.getByTestId("pins-owner-switch").dataset.pinsOwner).toBe(
+    expect(screen.getByTestId("pins-owner-switch").dataset.owner).toBe(
       "agt_child"
     );
     expect(screen.queryByRole("button", { name: /work on/i })).toBeNull();

@@ -662,17 +662,20 @@ test.describe("Media sidebar", () => {
     const mediaSidebar = page.getByTestId("media-sidebar");
     await expect(mediaSidebar).toBeVisible();
 
-    // Media tab: the child's file renders inside a group named after it,
-    // still addressed to the child (data-media-owner) so seen-tracking posts
-    // against the child rather than the parent.
+    // Media tab: a dropdown at the top picks whose files show. The child's
+    // file is still addressed to the child (data-media-owner) so seen-
+    // tracking posts against the child rather than the parent.
     await mediaSidebar.getByRole("button", { name: "Media" }).click();
-    const group = mediaSidebar.getByTestId("sub-agent-media-group");
-    await expect(group).toHaveAttribute("data-sub-agent-id", child.id);
-    await expect(group).toHaveAttribute("data-media-group-collapsed", "false");
-    await expect(group.getByText("Child screenshot")).toBeVisible();
-    await expect(group.locator(`[data-media-owner="${child.id}"]`)).toHaveCount(
-      1
-    );
+    const mediaSwitch = mediaSidebar.getByTestId("media-owner-switch");
+    await expect(mediaSwitch).toHaveAttribute("data-owner", parent.id);
+    await expect(mediaSidebar.getByText("Child screenshot")).toHaveCount(0);
+    await mediaSwitch.click();
+    await page.getByTestId(`media-owner-option-${child.id}`).click();
+    await expect(mediaSwitch).toHaveAttribute("data-owner", child.id);
+    await expect(mediaSidebar.getByText("Child screenshot")).toBeVisible();
+    await expect(
+      mediaSidebar.locator(`[data-media-owner="${child.id}"]`)
+    ).toHaveCount(1);
     await expect
       .poll(async () => {
         const res = await request.get(`${API}/agents/${child.id}/media`, {
@@ -687,13 +690,13 @@ test.describe("Media sidebar", () => {
     // are the default and the child's are one pick away.
     await mediaSidebar.getByRole("button", { name: "Pins" }).click();
     const ownerSwitch = mediaSidebar.getByTestId("pins-owner-switch");
-    await expect(ownerSwitch).toHaveAttribute("data-pins-owner", parent.id);
+    await expect(ownerSwitch).toHaveAttribute("data-owner", parent.id);
     await expect(mediaSidebar.getByText("Child PR")).toHaveCount(0);
     await ownerSwitch.click();
     const childOption = page.getByTestId(`pins-owner-option-${child.id}`);
     await expect(childOption).toContainText("1");
     await childOption.click();
-    await expect(ownerSwitch).toHaveAttribute("data-pins-owner", child.id);
+    await expect(ownerSwitch).toHaveAttribute("data-owner", child.id);
     await expect(mediaSidebar.getByText("Child PR")).toBeVisible();
 
     // The child's own panel is unchanged: no groups, its file already seen.
