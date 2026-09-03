@@ -259,7 +259,16 @@ export function useMedia(
     return () => {
       observer.disconnect();
     };
-  }, [markSeenInCache, allFiles, mediaPanelOpen, queryClient, selectedAgentId]);
+    // Keyed on the files on screen, not every family file: switching owner
+    // swaps the rendered cards without changing the full list, and the
+    // observer has to attach to the new nodes.
+  }, [
+    markSeenInCache,
+    visibleMediaFiles,
+    mediaPanelOpen,
+    queryClient,
+    selectedAgentId,
+  ]);
 
   const unseenMediaCount = useMemo(() => {
     return allFiles.filter((file) => !file.seen).length;
