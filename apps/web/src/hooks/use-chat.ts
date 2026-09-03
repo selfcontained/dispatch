@@ -21,13 +21,32 @@ export function chatFeedQueryKey(agentId: string | null) {
   return ["chat", agentId] as const;
 }
 
-type FeedCache = InfiniteData<ChatFeedResponse, string | undefined>;
+/**
+ * One page of the feed. The server hands back an opaque `nextCursor` for the
+ * page before this one (null at the oldest page); it is never derived from
+ * the entries, so equal timestamps can't skip or repeat a row.
+ */
+export type ChatFeedPage = ChatFeedResponse & { nextCursor: string | null };
+
+type FeedCache = InfiniteData<ChatFeedPage, string | undefined>;
+
+async function fetchFeedPage(
+  agentId: string | null,
+  cursor: string | undefined
+): Promise<ChatFeedPage> {
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+  if (cursor) params.set("cursor", cursor);
+  const page = await api<ChatFeedPage>(
+    `/api/v1/agents/${agentId}/chat?${params.toString()}`
+  );
+  return { ...page, nextCursor: page.nextCursor ?? null };
+}
 
 /**
  * Pages arrive newest-first (page 0 is the initial fetch, later pages are
- * older via `before`), each page ascending. Flatten to one ascending list.
+ * older via `cursor`), each page ascending. Flatten to one ascending list.
  */
-export function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
+export function flattenFeedPages(pages: ChatFeedPage[]): ChatFeedEntry[] {
   const out: ChatFeedEntry[] = [];
   for (let i = pages.length - 1; i >= 0; i -= 1) {
     out.push(...pages[i]!.entries);
@@ -50,23 +69,17 @@ export function useChatFeed(
   enabled: boolean
 ): ChatFeedState {
   const query = useInfiniteQuery<
-    ChatFeedResponse,
+    ChatFeedPage,
     Error,
     FeedCache,
     ReturnType<typeof chatFeedQueryKey>,
     string | undefined
   >({
     queryKey: chatFeedQueryKey(agentId),
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
-      if (pageParam) params.set("before", pageParam);
-      return api<ChatFeedResponse>(
-        `/api/v1/agents/${agentId}/chat?${params.toString()}`
-      );
-    },
+    queryFn: ({ pageParam }) => fetchFeedPage(agentId, pageParam),
     initialPageParam: undefined,
     getNextPageParam: (lastPage) =>
-      lastPage.hasMore ? lastPage.entries[0]?.at : undefined,
+      lastPage.hasMore && lastPage.nextCursor ? lastPage.nextCursor : undefined,
     enabled: !!agentId && enabled,
     staleTime: 0,
     refetchOnWindowFocus: true,
@@ -100,23 +113,17 @@ export function useChatUnreadCount(
   enabled: boolean
 ): number {
   const { data } = useInfiniteQuery<
-    ChatFeedResponse,
+    ChatFeedPage,
     Error,
     number,
     ReturnType<typeof chatFeedQueryKey>,
     string | undefined
   >({
     queryKey: chatFeedQueryKey(agentId),
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
-      if (pageParam) params.set("before", pageParam);
-      return api<ChatFeedResponse>(
-        `/api/v1/agents/${agentId}/chat?${params.toString()}`
-      );
-    },
+    queryFn: ({ pageParam }) => fetchFeedPage(agentId, pageParam),
     initialPageParam: undefined,
     getNextPageParam: (lastPage) =>
-      lastPage.hasMore ? lastPage.entries[0]?.at : undefined,
+      lastPage.hasMore && lastPage.nextCursor ? lastPage.nextCursor : undefined,
     select: (data) => data.pages[0]?.unreadCount ?? 0,
     enabled: !!agentId && enabled,
     staleTime: 0,

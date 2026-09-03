@@ -74,9 +74,12 @@ describe("ChatComposer", () => {
       disabledReason: "The agent is not running.",
     });
     expect(input.disabled).toBe(true);
+    // The reason is stated once, in the helper line, not echoed as placeholder.
+    expect(input.placeholder).toBe("");
     expect(
       screen.getByTestId("chat-composer-disabled-reason").textContent
     ).toBe("The agent is not running.");
+    expect(screen.getAllByText("The agent is not running.")).toHaveLength(1);
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).not.toHaveBeenCalled();
   });

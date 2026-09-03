@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type {
+  ChatAttachment,
   ChatFeedEntry,
   ChatMessage,
   ChatStatusEntry,
@@ -48,6 +49,14 @@ function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
     updatedAt: "2026-09-02T10:00:00.000Z",
     ...overrides,
   };
+}
+
+type FileAttachment = Extract<ChatAttachment, { type: "file" }>;
+
+function fileAttachment(
+  fields: Pick<FileAttachment, "mediaId" | "fileName" | "sizeBytes">
+): ChatAttachment {
+  return { type: "file", ...fields } as FileAttachment;
 }
 
 function chat(m: ChatMessage): ChatFeedEntry {
@@ -157,6 +166,41 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-delivery-failed")).toBeTruthy();
   });
 
+  it("shows a sending hint while delivery is pending, and nothing once delivered", () => {
+    renderFeed([
+      chat(
+        message({ id: "u1", authorKind: "user", text: "one", delivered: null })
+      ),
+      chat(
+        message({ id: "u2", authorKind: "user", text: "two", delivered: true })
+      ),
+    ]);
+    const pending = screen.getAllByTestId("chat-delivery-pending");
+    expect(pending).toHaveLength(1);
+    expect(
+      pending[0]!.closest("[data-message-id]")?.getAttribute("data-message-id")
+    ).toBe("u1");
+    expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
+  });
+
+  it("shows the hold hint instead of the sending hint on a held message", () => {
+    renderFeed(
+      [
+        chat(
+          message({
+            id: "u1",
+            authorKind: "user",
+            text: "one",
+            delivered: null,
+          })
+        ),
+      ],
+      { heldMessageId: "u1" }
+    );
+    expect(screen.getByTestId("chat-held-hint")).toBeTruthy();
+    expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
+  });
+
   it("shows the hold hint on the held user message only", () => {
     renderFeed(
       [
@@ -246,6 +290,26 @@ describe("ChatFeed", () => {
     expect(onAnswer).not.toHaveBeenCalled();
   });
 
+  it("locks options and hides the freeform hint while answers are unavailable", () => {
+    renderFeed(
+      [
+        chat(
+          message({
+            id: "q1",
+            kind: "question",
+            text: "?",
+            question: { options: [{ label: "Yes" }], allowFreeform: true },
+          })
+        ),
+      ],
+      { answersDisabled: true }
+    );
+    const [option] = screen.getAllByTestId("chat-question-option");
+    expect((option as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("Or type a reply below.")).toBeNull();
+    expect(screen.getByTestId("chat-needs-reply")).toBeTruthy();
+  });
+
   it("disables options while an answer is in flight", () => {
     renderFeed(
       [
@@ -271,20 +335,16 @@ describe("ChatFeed", () => {
           message({
             id: "a1",
             attachments: [
-              {
-                type: "file",
-                path: "/tmp/shot.png",
+              fileAttachment({
                 mediaId: 7,
                 fileName: "shot.png",
                 sizeBytes: 2048,
-              },
-              {
-                type: "file",
-                path: "/tmp/notes.md",
+              }),
+              fileAttachment({
                 mediaId: 8,
                 fileName: "notes.md",
                 sizeBytes: 100,
-              },
+              }),
               { type: "link", url: "https://example.com/x", title: "Example" },
               { type: "pr", url: "https://github.com/o/r/pull/1" },
               {

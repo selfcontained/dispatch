@@ -14,6 +14,7 @@ import {
   FileText,
   GitPullRequest,
   Hourglass,
+  Loader2,
   Paperclip,
 } from "lucide-react";
 
@@ -131,7 +132,7 @@ function FileAttachment({
       type="button"
       onClick={open}
       className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
-      title={attachment.path}
+      title={attachment.fileName}
       data-testid="chat-attachment-file"
     >
       <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
@@ -251,10 +252,13 @@ function AttachmentList({
 export function QuestionOptions({
   message,
   answering,
+  freeformAvailable = true,
   onAnswer,
 }: {
   message: ChatMessage;
   answering: boolean;
+  /** The composer can take a typed reply right now. */
+  freeformAvailable?: boolean;
   onAnswer: (option: ChatQuestionOption) => void;
 }): JSX.Element | null {
   const question = message.question;
@@ -284,7 +288,7 @@ export function QuestionOptions({
           );
         })}
       </div>
-      {answer === null && question.allowFreeform ? (
+      {answer === null && question.allowFreeform && freeformAvailable ? (
         <div className="mt-1.5 text-[11px] text-muted-foreground">
           Or type a reply below.
         </div>
@@ -323,6 +327,16 @@ function MessageMeta({
           not delivered
         </span>
       ) : null}
+      {message.authorKind === "user" && message.delivered === null && !held ? (
+        <span
+          className="inline-flex items-center gap-1"
+          title="Delivering to the agent's terminal."
+          data-testid="chat-delivery-pending"
+        >
+          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          sending
+        </span>
+      ) : null}
       {held ? (
         <span
           className="inline-flex items-center gap-1"
@@ -342,12 +356,14 @@ export const ChatMessageView = memo(function ChatMessageView({
   held,
   ctx,
   answering,
+  freeformAvailable = true,
   onAnswer,
 }: {
   message: ChatMessage;
   held: boolean;
   ctx: AttachmentContext;
   answering: boolean;
+  freeformAvailable?: boolean;
   onAnswer: (messageId: string, option: ChatQuestionOption) => void;
 }): JSX.Element {
   if (message.authorKind === "user") {
@@ -437,6 +453,7 @@ export const ChatMessageView = memo(function ChatMessageView({
           <QuestionOptions
             message={message}
             answering={answering}
+            freeformAvailable={freeformAvailable}
             onAnswer={(option) => onAnswer(message.id, option)}
           />
         ) : null}

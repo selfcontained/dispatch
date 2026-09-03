@@ -120,6 +120,7 @@ export function ChatFeed({
                 answering={
                   answersDisabled || answeringMessageId === entry.message.id
                 }
+                freeformAvailable={!answersDisabled}
                 onAnswer={onAnswer}
               />
             );

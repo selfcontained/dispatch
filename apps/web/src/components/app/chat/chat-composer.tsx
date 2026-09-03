@@ -84,7 +84,7 @@ export function ChatComposer({
           rows={1}
           maxLength={CHAT_MESSAGE_MAX_CHARS}
           autoFocus={autoFocus}
-          placeholder={disabledReason ?? placeholder}
+          placeholder={disabled ? "" : placeholder}
           aria-label="Message the agent"
           className={cn("max-h-48 min-h-10 flex-1 resize-none py-2.5 text-sm")}
           data-testid="chat-composer-input"
