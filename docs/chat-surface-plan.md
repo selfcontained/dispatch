@@ -369,6 +369,27 @@ changes; the flag, routes and tools are unchanged.
 - Mobile: the terminal toolbar shows only while the Agent pane is in Console
   view (flag on); flag off it shows on every tab as before.
 
+### Peer posts and arrivals
+
+- A post from another agent (`agent_message`, direction `in`) shows that
+  agent's own type icon and, after its name, a relation chip computed on the
+  client from the sidebar's agent list: **child agent** when this agent
+  launched it, **parent** when it launched this agent, **sibling** when both
+  share a parent, otherwise **agent** — also the fallback when the sender is
+  no longer in the list (generic bot icon). `agentRelation` in
+  `lib/agent-lineage.ts`; the same chip sits on the Messages panel's thread
+  headers so the two agree. The violet tint and the outgoing "to <name>"
+  line stay.
+- Entries that arrive after the feed first rendered — new posts, status
+  lines, media, and posts edited in place — fade in (200 ms opacity with a
+  3 px rise, `animate-chat-enter`); the initial page and anything paged in
+  with "Load older" never do. `prefers-reduced-motion` drops the animation
+  entirely. The row animates, not the scroll, so auto-follow is unaffected.
+- The Chat | Console segments grow to 44 px on coarse pointers, and the
+  Agent-pane / split headers grow with them; split headers keep their
+  divider-side padding wider than the unsplit button's overhang so it never
+  covers the toggle.
+
 ### Composer draft persistence
 
 - `chatDraftAtomFamily(agentId)` (`lib/store.ts`, shape in

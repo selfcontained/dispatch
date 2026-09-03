@@ -7,12 +7,17 @@ import {
   useState,
 } from "react";
 import type { ChatQuestionOption } from "@dispatch/shared";
+import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import { ChatPresenceStrip } from "@/components/app/chat/chat-presence-strip";
-import { type FeedContext } from "@/components/app/chat/chat-entries";
+import {
+  type FeedContext,
+  type PeerDirectory,
+  peerDirectory,
+} from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
   latestAgentMessageId,
@@ -32,6 +37,7 @@ import {
   useSendChatMessage,
 } from "@/hooks/use-chat";
 import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
+import { api } from "@/lib/api";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
@@ -279,11 +285,23 @@ export function ChatPane({
   // content so unchanged pins don't invalidate every memoised post.
   const pinsKey = JSON.stringify(agent?.pins ?? []);
   const pins = useMemo<AgentPin[]>(() => JSON.parse(pinsKey), [pinsKey]);
+  // The sidebar's agent list, read for a peer post's icon and lineage.
+  // `select` narrows it to what the feed shows, so structural sharing keeps
+  // the directory's identity across agent updates that change nothing here.
+  const { data: peers } = useQuery<Agent[], Error, PeerDirectory>({
+    queryKey: ["agents"],
+    queryFn: async () => {
+      const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
+      return payload.agents;
+    },
+    select: (agents) => peerDirectory(agentId ?? "", agents),
+  });
   const ctx = useMemo<FeedContext>(
     () => ({
       agentId: agentId ?? "",
       agentName: agent?.name,
       agentType: agent?.type ?? null,
+      peers,
       pins,
       workspaceRoot: agent?.worktreePath ?? agent?.cwd ?? null,
       onOpenMedia: openLightbox,
@@ -295,6 +313,7 @@ export function ChatPane({
       agent?.worktreePath,
       agentId,
       openLightbox,
+      peers,
       pins,
     ]
   );

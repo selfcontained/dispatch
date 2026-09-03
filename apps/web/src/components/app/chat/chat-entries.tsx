@@ -22,12 +22,18 @@ import {
   latestEventColor,
   latestEventLabel,
 } from "@/components/app/agent-event-utils";
+import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { PinItem } from "@/components/app/pin-item";
-import { type AgentPin, type MediaFile } from "@/components/app/types";
+import {
+  type Agent,
+  type AgentPin,
+  type MediaFile,
+} from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { formatBytes } from "@/components/app/service-resources-format";
+import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -78,12 +84,44 @@ function hostOf(url: string): string {
 // Authors and the post layout
 // ---------------------------------------------------------------------------
 
+/** What a peer's post shows of the agent behind it: its icon and its lineage. */
+export type PeerInfo = {
+  agentType: string | null;
+  relation: AgentRelation;
+};
+
+/** Peers by id, from this agent's point of view. */
+export type PeerDirectory = Readonly<Record<string, PeerInfo>>;
+
+/**
+ * Every other agent in the list, as this agent's feed sees it. A plain
+ * record (not a Map) so React Query's structural sharing keeps its identity
+ * across agent updates that change nothing here.
+ */
+export function peerDirectory(
+  agentId: string,
+  agents: readonly Pick<Agent, "id" | "type" | "parentAgentId">[]
+): PeerDirectory {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const peers: Record<string, PeerInfo> = {};
+  for (const agent of agents) {
+    if (agent.id === agentId) continue;
+    peers[agent.id] = {
+      agentType: agent.type ?? null,
+      relation: agentRelation(agentId, agent.id, byId),
+    };
+  }
+  return peers;
+}
+
 /** What every row of the channel needs to know about the agent it belongs to. */
 export type FeedContext = {
   agentId: string;
   /** The agent this channel belongs to; names its posts. */
   agentName?: string;
   agentType?: string | null;
+  /** Other agents, for a peer post's avatar and relation; absent until loaded. */
+  peers?: PeerDirectory;
   pins: AgentPin[];
   workspaceRoot: string | null;
   onOpenMedia: (file: MediaFile) => void;
@@ -95,6 +133,8 @@ export type PostAuthor = {
   name: string;
   kind: "user" | "agent" | "peer";
   agentType?: string | null;
+  /** Peers only: how the sender stands to this agent. */
+  relation?: AgentRelation;
 };
 
 function userAuthor(): PostAuthor {
@@ -110,8 +150,24 @@ function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
   };
 }
 
-function peerAuthor(agentId: string, name: string): PostAuthor {
-  return { key: `peer:${agentId}`, name, kind: "peer" };
+/**
+ * A sender that is not this agent: its own icon and its place in the
+ * lineage when the list knows it, a generic agent otherwise (archived, or
+ * from another repository).
+ */
+function peerAuthor(
+  agentId: string,
+  name: string,
+  ctx: FeedContext
+): PostAuthor {
+  const peer = ctx.peers?.[agentId];
+  return {
+    key: `peer:${agentId}`,
+    name,
+    kind: "peer",
+    agentType: peer?.agentType ?? null,
+    relation: peer?.relation ?? "agent",
+  };
 }
 
 const AVATAR_ICON = "[&>svg]:h-[18px] [&>svg]:w-[18px]";
@@ -131,7 +187,7 @@ function Avatar({ author }: { author: PostAuthor }): JSX.Element {
   }
   return (
     <AgentTypeIcon
-      type={author.kind === "agent" ? author.agentType : null}
+      type={author.agentType}
       className={cn("h-8 w-8 rounded-md", AVATAR_ICON)}
     />
   );
@@ -218,6 +274,9 @@ export function Post({
             >
               {author.name}
             </span>
+            {author.kind === "peer" ? (
+              <AgentRelationBadge relation={author.relation ?? "agent"} />
+            ) : null}
             <span
               className="shrink-0 text-[11px] text-muted-foreground"
               title={formatDateTime(at)}
@@ -803,7 +862,7 @@ export function agentMessageAuthor(
 ): PostAuthor {
   return entry.direction === "out"
     ? agentAuthor(ctx, entry.senderName)
-    : peerAuthor(entry.senderAgentId, entry.senderName);
+    : peerAuthor(entry.senderAgentId, entry.senderName, ctx);
 }
 
 export function AgentMessageView({

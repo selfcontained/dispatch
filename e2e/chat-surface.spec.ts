@@ -273,8 +273,11 @@ test.describe("Chat surface", () => {
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-attach-${Date.now()}`,
     });
+    // Launched by this agent, so its posts read as a child agent's.
     const peer = await createAgentViaAPI(request, {
       name: `e2e-chat-peer-${Date.now()}`,
+      type: "claude",
+      parentAgentId: agent.id,
     });
     await setAgentPinsViaDB(agent.id, [
       {
@@ -313,6 +316,15 @@ test.describe("Chat surface", () => {
       content: "Ping from the chat agent",
       delivered: null,
     });
+    // And the child's reply.
+    await seedAgentMessageViaDB({
+      senderAgentId: peer.id,
+      recipientAgentId: agent.id,
+      senderName: peer.name,
+      recipientName: agent.name,
+      content: "Pong from the child",
+      delivered: true,
+    });
 
     await page.goto(`/agents/${agent.id}/chat`, {
       waitUntil: "domcontentloaded",
@@ -333,11 +345,26 @@ test.describe("Chat surface", () => {
       posts.nth(1).getByRole("link", { name: "https://example.com/bare" })
     ).toBeVisible();
 
-    const pending = pane.getByTestId("chat-agent-message");
-    await expect(pending).toContainText("Ping from the chat agent");
+    const pending = pane
+      .getByTestId("chat-agent-message")
+      .filter({ hasText: "Ping from the chat agent" });
     await expect(pending.getByTestId("chat-agent-message-pending")).toHaveText(
       "Sending"
     );
+    await expect(pending.getByTestId("agent-relation-badge")).toHaveCount(0);
+
+    // The child's post: its own icon, its name, and its relation to this agent.
+    const fromChild = pane
+      .getByTestId("chat-agent-message")
+      .filter({ hasText: "Pong from the child" });
+    await expect(fromChild.getByTestId("chat-post-author")).toHaveText(
+      peer.name
+    );
+    await expect(fromChild.getByTestId("agent-relation-badge")).toHaveText(
+      "child agent"
+    );
+    await expect(fromChild.getByLabel("Claude agent")).toBeVisible();
+    await expect(fromChild).toHaveAttribute("data-author-kind", "peer");
 
     // The messages panel renders the same pending state.
     await page.getByTestId("toggle-media-sidebar").click();
@@ -345,6 +372,9 @@ test.describe("Chat surface", () => {
     await mediaSidebar.getByRole("button", { name: "Messages" }).click();
     await expect(mediaSidebar.getByTestId("message-sending")).toContainText(
       "sending"
+    );
+    await expect(mediaSidebar.getByTestId("agent-relation-badge")).toHaveText(
+      "child agent"
     );
 
     await page.screenshot({
@@ -480,5 +510,117 @@ test.describe("Chat surface", () => {
     await page.getByTestId("agent-view-chat").click();
     await expect(page.getByTestId("chat-pane")).toBeVisible();
     await expect(page.getByTestId("agent-view-chat-unread")).toHaveCount(0);
+  });
+
+  test("keeps the split Agent header's toggle clear of the unsplit button at 820px", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-split-820-${Date.now()}`,
+    });
+
+    await page.setViewportSize({ width: 820, height: 1180 });
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("agent-view-toggle").waitFor({ state: "visible" });
+    await page.evaluate((id) => {
+      window.localStorage.setItem(
+        `dispatch:splitPaneV2:${id}`,
+        JSON.stringify({
+          mode: "split",
+          left: "agent",
+          right: "changes",
+          sizes: [50, 50],
+        })
+      );
+    }, agent.id);
+    await page.reload({ waitUntil: "domcontentloaded" });
+
+    const unsplit = page.getByTestId("unsplit-button");
+    await expect(unsplit).toBeVisible({ timeout: 10_000 });
+    const toggle = page.getByTestId("agent-view-toggle");
+    await expect(toggle).toBeVisible();
+    const consoleSegment = page.getByTestId("agent-view-console");
+    await expect(consoleSegment).toBeVisible();
+
+    // The toggle sits wholly left of the button: no overlap, nothing cut off.
+    const button = (await unsplit.boundingBox())!;
+    const toggleBox = (await toggle.boundingBox())!;
+    const segmentBox = (await consoleSegment.boundingBox())!;
+    expect(toggleBox.x + toggleBox.width).toBeLessThanOrEqual(button.x);
+    expect(segmentBox.x + segmentBox.width).toBeLessThanOrEqual(button.x);
+    expect(await consoleSegment.evaluate((el) => el.scrollWidth)).toBe(
+      Math.round(segmentBox.width)
+    );
+    await page.screenshot({
+      path: test.info().outputPath("chat-surface-split-820.png"),
+    });
+
+    // Both segments still take a click.
+    await consoleSegment.click();
+    await expect(toggle).toHaveAttribute("data-view", "console");
+    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await page.getByTestId("agent-view-chat").click();
+    await expect(toggle).toHaveAttribute("data-view", "chat");
+    await expect(page.getByTestId("chat-pane")).toBeVisible();
+  });
+
+  test("gives the Chat | Console toggle touch-sized segments on a phone", async ({
+    browser,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-touch-${Date.now()}`,
+    });
+
+    const protocol = process.env.TLS_CERT ? "https" : "http";
+    const baseURL = `${protocol}://127.0.0.1:${process.env.E2E_PORT ?? "8788"}`;
+    const context = await browser.newContext({
+      baseURL,
+      hasTouch: true,
+      ignoreHTTPSErrors: true,
+      viewport: { width: 390, height: 844 },
+    });
+    const touchPage = await context.newPage();
+    try {
+      await touchPage.goto(`/agents/${agent.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      const toggle = touchPage.getByTestId("agent-view-toggle");
+      await toggle.waitFor({ state: "visible" });
+      expect(
+        await touchPage.evaluate(() => matchMedia("(pointer: coarse)").matches)
+      ).toBe(true);
+
+      for (const id of ["agent-view-chat", "agent-view-console"]) {
+        await expect
+          .poll(() =>
+            touchPage
+              .getByTestId(id)
+              .evaluate((node) => node.getBoundingClientRect().height)
+          )
+          .toBeGreaterThanOrEqual(44);
+      }
+      // The header grew to hold it rather than clipping it.
+      const header = toggle.locator("xpath=..");
+      const headerBox = (await header.boundingBox())!;
+      const toggleBox = (await toggle.boundingBox())!;
+      expect(toggleBox.y).toBeGreaterThanOrEqual(headerBox.y);
+      expect(toggleBox.y + toggleBox.height).toBeLessThanOrEqual(
+        headerBox.y + headerBox.height
+      );
+      await expect(touchPage.getByTestId("chat-pane")).toBeVisible();
+      await touchPage.screenshot({
+        path: test.info().outputPath("chat-surface-touch-390.png"),
+      });
+
+      await touchPage.getByTestId("agent-view-console").tap();
+      await expect(toggle).toHaveAttribute("data-view", "console");
+      await expect(touchPage.getByTestId("terminal-pane")).toBeVisible();
+    } finally {
+      await context.close();
+    }
   });
 });

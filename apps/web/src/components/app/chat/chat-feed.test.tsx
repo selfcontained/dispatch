@@ -9,7 +9,10 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { type FeedContext } from "@/components/app/chat/chat-entries";
+import {
+  type FeedContext,
+  peerDirectory,
+} from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
   collapseFeed,
@@ -90,15 +93,13 @@ function makeCtx(
   };
 }
 
-function renderFeed(
+function feedElement(
   entries: ChatFeedEntry[],
-  extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
-  ctxOverrides: Partial<FeedContext> = {}
+  ctx: FeedContext,
+  onAnswer: ReturnType<typeof vi.fn>,
+  extra: Partial<Parameters<typeof ChatFeed>[0]> = {}
 ) {
-  const onAnswer = vi.fn();
-  const onOpenMedia = vi.fn();
-  const ctx = makeCtx(ctxOverrides, onOpenMedia);
-  render(
+  return (
     <MemoryRouter>
       <ChatFeed
         entries={entries}
@@ -110,7 +111,20 @@ function renderFeed(
       />
     </MemoryRouter>
   );
-  return { onAnswer, onOpenMedia };
+}
+
+function renderFeed(
+  entries: ChatFeedEntry[],
+  extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
+  ctxOverrides: Partial<FeedContext> = {}
+) {
+  const onAnswer = vi.fn();
+  const onOpenMedia = vi.fn();
+  const ctx = makeCtx(ctxOverrides, onOpenMedia);
+  const view = render(feedElement(entries, ctx, onAnswer, extra));
+  const rerenderWith = (next: ChatFeedEntry[]) =>
+    view.rerender(feedElement(next, ctx, onAnswer, extra));
+  return { onAnswer, onOpenMedia, rerenderWith };
 }
 
 describe("collapseFeed", () => {
@@ -425,6 +439,115 @@ describe("ChatFeed", () => {
     expect(authors.map((a) => a.textContent)).toEqual(["builder", "You"]);
     expect(screen.getAllByTestId("chat-gutter-time")).toHaveLength(1);
     expect(screen.getByTestId("chat-day-divider")).toBeTruthy();
+  });
+
+  it("shows a peer's own icon and its relation to this agent", () => {
+    const peers = peerDirectory(AGENT_ID, [
+      { id: AGENT_ID, type: "claude", parentAgentId: "agt_root" },
+      { id: "agt_kid", type: "codex", parentAgentId: AGENT_ID },
+      { id: "agt_root", type: "claude", parentAgentId: null },
+      { id: "agt_sib", type: "opencode", parentAgentId: "agt_root" },
+      { id: "agt_far", type: "terminal", parentAgentId: null },
+    ]);
+    expect(peers[AGENT_ID]).toBeUndefined();
+    const peerPost = (
+      id: string,
+      senderAgentId: string,
+      minute: string
+    ): ChatFeedEntry => ({
+      type: "agent_message",
+      id,
+      direction: "in",
+      senderAgentId,
+      senderName: senderAgentId,
+      recipientAgentId: AGENT_ID,
+      recipientName: "builder",
+      content: `from ${senderAgentId}`,
+      delivered: true,
+      at: `2026-09-02T10:${minute}:00.000Z`,
+    });
+    renderFeed(
+      [
+        peerPost("p1", "agt_kid", "00"),
+        peerPost("p2", "agt_root", "10"),
+        peerPost("p3", "agt_sib", "20"),
+        peerPost("p4", "agt_far", "30"),
+        peerPost("p5", "agt_gone", "40"),
+      ],
+      {},
+      { peers }
+    );
+    const posts = screen.getAllByTestId("chat-agent-message");
+    expect(
+      posts.map(
+        (post) =>
+          post.querySelector('[data-testid="agent-relation-badge"]')
+            ?.textContent
+      )
+    ).toEqual(["child agent", "parent", "sibling", "agent", "agent"]);
+    expect(
+      posts.map((post) =>
+        post.querySelector('[aria-label$=" agent"]')?.getAttribute("aria-label")
+      )
+    ).toEqual([
+      "Codex agent",
+      "Claude agent",
+      "OpenCode agent",
+      "Terminal agent",
+      // Not in the list any more: the generic agent icon.
+      "Agent agent",
+    ]);
+    // Still a peer post: violet, with the sender's name.
+    expect(posts[0]!.className).toContain("bg-violet-500/[0.06]");
+    expect(
+      posts[0]!.querySelector('[data-testid="chat-post-author"]')?.textContent
+    ).toBe("agt_kid");
+  });
+
+  it("falls back to a plain agent for a peer before the agent list has loaded", () => {
+    renderFeed([
+      {
+        type: "agent_message",
+        id: "p1",
+        direction: "in",
+        senderAgentId: "agt_2",
+        senderName: "Reviewer",
+        recipientAgentId: AGENT_ID,
+        recipientName: "builder",
+        content: "hi",
+        delivered: true,
+        at: "2026-09-02T10:00:00.000Z",
+      },
+    ]);
+    const post = screen.getByTestId("chat-agent-message");
+    expect(
+      post.querySelector('[data-testid="agent-relation-badge"]')?.textContent
+    ).toBe("agent");
+    expect(post.querySelector('[aria-label="Agent agent"]')).not.toBeNull();
+    // This agent's own outgoing posts carry no badge.
+  });
+
+  it("gives the agent's own outgoing message its icon and no relation badge", () => {
+    renderFeed([
+      {
+        type: "agent_message",
+        id: "o1",
+        direction: "out",
+        senderAgentId: AGENT_ID,
+        senderName: "builder",
+        recipientAgentId: "agt_2",
+        recipientName: "Reviewer",
+        content: "ping",
+        delivered: true,
+        at: "2026-09-02T10:00:00.000Z",
+      },
+    ]);
+    const post = screen.getByTestId("chat-agent-message");
+    expect(
+      post.querySelector('[data-testid="agent-relation-badge"]')
+    ).toBeNull();
+    expect(post.querySelector('[aria-label="Claude agent"]')).not.toBeNull();
+    expect(post.textContent).toContain("to Reviewer");
   });
 
   it("tints You and peer posts, leaves the agent's plain, and marks group boundaries", () => {
@@ -829,5 +952,71 @@ describe("ChatFeed", () => {
         url: `/api/v1/agents/${AGENT_ID}/media/screen.png`,
       })
     );
+  });
+});
+
+describe("ChatFeed enter animation", () => {
+  const at = (hhmm: string) => `2026-09-02T${hhmm}:00.000Z`;
+  const enterOf = (el: Element) =>
+    el.closest('[data-testid="chat-entry-enter"]');
+
+  it("fades in what arrives after the first render, never what was there or paged in above", () => {
+    const first = chat(
+      message({ id: "a1", text: "first", createdAt: at("10:00") })
+    );
+    const { rerenderWith } = renderFeed([first]);
+    expect(enterOf(screen.getByTestId("chat-message"))).toBeNull();
+
+    // A new post and a new status line arrive.
+    rerenderWith([
+      first,
+      status("s1", "working", "Running tests", at("10:01")),
+      chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
+    ]);
+    const [one, two] = screen.getAllByTestId("chat-message");
+    expect(enterOf(one!)).toBeNull();
+    expect(enterOf(two!)).not.toBeNull();
+    expect(enterOf(two!)!.className).toContain("animate-chat-enter");
+    expect(enterOf(two!)!.className).toContain("motion-reduce:animate-none");
+    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
+
+    // Still fading when the same list renders again.
+    rerenderWith([
+      first,
+      status("s1", "working", "Running tests", at("10:01")),
+      chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
+    ]);
+    expect(enterOf(screen.getAllByTestId("chat-message")[1]!)).not.toBeNull();
+
+    // "Load older" puts an earlier page above: no animation for it.
+    rerenderWith([
+      chat(message({ id: "a0", text: "older", createdAt: at("09:00") })),
+      first,
+      status("s1", "working", "Running tests", at("10:01")),
+      chat(message({ id: "a2", text: "second", createdAt: at("10:02") })),
+    ]);
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts[0]!.textContent).toContain("older");
+    expect(enterOf(posts[0]!)).toBeNull();
+    expect(enterOf(posts[1]!)).toBeNull();
+    expect(enterOf(posts[2]!)).not.toBeNull();
+  });
+
+  it("fades a post edited in place in again", () => {
+    const original = message({
+      id: "a1",
+      text: "draft",
+      createdAt: at("10:00"),
+      updatedAt: at("10:00"),
+    });
+    const { rerenderWith } = renderFeed([chat(original)]);
+    expect(enterOf(screen.getByTestId("chat-message"))).toBeNull();
+
+    rerenderWith([
+      chat({ ...original, text: "final", updatedAt: at("10:05") }),
+    ]);
+    const edited = screen.getByTestId("chat-message");
+    expect(edited.textContent).toContain("final");
+    expect(enterOf(edited)).not.toBeNull();
   });
 });

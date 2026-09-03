@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { type ReactNode, useMemo, useRef } from "react";
 import type {
   ChatFeedEntry,
   ChatMessage,
@@ -46,6 +46,93 @@ export type ChatFeedRow =
 
 /** Posts by one author this close together share a header, like Slack. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
+
+/** What "the same entry, changed" means: a post edited in place has a new one. */
+function entryVersion(entry: ChatFeedEntry): string {
+  return entry.type === "chat" ? entry.message.updatedAt : entry.at;
+}
+
+/**
+ * The entries to fade in: those that arrived after the feed first rendered,
+ * plus posts edited in place — never what was there at mount, and never a
+ * page of older entries. An unseen id is an arrival when it is at least as
+ * new as the newest entry seen so far; anything older came in above with
+ * "Load older". The value is the version the animation belongs to, so an
+ * edit of an entry that already faded in fades it in again.
+ *
+ * Bookkeeping lives in refs and is updated during render: it only ever
+ * adds to the answer for the current entries, so a repeated render (strict
+ * mode) settles on the same result.
+ */
+export function useEnteringEntries(
+  entries: ChatFeedEntry[]
+): ReadonlyMap<string, string> {
+  const seenRef = useRef<Map<string, string> | null>(null);
+  const newestAtRef = useRef("");
+  const enteringRef = useRef(new Map<string, string>());
+
+  if (seenRef.current === null) {
+    seenRef.current = new Map(
+      entries.map((entry) => [entry.id, entryVersion(entry)])
+    );
+    for (const entry of entries) {
+      if (entry.at > newestAtRef.current) newestAtRef.current = entry.at;
+    }
+    return enteringRef.current;
+  }
+
+  const seen = seenRef.current;
+  const entering = enteringRef.current;
+  const present = new Set<string>();
+  let newest = newestAtRef.current;
+  for (const entry of entries) {
+    present.add(entry.id);
+    const version = entryVersion(entry);
+    const prior = seen.get(entry.id);
+    if (prior === undefined) {
+      if (entry.at >= newestAtRef.current) entering.set(entry.id, version);
+    } else if (prior !== version) {
+      entering.set(entry.id, version);
+    }
+    seen.set(entry.id, version);
+    if (entry.at > newest) newest = entry.at;
+  }
+  newestAtRef.current = newest;
+  for (const id of [...seen.keys()]) {
+    if (!present.has(id)) {
+      seen.delete(id);
+      entering.delete(id);
+    }
+  }
+  return entering;
+}
+
+/**
+ * Fades a fresh entry in (a short rise with it, unless the viewer prefers
+ * reduced motion, in which case it simply appears). Keyed by the version so
+ * an in-place edit runs it again; a settled entry renders bare.
+ */
+function Enter({
+  id,
+  entering,
+  children,
+}: {
+  id: string;
+  entering: ReadonlyMap<string, string>;
+  children: ReactNode;
+}): JSX.Element {
+  const version = entering.get(id);
+  if (version === undefined) return <>{children}</>;
+  return (
+    <div
+      key={version}
+      className="animate-chat-enter motion-reduce:animate-none"
+      data-testid="chat-entry-enter"
+    >
+      {children}
+    </div>
+  );
+}
 
 /**
  * Agents emit a `working` event for every little step. Back-to-back ones say
@@ -202,6 +289,7 @@ export function ChatFeed({
   onAnswer,
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
+  const entering = useEnteringEntries(entries);
 
   // Consecutive status lines sit as one quiet cluster between posts, so they
   // read as a separator rather than as posts of their own.
@@ -240,11 +328,12 @@ export function ChatFeed({
               data-testid="chat-status-cluster"
             >
               {block.rows.map((row) => (
-                <StatusLine
-                  key={row.entry.id}
-                  entry={row.entry}
-                  collapsedCount={row.collapsedCount}
-                />
+                <Enter key={row.entry.id} id={row.entry.id} entering={entering}>
+                  <StatusLine
+                    entry={row.entry}
+                    collapsedCount={row.collapsedCount}
+                  />
+                </Enter>
               ))}
             </div>
           );
@@ -255,42 +344,46 @@ export function ChatFeed({
         }
         if (row.kind === "status") return null;
         const entry = row.entry;
-        switch (entry.type) {
-          case "chat":
-            return (
-              <ChatMessageView
-                key={entry.id}
-                message={entry.message}
-                held={heldMessageId === entry.message.id}
-                grouped={row.grouped}
-                rule={row.rule}
-                ctx={ctx}
-                answering={answeringMessageId === entry.message.id}
-                answersDisabled={answersDisabled}
-                onAnswer={onAnswer}
-              />
-            );
-          case "agent_message":
-            return (
-              <AgentMessageView
-                key={entry.id}
-                entry={entry}
-                grouped={row.grouped}
-                rule={row.rule}
-                ctx={ctx}
-              />
-            );
-          case "media":
-            return (
-              <MediaEntryView
-                key={entry.id}
-                entry={entry}
-                grouped={row.grouped}
-                rule={row.rule}
-                ctx={ctx}
-              />
-            );
-        }
+        const view = (() => {
+          switch (entry.type) {
+            case "chat":
+              return (
+                <ChatMessageView
+                  message={entry.message}
+                  held={heldMessageId === entry.message.id}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                  answering={answeringMessageId === entry.message.id}
+                  answersDisabled={answersDisabled}
+                  onAnswer={onAnswer}
+                />
+              );
+            case "agent_message":
+              return (
+                <AgentMessageView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
+            case "media":
+              return (
+                <MediaEntryView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
+          }
+        })();
+        return (
+          <Enter key={entry.id} id={entry.id} entering={entering}>
+            {view}
+          </Enter>
+        );
       })}
     </div>
   );

@@ -30,6 +30,10 @@ type CenterPaneSplitProps = {
  * either the terminal (via the shared terminal slot) or the Changes tab, with an
  * unsplit button anchored on the divider. Purely presentational — the terminal
  * DOM node is portaled into `splitTerminalSlotRef` by the parent.
+ *
+ * The unsplit button straddles the divider, so each header keeps its
+ * divider-side padding wider than the button's overhang and its title yields
+ * (truncates) before an accessory would be pushed under the button.
  */
 export function CenterPaneSplit({
   splitState,
@@ -75,8 +79,8 @@ export function CenterPaneSplit({
           minSize={20}
         >
           <div ref={splitLeftRef} className="flex h-full flex-col">
-            <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 pl-3 pr-6">
+              <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {centerTabLabel(splitState.left)}
               </span>
               {accessoryFor(splitState.left)}
@@ -91,8 +95,8 @@ export function CenterPaneSplit({
           minSize={20}
         >
           <div className="flex h-full flex-col">
-            <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+            <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 pl-6 pr-3">
+              <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 {centerTabLabel(splitState.right)}
               </span>
               {accessoryFor(splitState.right)}
