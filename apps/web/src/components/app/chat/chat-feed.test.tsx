@@ -611,7 +611,11 @@ describe("ChatFeed", () => {
     );
     fireEvent.click(image.querySelector("button")!);
     expect(onOpenMedia).toHaveBeenCalledWith(
-      expect.objectContaining({ name: "shot.png", size: 2048 })
+      expect.objectContaining({
+        name: "shot.png",
+        size: 2048,
+        ownerAgentId: AGENT_ID,
+      })
     );
 
     expect(screen.getByTestId("chat-attachment-file").textContent).toContain(

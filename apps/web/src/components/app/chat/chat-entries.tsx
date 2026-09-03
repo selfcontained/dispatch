@@ -310,6 +310,9 @@ function FileAttachment({
   const url = mediaFileUrl(ctx.agentId, attachment.fileName);
   const open = () =>
     ctx.onOpenMedia({
+      // ownerAgentId is part of the lightbox identity; without it the
+      // synthesized file never matches the media list and nothing opens.
+      ownerAgentId: ctx.agentId,
       name: attachment.fileName,
       size: attachment.sizeBytes,
       updatedAt: at,
@@ -822,6 +825,7 @@ export function MediaEntryView({
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
   const open = () =>
     ctx.onOpenMedia({
+      ownerAgentId: ctx.agentId,
       name: entry.fileName,
       size: entry.sizeBytes,
       updatedAt: entry.at,
