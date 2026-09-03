@@ -110,8 +110,10 @@ write to `agent_chat_messages`. The web also invalidates the feed on
 Reply in the Chat tab with dispatch_chat_post (replyTo: "<uuid>").
 ```
 
-Answers to a question use the same envelope with the chosen label as text and
-`replyTo` pointing at the question message id.
+Answers to a question use the same envelope with the chosen label as text.
+The id in the envelope is the user's reply message (which itself carries
+`replyTo` = the question id), so the agent answers the reply like any other
+user message.
 
 ## MCP tools
 
