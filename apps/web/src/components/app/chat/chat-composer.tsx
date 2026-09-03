@@ -71,10 +71,13 @@ export function ChatComposer({
     if (!canSend) return;
     setError(null);
     setInFlight(true);
+    // Only the draft that was sent gets cleared: anything typed while the
+    // send was pending is a new draft and stays.
+    const submitted = text;
     onSend(trimmed)
       .then(() => {
         if (!mountedRef.current) return;
-        setText("");
+        setText((current) => (current === submitted ? "" : current));
       })
       .catch((err: unknown) => {
         if (!mountedRef.current) return;
@@ -85,7 +88,7 @@ export function ChatComposer({
         setInFlight(false);
         textareaRef.current?.focus();
       });
-  }, [canSend, onSend, trimmed]);
+  }, [canSend, onSend, text, trimmed]);
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {

@@ -8,6 +8,15 @@ import type { Agent } from "@/components/app/types";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { ChildAgentRow } from "./child-agent-row";
 
+// The chat badge reads an app-wide React Query summary; the row only has to
+// place it, so the hook is a switch here.
+const chatUnread = vi.hoisted(() => ({
+  value: { unread: 0, pendingQuestions: 0 },
+}));
+vi.mock("@/hooks/use-chat-unread-summary", () => ({
+  useAgentChatUnread: () => chatUnread.value,
+}));
+
 const baseAgent: Agent = {
   id: "agt_child",
   name: "security-review-123456",
@@ -33,7 +42,10 @@ const baseAgent: Agent = {
   updatedAt: "2026-07-15T12:00:00.000Z",
 };
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  chatUnread.value = { unread: 0, pendingQuestions: 0 };
+});
 
 function renderRow(
   agent: Agent,
@@ -96,6 +108,29 @@ function openMenu(agentId = "agt_child") {
 }
 
 describe("ChildAgentRow", () => {
+  describe("chat unread badge", () => {
+    it("shows nothing while the child has no unread chat", () => {
+      renderRow(baseAgent);
+      expect(screen.queryByTestId("agent-chat-unread")).toBeNull();
+    });
+
+    it("shows the unread count for a child with replies waiting", () => {
+      chatUnread.value = { unread: 2, pendingQuestions: 0 };
+      renderRow(baseAgent);
+      const badge = screen.getByTestId("agent-chat-unread");
+      expect(badge.textContent).toBe("2");
+      expect(badge.className).not.toContain("status-waiting");
+    });
+
+    it("takes the waiting accent when the child asked a question", () => {
+      chatUnread.value = { unread: 0, pendingQuestions: 1 };
+      renderRow(baseAgent);
+      const badge = screen.getByTestId("agent-chat-unread");
+      expect(badge.className).toContain("status-waiting");
+      expect(badge.getAttribute("title")).toBe("1 open question");
+    });
+  });
+
   it("labels review agents and chases before their initial review is submitted", () => {
     renderRow({
       ...baseAgent,

@@ -36,6 +36,33 @@ describe("ChatComposer", () => {
     await waitFor(() => expect(input.value).toBe(""));
   });
 
+  it("keeps a draft typed while the previous send was pending", async () => {
+    let resolve!: () => void;
+    const onSend = vi.fn(
+      () =>
+        new Promise<void>((res) => {
+          resolve = res;
+        })
+    );
+    render(<ChatComposer onSend={onSend} disabledReason={null} />);
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "first" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("first");
+
+    fireEvent.change(input, { target: { value: "second draft" } });
+    await act(async () => {
+      resolve();
+    });
+    expect(input.value).toBe("second draft");
+
+    // The new draft sends normally once the first has settled.
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenLastCalledWith("second draft");
+  });
+
   it("keeps the draft and shows the error when the send fails", async () => {
     let reject!: (err: Error) => void;
     const onSend = vi.fn(
