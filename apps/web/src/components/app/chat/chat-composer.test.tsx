@@ -84,6 +84,27 @@ describe("ChatComposer", () => {
     expect(onSend).not.toHaveBeenCalled();
   });
 
+  it("shows the reply context chip and lets the user opt out of it", () => {
+    const onDismiss = vi.fn();
+    const { input } = renderComposer({
+      replyContext: { excerpt: "Ship it now or wait?", onDismiss },
+    });
+    const chip = screen.getByTestId("chat-reply-context");
+    expect(chip.textContent).toContain("Replying to:");
+    expect(chip.textContent).toContain("Ship it now or wait?");
+    expect(input.placeholder).toBe("Type your answer…");
+    fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the reply context chip while the composer is disabled", () => {
+    renderComposer({
+      replyContext: { excerpt: "Q", onDismiss: vi.fn() },
+      disabledReason: "The agent is not running.",
+    });
+    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
+  });
+
   it("keeps the input usable but holds the button while a send is in flight", () => {
     const { input } = renderComposer({ sending: true });
     fireEvent.change(input, { target: { value: "next" } });

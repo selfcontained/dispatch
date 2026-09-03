@@ -14,6 +14,7 @@ import {
   ChatFeed,
   collapseFeed,
   latestAgentMessageId,
+  latestOpenFreeformQuestion,
   latestUserMessageId,
 } from "@/components/app/chat/chat-feed";
 
@@ -145,6 +146,62 @@ describe("latest message helpers", () => {
     expect(latestUserMessageId(entries)).toBe("u1");
     expect(latestAgentMessageId(entries)).toBe("a2");
     expect(latestUserMessageId([])).toBeNull();
+  });
+});
+
+describe("latestOpenFreeformQuestion", () => {
+  const freeform = (id: string, answered = false) =>
+    chat(
+      message({
+        id,
+        kind: "question",
+        text: `Q ${id}`,
+        question: { options: [{ label: "A" }], allowFreeform: true },
+        answer: answered
+          ? {
+              value: "A",
+              replyMessageId: "r",
+              answeredAt: "2026-09-02T10:01:00.000Z",
+            }
+          : null,
+      })
+    );
+  const fixed = (id: string) =>
+    chat(
+      message({
+        id,
+        kind: "question",
+        text: `Q ${id}`,
+        question: { options: [{ label: "A" }] },
+      })
+    );
+
+  it("returns the newest unanswered question that allows a typed reply", () => {
+    expect(
+      latestOpenFreeformQuestion([freeform("q1"), freeform("q2")])?.id
+    ).toBe("q2");
+  });
+
+  it("falls back to an older open question once the newest is answered", () => {
+    expect(
+      latestOpenFreeformQuestion([freeform("q1"), freeform("q2", true)])?.id
+    ).toBe("q1");
+  });
+
+  it("returns nothing when the newest open question is option-only", () => {
+    expect(
+      latestOpenFreeformQuestion([freeform("q1"), fixed("q2")])
+    ).toBeNull();
+    expect(
+      latestOpenFreeformQuestion([chat(message({ id: "a1" }))])
+    ).toBeNull();
+  });
+
+  it("looks past later replies to the open question", () => {
+    expect(
+      latestOpenFreeformQuestion([freeform("q1"), chat(message({ id: "a2" }))])
+        ?.id
+    ).toBe("q1");
   });
 });
 

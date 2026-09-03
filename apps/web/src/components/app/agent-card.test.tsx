@@ -22,6 +22,10 @@ import { AgentCard, type AgentCardProps } from "./agent-card";
 // of these tests is that the four-file split (#803) keeps passing each child
 // the props it needs. Only the HTTP seam is mocked.
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
+// The chat badge has its own query; keep it out of this file's api spy.
+vi.mock("@/hooks/use-chat-unread-summary", () => ({
+  useAgentChatUnread: () => ({ unread: 0, pendingQuestions: 0 }),
+}));
 
 // Animations are replaced with plain elements so collapse/expand is synchronous;
 // otherwise AnimatePresence's exit animation leaves the old subtree mounted for

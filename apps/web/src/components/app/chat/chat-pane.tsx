@@ -16,6 +16,7 @@ import { type AttachmentContext } from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
   latestAgentMessageId,
+  latestOpenFreeformQuestion,
   latestUserMessageId,
 } from "@/components/app/chat/chat-feed";
 import {
@@ -45,6 +46,17 @@ export type ChatPaneProps = {
 
 /** How close to the bottom (px) still counts as "following" the feed. */
 const FOLLOW_THRESHOLD_PX = 48;
+
+/** First line of a question, plain enough for a one-line chip. */
+export function questionExcerpt(text: string, max = 80): string {
+  const line =
+    text
+      .split("\n")
+      .map((l) => l.replace(/^[#>*\-\s]+/, "").trim())
+      .find((l) => l.length > 0) ?? "";
+  const plain = line.replace(/[*_`]/g, "");
+  return plain.length > max ? `${plain.slice(0, max - 1).trimEnd()}…` : plain;
+}
 
 export function composerDisabledReason(
   agent: Agent | null,
@@ -119,6 +131,24 @@ export function ChatPane({
     () => (holdState?.held ? latestUserMessageId(entries) : null),
     [entries, holdState?.held]
   );
+  const hasChatMessages = useMemo(
+    () => entries.some((entry) => entry.type === "chat"),
+    [entries]
+  );
+
+  // A typed reply answers the newest open free-text question unless the
+  // user has opted out of that question with the chip's ×.
+  const openQuestion = useMemo(
+    () => latestOpenFreeformQuestion(entries),
+    [entries]
+  );
+  const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
+    null
+  );
+  const replyTarget =
+    openQuestion && openQuestion.id !== dismissedQuestionId
+      ? openQuestion
+      : null;
 
   // ---- scroll: follow the bottom unless the user scrolled up ---------------
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -209,11 +239,29 @@ export function ChatPane({
     (text: string) => {
       setSendError(null);
       setFollowing(true);
+      if (replyTarget) {
+        answer.mutate(
+          { messageId: replyTarget.id, value: text },
+          { onError: (err) => setSendError(err.message) }
+        );
+        return;
+      }
       send.mutate(text, {
         onError: (err) => setSendError(err.message),
       });
     },
-    [send]
+    [answer, replyTarget, send]
+  );
+
+  const replyContext = useMemo(
+    () =>
+      replyTarget
+        ? {
+            excerpt: questionExcerpt(replyTarget.text),
+            onDismiss: () => setDismissedQuestionId(replyTarget.id),
+          }
+        : null,
+    [replyTarget]
   );
 
   const onAnswer = useCallback(
@@ -304,19 +352,33 @@ export function ChatPane({
               Couldn&apos;t load the chat: {feed.error.message}
             </div>
           ) : null}
-          {!feed.isLoading && entries.length === 0 && !feed.error ? (
+          {!feed.isLoading && !hasChatMessages && !feed.error ? (
             <div
-              className="flex h-full flex-col items-center justify-center gap-2 text-center text-sm text-muted-foreground"
+              className={cn(
+                "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
+                entries.length === 0 ? "h-full" : "mb-4 py-6"
+              )}
               data-testid="chat-empty"
             >
               <MessageSquare className="h-8 w-8" />
-              <div>
-                {agent
-                  ? "No messages yet. Say something, or wait for the agent to check in."
-                  : "Select an agent to start chatting."}
-              </div>
+              {agent ? (
+                <>
+                  <div className="text-foreground">
+                    No messages yet. Send the first one below and the agent
+                    replies here.
+                  </div>
+                  <div className="max-w-md text-xs">
+                    Agents launched before Chat was enabled won&apos;t have the
+                    Chat guidance until they are relaunched; until then their
+                    replies only show in the Console.
+                  </div>
+                </>
+              ) : (
+                <div>Select an agent to start chatting.</div>
+              )}
             </div>
-          ) : (
+          ) : null}
+          {entries.length > 0 ? (
             <ChatFeed
               entries={entries}
               ctx={ctx}
@@ -325,7 +387,7 @@ export function ChatPane({
               answersDisabled={disabledReason !== null}
               onAnswer={onAnswer}
             />
-          )}
+          ) : null}
         </div>
         {pendingBelow && !following ? (
           <div className="pointer-events-none absolute inset-x-0 bottom-2 flex justify-center">
@@ -369,8 +431,9 @@ export function ChatPane({
         <ChatComposer
           onSend={onSend}
           disabledReason={disabledReason}
-          sending={send.isPending}
+          sending={send.isPending || answer.isPending}
           autoFocus={active && !isMobile}
+          replyContext={replyContext}
         />
       </div>
     </div>

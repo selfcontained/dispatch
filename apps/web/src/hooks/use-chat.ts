@@ -237,7 +237,12 @@ export function useAnswerChatQuestion(agentId: string | null) {
   const queryClient = useQueryClient();
   const key = chatFeedQueryKey(agentId);
 
-  return useMutation<ChatAnswerResponse, Error, ChatAnswerInput>({
+  return useMutation<
+    ChatAnswerResponse,
+    Error,
+    ChatAnswerInput,
+    { previous: FeedCache | undefined; tempId: string }
+  >({
     mutationFn: async ({ messageId, value, label }) =>
       api<ChatAnswerResponse>(
         `/api/v1/agents/${agentId}/chat/messages/${encodeURIComponent(messageId)}/answer`,
@@ -246,10 +251,26 @@ export function useAnswerChatQuestion(agentId: string | null) {
           body: JSON.stringify(label ? { value, label } : { value }),
         }
       ),
-    onSuccess: (data) => {
+    onMutate: async ({ messageId, value, label }) => {
+      await queryClient.cancelQueries({ queryKey: key, exact: true });
+      const previous = queryClient.getQueryData<FeedCache>(key);
+      const temp = {
+        ...optimisticUserMessage(agentId ?? "", label ?? value),
+        replyTo: messageId,
+      };
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        appendToNewestPage(
+        appendToNewestPage(old, temp)
+      );
+      return { previous, tempId: temp.id };
+    },
+    onError: (_err, _input, context) => {
+      if (context) queryClient.setQueryData(key, context.previous);
+    },
+    onSuccess: (data, _input, context) => {
+      queryClient.setQueryData<FeedCache>(key, (old) =>
+        replaceMessage(
           replaceMessage(old, data.question.id, data.question),
+          context.tempId,
           data.reply
         )
       );

@@ -10,6 +10,7 @@ import { type ConnState, type DiffStats } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
 import { Button } from "@/components/ui/button";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 type AgentsViewHeaderProps = {
   isMobile: boolean;
@@ -65,7 +66,16 @@ export function AgentsViewHeader({
   unseenSurfaceCount,
 }: AgentsViewHeaderProps): JSX.Element {
   return (
-    <div className="relative z-10 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-background px-3">
+    <div
+      className={cn(
+        "relative z-10 grid h-14 shrink-0 items-center bg-background px-3",
+        // On phones the side columns hug their buttons so the tab strip gets
+        // the rest of the width (and scrolls inside it).
+        isMobile
+          ? "grid-cols-[auto_minmax(0,1fr)_auto] gap-1"
+          : "grid-cols-[1fr_auto_1fr]"
+      )}
+    >
       <div className="flex items-center gap-1">
         {!leftPanelOpen ? (
           <Button
@@ -104,7 +114,7 @@ export function AgentsViewHeader({
           </span>
         ) : null}
       </div>
-      <div className="flex items-center justify-center">
+      <div className="flex min-w-0 items-center justify-center">
         {focusedAgentName ? (
           <>
             <span data-testid="current-session-name" className="sr-only">

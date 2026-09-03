@@ -6,7 +6,7 @@ import {
   useState,
 } from "react";
 import { CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
-import { SendHorizontal } from "lucide-react";
+import { CornerDownRight, SendHorizontal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -20,6 +20,11 @@ export type ChatComposerProps = {
   sending?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  /**
+   * When set, what gets typed answers this question rather than starting a
+   * plain message. The × lets the user opt out and send a plain message.
+   */
+  replyContext?: { excerpt: string; onDismiss: () => void } | null;
 };
 
 /**
@@ -32,6 +37,7 @@ export function ChatComposer({
   sending = false,
   placeholder = "Message the agent…",
   autoFocus = false,
+  replyContext = null,
 }: ChatComposerProps): JSX.Element {
   const [text, setText] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -74,6 +80,26 @@ export function ChatComposer({
       }}
       data-testid="chat-composer"
     >
+      {replyContext && !disabled ? (
+        <div
+          className="flex items-center gap-1.5 self-start rounded-md border border-status-waiting/40 bg-status-waiting/10 py-0.5 pl-2 pr-1 text-[11px] text-foreground"
+          data-testid="chat-reply-context"
+        >
+          <CornerDownRight className="h-3 w-3 shrink-0 text-status-waiting" />
+          <span className="shrink-0 text-muted-foreground">Replying to:</span>
+          <span className="max-w-[40ch] truncate">{replyContext.excerpt}</span>
+          <button
+            type="button"
+            onClick={replyContext.onDismiss}
+            className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Send a plain message instead"
+            aria-label="Send a plain message instead"
+            data-testid="chat-reply-context-dismiss"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ) : null}
       <div className="flex items-end gap-2">
         <Textarea
           ref={textareaRef}
@@ -84,7 +110,9 @@ export function ChatComposer({
           rows={1}
           maxLength={CHAT_MESSAGE_MAX_CHARS}
           autoFocus={autoFocus}
-          placeholder={disabled ? "" : placeholder}
+          placeholder={
+            disabled ? "" : replyContext ? "Type your answer…" : placeholder
+          }
           aria-label="Message the agent"
           className={cn("max-h-48 min-h-10 flex-1 resize-none py-2.5 text-sm")}
           data-testid="chat-composer-input"
