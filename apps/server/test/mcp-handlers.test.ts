@@ -1137,11 +1137,11 @@ describe("createMcpHandlers", () => {
         name: "worker",
         prompt: "Use my account model.",
         type: "claude",
-        model: " claude-fable-5 ",
+        model: " fable ",
       });
 
       expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
-        expect.objectContaining({ model: "claude-fable-5" })
+        expect.objectContaining({ model: "fable" })
       );
     });
 
