@@ -13,7 +13,9 @@ import { useSplitPane } from "@/hooks/use-split-pane";
 type UseCenterPaneLayoutArgs = {
   focusedAgentId: string | null;
   isMobile: boolean;
-  changesMatch: boolean;
+  /** The tab currently shown full-width; the drop target for a dragged tab. */
+  activeTab: CenterTab;
+  chatEnabled?: boolean;
 };
 
 /**
@@ -25,12 +27,13 @@ type UseCenterPaneLayoutArgs = {
 export function useCenterPaneLayout({
   focusedAgentId,
   isMobile,
-  changesMatch,
+  activeTab,
+  chatEnabled = false,
 }: UseCenterPaneLayoutArgs) {
   const [isDraggingTab, setIsDraggingTab] = useState(false);
 
   const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
-    useSplitPane(focusedAgentId, isMobile);
+    useSplitPane(focusedAgentId, isMobile, chatEnabled);
 
   const splitLeftRef = useRef<HTMLDivElement>(null);
   const splitButtonRef = useRef<HTMLButtonElement>(null);
@@ -91,11 +94,10 @@ export function useCenterPaneLayout({
 
   const handleDropOnZone = useCallback(
     (tab: string, side: "left" | "right") => {
-      const activeTab: CenterTab = changesMatch ? "changes" : "terminal";
       handleTabDrop(tab as CenterTab, side, activeTab);
       setIsDraggingTab(false);
     },
-    [changesMatch, handleTabDrop]
+    [activeTab, handleTabDrop]
   );
 
   const handleSplitLayoutChange = useCallback(

@@ -3,12 +3,28 @@ import { atomFamily } from "jotai/utils";
 
 import { type IdeType } from "./ide-types";
 
-export function atomWithLocalStorage<T>(key: string, initialValue: T) {
+type AtomWithLocalStorageOptions = {
+  /**
+   * Older key to read when `key` is absent. Read-only migration path: writes
+   * go to `key` alone, so a client rolled back to the old schema only ever
+   * sees values it wrote itself.
+   */
+  legacyKey?: string;
+};
+
+export function atomWithLocalStorage<T>(
+  key: string,
+  initialValue: T,
+  options: AtomWithLocalStorageOptions = {}
+) {
   const baseAtom = atom<T>(
     (() => {
       if (typeof window === "undefined") return initialValue;
       try {
-        const stored = window.localStorage.getItem(key);
+        let stored = window.localStorage.getItem(key);
+        if (stored === null && options.legacyKey !== undefined) {
+          stored = window.localStorage.getItem(options.legacyKey);
+        }
         if (stored === null) return initialValue;
         return JSON.parse(stored) as T;
       } catch {
@@ -74,6 +90,17 @@ export const soundCuesEnabledAtom = atomWithLocalStorage(
 export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
   "dispatch:preferredIde",
   "vscode"
+);
+
+/**
+ * Last value of the `chat_surface_enabled` flag this browser saw. The server
+ * owns the flag (see `useChatSurfaceEnabled`); this only lets the first paint
+ * of the agent view pick the right tab before the fetch resolves, so the
+ * Console never flashes under the Chat tab. `null` until the first fetch.
+ */
+export const chatSurfaceEnabledHintAtom = atomWithLocalStorage<boolean | null>(
+  "dispatch:chatSurfaceEnabledHint",
+  null
 );
 
 // Cached view of the server-wide cross-repo messaging gate (lets agents
@@ -363,7 +390,7 @@ export function reconcileDiffViewStateStorage(
 // Split pane state — per-agent split/single mode and pane sizes
 // ---------------------------------------------------------------------------
 
-export type CenterTab = "terminal" | "changes" | "whiteboard";
+export type CenterTab = "chat" | "terminal" | "changes" | "whiteboard";
 
 export type SplitPaneState = {
   mode: "single" | "split";
@@ -383,12 +410,34 @@ export const inactiveSplitPaneStateAtom = atom<SplitPaneState>(
   defaultSplitPaneState
 );
 
-export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
+/**
+ * Versioned key. v1 (`dispatch:splitPane:`) predates the "chat" tab; a client
+ * rolled back to a v1 build reading "chat" out of its own key would render a
+ * blank pane, so the current schema lives under its own key and the legacy
+ * one is only ever read (see `atomWithLocalStorage`'s `legacyKey`).
+ */
+export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPaneV2:";
+export const LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
 
 export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
   atomWithLocalStorage<SplitPaneState>(
     `${SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
-    defaultSplitPaneState
+    defaultSplitPaneState,
+    { legacyKey: `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}` }
+  )
+);
+
+export const CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
+
+/**
+ * The last center tab the user picked for an agent, so the bare
+ * `/agents/:id` route can land on Chat by default without trapping someone
+ * who deliberately switched to the Console. Only the routing hook reads it.
+ */
+export const lastCenterTabAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<CenterTab | null>(
+    `${CENTER_TAB_STORAGE_PREFIX}${agentId}`,
+    null
   )
 );
 
@@ -397,6 +446,7 @@ export function reconcileSplitPaneStateStorage(
 ): void {
   reconcileAgentScopedStorageDomains(agentIds, [
     { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
+    { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
   ]);
 }
 
@@ -524,6 +574,8 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
   { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
+  { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
+  { prefix: CENTER_TAB_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
   { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },

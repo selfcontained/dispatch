@@ -153,10 +153,11 @@ describe("useSSE reconnect", () => {
 
   function renderSSE(authState: AuthState = "authenticated") {
     const queryClient = new QueryClient();
-    return renderHook(() => useSSE(authState), {
+    const utils = renderHook(() => useSSE(authState), {
       wrapper: ({ children }: { children: ReactNode }) =>
         createElement(QueryClientProvider, { client: queryClient }, children),
     });
+    return { ...utils, queryClient };
   }
 
   /** Flip tab visibility the way a browser does — state change then event. */
@@ -194,6 +195,35 @@ describe("useSSE reconnect", () => {
 
     act(() => void vi.advanceTimersByTime(1_000));
     expect(FakeEventSource.instances).toHaveLength(2);
+  });
+
+  it("refetches every mounted chat feed when a reconnect snapshot lands", () => {
+    // `chat.changed` is not replayed: a message written while the stream was
+    // down only reaches an open Chat tab if the reconnect snapshot refetches
+    // the feed itself, not just the sidebar's unread summary.
+    const { queryClient } = renderSSE();
+    queryClient.setQueryData(["chat", "agt_1"], { entries: ["stale"] });
+    queryClient.setQueryData(["chat", "agt_2"], { entries: ["stale"] });
+    expect(queryClient.getQueryState(["chat", "agt_1"])?.isInvalidated).toBe(
+      false
+    );
+
+    // The server restarts; the message lands in the DB during the gap.
+    act(() => FakeEventSource.instances[0].fail(true));
+    act(() => void vi.advanceTimersByTime(1_000));
+    expect(FakeEventSource.instances).toHaveLength(2);
+
+    // Fresh connection, connect-time snapshot, no chat.changed replay.
+    act(() =>
+      FakeEventSource.instances[1].emit({ type: "snapshot", agents: [] })
+    );
+
+    expect(queryClient.getQueryState(["chat", "agt_1"])?.isInvalidated).toBe(
+      true
+    );
+    expect(queryClient.getQueryState(["chat", "agt_2"])?.isInvalidated).toBe(
+      true
+    );
   });
 
   it("leaves transient errors to the browser's own retry", () => {
@@ -481,6 +511,8 @@ describe("useSSE message handling", () => {
       ["brain"],
       ["whiteboard"],
       CACHED_RELEASE_INFO_QUERY_KEY,
+      ["chat-unread"],
+      ["chat"],
     ]);
     expect(removeQueries).toHaveBeenCalledWith({
       queryKey: ["injection-hold"],
@@ -745,6 +777,16 @@ describe("useSSE message handling", () => {
     ).toBe(42);
   });
 
+  it("refetches an agent's chat feed and the sidebar unread summary on chat.changed", () => {
+    const { emit, invalidateQueries } = renderMessages();
+
+    emit({ type: "chat.changed", agentId: "agt_1" });
+    expectInvalidatedSet(invalidateQueries, [
+      ["chat", "agt_1"],
+      ["chat-unread"],
+    ]);
+  });
+
   it("invalidates both ends of a created message and only one on read", () => {
     const { emit, invalidateQueries } = renderMessages();
 
@@ -753,9 +795,12 @@ describe("useSSE message handling", () => {
       senderAgentId: "sender",
       recipientAgentId: "recipient",
     });
+    // Cross-agent messages also appear in both agents' chat feeds.
     expectInvalidatedSet(invalidateQueries, [
       ["messages", "sender"],
       ["messages", "recipient"],
+      ["chat", "sender"],
+      ["chat", "recipient"],
     ]);
 
     invalidateQueries.mockClear();

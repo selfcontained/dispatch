@@ -1,0 +1,588 @@
+import type { Pool } from "pg";
+import type {
+  ChatAnswerResponse,
+  ChatAttachment,
+  ChatMessage,
+  ChatMessageKind,
+  ChatQuestion,
+  ChatSendResponse,
+} from "@dispatch/shared";
+import {
+  CHAT_ATTACHMENTS_MAX,
+  CHAT_MESSAGE_MAX_CHARS,
+  CHAT_QUESTION_OPTIONS_MAX,
+} from "@dispatch/shared";
+
+import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
+import { mimeType } from "../shared/media.js";
+import { buildChatEnvelope } from "./envelope.js";
+import {
+  ChatStore,
+  isChatMessageId,
+  type UpdateChatMessageInput,
+} from "./store.js";
+
+/**
+ * An attachment as an agent supplies it to dispatch_chat_post: `file` carries
+ * only the path; the server fills in the media row fields.
+ */
+export type ChatAttachmentInput =
+  | {
+      type: "file";
+      /** Stored name returned by dispatch_share_file. */
+      fileName?: string;
+      /** Media row id, as an alternative to fileName. */
+      mediaId?: number;
+    }
+  | Exclude<ChatAttachment, { type: "file" }>;
+
+export type ChatPostInput = {
+  text: string;
+  kind?: ChatMessageKind;
+  replyTo?: string | null;
+  question?: ChatQuestion | null;
+  attachments?: ChatAttachmentInput[];
+};
+
+export type ChatUpdateInput = {
+  text?: string;
+  kind?: ChatMessageKind;
+  question?: ChatQuestion | null;
+  attachments?: ChatAttachmentInput[];
+};
+
+/**
+ * How user text reaches an agent's pane. The service owns the workflow (row,
+ * envelope, outcome, events); this adapter owns the terminal, so tests can
+ * stand in a fake and the service never imports tmux.
+ */
+export type ChatDeliveryAdapter = {
+  /**
+   * Whether the agent can receive text right now. Throws `AgentError` for a
+   * missing/stopped agent; resolves to `mode: "inert"` when there is no pane.
+   */
+  access: (agentId: string) => Promise<AgentTerminalAccess>;
+  /** Write `text` into the pane, behind the quiet gate; resolves when done. */
+  inject: (agentId: string, sessionName: string, text: string) => Promise<void>;
+  /** Whether the quiet gate is holding deliveries for this agent right now. */
+  held: (agentId: string) => boolean;
+};
+
+export type ChatServiceDeps = {
+  pool: Pool;
+  publishUiEvent: (event: { type: "chat.changed"; agentId: string }) => void;
+  /** Minimal agent lookup: media dir and pins are all the service needs. */
+  getAgent: (
+    agentId: string
+  ) => Promise<Pick<AgentRecord, "id" | "mediaDir" | "pins"> | null>;
+  /** Required for the user-side workflows (send, answer). */
+  delivery?: ChatDeliveryAdapter;
+  log?: {
+    warn: (obj: object, msg: string) => void;
+    error: (obj: object, msg: string) => void;
+  };
+};
+
+/** Base for the domain errors the HTTP layer maps to a status code. */
+export abstract class ChatServiceError extends Error {
+  abstract readonly statusCode: number;
+}
+
+export class ChatValidationError extends ChatServiceError {
+  readonly statusCode = 400;
+}
+
+export class ChatNotFoundError extends ChatServiceError {
+  readonly statusCode = 404;
+}
+
+export class ChatConflictError extends ChatServiceError {
+  readonly statusCode = 409;
+}
+
+export type ChatAnswerInput = {
+  value: string;
+  /** Only consulted for a freeform answer; an option's label wins otherwise. */
+  label?: string;
+};
+
+const ANSWER_LABEL_MAX = 200;
+const NO_OP_LOG = { warn() {}, error() {} };
+
+/** Cross-field checks the zod shapes cannot express on their own. */
+export function validateChatContent(input: {
+  text?: string;
+  kind?: ChatMessageKind;
+  question?: ChatQuestion | null;
+  attachments?: ChatAttachmentInput[];
+}): void {
+  if (input.text !== undefined) {
+    if (input.text.trim().length === 0) {
+      throw new ChatValidationError("text must not be empty.");
+    }
+    if (input.text.length > CHAT_MESSAGE_MAX_CHARS) {
+      throw new ChatValidationError(
+        `text must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
+      );
+    }
+  }
+  const kind = input.kind ?? "reply";
+  if (kind === "question") {
+    if (!input.question || input.question.options.length === 0) {
+      throw new ChatValidationError(
+        'question (with at least one option) is required when kind is "question".'
+      );
+    }
+  } else if (input.question) {
+    throw new ChatValidationError(
+      'question is only accepted when kind is "question".'
+    );
+  }
+  if (
+    input.question &&
+    input.question.options.length > CHAT_QUESTION_OPTIONS_MAX
+  ) {
+    throw new ChatValidationError(
+      `question.options must have ${CHAT_QUESTION_OPTIONS_MAX} entries or fewer.`
+    );
+  }
+  if (input.attachments && input.attachments.length > CHAT_ATTACHMENTS_MAX) {
+    throw new ChatValidationError(
+      `attachments must have ${CHAT_ATTACHMENTS_MAX} entries or fewer.`
+    );
+  }
+}
+
+export class ChatService {
+  readonly store: ChatStore;
+  /** Detached pane deliveries that have not recorded their outcome yet. */
+  private readonly inFlightDeliveries = new Set<Promise<unknown>>();
+  private readonly log: NonNullable<ChatServiceDeps["log"]>;
+
+  constructor(private readonly deps: ChatServiceDeps) {
+    this.store = new ChatStore(deps.pool);
+    this.log = deps.log ?? NO_OP_LOG;
+  }
+
+  // -------------------------------------------------------------------------
+  // User-side workflows (HTTP)
+  // -------------------------------------------------------------------------
+
+  /**
+   * A user message typed in the Chat tab: persist it as pending, enqueue the
+   * pane delivery, and return at once. The quiet gate can hold a delivery far
+   * longer than a request should wait, so `delivered` stays null until the
+   * injection settles; `held` reports whether the gate is holding right now.
+   */
+  async sendUserMessage(
+    agentId: string,
+    text: string
+  ): Promise<ChatSendResponse> {
+    if (!text.trim()) throw new ChatValidationError("text is required.");
+    if (text.length > CHAT_MESSAGE_MAX_CHARS) {
+      throw new ChatValidationError(
+        `text must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
+      );
+    }
+    const sessionName = await this.requireDeliverable(agentId);
+    const message = await this.store.insert({
+      agentId,
+      authorKind: "user",
+      kind: "reply",
+      text,
+      delivered: null,
+    });
+    const { held } = this.deliverDetached(agentId, sessionName, message);
+    this.publishChanged(agentId);
+    return { message, delivered: null, held };
+  }
+
+  /**
+   * Answer an agent question. The stored question decides what `value`
+   * means: an option's label is the reply text, and a client label only
+   * matters for a freeform answer. The reply row and the answer land in one
+   * transaction, so racing answers leave exactly one reply.
+   */
+  async answerQuestion(
+    agentId: string,
+    messageId: string,
+    input: ChatAnswerInput
+  ): Promise<ChatAnswerResponse> {
+    if (!isChatMessageId(messageId)) {
+      throw new ChatValidationError("messageId must be a UUID.");
+    }
+    if (!input.value.trim()) {
+      throw new ChatValidationError("value is required.");
+    }
+    const question = await this.store.getById(messageId);
+    if (
+      !question ||
+      question.agentId !== agentId ||
+      question.authorKind !== "agent" ||
+      question.kind !== "question"
+    ) {
+      throw new ChatNotFoundError("Question not found.");
+    }
+    if (question.answer) {
+      throw new ChatConflictError("Question already answered.");
+    }
+    const { value } = input;
+    const options = question.question?.options ?? [];
+    const option = options.find((o) => (o.value ?? o.label) === value);
+    let label: string | undefined;
+    if (option) {
+      label = option.label;
+    } else if (question.question?.allowFreeform) {
+      const supplied = input.label?.trim() ?? "";
+      label = supplied ? supplied.slice(0, ANSWER_LABEL_MAX) : undefined;
+    } else {
+      throw new ChatValidationError(
+        "value does not match one of the question's options."
+      );
+    }
+    const text = option ? option.label : value;
+    if (text.length > CHAT_MESSAGE_MAX_CHARS) {
+      throw new ChatValidationError(
+        `value must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
+      );
+    }
+
+    const sessionName = await this.requireDeliverable(agentId);
+
+    // Reply row and answer land together or not at all: a concurrent answer
+    // makes recordAnswer match nothing, and the rollback takes the orphan
+    // reply with it.
+    const client = await this.deps.pool.connect();
+    let replyMessage: ChatMessage;
+    let answered: ChatMessage | null;
+    try {
+      await client.query("BEGIN");
+      const tx = this.store.withClient(client);
+      replyMessage = await tx.insert({
+        agentId,
+        authorKind: "user",
+        kind: "reply",
+        text,
+        replyTo: question.id,
+        delivered: null,
+      });
+      answered = await tx.recordAnswer(question.id, {
+        value,
+        ...(label !== undefined ? { label } : {}),
+        replyMessageId: replyMessage.id,
+        answeredAt: new Date().toISOString(),
+      });
+      if (!answered) {
+        await client.query("ROLLBACK");
+        throw new ChatConflictError("Question already answered.");
+      }
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+
+    this.deliverDetached(agentId, sessionName, replyMessage);
+    this.publishChanged(agentId);
+    return { question: answered, reply: replyMessage, delivered: null };
+  }
+
+  /**
+   * Same rule as terminal inject-text: no pane to deliver into is a 409.
+   * `AgentError` from the access check (missing/stopped agent) propagates as
+   * is — it already carries its status.
+   */
+  private async requireDeliverable(agentId: string): Promise<string> {
+    const access = await this.delivery().access(agentId);
+    if (access.mode !== "tmux") throw new ChatConflictError(access.message);
+    return access.sessionName;
+  }
+
+  private delivery(): ChatDeliveryAdapter {
+    if (!this.deps.delivery) {
+      throw new Error("ChatService: no delivery adapter configured.");
+    }
+    return this.deps.delivery;
+  }
+
+  /**
+   * Enqueue the envelope and return at once. The detached continuation
+   * records true/false on the row and publishes `chat.changed`; graceful
+   * shutdown waits (briefly) for it, and a restart sweeps whatever it could
+   * not wait for to delivered=false.
+   */
+  private deliverDetached(
+    agentId: string,
+    sessionName: string,
+    message: ChatMessage
+  ): { held: boolean } {
+    const delivery = this.delivery();
+    const envelope = buildChatEnvelope(message.id, message.text);
+    const settlement = delivery
+      .inject(agentId, sessionName, envelope)
+      .then(
+        () => true,
+        (error: unknown) => {
+          this.log.warn(
+            { err: error, agentId, messageId: message.id },
+            "chat: pane delivery failed — agent may have exited"
+          );
+          return false;
+        }
+      )
+      .then(async (delivered) => {
+        await this.store.setDelivered(message.id, delivered);
+        this.publishChanged(agentId);
+      })
+      .catch((error: unknown) => {
+        this.log.error(
+          { err: error, agentId, messageId: message.id },
+          "chat: failed to record delivery outcome"
+        );
+      });
+    this.trackDelivery(settlement);
+    return { held: delivery.held(agentId) };
+  }
+
+  // -------------------------------------------------------------------------
+  // Delivery lifecycle (startup recovery, shutdown drain)
+  // -------------------------------------------------------------------------
+
+  /** Announce a write to `agent_chat_messages` so the Chat tab refetches. */
+  publishChanged(agentId: string): void {
+    this.deps.publishUiEvent({ type: "chat.changed", agentId });
+  }
+
+  /**
+   * Startup recovery for deliveries the previous process never settled: the
+   * quiet-gate queue is in-memory, so a restart abandons them while their
+   * rows still say pending. Mark them not-delivered (no replay — a resend
+   * is the user's call, a duplicate injection is not) and announce each
+   * affected feed. Returns the agent ids touched.
+   */
+  async recoverPendingDeliveries(): Promise<string[]> {
+    const agentIds = await this.store.sweepPendingDeliveries();
+    for (const agentId of agentIds) this.publishChanged(agentId);
+    return agentIds;
+  }
+
+  /**
+   * Register a detached delivery's settlement chain so graceful shutdown can
+   * wait for it. The promise must never reject (the route already handles
+   * outcomes); it is dropped from the set once it settles.
+   */
+  private trackDelivery(settlement: Promise<unknown>): void {
+    this.inFlightDeliveries.add(settlement);
+    void settlement.finally(() => {
+      this.inFlightDeliveries.delete(settlement);
+    });
+  }
+
+  get inFlightDeliveryCount(): number {
+    return this.inFlightDeliveries.size;
+  }
+
+  /**
+   * Bounded wait for in-flight deliveries to record their outcome, so a
+   * graceful shutdown does not leave rows pending that were about to settle.
+   * Resolves true when everything settled, false on timeout — whatever is
+   * still pending then is swept to not-delivered by the next startup.
+   */
+  async waitForInFlightDeliveries(timeoutMs: number): Promise<boolean> {
+    if (this.inFlightDeliveries.size === 0) return true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<false>((resolve) => {
+      timer = setTimeout(() => resolve(false), timeoutMs);
+    });
+    try {
+      // Snapshot: deliveries enqueued after shutdown began are not waited on.
+      const pending = Promise.allSettled([...this.inFlightDeliveries]).then(
+        () => true as const
+      );
+      return await Promise.race([pending, timeout]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  }
+
+  // -------------------------------------------------------------------------
+  // Agent-side workflows (MCP)
+  // -------------------------------------------------------------------------
+
+  /** Agent-authored message from dispatch_chat_post. */
+  async post(agentId: string, input: ChatPostInput): Promise<ChatMessage> {
+    validateChatContent(input);
+    if (input.replyTo != null && !isChatMessageId(input.replyTo)) {
+      throw new ChatValidationError(
+        "replyTo must be the message id from a DISPATCH CHAT envelope."
+      );
+    }
+    const kind = input.kind ?? "reply";
+    const attachments = await this.resolveAttachments(
+      agentId,
+      input.attachments ?? []
+    );
+    const message = await this.store.insert({
+      agentId,
+      authorKind: "agent",
+      kind,
+      text: input.text,
+      replyTo: input.replyTo ?? null,
+      question: kind === "question" ? (input.question ?? null) : null,
+      attachments,
+    });
+    this.publishChanged(agentId);
+    return message;
+  }
+
+  /** Edit an agent-authored message from dispatch_chat_update. */
+  async update(
+    agentId: string,
+    messageId: string,
+    input: ChatUpdateInput
+  ): Promise<ChatMessage> {
+    if (!isChatMessageId(messageId)) {
+      throw new ChatValidationError(
+        "messageId must be an id returned by dispatch_chat_post."
+      );
+    }
+    const existing = await this.store.getById(messageId);
+    if (
+      !existing ||
+      existing.agentId !== agentId ||
+      existing.authorKind !== "agent"
+    ) {
+      throw new ChatValidationError(
+        "Message not found — dispatch_chat_update only edits your own agent messages."
+      );
+    }
+    if (
+      existing.answer &&
+      ((input.kind !== undefined && input.kind !== existing.kind) ||
+        input.question !== undefined)
+    ) {
+      // The answer references these options; swapping or dropping them would
+      // leave it pointing at nothing.
+      throw new ChatValidationError(
+        "This question has already been answered, so its kind and options are fixed — edit the text or attachments, or post a new question."
+      );
+    }
+    const kind = input.kind ?? existing.kind;
+    // Moving away from kind=question clears the stored question, so only a
+    // question supplied in this call counts against the "rejected otherwise"
+    // rule; staying on a question keeps the stored one.
+    const question =
+      input.question !== undefined
+        ? input.question
+        : kind === "question"
+          ? existing.question
+          : null;
+    validateChatContent({
+      text: input.text,
+      kind,
+      question,
+      attachments: input.attachments,
+    });
+    const patch: UpdateChatMessageInput = {};
+    if (input.text !== undefined) patch.text = input.text;
+    if (input.kind !== undefined) patch.kind = input.kind;
+    if (kind !== "question") {
+      if (existing.question) patch.question = null;
+    } else if (input.question !== undefined) {
+      patch.question = input.question;
+    }
+    if (input.attachments !== undefined) {
+      patch.attachments = await this.resolveAttachments(
+        agentId,
+        input.attachments
+      );
+    }
+    const updated = await this.store.update(messageId, patch);
+    if (!updated) throw new ChatValidationError("Message not found.");
+    this.publishChanged(agentId);
+    return updated;
+  }
+
+  /**
+   * Turn agent-supplied attachments into their stored form: `file` resolves
+   * to this agent's media row by the stored fileName (or mediaId) that
+   * dispatch_share_file returned — never by a local path, so an unshared
+   * file cannot masquerade as an earlier share — and `pin` must name a pin
+   * on this agent.
+   */
+  async resolveAttachments(
+    agentId: string,
+    inputs: ChatAttachmentInput[]
+  ): Promise<ChatAttachment[]> {
+    if (inputs.length === 0) return [];
+    const agent = await this.deps.getAgent(agentId);
+    if (!agent) throw new ChatValidationError("Agent not found.");
+    const out: ChatAttachment[] = [];
+    for (const input of inputs) {
+      if (input.type === "file") {
+        out.push(await this.resolveFile(agent.id, input));
+      } else if (input.type === "pin") {
+        const pins = Array.isArray(agent.pins) ? agent.pins : [];
+        if (!pins.some((pin) => pin.id === input.pinId)) {
+          throw new ChatValidationError(
+            `Unknown pin "${input.pinId}" — dispatch_list_pins shows the ids on this agent.`
+          );
+        }
+        out.push({ type: "pin", pinId: input.pinId });
+      } else {
+        out.push(input);
+      }
+    }
+    return out;
+  }
+
+  private async resolveFile(
+    agentId: string,
+    input: { fileName?: string; mediaId?: number }
+  ): Promise<ChatAttachment> {
+    const fileName = input.fileName?.trim();
+    const mediaId =
+      typeof input.mediaId === "number" && Number.isInteger(input.mediaId)
+        ? input.mediaId
+        : undefined;
+    if (!fileName && mediaId === undefined) {
+      throw new ChatValidationError(
+        "file attachments need fileName (from dispatch_share_file) or mediaId."
+      );
+    }
+    if (fileName && mediaId !== undefined) {
+      // Two identifiers could name two different rows; refuse rather than
+      // pick one.
+      throw new ChatValidationError(
+        "file attachments take either fileName or mediaId, not both."
+      );
+    }
+    const result = await this.deps.pool.query<{
+      id: number;
+      file_name: string;
+      size_bytes: number;
+    }>(
+      `SELECT id, file_name, size_bytes FROM media
+        WHERE agent_id = $1
+          AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text
+                   ELSE id = $3::int END`,
+      [agentId, fileName ?? null, mediaId ?? null]
+    );
+    const match = result.rows[0];
+    if (!match) {
+      throw new ChatValidationError(
+        `Unknown file ${fileName ? `"${fileName}"` : `#${mediaId}`} — share it first with dispatch_share_file and attach the fileName it returns.`
+      );
+    }
+    // The same lookup GET /media serves the file with.
+    return {
+      type: "file",
+      mediaId: match.id,
+      fileName: match.file_name,
+      sizeBytes: match.size_bytes,
+      mimeType: mimeType(match.file_name),
+    };
+  }
+}

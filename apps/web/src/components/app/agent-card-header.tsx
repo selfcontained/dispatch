@@ -10,6 +10,7 @@ import {
 import { toast } from "sonner";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent } from "@/components/app/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -167,6 +168,8 @@ export function AgentCardHeader({
           </Tooltip>
         ) : null}
       </div>
+
+      <ChatUnreadBadge agentId={agent.id} />
 
       {needsAttention ? (
         <Badge

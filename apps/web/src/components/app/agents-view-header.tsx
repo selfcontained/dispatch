@@ -10,6 +10,7 @@ import { type ConnState, type DiffStats } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
 import { Button } from "@/components/ui/button";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
+import { cn } from "@/lib/utils";
 
 type AgentsViewHeaderProps = {
   isMobile: boolean;
@@ -21,8 +22,15 @@ type AgentsViewHeaderProps = {
   hasActiveAgent: boolean;
   focusTerminal: () => void;
   focusedDiffStats: DiffStats | null | undefined;
-  changesMatch: boolean;
-  whiteboardMatch: boolean;
+  activeTab: CenterTab;
+  chatEnabled?: boolean;
+  /**
+   * False while the route is still settling on a tab (flag not yet known, or
+   * a redirect pending). The tab bar waits, so it never shows "Terminal"
+   * highlighted for a frame before flipping to Chat/Console.
+   */
+  centerTabResolved?: boolean;
+  chatUnreadCount?: number;
   isSplit: boolean;
   splitState: SplitPaneState;
   exitSplit: () => void;
@@ -45,8 +53,10 @@ export function AgentsViewHeader({
   hasActiveAgent,
   focusTerminal,
   focusedDiffStats,
-  changesMatch,
-  whiteboardMatch,
+  activeTab,
+  chatEnabled = false,
+  centerTabResolved = true,
+  chatUnreadCount = 0,
   isSplit,
   splitState,
   exitSplit,
@@ -59,7 +69,16 @@ export function AgentsViewHeader({
   unseenSurfaceCount,
 }: AgentsViewHeaderProps): JSX.Element {
   return (
-    <div className="relative z-10 grid h-14 shrink-0 grid-cols-[1fr_auto_1fr] items-center bg-background px-3">
+    <div
+      className={cn(
+        "relative z-10 grid h-14 shrink-0 items-center bg-background px-3",
+        // On phones the side columns hug their buttons so the tab strip gets
+        // the rest of the width (and scrolls inside it).
+        isMobile
+          ? "grid-cols-[auto_minmax(0,1fr)_auto] gap-1"
+          : "grid-cols-[1fr_auto_1fr]"
+      )}
+    >
       <div className="flex items-center gap-1">
         {!leftPanelOpen ? (
           <Button
@@ -98,36 +117,34 @@ export function AgentsViewHeader({
           </span>
         ) : null}
       </div>
-      <div className="flex items-center justify-center">
+      <div className="flex min-w-0 items-center justify-center">
         {focusedAgentName ? (
           <>
             <span data-testid="current-session-name" className="sr-only">
               {focusedAgentName}
             </span>
-            <CenterPaneTabBar
-              activeTab={
-                changesMatch
-                  ? "changes"
-                  : whiteboardMatch
-                    ? "whiteboard"
-                    : "terminal"
-              }
-              onTabChange={(tab) => {
-                if (isSplit) {
-                  exitSplit();
-                }
-                onTabChange(tab);
-              }}
-              whiteboardAgentDrew={whiteboardAgentDrew}
-              isSplit={isSplit}
-              splitState={splitState}
-              isMobile={isMobile}
-            />
+            {centerTabResolved ? (
+              <CenterPaneTabBar
+                activeTab={activeTab}
+                onTabChange={(tab) => {
+                  if (isSplit) {
+                    exitSplit();
+                  }
+                  onTabChange(tab);
+                }}
+                whiteboardAgentDrew={whiteboardAgentDrew}
+                isSplit={isSplit}
+                splitState={splitState}
+                isMobile={isMobile}
+                chatEnabled={chatEnabled}
+                chatUnreadCount={chatUnreadCount}
+              />
+            ) : null}
           </>
         ) : null}
       </div>
       <div className="flex items-center justify-end gap-1">
-        {changesMatch && !isSplit ? (
+        {activeTab === "changes" && !isSplit ? (
           <ChangesSettingsPopover isMobile={isMobile} />
         ) : null}
         {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (

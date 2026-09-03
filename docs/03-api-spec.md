@@ -168,6 +168,7 @@ Server-Sent Events stream. Used by the frontend for real-time UI updates. Event 
 | `media.changed`                | Agent ID whose media list changed                                   |
 | `media.seen`                   | Agent ID + array of media keys marked seen                          |
 | `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)                 |
+| `chat.changed`                 | Agent ID whose Chat feed changed (any `agent_chat_messages` write)  |
 | `stream.started`               | Agent ID whose live stream started                                  |
 | `stream.stopped`               | Agent ID whose live stream stopped                                  |
 | `feedback.created`             | Agent ID + new feedback record                                      |
@@ -216,6 +217,20 @@ The inject-phrase endpoint accepts `phraseId`, optional `args` (key-value map fo
 | GET    | `/agents/:id/media/:file` | Download a media file                                      |
 | POST   | `/agents/:id/media`       | Upload media (multipart form: file + source + description) |
 | POST   | `/agents/:id/media/seen`  | Mark media files as seen                                   |
+
+## Chat
+
+The Chat tab feed (`docs/chat-surface-plan.md`). Wire types live in `packages/shared/src/chat-types.ts`. The routes work regardless of the `chat_surface_enabled` flag — the flag only controls the web UI and the launch-guidance rule.
+
+| Method | Path                                          | Description                                                                         |
+| ------ | --------------------------------------------- | ----------------------------------------------------------------------------------- |
+| GET    | `/chat/unread`                                | Per-agent `{ unread, pendingQuestions }` for every live agent with a non-zero count |
+| GET    | `/agents/:id/chat?cursor=<c>&limit=<n>`       | Feed: chat messages, status events, cross-agent messages, media, time ascending     |
+| POST   | `/agents/:id/chat/messages`                   | Persist a user message (`{ text }`), then inject it into the agent's pane           |
+| POST   | `/agents/:id/chat/messages/:messageId/answer` | Answer a question message (`{ value, label? }`); injects the answer as a reply      |
+| POST   | `/agents/:id/chat/read`                       | Mark agent messages read (`{ upTo? }` message id); returns `{ unreadCount }`        |
+
+The feed is composed at read time from `agent_chat_messages`, `agent_events`, `agent_messages` (both directions), and `media`. `limit` defaults to 200 (max 500); the response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards (it encodes the boundary row's exact timestamp, source, and id, so rows sharing a timestamp are never dropped or repeated). The two write routes return `409` when the agent has no tmux session (same rule as `inject-text`); they respond as soon as the message is queued, with `delivered: null` (pending) until the pane write settles, at which point the row flips to `true`/`false` and `chat.changed` fires. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered. `read` accepts an optional `upTo` message id (`400` if present but not a UUID). Every write publishes the `chat.changed` SSE event. Agents post to the feed with the `dispatch_chat_post` / `dispatch_chat_update` MCP tools; `file` attachments name a `fileName` returned by `dispatch_share_file`.
 
 ## Whiteboard
 
@@ -370,19 +385,21 @@ Returns `204` regardless of whether the notification was still pending.
 
 ## Settings
 
-| Method | Path                                 | Description                                                                   |
-| ------ | ------------------------------------ | ----------------------------------------------------------------------------- |
-| GET    | `/agents/settings`                   | Get agent settings (worktree location, icon color, instance name)             |
-| POST   | `/agents/settings`                   | Update agent settings (all fields optional)                                   |
-| GET    | `/app/settings/agent-types`          | Get enabled agent types                                                       |
-| POST   | `/app/settings/agent-types`          | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`) |
-| GET    | `/app/settings/ides`                 | Get enabled IDE integrations                                                  |
-| POST   | `/app/settings/ides`                 | Set enabled IDE integrations                                                  |
-| GET    | `/app/settings/cross-repo-messaging` | Whether agents may message agents in other repositories                       |
-| POST   | `/app/settings/cross-repo-messaging` | Enable or disable cross-repo messaging (`{ "enabled": boolean }`)             |
-| GET    | `/app/settings/injection-hold`       | Whether automated prompts wait for a typing pause (`{ "enabled": boolean }`)  |
-| POST   | `/app/settings/injection-hold`       | Enable or disable the injection quiet gate (`{ "enabled": boolean }`)         |
-| GET    | `/agent-models`                      | Curated per-type model catalog (`{ models: { claude: [...], ... } }`)         |
+| Method | Path                                 | Description                                                                               |
+| ------ | ------------------------------------ | ----------------------------------------------------------------------------------------- |
+| GET    | `/agents/settings`                   | Get agent settings (worktree location, icon color, instance name)                         |
+| POST   | `/agents/settings`                   | Update agent settings (all fields optional)                                               |
+| GET    | `/app/settings/agent-types`          | Get enabled agent types                                                                   |
+| POST   | `/app/settings/agent-types`          | Set enabled agent types (`claude`, `codex`, `cursor`, `opencode`, `terminal`)             |
+| GET    | `/app/settings/ides`                 | Get enabled IDE integrations                                                              |
+| POST   | `/app/settings/ides`                 | Set enabled IDE integrations                                                              |
+| GET    | `/app/settings/cross-repo-messaging` | Whether agents may message agents in other repositories                                   |
+| POST   | `/app/settings/cross-repo-messaging` | Enable or disable cross-repo messaging (`{ "enabled": boolean }`)                         |
+| GET    | `/app/settings/injection-hold`       | Whether automated prompts wait for a typing pause (`{ "enabled": boolean }`)              |
+| POST   | `/app/settings/injection-hold`       | Enable or disable the injection quiet gate (`{ "enabled": boolean }`)                     |
+| GET    | `/app/settings/chat-surface`         | Whether the Chat tab is offered and the chat launch rule is on (`{ "enabled": boolean }`) |
+| POST   | `/app/settings/chat-surface`         | Enable or disable the chat surface (`{ "enabled": boolean }`)                             |
+| GET    | `/agent-models`                      | Curated per-type model catalog (`{ models: { claude: [...], ... } }`)                     |
 
 ## System
 

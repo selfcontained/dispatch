@@ -1,5 +1,11 @@
 import typography from "@tailwindcss/typography";
 import type { Config } from "tailwindcss";
+import plugin from "tailwindcss/plugin";
+
+/** `pointer-coarse:` — touch-first devices, where tap targets need ≥44px. */
+const pointerCoarse = plugin(({ addVariant }) => {
+  addVariant("pointer-coarse", "@media (pointer: coarse)");
+});
 
 export default {
   darkMode: ["class"],
@@ -83,5 +89,5 @@ export default {
       },
     },
   },
-  plugins: [typography],
+  plugins: [typography, pointerCoarse],
 } satisfies Config;

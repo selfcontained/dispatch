@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import * as jotai from "jotai";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -10,6 +11,10 @@ import {
   DIFF_VIEW_STATE_STORAGE_PREFIX,
   reconcileSplitPaneStateStorage,
   SPLIT_PANE_STATE_STORAGE_PREFIX,
+  LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX,
+  splitPaneStateAtomFamily,
+  defaultSplitPaneState,
+  type SplitPaneState,
   reconcileSeenSurfaceIdsStorage,
   SEEN_SURFACE_IDS_STORAGE_PREFIX,
   isSystemSidebarTab,
@@ -375,6 +380,39 @@ describe("reconcileSplitPaneStateStorage", () => {
     ).toBeNull();
   });
 
+  it("uses the versioned key so a rolled-back client never reads a chat pane", () => {
+    expect(SPLIT_PANE_STATE_STORAGE_PREFIX).toBe("dispatch:splitPaneV2:");
+    expect(LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX).toBe("dispatch:splitPane:");
+  });
+
+  it("also drops legacy-key entries for agents not in the live set", () => {
+    storeForAgent("agt_1");
+    window.localStorage.setItem(
+      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`,
+      defaultSplitState
+    );
+    window.localStorage.setItem(
+      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_gone`,
+      defaultSplitState
+    );
+
+    reconcileSplitPaneStateStorage(["agt_1"]);
+
+    expect(
+      window.localStorage.getItem(`${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`)
+    ).not.toBeNull();
+    expect(
+      window.localStorage.getItem(
+        `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_1`
+      )
+    ).not.toBeNull();
+    expect(
+      window.localStorage.getItem(
+        `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_gone`
+      )
+    ).toBeNull();
+  });
+
   it("accepts a Set as agentIds", () => {
     storeForAgent("agt_1");
     storeForAgent("agt_2");
@@ -432,5 +470,78 @@ describe("reconcileSeenSurfaceIdsStorage", () => {
     expect(
       window.localStorage.getItem(`${SEEN_SURFACE_IDS_STORAGE_PREFIX}agt_dead`)
     ).toBeNull();
+  });
+});
+
+describe("splitPaneStateAtomFamily storage migration", () => {
+  const { createStore } = jotai;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  const split: SplitPaneState = {
+    mode: "split",
+    left: "chat",
+    right: "terminal",
+    sizes: [40, 60],
+  };
+
+  it("falls back to the legacy key when the v2 key is absent", () => {
+    window.localStorage.setItem(
+      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_read`,
+      JSON.stringify(split)
+    );
+    const store = createStore();
+    expect(store.get(splitPaneStateAtomFamily("agt_legacy_read"))).toEqual(
+      split
+    );
+  });
+
+  it("prefers the v2 key when both are present", () => {
+    window.localStorage.setItem(
+      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_both`,
+      JSON.stringify(split)
+    );
+    window.localStorage.setItem(
+      `${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_both`,
+      JSON.stringify(defaultSplitPaneState)
+    );
+    const store = createStore();
+    expect(store.get(splitPaneStateAtomFamily("agt_both"))).toEqual(
+      defaultSplitPaneState
+    );
+  });
+
+  it("writes only the v2 key and leaves the legacy value untouched", () => {
+    const legacy = JSON.stringify({
+      mode: "split",
+      left: "terminal",
+      right: "changes",
+      sizes: [50, 50],
+    });
+    window.localStorage.setItem(
+      `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_write`,
+      legacy
+    );
+    const store = createStore();
+    const atom = splitPaneStateAtomFamily("agt_legacy_write");
+    store.set(atom, split);
+
+    expect(
+      window.localStorage.getItem(
+        `${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_write`
+      )
+    ).toBe(JSON.stringify(split));
+    // A client rolled back to the v1 schema still sees only what it wrote.
+    expect(
+      window.localStorage.getItem(
+        `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_write`
+      )
+    ).toBe(legacy);
   });
 });

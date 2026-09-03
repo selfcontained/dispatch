@@ -69,6 +69,7 @@ const { H, stubModule, stubWrapper } = vi.hoisted(() => {
 });
 
 vi.mock("@/components/app/changes-tab", stubModule("ChangesTab"));
+vi.mock("@/components/app/chat/chat-pane", stubModule("ChatPane"));
 vi.mock("@/components/app/whiteboard-pane", stubModule("WhiteboardPane"));
 vi.mock("@/components/app/split-drop-zones", stubModule("SplitDropZones"));
 // The real split renders whichever panes it is handed into its two slots, so
@@ -79,26 +80,27 @@ vi.mock("@/components/app/center-pane-split", async () => {
   return {
     CenterPaneSplit: (received: Record<string, unknown>) => {
       H.record("CenterPaneSplit", received);
+      const slot = (tab: string) =>
+        tab === "changes"
+          ? (received.changesElement as never)
+          : tab === "whiteboard"
+            ? (received.whiteboardElement as never)
+            : tab === "chat"
+              ? (received.chatElement as never)
+              : null;
+      const splitState = received.splitState as { left: string; right: string };
       return React.createElement(
         "div",
         { "data-testid": "stub-CenterPaneSplit" },
         React.createElement(
           "div",
           { "data-testid": "split-left" },
-          (received.splitState as { left: string }).left === "changes"
-            ? (received.changesElement as never)
-            : (received.splitState as { left: string }).left === "whiteboard"
-              ? (received.whiteboardElement as never)
-              : null
+          slot(splitState.left)
         ),
         React.createElement(
           "div",
           { "data-testid": "split-right" },
-          (received.splitState as { right: string }).right === "changes"
-            ? (received.changesElement as never)
-            : (received.splitState as { right: string }).right === "whiteboard"
-              ? (received.whiteboardElement as never)
-              : null
+          slot(splitState.right)
         )
       );
     },
@@ -181,9 +183,22 @@ vi.mock("@/hooks/use-agents-view-routing", () => ({
     return {
       changesMatch: s.changesMatch,
       whiteboardMatch: s.whiteboardMatch,
+      chatMatch: s.chatMatch ?? false,
+      centerTabResolved: s.centerTabResolved ?? true,
       onTabChange: s.onTabChange,
     };
   },
+}));
+
+vi.mock("@/hooks/use-chat-surface-enabled", () => ({
+  useChatSurfaceEnabled: () => ({
+    enabled: H.state.chatEnabled ?? false,
+    loaded: true,
+  }),
+}));
+
+vi.mock("@/hooks/use-chat-unread-summary", () => ({
+  useAgentChatUnread: () => ({ unread: 0, pendingQuestions: 0 }),
 }));
 
 vi.mock("@/hooks/use-expanded-agent", () => ({
@@ -602,6 +617,70 @@ describe("AgentsView focused agent", () => {
     // hasActiveAgent is derived from the selection, not from focus, so the
     // header still reports an active agent while the terminal is detached.
     expect(propsOf("AgentsViewHeader").hasActiveAgent).toBe(true);
+  });
+});
+
+describe("AgentsView chat pane identity", () => {
+  function focusChatOn(agentId: string) {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
+      validatedSelectedAgentId: agentId,
+      connState: "connected",
+      connectedAgentId: agentId,
+      chatEnabled: true,
+      chatMatch: true,
+    });
+  }
+
+  it("remounts the chat pane when the focused agent changes", () => {
+    // ChatPane keeps agent-local state (draft, dismissed question, send
+    // error, scroll follow). A direct /agents/a1/chat → /agents/a2/chat
+    // transition reuses AgentsView, so only a per-agent key keeps a1's draft
+    // from showing up under a2.
+    focusChatOn("a1");
+    const view = mount({ path: "/agents/a1/chat" });
+    const first = screen.getByTestId("stub-ChatPane");
+    expect(propsOf("ChatPane").agentId).toBe("a1");
+
+    focusChatOn("a2");
+    view.rerender(tree("/agents/a2/chat", view.props));
+
+    const second = screen.getByTestId("stub-ChatPane");
+    expect(propsOf("ChatPane").agentId).toBe("a2");
+    expect(second).not.toBe(first);
+  });
+
+  it("keeps the same chat pane instance across re-renders for one agent", () => {
+    focusChatOn("a1");
+    const view = mount({ path: "/agents/a1/chat" });
+    const first = screen.getByTestId("stub-ChatPane");
+
+    view.rerender(tree("/agents/a1/chat", view.props));
+
+    expect(screen.getByTestId("stub-ChatPane")).toBe(first);
+  });
+
+  it("keys the pane per agent in a split as well", () => {
+    focusChatOn("a1");
+    Object.assign(H.state, {
+      isSplit: true,
+      splitState: { left: "chat", right: "terminal" },
+      chatMatch: false,
+    });
+    const view = mount({ path: "/agents/a1" });
+    const first = screen.getByTestId("stub-ChatPane");
+    expect(propsOf("ChatPane").agentId).toBe("a1");
+
+    focusChatOn("a2");
+    Object.assign(H.state, {
+      isSplit: true,
+      splitState: { left: "chat", right: "terminal" },
+      chatMatch: false,
+    });
+    view.rerender(tree("/agents/a2", view.props));
+
+    expect(propsOf("ChatPane").agentId).toBe("a2");
+    expect(screen.getByTestId("stub-ChatPane")).not.toBe(first);
   });
 });
 
@@ -1036,6 +1115,45 @@ describe("AgentsView center pane", () => {
     expect(propsOf("CenterPaneSplit").whiteboardElement).toBeNull();
   });
 
+  // Regression: opening an agent with the chat flag on used to paint the
+  // Console for a frame before the Chat redirect landed. The terminal pane
+  // must not mount at all until the routing hook has settled on a tab.
+  it("does not mount the terminal until the center tab is resolved", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+      connState: "connected",
+      connectedAgentId: "a1",
+      centerTabResolved: false,
+    });
+    mount({ path: "/agents/a1" });
+
+    expect(renderedChildren()).not.toContain("TerminalPane");
+    expect(renderedChildren()).not.toContain("ChatPane");
+    // The tab bar waits too, so "Terminal" is never highlighted first.
+    expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(false);
+  });
+
+  it("mounts the terminal once resolved and keeps it across a later redirect", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+      connState: "connected",
+      connectedAgentId: "a1",
+      centerTabResolved: true,
+    });
+    const { rerender, props } = mount({ path: "/agents/a1" });
+    expect(renderedChildren()).toContain("TerminalPane");
+    expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(true);
+
+    // Switching agents puts the bare route through the redirect again; the
+    // terminal is hidden for that render but its DOM (and tmux link) must
+    // survive, so it stays mounted.
+    H.state.centerTabResolved = false;
+    rerender(tree("/agents/a1", props));
+    expect(renderedChildren()).toContain("TerminalPane");
+  });
+
   it("renders the whiteboard inline when its route matches and nothing is split", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
@@ -1157,6 +1275,19 @@ describe("AgentsView mobile chrome", () => {
     // The copy-mode banner and bottom bar are desktop-only chrome.
     expect(renderedChildren()).not.toContain("TerminalCopyModeBannerLayer");
     expect(renderedChildren()).not.toContain("BottomBar");
+  });
+
+  it("hides the mobile terminal toolbar while the Chat tab is active", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+      connState: "connected",
+      connectedAgentId: "a1",
+      chatMatch: true,
+    });
+    mount({ path: "/agents/a1/chat", isMobile: true });
+
+    expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
   });
 
   it("mounts the desktop chrome and no mobile toolbar on a wide screen", () => {

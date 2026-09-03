@@ -1,11 +1,16 @@
 import { useCallback, useEffect } from "react";
-import { useMatch, useNavigate } from "react-router-dom";
+import { useStore } from "jotai";
+import { useLocation, useMatch, useNavigate } from "react-router-dom";
 
+import { centerTabs } from "@/components/app/center-pane-tab-bar";
+import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import {
   agentChangesRoute,
+  agentChatRoute,
   agentRoute,
   agentWhiteboardRoute,
 } from "@/lib/agent-routes";
+import { type CenterTab, lastCenterTabAtomFamily } from "@/lib/store";
 
 type UseAgentsViewRoutingOptions = {
   routeAgentId: string | undefined;
@@ -13,16 +18,48 @@ type UseAgentsViewRoutingOptions = {
   validatedSelectedAgentId: string | null;
 };
 
+const KNOWN_TABS: ReadonlySet<string> = new Set(
+  centerTabs(true).map((tab) => tab.id)
+);
+
+/** Stored values are user-editable localStorage; anything unknown reads as unset. */
+function knownCenterTab(value: unknown): CenterTab | null {
+  return typeof value === "string" && KNOWN_TABS.has(value)
+    ? (value as CenterTab)
+    : null;
+}
+
+export function centerTabRoute(agentId: string, tab: CenterTab): string {
+  switch (tab) {
+    case "chat":
+      return agentChatRoute(agentId);
+    case "changes":
+      return agentChangesRoute(agentId);
+    case "whiteboard":
+      return agentWhiteboardRoute(agentId);
+    default:
+      return agentRoute(agentId);
+  }
+}
+
 export function useAgentsViewRouting({
   routeAgentId,
   agentsLoaded,
   validatedSelectedAgentId,
 }: UseAgentsViewRoutingOptions) {
   const navigate = useNavigate();
+  const location = useLocation();
   const feedbackMatch = useMatch("/agents/:agentId/feedback/:itemId");
   const reviewMatch = useMatch("/agents/:agentId/review/:summaryAgentId");
   const changesMatch = useMatch("/agents/:agentId/changes");
   const whiteboardMatch = useMatch("/agents/:agentId/whiteboard");
+  const chatMatch = useMatch("/agents/:agentId/chat");
+  const bareMatch = useMatch("/agents/:agentId");
+  const { enabled: chatEnabled, loaded: chatFlagLoaded } =
+    useChatSurfaceEnabled();
+  // Read synchronously (not subscribed): the value only matters for the
+  // redirect decision below, which has to be made during this render.
+  const store = useStore();
 
   useEffect(() => {
     if (!routeAgentId) return;
@@ -39,24 +76,76 @@ export function useAgentsViewRouting({
     }
   }, [agentsLoaded, feedbackMatch, navigate, reviewMatch, routeAgentId]);
 
-  const onTabChange = useCallback(
-    (tab: "terminal" | "changes" | "whiteboard") => {
-      if (!routeAgentId) return;
+  // Chat is the default tab when the flag is on: the bare agent route lands
+  // there unless the user last chose the Console for this agent. With the
+  // flag off the chat route has nothing to render, so it falls back to the
+  // terminal — that also covers a bookmarked /chat URL after the flag is
+  // turned off.
+  //
+  // The redirect is decided during render (`pendingTabRedirect`) and only
+  // performed in the effect below, so the view can hold the center pane on
+  // the same commit the redirect is scheduled: nothing paints the Console
+  // for a frame while the URL catches up.
+  const lastTab = routeAgentId
+    ? knownCenterTab(store.get(lastCenterTabAtomFamily(routeAgentId)))
+    : null;
+  const wantsChatByDefault =
+    !!routeAgentId && !!bareMatch && lastTab !== "terminal";
+  const pendingTabRedirect =
+    !!routeAgentId &&
+    (!chatFlagLoaded || (chatEnabled ? wantsChatByDefault : !!chatMatch));
+
+  useEffect(() => {
+    if (!routeAgentId) return;
+    if (!agentsLoaded || !validatedSelectedAgentId) return;
+    if (!chatFlagLoaded) return;
+    if (chatEnabled) {
+      if (wantsChatByDefault) {
+        navigate(
+          { pathname: agentChatRoute(routeAgentId), search: location.search },
+          { replace: true }
+        );
+      }
+      return;
+    }
+    if (chatMatch) {
       navigate(
-        tab === "changes"
-          ? agentChangesRoute(routeAgentId)
-          : tab === "whiteboard"
-            ? agentWhiteboardRoute(routeAgentId)
-            : agentRoute(routeAgentId),
+        { pathname: agentRoute(routeAgentId), search: location.search },
         { replace: true }
       );
+    }
+  }, [
+    agentsLoaded,
+    chatEnabled,
+    chatFlagLoaded,
+    chatMatch,
+    location.search,
+    navigate,
+    routeAgentId,
+    validatedSelectedAgentId,
+    wantsChatByDefault,
+  ]);
+
+  const onTabChange = useCallback(
+    (tab: CenterTab) => {
+      if (!routeAgentId) return;
+      store.set(lastCenterTabAtomFamily(routeAgentId), tab);
+      navigate(centerTabRoute(routeAgentId, tab), { replace: true });
     },
-    [navigate, routeAgentId]
+    [navigate, routeAgentId, store]
   );
 
   return {
     changesMatch: !!changesMatch,
     whiteboardMatch: !!whiteboardMatch,
+    chatMatch: chatEnabled && !!chatMatch,
+    /**
+     * False while the tab the route resolves to is still unknown: the flag
+     * has not loaded on this browser yet, or the bare/chat route is about to
+     * be replaced. The center pane renders nothing tab-specific until this is
+     * true, so the Console never shows up underneath the Chat tab.
+     */
+    centerTabResolved: !pendingTabRedirect,
     onTabChange,
   };
 }

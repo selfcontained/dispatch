@@ -1,5 +1,6 @@
 import { Split } from "lucide-react";
 
+import { centerTabLabel } from "@/components/app/center-pane-tab-bar";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
 import {
   ResizableHandle,
@@ -8,12 +9,6 @@ import {
 } from "@/components/ui/resizable";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
 
-const TAB_LABELS: Record<CenterTab, string> = {
-  terminal: "Terminal",
-  changes: "Changes",
-  whiteboard: "Whiteboard",
-};
-
 type CenterPaneSplitProps = {
   splitState: SplitPaneState;
   splitLeftRef: React.RefObject<HTMLDivElement>;
@@ -21,6 +16,8 @@ type CenterPaneSplitProps = {
   splitTerminalSlotRef: React.RefObject<HTMLDivElement>;
   changesElement: React.ReactNode;
   whiteboardElement: React.ReactNode;
+  chatElement?: React.ReactNode;
+  chatEnabled?: boolean;
   isMobile: boolean;
   onLayoutChange: (layout: Record<string, number>) => void;
   onExitSplit: () => void;
@@ -39,10 +36,25 @@ export function CenterPaneSplit({
   splitTerminalSlotRef,
   changesElement,
   whiteboardElement,
+  chatElement = null,
+  chatEnabled = false,
   isMobile,
   onLayoutChange,
   onExitSplit,
 }: CenterPaneSplitProps): JSX.Element {
+  const paneFor = (tab: CenterTab): React.ReactNode => {
+    switch (tab) {
+      case "terminal":
+        return <div ref={splitTerminalSlotRef} className="h-full" />;
+      case "whiteboard":
+        return whiteboardElement;
+      case "chat":
+        return chatElement;
+      default:
+        return changesElement;
+    }
+  };
+
   return (
     <div className="relative h-full">
       <ResizablePanelGroup
@@ -58,21 +70,13 @@ export function CenterPaneSplit({
           <div ref={splitLeftRef} className="flex h-full flex-col">
             <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {TAB_LABELS[splitState.left]}
+                {centerTabLabel(splitState.left, chatEnabled)}
               </span>
               {splitState.left === "changes" && !isMobile ? (
                 <ChangesSettingsPopover />
               ) : null}
             </div>
-            <div className="min-h-0 flex-1">
-              {splitState.left === "terminal" ? (
-                <div ref={splitTerminalSlotRef} className="h-full" />
-              ) : splitState.left === "whiteboard" ? (
-                whiteboardElement
-              ) : (
-                changesElement
-              )}
-            </div>
+            <div className="min-h-0 flex-1">{paneFor(splitState.left)}</div>
           </div>
         </ResizablePanel>
         <ResizableHandle />
@@ -84,21 +88,13 @@ export function CenterPaneSplit({
           <div className="flex h-full flex-col">
             <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {TAB_LABELS[splitState.right]}
+                {centerTabLabel(splitState.right, chatEnabled)}
               </span>
               {splitState.right === "changes" && !isMobile ? (
                 <ChangesSettingsPopover />
               ) : null}
             </div>
-            <div className="min-h-0 flex-1">
-              {splitState.right === "terminal" ? (
-                <div ref={splitTerminalSlotRef} className="h-full" />
-              ) : splitState.right === "whiteboard" ? (
-                whiteboardElement
-              ) : (
-                changesElement
-              )}
-            </div>
+            <div className="min-h-0 flex-1">{paneFor(splitState.right)}</div>
           </div>
         </ResizablePanel>
       </ResizablePanelGroup>

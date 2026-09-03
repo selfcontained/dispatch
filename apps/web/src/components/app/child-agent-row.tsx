@@ -14,6 +14,7 @@ import type { ReactNode } from "react";
 
 import { describeAgentStatus } from "@/components/app/agent-event-utils";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { ChatUnreadBadge } from "@/components/app/chat/chat-unread-badge";
 import { type Agent, type AgentVisualState } from "@/components/app/types";
 import { TipSpot } from "@/components/tips/tip-spot";
 import { Button } from "@/components/ui/button";
@@ -216,6 +217,10 @@ export function ChildAgentRow({
         as clicking blank space anywhere else in the row.
       */}
       <div className="flex shrink-0 items-center gap-1">
+        <ChatUnreadBadge
+          agentId={agent.id}
+          className="h-4 px-1 text-[10px] leading-none"
+        />
         {isReviewAgent ? (
           <ReviewBadge tip={canOpenSubmittedReview}>
             {canOpenSubmittedReview ? (

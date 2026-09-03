@@ -27,6 +27,8 @@ const serialTests = [
   "e2e/persona-recheck-ui.spec.ts",
   "e2e/mobile-layout.spec.ts",
   "e2e/media-sidebar.spec.ts",
+  // Flips the server-wide chat surface flag, which changes every agent route.
+  "e2e/chat-surface.spec.ts",
 ];
 
 export default defineConfig({

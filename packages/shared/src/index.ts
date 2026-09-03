@@ -23,6 +23,30 @@ export type {
 } from "./agent-record.js";
 export { VALID_PIN_SHORTCUT_VARIANTS, VALID_PIN_TYPES } from "./pin-types.js";
 export type { PinShortcutVariant, PinType } from "./pin-types.js";
+export {
+  CHAT_ATTACHMENTS_MAX,
+  CHAT_MESSAGE_MAX_CHARS,
+  CHAT_QUESTION_OPTIONS_MAX,
+} from "./chat-types.js";
+export type {
+  ChatAgentMessageEntry,
+  ChatAnswer,
+  ChatAnswerResponse,
+  ChatAttachment,
+  ChatAuthorKind,
+  ChatChangedEvent,
+  ChatFeedEntry,
+  ChatFeedResponse,
+  ChatMediaEntry,
+  ChatMessage,
+  ChatMessageEntry,
+  ChatMessageKind,
+  ChatQuestion,
+  ChatQuestionOption,
+  ChatSendResponse,
+  ChatStatusEntry,
+  ChatUnreadSummary,
+} from "./chat-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {
   DiffFile,

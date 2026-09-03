@@ -46,6 +46,8 @@ import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 import { registerSurfaceTools } from "./surface-tools.js";
 import type { SurfaceService } from "../../surfaces/service.js";
+import { registerChatTools } from "./chat-tools.js";
+import type { ChatService } from "../../chat/service.js";
 
 /** One pin spec as an agent supplies it, shared by the single and batch tools. */
 type McpPinInput = {
@@ -162,6 +164,8 @@ const AGENT_TOOLS = new Set([
   "dispatch_surface_interactions",
   "dispatch_surface_claim",
   "dispatch_surface_resolve",
+  "dispatch_chat_post",
+  "dispatch_chat_update",
   "get_activity_summary",
   "get_feedback_summary",
   "whiteboard_get",
@@ -231,6 +235,8 @@ const JOB_TOOLS = new Set([
   "dispatch_surface_interactions",
   "dispatch_surface_claim",
   "dispatch_surface_resolve",
+  "dispatch_chat_post",
+  "dispatch_chat_update",
   "list_personas",
   "persona_templates",
   "persona_upsert",
@@ -290,6 +296,8 @@ const REVIEW_AGENT_TOOLS = new Set([
   "dispatch_surface_interactions",
   "dispatch_surface_claim",
   "dispatch_surface_resolve",
+  "dispatch_chat_post",
+  "dispatch_chat_update",
 ]);
 
 type AgentCapabilityType = "agent" | "job" | "review";
@@ -316,6 +324,8 @@ export type McpRequestContext = {
   repoRoot: string | null;
   worktreeRoot: string | null;
   surfaces?: SurfaceService;
+  /** Chat tab posting (dispatch_chat_post / dispatch_chat_update). */
+  chat?: Pick<ChatService, "post" | "update">;
   sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
   issueLoginLink?: () => string | Promise<string>;
   upsertEvent?: (
@@ -760,6 +770,14 @@ async function createDispatchMcpServer(
     registerSurfaceTools(server, allowed, {
       agentId: context.agent.id,
       surfaces: context.surfaces,
+    });
+  }
+
+  // ── Chat tab tools (every agent, regardless of the chat-surface flag) ──
+  if (context.agent) {
+    registerChatTools(server, allowed, {
+      agentId: context.agent.id,
+      chat: context.chat,
     });
   }
 

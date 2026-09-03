@@ -924,3 +924,77 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     expect(cmd).not.toContain(PLAYWRIGHT_RULE);
   });
 });
+
+describe("buildLaunchGuidance — chat surface rule", () => {
+  const RULE =
+    "Send user-facing replies and questions with dispatch_chat_post; use kind: question with options for finite choices. Terminal output remains in Console.";
+
+  it("is absent by default and when the flag is off", () => {
+    expect(
+      buildLaunchGuidance(AGENT_ID, { agentType: "claude" })
+    ).not.toContain(RULE);
+    expect(
+      buildLaunchGuidance(AGENT_ID, { agentType: "claude", chatSurface: false })
+    ).not.toContain(RULE);
+  });
+
+  it("adds the same single rule to the full and trimmed variants", () => {
+    const full = buildLaunchGuidance(AGENT_ID, {
+      agentType: "claude",
+      chatSurface: true,
+    });
+    const trimmed = buildLaunchGuidance(AGENT_ID, {
+      agentType: "claude",
+      chatSurface: true,
+      trimmedGuidance: true,
+    });
+    for (const text of [full, trimmed]) {
+      expect(text).toContain(RULE);
+      expect(text.split(RULE)).toHaveLength(2);
+      // The directive lives here and only here: the tool description must
+      // not tell agents the user is reading Chat.
+      expect(text).not.toMatch(/user reads the Chat tab/i);
+    }
+    const ruleLine = (text: string) =>
+      text
+        .split("\n")
+        .find((line) => line.includes(RULE))!
+        .replace(/^\d+\. /, "");
+    expect(ruleLine(full)).toBe(ruleLine(trimmed));
+  });
+
+  it("leaves the job-run ruleset untouched", () => {
+    expect(
+      buildLaunchGuidance(AGENT_ID, {
+        agentType: "claude",
+        jobRunId: "run_1",
+        chatSurface: true,
+      })
+    ).not.toContain(RULE);
+  });
+
+  it("threads through buildAgentCommand", () => {
+    const withFlag = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "agent",
+      [],
+      "/tmp/media",
+      "dispatch-agt_1",
+      false,
+      { chatSurface: true }
+    );
+    expect(withFlag).toContain("dispatch_chat_post");
+    const without = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "agent",
+      [],
+      "/tmp/media",
+      "dispatch-agt_1",
+      false,
+      {}
+    );
+    expect(without).not.toContain("dispatch_chat_post");
+  });
+});

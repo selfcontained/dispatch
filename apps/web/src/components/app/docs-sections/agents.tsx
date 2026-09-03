@@ -274,6 +274,23 @@ export function AgentsContent() {
       </Section>
 
       <Section>
+        <H3>Chat tab (beta)</H3>
+        <P>
+          Turn on <strong>Chat surface</strong> under Settings → Agents to put a{" "}
+          <strong>Chat</strong> tab in front of each agent's terminal. The
+          agent's replies, questions, status updates, shared files, and messages
+          from other agents appear there as a feed; what you type is delivered
+          into the agent's terminal, and the terminal itself stays one click
+          away as the <strong>Console</strong> tab. Agents reply through the{" "}
+          <Code>dispatch_chat_post</Code> tool, so an agent that only prints in
+          its terminal has nothing in the Chat tab — open the Console to see it.
+          Questions come with option buttons; picking one sends that answer
+          back. An unread count on the tab tracks replies you haven't seen. With
+          the setting off nothing changes.
+        </P>
+      </Section>
+
+      <Section>
         <H3>Split pane</H3>
         <P>
           Drag an inactive tab (<strong>Terminal</strong>,{" "}

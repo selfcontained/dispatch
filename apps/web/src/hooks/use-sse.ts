@@ -11,6 +11,8 @@ import {
   type TerminalUiState,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
+import { CHAT_QUERY_PREFIX, chatFeedQueryKey } from "@/hooks/use-chat";
+import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
@@ -117,6 +119,19 @@ export function applyAgentUpsert(
   return sortAgentsByCreatedAtDesc(next);
 }
 
+/**
+ * The chat feed is composed server-side from several tables, so it is
+ * invalidated on every event that touches one of its sources. Invalidation
+ * only refetches a mounted feed, so this is free for every agent whose Chat
+ * tab is not open.
+ */
+function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
+  void queryClient.invalidateQueries({
+    queryKey: chatFeedQueryKey(agentId),
+    exact: true,
+  });
+}
+
 export function applyReviewCreated(
   queryClient: QueryClient,
   reviewerAgentId: string | null | undefined,
@@ -176,6 +191,14 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
+          void queryClient.invalidateQueries({
+            queryKey: CHAT_UNREAD_QUERY_KEY,
+          });
+          // `chat.changed` is not replayed after a gap, so every mounted chat
+          // feed refetches on (re)connect — otherwise an open Chat tab keeps
+          // missing whatever landed while the stream was down. Prefix match:
+          // one key per agent.
+          void queryClient.invalidateQueries({ queryKey: CHAT_QUERY_PREFIX });
           // Injection-hold state is event-sourced with no fetch endpoint; a
           // release event missed during an SSE gap would leave the hold badge
           // stuck. Reset on every (re)connect snapshot — fails safe to hidden.
@@ -184,9 +207,30 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.upsert") {
+          // Status events reach the feed through the agent row's latestEvent;
+          // an upsert that changed nothing about it (name edit, pin update)
+          // has nothing new for the feed.
+          const existing = queryClient
+            .getQueryData<Agent[]>(["agents"])
+            ?.find((a) => a.id === payload.agent.id);
+          const eventChanged =
+            !existing ||
+            existing.latestEvent?.updatedAt !==
+              payload.agent.latestEvent?.updatedAt ||
+            existing.latestEvent?.message !==
+              payload.agent.latestEvent?.message;
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
+          if (eventChanged) invalidateChatFeed(queryClient, payload.agent.id);
+          return;
+        }
+
+        if (payload.type === "chat.changed") {
+          invalidateChatFeed(queryClient, payload.agentId);
+          void queryClient.invalidateQueries({
+            queryKey: CHAT_UNREAD_QUERY_KEY,
+          });
           return;
         }
 
@@ -228,6 +272,7 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["media", payload.agentId],
             exact: true,
           });
+          invalidateChatFeed(queryClient, payload.agentId);
           return;
         }
 
@@ -322,6 +367,8 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["messages", payload.recipientAgentId],
             exact: true,
           });
+          invalidateChatFeed(queryClient, payload.senderAgentId);
+          invalidateChatFeed(queryClient, payload.recipientAgentId);
           return;
         }
 

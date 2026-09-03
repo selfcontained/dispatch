@@ -46,6 +46,10 @@ vi.mock(
   stubModule("BrowserExtensionSettings")
 );
 vi.mock(
+  "@/components/app/chat-surface-settings",
+  stubModule("ChatSurfaceSettings")
+);
+vi.mock(
   "@/components/app/cross-repo-messaging-settings",
   stubModule("CrossRepoMessagingSettings")
 );
@@ -281,6 +285,7 @@ describe("SettingsContent", () => {
         "PluginUpdateSettings",
         "InjectionHoldSettings",
         "CrossRepoMessagingSettings",
+        "ChatSurfaceSettings",
         "WorktreeLocationSettings",
       ],
     ],
