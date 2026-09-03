@@ -43,9 +43,15 @@ function fileId(file: { ownerAgentId?: string; name: string }): string {
  * arrays are structurally shared with the underlying query data.
  */
 function combineSubAgentFiles(
-  results: Array<{ data?: MediaFile[] }>
-): MediaFile[][] {
-  return results.map((result) => result.data ?? EMPTY_FILES);
+  results: Array<{
+    data?: MediaFile[];
+    status: "pending" | "error" | "success";
+  }>
+): Array<{ files: MediaFile[]; status: "pending" | "error" | "success" }> {
+  return results.map((result) => ({
+    files: result.data ?? EMPTY_FILES,
+    status: result.status,
+  }));
 }
 
 export function useMedia(
@@ -114,10 +120,11 @@ export function useMedia(
     () =>
       subAgents.map((agent, index) => ({
         agent,
-        files: (subAgentFiles[index] ?? EMPTY_FILES).map((file) => ({
+        files: (subAgentFiles[index]?.files ?? EMPTY_FILES).map((file) => ({
           ...file,
           ownerAgentId: agent.id,
         })),
+        status: subAgentFiles[index]?.status ?? "pending",
       })),
     [subAgents, subAgentFiles]
   );

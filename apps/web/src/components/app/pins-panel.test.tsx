@@ -405,16 +405,17 @@ describe("sub agent owner switch", () => {
       ],
     });
     const trigger = screen.getByTestId("pins-owner-switch");
-    expect(trigger.textContent).toBe("agent1");
+    // Visible label + decorative digit + screen-reader sentence.
+    expect(trigger.textContent).toBe("agent11 pin");
     expect(trigger.dataset.owner).toBe("agt_parent");
     expect(screen.getByRole("button", { name: /work on/i })).toBeTruthy();
     expect(screen.queryByRole("button", { name: /Merge it/ })).toBeNull();
     openSwitch();
     const options = await screen.findAllByRole("option");
     expect(options.map((option) => option.textContent)).toEqual([
-      "agent1",
-      "builder2",
-      "quiet0",
+      "agent11 pin",
+      "builder22 pins",
+      "quiet00 pins",
     ]);
   });
 

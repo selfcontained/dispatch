@@ -194,6 +194,7 @@ export function PinsPanel({
       <OwnerSwitch
         testIdPrefix="pins-owner"
         ariaLabel="Whose pins to show"
+        itemNoun={["pin", "pins"]}
         selectedAgentId={selectedAgentId}
         selectedAgentName={selectedAgentName}
         own={{ count: pins.length }}

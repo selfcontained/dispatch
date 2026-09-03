@@ -710,6 +710,41 @@ test.describe("Media sidebar", () => {
     );
   });
 
+  test("mobile: Escape closes the owner menu, not the whole media sheet", async ({
+    page,
+    request,
+  }) => {
+    const parent = await createAgentViaAPI(request, {
+      name: `e2e-agent-family-mobile-parent-${Date.now()}`,
+    });
+    await createAgentViaAPI(request, {
+      name: `e2e-agent-family-mobile-child-with-a-deliberately-long-name-${Date.now()}`,
+      parentAgentId: parent.id,
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await loadApp(page);
+    await clickAgentRow(page, parent.id);
+    await page.getByTestId("toggle-media-sidebar").click();
+    const sheet = page.getByRole("dialog", { name: "Media sidebar" });
+    await expect(sheet).toBeVisible();
+    const mediaSidebar = sheet.getByTestId("media-sidebar");
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+
+    const ownerSwitch = mediaSidebar.getByTestId("media-owner-switch");
+    await ownerSwitch.click();
+    const listbox = page.getByRole("listbox");
+    await expect(listbox).toBeVisible();
+    // Sized to the trigger, so a long agent name cannot push it off-screen.
+    const box = await listbox.boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x + box!.width).toBeLessThanOrEqual(390);
+
+    await page.keyboard.press("Escape");
+    await expect(listbox).toHaveCount(0);
+    await expect(sheet).toBeVisible();
+  });
+
   test("remembers a collapsed pin group across a reload", async ({
     page,
     request,

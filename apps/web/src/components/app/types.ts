@@ -133,7 +133,12 @@ export type SubAgentRef = {
   workspaceRoot: string | null;
 };
 
-export type SubAgentMedia = { agent: SubAgentRef; files: MediaFile[] };
+export type SubAgentMedia = {
+  agent: SubAgentRef;
+  files: MediaFile[];
+  /** The child's media query state, so an unresolved fetch is not shown as "nothing shared". */
+  status: "pending" | "error" | "success";
+};
 export type SubAgentPins = { agent: SubAgentRef; pins: AgentPin[] };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";

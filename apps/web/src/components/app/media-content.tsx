@@ -149,7 +149,10 @@ export function MediaContent({
     count: ownMediaFiles.length,
     unseen: ownMediaFiles.filter((file) => !file.seen).length,
   };
-  const nothingShared = mediaFiles.length === 0 && !hasStream;
+  // The parent's stream is hidden while a sub agent is shown, so it only
+  // counts as content in the parent's own view.
+  const nothingShared =
+    mediaFiles.length === 0 && (viewingSubAgent || !hasStream);
 
   return (
     <>
@@ -157,6 +160,7 @@ export function MediaContent({
         <OwnerSwitch
           testIdPrefix="media-owner"
           ariaLabel="Whose media to show"
+          itemNoun={["file", "files"]}
           selectedAgentId={selectedAgentId}
           selectedAgentName={selectedAgentName}
           own={ownSummary}
@@ -237,7 +241,13 @@ export function MediaContent({
               </div>
               <div className="mt-4">
                 {viewedSubAgent ? (
-                  `${viewedSubAgent.agent.name} has not shared any media yet.`
+                  viewedSubAgent.status === "pending" ? (
+                    `Loading ${viewedSubAgent.agent.name}'s media…`
+                  ) : viewedSubAgent.status === "error" ? (
+                    `Couldn't load ${viewedSubAgent.agent.name}'s media.`
+                  ) : (
+                    `${viewedSubAgent.agent.name} has not shared any media yet.`
+                  )
                 ) : selectedAgentId ? (
                   <>
                     No media yet.{" "}

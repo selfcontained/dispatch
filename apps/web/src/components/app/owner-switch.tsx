@@ -29,6 +29,7 @@ const OWN = "__own__";
 export function OwnerSwitch({
   testIdPrefix,
   ariaLabel,
+  itemNoun,
   selectedAgentId,
   selectedAgentName,
   own,
@@ -39,6 +40,8 @@ export function OwnerSwitch({
   /** `<prefix>-switch` on the trigger, `<prefix>-option-<agentId>` per item. */
   testIdPrefix: string;
   ariaLabel: string;
+  /** What the counts count, for screen readers: ["pin", "pins"]. */
+  itemNoun: [singular: string, plural: string];
   selectedAgentId: string | null;
   selectedAgentName: string | null;
   own: { count: number; unseen?: number };
@@ -65,15 +68,26 @@ export function OwnerSwitch({
   const current = options.find(
     (option) => option.value === (viewOwnerId ?? OWN)
   );
+  // The digits are decorative; the sentence is what assistive tech reads.
   const counts = (option: { count: number; unseen: number }) => (
     <>
       {option.unseen > 0 ? (
-        <span className="shrink-0 rounded-full bg-destructive px-1.5 text-[10px] font-semibold tabular-nums text-destructive-foreground">
+        <span
+          aria-hidden
+          className="shrink-0 rounded-full bg-destructive px-1.5 text-[10px] font-semibold tabular-nums text-destructive-foreground"
+        >
           {option.unseen}
         </span>
       ) : null}
-      <span className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
+      <span
+        aria-hidden
+        className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground"
+      >
         {option.count}
+      </span>
+      <span className="sr-only">
+        {option.unseen > 0 ? `${option.unseen} unseen, ` : ""}
+        {option.count} {option.count === 1 ? itemNoun[0] : itemNoun[1]}
       </span>
     </>
   );
@@ -87,7 +101,8 @@ export function OwnerSwitch({
           aria-label={ariaLabel}
           data-testid={`${testIdPrefix}-switch`}
           data-owner={viewOwnerId ?? selectedAgentId ?? undefined}
-          className="h-8 text-xs"
+          // Taller on touch layouts so the primary switch is a real target.
+          className="h-11 text-xs md:h-8"
         >
           <SelectValue>
             <span className="flex min-w-0 items-center gap-2">
@@ -96,16 +111,20 @@ export function OwnerSwitch({
             </span>
           </SelectValue>
         </SelectTrigger>
-        <SelectContent>
+        {/* Sized to the trigger, not to the longest agent name: names are
+            user-supplied and a long one would otherwise push the listbox
+            past a narrow viewport. */}
+        <SelectContent className="w-[var(--radix-select-trigger-width)] max-w-[calc(100vw-1.5rem)]">
           {options.map((option) => (
             <SelectItem
               key={option.value}
               value={option.value}
               data-testid={option.testId}
               textValue={option.label}
+              className="min-w-0 py-3 md:py-1.5"
             >
-              <span className="flex items-center gap-2">
-                <span className="truncate">{option.label}</span>
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="min-w-0 flex-1 truncate">{option.label}</span>
                 {counts(option)}
               </span>
             </SelectItem>
