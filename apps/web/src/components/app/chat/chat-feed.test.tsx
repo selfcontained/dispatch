@@ -16,6 +16,7 @@ import {
   latestAgentMessageId,
   latestOpenFreeformQuestion,
   latestUserMessageId,
+  layoutFeed,
 } from "@/components/app/chat/chat-feed";
 
 // Mermaid + the copy hook touch browser APIs jsdom lacks; neither is under
@@ -74,6 +75,21 @@ function status(
   return { type: "status", id, eventType, message: text, at };
 }
 
+function makeCtx(
+  overrides: Partial<AttachmentContext> = {},
+  onOpenMedia = vi.fn()
+): AttachmentContext {
+  return {
+    agentId: AGENT_ID,
+    agentName: "builder",
+    agentType: "claude",
+    pins: [],
+    workspaceRoot: null,
+    onOpenMedia,
+    ...overrides,
+  };
+}
+
 function renderFeed(
   entries: ChatFeedEntry[],
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
@@ -81,13 +97,7 @@ function renderFeed(
 ) {
   const onAnswer = vi.fn();
   const onOpenMedia = vi.fn();
-  const ctx: AttachmentContext = {
-    agentId: AGENT_ID,
-    pins: [],
-    workspaceRoot: null,
-    onOpenMedia,
-    ...ctxOverrides,
-  };
+  const ctx = makeCtx(ctxOverrides, onOpenMedia);
   render(
     <MemoryRouter>
       <ChatFeed
@@ -133,6 +143,127 @@ describe("collapseFeed", () => {
       status("s2", "working", "b"),
     ]);
     expect(items.map((i) => i.kind)).toEqual(["status", "entry", "status"]);
+  });
+});
+
+describe("layoutFeed", () => {
+  const now = new Date("2026-09-03T12:00:00.000Z");
+  const at = (hhmm: string, day = "02") => `2026-09-${day}T${hhmm}:00.000Z`;
+
+  it("groups same-author posts within five minutes and breaks on author change", () => {
+    const rows = layoutFeed(
+      [
+        chat(message({ id: "a1", createdAt: at("10:00") })),
+        chat(message({ id: "a2", createdAt: at("10:03") })),
+        chat(message({ id: "u1", authorKind: "user", createdAt: at("10:04") })),
+        chat(message({ id: "a3", createdAt: at("10:05") })),
+      ],
+      makeCtx(),
+      now
+    );
+    expect(
+      rows.map((r) => (r.kind === "entry" ? [r.entry.id, r.grouped] : r.kind))
+    ).toEqual([
+      "divider",
+      ["a1", false],
+      ["a2", true],
+      ["u1", false],
+      ["a3", false],
+    ]);
+  });
+
+  it("starts a new group after five minutes or a system line", () => {
+    const rows = layoutFeed(
+      [
+        chat(message({ id: "a1", createdAt: at("10:00") })),
+        chat(message({ id: "a2", createdAt: at("10:06") })),
+        status("s1", "working", "x", at("10:07")),
+        chat(message({ id: "a3", createdAt: at("10:07") })),
+      ],
+      makeCtx(),
+      now
+    );
+    expect(
+      rows.map((r) => (r.kind === "entry" ? [r.entry.id, r.grouped] : r.kind))
+    ).toEqual([
+      "divider",
+      ["a1", false],
+      ["a2", false],
+      "status",
+      ["a3", false],
+    ]);
+  });
+
+  it("treats media and outgoing agent messages as the agent's own posts", () => {
+    const rows = layoutFeed(
+      [
+        chat(message({ id: "a1", createdAt: at("10:00") })),
+        {
+          type: "media",
+          id: "md1",
+          mediaId: 1,
+          fileName: "x.png",
+          sizeBytes: 1,
+          description: null,
+          at: at("10:01"),
+        },
+        {
+          type: "agent_message",
+          id: "am1",
+          direction: "out",
+          senderAgentId: AGENT_ID,
+          senderName: "builder",
+          recipientAgentId: "agt_2",
+          recipientName: "Reviewer",
+          content: "ping",
+          delivered: true,
+          at: at("10:02"),
+        },
+        {
+          type: "agent_message",
+          id: "am2",
+          direction: "in",
+          senderAgentId: "agt_2",
+          senderName: "Reviewer",
+          recipientAgentId: AGENT_ID,
+          recipientName: "builder",
+          content: "pong",
+          delivered: true,
+          at: at("10:03"),
+        },
+      ],
+      makeCtx(),
+      now
+    );
+    expect(
+      rows.map((r) => (r.kind === "entry" ? [r.entry.id, r.grouped] : r.kind))
+    ).toEqual([
+      "divider",
+      ["a1", false],
+      ["md1", true],
+      ["am1", true],
+      ["am2", false],
+    ]);
+  });
+
+  it("puts a labelled rule between days", () => {
+    const rows = layoutFeed(
+      [
+        chat(message({ id: "a1", createdAt: at("10:00", "01") })),
+        chat(message({ id: "a2", createdAt: at("10:00", "02") })),
+        chat(message({ id: "a3", createdAt: at("10:00", "03") })),
+      ],
+      makeCtx(),
+      now
+    );
+    const dividers = rows.filter((r) => r.kind === "divider");
+    expect(dividers).toHaveLength(3);
+    expect(dividers.map((d) => d.kind === "divider" && d.label)).toEqual([
+      expect.stringMatching(/September 1/),
+      "Yesterday",
+      "Today",
+    ]);
+    expect(rows[3]).toMatchObject({ kind: "entry", grouped: false });
   });
 });
 
@@ -207,7 +338,7 @@ describe("latestOpenFreeformQuestion", () => {
 });
 
 describe("ChatFeed", () => {
-  it("renders a user bubble with delivery failure marker", () => {
+  it('renders a user post under a "You" header with delivery failure marker', () => {
     renderFeed([
       chat(
         message({
@@ -218,10 +349,49 @@ describe("ChatFeed", () => {
         })
       ),
     ]);
-    const bubble = screen.getByTestId("chat-message");
-    expect(bubble.getAttribute("data-author")).toBe("user");
-    expect(bubble.textContent).toContain("Ship it");
+    const post = screen.getByTestId("chat-message");
+    expect(post.getAttribute("data-author")).toBe("user");
+    expect(post.textContent).toContain("Ship it");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("You");
+    expect(screen.getByTestId("chat-avatar-user")).toBeTruthy();
     expect(screen.getByTestId("chat-delivery-failed")).toBeTruthy();
+  });
+
+  it("collapses consecutive posts by one author under a single header", () => {
+    renderFeed([
+      chat(message({ id: "a1", text: "first" })),
+      chat(
+        message({
+          id: "a2",
+          text: "second",
+          createdAt: "2026-09-02T10:02:00.000Z",
+        })
+      ),
+      chat(
+        message({
+          id: "u1",
+          authorKind: "user",
+          text: "reply",
+          createdAt: "2026-09-02T10:03:00.000Z",
+        })
+      ),
+    ]);
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts.map((p) => p.getAttribute("data-grouped"))).toEqual([
+      null,
+      "true",
+      null,
+    ]);
+    const authors = screen.getAllByTestId("chat-post-author");
+    expect(authors.map((a) => a.textContent)).toEqual(["builder", "You"]);
+    expect(screen.getAllByTestId("chat-gutter-time")).toHaveLength(1);
+    expect(screen.getByTestId("chat-day-divider")).toBeTruthy();
+  });
+
+  it("uses the agent's type for its avatar", () => {
+    renderFeed([chat(message({ id: "a1" }))], {}, { agentType: "codex" });
+    const post = screen.getByTestId("chat-message");
+    expect(post.querySelector("[aria-label='Codex agent']")).toBeTruthy();
   });
 
   it("shows a sending hint while delivery is pending, and nothing once delivered", () => {
@@ -276,18 +446,20 @@ describe("ChatFeed", () => {
 
   it("renders agent markdown replies", () => {
     renderFeed([chat(message({ id: "a1", text: "Hello **there**" }))]);
-    const bubble = screen.getByTestId("chat-message");
-    expect(bubble.getAttribute("data-author")).toBe("agent");
-    expect(bubble.getAttribute("data-kind")).toBe("reply");
-    expect(bubble.querySelector("strong")?.textContent).toBe("there");
+    const post = screen.getByTestId("chat-message");
+    expect(post.getAttribute("data-author")).toBe("agent");
+    expect(post.getAttribute("data-kind")).toBe("reply");
+    expect(post.querySelector("strong")?.textContent).toBe("there");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("builder");
   });
 
-  it("renders a summary as a headed card and an update as a light line", () => {
+  it("renders a summary as an accented block and an update as a light post", () => {
     renderFeed([
       chat(message({ id: "a1", kind: "summary", text: "Done: 3 files" })),
       chat(message({ id: "a2", kind: "update", text: "Still going" })),
     ]);
     const [summary, update] = screen.getAllByTestId("chat-message");
+    expect(summary!.querySelector("[data-testid='chat-summary']")).toBeTruthy();
     expect(summary!.textContent).toContain("Summary");
     expect(summary!.textContent).toContain("Done: 3 files");
     expect(update!.getAttribute("data-kind")).toBe("update");
@@ -345,6 +517,9 @@ describe("ChatFeed", () => {
     ]);
     expect(screen.queryByTestId("chat-needs-reply")).toBeNull();
     expect(screen.queryByText("Or type a reply below.")).toBeNull();
+    expect(screen.getByTestId("chat-question-options").textContent).toContain(
+      "Answered"
+    );
     const options = screen.getAllByTestId("chat-question-option");
     expect(options.every((o) => (o as HTMLButtonElement).disabled)).toBe(true);
     expect(options[0]!.getAttribute("aria-pressed")).toBe("true");
@@ -434,7 +609,7 @@ describe("ChatFeed", () => {
     expect(image.querySelector("img")?.getAttribute("src")).toBe(
       `/api/v1/agents/${AGENT_ID}/media/shot.png`
     );
-    fireEvent.click(image);
+    fireEvent.click(image.querySelector("button")!);
     expect(onOpenMedia).toHaveBeenCalledWith(
       expect.objectContaining({ name: "shot.png", size: 2048 })
     );
@@ -442,12 +617,17 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-attachment-file").textContent).toContain(
       "notes.md"
     );
-    expect(screen.getByText("Example").closest("a")?.getAttribute("href")).toBe(
+    const link = screen.getByTestId("chat-attachment-link");
+    expect(link.querySelector("a")?.getAttribute("href")).toBe(
       "https://example.com/x"
     );
-    expect(
-      screen.getByText("https://github.com/o/r/pull/1").closest("a")
-    ).toBeTruthy();
+    expect(link.textContent).toContain("Example");
+    expect(link.textContent).toContain("example.com");
+    const pr = screen.getByTestId("chat-attachment-pr");
+    expect(pr.querySelector("a")?.getAttribute("href")).toBe(
+      "https://github.com/o/r/pull/1"
+    );
+    expect(pr.textContent).toContain("https://github.com/o/r/pull/1");
     expect(screen.getByTestId("chat-attachment-code").textContent).toContain(
       "const a = 1;"
     );
@@ -478,7 +658,7 @@ describe("ChatFeed", () => {
     expect(lines[1]!.textContent).toContain("Need a key");
   });
 
-  it("renders cross-agent messages with the other agent's name", () => {
+  it("renders cross-agent messages as posts by the other agent, or by this one addressed to it", () => {
     renderFeed([
       {
         type: "agent_message",
@@ -506,10 +686,15 @@ describe("ChatFeed", () => {
       },
     ]);
     const [incoming, outgoing] = screen.getAllByTestId("chat-agent-message");
-    expect(incoming!.textContent).toContain("From Reviewer");
+    expect(
+      incoming!.querySelector("[data-testid='chat-post-author']")?.textContent
+    ).toBe("Reviewer");
     expect(incoming!.textContent).toContain("LGTM");
-    expect(outgoing!.textContent).toContain("To Reviewer");
-    expect(outgoing!.textContent).toContain("not delivered");
+    expect(
+      outgoing!.querySelector("[data-testid='chat-post-author']")?.textContent
+    ).toBe("builder");
+    expect(outgoing!.textContent).toContain("to Reviewer");
+    expect(outgoing!.textContent).toContain("Not delivered");
   });
 
   it("renders media entries and opens them in the lightbox", () => {
@@ -525,6 +710,9 @@ describe("ChatFeed", () => {
       },
     ]);
     const card = screen.getByTestId("chat-media");
+    expect(
+      card.querySelector("[data-testid='chat-post-author']")?.textContent
+    ).toBe("builder");
     expect(card.textContent).toContain("Login page");
     expect(card.querySelector("img")).toBeTruthy();
     fireEvent.click(card.querySelector("button")!);

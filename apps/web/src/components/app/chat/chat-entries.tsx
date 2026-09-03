@@ -1,4 +1,4 @@
-import { memo } from "react";
+import { memo, type ReactNode } from "react";
 import type {
   ChatAgentMessageEntry,
   ChatAttachment,
@@ -15,20 +15,19 @@ import {
   GitPullRequest,
   Hourglass,
   Loader2,
-  Paperclip,
+  UserRound,
 } from "lucide-react";
 
 import {
   latestEventColor,
   latestEventLabel,
 } from "@/components/app/agent-event-utils";
-import { MessageBubble } from "@/components/app/messages-panel";
+import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { PinItem } from "@/components/app/pin-item";
 import { type AgentPin, type MediaFile } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { formatBytes } from "@/components/app/service-resources-format";
-import { formatRelativeTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 type EventType = Parameters<typeof latestEventLabel>[0];
@@ -58,37 +57,253 @@ export function fullTimestamp(iso: string): string {
   return Number.isNaN(time.getTime()) ? iso : time.toLocaleString();
 }
 
+/** "10:04 AM" — the wall-clock time a channel shows next to a post. */
+export function clockTime(iso: string): string {
+  const time = new Date(iso);
+  if (Number.isNaN(time.getTime())) return "";
+  return time.toLocaleTimeString(undefined, {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+/** The gutter is 32px wide: "6:47", no meridiem, like Slack's hover time. */
+export function gutterTime(iso: string): string {
+  return clockTime(iso).replace(/\s?[AP]M$/i, "");
+}
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return "";
+  }
+}
+
 // ---------------------------------------------------------------------------
-// Attachments
+// Authors and the post layout
 // ---------------------------------------------------------------------------
 
 export type AttachmentContext = {
   agentId: string;
+  /** The agent this channel belongs to; names its posts. */
+  agentName?: string;
+  agentType?: string | null;
   pins: AgentPin[];
   workspaceRoot: string | null;
   onOpenMedia: (file: MediaFile) => void;
 };
 
-function LinkChip({
-  href,
-  label,
-  icon,
+export type PostAuthor = {
+  /** Consecutive posts with the same key can collapse under one header. */
+  key: string;
+  name: string;
+  kind: "user" | "agent" | "peer";
+  agentType?: string | null;
+};
+
+export function userAuthor(): PostAuthor {
+  return { key: "user", name: "You", kind: "user" };
+}
+
+export function agentAuthor(ctx: AttachmentContext, fallback = ""): PostAuthor {
+  return {
+    key: "agent",
+    name: ctx.agentName ?? fallback,
+    kind: "agent",
+    agentType: ctx.agentType ?? null,
+  };
+}
+
+export function peerAuthor(agentId: string, name: string): PostAuthor {
+  return { key: `peer:${agentId}`, name, kind: "peer" };
+}
+
+const AVATAR_ICON = "[&>svg]:h-[18px] [&>svg]:w-[18px]";
+
+function Avatar({ author }: { author: PostAuthor }): JSX.Element {
+  if (author.kind === "user") {
+    return (
+      <span
+        className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-foreground/[0.08] text-foreground"
+        aria-label="You"
+        title="You"
+        data-testid="chat-avatar-user"
+      >
+        <UserRound className="h-4 w-4" aria-hidden="true" />
+      </span>
+    );
+  }
+  return (
+    <AgentTypeIcon
+      type={author.kind === "agent" ? author.agentType : null}
+      className={cn("h-8 w-8 rounded-md", AVATAR_ICON)}
+    />
+  );
+}
+
+/**
+ * One full-width row of the channel. A header row carries the avatar, the
+ * author and the time; a grouped row (same author, shortly after) keeps only
+ * the body, and shows the time in the gutter on hover.
+ */
+export function Post({
+  author,
+  at,
+  grouped,
+  children,
+  className,
+  ...rest
 }: {
-  href: string;
-  label: string;
-  icon: JSX.Element;
+  author: PostAuthor;
+  at: string;
+  grouped: boolean;
+  children: ReactNode;
+  className?: string;
+  [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
   return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noreferrer"
-      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
-      title={href}
+    <div
+      className={cn(
+        "group relative flex gap-3 px-4 transition-colors hover:bg-muted/40",
+        grouped ? "py-0.5" : "mt-2 pb-0.5 pt-1.5",
+        className
+      )}
+      data-grouped={grouped ? "true" : undefined}
+      {...rest}
     >
-      {icon}
-      <span className="truncate">{label}</span>
-    </a>
+      <div className="flex w-8 shrink-0 justify-end">
+        {grouped ? (
+          <span
+            className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
+            title={fullTimestamp(at)}
+            data-testid="chat-gutter-time"
+          >
+            {gutterTime(at)}
+          </span>
+        ) : (
+          <Avatar author={author} />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        {grouped ? null : (
+          <div className="flex items-baseline gap-2 leading-tight">
+            <span
+              className="truncate text-sm font-semibold text-foreground"
+              data-testid="chat-post-author"
+            >
+              {author.name}
+            </span>
+            <span
+              className="shrink-0 text-[11px] text-muted-foreground"
+              title={fullTimestamp(at)}
+              data-testid="chat-post-time"
+            >
+              {clockTime(at)}
+            </span>
+          </div>
+        )}
+        <div className="text-sm text-foreground">{children}</div>
+      </div>
+    </div>
+  );
+}
+
+/** "Today", "Yesterday", or the date, for the rule between days. */
+export function dayLabel(iso: string, now: Date = new Date()): string {
+  const time = new Date(iso);
+  if (Number.isNaN(time.getTime())) return "";
+  const startOf = (d: Date) =>
+    new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  const diff = Math.round((startOf(now) - startOf(time)) / dayMs);
+  if (diff === 0) return "Today";
+  if (diff === 1) return "Yesterday";
+  return time.toLocaleDateString(undefined, {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+    ...(time.getFullYear() === now.getFullYear() ? {} : { year: "numeric" }),
+  });
+}
+
+export function DayDivider({ label }: { label: string }): JSX.Element {
+  return (
+    <div
+      className="my-2 flex items-center gap-3 px-4"
+      data-testid="chat-day-divider"
+      role="separator"
+      aria-label={label}
+    >
+      <div className="h-px flex-1 bg-border/70" />
+      <span className="rounded-full border border-border bg-background px-2.5 py-0.5 text-[11px] font-medium text-muted-foreground">
+        {label}
+      </span>
+      <div className="h-px flex-1 bg-border/70" />
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Attachments
+// ---------------------------------------------------------------------------
+
+/** The left-accented block Slack hangs under a post. */
+function AttachmentBlock({
+  children,
+  className,
+  accent = "border-border",
+  ...rest
+}: {
+  children: ReactNode;
+  className?: string;
+  accent?: string;
+  [dataAttr: `data-${string}`]: string | undefined;
+}): JSX.Element {
+  return (
+    <div
+      className={cn("border-l-[3px] py-0.5 pl-3", accent, className)}
+      {...rest}
+    >
+      {children}
+    </div>
+  );
+}
+
+function LinkAttachment({
+  href,
+  title,
+  icon,
+  testId,
+}: {
+  href: string;
+  title: string | undefined;
+  icon: JSX.Element;
+  testId: string;
+}): JSX.Element {
+  const host = hostOf(href);
+  return (
+    <AttachmentBlock data-testid={testId}>
+      <a
+        href={href}
+        target="_blank"
+        rel="noreferrer"
+        className="group/link flex min-w-0 items-start gap-2"
+        title={href}
+      >
+        <span className="mt-0.5 shrink-0 text-muted-foreground">{icon}</span>
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-foreground underline-offset-2 group-hover/link:underline">
+            {title ?? href}
+          </span>
+          {title && host ? (
+            <span className="block truncate text-[11px] text-muted-foreground">
+              {host}
+            </span>
+          ) : null}
+        </span>
+      </a>
+    </AttachmentBlock>
   );
 }
 
@@ -111,36 +326,45 @@ function FileAttachment({
     });
   if (isImageFileName(attachment.fileName)) {
     return (
-      <button
-        type="button"
-        onClick={open}
-        className="block max-w-xs overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30"
-        title={attachment.fileName}
-        data-testid="chat-attachment-image"
-      >
-        <img
-          src={url}
-          alt={attachment.fileName}
-          className="max-h-56 w-full object-contain"
-          loading="lazy"
-        />
-      </button>
+      <AttachmentBlock data-testid="chat-attachment-image">
+        <div className="mb-1 truncate text-[11px] text-muted-foreground">
+          {attachment.fileName} · {formatBytes(attachment.sizeBytes)}
+        </div>
+        <button
+          type="button"
+          onClick={open}
+          className="block max-w-xs overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30"
+          title={attachment.fileName}
+        >
+          <img
+            src={url}
+            alt={attachment.fileName}
+            className="max-h-56 w-full object-contain"
+            loading="lazy"
+          />
+        </button>
+      </AttachmentBlock>
     );
   }
   return (
-    <button
-      type="button"
-      onClick={open}
-      className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-background/60 px-2 py-1 text-xs text-foreground transition-colors hover:bg-muted"
-      title={attachment.fileName}
-      data-testid="chat-attachment-file"
-    >
-      <FileText className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-      <span className="truncate">{attachment.fileName}</span>
-      <span className="shrink-0 text-muted-foreground">
-        {formatBytes(attachment.sizeBytes)}
-      </span>
-    </button>
+    <AttachmentBlock data-testid="chat-attachment-file">
+      <button
+        type="button"
+        onClick={open}
+        className="flex min-w-0 max-w-full items-start gap-2 text-left"
+        title={attachment.fileName}
+      >
+        <FileText className="mt-0.5 h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        <span className="min-w-0">
+          <span className="block truncate text-sm font-medium text-foreground">
+            {attachment.fileName}
+          </span>
+          <span className="block text-[11px] text-muted-foreground">
+            {formatBytes(attachment.sizeBytes)}
+          </span>
+        </span>
+      </button>
+    </AttachmentBlock>
   );
 }
 
@@ -152,14 +376,14 @@ function CodeAttachment({
   const fence = "```";
   const source = `${fence}${attachment.language ?? ""}\n${attachment.code}\n${fence}`;
   return (
-    <div className="max-w-full" data-testid="chat-attachment-code">
-      <Markdown className="text-xs">{source}</Markdown>
+    <AttachmentBlock data-testid="chat-attachment-code">
       {attachment.path ? (
-        <div className="mt-0.5 truncate font-mono text-[10px] text-muted-foreground">
+        <div className="mb-1 truncate font-mono text-[11px] text-muted-foreground">
           {attachment.path}
         </div>
       ) : null}
-    </div>
+      <Markdown className="text-xs">{source}</Markdown>
+    </AttachmentBlock>
   );
 }
 
@@ -173,21 +397,18 @@ function PinAttachment({
   const pin = ctx.pins.find((p) => p.id === attachment.pinId);
   if (!pin) {
     return (
-      <div
+      <AttachmentBlock
         className="text-xs italic text-muted-foreground"
         data-testid="chat-attachment-pin-missing"
       >
         Pin no longer available
-      </div>
+      </AttachmentBlock>
     );
   }
   return (
-    <div
-      className="rounded-md border border-border bg-background/60 px-3 py-1"
-      data-testid="chat-attachment-pin"
-    >
+    <AttachmentBlock data-testid="chat-attachment-pin">
       <PinItem pin={pin} workspaceRoot={ctx.workspaceRoot} inGroup />
-    </div>
+    </AttachmentBlock>
   );
 }
 
@@ -205,18 +426,20 @@ export function AttachmentView({
       return <FileAttachment attachment={attachment} at={at} ctx={ctx} />;
     case "link":
       return (
-        <LinkChip
+        <LinkAttachment
           href={attachment.url}
-          label={attachment.title ?? attachment.url}
-          icon={<ExternalLink className="h-3.5 w-3.5 shrink-0" />}
+          title={attachment.title}
+          icon={<ExternalLink className="h-3.5 w-3.5" />}
+          testId="chat-attachment-link"
         />
       );
     case "pr":
       return (
-        <LinkChip
+        <LinkAttachment
           href={attachment.url}
-          label={attachment.title ?? attachment.url}
-          icon={<GitPullRequest className="h-3.5 w-3.5 shrink-0" />}
+          title={attachment.title}
+          icon={<GitPullRequest className="h-3.5 w-3.5" />}
+          testId="chat-attachment-pr"
         />
       );
     case "code":
@@ -237,7 +460,7 @@ function AttachmentList({
 }): JSX.Element | null {
   if (attachments.length === 0) return null;
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5" data-testid="chat-attachments">
+    <div className="mt-2 flex flex-col gap-2" data-testid="chat-attachments">
       {attachments.map((attachment, index) => (
         <AttachmentView key={index} attachment={attachment} at={at} ctx={ctx} />
       ))}
@@ -264,8 +487,34 @@ export function QuestionOptions({
   const question = message.question;
   if (!question) return null;
   const answer = message.answer;
+  const open = answer === null;
   return (
-    <div className="mt-2" data-testid="chat-question-options">
+    <div
+      className={cn(
+        "mt-2 rounded-md border p-3",
+        open
+          ? "border-status-waiting/50 bg-status-waiting/[0.07]"
+          : "border-border bg-muted/30"
+      )}
+      data-testid="chat-question-options"
+    >
+      {open ? (
+        <div
+          className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold text-status-waiting"
+          data-testid="chat-needs-reply"
+        >
+          <span className="h-1.5 w-1.5 rounded-full bg-current" />
+          Needs your reply
+        </div>
+      ) : (
+        <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
+          <Check className="h-3 w-3" />
+          Answered
+          {(answer.label ?? answer.value) ? (
+            <span className="truncate">· {answer.label ?? answer.value}</span>
+          ) : null}
+        </div>
+      )}
       <div className="flex flex-wrap gap-1.5">
         {question.options.map((option, index) => {
           const value = option.value ?? option.label;
@@ -295,8 +544,8 @@ export function QuestionOptions({
           );
         })}
       </div>
-      {answer === null && question.allowFreeform && freeformAvailable ? (
-        <div className="mt-1.5 text-[11px] text-muted-foreground">
+      {open && question.allowFreeform && freeformAvailable ? (
+        <div className="mt-2 text-[11px] text-muted-foreground">
           Or type a reply below.
         </div>
       ) : null}
@@ -308,59 +557,58 @@ export function QuestionOptions({
 // Chat messages
 // ---------------------------------------------------------------------------
 
-function MessageMeta({
+/** Delivery state of a user post; nothing once it has landed. */
+function DeliveryMeta({
   message,
   held,
-  className,
 }: {
   message: ChatMessage;
   held: boolean;
-  className?: string;
-}): JSX.Element {
-  return (
-    <div
-      className={cn("mt-1 flex items-center gap-1.5 text-[10px]", className)}
-    >
-      <span title={fullTimestamp(message.createdAt)}>
-        {formatRelativeTime(message.createdAt)}
-      </span>
-      {message.authorKind === "user" && message.delivered === false ? (
-        <span
-          className="inline-flex items-center gap-1 text-destructive"
-          title="The agent had no terminal to receive this message."
-          data-testid="chat-delivery-failed"
-        >
-          <AlertTriangle className="h-2.5 w-2.5" />
-          not delivered
-        </span>
-      ) : null}
-      {message.authorKind === "user" && message.delivered === null && !held ? (
-        <span
-          className="inline-flex items-center gap-1"
-          title="Delivering to the agent's terminal."
-          data-testid="chat-delivery-pending"
-        >
-          <Loader2 className="h-2.5 w-2.5 animate-spin" />
-          sending
-        </span>
-      ) : null}
-      {held ? (
-        <span
-          className="inline-flex items-center gap-1"
-          title="Dispatch is holding this message until you pause typing in the Console."
-          data-testid="chat-held-hint"
-        >
-          <Hourglass className="h-2.5 w-2.5" />
-          waiting to deliver
-        </span>
-      ) : null}
-    </div>
-  );
+}): JSX.Element | null {
+  if (message.authorKind !== "user") return null;
+  if (held) {
+    return (
+      <div
+        className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+        title="Dispatch is holding this message until you pause typing in the Console."
+        data-testid="chat-held-hint"
+      >
+        <Hourglass className="h-3 w-3" />
+        Waiting to deliver
+      </div>
+    );
+  }
+  if (message.delivered === false) {
+    return (
+      <div
+        className="mt-1 inline-flex items-center gap-1 text-[11px] text-destructive"
+        title="The agent had no terminal to receive this message."
+        data-testid="chat-delivery-failed"
+      >
+        <AlertTriangle className="h-3 w-3" />
+        Not delivered
+      </div>
+    );
+  }
+  if (message.delivered === null) {
+    return (
+      <div
+        className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+        title="Delivering to the agent's terminal."
+        data-testid="chat-delivery-pending"
+      >
+        <Loader2 className="h-3 w-3 animate-spin" />
+        Sending
+      </div>
+    );
+  }
+  return null;
 }
 
 export const ChatMessageView = memo(function ChatMessageView({
   message,
   held,
+  grouped,
   ctx,
   answering,
   freeformAvailable = true,
@@ -368,6 +616,7 @@ export const ChatMessageView = memo(function ChatMessageView({
 }: {
   message: ChatMessage;
   held: boolean;
+  grouped: boolean;
   ctx: AttachmentContext;
   answering: boolean;
   freeformAvailable?: boolean;
@@ -375,102 +624,90 @@ export const ChatMessageView = memo(function ChatMessageView({
 }): JSX.Element {
   if (message.authorKind === "user") {
     return (
-      <div
-        className="flex justify-end"
+      <Post
+        author={userAuthor()}
+        at={message.createdAt}
+        grouped={grouped}
         data-testid="chat-message"
         data-author="user"
         data-message-id={message.id}
       >
-        <div className="max-w-[85%] rounded-xl rounded-br-sm bg-primary px-3 py-2 text-sm text-primary-foreground">
-          <div className="whitespace-pre-wrap break-words">{message.text}</div>
-          <MessageMeta
-            message={message}
-            held={held}
-            className="text-primary-foreground/60"
-          />
-        </div>
-      </div>
+        <div className="whitespace-pre-wrap break-words">{message.text}</div>
+        <DeliveryMeta message={message} held={held} />
+      </Post>
     );
   }
 
+  const author = agentAuthor(ctx, "Agent");
   const isQuestion = message.kind === "question";
-  const unanswered = isQuestion && message.answer === null;
 
   if (message.kind === "update") {
     return (
-      <div
-        className="flex justify-start"
+      <Post
+        author={author}
+        at={message.createdAt}
+        grouped={grouped}
         data-testid="chat-message"
         data-author="agent"
         data-kind="update"
         data-message-id={message.id}
       >
-        <div className="max-w-[85%] px-1 text-sm text-muted-foreground">
-          <Markdown className="text-muted-foreground prose-p:my-0.5">
-            {message.text}
-          </Markdown>
-          <AttachmentList
-            attachments={message.attachments}
-            at={message.createdAt}
-            ctx={ctx}
-          />
-          <MessageMeta message={message} held={false} />
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <div
-      className="flex justify-start"
-      data-testid="chat-message"
-      data-author="agent"
-      data-kind={message.kind}
-      data-message-id={message.id}
-    >
-      <div
-        className={cn(
-          "max-w-[85%] rounded-xl rounded-bl-sm px-3 py-2 text-sm",
-          message.kind === "summary"
-            ? "border border-border bg-card"
-            : "bg-muted",
-          unanswered && "ring-1 ring-status-waiting"
-        )}
-      >
-        {message.kind === "summary" ? (
-          <div className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-muted-foreground">
-            Summary
-          </div>
-        ) : null}
-        {unanswered ? (
-          <div
-            className="mb-1 text-[10px] font-semibold uppercase tracking-widest text-status-waiting"
-            data-testid="chat-needs-reply"
-          >
-            Needs your reply
-          </div>
-        ) : null}
-        <Markdown>{message.text}</Markdown>
+        <Markdown className="text-muted-foreground prose-p:my-0.5">
+          {message.text}
+        </Markdown>
         <AttachmentList
           attachments={message.attachments}
           at={message.createdAt}
           ctx={ctx}
         />
-        {isQuestion ? (
-          <QuestionOptions
-            message={message}
-            answering={answering}
-            freeformAvailable={freeformAvailable}
-            onAnswer={(option) => onAnswer(message.id, option)}
-          />
-        ) : null}
-        <MessageMeta
+      </Post>
+    );
+  }
+
+  const body = (
+    <>
+      <Markdown>{message.text}</Markdown>
+      <AttachmentList
+        attachments={message.attachments}
+        at={message.createdAt}
+        ctx={ctx}
+      />
+    </>
+  );
+
+  return (
+    <Post
+      author={author}
+      at={message.createdAt}
+      grouped={grouped}
+      data-testid="chat-message"
+      data-author="agent"
+      data-kind={message.kind}
+      data-message-id={message.id}
+    >
+      {message.kind === "summary" ? (
+        <AttachmentBlock
+          accent="border-status-done/70"
+          className="mt-1"
+          data-testid="chat-summary"
+        >
+          <div className="mb-1 text-[11px] font-semibold text-status-done">
+            Summary
+          </div>
+          {body}
+        </AttachmentBlock>
+      ) : (
+        body
+      )}
+      {isQuestion ? (
+        <QuestionOptions
           message={message}
-          held={false}
-          className="text-muted-foreground"
+          answering={answering}
+          freeformAvailable={freeformAvailable}
+          onAnswer={(option) => onAnswer(message.id, option)}
         />
-      </div>
-    </div>
+      ) : null}
+    </Post>
   );
 });
 
@@ -478,6 +715,7 @@ export const ChatMessageView = memo(function ChatMessageView({
 // Status, cross-agent messages, media
 // ---------------------------------------------------------------------------
 
+/** A muted system line, aligned with the post bodies like "joined the channel". */
 export function StatusLine({
   entry,
   collapsedCount = 1,
@@ -488,18 +726,20 @@ export function StatusLine({
   const type = asEventType(entry.eventType);
   return (
     <div
-      className="flex items-center justify-center gap-1.5 px-4 text-[11px] text-muted-foreground"
+      className="flex items-center gap-3 px-4 py-0.5 text-[11px] text-muted-foreground"
       data-testid="chat-status"
       data-event-type={entry.eventType}
       title={fullTimestamp(entry.at)}
     >
-      <span
-        className={cn(
-          "h-1.5 w-1.5 shrink-0 rounded-full bg-current",
-          latestEventColor(type)
-        )}
-      />
-      <span className="truncate">
+      <div className="flex w-8 shrink-0 justify-center">
+        <span
+          className={cn(
+            "h-1.5 w-1.5 rounded-full bg-current",
+            latestEventColor(type)
+          )}
+        />
+      </div>
+      <span className="min-w-0 truncate">
         <span className="font-medium">{latestEventLabel(type)}</span>
         {entry.message ? ` · ${entry.message}` : null}
       </span>
@@ -515,47 +755,59 @@ export function StatusLine({
   );
 }
 
+export function agentMessageAuthor(
+  entry: ChatAgentMessageEntry,
+  ctx: AttachmentContext
+): PostAuthor {
+  return entry.direction === "out"
+    ? agentAuthor(ctx, entry.senderName)
+    : peerAuthor(entry.senderAgentId, entry.senderName);
+}
+
 export function AgentMessageView({
   entry,
+  grouped,
+  ctx,
 }: {
   entry: ChatAgentMessageEntry;
+  grouped: boolean;
+  ctx: AttachmentContext;
 }): JSX.Element {
   const isSent = entry.direction === "out";
   return (
-    <div data-testid="chat-agent-message" data-direction={entry.direction}>
-      <div
-        className={cn(
-          "mb-0.5 text-[10px] text-muted-foreground",
-          isSent ? "text-right" : "text-left"
-        )}
-      >
-        {isSent ? `To ${entry.recipientName}` : `From ${entry.senderName}`}
-      </div>
-      <MessageBubble
-        message={{
-          id: entry.id,
-          senderAgentId: entry.senderAgentId,
-          recipientAgentId: entry.recipientAgentId,
-          senderName: entry.senderName,
-          recipientName: entry.recipientName,
-          content: entry.content,
-          delivered: entry.delivered,
-          // The chat feed has its own read model; never show the sidebar's
-          // unread ring here.
-          readAt: entry.at,
-          createdAt: entry.at,
-        }}
-        isSent={isSent}
-      />
-    </div>
+    <Post
+      author={agentMessageAuthor(entry, ctx)}
+      at={entry.at}
+      grouped={grouped}
+      data-testid="chat-agent-message"
+      data-direction={entry.direction}
+    >
+      {isSent ? (
+        <div className="text-[11px] text-muted-foreground">
+          to {entry.recipientName}
+        </div>
+      ) : null}
+      <div className="whitespace-pre-wrap break-words">{entry.content}</div>
+      {!entry.delivered ? (
+        <div
+          className="mt-1 inline-flex items-center gap-1 text-[11px] text-destructive"
+          title="The recipient agent wasn't running, so it never received this message."
+        >
+          <AlertTriangle className="h-3 w-3" />
+          Not delivered
+        </div>
+      ) : null}
+    </Post>
   );
 }
 
 export function MediaEntryView({
   entry,
+  grouped,
   ctx,
 }: {
   entry: ChatMediaEntry;
+  grouped: boolean;
   ctx: AttachmentContext;
 }): JSX.Element {
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
@@ -569,36 +821,35 @@ export function MediaEntryView({
     });
   const isImage = isImageFileName(entry.fileName);
   return (
-    <div className="flex justify-start" data-testid="chat-media">
-      <button
-        type="button"
-        onClick={open}
-        className="max-w-[85%] overflow-hidden rounded-xl rounded-bl-sm border border-border bg-card text-left transition-colors hover:border-foreground/30"
-        title={entry.fileName}
-      >
-        {isImage ? (
-          <img
-            src={url}
-            alt={entry.description ?? entry.fileName}
-            className="max-h-64 w-full object-contain"
-            loading="lazy"
-          />
-        ) : null}
-        <div className="flex items-center gap-2 px-3 py-2">
-          <Paperclip className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <div className="min-w-0">
-            <div className="truncate text-xs text-foreground">
-              {entry.description ?? entry.fileName}
-            </div>
-            <div className="truncate text-[10px] text-muted-foreground">
-              {entry.fileName} · {formatBytes(entry.sizeBytes)} ·{" "}
-              <span title={fullTimestamp(entry.at)}>
-                {formatRelativeTime(entry.at)}
-              </span>
-            </div>
-          </div>
-        </div>
-      </button>
-    </div>
+    <Post
+      author={agentAuthor(ctx, "Agent")}
+      at={entry.at}
+      grouped={grouped}
+      data-testid="chat-media"
+    >
+      <AttachmentBlock className="mt-1">
+        <button
+          type="button"
+          onClick={open}
+          className="block max-w-full text-left"
+          title={entry.fileName}
+        >
+          <span className="block truncate text-sm font-medium text-foreground">
+            {entry.description ?? entry.fileName}
+          </span>
+          <span className="block truncate text-[11px] text-muted-foreground">
+            {entry.fileName} · {formatBytes(entry.sizeBytes)}
+          </span>
+          {isImage ? (
+            <img
+              src={url}
+              alt={entry.description ?? entry.fileName}
+              className="mt-1.5 block max-h-64 max-w-xs rounded-md border border-border object-contain transition-colors hover:border-foreground/30"
+              loading="lazy"
+            />
+          ) : null}
+        </button>
+      </AttachmentBlock>
+    </Post>
   );
 }

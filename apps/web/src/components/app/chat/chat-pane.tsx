@@ -8,7 +8,7 @@ import {
 } from "react";
 import type { ChatQuestionOption } from "@dispatch/shared";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowDown, MessageSquare, TerminalSquare } from "lucide-react";
+import { ArrowDown, Hash, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { describeAgentStatus } from "@/components/app/agent-event-utils";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
@@ -288,11 +288,21 @@ export function ChatPane({
   const ctx = useMemo<AttachmentContext>(
     () => ({
       agentId: agentId ?? "",
+      agentName: agent?.name,
+      agentType: agent?.type ?? null,
       pins: agent?.pins ?? [],
       workspaceRoot: agent?.worktreePath ?? agent?.cwd ?? null,
       onOpenMedia: openLightbox,
     }),
-    [agent?.cwd, agent?.pins, agent?.worktreePath, agentId, openLightbox]
+    [
+      agent?.cwd,
+      agent?.name,
+      agent?.pins,
+      agent?.type,
+      agent?.worktreePath,
+      agentId,
+      openLightbox,
+    ]
   );
 
   const disabledReason = composerDisabledReason(agent, terminalMode, {
@@ -309,8 +319,9 @@ export function ChatPane({
       data-testid="chat-pane"
     >
       <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 px-3">
-        <span className="truncate text-xs text-muted-foreground">
-          {agent?.name ?? "Chat"}
+        <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
+          <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+          <span className="truncate">{agent?.name ?? "Chat"}</span>
         </span>
         <Button
           type="button"
@@ -334,11 +345,11 @@ export function ChatPane({
           onLoadCapture={() => {
             if (following) scrollToBottom();
           }}
-          className="h-full overflow-y-auto overscroll-contain px-4 py-3"
+          className="h-full overflow-y-auto overscroll-contain py-2"
           data-testid="chat-scroll"
         >
           {feed.hasOlder ? (
-            <div className="mb-3 flex justify-center">
+            <div className="mb-1 flex justify-center px-4">
               <Button
                 type="button"
                 size="sm"
@@ -355,7 +366,7 @@ export function ChatPane({
           {feed.error ? (
             <div
               role="alert"
-              className="mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              className="mx-4 mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
               data-testid="chat-feed-error"
             >
               <span className="min-w-0 truncate">
@@ -433,7 +444,7 @@ export function ChatPane({
 
       <div
         className={cn(
-          "shrink-0 border-t border-border/40 px-3 pt-2",
+          "shrink-0 border-t border-border/40 px-4 pt-2",
           isMobile ? "pb-2" : "pb-3"
         )}
       >

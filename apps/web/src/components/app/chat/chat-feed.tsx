@@ -8,8 +8,11 @@ import type {
 
 import {
   AgentMessageView,
+  agentMessageAuthor,
   type AttachmentContext,
   ChatMessageView,
+  DayDivider,
+  dayLabel,
   MediaEntryView,
   StatusLine,
 } from "@/components/app/chat/chat-entries";
@@ -21,6 +24,22 @@ import {
 export type ChatFeedItem =
   | { kind: "entry"; entry: Exclude<ChatFeedEntry, ChatStatusEntry> }
   | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number };
+
+/**
+ * What the channel draws, top to bottom: day rules, system lines, and posts
+ * that know whether they continue the post above them.
+ */
+export type ChatFeedRow =
+  | { kind: "divider"; key: string; label: string }
+  | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number }
+  | {
+      kind: "entry";
+      entry: Exclude<ChatFeedEntry, ChatStatusEntry>;
+      grouped: boolean;
+    };
+
+/** Posts by one author this close together share a header, like Slack. */
+export const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /**
  * Agents emit a `working` event for every little step. Back-to-back ones say
@@ -51,6 +70,68 @@ export function collapseFeed(entries: ChatFeedEntry[]): ChatFeedItem[] {
     items.push({ kind: "status", entry, collapsedCount: 1 });
   }
   return items;
+}
+
+function authorKey(
+  entry: Exclude<ChatFeedEntry, ChatStatusEntry>,
+  ctx: AttachmentContext
+): string {
+  switch (entry.type) {
+    case "chat":
+      return entry.message.authorKind === "user" ? "user" : "agent";
+    case "agent_message":
+      return agentMessageAuthor(entry, ctx).key;
+    case "media":
+      return "agent";
+  }
+}
+
+function dayKey(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
+}
+
+/**
+ * Lay the collapsed feed out as channel rows: a rule wherever the day
+ * changes, and a post grouped under the previous one when the same author
+ * posted it within {@link GROUP_WINDOW_MS} with nothing else in between.
+ */
+export function layoutFeed(
+  entries: ChatFeedEntry[],
+  ctx: AttachmentContext,
+  now: Date = new Date()
+): ChatFeedRow[] {
+  const rows: ChatFeedRow[] = [];
+  let lastDay: string | null = null;
+  let lastPost: { key: string; at: number } | null = null;
+  for (const item of collapseFeed(entries)) {
+    const day = dayKey(item.entry.at);
+    if (day !== lastDay) {
+      rows.push({
+        kind: "divider",
+        key: `day:${day}`,
+        label: dayLabel(item.entry.at, now),
+      });
+      lastDay = day;
+      lastPost = null;
+    }
+    if (item.kind === "status") {
+      rows.push(item);
+      lastPost = null;
+      continue;
+    }
+    const key = authorKey(item.entry, ctx);
+    const at = new Date(item.entry.at).getTime();
+    const grouped =
+      lastPost !== null &&
+      lastPost.key === key &&
+      Number.isFinite(at) &&
+      at - lastPost.at <= GROUP_WINDOW_MS;
+    rows.push({ kind: "entry", entry: item.entry, grouped });
+    lastPost = { key, at: Number.isFinite(at) ? at : 0 };
+  }
+  return rows;
 }
 
 /** The id of the most recent user message, for the hold hint. */
@@ -113,21 +194,24 @@ export function ChatFeed({
   answersDisabled = false,
   onAnswer,
 }: ChatFeedProps): JSX.Element {
-  const items = useMemo(() => collapseFeed(entries), [entries]);
+  const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
 
   return (
-    <div className="flex flex-col gap-3" data-testid="chat-feed">
-      {items.map((item) => {
-        if (item.kind === "status") {
+    <div className="flex flex-col pb-1" data-testid="chat-feed">
+      {rows.map((row) => {
+        if (row.kind === "divider") {
+          return <DayDivider key={row.key} label={row.label} />;
+        }
+        if (row.kind === "status") {
           return (
             <StatusLine
-              key={item.entry.id}
-              entry={item.entry}
-              collapsedCount={item.collapsedCount}
+              key={row.entry.id}
+              entry={row.entry}
+              collapsedCount={row.collapsedCount}
             />
           );
         }
-        const entry = item.entry;
+        const entry = row.entry;
         switch (entry.type) {
           case "chat":
             return (
@@ -135,6 +219,7 @@ export function ChatFeed({
                 key={entry.id}
                 message={entry.message}
                 held={heldMessageId === entry.message.id}
+                grouped={row.grouped}
                 ctx={ctx}
                 answering={
                   answersDisabled || answeringMessageId === entry.message.id
@@ -144,9 +229,23 @@ export function ChatFeed({
               />
             );
           case "agent_message":
-            return <AgentMessageView key={entry.id} entry={entry} />;
+            return (
+              <AgentMessageView
+                key={entry.id}
+                entry={entry}
+                grouped={row.grouped}
+                ctx={ctx}
+              />
+            );
           case "media":
-            return <MediaEntryView key={entry.id} entry={entry} ctx={ctx} />;
+            return (
+              <MediaEntryView
+                key={entry.id}
+                entry={entry}
+                grouped={row.grouped}
+                ctx={ctx}
+              />
+            );
         }
       })}
     </div>

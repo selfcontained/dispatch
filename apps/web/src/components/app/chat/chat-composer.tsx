@@ -110,55 +110,73 @@ export function ChatComposer({
       }}
       data-testid="chat-composer"
     >
-      {replyContext && !disabled ? (
-        <div
-          className="flex items-center gap-1.5 self-start rounded-md border border-status-waiting/40 bg-status-waiting/10 py-0.5 pl-2 pr-1 text-[11px] text-foreground"
-          data-testid="chat-reply-context"
-        >
-          <CornerDownRight className="h-3 w-3 shrink-0 text-status-waiting" />
-          <span className="shrink-0 text-muted-foreground">Replying to:</span>
-          <span className="max-w-[40ch] truncate">{replyContext.excerpt}</span>
-          <button
-            type="button"
-            onClick={replyContext.onDismiss}
-            className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
-            title="Send a plain message instead"
-            aria-label="Send a plain message instead"
-            data-testid="chat-reply-context-dismiss"
+      <div
+        className={cn(
+          "rounded-lg border border-border bg-card/70 transition-colors",
+          disabled
+            ? "opacity-70"
+            : "focus-within:border-foreground/30 hover:border-foreground/20"
+        )}
+      >
+        {replyContext && !disabled ? (
+          <div className="px-2 pt-2">
+            <div
+              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-status-waiting/40 bg-status-waiting/10 py-0.5 pl-2 pr-1 text-[11px] text-foreground"
+              data-testid="chat-reply-context"
+            >
+              <CornerDownRight className="h-3 w-3 shrink-0 text-status-waiting" />
+              <span className="shrink-0 text-muted-foreground">
+                Replying to:
+              </span>
+              <span className="max-w-[40ch] truncate">
+                {replyContext.excerpt}
+              </span>
+              <button
+                type="button"
+                onClick={replyContext.onDismiss}
+                className="ml-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+                title="Send a plain message instead"
+                aria-label="Send a plain message instead"
+                data-testid="chat-reply-context-dismiss"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <div className="flex items-end">
+          <Textarea
+            ref={textareaRef}
+            value={text}
+            onChange={(event) => setText(event.target.value)}
+            onKeyDown={onKeyDown}
+            disabled={disabled}
+            rows={1}
+            maxLength={CHAT_MESSAGE_MAX_CHARS}
+            autoFocus={autoFocus}
+            placeholder={
+              disabled ? "" : replyContext ? "Type your answer…" : placeholder
+            }
+            aria-label="Message the agent"
+            // The box around it is the border; the field itself is bare.
+            className={cn(
+              "max-h-48 min-h-10 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
+            )}
+            data-testid="chat-composer-input"
+          />
+          <Button
+            type="submit"
+            size="icon"
+            variant={canSend ? "primary" : "ghost"}
+            disabled={!canSend}
+            title="Send (Enter)"
+            aria-label="Send message"
+            data-testid="chat-composer-send"
+            className="m-1.5 h-7 w-7 shrink-0"
           >
-            <X className="h-3 w-3" />
-          </button>
+            <SendHorizontal className="h-4 w-4" />
+          </Button>
         </div>
-      ) : null}
-      <div className="flex items-end gap-2">
-        <Textarea
-          ref={textareaRef}
-          value={text}
-          onChange={(event) => setText(event.target.value)}
-          onKeyDown={onKeyDown}
-          disabled={disabled}
-          rows={1}
-          maxLength={CHAT_MESSAGE_MAX_CHARS}
-          autoFocus={autoFocus}
-          placeholder={
-            disabled ? "" : replyContext ? "Type your answer…" : placeholder
-          }
-          aria-label="Message the agent"
-          className={cn("max-h-48 min-h-10 flex-1 resize-none py-2.5 text-sm")}
-          data-testid="chat-composer-input"
-        />
-        <Button
-          type="submit"
-          size="icon"
-          variant={canSend ? "default" : "ghost"}
-          disabled={!canSend}
-          title="Send (Enter)"
-          aria-label="Send message"
-          data-testid="chat-composer-send"
-          className="shrink-0"
-        >
-          <SendHorizontal className="h-4 w-4" />
-        </Button>
       </div>
       <div className="px-1 text-[10px] text-muted-foreground">
         {disabledReason ? (
