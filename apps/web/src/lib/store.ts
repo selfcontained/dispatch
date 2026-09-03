@@ -93,10 +93,16 @@ export function atomWithLocalStorage<T>(
   const derivedAtom = atom(
     (get) => get(baseAtom),
     (_get, set, update: T | ((prev: T) => T)) => {
+      const prevValue = _get(baseAtom);
       const nextValue =
         typeof update === "function"
-          ? (update as (prev: T) => T)(_get(baseAtom))
+          ? (update as (prev: T) => T)(prevValue)
           : update;
+      // An update that hands back the current value changes nothing here,
+      // so it must not touch storage either: another tab may have written
+      // a newer value since this one was read, and re-writing our copy
+      // would fire a `storage` event there and clobber it with stale data.
+      if (Object.is(nextValue, prevValue)) return;
       set(baseAtom, nextValue);
       try {
         window.localStorage.setItem(key, serialize(nextValue));

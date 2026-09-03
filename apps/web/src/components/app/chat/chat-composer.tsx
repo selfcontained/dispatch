@@ -46,6 +46,7 @@ import {
   EMPTY_CHAT_DRAFT,
   isChatComposerDraft,
 } from "@/lib/chat-draft";
+import { isImageFile } from "@/lib/media-accept";
 import { isAcceptedUploadFile } from "@/lib/media-upload";
 import { chatDraftAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -100,6 +101,16 @@ function describeFile(file: File, pasted: string | undefined): ChatDraftFile {
     mime: file.type,
     ...(pasted !== undefined ? { pasted } : {}),
   };
+}
+
+/**
+ * Whether a file gets a thumbnail. By name as well as by MIME type: a file
+ * pasted from the clipboard can arrive as `image.png` with an empty `type`
+ * (WebKit, and some Chrome paste paths), and the upload route types it by
+ * extension anyway.
+ */
+function isImageAttachment(file: File): boolean {
+  return isImageFile(file.name) || file.type.startsWith("image/");
 }
 
 function sameFiles(a: ChatDraftFile[], b: ChatDraftFile[]): boolean {
@@ -407,7 +418,7 @@ export function ChatComposer({
         if (seen.has(key)) continue;
         seen.add(key);
         next.push(file);
-        if (file.type.startsWith("image/") && !previewsRef.current.has(key)) {
+        if (isImageAttachment(file) && !previewsRef.current.has(key)) {
           previewsRef.current.set(key, URL.createObjectURL(file));
         }
       }
@@ -700,11 +711,17 @@ export function ChatComposer({
     run()
       .then(() => {
         const sentPinIds = new Set(submittedPins.map((pin) => pin.id));
+        // The sent files leave the draft in this same write, not in the
+        // describe effect's follow-up: the draft is what a remounted
+        // composer or another tab restores from, and a draft that still
+        // listed them — even for one render — would bring them back as
+        // "needs re-attaching" placeholders.
         updateDraft((current) => ({
           ...current,
           text: current.text === submittedText ? "" : current.text,
           links: current.links.filter((url) => !submittedLinks.includes(url)),
           pinIds: current.pinIds.filter((id) => !sentPinIds.has(id)),
+          files: consumePlaceholders(current.files, submittedFiles).remaining,
         }));
         for (const file of submittedFiles) removeFile(file);
       })

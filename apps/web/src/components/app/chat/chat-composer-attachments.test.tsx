@@ -139,6 +139,49 @@ describe("ChatComposer attachments", () => {
     ).toBe(false);
   });
 
+  it("gives a pasted image a thumbnail even when its File carries no MIME type", () => {
+    // WebKit and some Chrome paste paths hand over `image.png` with an
+    // empty `type`; the name still says what it is.
+    const { input } = renderComposer();
+    pasteFiles(input, [new File(["png"], "image.png", { type: "" })]);
+    const chip = screen.getByTestId("context-file-item");
+    expect(chip.getAttribute("data-file-name")).toBe("image.png");
+    expect(chip.querySelector("img")?.getAttribute("src")).toBe("blob:preview");
+  });
+
+  it("clears the text and every kind of chip once a send resolves", async () => {
+    const { onSend, input } = renderComposer();
+    pasteFiles(input, [
+      new File(["png"], "image.png", { type: "" }),
+      new File(["notes"], "notes.md", { type: "text/markdown" }),
+    ]);
+    pasteText(input, "https://example.com/x");
+    pasteText(input, "line\n".repeat(90));
+    fireEvent.click(screen.getByTestId("chat-composer-pin-button"));
+    fireEvent.click(
+      (await screen.findAllByTestId("chat-composer-pin-option"))[0]!
+    );
+    fireEvent.change(input, { target: { value: "everything" } });
+    expect(screen.getAllByTestId("context-file-item")).toHaveLength(2);
+    expect(screen.getByTestId("chat-attachment-chip-pasted")).toBeTruthy();
+    expect(screen.getByTestId("context-link-item")).toBeTruthy();
+    expect(screen.getByTestId("chat-attachment-chip-pin")).toBeTruthy();
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend.mock.calls[0]![1]).toHaveLength(5);
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
+    expect(screen.queryAllByTestId("context-file-item")).toHaveLength(0);
+    expect(screen.queryByTestId("chat-attachment-chip-pasted")).toBeNull();
+    expect(screen.queryByTestId("context-link-item")).toBeNull();
+    expect(screen.queryByTestId("chat-attachment-chip-pin")).toBeNull();
+    expect(screen.queryByTestId("chat-attachment-chip-placeholder")).toBeNull();
+    expect(screen.queryByTestId("chat-composer-error")).toBeNull();
+    // The image's object URL went with its chip.
+    expect(URL.revokeObjectURL).toHaveBeenCalledWith("blob:preview");
+  });
+
   it("refuses unsupported file types with an explanation, and no retry hint", () => {
     const { input } = renderComposer();
     pasteFiles(input, [new File(["x"], "tool.exe")]);

@@ -138,6 +138,51 @@ function chipNames(): string[] {
 }
 
 describe("ChatComposer draft persistence", () => {
+  it("drops the sent files from the stored draft in the same write that clears the rest", async () => {
+    const { onSend, input } = renderComposer("agt_sent");
+    pasteFiles(input, [new File(["png"], "image.png", { type: "" })]);
+    pasteText(input, "https://example.com/x");
+    fireEvent.change(input, { target: { value: "go" } });
+    expect(stored("agt_sent").files).toEqual([
+      { name: "image.png", size: 3, mime: "" },
+    ]);
+
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(input.value).toBe(""));
+    expect(chipNames()).toEqual([]);
+    expect(stored("agt_sent")).toEqual(EMPTY_CHAT_DRAFT);
+    // No write after the send ever listed the file again: a draft that did
+    // — even briefly — is what another tab or a remount would restore.
+    const writes = setItem.mock.calls
+      .filter(([key]) => key === storageKey("agt_sent"))
+      .map(([, value]) => JSON.parse(value as string) as ChatComposerDraft);
+    expect(writes.length).toBeGreaterThan(0);
+    expect(writes.every((draft) => draft.files.length === 0)).toBe(true);
+  });
+
+  it("does not echo its copy of the draft back to storage when another tab's write only reshapes local chips", () => {
+    renderComposer("agt_echo");
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    otherTabWrites("agt_echo", {
+      text: "typed over there",
+      links: [],
+      pinIds: [],
+      files: [{ name: "shot.png", size: 3, mime: "image/png" }],
+    });
+    // The file becomes a placeholder here...
+    expect(chipNames()).toEqual([
+      "shot.png — files can't be kept across a reload; attach it again",
+    ]);
+    // ...and that is all: the only write to this key was the other tab's.
+    // An echo would land on the other tab as a `storage` event carrying
+    // this tab's stale copy, clobbering whatever it typed since.
+    expect(
+      setItem.mock.calls.filter(([key]) => key === storageKey("agt_echo"))
+    ).toHaveLength(1);
+  });
+
   it("persists the text, links and pins as they are added", () => {
     const { input } = renderComposer("agt_persist");
     fireEvent.change(input, { target: { value: "half a thought" } });

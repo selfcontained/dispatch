@@ -9,6 +9,7 @@ import type {
 } from "@dispatch/shared";
 import {
   AlertTriangle,
+  ArrowLeftRight,
   Check,
   ExternalLink,
   FileText,
@@ -192,9 +193,20 @@ export function chatMessageAuthor(
 
 const AVATAR_ICON = "[&>svg]:h-[18px] [&>svg]:w-[18px]";
 
-function Avatar({ author }: { author: PostAuthor }): JSX.Element {
-  if (author.kind === "user") {
-    return (
+/**
+ * The author's avatar. In a side conversation (`side`) it carries a small
+ * arrows badge in its top-right corner, so an agent-to-agent post is told
+ * apart from the same agent's posts to the user at a glance.
+ */
+function Avatar({
+  author,
+  side = false,
+}: {
+  author: PostAuthor;
+  side?: boolean;
+}): JSX.Element {
+  const icon =
+    author.kind === "user" ? (
       <span
         className="flex h-8 w-8 items-center justify-center rounded-md border border-border bg-foreground/[0.08] text-foreground"
         aria-label="You"
@@ -203,13 +215,24 @@ function Avatar({ author }: { author: PostAuthor }): JSX.Element {
       >
         <UserRound className="h-4 w-4" aria-hidden="true" />
       </span>
+    ) : (
+      <AgentTypeIcon
+        type={author.agentType}
+        className={cn("h-8 w-8 rounded-md", AVATAR_ICON)}
+      />
     );
-  }
+  if (!side) return icon;
   return (
-    <AgentTypeIcon
-      type={author.agentType}
-      className={cn("h-8 w-8 rounded-md", AVATAR_ICON)}
-    />
+    <span className="relative inline-flex" data-testid="chat-avatar-side">
+      {icon}
+      <span
+        className="absolute -right-1 -top-1 flex h-3 w-3 items-center justify-center rounded-full border border-border bg-background text-muted-foreground"
+        aria-hidden="true"
+        data-testid="chat-avatar-side-badge"
+      >
+        <ArrowLeftRight className="h-2 w-2" />
+      </span>
+    </span>
   );
 }
 
@@ -233,6 +256,13 @@ export const POST_TINT: Record<PostAuthor["kind"], string> = {
 export const POST_BODY_MEASURE = "max-w-[90ch]";
 
 /**
+ * A side conversation's indent: one gutter step (the 32px avatar column
+ * plus its gap) on top of the row's own padding, so the avatar column
+ * shifts in and the body narrows by the same amount.
+ */
+export const SIDE_POST_INDENT = "pl-[3.75rem]";
+
+/**
  * One full-width row of the channel. A header row carries the avatar, the
  * author and the time; a grouped row (same author, shortly after) keeps only
  * the body, and shows the time in the gutter on hover.
@@ -241,12 +271,18 @@ export const POST_BODY_MEASURE = "max-w-[90ch]";
  * rows sit below each other, and draws a hairline when it follows another
  * post directly (`rule`), so the boundary between authors is visible even
  * between two long markdown bodies.
+ *
+ * `side` marks a post that is not addressed to the user — one agent talking
+ * to another. It reads as an aside: indented a gutter step, tinted like a
+ * peer's post whoever sent it, its body muted, its header "sender →
+ * recipient" and its avatar badged with arrows.
  */
 export function Post({
   author,
   at,
   grouped,
   rule = false,
+  side,
   children,
   ...rest
 }: {
@@ -255,14 +291,17 @@ export function Post({
   grouped: boolean;
   /** Draw a hairline above: this group starts right after another post. */
   rule?: boolean;
+  /** Who the post is addressed to, when that is another agent. */
+  side?: { recipientName: string };
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
   return (
     <div
       className={cn(
-        "group relative flex gap-3 px-4 transition-colors",
-        POST_TINT[author.kind],
+        "group relative flex gap-3 transition-colors",
+        side ? cn(SIDE_POST_INDENT, "pr-4") : "px-4",
+        side ? POST_TINT.peer : POST_TINT[author.kind],
         grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
         rule && "border-t border-border/40"
       )}
@@ -270,6 +309,7 @@ export function Post({
       data-group-start={grouped ? undefined : "true"}
       data-author-kind={author.kind}
       data-rule={rule ? "true" : undefined}
+      data-side={side ? "true" : undefined}
       {...rest}
     >
       <div className="flex w-8 shrink-0 justify-end">
@@ -282,12 +322,20 @@ export function Post({
             {gutterTime(at)}
           </span>
         ) : (
-          <Avatar author={author} />
+          <Avatar author={author} side={side !== undefined} />
         )}
       </div>
       <div className="min-w-0 flex-1">
         {grouped ? null : (
-          <div className="flex items-baseline gap-2 leading-tight">
+          <div
+            className="flex items-baseline gap-2 leading-tight"
+            {...(side
+              ? {
+                  "aria-label": `${author.name} → ${side.recipientName}`,
+                  "data-testid": "chat-side-header",
+                }
+              : {})}
+          >
             <span
               className="truncate text-sm font-semibold text-foreground"
               data-testid="chat-post-author"
@@ -297,6 +345,15 @@ export function Post({
             {author.kind === "peer" ? (
               <AgentRelationBadge relation={author.relation ?? "agent"} />
             ) : null}
+            {side ? (
+              <span
+                className="truncate text-sm text-muted-foreground"
+                data-testid="chat-side-recipient"
+              >
+                <span aria-hidden="true">→ </span>
+                {side.recipientName}
+              </span>
+            ) : null}
             <span
               className="shrink-0 text-[11px] text-muted-foreground"
               title={formatDateTime(at)}
@@ -305,7 +362,13 @@ export function Post({
             </span>
           </div>
         )}
-        <div className={cn("text-sm text-foreground", POST_BODY_MEASURE)}>
+        <div
+          className={cn(
+            "text-sm",
+            side ? "text-muted-foreground" : "text-foreground",
+            POST_BODY_MEASURE
+          )}
+        >
           {children}
         </div>
       </div>
@@ -431,7 +494,12 @@ function FileAttachment({
       updatedAt: at,
       url,
     });
-  if (isImageFile(attachment.fileName)) {
+  // By stored name or by the media row's type: a file shared without an
+  // extension still renders as the image it is.
+  const isImage =
+    isImageFile(attachment.fileName) ||
+    (attachment.mimeType?.startsWith("image/") ?? false);
+  if (isImage) {
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
         <div className="mb-1 truncate text-[11px] text-muted-foreground">
@@ -891,13 +959,24 @@ export function StatusLine({
   );
 }
 
+/**
+ * Who an agent-to-agent message reads as. Its group key names both ends of
+ * the conversation, so a run of messages between the same two agents
+ * collapses under one header while a message to a different agent — or
+ * this agent's next post to the user — starts a new one.
+ */
 export function agentMessageAuthor(
   entry: ChatAgentMessageEntry,
   ctx: FeedContext
 ): PostAuthor {
-  return entry.direction === "out"
-    ? agentAuthor(ctx, entry.senderName)
-    : peerAuthor(entry.senderAgentId, entry.senderName, ctx);
+  const author =
+    entry.direction === "out"
+      ? agentAuthor(ctx, entry.senderName)
+      : peerAuthor(entry.senderAgentId, entry.senderName, ctx);
+  return {
+    ...author,
+    key: `side:${entry.senderAgentId}>${entry.recipientAgentId}`,
+  };
 }
 
 export function AgentMessageView({
@@ -911,7 +990,6 @@ export function AgentMessageView({
   rule?: boolean;
   ctx: FeedContext;
 }): JSX.Element {
-  const isSent = entry.direction === "out";
   const { delivered } = entry;
   return (
     <Post
@@ -919,14 +997,10 @@ export function AgentMessageView({
       at={entry.at}
       grouped={grouped}
       rule={rule}
+      side={{ recipientName: entry.recipientName }}
       data-testid="chat-agent-message"
       data-direction={entry.direction}
     >
-      {isSent ? (
-        <div className="text-[11px] text-muted-foreground">
-          to {entry.recipientName}
-        </div>
-      ) : null}
       <div className="whitespace-pre-wrap break-words">{entry.content}</div>
       {delivered === null ? (
         <div
