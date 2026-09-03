@@ -68,6 +68,7 @@ describe("GET /api/v1/agents/:id/chat", () => {
       { at: "2026-01-01 00:00:00.000000", type: "status", id: "abc" },
       { at: "2026-02-30 00:00:00.000000", type: "status", id: "1" },
       { at: "2026-01-01 00:00:00.000000", type: "media", id: "99999999999" },
+      { at: "0000-01-01 00:00:00.000000", type: "status", id: "1" },
     ];
     for (const value of forged) {
       const encoded = Buffer.from(JSON.stringify(value)).toString("base64url");

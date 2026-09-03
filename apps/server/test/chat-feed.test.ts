@@ -239,6 +239,11 @@ describe("composeChatFeed", () => {
     expect(forged({ ...cursor, at: "2026-01-01 25:00:00.000000" })).toBeNull();
     expect(forged({ ...cursor, at: "2026-13-01 00:00:00.000000" })).toBeNull();
     expect(forged({ ...cursor, at: "2026-01-01 00:60:00.000000" })).toBeNull();
+    // Year zero parses in JS but is not a Postgres timestamp.
+    expect(forged({ ...cursor, at: "0000-01-01 00:00:00.000000" })).toBeNull();
+    expect(
+      forged({ ...cursor, at: "0001-01-01 00:00:00.000000" })
+    ).toMatchObject({ at: "0001-01-01 00:00:00.000000" });
   });
 
   it("returns an empty feed for an agent with nothing", async () => {

@@ -69,6 +69,8 @@ function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
  * string must match).
  */
 function isRealTimestamp(at: string): boolean {
+  // JS accepts year 0000; Postgres does not (there is no year zero).
+  if (at.startsWith("0000-")) return false;
   const iso = `${at.slice(0, 10)}T${at.slice(11, 23)}Z`;
   const date = new Date(iso);
   return !Number.isNaN(date.getTime()) && date.toISOString() === iso;
