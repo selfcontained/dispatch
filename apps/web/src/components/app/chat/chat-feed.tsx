@@ -1,6 +1,7 @@
 import { useMemo } from "react";
 import type {
   ChatFeedEntry,
+  ChatMessage,
   ChatQuestionOption,
   ChatStatusEntry,
 } from "@dispatch/shared";
@@ -63,6 +64,24 @@ export function latestUserMessageId(entries: ChatFeedEntry[]): string | null {
   return null;
 }
 
+/**
+ * The newest unanswered question that accepts a typed reply. While one is
+ * open the composer answers it instead of sending a plain message.
+ */
+export function latestOpenFreeformQuestion(
+  entries: ChatFeedEntry[]
+): ChatMessage | null {
+  for (let i = entries.length - 1; i >= 0; i -= 1) {
+    const entry = entries[i]!;
+    if (entry.type !== "chat") continue;
+    const m = entry.message;
+    if (m.authorKind !== "agent" || m.kind !== "question") continue;
+    if (m.answer !== null) continue;
+    return m.question?.allowFreeform ? m : null;
+  }
+  return null;
+}
+
 /** The id of the most recent agent message, the `upTo` for mark-read. */
 export function latestAgentMessageId(entries: ChatFeedEntry[]): string | null {
   for (let i = entries.length - 1; i >= 0; i -= 1) {
@@ -120,6 +139,7 @@ export function ChatFeed({
                 answering={
                   answersDisabled || answeringMessageId === entry.message.id
                 }
+                freeformAvailable={!answersDisabled}
                 onAnswer={onAnswer}
               />
             );

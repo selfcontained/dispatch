@@ -1,5 +1,12 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { ChatComposer } from "@/components/app/chat/chat-composer";
@@ -11,7 +18,7 @@ afterEach(() => {
 function renderComposer(
   props: Partial<Parameters<typeof ChatComposer>[0]> = {}
 ) {
-  const onSend = vi.fn();
+  const onSend = vi.fn(async (_text: string) => undefined);
   render(<ChatComposer onSend={onSend} disabledReason={null} {...props} />);
   const input = screen.getByTestId(
     "chat-composer-input"
@@ -20,13 +27,47 @@ function renderComposer(
 }
 
 describe("ChatComposer", () => {
-  it("sends on Enter and clears the input", () => {
+  it("sends on Enter and clears the input once the send succeeds", async () => {
     const { onSend, input } = renderComposer();
     fireEvent.change(input, { target: { value: "  hello  " } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).toHaveBeenCalledTimes(1);
     expect(onSend).toHaveBeenCalledWith("hello");
-    expect(input.value).toBe("");
+    await waitFor(() => expect(input.value).toBe(""));
+  });
+
+  it("keeps the draft and shows the error when the send fails", async () => {
+    let reject!: (err: Error) => void;
+    const onSend = vi.fn(
+      () =>
+        new Promise<void>((_resolve, rej) => {
+          reject = rej;
+        })
+    );
+    render(<ChatComposer onSend={onSend} disabledReason={null} />);
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "important" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    // In flight: the draft stays and a second Enter does not double-send.
+    expect(input.value).toBe("important");
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      reject(new Error("Agent has no terminal"));
+    });
+    expect(input.value).toBe("important");
+    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
+      "Agent has no terminal"
+    );
+
+    // Retrying clears the error and sends the same draft again.
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledTimes(2);
+    expect(onSend).toHaveBeenLastCalledWith("important");
+    expect(screen.queryByTestId("chat-composer-error")).toBeNull();
   });
 
   it("does not send on Shift+Enter", () => {
@@ -62,11 +103,12 @@ describe("ChatComposer", () => {
     expect(input.value).toBe("日本");
   });
 
-  it("sends from the button too", () => {
+  it("sends from the button too", async () => {
     const { onSend, input } = renderComposer();
     fireEvent.change(input, { target: { value: "go" } });
     fireEvent.click(screen.getByTestId("chat-composer-send"));
     expect(onSend).toHaveBeenCalledWith("go");
+    await waitFor(() => expect(input.value).toBe(""));
   });
 
   it("is disabled with an explanation when there is no terminal to send to", () => {
@@ -74,11 +116,35 @@ describe("ChatComposer", () => {
       disabledReason: "The agent is not running.",
     });
     expect(input.disabled).toBe(true);
+    // The reason is stated once, in the helper line, not echoed as placeholder.
+    expect(input.placeholder).toBe("");
     expect(
       screen.getByTestId("chat-composer-disabled-reason").textContent
     ).toBe("The agent is not running.");
+    expect(screen.getAllByText("The agent is not running.")).toHaveLength(1);
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("shows the reply context chip and lets the user opt out of it", () => {
+    const onDismiss = vi.fn();
+    const { input } = renderComposer({
+      replyContext: { excerpt: "Ship it now or wait?", onDismiss },
+    });
+    const chip = screen.getByTestId("chat-reply-context");
+    expect(chip.textContent).toContain("Replying to:");
+    expect(chip.textContent).toContain("Ship it now or wait?");
+    expect(input.placeholder).toBe("Type your answer…");
+    fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides the reply context chip while the composer is disabled", () => {
+    renderComposer({
+      replyContext: { excerpt: "Q", onDismiss: vi.fn() },
+      disabledReason: "The agent is not running.",
+    });
+    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
   });
 
   it("keeps the input usable but holds the button while a send is in flight", () => {

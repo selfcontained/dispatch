@@ -24,8 +24,24 @@ export function chatFeedQueryKey(agentId: string | null) {
 type FeedCache = InfiniteData<ChatFeedResponse, string | undefined>;
 
 /**
+ * One page of the feed. The server hands back an opaque `nextCursor` for the
+ * page before this one (null at the oldest page); it is never derived from
+ * the entries, so equal timestamps can't skip or repeat a row.
+ */
+function fetchFeedPage(
+  agentId: string | null,
+  cursor: string | undefined
+): Promise<ChatFeedResponse> {
+  const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
+  if (cursor) params.set("cursor", cursor);
+  return api<ChatFeedResponse>(
+    `/api/v1/agents/${agentId}/chat?${params.toString()}`
+  );
+}
+
+/**
  * Pages arrive newest-first (page 0 is the initial fetch, later pages are
- * older via `before`), each page ascending. Flatten to one ascending list.
+ * older via `cursor`), each page ascending. Flatten to one ascending list.
  */
 export function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
   const out: ChatFeedEntry[] = [];
@@ -43,6 +59,7 @@ export type ChatFeedState = {
   isFetchingOlder: boolean;
   error: Error | null;
   loadOlder: () => void;
+  refetch: () => void;
 };
 
 export function useChatFeed(
@@ -57,16 +74,9 @@ export function useChatFeed(
     string | undefined
   >({
     queryKey: chatFeedQueryKey(agentId),
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
-      if (pageParam) params.set("before", pageParam);
-      return api<ChatFeedResponse>(
-        `/api/v1/agents/${agentId}/chat?${params.toString()}`
-      );
-    },
+    queryFn: ({ pageParam }) => fetchFeedPage(agentId, pageParam),
     initialPageParam: undefined,
-    getNextPageParam: (lastPage) =>
-      lastPage.hasMore ? lastPage.entries[0]?.at : undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     enabled: !!agentId && enabled,
     staleTime: 0,
     refetchOnWindowFocus: true,
@@ -88,6 +98,9 @@ export function useChatFeed(
     loadOlder: () => {
       if (!query.isFetchingNextPage) void query.fetchNextPage();
     },
+    refetch: () => {
+      void query.refetch();
+    },
   };
 }
 
@@ -107,16 +120,9 @@ export function useChatUnreadCount(
     string | undefined
   >({
     queryKey: chatFeedQueryKey(agentId),
-    queryFn: async ({ pageParam }) => {
-      const params = new URLSearchParams({ limit: String(PAGE_SIZE) });
-      if (pageParam) params.set("before", pageParam);
-      return api<ChatFeedResponse>(
-        `/api/v1/agents/${agentId}/chat?${params.toString()}`
-      );
-    },
+    queryFn: ({ pageParam }) => fetchFeedPage(agentId, pageParam),
     initialPageParam: undefined,
-    getNextPageParam: (lastPage) =>
-      lastPage.hasMore ? lastPage.entries[0]?.at : undefined,
+    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
     select: (data) => data.pages[0]?.unreadCount ?? 0,
     enabled: !!agentId && enabled,
     staleTime: 0,
@@ -230,7 +236,12 @@ export function useAnswerChatQuestion(agentId: string | null) {
   const queryClient = useQueryClient();
   const key = chatFeedQueryKey(agentId);
 
-  return useMutation<ChatAnswerResponse, Error, ChatAnswerInput>({
+  return useMutation<
+    ChatAnswerResponse,
+    Error,
+    ChatAnswerInput,
+    { previous: FeedCache | undefined; tempId: string }
+  >({
     mutationFn: async ({ messageId, value, label }) =>
       api<ChatAnswerResponse>(
         `/api/v1/agents/${agentId}/chat/messages/${encodeURIComponent(messageId)}/answer`,
@@ -239,10 +250,26 @@ export function useAnswerChatQuestion(agentId: string | null) {
           body: JSON.stringify(label ? { value, label } : { value }),
         }
       ),
-    onSuccess: (data) => {
+    onMutate: async ({ messageId, value, label }) => {
+      await queryClient.cancelQueries({ queryKey: key, exact: true });
+      const previous = queryClient.getQueryData<FeedCache>(key);
+      const temp = {
+        ...optimisticUserMessage(agentId ?? "", label ?? value),
+        replyTo: messageId,
+      };
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        appendToNewestPage(
+        appendToNewestPage(old, temp)
+      );
+      return { previous, tempId: temp.id };
+    },
+    onError: (_err, _input, context) => {
+      if (context) queryClient.setQueryData(key, context.previous);
+    },
+    onSuccess: (data, _input, context) => {
+      queryClient.setQueryData<FeedCache>(key, (old) =>
+        replaceMessage(
           replaceMessage(old, data.question.id, data.question),
+          context.tempId,
           data.reply
         )
       );

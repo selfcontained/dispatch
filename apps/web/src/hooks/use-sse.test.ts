@@ -481,6 +481,7 @@ describe("useSSE message handling", () => {
       ["brain"],
       ["whiteboard"],
       CACHED_RELEASE_INFO_QUERY_KEY,
+      ["chat-unread"],
     ]);
     expect(removeQueries).toHaveBeenCalledWith({
       queryKey: ["injection-hold"],
@@ -743,6 +744,16 @@ describe("useSSE message handling", () => {
     expect(
       queryClient.getQueryData<Agent[]>(["agents"])?.[0]?.submittedReviewId
     ).toBe(42);
+  });
+
+  it("refetches an agent's chat feed and the sidebar unread summary on chat.changed", () => {
+    const { emit, invalidateQueries } = renderMessages();
+
+    emit({ type: "chat.changed", agentId: "agt_1" });
+    expectInvalidatedSet(invalidateQueries, [
+      ["chat", "agt_1"],
+      ["chat-unread"],
+    ]);
   });
 
   it("invalidates both ends of a created message and only one on read", () => {

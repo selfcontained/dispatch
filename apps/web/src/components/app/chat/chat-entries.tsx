@@ -14,6 +14,7 @@ import {
   FileText,
   GitPullRequest,
   Hourglass,
+  Loader2,
   Paperclip,
 } from "lucide-react";
 
@@ -251,10 +252,13 @@ function AttachmentList({
 export function QuestionOptions({
   message,
   answering,
+  freeformAvailable = true,
   onAnswer,
 }: {
   message: ChatMessage;
   answering: boolean;
+  /** The composer can take a typed reply right now. */
+  freeformAvailable?: boolean;
   onAnswer: (option: ChatQuestionOption) => void;
 }): JSX.Element | null {
   const question = message.question;
@@ -272,7 +276,14 @@ export function QuestionOptions({
               type="button"
               size="sm"
               variant={chosen ? "primary" : "default"}
-              className={cn("h-7 gap-1 text-xs", chosen && "cursor-default")}
+              className={cn(
+                "h-7 gap-1 text-xs",
+                // Phones and touch screens: a real tap target, with the label
+                // allowed to wrap instead of being clipped.
+                "max-sm:h-auto max-sm:min-h-11 max-sm:whitespace-normal max-sm:py-2 max-sm:text-left",
+                "[@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:whitespace-normal [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-left",
+                chosen && "cursor-default"
+              )}
               disabled={answer !== null || answering}
               aria-pressed={chosen}
               data-testid="chat-question-option"
@@ -284,7 +295,7 @@ export function QuestionOptions({
           );
         })}
       </div>
-      {answer === null && question.allowFreeform ? (
+      {answer === null && question.allowFreeform && freeformAvailable ? (
         <div className="mt-1.5 text-[11px] text-muted-foreground">
           Or type a reply below.
         </div>
@@ -323,6 +334,16 @@ function MessageMeta({
           not delivered
         </span>
       ) : null}
+      {message.authorKind === "user" && message.delivered === null && !held ? (
+        <span
+          className="inline-flex items-center gap-1"
+          title="Delivering to the agent's terminal."
+          data-testid="chat-delivery-pending"
+        >
+          <Loader2 className="h-2.5 w-2.5 animate-spin" />
+          sending
+        </span>
+      ) : null}
       {held ? (
         <span
           className="inline-flex items-center gap-1"
@@ -342,12 +363,14 @@ export const ChatMessageView = memo(function ChatMessageView({
   held,
   ctx,
   answering,
+  freeformAvailable = true,
   onAnswer,
 }: {
   message: ChatMessage;
   held: boolean;
   ctx: AttachmentContext;
   answering: boolean;
+  freeformAvailable?: boolean;
   onAnswer: (messageId: string, option: ChatQuestionOption) => void;
 }): JSX.Element {
   if (message.authorKind === "user") {
@@ -437,6 +460,7 @@ export const ChatMessageView = memo(function ChatMessageView({
           <QuestionOptions
             message={message}
             answering={answering}
+            freeformAvailable={freeformAvailable}
             onAnswer={(option) => onAnswer(message.id, option)}
           />
         ) : null}

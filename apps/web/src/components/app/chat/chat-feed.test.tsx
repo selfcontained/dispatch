@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import type {
+  ChatAttachment,
   ChatFeedEntry,
   ChatMessage,
   ChatStatusEntry,
@@ -13,6 +14,7 @@ import {
   ChatFeed,
   collapseFeed,
   latestAgentMessageId,
+  latestOpenFreeformQuestion,
   latestUserMessageId,
 } from "@/components/app/chat/chat-feed";
 
@@ -48,6 +50,15 @@ function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
     updatedAt: "2026-09-02T10:00:00.000Z",
     ...overrides,
   };
+}
+
+function fileAttachment(
+  fields: Pick<
+    Extract<ChatAttachment, { type: "file" }>,
+    "mediaId" | "fileName" | "sizeBytes"
+  >
+): ChatAttachment {
+  return { type: "file", ...fields };
 }
 
 function chat(m: ChatMessage): ChatFeedEntry {
@@ -139,6 +150,62 @@ describe("latest message helpers", () => {
   });
 });
 
+describe("latestOpenFreeformQuestion", () => {
+  const freeform = (id: string, answered = false) =>
+    chat(
+      message({
+        id,
+        kind: "question",
+        text: `Q ${id}`,
+        question: { options: [{ label: "A" }], allowFreeform: true },
+        answer: answered
+          ? {
+              value: "A",
+              replyMessageId: "r",
+              answeredAt: "2026-09-02T10:01:00.000Z",
+            }
+          : null,
+      })
+    );
+  const fixed = (id: string) =>
+    chat(
+      message({
+        id,
+        kind: "question",
+        text: `Q ${id}`,
+        question: { options: [{ label: "A" }] },
+      })
+    );
+
+  it("returns the newest unanswered question that allows a typed reply", () => {
+    expect(
+      latestOpenFreeformQuestion([freeform("q1"), freeform("q2")])?.id
+    ).toBe("q2");
+  });
+
+  it("falls back to an older open question once the newest is answered", () => {
+    expect(
+      latestOpenFreeformQuestion([freeform("q1"), freeform("q2", true)])?.id
+    ).toBe("q1");
+  });
+
+  it("returns nothing when the newest open question is option-only", () => {
+    expect(
+      latestOpenFreeformQuestion([freeform("q1"), fixed("q2")])
+    ).toBeNull();
+    expect(
+      latestOpenFreeformQuestion([chat(message({ id: "a1" }))])
+    ).toBeNull();
+  });
+
+  it("looks past later replies to the open question", () => {
+    expect(
+      latestOpenFreeformQuestion([freeform("q1"), chat(message({ id: "a2" }))])
+        ?.id
+    ).toBe("q1");
+  });
+});
+
 describe("ChatFeed", () => {
   it("renders a user bubble with delivery failure marker", () => {
     renderFeed([
@@ -155,6 +222,41 @@ describe("ChatFeed", () => {
     expect(bubble.getAttribute("data-author")).toBe("user");
     expect(bubble.textContent).toContain("Ship it");
     expect(screen.getByTestId("chat-delivery-failed")).toBeTruthy();
+  });
+
+  it("shows a sending hint while delivery is pending, and nothing once delivered", () => {
+    renderFeed([
+      chat(
+        message({ id: "u1", authorKind: "user", text: "one", delivered: null })
+      ),
+      chat(
+        message({ id: "u2", authorKind: "user", text: "two", delivered: true })
+      ),
+    ]);
+    const pending = screen.getAllByTestId("chat-delivery-pending");
+    expect(pending).toHaveLength(1);
+    expect(
+      pending[0]!.closest("[data-message-id]")?.getAttribute("data-message-id")
+    ).toBe("u1");
+    expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
+  });
+
+  it("shows the hold hint instead of the sending hint on a held message", () => {
+    renderFeed(
+      [
+        chat(
+          message({
+            id: "u1",
+            authorKind: "user",
+            text: "one",
+            delivered: null,
+          })
+        ),
+      ],
+      { heldMessageId: "u1" }
+    );
+    expect(screen.getByTestId("chat-held-hint")).toBeTruthy();
+    expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
   });
 
   it("shows the hold hint on the held user message only", () => {
@@ -214,6 +316,11 @@ describe("ChatFeed", () => {
 
     fireEvent.click(options[1]!);
     expect(onAnswer).toHaveBeenCalledWith("q1", { label: "Beta" });
+    // Touch/phone sizing: a 44px target with wrapping labels.
+    expect(options[0]!.className).toContain("max-sm:min-h-11");
+    expect(options[0]!.className).toContain(
+      "[@media(pointer:coarse)]:min-h-11"
+    );
   });
 
   it("marks the chosen option and disables the rest once answered", () => {
@@ -246,6 +353,26 @@ describe("ChatFeed", () => {
     expect(onAnswer).not.toHaveBeenCalled();
   });
 
+  it("locks options and hides the freeform hint while answers are unavailable", () => {
+    renderFeed(
+      [
+        chat(
+          message({
+            id: "q1",
+            kind: "question",
+            text: "?",
+            question: { options: [{ label: "Yes" }], allowFreeform: true },
+          })
+        ),
+      ],
+      { answersDisabled: true }
+    );
+    const [option] = screen.getAllByTestId("chat-question-option");
+    expect((option as HTMLButtonElement).disabled).toBe(true);
+    expect(screen.queryByText("Or type a reply below.")).toBeNull();
+    expect(screen.getByTestId("chat-needs-reply")).toBeTruthy();
+  });
+
   it("disables options while an answer is in flight", () => {
     renderFeed(
       [
@@ -271,18 +398,16 @@ describe("ChatFeed", () => {
           message({
             id: "a1",
             attachments: [
-              {
-                type: "file",
+              fileAttachment({
                 mediaId: 7,
                 fileName: "shot.png",
                 sizeBytes: 2048,
-              },
-              {
-                type: "file",
+              }),
+              fileAttachment({
                 mediaId: 8,
                 fileName: "notes.md",
                 sizeBytes: 100,
-              },
+              }),
               { type: "link", url: "https://example.com/x", title: "Example" },
               { type: "pr", url: "https://github.com/o/r/pull/1" },
               {

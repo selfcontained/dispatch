@@ -12,6 +12,7 @@ import {
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { chatFeedQueryKey } from "@/hooks/use-chat";
+import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
@@ -190,6 +191,9 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: CACHED_RELEASE_INFO_QUERY_KEY,
           });
+          void queryClient.invalidateQueries({
+            queryKey: CHAT_UNREAD_QUERY_KEY,
+          });
           // Injection-hold state is event-sourced with no fetch endpoint; a
           // release event missed during an SSE gap would leave the hold badge
           // stuck. Reset on every (re)connect snapshot — fails safe to hidden.
@@ -219,6 +223,9 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "chat.changed") {
           invalidateChatFeed(queryClient, payload.agentId);
+          void queryClient.invalidateQueries({
+            queryKey: CHAT_UNREAD_QUERY_KEY,
+          });
           return;
         }
 

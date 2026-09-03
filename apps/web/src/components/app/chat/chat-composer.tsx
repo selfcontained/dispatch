@@ -1,25 +1,35 @@
 import {
   type KeyboardEvent,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
 } from "react";
 import { CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
-import { SendHorizontal } from "lucide-react";
+import { CornerDownRight, SendHorizontal, X } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 export type ChatComposerProps = {
-  onSend: (text: string) => void;
+  /**
+   * Resolves once the message is accepted; rejects when it is not. The draft
+   * is cleared only on success so a failed send never eats what was typed.
+   */
+  onSend: (text: string) => Promise<void>;
   /** When set, the composer is disabled and this explains why. */
   disabledReason: string | null;
-  /** A send is in flight; the input stays usable, the button waits. */
+  /** An external send is in flight; the input stays usable, the button waits. */
   sending?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
+  /**
+   * When set, what gets typed answers this question rather than starting a
+   * plain message. The × lets the user opt out and send a plain message.
+   */
+  replyContext?: { excerpt: string; onDismiss: () => void } | null;
 };
 
 /**
@@ -32,12 +42,22 @@ export function ChatComposer({
   sending = false,
   placeholder = "Message the agent…",
   autoFocus = false,
+  replyContext = null,
 }: ChatComposerProps): JSX.Element {
   const [text, setText] = useState("");
+  const [inFlight, setInFlight] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const disabled = disabledReason !== null;
   const trimmed = text.trim();
-  const canSend = !disabled && !sending && trimmed.length > 0;
+  const canSend = !disabled && !sending && !inFlight && trimmed.length > 0;
 
   // Grow with the content up to the CSS max-height, then scroll inside.
   useLayoutEffect(() => {
@@ -49,9 +69,22 @@ export function ChatComposer({
 
   const submit = useCallback(() => {
     if (!canSend) return;
-    onSend(trimmed);
-    setText("");
-    textareaRef.current?.focus();
+    setError(null);
+    setInFlight(true);
+    onSend(trimmed)
+      .then(() => {
+        if (!mountedRef.current) return;
+        setText("");
+      })
+      .catch((err: unknown) => {
+        if (!mountedRef.current) return;
+        setError(err instanceof Error ? err.message : "Message not sent.");
+      })
+      .finally(() => {
+        if (!mountedRef.current) return;
+        setInFlight(false);
+        textareaRef.current?.focus();
+      });
   }, [canSend, onSend, trimmed]);
 
   const onKeyDown = useCallback(
@@ -74,6 +107,26 @@ export function ChatComposer({
       }}
       data-testid="chat-composer"
     >
+      {replyContext && !disabled ? (
+        <div
+          className="flex items-center gap-1.5 self-start rounded-md border border-status-waiting/40 bg-status-waiting/10 py-0.5 pl-2 pr-1 text-[11px] text-foreground"
+          data-testid="chat-reply-context"
+        >
+          <CornerDownRight className="h-3 w-3 shrink-0 text-status-waiting" />
+          <span className="shrink-0 text-muted-foreground">Replying to:</span>
+          <span className="max-w-[40ch] truncate">{replyContext.excerpt}</span>
+          <button
+            type="button"
+            onClick={replyContext.onDismiss}
+            className="ml-0.5 flex h-4 w-4 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            title="Send a plain message instead"
+            aria-label="Send a plain message instead"
+            data-testid="chat-reply-context-dismiss"
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </div>
+      ) : null}
       <div className="flex items-end gap-2">
         <Textarea
           ref={textareaRef}
@@ -84,7 +137,9 @@ export function ChatComposer({
           rows={1}
           maxLength={CHAT_MESSAGE_MAX_CHARS}
           autoFocus={autoFocus}
-          placeholder={disabledReason ?? placeholder}
+          placeholder={
+            disabled ? "" : replyContext ? "Type your answer…" : placeholder
+          }
           aria-label="Message the agent"
           className={cn("max-h-48 min-h-10 flex-1 resize-none py-2.5 text-sm")}
           data-testid="chat-composer-input"
@@ -106,6 +161,14 @@ export function ChatComposer({
         {disabledReason ? (
           <span data-testid="chat-composer-disabled-reason">
             {disabledReason}
+          </span>
+        ) : error ? (
+          <span
+            role="alert"
+            className="text-destructive"
+            data-testid="chat-composer-error"
+          >
+            {error} — your message is still here; press Enter to try again.
           </span>
         ) : (
           <span>Enter to send · Shift+Enter for a new line</span>

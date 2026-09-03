@@ -1,4 +1,4 @@
-import { memo, useCallback } from "react";
+import { memo, useCallback, useEffect, useRef } from "react";
 
 import { TipSpot } from "@/components/tips/tip-spot";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
@@ -74,6 +74,17 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
     (t) => !splitTabs.has(t.id)
   );
 
+  // When the strip scrolls (phones), keep the active tab in view: a deep
+  // link to Whiteboard would otherwise land with its tab off the right edge.
+  const listRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!isMobile) return;
+    const active = listRef.current?.querySelector<HTMLElement>(
+      '[role="tab"][aria-selected="true"]'
+    );
+    active?.scrollIntoView?.({ inline: "nearest", block: "nearest" });
+  }, [activeTab, isMobile]);
+
   const handleDragStart = useCallback(
     (e: React.DragEvent, tabId: CenterTab) => {
       e.dataTransfer.setData(TAB_DRAG_MIME, tabId);
@@ -85,7 +96,17 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   if (visibleTabs.length === 0) return <div />;
 
   return (
-    <div role="tablist" className="pointer-events-auto flex items-center">
+    <div
+      ref={listRef}
+      role="tablist"
+      className={cn(
+        "pointer-events-auto flex items-center",
+        // Four tabs overflow a 320px phone; let the strip scroll instead of
+        // clipping, and hide the scrollbar it would otherwise draw.
+        isMobile &&
+          "max-w-full overflow-x-auto overscroll-x-contain [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+      )}
+    >
       {visibleTabs.map((tab) => {
         const showChatUnread =
           tab.id === "chat" && activeTab !== "chat" && chatUnreadCount > 0;
@@ -99,7 +120,8 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             draggable={!isMobile && activeTab !== tab.id}
             onDragStart={(e) => handleDragStart(e, tab.id)}
             className={cn(
-              "relative flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              "relative flex shrink-0 items-center gap-1.5 whitespace-nowrap py-1.5 text-xs font-semibold uppercase tracking-wide transition-colors",
+              isMobile ? "px-2.5" : "px-3",
               activeTab === tab.id
                 ? "text-foreground"
                 : "cursor-grab text-muted-foreground hover:text-foreground/80 active:cursor-grabbing"
