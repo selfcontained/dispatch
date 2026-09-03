@@ -60,11 +60,13 @@ const chatAttachmentSchema = z.discriminatedUnion("type", [
         .int()
         .positive()
         .optional()
-        .describe("Alternative to fileName: the media row id."),
+        .describe(
+          "Alternative to fileName: the media row id. Supply one or the other, not both."
+        ),
     })
-    .refine((file) => Boolean(file.fileName) || file.mediaId !== undefined, {
+    .refine((file) => Boolean(file.fileName) !== (file.mediaId !== undefined), {
       message:
-        "file attachments need fileName (from dispatch_share_file) or mediaId.",
+        "file attachments take exactly one of fileName (from dispatch_share_file) or mediaId.",
     }),
   z.object({
     type: z.literal("link"),

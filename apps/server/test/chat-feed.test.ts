@@ -204,34 +204,41 @@ describe("composeChatFeed", () => {
   });
 
   it("round-trips cursors and rejects foreign ones", () => {
+    const uuid = "6b6a3e1e-7d1f-4f7b-9a5b-1c2d3e4f5a6b";
     const cursor = {
       at: "2026-01-01 00:00:00.000123",
       type: "chat" as const,
-      id: "x",
+      id: uuid,
     };
     expect(decodeFeedCursor(encodeFeedCursor(cursor))).toEqual(cursor);
+    const forged = (value: unknown) =>
+      decodeFeedCursor(
+        Buffer.from(JSON.stringify(value)).toString("base64url")
+      );
     expect(decodeFeedCursor("not-a-cursor")).toBeNull();
-    expect(
-      decodeFeedCursor(Buffer.from("{}").toString("base64url"))
-    ).toBeNull();
-    expect(
-      decodeFeedCursor(
-        Buffer.from(
-          JSON.stringify({
-            at: "2026-01-01T00:00:00.000Z",
-            type: "chat",
-            id: "x",
-          })
-        ).toString("base64url")
-      )
-    ).toBeNull();
-    expect(
-      decodeFeedCursor(
-        Buffer.from(JSON.stringify({ ...cursor, type: "pin" })).toString(
-          "base64url"
-        )
-      )
-    ).toBeNull();
+    expect(forged({})).toBeNull();
+    expect(forged({ ...cursor, at: "2026-01-01T00:00:00.000Z" })).toBeNull();
+    expect(forged({ ...cursor, type: "pin" })).toBeNull();
+    // Ids must fit the source column: uuid for chat/agent_message, a
+    // serial for status/media — otherwise the SQL cast would 500.
+    expect(forged({ ...cursor, id: "x" })).toBeNull();
+    expect(forged({ ...cursor, type: "agent_message", id: "12" })).toBeNull();
+    expect(forged({ ...cursor, type: "status", id: uuid })).toBeNull();
+    expect(forged({ ...cursor, type: "status", id: "-1" })).toBeNull();
+    expect(forged({ ...cursor, type: "status", id: "99999999999" })).toBeNull();
+    expect(forged({ ...cursor, type: "status", id: "12" })).toEqual({
+      ...cursor,
+      type: "status",
+      id: "12",
+    });
+    expect(forged({ ...cursor, type: "media", id: "7" })).toMatchObject({
+      id: "7",
+    });
+    // Shape-valid but impossible instants.
+    expect(forged({ ...cursor, at: "2026-02-30 00:00:00.000000" })).toBeNull();
+    expect(forged({ ...cursor, at: "2026-01-01 25:00:00.000000" })).toBeNull();
+    expect(forged({ ...cursor, at: "2026-13-01 00:00:00.000000" })).toBeNull();
+    expect(forged({ ...cursor, at: "2026-01-01 00:60:00.000000" })).toBeNull();
   });
 
   it("returns an empty feed for an agent with nothing", async () => {

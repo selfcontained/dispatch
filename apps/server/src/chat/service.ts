@@ -263,6 +263,13 @@ export class ChatService {
         "file attachments need fileName (from dispatch_share_file) or mediaId."
       );
     }
+    if (fileName && mediaId !== undefined) {
+      // Two identifiers could name two different rows; refuse rather than
+      // pick one.
+      throw new ChatValidationError(
+        "file attachments take either fileName or mediaId, not both."
+      );
+    }
     const result = await this.deps.pool.query<{
       id: number;
       file_name: string;
@@ -270,9 +277,8 @@ export class ChatService {
     }>(
       `SELECT id, file_name, size_bytes FROM media
         WHERE agent_id = $1
-          AND (($2::text IS NOT NULL AND file_name = $2::text)
-               OR ($3::int IS NOT NULL AND id = $3::int))
-        LIMIT 1`,
+          AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text
+                   ELSE id = $3::int END`,
       [agentId, fileName ?? null, mediaId ?? null]
     );
     const match = result.rows[0];

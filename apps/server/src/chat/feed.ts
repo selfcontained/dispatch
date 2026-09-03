@@ -46,7 +46,39 @@ export function encodeFeedCursor(cursor: FeedCursor): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
 }
 
-/** Returns null for anything that is not a cursor this server produced. */
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+/** Serial ids: digits only, and small enough for a Postgres int4 cast. */
+const SERIAL_ID_RE = /^\d{1,10}$/;
+
+function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
+  switch (type) {
+    case "chat":
+    case "agent_message":
+      return UUID_RE.test(id);
+    case "status":
+    case "media":
+      return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
+  }
+}
+
+/**
+ * Shape-valid text like `2026-02-30 25:61:00.000000` would still reach the
+ * timestamp cast and fail there; round-trip through Date so only real
+ * instants pass (JS normalises impossible dates, so the re-rendered ISO
+ * string must match).
+ */
+function isRealTimestamp(at: string): boolean {
+  const iso = `${at.slice(0, 10)}T${at.slice(11, 23)}Z`;
+  const date = new Date(iso);
+  return !Number.isNaN(date.getTime()) && date.toISOString() === iso;
+}
+
+/**
+ * Returns null for anything that is not a cursor this server produced —
+ * every field is checked against what its source column can hold, so a
+ * rejected cursor is a 400 at the route and never a failed cast in SQL.
+ */
 export function decodeFeedCursor(raw: string): FeedCursor | null {
   let parsed: unknown;
   try {
@@ -56,10 +88,13 @@ export function decodeFeedCursor(raw: string): FeedCursor | null {
   }
   if (!parsed || typeof parsed !== "object") return null;
   const { at, type, id } = parsed as Record<string, unknown>;
-  if (typeof at !== "string" || !AT_KEY_RE.test(at)) return null;
+  if (typeof at !== "string" || !AT_KEY_RE.test(at) || !isRealTimestamp(at)) {
+    return null;
+  }
   if (typeof type !== "string" || !(type in SOURCE_RANK)) return null;
-  if (typeof id !== "string" || id.length === 0 || id.length > 64) return null;
-  return { at, type: type as ChatFeedEntry["type"], id };
+  const sourceType = type as ChatFeedEntry["type"];
+  if (typeof id !== "string" || !isValidCursorId(sourceType, id)) return null;
+  return { at, type: sourceType, id };
 }
 
 export function clampFeedLimit(limit: number | undefined): number {

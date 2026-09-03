@@ -196,6 +196,11 @@ describe("registerChatTools", () => {
     expect(
       schema.safeParse([{ type: "file", path: "/tmp/a.png" }]).success
     ).toBe(false);
+    expect(schema.safeParse([{ type: "file" }]).success).toBe(false);
+    expect(
+      schema.safeParse([{ type: "file", fileName: "a.png", mediaId: 3 }])
+        .success
+    ).toBe(false);
   });
 
   it("updates a message and returns id + updatedAt", async () => {

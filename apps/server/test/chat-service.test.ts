@@ -115,6 +115,28 @@ describe("ChatService.post", () => {
     await expect(
       service.post(A, { text: "see", attachments: [{ type: "file" }] })
     ).rejects.toThrow(/fileName .* or mediaId/);
+    // Two identifiers naming different rows: refused, never a guess.
+    await expect(
+      service.post(A, {
+        text: "see",
+        attachments: [
+          {
+            type: "file",
+            fileName: "shot-2026-01-01-00-00-00-000.png",
+            mediaId: pdf.rows[0].id,
+          },
+        ],
+      })
+    ).rejects.toThrow(/not both/);
+    // Even when they agree.
+    await expect(
+      service.post(A, {
+        text: "see",
+        attachments: [
+          { type: "file", fileName: "report.pdf", mediaId: pdf.rows[0].id },
+        ],
+      })
+    ).rejects.toThrow(/not both/);
   });
 
   it("rejects unknown files and unknown pins", async () => {

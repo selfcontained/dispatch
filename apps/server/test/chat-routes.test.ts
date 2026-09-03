@@ -62,6 +62,22 @@ describe("GET /api/v1/agents/:id/chat", () => {
       `/api/v1/agents/${agentId}/chat?cursor=garbage`
     );
     expect(badCursor.statusCode).toBe(400);
+    // Forged but well-formed base64 cursors must be 400s, never SQL casts.
+    const forged = [
+      { at: "2026-01-01 00:00:00.000000", type: "chat", id: "x" },
+      { at: "2026-01-01 00:00:00.000000", type: "status", id: "abc" },
+      { at: "2026-02-30 00:00:00.000000", type: "status", id: "1" },
+      { at: "2026-01-01 00:00:00.000000", type: "media", id: "99999999999" },
+    ];
+    for (const value of forged) {
+      const encoded = Buffer.from(JSON.stringify(value)).toString("base64url");
+      const res = await authedInject(
+        "GET",
+        `/api/v1/agents/${agentId}/chat?cursor=${encodeURIComponent(encoded)}`
+      );
+      expect(res.statusCode, JSON.stringify(value)).toBe(400);
+      expect(res.json().error).toMatch(/cursor/);
+    }
     const before = await authedInject(
       "GET",
       `/api/v1/agents/${agentId}/chat?before=2026-01-01T00:00:00.000Z`
