@@ -8,6 +8,6 @@ export function buildChatEnvelope(messageId: string, text: string): string {
     `--- DISPATCH CHAT (id: ${messageId}) ---`,
     text,
     "--- END DISPATCH CHAT ---",
-    `Reply in the Chat tab with dispatch_chat_post (replyTo: "${messageId}").`,
+    `The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "${messageId}"); terminal output alone will not reach them.`,
   ].join("\n");
 }

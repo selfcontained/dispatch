@@ -107,7 +107,7 @@ write to `agent_chat_messages`. The web also invalidates the feed on
 --- DISPATCH CHAT (id: <uuid>) ---
 <text>
 --- END DISPATCH CHAT ---
-Reply in the Chat tab with dispatch_chat_post (replyTo: "<uuid>").
+The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "<uuid>"); terminal output alone will not reach them.
 ```
 
 Answers to a question use the same envelope with the chosen label as text.
