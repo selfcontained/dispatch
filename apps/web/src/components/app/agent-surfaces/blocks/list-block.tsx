@@ -36,7 +36,12 @@ function ListItemRow({
   const text = (
     <Markdown
       variant="caption"
-      className="min-w-0 line-clamp-none text-xs text-foreground/90"
+      className={cn(
+        "min-w-0 line-clamp-none text-xs text-foreground/90",
+        // Inside a link the markdown must flow inline so the ↗ glyph sits
+        // after the last word instead of wrapping to its own line.
+        linked && "inline [&_*]:inline"
+      )}
     >
       {item.text}
     </Markdown>
@@ -82,9 +87,9 @@ function ListItemRow({
                 href={item.url}
                 target="_blank"
                 rel="noreferrer"
-                className="group/link inline-block max-w-full rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="group/link max-w-full rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <span className="inline [&_p]:inline">{text}</span>
+                {text}
                 <ArrowUpRight
                   aria-hidden="true"
                   className="ml-0.5 inline h-3 w-3 align-text-top text-muted-foreground group-hover/link:text-foreground"

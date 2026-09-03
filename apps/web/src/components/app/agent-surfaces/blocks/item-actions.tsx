@@ -113,10 +113,11 @@ export function ItemActions({
       <div className="min-w-0 max-w-full text-right">
         <Button
           type="button"
-          variant="ghost"
           size="sm"
           className={cn(
-            "h-6 shrink-0 px-1.5 text-[11px] font-normal text-muted-foreground hover:text-foreground",
+            // Compact but still visibly a button — a bordered chip on the
+            // title row, not bare text.
+            "h-6 shrink-0 px-2 text-[11px]",
             "[@media(pointer:coarse)]:min-h-11"
           )}
           disabled={presentation.locked}

@@ -142,7 +142,11 @@ export function FormFieldControl({
             >
               {field.label}
               {field.required ? (
-                <span className="text-status-blocked"> *</span>
+                // Muted like FieldShell's marker — required is not an error.
+                <span aria-hidden="true" className="text-muted-foreground">
+                  {" "}
+                  *
+                </span>
               ) : null}
             </label>
           </div>

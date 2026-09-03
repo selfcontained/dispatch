@@ -72,6 +72,10 @@ export function ActionRefButton({
         // Compact by default; grows to the 44px touch-target minimum only
         // for coarse (touch) pointers.
         "h-7 px-2.5 text-xs [@media(pointer:coarse)]:min-h-11",
+        // A destructive verb rendered as a standalone button keeps a visible
+        // border so it still reads as a button, just a quiet one.
+        (variantOverride ?? actionButtonVariant(action.style)) ===
+          "ghost-destructive" && "border border-status-blocked/30",
         authoredDisabled && "opacity-50",
         className
       )}
