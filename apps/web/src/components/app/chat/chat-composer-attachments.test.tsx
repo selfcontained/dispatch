@@ -138,13 +138,55 @@ describe("ChatComposer attachments", () => {
     ).toBe(false);
   });
 
-  it("refuses unsupported file types with an explanation", () => {
+  it("refuses unsupported file types with an explanation, and no retry hint", () => {
     const { input } = renderComposer();
     pasteFiles(input, [new File(["x"], "tool.exe")]);
     expect(screen.queryByTestId("context-file-item")).toBeNull();
-    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
-      "Unsupported file type: tool.exe"
+    const error = screen.getByTestId("chat-composer-error");
+    expect(error.textContent).toContain("Unsupported file type: tool.exe");
+    expect(error.textContent).toContain("Choose a supported file type");
+    // Nothing to retry: the composer is blank and Enter would do nothing.
+    expect(error.textContent).not.toContain("try again");
+    expect(error.getAttribute("data-retryable")).toBeNull();
+  });
+
+  it("explains the attachment cap without a retry hint", () => {
+    const { input } = renderComposer();
+    for (let i = 0; i < 21; i += 1) {
+      pasteText(input, `https://example.com/${i}`);
+    }
+    expect(screen.getAllByTestId("context-link-item")).toHaveLength(20);
+    const error = screen.getByTestId("chat-composer-error");
+    expect(error.textContent).toBe("Up to 20 attachments per message.");
+    expect(error.getAttribute("data-retryable")).toBeNull();
+  });
+
+  it("keeps the chip strip bounded at the attachment cap so the field and Send stay reachable", () => {
+    const { input } = renderComposer();
+    pasteFiles(
+      input,
+      Array.from(
+        { length: 20 },
+        (_, i) => new File(["x"], `note-${i}.txt`, { type: "text/plain" })
+      )
     );
+    expect(screen.getAllByTestId("context-file-item")).toHaveLength(20);
+    const strip = screen.getByTestId("chat-composer-attachments");
+    // jsdom does no layout: the cap is the class pair that scrolls the
+    // chips inside a fixed height instead of growing the composer.
+    expect(strip.className).toMatch(/\bmax-h-\S+/);
+    expect(strip.className).toContain("overflow-y-auto");
+    // The input row sits after the strip, outside it, so the cap can never
+    // hide the field or the Send button.
+    const send = screen.getByTestId("chat-composer-send");
+    expect(strip.contains(input)).toBe(false);
+    expect(strip.contains(send)).toBe(false);
+    expect(
+      strip.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(
+      strip.compareDocumentPosition(send) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
   });
 
   it("turns a lone pasted URL into a link chip and leaves prose alone", () => {
@@ -292,6 +334,13 @@ describe("ChatComposer attachments", () => {
         "Couldn't upload bad.txt: disk full"
       )
     );
+    // The draft is intact, so this one offers a retry.
+    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
+      "press Enter to try again"
+    );
+    expect(
+      screen.getByTestId("chat-composer-error").getAttribute("data-retryable")
+    ).toBe("true");
     expect(onSend).not.toHaveBeenCalled();
     expect(input.value).toBe("keep me");
     const chips = screen.getAllByTestId("context-file-item");

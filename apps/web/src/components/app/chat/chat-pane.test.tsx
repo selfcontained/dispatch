@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import type { ChatFeedEntry, ChatMessage } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -263,8 +269,74 @@ describe("ChatPane", () => {
     expect(H.answer).toHaveBeenCalledWith({
       messageId: "q1",
       value: "release/2.0",
+      attachments: [],
     });
     expect(H.send).not.toHaveBeenCalled();
+  });
+
+  it("answers a free-text question through the answer route even with attachments", async () => {
+    H.entries = [
+      chat(
+        message({
+          id: "q1",
+          kind: "question",
+          text: "Which spec?",
+          question: { options: [{ label: "main" }], allowFreeform: true },
+        })
+      ),
+    ];
+    H.answer.mockImplementation(async () => {
+      // The answered question comes back from the server; the pane then
+      // has nothing left to reply to.
+      H.entries = [
+        chat(
+          message({
+            id: "q1",
+            kind: "question",
+            text: "Which spec?",
+            question: { options: [{ label: "main" }], allowFreeform: true },
+            answer: {
+              value: "this one",
+              replyMessageId: "r1",
+              answeredAt: "2026-09-02T10:01:00.000Z",
+            },
+          })
+        ),
+      ];
+      return {} as never;
+    });
+    const { rerender } = renderPane();
+    const input = screen.getByTestId("chat-composer-input");
+    fireEvent.paste(input, {
+      clipboardData: { items: [], getData: () => "https://example.com/spec" },
+    });
+    expect(screen.getByTestId("chat-reply-context")).toBeTruthy();
+    typeAndSend("this one");
+    expect(H.answer).toHaveBeenCalledWith({
+      messageId: "q1",
+      value: "this one",
+      attachments: [{ type: "link", url: "https://example.com/spec" }],
+    });
+    expect(H.send).not.toHaveBeenCalled();
+
+    await waitFor(() =>
+      expect(
+        (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement).value
+      ).toBe("")
+    );
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={agent}
+        terminalMode="tmux"
+        active={true}
+        onOpenConsole={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(screen.queryByTestId("chat-reply-context")).toBeNull();
+    expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
   });
 
   it("sends a plain message after the reply context is dismissed", () => {

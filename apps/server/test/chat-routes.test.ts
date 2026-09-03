@@ -760,6 +760,125 @@ describe("chat routes with a deliverable terminal", () => {
     await app.close();
   });
 
+  it("answers with attachments: stores them on the reply and lists them in the envelope", async () => {
+    const media = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, 'upload-2026-01-01-00-00-00-000.pdf', 'user', 2048)
+       RETURNING id`,
+      [agentId]
+    );
+    const mediaId = media.rows[0].id;
+    const { app, ready, prompts } = buildApp({});
+    await ready;
+    const q = await store.insert({
+      agentId,
+      authorKind: "agent",
+      kind: "question",
+      text: "?",
+      question: { options: [{ label: "a" }], allowFreeform: true },
+    });
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages/${q.id}/answer`,
+      payload: {
+        value: "see the doc",
+        attachments: [
+          { type: "file", mediaId },
+          { type: "pin", pinId: "pin_1" },
+          { type: "link", url: "https://example.com/x" },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.reply.replyTo).toBe(q.id);
+    expect(body.reply.attachments).toEqual([
+      {
+        type: "file",
+        mediaId,
+        fileName: "upload-2026-01-01-00-00-00-000.pdf",
+        sizeBytes: 2048,
+        mimeType: "application/pdf",
+      },
+      { type: "pin", pinId: "pin_1" },
+      { type: "link", url: "https://example.com/x" },
+    ]);
+    expect(body.question.answer).toMatchObject({
+      value: "see the doc",
+      replyMessageId: body.reply.id,
+    });
+    await settled(body.reply.id);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].prompt).toContain(
+      [
+        `--- DISPATCH CHAT (id: ${body.reply.id}) ---`,
+        "see the doc",
+        "",
+        "Attachments:",
+        `- file: /media-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
+        "- pin: PR — https://gh/1",
+        "- link: https://example.com/x",
+        "--- END DISPATCH CHAT ---",
+      ].join("\n")
+    );
+    await app.close();
+  });
+
+  it("400s an answer whose attachments are malformed, unknown, or too many, leaving the question open", async () => {
+    const { app, ready, prompts } = buildApp({});
+    await ready;
+    const q = await store.insert({
+      agentId,
+      authorKind: "agent",
+      kind: "question",
+      text: "?",
+      question: { options: [{ label: "a" }], allowFreeform: true },
+    });
+    const url = `/api/v1/agents/${agentId}/chat/messages/${q.id}/answer`;
+    const unknown = await app.inject({
+      method: "POST",
+      url,
+      payload: { value: "x", attachments: [{ type: "file", mediaId: 424242 }] },
+    });
+    expect(unknown.statusCode).toBe(400);
+    expect(unknown.json().error).toMatch(/Unknown file #424242/);
+    const tooMany = await app.inject({
+      method: "POST",
+      url,
+      payload: {
+        value: "x",
+        attachments: Array.from({ length: 21 }, () => ({
+          type: "link",
+          url: "https://example.com",
+        })),
+      },
+    });
+    expect(tooMany.statusCode).toBe(400);
+    expect(tooMany.json().error).toMatch(/attachments/);
+    const byName = await app.inject({
+      method: "POST",
+      url,
+      payload: {
+        value: "x",
+        attachments: [{ type: "file", fileName: "a.png" }],
+      },
+    });
+    expect(byName.statusCode).toBe(400);
+    expect(byName.json().error).toMatch(/attachments\.0/);
+    const badUrl = await app.inject({
+      method: "POST",
+      url,
+      payload: {
+        value: "x",
+        attachments: [{ type: "link", url: "not a url" }],
+      },
+    });
+    expect(badUrl.statusCode).toBe(400);
+    expect((await store.getById(q.id))?.answer).toBeNull();
+    expect(prompts).toHaveLength(0);
+    await app.close();
+  });
+
   it("rejects an oversized freeform answer", async () => {
     const { app, ready } = buildApp({});
     await ready;

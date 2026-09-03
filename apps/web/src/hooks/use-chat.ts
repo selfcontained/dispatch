@@ -1,5 +1,6 @@
 import { useCallback, useMemo } from "react";
 import type {
+  ChatAnswerRequest,
   ChatAnswerResponse,
   ChatAttachment,
   ChatFeedEntry,
@@ -240,11 +241,8 @@ export function useSendChatMessage(agentId: string | null) {
   });
 }
 
-export type ChatAnswerInput = {
-  messageId: string;
-  value: string;
-  label?: string;
-};
+/** Files here are already uploaded, as for `ChatSendInput`. */
+export type ChatAnswerInput = ChatAnswerRequest & { messageId: string };
 
 export function useAnswerChatQuestion(agentId: string | null) {
   const queryClient = useQueryClient();
@@ -256,19 +254,24 @@ export function useAnswerChatQuestion(agentId: string | null) {
     ChatAnswerInput,
     { previous: FeedCache | undefined; tempId: string }
   >({
-    mutationFn: async ({ messageId, value, label }) =>
-      api<ChatAnswerResponse>(
+    mutationFn: async ({ messageId, value, label, attachments }) => {
+      const body: ChatAnswerRequest = { value };
+      if (label) body.label = label;
+      if (attachments && attachments.length > 0) body.attachments = attachments;
+      return api<ChatAnswerResponse>(
         `/api/v1/agents/${agentId}/chat/messages/${encodeURIComponent(messageId)}/answer`,
-        {
-          method: "POST",
-          body: JSON.stringify(label ? { value, label } : { value }),
-        }
-      ),
-    onMutate: async ({ messageId, value, label }) => {
+        { method: "POST", body: JSON.stringify(body) }
+      );
+    },
+    onMutate: async ({ messageId, value, label, attachments }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
       const previous = queryClient.getQueryData<FeedCache>(key);
       const temp = {
-        ...optimisticUserMessage(agentId ?? "", label ?? value),
+        ...optimisticUserMessage(
+          agentId ?? "",
+          label ?? value,
+          optimisticAttachments(attachments ?? [])
+        ),
         replyTo: messageId,
       };
       queryClient.setQueryData<FeedCache>(key, (old) =>

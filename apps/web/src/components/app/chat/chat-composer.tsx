@@ -74,6 +74,17 @@ export type ChatComposerProps = {
 const NO_PINS: AgentPin[] = [];
 
 /**
+ * What went wrong, and whether pressing Enter again can help. A validation
+ * error (unsupported file, attachment cap) is final until the user changes
+ * something; an upload or send failure leaves a sendable draft behind, so
+ * that one gets the retry hint.
+ */
+type ComposerError = { text: string; retryable: boolean };
+
+const SUPPORTED_FILE_HINT =
+  "Choose a supported file type: an image, video, PDF, or text file.";
+
+/**
  * Enter sends, Shift+Enter inserts a newline. An in-progress IME composition
  * is left alone: the Enter that commits a CJK candidate must not send.
  *
@@ -94,7 +105,7 @@ export function ChatComposer({
 }: ChatComposerProps): JSX.Element {
   const [text, setText] = useState("");
   const [inFlight, setInFlight] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledReason !== null;
@@ -126,7 +137,10 @@ export function ChatComposer({
   const attachmentsFull = attachmentCount >= CHAT_ATTACHMENTS_MAX;
 
   const noteAttachmentLimit = useCallback(() => {
-    setError(`Up to ${CHAT_ATTACHMENTS_MAX} attachments per message.`);
+    setError({
+      text: `Up to ${CHAT_ATTACHMENTS_MAX} attachments per message.`,
+      retryable: false,
+    });
   }, []);
 
   const addFiles = useCallback(
@@ -139,11 +153,11 @@ export function ChatComposer({
         isAcceptedUploadFile(file.name)
       );
       if (unsupported.length > 0) {
-        setError(
-          unsupported.length === 1
-            ? `Unsupported file type: ${unsupported[0]!.name}`
-            : `Unsupported file types: ${unsupported.map((f) => f.name).join(", ")}`
-        );
+        const names = unsupported.map((f) => f.name).join(", ");
+        setError({
+          text: `${unsupported.length === 1 ? "Unsupported file type" : "Unsupported file types"}: ${names}. ${SUPPORTED_FILE_HINT}`,
+          retryable: false,
+        });
       } else {
         setError(null);
       }
@@ -374,7 +388,11 @@ export function ChatComposer({
         );
       })
       .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : "Message not sent.");
+        // The draft — text and chips — is still here, so a retry can work.
+        setError({
+          text: err instanceof Error ? err.message : "Message not sent.",
+          retryable: true,
+        });
       })
       .finally(() => {
         setInFlight(false);
@@ -459,7 +477,9 @@ export function ChatComposer({
         ) : null}
         {hasAttachments ? (
           <div
-            className="flex flex-wrap items-start gap-3 px-3 pb-1 pt-3"
+            // Bounded: at the 20-attachment cap the chips scroll inside
+            // this strip instead of pushing the field and Send off-screen.
+            className="flex max-h-40 flex-wrap items-start gap-3 overflow-y-auto px-3 pb-1 pt-3"
             data-testid="chat-composer-attachments"
           >
             {files.map((file) => {
@@ -572,8 +592,11 @@ export function ChatComposer({
             role="alert"
             className="text-destructive"
             data-testid="chat-composer-error"
+            data-retryable={error.retryable ? "true" : undefined}
           >
-            {error} — your message is still here; press Enter to try again.
+            {error.retryable
+              ? `${error.text} — your message is still here; press Enter to try again.`
+              : error.text}
           </span>
         ) : uploadingName ? (
           <span data-testid="chat-composer-uploading">
