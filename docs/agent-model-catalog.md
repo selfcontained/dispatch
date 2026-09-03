@@ -16,7 +16,7 @@ from the catalog — editing the catalog updates it, no separate step.
 ## Maintenance sources
 
 - [Codex model selection](https://learn.chatgpt.com/docs/models.md)
-- [Claude Code CLI reference](https://docs.anthropic.com/en/docs/claude-code/cli-usage)
+- [Claude Code CLI reference](https://code.claude.com/docs/en/cli-usage)
 
 ## Updating the catalog
 
@@ -43,8 +43,10 @@ provider API:
   default, so a bogus ID fails only subtly.
 
 - **Claude Code:** Check the Claude Code CLI reference. It supports the moving
-  `opus`, `sonnet`, and `haiku` aliases plus documented full model IDs; add a
-  full ID when it is available to the intended account.
+  `opus`, `sonnet`, `haiku`, and `fable` aliases plus documented full model IDs;
+  prefer an alias so the entry tracks the provider's current model, and add a
+  full ID only when a specific pinned version is wanted and available to the
+  intended account.
 - **Cursor Agent:** The same rule applies — entries must be cross-checked
   against the installed CLI's model registry — and no Cursor list has passed
   that bar yet: its public docs carry display names rather than verified CLI
@@ -82,6 +84,8 @@ re-deriving the evidence by hand.
 ## Known upcoming retirements
 
 Check this list on every catalog edit and prune entries whose date has passed.
+Record each one as a bullet with the date in bold — `audit-agent-models.ts`
+parses this section for `**YYYY-MM-DD**` and fails once a date is behind us.
 
-- `gpt-5.4` and `gpt-5.4-mini` retire **2026-08-31** (successors:
-  `gpt-5.6-terra` and `gpt-5.6-luna`). Remove both entries around that date.
+- None currently tracked. `gpt-5.4` and `gpt-5.4-mini` retired 2026-08-31 and
+  were removed; their successors are `gpt-5.6-terra` and `gpt-5.6-luna`.

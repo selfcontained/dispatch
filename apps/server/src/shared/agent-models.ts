@@ -18,7 +18,7 @@ export type AgentModelOption = { id: string; label: string };
  *
  * Maintenance sources:
  * - Codex: https://learn.chatgpt.com/docs/models.md
- * - Claude Code: https://docs.anthropic.com/en/docs/claude-code/cli-usage
+ * - Claude Code: https://code.claude.com/docs/en/cli-usage
  *
  * See docs/agent-model-catalog.md for the update procedure.
  */
@@ -30,10 +30,6 @@ export const AGENT_MODEL_OPTIONS: Partial<
     { id: "gpt-5.6-terra", label: "GPT-5.6 Terra" },
     { id: "gpt-5.6-luna", label: "GPT-5.6 Luna" },
     { id: "gpt-5.5", label: "GPT-5.5" },
-    // gpt-5.4 and gpt-5.4-mini retire 2026-08-31 (successors: terra, luna) —
-    // tracked in docs/agent-model-catalog.md § Known upcoming retirements.
-    { id: "gpt-5.4", label: "GPT-5.4" },
-    { id: "gpt-5.4-mini", label: "GPT-5.4 mini" },
     // Research preview: listed in the per-account remote catalog but not yet
     // in the CLI's embedded registry, so it may not exist for every account.
     { id: "gpt-5.3-codex-spark", label: "GPT-5.3 Codex Spark (preview)" },
@@ -43,7 +39,7 @@ export const AGENT_MODEL_OPTIONS: Partial<
     { id: "opus", label: "Opus" },
     { id: "sonnet", label: "Sonnet" },
     { id: "haiku", label: "Haiku" },
-    { id: "claude-fable-5", label: "Fable 5" },
+    { id: "fable", label: "Fable" },
   ],
 };
 
