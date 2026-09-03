@@ -38,6 +38,13 @@ async function seedSurfaces(agentId: string): Promise<void> {
             intent: "choose_canary",
             style: "primary",
           },
+          {
+            id: "direct",
+            label: "Release directly",
+            intent: "choose_direct",
+            style: "destructive",
+            confirm: { title: "Release directly?" },
+          },
         ],
       },
     },
@@ -668,6 +675,63 @@ test.describe("Agent-authored sidebar surfaces", () => {
     await expect
       .poll(() => unresolvedCount(request, agent.id, "Release work"))
       .toBe(1);
+  });
+
+  test("nested action menus claim Escape and restore confirm focus", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-surfaces-menus-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+    await seedSurfaces(agent.id);
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("toggle-media-sidebar").click();
+
+    const sidebar = page.getByTestId("media-sidebar");
+    await sidebar
+      .getByTestId("surface-tab-row")
+      .getByRole("button", { name: "Release choice" })
+      .click();
+
+    // Desktop: the split trigger opens the overflow menu holding the
+    // de-emphasized destructive verb; canceling its confirm dialog returns
+    // focus to the trigger rather than dropping it on <body>.
+    const moreActions = sidebar.getByRole("button", { name: "More actions" });
+    await moreActions.click();
+    await page.getByRole("menuitem", { name: "Release directly" }).click();
+    await expect(
+      page.getByRole("dialog").getByText("Release directly?")
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(moreActions).toBeFocused();
+
+    // Mobile drawer: the first Escape dismisses only the nested menu — the
+    // drawer stays open.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileSidebar = page.getByRole("dialog", { name: "Media sidebar" });
+    const sidebarInViewport = () =>
+      mobileSidebar.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.left < window.innerWidth && rect.right > 0;
+      });
+    if (!(await sidebarInViewport())) {
+      await page.getByTestId("toggle-media-sidebar").click();
+    }
+    await expect.poll(sidebarInViewport).toBe(true);
+    await mobileSidebar.getByRole("button", { name: "More actions" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Release directly" })
+    ).toBeVisible();
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("menuitem", { name: "Release directly" })
+    ).toBeHidden();
+    await expect.poll(sidebarInViewport).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect.poll(sidebarInViewport).toBe(false);
   });
 
   test("manage-tabs menu supports keyboard navigation between row controls", async ({

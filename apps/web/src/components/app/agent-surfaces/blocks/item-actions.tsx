@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Loader2, MoreHorizontal } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -57,6 +58,7 @@ export function ItemActions({
   /** Accessible context: "<action label> for <itemLabel>". */
   itemLabel?: string;
 }): JSX.Element | null {
+  const [menuOpen, setMenuOpen] = useState(false);
   const mutation = useSubmitSurfaceInteraction(agentId, surfaceId);
   const { states, submit, clear } = useKeyedInteractionState(
     surfaceRevision,
@@ -139,7 +141,7 @@ export function ItemActions({
 
   return (
     <div className="min-w-0 max-w-full text-right">
-      <DropdownMenu>
+      <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
         <DropdownMenuTrigger asChild>
           <Button
             type="button"
@@ -156,14 +158,23 @@ export function ItemActions({
             )}
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent
+          align="end"
+          // Claim the Escape so an enclosing drawer/dialog doesn't also
+          // dismiss; close the menu ourselves since preventing default
+          // suppresses Radix's own close.
+          onEscapeKeyDown={(event) => {
+            event.preventDefault();
+            setMenuOpen(false);
+          }}
+        >
           {actions.map((action) => {
             const presentation = presentationOf(action);
             return (
               <DropdownMenuItem
                 key={action.id}
                 disabled={presentation.locked}
-                className="text-xs text-foreground"
+                className="flex items-center text-xs text-foreground [@media(pointer:coarse)]:min-h-11"
                 data-action-id={action.id}
                 onSelect={() => run(action)}
               >

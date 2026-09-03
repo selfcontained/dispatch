@@ -133,6 +133,9 @@ export function FormFieldControl({
             <Checkbox
               id={fieldId}
               checked={typeof value === "boolean" ? value : false}
+              // The visual asterisk is aria-hidden, so the control itself
+              // must carry the required semantics.
+              aria-required={field.required || undefined}
               aria-invalid={!!error}
               onCheckedChange={(checked) => onChange(checked === true)}
             />
@@ -169,6 +172,7 @@ export function FormFieldControl({
           <div
             role="radiogroup"
             aria-labelledby={`${fieldId}-label`}
+            aria-required={field.required || undefined}
             className="space-y-1.5"
           >
             {field.options.map((option) => {
@@ -205,6 +209,7 @@ export function FormFieldControl({
             <div
               role="group"
               aria-labelledby={`${fieldId}-label`}
+              aria-required={field.required || undefined}
               className="space-y-1.5"
             >
               {field.options.map((option) => {
@@ -246,6 +251,7 @@ export function FormFieldControl({
           >
             <SelectTrigger
               id={fieldId}
+              aria-required={field.required || undefined}
               aria-invalid={!!error}
               className={cn(error && "ring-1 ring-status-blocked")}
             >

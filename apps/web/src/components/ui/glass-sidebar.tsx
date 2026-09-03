@@ -76,7 +76,10 @@ function MobileSidebar({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onOpenChange(false);
+      // A nested layer (dropdown menu, dialog) that consumed this Escape
+      // prevents default; the drawer only closes on an unclaimed Escape.
+      if (event.key === "Escape" && !event.defaultPrevented)
+        onOpenChange(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

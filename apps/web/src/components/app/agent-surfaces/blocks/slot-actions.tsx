@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { ChevronDown, Loader2 } from "lucide-react";
 
 import { Button } from "@/components/ui/button";
@@ -69,6 +69,12 @@ export function SlotActions({
   idPrefix: string;
 }): JSX.Element {
   const [confirmAction, setConfirmAction] = useState<ActionRef | null>(null);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuTriggerRef = useRef<HTMLButtonElement | null>(null);
+  // When a confirm dialog opens from a menu item, that item unmounts as the
+  // menu closes, so the dialog's captured activeElement is useless — return
+  // focus to the split trigger instead.
+  const confirmReturnRef = useRef<HTMLElement | null>(null);
   const mutation = useSubmitSurfaceInteraction(agentId, surfaceId);
   const { states, submit, clear } = useKeyedInteractionState(
     surfaceRevision,
@@ -98,10 +104,11 @@ export function SlotActions({
     );
   };
 
-  const handleClick = (action: ActionRef) => {
+  const handleClick = (action: ActionRef, fromMenu = false) => {
     if (action.disabled || readOnly) return;
     if (presentationOf(action).locked) return;
     if (action.confirm) {
+      confirmReturnRef.current = fromMenu ? menuTriggerRef.current : null;
       setConfirmAction(action);
       return;
     }
@@ -140,9 +147,10 @@ export function SlotActions({
               authoredDisabled={!!main.disabled}
               onClick={() => handleClick(main)}
             />
-            <DropdownMenu>
+            <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
               <DropdownMenuTrigger asChild>
                 <Button
+                  ref={menuTriggerRef}
                   type="button"
                   size="sm"
                   variant={actionButtonVariant(main.style)}
@@ -157,10 +165,21 @@ export function SlotActions({
                   )}
                 </Button>
               </DropdownMenuTrigger>
-              <DropdownMenuContent align="end">
+              <DropdownMenuContent
+                align="end"
+                // Claim the Escape so an enclosing drawer/dialog doesn't
+                // also dismiss; close the menu ourselves since preventing
+                // default suppresses Radix's own close.
+                onEscapeKeyDown={(event) => {
+                  event.preventDefault();
+                  setMenuOpen(false);
+                }}
+              >
                 {menuActions.map((action, index) => {
                   const presentation = presentationOf(action);
                   const destructive = action.style === "destructive";
+                  const reasonId = `${idPrefix}-${blockId}-${action.id}-menu-reason`;
+                  const authoredDisabled = !!action.disabled;
                   return (
                     <div key={action.id}>
                       {destructive &&
@@ -169,23 +188,53 @@ export function SlotActions({
                         <DropdownMenuSeparator />
                       ) : null}
                       <DropdownMenuItem
-                        disabled={presentation.locked || !!action.disabled}
-                        title={
-                          action.disabled ? action.disabledReason : undefined
+                        // Only transient/system lockout uses native
+                        // disabled; an authored disable stays focusable via
+                        // aria-disabled so keyboard and touch users can
+                        // reach the item and hear its reason.
+                        disabled={presentation.locked}
+                        aria-disabled={
+                          !presentation.locked && authoredDisabled
+                            ? true
+                            : undefined
+                        }
+                        aria-describedby={
+                          authoredDisabled && action.disabledReason
+                            ? reasonId
+                            : undefined
                         }
                         className={cn(
-                          "text-xs",
+                          "flex-col items-start text-xs [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:justify-center",
                           destructive
                             ? "text-status-blocked focus:text-status-blocked"
-                            : "text-foreground"
+                            : "text-foreground",
+                          authoredDisabled && "opacity-50"
                         )}
                         data-action-id={action.id}
-                        onSelect={() => handleClick(action)}
+                        onSelect={(event) => {
+                          if (authoredDisabled) {
+                            // Keep the menu open so the reason stays
+                            // readable instead of vanishing on tap.
+                            event.preventDefault();
+                            return;
+                          }
+                          handleClick(action, true);
+                        }}
                       >
-                        {presentation.busy ? (
-                          <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                        <span className="flex items-center">
+                          {presentation.busy ? (
+                            <Loader2 className="mr-1.5 h-3.5 w-3.5 animate-spin" />
+                          ) : null}
+                          {action.label}
+                        </span>
+                        {authoredDisabled && action.disabledReason ? (
+                          <span
+                            id={reasonId}
+                            className="text-[10px] font-normal text-muted-foreground"
+                          >
+                            {action.disabledReason}
+                          </span>
                         ) : null}
-                        {action.label}
                       </DropdownMenuItem>
                     </div>
                   );
@@ -228,6 +277,7 @@ export function SlotActions({
       })}
       <ActionConfirmDialog
         action={confirmAction}
+        returnFocusRef={confirmReturnRef}
         onCancel={() => setConfirmAction(null)}
         onConfirm={(action) => {
           setConfirmAction(null);

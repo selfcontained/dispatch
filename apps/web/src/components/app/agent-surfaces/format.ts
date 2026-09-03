@@ -40,23 +40,21 @@ export function formatSurfaceTime(
 }
 
 const SNAKE_CASE = /^[A-Za-z][A-Za-z0-9]*(_[A-Za-z0-9]+)+$/;
-const ALL_CAPS_WORD = /^[A-Z][A-Z0-9]{2,23}$/;
 
 /**
- * Humanizes machine tokens that leak into visible labels: snake_case and
- * single ALL-CAPS words become sentence case ("IN_PROGRESS" → "In progress").
- * The guard is deliberately narrow so real values pass through verbatim —
- * "v0.38.0-rc.2", "CI PASSING", and anything with whitespace are untouched.
+ * Humanizes machine tokens that leak into visible labels: separator-bearing
+ * snake_case becomes sentence case ("IN_PROGRESS" → "In progress"). The
+ * guard is deliberately narrow so real values pass through verbatim —
+ * "v0.38.0-rc.2", "CI PASSING", anything with whitespace, and plain
+ * all-caps words stay untouched: a bare capitalized token is just as likely
+ * an acronym ("API", "AWS", "NASA") as an enum, and mangling an acronym is
+ * worse than showing a shouty enum.
  */
 export function humanizeLabel(value: string): string {
   if (/\s/.test(value)) return value;
   if (SNAKE_CASE.test(value)) {
     const words = value.split("_").join(" ").toLowerCase();
     return words.charAt(0).toUpperCase() + words.slice(1);
-  }
-  if (ALL_CAPS_WORD.test(value)) {
-    const lower = value.toLowerCase();
-    return lower.charAt(0).toUpperCase() + lower.slice(1);
   }
   return value;
 }
