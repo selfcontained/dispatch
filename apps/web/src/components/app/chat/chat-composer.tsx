@@ -1,6 +1,7 @@
 import {
   type KeyboardEvent,
   useCallback,
+  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -13,10 +14,14 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
 export type ChatComposerProps = {
-  onSend: (text: string) => void;
+  /**
+   * Resolves once the message is accepted; rejects when it is not. The draft
+   * is cleared only on success so a failed send never eats what was typed.
+   */
+  onSend: (text: string) => Promise<void>;
   /** When set, the composer is disabled and this explains why. */
   disabledReason: string | null;
-  /** A send is in flight; the input stays usable, the button waits. */
+  /** An external send is in flight; the input stays usable, the button waits. */
   sending?: boolean;
   placeholder?: string;
   autoFocus?: boolean;
@@ -40,10 +45,19 @@ export function ChatComposer({
   replyContext = null,
 }: ChatComposerProps): JSX.Element {
   const [text, setText] = useState("");
+  const [inFlight, setInFlight] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const mountedRef = useRef(true);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+    };
+  }, []);
   const disabled = disabledReason !== null;
   const trimmed = text.trim();
-  const canSend = !disabled && !sending && trimmed.length > 0;
+  const canSend = !disabled && !sending && !inFlight && trimmed.length > 0;
 
   // Grow with the content up to the CSS max-height, then scroll inside.
   useLayoutEffect(() => {
@@ -55,9 +69,22 @@ export function ChatComposer({
 
   const submit = useCallback(() => {
     if (!canSend) return;
-    onSend(trimmed);
-    setText("");
-    textareaRef.current?.focus();
+    setError(null);
+    setInFlight(true);
+    onSend(trimmed)
+      .then(() => {
+        if (!mountedRef.current) return;
+        setText("");
+      })
+      .catch((err: unknown) => {
+        if (!mountedRef.current) return;
+        setError(err instanceof Error ? err.message : "Message not sent.");
+      })
+      .finally(() => {
+        if (!mountedRef.current) return;
+        setInFlight(false);
+        textareaRef.current?.focus();
+      });
   }, [canSend, onSend, trimmed]);
 
   const onKeyDown = useCallback(
@@ -134,6 +161,14 @@ export function ChatComposer({
         {disabledReason ? (
           <span data-testid="chat-composer-disabled-reason">
             {disabledReason}
+          </span>
+        ) : error ? (
+          <span
+            role="alert"
+            className="text-destructive"
+            data-testid="chat-composer-error"
+          >
+            {error} — your message is still here; press Enter to try again.
           </span>
         ) : (
           <span>Enter to send · Shift+Enter for a new line</span>

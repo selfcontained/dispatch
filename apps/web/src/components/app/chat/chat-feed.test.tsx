@@ -315,6 +315,11 @@ describe("ChatFeed", () => {
 
     fireEvent.click(options[1]!);
     expect(onAnswer).toHaveBeenCalledWith("q1", { label: "Beta" });
+    // Touch/phone sizing: a 44px target with wrapping labels.
+    expect(options[0]!.className).toContain("max-sm:min-h-11");
+    expect(options[0]!.className).toContain(
+      "[@media(pointer:coarse)]:min-h-11"
+    );
   });
 
   it("marks the chosen option and disables the rest once answered", () => {

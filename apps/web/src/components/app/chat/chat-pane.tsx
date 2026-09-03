@@ -60,9 +60,15 @@ export function questionExcerpt(text: string, max = 80): string {
 
 export function composerDisabledReason(
   agent: Agent | null,
-  terminalMode: "tmux" | "inert" | null
+  terminalMode: "tmux" | "inert" | null,
+  feed: { isLoading: boolean; error: Error | null } = {
+    isLoading: false,
+    error: null,
+  }
 ): string | null {
   if (!agent) return "Select an agent to chat with.";
+  if (feed.error) return "Chat couldn't load — retry above before sending.";
+  if (feed.isLoading) return "Loading the chat…";
   if (terminalMode === "inert") {
     return "This agent runs in inert mode, so there is no terminal to deliver messages to.";
   }
@@ -131,8 +137,10 @@ export function ChatPane({
     () => (holdState?.held ? latestUserMessageId(entries) : null),
     [entries, holdState?.held]
   );
-  const hasChatMessages = useMemo(
-    () => entries.some((entry) => entry.type === "chat"),
+  // Status events alone are not a conversation: real agents always have
+  // some, so the empty state must key off the entries a person wrote.
+  const hasConversation = useMemo(
+    () => entries.some((entry) => entry.type !== "status"),
     [entries]
   );
 
@@ -235,20 +243,17 @@ export function ChatPane({
   // ---- actions --------------------------------------------------------------
   const [sendError, setSendError] = useState<string | null>(null);
 
+  // The composer keeps its draft until this resolves; failures surface in
+  // the composer itself, so nothing is set here on error.
   const onSend = useCallback(
-    (text: string) => {
+    async (text: string): Promise<void> => {
       setSendError(null);
       setFollowing(true);
       if (replyTarget) {
-        answer.mutate(
-          { messageId: replyTarget.id, value: text },
-          { onError: (err) => setSendError(err.message) }
-        );
+        await answer.mutateAsync({ messageId: replyTarget.id, value: text });
         return;
       }
-      send.mutate(text, {
-        onError: (err) => setSendError(err.message),
-      });
+      await send.mutateAsync(text);
     },
     [answer, replyTarget, send]
   );
@@ -290,7 +295,10 @@ export function ChatPane({
     [agent?.cwd, agent?.pins, agent?.worktreePath, agentId, openLightbox]
   );
 
-  const disabledReason = composerDisabledReason(agent, terminalMode);
+  const disabledReason = composerDisabledReason(agent, terminalMode, {
+    isLoading: feed.isLoading,
+    error: feed.error,
+  });
   const answeringMessageId = answer.isPending
     ? (answer.variables?.messageId ?? null)
     : null;
@@ -347,12 +355,25 @@ export function ChatPane({
           {feed.error ? (
             <div
               role="alert"
-              className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              className="mb-3 flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-xs text-destructive"
+              data-testid="chat-feed-error"
             >
-              Couldn&apos;t load the chat: {feed.error.message}
+              <span className="min-w-0 truncate">
+                Couldn&apos;t load the chat: {feed.error.message}
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant="default"
+                className="h-6 shrink-0 px-2 text-xs"
+                onClick={feed.refetch}
+                data-testid="chat-feed-retry"
+              >
+                Retry
+              </Button>
             </div>
           ) : null}
-          {!feed.isLoading && !hasChatMessages && !feed.error ? (
+          {!feed.isLoading && !hasConversation && !feed.error ? (
             <div
               className={cn(
                 "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",

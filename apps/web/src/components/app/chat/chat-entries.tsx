@@ -276,7 +276,14 @@ export function QuestionOptions({
               type="button"
               size="sm"
               variant={chosen ? "primary" : "default"}
-              className={cn("h-7 gap-1 text-xs", chosen && "cursor-default")}
+              className={cn(
+                "h-7 gap-1 text-xs",
+                // Phones and touch screens: a real tap target, with the label
+                // allowed to wrap instead of being clipped.
+                "max-sm:h-auto max-sm:min-h-11 max-sm:whitespace-normal max-sm:py-2 max-sm:text-left",
+                "[@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:whitespace-normal [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-left",
+                chosen && "cursor-default"
+              )}
               disabled={answer !== null || answering}
               aria-pressed={chosen}
               data-testid="chat-question-option"

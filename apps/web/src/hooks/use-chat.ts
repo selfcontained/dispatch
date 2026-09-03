@@ -62,6 +62,7 @@ export type ChatFeedState = {
   isFetchingOlder: boolean;
   error: Error | null;
   loadOlder: () => void;
+  refetch: () => void;
 };
 
 export function useChatFeed(
@@ -100,6 +101,9 @@ export function useChatFeed(
     error: query.error,
     loadOlder: () => {
       if (!query.isFetchingNextPage) void query.fetchNextPage();
+    },
+    refetch: () => {
+      void query.refetch();
     },
   };
 }

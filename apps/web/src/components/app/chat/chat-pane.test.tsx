@@ -16,8 +16,11 @@ import { ChatPane, questionExcerpt } from "./chat-pane";
 const H = vi.hoisted(() => ({
   entries: [] as unknown[],
   unreadCount: 0,
-  send: vi.fn(),
-  answer: vi.fn(),
+  isLoading: false,
+  error: null as Error | null,
+  refetch: vi.fn(),
+  send: vi.fn(async (_text: string) => ({}) as never),
+  answer: vi.fn(async (_input: unknown) => ({}) as never),
   markRead: vi.fn(),
 }));
 
@@ -26,18 +29,21 @@ vi.mock("@/hooks/use-chat", () => ({
     entries: H.entries,
     unreadCount: H.unreadCount,
     hasOlder: false,
-    isLoading: false,
+    isLoading: H.isLoading,
     isFetchingOlder: false,
-    error: null,
+    error: H.error,
     loadOlder: vi.fn(),
+    refetch: H.refetch,
   }),
   useSendChatMessage: () => ({
-    mutate: H.send,
+    mutate: vi.fn(),
+    mutateAsync: H.send,
     isPending: false,
     variables: undefined,
   }),
   useAnswerChatQuestion: () => ({
-    mutate: H.answer,
+    mutate: vi.fn(),
+    mutateAsync: H.answer,
     isPending: false,
     variables: undefined,
   }),
@@ -130,6 +136,9 @@ function typeAndSend(text: string) {
 beforeEach(() => {
   H.entries = [];
   H.unreadCount = 0;
+  H.isLoading = false;
+  H.error = null;
+  H.refetch.mockReset();
   H.send.mockReset();
   H.answer.mockReset();
   H.markRead.mockReset();
@@ -177,8 +186,58 @@ describe("ChatPane", () => {
     renderPane();
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
     typeAndSend("hello there");
-    expect(H.send).toHaveBeenCalledWith("hello there", expect.anything());
+    expect(H.send).toHaveBeenCalledWith("hello there");
     expect(H.answer).not.toHaveBeenCalled();
+  });
+
+  it("treats status-only history as empty but any written entry as a conversation", () => {
+    H.entries = [
+      {
+        type: "status",
+        id: "event:1",
+        eventType: "working",
+        message: "Booting",
+        at: "2026-09-02T10:00:00.000Z",
+      },
+      {
+        type: "media",
+        id: "media:1",
+        mediaId: 1,
+        fileName: "shot.png",
+        sizeBytes: 10,
+        description: null,
+        at: "2026-09-02T10:00:01.000Z",
+      },
+    ];
+    renderPane();
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
+    expect(screen.getByTestId("chat-media")).toBeTruthy();
+  });
+
+  it("offers a retry and blocks sending while the feed failed to load", () => {
+    H.error = new Error("boom");
+    renderPane();
+    expect(screen.getByTestId("chat-feed-error").textContent).toContain("boom");
+    fireEvent.click(screen.getByTestId("chat-feed-retry"));
+    expect(H.refetch).toHaveBeenCalledTimes(1);
+    expect(
+      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
+        .disabled
+    ).toBe(true);
+    expect(
+      screen.getByTestId("chat-composer-disabled-reason").textContent
+    ).toContain("retry above");
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
+  });
+
+  it("blocks sending while the feed is still loading", () => {
+    H.isLoading = true;
+    renderPane();
+    expect(
+      (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
+        .disabled
+    ).toBe(true);
+    expect(screen.queryByTestId("chat-empty")).toBeNull();
   });
 
   it("answers the newest open free-text question with what was typed", () => {
@@ -197,10 +256,10 @@ describe("ChatPane", () => {
       "Which branch should I use?"
     );
     typeAndSend("release/2.0");
-    expect(H.answer).toHaveBeenCalledWith(
-      { messageId: "q1", value: "release/2.0" },
-      expect.anything()
-    );
+    expect(H.answer).toHaveBeenCalledWith({
+      messageId: "q1",
+      value: "release/2.0",
+    });
     expect(H.send).not.toHaveBeenCalled();
   });
 
@@ -219,7 +278,7 @@ describe("ChatPane", () => {
     fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
     typeAndSend("unrelated note");
-    expect(H.send).toHaveBeenCalledWith("unrelated note", expect.anything());
+    expect(H.send).toHaveBeenCalledWith("unrelated note");
     expect(H.answer).not.toHaveBeenCalled();
   });
 
