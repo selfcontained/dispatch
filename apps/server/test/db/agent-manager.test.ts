@@ -383,8 +383,15 @@ describe("AgentManager", () => {
           { ...noopLogger, warn, child: () => noopLogger } as never,
           inertTestConfig
         );
+        // The recorder is handed the new agent's id; capture it so the poll
+        // below addresses that row directly instead of guessing by clock
+        // (DB now() vs Date.now() skew made the old created_at filter flaky).
+        let recordedAgentId: string | null = null;
         stuckManager.attachLaunchContextRecorder({
-          recordLaunchContext: () => new Promise(() => {}),
+          recordLaunchContext: (input) => {
+            recordedAgentId = input.agentId;
+            return new Promise(() => {});
+          },
         });
 
         const startedAt = Date.now();
@@ -397,15 +404,15 @@ describe("AgentManager", () => {
         // reaches "running" long before the write's bounded wait expires.
         const running = await vi.waitFor(
           async () => {
+            expect(recordedAgentId).not.toBeNull();
             const result = await pool.query<{ status: string }>(
-              `SELECT status FROM agents WHERE status = 'running'
-                 AND created_at >= to_timestamp($1 / 1000.0)`,
-              [startedAt]
+              `SELECT status FROM agents WHERE id = $1 AND status = 'running'`,
+              [recordedAgentId]
             );
             expect(result.rows).toHaveLength(1);
             return result.rows[0];
           },
-          { timeout: 3000, interval: 50 }
+          { timeout: 4000, interval: 50 }
         );
         expect(running.status).toBe("running");
         expect(Date.now() - startedAt).toBeLessThan(
