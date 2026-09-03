@@ -724,7 +724,8 @@ test.describe("Media sidebar", () => {
 
     await page.setViewportSize({ width: 390, height: 844 });
     await loadApp(page);
-    await clickAgentRow(page, parent.id);
+    // The agent list is a sheet on mobile; the route focuses the agent directly.
+    await page.goto(`/agents/${parent.id}`, { waitUntil: "domcontentloaded" });
     await page.getByTestId("toggle-media-sidebar").click();
     const sheet = page.getByRole("dialog", { name: "Media sidebar" });
     await expect(sheet).toBeVisible();

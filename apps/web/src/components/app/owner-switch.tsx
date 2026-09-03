@@ -102,11 +102,13 @@ export function OwnerSwitch({
           data-testid={`${testIdPrefix}-switch`}
           data-owner={viewOwnerId ?? selectedAgentId ?? undefined}
           // Taller on touch layouts so the primary switch is a real target.
-          className="h-11 text-xs md:h-8"
+          // Radix wraps the value in an inline span; it has to be a shrinking
+          // flex child for the name to truncate and the badges to stay.
+          className="h-11 text-xs md:h-8 [&>span:first-child]:flex [&>span:first-child]:min-w-0 [&>span:first-child]:flex-1"
         >
           <SelectValue>
-            <span className="flex min-w-0 items-center gap-2">
-              <span className="truncate">{current?.label}</span>
+            <span className="flex min-w-0 flex-1 items-center gap-2">
+              <span className="min-w-0 flex-1 truncate">{current?.label}</span>
               {current ? counts(current) : null}
             </span>
           </SelectValue>
@@ -121,9 +123,10 @@ export function OwnerSwitch({
               value={option.value}
               data-testid={option.testId}
               textValue={option.label}
-              className="min-w-0 py-3 md:py-1.5"
+              // Same for Radix's ItemText wrapper, the row's last child.
+              className="min-w-0 py-3 md:py-1.5 [&>span:last-child]:flex [&>span:last-child]:min-w-0 [&>span:last-child]:flex-1"
             >
-              <span className="flex min-w-0 items-center gap-2">
+              <span className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="min-w-0 flex-1 truncate">{option.label}</span>
                 {counts(option)}
               </span>
