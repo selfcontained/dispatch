@@ -64,7 +64,33 @@ export type MediaFile = {
   seen?: boolean;
   source?: "screenshot" | "stream" | "simulator" | "text" | "user";
   description?: string | null;
+  /**
+   * Stamped client-side, not returned by the API. The selected agent's panel
+   * also lists its sub agents' media, so a file has to say whose it is for
+   * seen-tracking and the lightbox to address the right agent.
+   */
+  ownerAgentId?: string;
 };
+
+/**
+ * A sub agent whose pins and media are grouped under the selected agent.
+ * Carries the child's own workspace root so its filename pins resolve
+ * against the child's worktree, not the parent's.
+ */
+export type SubAgentRef = {
+  id: string;
+  name: string;
+  status: AgentStatus;
+  workspaceRoot: string | null;
+};
+
+export type SubAgentMedia = {
+  agent: SubAgentRef;
+  files: MediaFile[];
+  /** The child's media query state, so an unresolved fetch is not shown as "nothing shared". */
+  status: "pending" | "error" | "success";
+};
+export type SubAgentPins = { agent: SubAgentRef; pins: AgentPin[] };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";
 export type ServiceState = "ok" | "down" | "checking";

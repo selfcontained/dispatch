@@ -6,7 +6,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentPin } from "@/components/app/types";
 
@@ -65,7 +65,7 @@ describe("shortcut pins", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /work on/i }));
 
-    expect(onRunShortcut).toHaveBeenCalledWith(shortcutPin);
+    expect(onRunShortcut).toHaveBeenCalledWith(shortcutPin, null);
   });
 
   it("asks for confirmation first when the pin sets confirm", () => {
@@ -82,7 +82,7 @@ describe("shortcut pins", () => {
     ).toContain("work on sse-eventsource-reconnect");
 
     fireEvent.click(screen.getByTestId("pin-shortcut-confirm"));
-    expect(onRunShortcut).toHaveBeenCalledWith(pin);
+    expect(onRunShortcut).toHaveBeenCalledWith(pin, null);
   });
 
   it("does not fire the shortcut when the confirmation is cancelled", () => {
@@ -361,5 +361,94 @@ describe("shortcut pins", () => {
 
     fireEvent.click(button);
     expect(onRunShortcut).not.toHaveBeenCalled();
+  });
+});
+
+describe("sub agent owner switch", () => {
+  const child = {
+    id: "agt_child",
+    name: "builder",
+    status: "running" as const,
+    workspaceRoot: "/repo/.worktrees/child",
+  };
+  const quiet = {
+    id: "agt_quiet",
+    name: "quiet",
+    status: "stopped" as const,
+    workspaceRoot: null,
+  };
+  const childPins: AgentPin[] = [
+    { id: "child_pr", label: "PR", value: "https://example/pr/1", type: "pr" },
+    {
+      id: "child_go",
+      label: "Merge it",
+      value: "merge the PR",
+      type: "shortcut",
+    },
+  ];
+
+  beforeEach(() => {
+    // Radix Select calls scrollIntoView when opening; jsdom lacks it.
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  function openSwitch(): void {
+    fireEvent.click(screen.getByTestId("pins-owner-switch"));
+  }
+
+  it("offers the agent and every sub agent, showing the agent's own pins by default", async () => {
+    renderPanel([shortcutPin], {
+      selectedAgentId: "agt_parent",
+      subAgentPins: [
+        { agent: child, pins: childPins },
+        { agent: quiet, pins: [] },
+      ],
+    });
+    const trigger = screen.getByTestId("pins-owner-switch");
+    // Visible label + decorative digit + screen-reader sentence.
+    expect(trigger.textContent).toBe("agent11 pin");
+    expect(trigger.dataset.owner).toBe("agt_parent");
+    expect(screen.getByRole("button", { name: /work on/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Merge it/ })).toBeNull();
+    openSwitch();
+    const options = await screen.findAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual([
+      "agent11 pin",
+      "builder22 pins",
+      "quiet00 pins",
+    ]);
+  });
+
+  it("swaps to a sub agent's pins and fires its shortcut at that sub agent", async () => {
+    const onRunShortcut = vi.fn();
+    renderPanel([shortcutPin], {
+      selectedAgentId: "agt_parent",
+      onRunShortcut,
+      subAgentPins: [{ agent: child, pins: childPins }],
+    });
+    openSwitch();
+    fireEvent.click(await screen.findByRole("option", { name: /^builder/ }));
+    expect(screen.getByTestId("pins-owner-switch").dataset.owner).toBe(
+      "agt_child"
+    );
+    expect(screen.queryByRole("button", { name: /work on/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Merge it/ }));
+    expect(onRunShortcut).toHaveBeenCalledWith(childPins[1], "agt_child");
+  });
+
+  it("keeps the switch visible when the chosen sub agent has no pins", async () => {
+    renderPanel([shortcutPin], {
+      selectedAgentId: "agt_parent",
+      subAgentPins: [{ agent: quiet, pins: [] }],
+    });
+    openSwitch();
+    fireEvent.click(await screen.findByRole("option", { name: /^quiet/ }));
+    expect(screen.getByText("quiet has no pins yet.")).toBeTruthy();
+    expect(screen.getByTestId("pins-owner-switch")).toBeTruthy();
+  });
+
+  it("renders no switch without sub agents", () => {
+    renderPanel([shortcutPin], { selectedAgentId: "agt_parent" });
+    expect(screen.queryByTestId("pins-owner-switch")).toBeNull();
   });
 });

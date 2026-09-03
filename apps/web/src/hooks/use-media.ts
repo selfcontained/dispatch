@@ -6,13 +6,63 @@ import {
   useRef,
   useState,
 } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { type MediaFile } from "@/components/app/types";
+import { useQueries, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type MediaFile,
+  type SubAgentMedia,
+  type SubAgentRef,
+} from "@/components/app/types";
 import { api } from "@/lib/api";
+
+const EMPTY_FILES: MediaFile[] = [];
+const EMPTY_SUB_AGENTS: SubAgentRef[] = [];
+
+async function fetchMedia(agentId: string): Promise<MediaFile[]> {
+  const payload = await api<{ files: MediaFile[] }>(
+    `/api/v1/agents/${agentId}/media`
+  );
+  return payload.files ?? [];
+}
+
+/**
+ * Identity of a file across every agent listed in one panel. The server key
+ * (`name:updatedAt`) is only unique per agent, and a parent's panel lists its
+ * children's files too, so the owner is part of the key.
+ */
+function ownedMediaKey(file: MediaFile): string {
+  return `${file.ownerAgentId ?? ""}/${file.name}:${file.updatedAt}`;
+}
+
+/** Lightbox identity: owner plus name, without updatedAt (see openLightbox). */
+function fileId(file: { ownerAgentId?: string; name: string }): string {
+  return `${file.ownerAgentId ?? ""}/${file.name}`;
+}
+
+/**
+ * Referentially stable so react-query can skip re-running it; the returned
+ * arrays are structurally shared with the underlying query data.
+ */
+function combineSubAgentFiles(
+  results: Array<{
+    data?: MediaFile[];
+    status: "pending" | "error" | "success";
+  }>
+): Array<{ files: MediaFile[]; status: "pending" | "error" | "success" }> {
+  return results.map((result) => ({
+    files: result.data ?? EMPTY_FILES,
+    status: result.status,
+  }));
+}
 
 export function useMedia(
   selectedAgentId: string | null,
-  mediaPanelOpen: boolean
+  mediaPanelOpen: boolean,
+  /**
+   * The selected agent's direct children. Their media is fetched under the
+   * same `["media", id]` keys the SSE `media.changed` handler invalidates,
+   * so a child sharing a screenshot updates the parent's panel live.
+   */
+  subAgents: SubAgentRef[] = EMPTY_SUB_AGENTS
 ) {
   const queryClient = useQueryClient();
 
@@ -32,22 +82,71 @@ export function useMedia(
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
   const clearMediaAnimTimerRef = useRef<number | null>(null);
 
-  const { data: mediaFiles = [], refetch: refetchMedia } = useQuery<
+  const { data: ownFiles = EMPTY_FILES, refetch: refetchMedia } = useQuery<
     MediaFile[]
   >({
     queryKey: ["media", selectedAgentId],
-    queryFn: async () => {
-      const payload = await api<{ files: MediaFile[] }>(
-        `/api/v1/agents/${selectedAgentId}/media`
-      );
-      return payload.files ?? [];
-    },
+    queryFn: () => fetchMedia(selectedAgentId as string),
     enabled: !!selectedAgentId,
     staleTime: 0,
     refetchOnMount: true,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
   });
+
+  const subAgentFiles = useQueries({
+    queries: subAgents.map((agent) => ({
+      queryKey: ["media", agent.id],
+      queryFn: () => fetchMedia(agent.id),
+      enabled: !!selectedAgentId,
+      staleTime: 0,
+      refetchOnMount: true,
+      refetchOnWindowFocus: true,
+      refetchOnReconnect: true,
+    })),
+    combine: combineSubAgentFiles,
+  });
+
+  // The API does not say whose file a row is — it is implied by the URL —
+  // so stamp the owner here, where several agents' lists meet.
+  const mediaFiles = useMemo(
+    () =>
+      selectedAgentId
+        ? ownFiles.map((file) => ({ ...file, ownerAgentId: selectedAgentId }))
+        : ownFiles,
+    [ownFiles, selectedAgentId]
+  );
+  const subAgentMedia: SubAgentMedia[] = useMemo(
+    () =>
+      subAgents.map((agent, index) => ({
+        agent,
+        files: (subAgentFiles[index]?.files ?? EMPTY_FILES).map((file) => ({
+          ...file,
+          ownerAgentId: agent.id,
+        })),
+        status: subAgentFiles[index]?.status ?? "pending",
+      })),
+    [subAgents, subAgentFiles]
+  );
+  const allFiles = useMemo(
+    () => [...mediaFiles, ...subAgentMedia.flatMap((group) => group.files)],
+    [mediaFiles, subAgentMedia]
+  );
+
+  // Whose files the Media tab shows: null is the selected agent, otherwise
+  // one sub agent. Lives here rather than in the panel because the lightbox
+  // order and the seen observer both follow what is on screen. Falls back
+  // to the agent's own files if the chosen sub agent leaves the list.
+  const [mediaOwnerId, setMediaOwnerId] = useState<string | null>(null);
+  useEffect(() => {
+    setMediaOwnerId(null);
+  }, [selectedAgentId]);
+  const viewedSubAgent =
+    mediaOwnerId === null
+      ? null
+      : (subAgentMedia.find((group) => group.agent.id === mediaOwnerId) ??
+        null);
+  const visibleMediaFiles = viewedSubAgent ? viewedSubAgent.files : mediaFiles;
 
   useEffect(() => {
     if (!selectedAgentId || !mediaPanelOpen) return;
@@ -70,7 +169,7 @@ export function useMedia(
 
   // Animation for new media items.
   useEffect(() => {
-    const nextKeys = mediaFiles.map((file) => `${file.name}:${file.updatedAt}`);
+    const nextKeys = allFiles.map(ownedMediaKey);
     const prevKeys = previousMediaKeysRef.current;
 
     if (prevKeys.size > 0) {
@@ -96,7 +195,7 @@ export function useMedia(
         clearMediaAnimTimerRef.current = null;
       }
     };
-  }, [mediaFiles]);
+  }, [allFiles]);
 
   // Optimistically mark files as seen in the query cache.
   const markSeenInCache = useCallback(
@@ -112,7 +211,10 @@ export function useMedia(
     [queryClient]
   );
 
-  // IntersectionObserver for marking media as seen.
+  // IntersectionObserver for marking media as seen. "Seen" belongs to the
+  // file's owner, not to whichever agent's panel it was scrolled past in:
+  // a child's screenshot seen under the parent is marked on the child, so
+  // the child's own panel and the badges agree.
   useEffect(() => {
     if (!mediaPanelOpen) return;
 
@@ -122,32 +224,34 @@ export function useMedia(
 
     const observer = new IntersectionObserver(
       (entries) => {
-        const newlySeen: string[] = [];
+        const newlySeenByOwner = new Map<string, string[]>();
 
         for (const entry of entries) {
-          if (entry.isIntersecting) {
-            const mediaKey = (entry.target as HTMLElement).dataset.mediaKey;
-            if (mediaKey) {
-              // Check if already seen in current cache data
-              const cached = queryClient.getQueryData<MediaFile[]>([
-                "media",
-                selected,
-              ]);
-              const file = cached?.find(
-                (f) => `${f.name}:${f.updatedAt}` === mediaKey
-              );
-              if (file && !file.seen) {
-                newlySeen.push(mediaKey);
-              }
-            }
+          if (!entry.isIntersecting) continue;
+          const { mediaKey, mediaOwner } = (entry.target as HTMLElement)
+            .dataset;
+          const owner = mediaOwner || selected;
+          if (!mediaKey) continue;
+          // Check if already seen in current cache data
+          const cached = queryClient.getQueryData<MediaFile[]>([
+            "media",
+            owner,
+          ]);
+          const file = cached?.find(
+            (f) => `${f.name}:${f.updatedAt}` === mediaKey
+          );
+          if (file && !file.seen) {
+            const keys = newlySeenByOwner.get(owner) ?? [];
+            keys.push(mediaKey);
+            newlySeenByOwner.set(owner, keys);
           }
         }
 
-        if (newlySeen.length > 0) {
+        for (const [owner, newlySeen] of newlySeenByOwner) {
           // Optimistic cache update
-          markSeenInCache(selected, new Set(newlySeen));
+          markSeenInCache(owner, new Set(newlySeen));
           // Persist to server
-          void api(`/api/v1/agents/${selected}/media/seen`, {
+          void api(`/api/v1/agents/${owner}/media/seen`, {
             method: "POST",
             body: JSON.stringify({ keys: newlySeen }),
           }).catch(() => {});
@@ -162,17 +266,20 @@ export function useMedia(
     return () => {
       observer.disconnect();
     };
+    // Keyed on the files on screen, not every family file: switching owner
+    // swaps the rendered cards without changing the full list, and the
+    // observer has to attach to the new nodes.
   }, [
     markSeenInCache,
-    mediaFiles,
+    visibleMediaFiles,
     mediaPanelOpen,
     queryClient,
     selectedAgentId,
   ]);
 
   const unseenMediaCount = useMemo(() => {
-    return mediaFiles.filter((file) => !file.seen).length;
-  }, [mediaFiles]);
+    return allFiles.filter((file) => !file.seen).length;
+  }, [allFiles]);
 
   // The open lightbox item is tracked by file name alone, unlike the
   // `name:updatedAt` media key used elsewhere in this hook (seen-tracking,
@@ -187,22 +294,24 @@ export function useMedia(
       // (Plain read of lightboxFileName, not a functional setState updater —
       // updaters must stay pure, and this needs to read mediaFiles too.)
       if (lightboxFileName === null) {
-        setLightboxOrderSnapshot(mediaFiles.map((f) => f.name));
+        setLightboxOrderSnapshot(visibleMediaFiles.map(fileId));
       }
-      setLightboxFileName(file.name);
+      setLightboxFileName(fileId(file));
     },
-    [lightboxFileName, mediaFiles]
+    [lightboxFileName, visibleMediaFiles]
   );
 
+  // Only the owner on screen: prev/next must not wander into files the
+  // panel is not showing.
   const lightboxItems = useMemo(
     () =>
-      mediaFiles.map((file) => ({
+      visibleMediaFiles.map((file) => ({
         // Cache-buster stays here so a refreshed file's content actually loads.
         src: `${file.url}?t=${encodeURIComponent(file.updatedAt)}`,
         caption: file.description || "",
         file,
       })),
-    [mediaFiles]
+    [visibleMediaFiles]
   );
 
   // Navigation order for one open-lightbox session: the snapshot taken at
@@ -212,13 +321,14 @@ export function useMedia(
   // same-file refresh still shows fresh content — only traversal order and
   // n/N are frozen.
   const lightboxOrder = useMemo(() => {
-    const liveNames = new Set(lightboxItems.map((item) => item.file.name));
-    const frozen = (lightboxOrderSnapshot ?? []).filter((name) =>
-      liveNames.has(name)
+    const liveIds = new Set(lightboxItems.map((item) => fileId(item.file)));
+    const frozen = (lightboxOrderSnapshot ?? []).filter((id) =>
+      liveIds.has(id)
     );
     const frozenSet = new Set(frozen);
     for (const item of lightboxItems) {
-      if (!frozenSet.has(item.file.name)) frozen.push(item.file.name);
+      const id = fileId(item.file);
+      if (!frozenSet.has(id)) frozen.push(id);
     }
     return frozen;
   }, [lightboxItems, lightboxOrderSnapshot]);
@@ -230,8 +340,9 @@ export function useMedia(
   const lightboxItem = useMemo(
     () =>
       lightboxFileName
-        ? (lightboxItems.find((item) => item.file.name === lightboxFileName) ??
-          null)
+        ? (lightboxItems.find(
+            (item) => fileId(item.file) === lightboxFileName
+          ) ?? null)
         : null,
     [lightboxItems, lightboxFileName]
   );
@@ -264,7 +375,13 @@ export function useMedia(
 
   return useMemo(
     () => ({
+      /** The selected agent's own files. */
       mediaFiles,
+      /** The files the Media tab is showing: own, or the chosen sub agent's. */
+      visibleMediaFiles,
+      subAgentMedia,
+      mediaOwnerId: viewedSubAgent?.agent.id ?? null,
+      setMediaOwnerId,
       animatingMediaKeys,
       unseenMediaCount,
       lightboxIndex,
@@ -280,6 +397,9 @@ export function useMedia(
     }),
     [
       mediaFiles,
+      visibleMediaFiles,
+      subAgentMedia,
+      viewedSubAgent,
       animatingMediaKeys,
       unseenMediaCount,
       lightboxIndex,

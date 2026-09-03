@@ -71,6 +71,13 @@ dispatch_delete_media  fileName — permanently removes the file and its record
 `dispatch_list_media` returns metadata only; read the content through `filePath`
 with normal file tools.
 
+Pass `ownerAgentId` to list what your parent or one of your direct children has
+shared instead — same shape, read-only, and the `filePath` points into their
+directory. A child that has shared its screenshots does not need to message you
+the paths, and you do not need to re-share them: they already show under your
+card for the user. `dispatch_list_pins` takes `ownerAgentId` the same way, so a
+child can read the dev-stack URL or PR link you pinned rather than being told.
+
 ## Write a description that earns the click
 
 The description is the label the user sees before deciding to open it. Say what

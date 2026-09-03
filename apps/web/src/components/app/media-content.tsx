@@ -2,30 +2,39 @@ import { type RefObject, useCallback, useRef, useState } from "react";
 import {
   Check,
   ExternalLink,
-  FileText,
   Image,
-  MonitorPlay,
   Upload,
-  User,
   File as FileIcon,
   Video,
 } from "lucide-react";
 
-import { type MediaFile } from "@/components/app/types";
-import { MediaActions } from "@/components/app/media-lightbox";
-import {
-  fileExtension,
-  isTextFile,
-  stripTimestamp,
-} from "@/components/app/media-file-utils";
+import { type MediaFile, type SubAgentMedia } from "@/components/app/types";
+import { MediaCardList } from "@/components/app/media-item-card";
+import { OwnerSwitch } from "@/components/app/owner-switch";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import { STARTUP_FILE_ACCEPT } from "@/lib/media-accept";
 
+const EMPTY_SUB_AGENT_MEDIA: SubAgentMedia[] = [];
+
 export type MediaContentProps = {
+  /** The files to show: the selected agent's own, or the chosen sub agent's. */
   mediaFiles: MediaFile[];
+  /**
+   * The selected agent's direct children and their media. When present, an
+   * owner dropdown at the top of the tab picks whose files show, the same
+   * control the Pins tab uses. Inline per-child groups below the agent's own
+   * files were tried and rejected for the same reason as on Pins: their
+   * position depended on how much came before them.
+   */
+  subAgentMedia?: SubAgentMedia[];
+  /** The selected agent's own files, for the dropdown's counts while a sub agent is shown. */
+  ownMediaFiles?: MediaFile[];
+  /** null = the selected agent's own files. */
+  mediaOwnerId?: string | null;
+  onMediaOwnerChange?: (ownerId: string | null) => void;
   selectedAgentId: string | null;
+  selectedAgentName?: string | null;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   openLightbox: (file: MediaFile) => void;
@@ -81,122 +90,14 @@ function LiveStreamSection({
   );
 }
 
-function MediaItemCard({
-  file,
-  animating,
-  cacheBustUrl,
-  openLightbox,
-}: {
-  file: MediaFile;
-  animating: boolean;
-  cacheBustUrl: string;
-  openLightbox: (file: MediaFile) => void;
-}): JSX.Element {
-  const isStream = file.source === "stream";
-  const isText = file.source === "text" || isTextFile(file.name);
-  const isDocument = /\.pdf$/i.test(file.name);
-  const isUser = file.source === "user";
-  const unseen = !file.seen;
-
-  return (
-    <article
-      data-media-key={`${file.name}:${file.updatedAt}`}
-      className={cn(
-        "border-b-2 border-border px-3 py-3",
-        isStream && "border-l-2 border-l-status-blocked/60 bg-status-blocked/5",
-        animating && "animate-media-in-slow"
-      )}
-    >
-      {isStream ? (
-        <div className="mb-2 flex items-center gap-1.5">
-          <MonitorPlay className="h-3.5 w-3.5 text-status-blocked" />
-          <span className="text-xs font-semibold uppercase tracking-wide text-status-blocked">
-            Stream recording
-          </span>
-          <span className="ml-auto text-xs text-muted-foreground">
-            {new Date(file.updatedAt).toLocaleString()}
-          </span>
-        </div>
-      ) : (
-        <div className="mb-2 flex items-center gap-1.5 text-xs text-muted-foreground">
-          <span>{new Date(file.updatedAt).toLocaleString()}</span>
-          {isUser ? (
-            <span className="ml-auto flex items-center gap-1 rounded bg-primary/10 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-              <User className="h-2.5 w-2.5" />
-              Shared by you
-            </span>
-          ) : null}
-        </div>
-      )}
-      {isText || isDocument ? (
-        <button
-          className={cn(
-            "block w-full overflow-hidden rounded border-2 bg-muted/50 p-3 text-left",
-            unseen ? "media-thumb-unseen" : "media-thumb-seen"
-          )}
-          onClick={() => openLightbox(file)}
-        >
-          <div className="flex items-center gap-2">
-            <FileText className="h-4 w-4 flex-none text-muted-foreground" />
-            <span className="truncate text-xs font-medium text-foreground">
-              {stripTimestamp(file.name)}
-            </span>
-            <span className="ml-auto flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-              {fileExtension(file.name).replace(".", "")}
-            </span>
-          </div>
-        </button>
-      ) : /\.mp4$/i.test(file.name) ? (
-        <div
-          className={cn(
-            "block w-full overflow-hidden border-2 bg-black/60",
-            unseen ? "media-thumb-unseen" : "media-thumb-seen"
-          )}
-        >
-          <video
-            src={cacheBustUrl}
-            controls
-            muted
-            playsInline
-            preload="metadata"
-            className="max-h-[260px] w-full object-contain"
-          />
-        </div>
-      ) : (
-        <button
-          className={cn(
-            "block w-full overflow-hidden border-2 bg-black/60",
-            unseen ? "media-thumb-unseen" : "media-thumb-seen"
-          )}
-          onClick={() => openLightbox(file)}
-        >
-          <img
-            src={cacheBustUrl}
-            alt={file.description || ""}
-            className="max-h-[260px] w-full object-contain"
-          />
-        </button>
-      )}
-      <div className="mt-2 text-xs text-muted-foreground">
-        {file.description ? <div>{file.description}</div> : null}
-        <div
-          className={`flex items-center justify-between gap-2${file.description ? " mt-1" : ""}`}
-        >
-          <span>{Math.max(1, Math.round(file.size / 1024))} KB</span>
-          <MediaActions
-            src={cacheBustUrl}
-            fileName={file.name}
-            isText={isText}
-          />
-        </div>
-      </div>
-    </article>
-  );
-}
-
 export function MediaContent({
   mediaFiles,
+  subAgentMedia = EMPTY_SUB_AGENT_MEDIA,
+  ownMediaFiles = mediaFiles,
+  mediaOwnerId = null,
+  onMediaOwnerChange,
   selectedAgentId,
+  selectedAgentName = null,
   animatingMediaKeys,
   mediaViewportRef,
   openLightbox,
@@ -240,16 +141,48 @@ export function MediaContent({
     fileInputRef.current?.click();
   }, []);
 
+  const viewingSubAgent = mediaOwnerId !== null;
+  const viewedSubAgent = viewingSubAgent
+    ? (subAgentMedia.find((group) => group.agent.id === mediaOwnerId) ?? null)
+    : null;
+  const ownSummary = {
+    count: ownMediaFiles.length,
+    unseen: ownMediaFiles.filter((file) => !file.seen).length,
+  };
+  // The parent's stream is hidden while a sub agent is shown, so it only
+  // counts as content in the parent's own view.
+  const nothingShared =
+    mediaFiles.length === 0 && (viewingSubAgent || !hasStream);
+
   return (
     <>
-      {hasStream && streamUrl && selectedAgentId ? (
+      {subAgentMedia.length > 0 && onMediaOwnerChange ? (
+        <OwnerSwitch
+          testIdPrefix="media-owner"
+          ariaLabel="Whose media to show"
+          itemNoun={["file", "files"]}
+          selectedAgentId={selectedAgentId}
+          selectedAgentName={selectedAgentName}
+          own={ownSummary}
+          subAgents={subAgentMedia.map((group) => ({
+            agent: group.agent,
+            count: group.files.length,
+            unseen: group.files.filter((f) => !f.seen).length,
+          }))}
+          viewOwnerId={mediaOwnerId}
+          onChange={onMediaOwnerChange}
+        />
+      ) : null}
+      {/* Stream and upload belong to the selected agent; a sub agent's files
+          are read-only from here. */}
+      {!viewingSubAgent && hasStream && streamUrl && selectedAgentId ? (
         <LiveStreamSection
           streamUrl={streamUrl}
           selectedAgentId={selectedAgentId}
         />
       ) : null}
 
-      {selectedAgentId && onUploadFile ? (
+      {!viewingSubAgent && selectedAgentId && onUploadFile ? (
         <div className="border-b-2 border-border px-3 py-2">
           <div className="flex items-center gap-2">
             <input
@@ -298,7 +231,7 @@ export function MediaContent({
         data-testid="media-panel-scroll"
         className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
       >
-        {mediaFiles.length === 0 && !hasStream ? (
+        {nothingShared ? (
           <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
             <div className="flex flex-col items-center gap-2">
               <div className="flex items-center gap-8">
@@ -307,7 +240,15 @@ export function MediaContent({
                 <FileIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               <div className="mt-4">
-                {selectedAgentId ? (
+                {viewedSubAgent ? (
+                  viewedSubAgent.status === "pending" ? (
+                    `Loading ${viewedSubAgent.agent.name}'s media…`
+                  ) : viewedSubAgent.status === "error" ? (
+                    `Couldn't load ${viewedSubAgent.agent.name}'s media.`
+                  ) : (
+                    `${viewedSubAgent.agent.name} has not shared any media yet.`
+                  )
+                ) : selectedAgentId ? (
                   <>
                     No media yet.{" "}
                     <button
@@ -325,20 +266,12 @@ export function MediaContent({
               </div>
             </div>
           </div>
-        ) : mediaFiles.length === 0 ? null : (
-          mediaFiles.map((file) => {
-            const mediaKey = `${file.name}:${file.updatedAt}`;
-            const cacheBustUrl = `${file.url}?t=${encodeURIComponent(file.updatedAt)}`;
-            return (
-              <MediaItemCard
-                key={mediaKey}
-                file={file}
-                animating={animatingMediaKeys.has(mediaKey)}
-                cacheBustUrl={cacheBustUrl}
-                openLightbox={openLightbox}
-              />
-            );
-          })
+        ) : (
+          <MediaCardList
+            files={mediaFiles}
+            animatingMediaKeys={animatingMediaKeys}
+            openLightbox={openLightbox}
+          />
         )}
       </div>
     </>

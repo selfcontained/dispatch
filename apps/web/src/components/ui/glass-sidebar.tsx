@@ -76,7 +76,11 @@ function MobileSidebar({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") onOpenChange(false);
+      // A nested Radix layer (a Select's listbox, a popover) marks the Escape
+      // it dismissed with preventDefault before it reaches the window; that
+      // press was for the layer, not the sheet.
+      if (event.key === "Escape" && !event.defaultPrevented)
+        onOpenChange(false);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);

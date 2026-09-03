@@ -4,6 +4,7 @@ import {
   createLineageIndex,
   delegationChain,
   formatDelegationChain,
+  isFamily,
   relationTo,
   sanitizeAgentNameForPrompt,
 } from "../src/agents/lineage.js";
@@ -101,6 +102,40 @@ describe("relationTo", () => {
   it("returns unrelated when either agent is unknown", () => {
     expect(relationTo(INDEX, "agt_root", "agt_missing")).toBe("unrelated");
     expect(relationTo(INDEX, "agt_missing", "agt_root")).toBe("unrelated");
+  });
+});
+
+describe("isFamily", () => {
+  const byId = new Map(TREE.map((agent) => [agent.id, agent]));
+  const agent = (id: string) => byId.get(id)!;
+
+  it.each([
+    ["agt_root", "agt_root", true],
+    ["agt_root", "agt_planner", true],
+    ["agt_planner", "agt_root", true],
+    ["agt_planner", "agt_research", true],
+    ["agt_research", "agt_planner", true],
+  ] as const)("%s reads %s: %s", (requester, owner, expected) => {
+    expect(isFamily(agent(requester), agent(owner))).toBe(expected);
+  });
+
+  it.each([
+    ["agt_root", "agt_research", "a grandchild"],
+    ["agt_research", "agt_root", "a grandparent"],
+    ["agt_research", "agt_writer", "a sibling"],
+    ["agt_root", "agt_solo", "an unrelated agent"],
+    ["agt_solo", "agt_root", "an unrelated agent"],
+  ] as const)("%s cannot read %s (%s)", (requester, owner) => {
+    expect(isFamily(agent(requester), agent(owner))).toBe(false);
+  });
+
+  it("is a pure relation on the two rows — no liveness check", () => {
+    const archivedChild = {
+      id: "agt_archived",
+      name: "archived",
+      parentAgentId: "agt_root",
+    };
+    expect(isFamily(agent("agt_root"), archivedChild)).toBe(true);
   });
 });
 
