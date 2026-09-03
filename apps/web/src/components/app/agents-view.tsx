@@ -52,8 +52,8 @@ import {
 } from "@/hooks/use-agent-messages";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentSurfaces } from "@/hooks/use-agent-surfaces";
-import { useChatUnreadCount } from "@/hooks/use-chat";
 import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
+import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
 import { useSurfaceSeen } from "@/components/app/agent-surfaces/use-surface-seen";
 import { useMedia } from "@/hooks/use-media";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
@@ -313,7 +313,7 @@ export function AgentsView({
   } = useMedia(focusedAgentId, mediaPanelOpen, focusedSubAgents);
 
   const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
-  const chatUnreadCount = useChatUnreadCount(focusedAgentId, chatEnabled);
+  const chatUnreadCount = useAgentChatUnread(focusedAgentId).unread;
   const markMessagesRead = useMarkMessagesRead(focusedAgentId);
 
   // Closed-sidebar external signal for #2019: reuses the same surfaces query
@@ -687,9 +687,7 @@ export function AgentsView({
                 hasActiveAgent={hasActiveAgent}
                 focusTerminal={focusTerminal}
                 focusedDiffStats={focusedDiffStats}
-                changesMatch={changesMatch}
-                whiteboardMatch={whiteboardMatch}
-                chatMatch={chatMatch}
+                activeTab={activeTab}
                 chatEnabled={chatEnabled}
                 centerTabResolved={centerTabResolved}
                 chatUnreadCount={chatUnreadCount}

@@ -1,7 +1,11 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
-import { ChatService, ChatValidationError } from "../src/chat/service.js";
+import {
+  ChatService,
+  ChatValidationError,
+  validateChatContent,
+} from "../src/chat/service.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -26,7 +30,6 @@ beforeAll(async () => {
     publishUiEvent: (event) => published.push(event),
     getAgent: async (id) =>
       id === A ? { id, mediaDir: null, pins: PINS as never } : null,
-    mediaRoot: "/tmp/media-root",
   });
 });
 
@@ -50,6 +53,41 @@ describe("ChatService.post", () => {
       text: "hello",
     });
     expect(published).toEqual([{ type: "chat.changed", agentId: A }]);
+  });
+
+  it("validates content once, at the service boundary", () => {
+    expect(() => validateChatContent({ text: "  " })).toThrow(/not be empty/);
+    expect(() => validateChatContent({ text: "x".repeat(20_001) })).toThrow(
+      /20000 characters or fewer/
+    );
+    expect(() => validateChatContent({ text: "?", kind: "question" })).toThrow(
+      /question .* required/
+    );
+    expect(() =>
+      validateChatContent({
+        text: "fyi",
+        kind: "update",
+        question: { options: [{ label: "a" }] },
+      })
+    ).toThrow(/only accepted when kind is "question"/);
+    expect(() =>
+      validateChatContent({
+        text: "?",
+        kind: "question",
+        question: {
+          options: Array.from({ length: 11 }, (_, i) => ({ label: `o${i}` })),
+        },
+      })
+    ).toThrow(/10 entries or fewer/);
+    expect(() =>
+      validateChatContent({
+        text: "x",
+        attachments: Array.from({ length: 21 }, () => ({
+          type: "link" as const,
+          url: "https://example.com",
+        })),
+      })
+    ).toThrow(/20 entries or fewer/);
   });
 
   it("drops a stray question on non-question kinds at the service boundary", async () => {

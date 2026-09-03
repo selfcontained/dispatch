@@ -7,12 +7,11 @@ import {
   useState,
 } from "react";
 import type { ChatQuestionOption } from "@dispatch/shared";
-import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, Hash, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { describeAgentStatus } from "@/components/app/agent-event-utils";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
-import { type AttachmentContext } from "@/components/app/chat/chat-entries";
+import { type FeedContext } from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
   latestAgentMessageId,
@@ -21,7 +20,7 @@ import {
 } from "@/components/app/chat/chat-feed";
 import {
   type Agent,
-  type InjectionHoldState,
+  type AgentPin,
   type MediaFile,
 } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
@@ -31,6 +30,7 @@ import {
   useMarkChatRead,
   useSendChatMessage,
 } from "@/hooks/use-chat";
+import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
 import { cn } from "@/lib/utils";
 
 export type ChatPaneProps = {
@@ -58,7 +58,7 @@ export function questionExcerpt(text: string, max = 80): string {
   return plain.length > max ? `${plain.slice(0, max - 1).trimEnd()}…` : plain;
 }
 
-export function composerDisabledReason(
+function composerDisabledReason(
   agent: Agent | null,
   terminalMode: "tmux" | "inert" | null,
   feed: { isLoading: boolean; error: Error | null } = {
@@ -118,19 +118,11 @@ export function ChatPane({
   openLightbox,
   isMobile,
 }: ChatPaneProps): JSX.Element {
-  const feed = useChatFeed(agentId, true);
+  const feed = useChatFeed(agentId);
   const send = useSendChatMessage(agentId);
   const answer = useAnswerChatQuestion(agentId);
   const markRead = useMarkChatRead(agentId, feed.unreadCount);
-
-  const { data: holdState } = useQuery<InjectionHoldState>({
-    queryKey: ["injection-hold", agentId],
-    // Populated by SSE; the default only seeds first render.
-    queryFn: () => ({ held: false, pendingCount: 0, quietMs: 10_000 }),
-    enabled: agentId !== null,
-    refetchOnWindowFocus: false,
-    staleTime: Number.POSITIVE_INFINITY,
-  });
+  const holdState = useInjectionHoldState(agentId);
 
   const entries = feed.entries;
   const heldMessageId = useMemo(
@@ -180,12 +172,13 @@ export function ChatPane({
     if (atBottom) setPendingBelow(false);
   }, []);
 
+  const { loadOlder: fetchOlder } = feed;
   const loadOlder = useCallback(() => {
     const el = scrollRef.current;
     if (el)
       olderLoadRef.current = { height: el.scrollHeight, top: el.scrollTop };
-    feed.loadOlder();
-  }, [feed]);
+    fetchOlder();
+  }, [fetchOlder]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
@@ -221,9 +214,10 @@ export function ChatPane({
   }, [active, following, scrollToBottom]);
 
   // ---- unread: mark read while visible and focused --------------------------
+  // markRead itself is a no-op while nothing is unread.
   const upTo = latestAgentMessageId(entries);
   useEffect(() => {
-    if (!active || feed.unreadCount === 0) return;
+    if (!active) return;
     const attempt = () => {
       if (document.hidden) return;
       if (typeof document.hasFocus === "function" && !document.hasFocus()) {
@@ -238,24 +232,28 @@ export function ChatPane({
       window.removeEventListener("focus", attempt);
       document.removeEventListener("visibilitychange", attempt);
     };
-  }, [active, feed.unreadCount, markRead, upTo]);
+  }, [active, markRead, upTo]);
 
   // ---- actions --------------------------------------------------------------
   const [sendError, setSendError] = useState<string | null>(null);
 
   // The composer keeps its draft until this resolves; failures surface in
-  // the composer itself, so nothing is set here on error.
+  // the composer itself, so nothing is set here on error. The mutate
+  // functions are stable, unlike the mutation result objects, so these
+  // callbacks survive the re-renders every status event causes.
+  const { mutateAsync: answerAsync, mutate: answerNow } = answer;
+  const { mutateAsync: sendAsync } = send;
   const onSend = useCallback(
     async (text: string): Promise<void> => {
       setSendError(null);
       setFollowing(true);
       if (replyTarget) {
-        await answer.mutateAsync({ messageId: replyTarget.id, value: text });
+        await answerAsync({ messageId: replyTarget.id, value: text });
         return;
       }
-      await send.mutateAsync(text);
+      await sendAsync(text);
     },
-    [answer, replyTarget, send]
+    [answerAsync, replyTarget, sendAsync]
   );
 
   const replyContext = useMemo(
@@ -273,7 +271,7 @@ export function ChatPane({
     (messageId: string, option: ChatQuestionOption) => {
       setSendError(null);
       setFollowing(true);
-      answer.mutate(
+      answerNow(
         {
           messageId,
           value: option.value ?? option.label,
@@ -282,26 +280,30 @@ export function ChatPane({
         { onError: (err) => setSendError(err.message) }
       );
     },
-    [answer]
+    [answerNow]
   );
 
-  const ctx = useMemo<AttachmentContext>(
+  // Every agent.upsert hands over a fresh pins array; key the context on its
+  // content so unchanged pins don't invalidate every memoised post.
+  const pinsKey = JSON.stringify(agent?.pins ?? []);
+  const pins = useMemo<AgentPin[]>(() => JSON.parse(pinsKey), [pinsKey]);
+  const ctx = useMemo<FeedContext>(
     () => ({
       agentId: agentId ?? "",
       agentName: agent?.name,
       agentType: agent?.type ?? null,
-      pins: agent?.pins ?? [],
+      pins,
       workspaceRoot: agent?.worktreePath ?? agent?.cwd ?? null,
       onOpenMedia: openLightbox,
     }),
     [
       agent?.cwd,
       agent?.name,
-      agent?.pins,
       agent?.type,
       agent?.worktreePath,
       agentId,
       openLightbox,
+      pins,
     ]
   );
 
@@ -346,7 +348,6 @@ export function ChatPane({
             if (following) scrollToBottom();
           }}
           className="h-full overflow-y-auto overscroll-contain py-2"
-          data-testid="chat-scroll"
         >
           {feed.hasOlder ? (
             <div className="mb-1 flex justify-center px-4">
@@ -357,7 +358,6 @@ export function ChatPane({
                 className="h-7 text-xs"
                 onClick={loadOlder}
                 disabled={feed.isFetchingOlder}
-                data-testid="chat-load-older"
               >
                 {feed.isFetchingOlder ? "Loading…" : "Load older"}
               </Button>
@@ -433,7 +433,6 @@ export function ChatPane({
                 setPendingBelow(false);
                 scrollToBottom("smooth");
               }}
-              data-testid="chat-jump-to-latest"
             >
               <ArrowDown className="h-3 w-3" />
               New messages
@@ -454,7 +453,6 @@ export function ChatPane({
             <span
               role="alert"
               className="truncate text-[11px] text-destructive"
-              data-testid="chat-send-error"
             >
               {sendError}
             </span>

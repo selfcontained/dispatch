@@ -43,7 +43,7 @@ function fetchFeedPage(
  * Pages arrive newest-first (page 0 is the initial fetch, later pages are
  * older via `cursor`), each page ascending. Flatten to one ascending list.
  */
-export function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
+function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
   const out: ChatFeedEntry[] = [];
   for (let i = pages.length - 1; i >= 0; i -= 1) {
     out.push(...pages[i]!.entries);
@@ -62,10 +62,7 @@ export type ChatFeedState = {
   refetch: () => void;
 };
 
-export function useChatFeed(
-  agentId: string | null,
-  enabled: boolean
-): ChatFeedState {
+export function useChatFeed(agentId: string | null): ChatFeedState {
   const query = useInfiniteQuery<
     ChatFeedResponse,
     Error,
@@ -77,7 +74,7 @@ export function useChatFeed(
     queryFn: ({ pageParam }) => fetchFeedPage(agentId, pageParam),
     initialPageParam: undefined,
     getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    enabled: !!agentId && enabled,
+    enabled: !!agentId,
     staleTime: 0,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
@@ -88,46 +85,26 @@ export function useChatFeed(
     [query.data]
   );
 
+  // fetchNextPage/refetch are stable; these wrappers are too, so consumers
+  // can hang effects and memoised callbacks off them.
+  const { fetchNextPage, isFetchingNextPage, refetch: refetchQuery } = query;
+  const loadOlder = useCallback(() => {
+    if (!isFetchingNextPage) void fetchNextPage();
+  }, [fetchNextPage, isFetchingNextPage]);
+  const refetch = useCallback(() => {
+    void refetchQuery();
+  }, [refetchQuery]);
+
   return {
     entries,
     unreadCount: query.data?.pages[0]?.unreadCount ?? 0,
     hasOlder: query.hasNextPage,
     isLoading: query.isLoading,
-    isFetchingOlder: query.isFetchingNextPage,
+    isFetchingOlder: isFetchingNextPage,
     error: query.error,
-    loadOlder: () => {
-      if (!query.isFetchingNextPage) void query.fetchNextPage();
-    },
-    refetch: () => {
-      void query.refetch();
-    },
+    loadOlder,
+    refetch,
   };
-}
-
-/**
- * Unread agent messages for the tab badge. Same query as the feed, so the
- * pane and the badge never disagree; `enabled` keeps it off when the flag is.
- */
-export function useChatUnreadCount(
-  agentId: string | null,
-  enabled: boolean
-): number {
-  const { data } = useInfiniteQuery<
-    ChatFeedResponse,
-    Error,
-    number,
-    ReturnType<typeof chatFeedQueryKey>,
-    string | undefined
-  >({
-    queryKey: chatFeedQueryKey(agentId),
-    queryFn: ({ pageParam }) => fetchFeedPage(agentId, pageParam),
-    initialPageParam: undefined,
-    getNextPageParam: (lastPage) => lastPage.nextCursor ?? undefined,
-    select: (data) => data.pages[0]?.unreadCount ?? 0,
-    enabled: !!agentId && enabled,
-    staleTime: 0,
-  });
-  return data ?? 0;
 }
 
 let optimisticSeq = 0;

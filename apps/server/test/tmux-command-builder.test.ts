@@ -927,7 +927,7 @@ describe("buildLaunchGuidance — trimmed variant", () => {
 
 describe("buildLaunchGuidance — chat surface rule", () => {
   const RULE =
-    "When Chat is enabled, send user-facing replies and questions with dispatch_chat_post; use kind: question with options for finite choices. Terminal output remains in Console.";
+    "Send user-facing replies and questions with dispatch_chat_post; use kind: question with options for finite choices. Terminal output remains in Console.";
 
   it("is absent by default and when the flag is off", () => {
     expect(

@@ -28,7 +28,10 @@ import { type AgentPin, type MediaFile } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { formatBytes } from "@/components/app/service-resources-format";
+import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
+
+import { isImageFile } from "../../../../../server/src/shared/media-file-types";
 
 type EventType = Parameters<typeof latestEventLabel>[0];
 
@@ -44,21 +47,12 @@ function asEventType(type: string): EventType {
   return (EVENT_TYPES.includes(type) ? type : "idle") as EventType;
 }
 
-export function isImageFileName(name: string): boolean {
-  return /\.(png|jpe?g|gif|webp|svg|avif)$/i.test(name);
-}
-
-export function mediaFileUrl(agentId: string, fileName: string): string {
+function mediaFileUrl(agentId: string, fileName: string): string {
   return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
 }
 
-export function fullTimestamp(iso: string): string {
-  const time = new Date(iso);
-  return Number.isNaN(time.getTime()) ? iso : time.toLocaleString();
-}
-
 /** "10:04 AM" — the wall-clock time a channel shows next to a post. */
-export function clockTime(iso: string): string {
+function clockTime(iso: string): string {
   const time = new Date(iso);
   if (Number.isNaN(time.getTime())) return "";
   return time.toLocaleTimeString(undefined, {
@@ -68,7 +62,7 @@ export function clockTime(iso: string): string {
 }
 
 /** The gutter is 32px wide: "6:47", no meridiem, like Slack's hover time. */
-export function gutterTime(iso: string): string {
+function gutterTime(iso: string): string {
   return clockTime(iso).replace(/\s?[AP]M$/i, "");
 }
 
@@ -84,7 +78,8 @@ function hostOf(url: string): string {
 // Authors and the post layout
 // ---------------------------------------------------------------------------
 
-export type AttachmentContext = {
+/** What every row of the channel needs to know about the agent it belongs to. */
+export type FeedContext = {
   agentId: string;
   /** The agent this channel belongs to; names its posts. */
   agentName?: string;
@@ -102,11 +97,11 @@ export type PostAuthor = {
   agentType?: string | null;
 };
 
-export function userAuthor(): PostAuthor {
+function userAuthor(): PostAuthor {
   return { key: "user", name: "You", kind: "user" };
 }
 
-export function agentAuthor(ctx: AttachmentContext, fallback = ""): PostAuthor {
+function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
   return {
     key: "agent",
     name: ctx.agentName ?? fallback,
@@ -115,7 +110,7 @@ export function agentAuthor(ctx: AttachmentContext, fallback = ""): PostAuthor {
   };
 }
 
-export function peerAuthor(agentId: string, name: string): PostAuthor {
+function peerAuthor(agentId: string, name: string): PostAuthor {
   return { key: `peer:${agentId}`, name, kind: "peer" };
 }
 
@@ -152,22 +147,19 @@ export function Post({
   at,
   grouped,
   children,
-  className,
   ...rest
 }: {
   author: PostAuthor;
   at: string;
   grouped: boolean;
   children: ReactNode;
-  className?: string;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
   return (
     <div
       className={cn(
         "group relative flex gap-3 px-4 transition-colors hover:bg-muted/40",
-        grouped ? "py-0.5" : "mt-2 pb-0.5 pt-1.5",
-        className
+        grouped ? "py-0.5" : "mt-2 pb-0.5 pt-1.5"
       )}
       data-grouped={grouped ? "true" : undefined}
       {...rest}
@@ -176,7 +168,7 @@ export function Post({
         {grouped ? (
           <span
             className="invisible whitespace-nowrap pt-1 text-[10px] leading-none text-muted-foreground group-hover:visible"
-            title={fullTimestamp(at)}
+            title={formatDateTime(at)}
             data-testid="chat-gutter-time"
           >
             {gutterTime(at)}
@@ -196,8 +188,7 @@ export function Post({
             </span>
             <span
               className="shrink-0 text-[11px] text-muted-foreground"
-              title={fullTimestamp(at)}
-              data-testid="chat-post-time"
+              title={formatDateTime(at)}
             >
               {clockTime(at)}
             </span>
@@ -314,7 +305,7 @@ function FileAttachment({
 }: {
   attachment: Extract<ChatAttachment, { type: "file" }>;
   at: string;
-  ctx: AttachmentContext;
+  ctx: FeedContext;
 }): JSX.Element {
   const url = mediaFileUrl(ctx.agentId, attachment.fileName);
   const open = () =>
@@ -324,7 +315,7 @@ function FileAttachment({
       updatedAt: at,
       url,
     });
-  if (isImageFileName(attachment.fileName)) {
+  if (isImageFile(attachment.fileName)) {
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
         <div className="mb-1 truncate text-[11px] text-muted-foreground">
@@ -392,7 +383,7 @@ function PinAttachment({
   ctx,
 }: {
   attachment: Extract<ChatAttachment, { type: "pin" }>;
-  ctx: AttachmentContext;
+  ctx: FeedContext;
 }): JSX.Element {
   const pin = ctx.pins.find((p) => p.id === attachment.pinId);
   if (!pin) {
@@ -412,14 +403,14 @@ function PinAttachment({
   );
 }
 
-export function AttachmentView({
+function AttachmentView({
   attachment,
   at,
   ctx,
 }: {
   attachment: ChatAttachment;
   at: string;
-  ctx: AttachmentContext;
+  ctx: FeedContext;
 }): JSX.Element {
   switch (attachment.type) {
     case "file":
@@ -456,11 +447,11 @@ function AttachmentList({
 }: {
   attachments: ChatAttachment[];
   at: string;
-  ctx: AttachmentContext;
+  ctx: FeedContext;
 }): JSX.Element | null {
   if (attachments.length === 0) return null;
   return (
-    <div className="mt-2 flex flex-col gap-2" data-testid="chat-attachments">
+    <div className="mt-2 flex flex-col gap-2">
       {attachments.map((attachment, index) => (
         <AttachmentView key={index} attachment={attachment} at={at} ctx={ctx} />
       ))}
@@ -472,22 +463,24 @@ function AttachmentList({
 // Questions
 // ---------------------------------------------------------------------------
 
-export function QuestionOptions({
+function QuestionOptions({
   message,
   answering,
-  freeformAvailable = true,
+  answersDisabled,
   onAnswer,
 }: {
   message: ChatMessage;
+  /** This question's answer is in flight. */
   answering: boolean;
-  /** The composer can take a typed reply right now. */
-  freeformAvailable?: boolean;
+  /** Nothing can be sent right now, so neither buttons nor a typed reply. */
+  answersDisabled: boolean;
   onAnswer: (option: ChatQuestionOption) => void;
 }): JSX.Element | null {
   const question = message.question;
   if (!question) return null;
   const answer = message.answer;
   const open = answer === null;
+  const optionsDisabled = answer !== null || answering || answersDisabled;
   return (
     <div
       className={cn(
@@ -510,9 +503,7 @@ export function QuestionOptions({
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Check className="h-3 w-3" />
           Answered
-          {(answer.label ?? answer.value) ? (
-            <span className="truncate">· {answer.label ?? answer.value}</span>
-          ) : null}
+          <span className="truncate">· {answer.label ?? answer.value}</span>
         </div>
       )}
       <div className="flex flex-wrap gap-1.5">
@@ -533,7 +524,7 @@ export function QuestionOptions({
                 "[@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:whitespace-normal [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-left",
                 chosen && "cursor-default"
               )}
-              disabled={answer !== null || answering}
+              disabled={optionsDisabled}
               aria-pressed={chosen}
               data-testid="chat-question-option"
               onClick={() => onAnswer(option)}
@@ -544,7 +535,7 @@ export function QuestionOptions({
           );
         })}
       </div>
-      {open && question.allowFreeform && freeformAvailable ? (
+      {open && question.allowFreeform && !answersDisabled ? (
         <div className="mt-2 text-[11px] text-muted-foreground">
           Or type a reply below.
         </div>
@@ -611,15 +602,17 @@ export const ChatMessageView = memo(function ChatMessageView({
   grouped,
   ctx,
   answering,
-  freeformAvailable = true,
+  answersDisabled = false,
   onAnswer,
 }: {
   message: ChatMessage;
   held: boolean;
   grouped: boolean;
-  ctx: AttachmentContext;
+  ctx: FeedContext;
+  /** This message's answer is in flight. */
   answering: boolean;
-  freeformAvailable?: boolean;
+  /** Answers go through the same injection as the composer; lock them together. */
+  answersDisabled?: boolean;
   onAnswer: (messageId: string, option: ChatQuestionOption) => void;
 }): JSX.Element {
   if (message.authorKind === "user") {
@@ -703,7 +696,7 @@ export const ChatMessageView = memo(function ChatMessageView({
         <QuestionOptions
           message={message}
           answering={answering}
-          freeformAvailable={freeformAvailable}
+          answersDisabled={answersDisabled}
           onAnswer={(option) => onAnswer(message.id, option)}
         />
       ) : null}
@@ -728,8 +721,7 @@ export function StatusLine({
     <div
       className="flex items-center gap-3 px-4 py-0.5 text-[11px] text-muted-foreground"
       data-testid="chat-status"
-      data-event-type={entry.eventType}
-      title={fullTimestamp(entry.at)}
+      title={formatDateTime(entry.at)}
     >
       <div className="flex w-8 shrink-0 justify-center">
         <span
@@ -757,7 +749,7 @@ export function StatusLine({
 
 export function agentMessageAuthor(
   entry: ChatAgentMessageEntry,
-  ctx: AttachmentContext
+  ctx: FeedContext
 ): PostAuthor {
   return entry.direction === "out"
     ? agentAuthor(ctx, entry.senderName)
@@ -771,7 +763,7 @@ export function AgentMessageView({
 }: {
   entry: ChatAgentMessageEntry;
   grouped: boolean;
-  ctx: AttachmentContext;
+  ctx: FeedContext;
 }): JSX.Element {
   const isSent = entry.direction === "out";
   return (
@@ -808,7 +800,7 @@ export function MediaEntryView({
 }: {
   entry: ChatMediaEntry;
   grouped: boolean;
-  ctx: AttachmentContext;
+  ctx: FeedContext;
 }): JSX.Element {
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
   const open = () =>
@@ -819,7 +811,7 @@ export function MediaEntryView({
       url,
       description: entry.description,
     });
-  const isImage = isImageFileName(entry.fileName);
+  const isImage = isImageFile(entry.fileName);
   return (
     <Post
       author={agentAuthor(ctx, "Agent")}

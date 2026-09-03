@@ -7,7 +7,6 @@ import {
 } from "@dispatch/shared";
 
 import type { ChatService } from "../../chat/service.js";
-import { validateChatContent } from "../../chat/service.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
@@ -134,8 +133,7 @@ export function registerChatTools(
           text: textSchema,
           kind: chatKindSchema.optional().describe('Default "reply".'),
           replyTo: z
-            .string()
-            .min(1)
+            .uuid()
             .optional()
             .describe(
               "Id of the user message you are answering (from the DISPATCH CHAT envelope)."
@@ -146,7 +144,6 @@ export function registerChatTools(
       },
       async (args) => {
         try {
-          validateChatContent(args);
           const message = await chat.post(agentId, {
             text: args.text,
             kind: args.kind,
@@ -175,10 +172,7 @@ export function registerChatTools(
           "Only your own messages on this agent can be edited. Supply only the fields to change; attachments, when given, replace the whole list. " +
           'Changing kind to "question" requires question; changing away from it clears the question. Returns { id, updatedAt }.',
         inputSchema: {
-          messageId: z
-            .string()
-            .min(1)
-            .describe("Id returned by dispatch_chat_post."),
+          messageId: z.uuid().describe("Id returned by dispatch_chat_post."),
           text: textSchema.optional(),
           kind: chatKindSchema.optional(),
           question: chatQuestionSchema.optional(),

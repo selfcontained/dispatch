@@ -22,9 +22,7 @@ type AgentsViewHeaderProps = {
   hasActiveAgent: boolean;
   focusTerminal: () => void;
   focusedDiffStats: DiffStats | null | undefined;
-  changesMatch: boolean;
-  whiteboardMatch: boolean;
-  chatMatch?: boolean;
+  activeTab: CenterTab;
   chatEnabled?: boolean;
   /**
    * False while the route is still settling on a tab (flag not yet known, or
@@ -55,9 +53,7 @@ export function AgentsViewHeader({
   hasActiveAgent,
   focusTerminal,
   focusedDiffStats,
-  changesMatch,
-  whiteboardMatch,
-  chatMatch = false,
+  activeTab,
   chatEnabled = false,
   centerTabResolved = true,
   chatUnreadCount = 0,
@@ -129,15 +125,7 @@ export function AgentsViewHeader({
             </span>
             {centerTabResolved ? (
               <CenterPaneTabBar
-                activeTab={
-                  changesMatch
-                    ? "changes"
-                    : whiteboardMatch
-                      ? "whiteboard"
-                      : chatMatch
-                        ? "chat"
-                        : "terminal"
-                }
+                activeTab={activeTab}
                 onTabChange={(tab) => {
                   if (isSplit) {
                     exitSplit();
@@ -156,7 +144,7 @@ export function AgentsViewHeader({
         ) : null}
       </div>
       <div className="flex items-center justify-end gap-1">
-        {changesMatch && !isSplit ? (
+        {activeTab === "changes" && !isSplit ? (
           <ChangesSettingsPopover isMobile={isMobile} />
         ) : null}
         {hasActiveAgent && (!mediaPanelOpen || isMobile) ? (

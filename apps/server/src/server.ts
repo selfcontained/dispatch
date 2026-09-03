@@ -435,7 +435,6 @@ const chatService = new ChatService({
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   getAgent: (agentId) => agentManager.getAgent(agentId),
-  mediaRoot: config.mediaRoot,
 });
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({

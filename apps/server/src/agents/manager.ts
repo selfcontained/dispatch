@@ -216,6 +216,17 @@ export type DiffStatsRefresherHandle = {
   clear: (agentId: string) => void;
 };
 
+/** The two settings-backed switches the launch guidance is built from. */
+async function readLaunchGuidanceFlags(
+  pool: Pool
+): Promise<{ trimmedGuidance: boolean; chatSurface: boolean }> {
+  const [trimmedGuidance, chatSurface] = await Promise.all([
+    isTrimmedLaunchGuidanceEnabled(pool),
+    isChatSurfaceEnabled(pool),
+  ]);
+  return { trimmedGuidance, chatSurface };
+}
+
 export class AgentManager {
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
@@ -704,12 +715,9 @@ export class AgentManager {
           : await getActivePersonality(this.pool);
       // Job runs get their own ruleset, which the trim never touches — so
       // don't make an unchanged launch path depend on this settings read.
-      const [trimmedGuidance, chatSurface] = opts.jobRunId
-        ? [false, false]
-        : await Promise.all([
-            isTrimmedLaunchGuidanceEnabled(this.pool),
-            isChatSurfaceEnabled(this.pool),
-          ]);
+      const { trimmedGuidance, chatSurface } = opts.jobRunId
+        ? { trimmedGuidance: false, chatSurface: false }
+        : await readLaunchGuidanceFlags(this.pool);
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -926,10 +934,9 @@ export class AgentManager {
         agent.persona || agent.role === "assisted_update"
           ? null
           : await getActivePersonality(this.pool);
-      const [trimmedGuidance, chatSurface] = await Promise.all([
-        isTrimmedLaunchGuidanceEnabled(this.pool),
-        isChatSurfaceEnabled(this.pool),
-      ]);
+      const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
+        this.pool
+      );
 
       const agentCommand = buildAgentCommand(
         this.config,

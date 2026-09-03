@@ -196,8 +196,8 @@ vi.mock("@/hooks/use-chat-surface-enabled", () => ({
   }),
 }));
 
-vi.mock("@/hooks/use-chat", () => ({
-  useChatUnreadCount: () => 0,
+vi.mock("@/hooks/use-chat-unread-summary", () => ({
+  useAgentChatUnread: () => ({ unread: 0, pendingQuestions: 0 }),
 }));
 
 vi.mock("@/hooks/use-expanded-agent", () => ({

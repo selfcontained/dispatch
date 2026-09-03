@@ -9,7 +9,7 @@ import type {
 import {
   AgentMessageView,
   agentMessageAuthor,
-  type AttachmentContext,
+  type FeedContext,
   ChatMessageView,
   DayDivider,
   dayLabel,
@@ -21,7 +21,7 @@ import {
  * A feed entry ready to render: status lines may stand in for a run of
  * consecutive `working` events, in which case `collapsedCount` says how many.
  */
-export type ChatFeedItem =
+type ChatFeedItem =
   | { kind: "entry"; entry: Exclude<ChatFeedEntry, ChatStatusEntry> }
   | { kind: "status"; entry: ChatStatusEntry; collapsedCount: number };
 
@@ -39,7 +39,7 @@ export type ChatFeedRow =
     };
 
 /** Posts by one author this close together share a header, like Slack. */
-export const GROUP_WINDOW_MS = 5 * 60 * 1000;
+const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /**
  * Agents emit a `working` event for every little step. Back-to-back ones say
@@ -74,7 +74,7 @@ export function collapseFeed(entries: ChatFeedEntry[]): ChatFeedItem[] {
 
 function authorKey(
   entry: Exclude<ChatFeedEntry, ChatStatusEntry>,
-  ctx: AttachmentContext
+  ctx: FeedContext
 ): string {
   switch (entry.type) {
     case "chat":
@@ -99,7 +99,7 @@ function dayKey(iso: string): string {
  */
 export function layoutFeed(
   entries: ChatFeedEntry[],
-  ctx: AttachmentContext,
+  ctx: FeedContext,
   now: Date = new Date()
 ): ChatFeedRow[] {
   const rows: ChatFeedRow[] = [];
@@ -176,7 +176,7 @@ export function latestAgentMessageId(entries: ChatFeedEntry[]): string | null {
 
 export type ChatFeedProps = {
   entries: ChatFeedEntry[];
-  ctx: AttachmentContext;
+  ctx: FeedContext;
   /** Message currently waiting out the injection hold, if any. */
   heldMessageId: string | null;
   /** Question whose answer is in flight, if any. */
@@ -221,10 +221,8 @@ export function ChatFeed({
                 held={heldMessageId === entry.message.id}
                 grouped={row.grouped}
                 ctx={ctx}
-                answering={
-                  answersDisabled || answeringMessageId === entry.message.id
-                }
-                freeformAvailable={!answersDisabled}
+                answering={answeringMessageId === entry.message.id}
+                answersDisabled={answersDisabled}
                 onAnswer={onAnswer}
               />
             );

@@ -67,3 +67,8 @@ export function formatRelativeTime(iso: string): string {
     day: "numeric",
   });
 }
+
+/** Badge counts stop at "99+" so a runaway number can't stretch the chip. */
+export function formatBadgeCount(count: number): string {
+  return count > 99 ? "99+" : String(count);
+}

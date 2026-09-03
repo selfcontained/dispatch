@@ -1,4 +1,3 @@
-import type { Pool } from "pg";
 import type {
   ChatAgentMessageEntry,
   ChatFeedEntry,
@@ -7,7 +6,12 @@ import type {
   ChatStatusEntry,
 } from "@dispatch/shared";
 
-import { ChatStore, toChatMessage } from "./store.js";
+import {
+  type ChatStore,
+  isChatMessageId,
+  type Queryable,
+  toChatMessage,
+} from "./store.js";
 
 export const CHAT_FEED_DEFAULT_LIMIT = 200;
 export const CHAT_FEED_MAX_LIMIT = 500;
@@ -46,8 +50,6 @@ export function encodeFeedCursor(cursor: FeedCursor): string {
   return Buffer.from(JSON.stringify(cursor), "utf8").toString("base64url");
 }
 
-const UUID_RE =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 /** Serial ids: digits only, and small enough for a Postgres int4 cast. */
 const SERIAL_ID_RE = /^\d{1,10}$/;
 
@@ -55,7 +57,7 @@ function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
   switch (type) {
     case "chat":
     case "agent_message":
-      return UUID_RE.test(id);
+      return isChatMessageId(id);
     case "status":
     case "media":
       return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
@@ -141,7 +143,7 @@ function cursorClause(
 const intKey = (id: number) => String(id).padStart(20, "0");
 
 async function listChatEntries(
-  pool: Pool,
+  db: Queryable,
   agentId: string,
   cursor: FeedCursor | null,
   limit: number
@@ -149,7 +151,7 @@ async function listChatEntries(
   const params: unknown[] = [agentId];
   const clause = cursorClause("chat", "uuid", cursor, params);
   params.push(limit);
-  const result = await pool.query<
+  const result = await db.query<
     Parameters<typeof toChatMessage>[0] & { at_key: string }
   >(
     `SELECT *, ${AT_KEY_SQL} AS at_key FROM agent_chat_messages
@@ -170,7 +172,7 @@ async function listChatEntries(
 }
 
 async function listStatusEntries(
-  pool: Pool,
+  db: Queryable,
   agentId: string,
   cursor: FeedCursor | null,
   limit: number
@@ -178,7 +180,7 @@ async function listStatusEntries(
   const params: unknown[] = [agentId];
   const clause = cursorClause("status", "int", cursor, params);
   params.push(limit);
-  const result = await pool.query<{
+  const result = await db.query<{
     id: number;
     event_type: string;
     message: string;
@@ -207,7 +209,7 @@ async function listStatusEntries(
 }
 
 async function listAgentMessageEntries(
-  pool: Pool,
+  db: Queryable,
   agentId: string,
   cursor: FeedCursor | null,
   limit: number
@@ -215,7 +217,7 @@ async function listAgentMessageEntries(
   const params: unknown[] = [agentId];
   const clause = cursorClause("agent_message", "uuid", cursor, params);
   params.push(limit);
-  const result = await pool.query<{
+  const result = await db.query<{
     id: string;
     sender_agent_id: string;
     recipient_agent_id: string;
@@ -255,7 +257,7 @@ async function listAgentMessageEntries(
 }
 
 async function listMediaEntries(
-  pool: Pool,
+  db: Queryable,
   agentId: string,
   cursor: FeedCursor | null,
   limit: number
@@ -263,7 +265,7 @@ async function listMediaEntries(
   const params: unknown[] = [agentId];
   const clause = cursorClause("media", "int", cursor, params);
   params.push(limit);
-  const result = await pool.query<{
+  const result = await db.query<{
     id: number;
     file_name: string;
     size_bytes: number;
@@ -313,18 +315,18 @@ function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
  * left over proves an older page exists.
  */
 export async function composeChatFeed(
-  pool: Pool,
+  store: ChatStore,
   agentId: string,
   opts: ComposeChatFeedOptions = {}
 ): Promise<ChatFeedResponse> {
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
-  const store = new ChatStore(pool);
+  const { db } = store;
   const [chat, status, agentMessages, media, unreadCount] = await Promise.all([
-    listChatEntries(pool, agentId, cursor, limit + 1),
-    listStatusEntries(pool, agentId, cursor, limit + 1),
-    listAgentMessageEntries(pool, agentId, cursor, limit + 1),
-    listMediaEntries(pool, agentId, cursor, limit + 1),
+    listChatEntries(db, agentId, cursor, limit + 1),
+    listStatusEntries(db, agentId, cursor, limit + 1),
+    listAgentMessageEntries(db, agentId, cursor, limit + 1),
+    listMediaEntries(db, agentId, cursor, limit + 1),
     store.countUnread(agentId),
   ]);
 

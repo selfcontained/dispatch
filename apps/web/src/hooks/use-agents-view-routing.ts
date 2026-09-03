@@ -1,6 +1,8 @@
 import { useCallback, useEffect } from "react";
+import { useStore } from "jotai";
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
 
+import { centerTabs } from "@/components/app/center-pane-tab-bar";
 import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import {
   agentChangesRoute,
@@ -8,14 +10,24 @@ import {
   agentRoute,
   agentWhiteboardRoute,
 } from "@/lib/agent-routes";
-import { readLastCenterTab, rememberCenterTab } from "@/lib/center-tab-memory";
-import { type CenterTab } from "@/lib/store";
+import { type CenterTab, lastCenterTabAtomFamily } from "@/lib/store";
 
 type UseAgentsViewRoutingOptions = {
   routeAgentId: string | undefined;
   agentsLoaded: boolean;
   validatedSelectedAgentId: string | null;
 };
+
+const KNOWN_TABS: ReadonlySet<string> = new Set(
+  centerTabs(true).map((tab) => tab.id)
+);
+
+/** Stored values are user-editable localStorage; anything unknown reads as unset. */
+function knownCenterTab(value: unknown): CenterTab | null {
+  return typeof value === "string" && KNOWN_TABS.has(value)
+    ? (value as CenterTab)
+    : null;
+}
 
 export function centerTabRoute(agentId: string, tab: CenterTab): string {
   switch (tab) {
@@ -45,6 +57,9 @@ export function useAgentsViewRouting({
   const bareMatch = useMatch("/agents/:agentId");
   const { enabled: chatEnabled, loaded: chatFlagLoaded } =
     useChatSurfaceEnabled();
+  // Read synchronously (not subscribed): the value only matters for the
+  // redirect decision below, which has to be made during this render.
+  const store = useStore();
 
   useEffect(() => {
     if (!routeAgentId) return;
@@ -71,10 +86,11 @@ export function useAgentsViewRouting({
   // performed in the effect below, so the view can hold the center pane on
   // the same commit the redirect is scheduled: nothing paints the Console
   // for a frame while the URL catches up.
+  const lastTab = routeAgentId
+    ? knownCenterTab(store.get(lastCenterTabAtomFamily(routeAgentId)))
+    : null;
   const wantsChatByDefault =
-    !!routeAgentId &&
-    !!bareMatch &&
-    readLastCenterTab(routeAgentId) !== "terminal";
+    !!routeAgentId && !!bareMatch && lastTab !== "terminal";
   const pendingTabRedirect =
     !!routeAgentId &&
     (!chatFlagLoaded || (chatEnabled ? wantsChatByDefault : !!chatMatch));
@@ -113,10 +129,10 @@ export function useAgentsViewRouting({
   const onTabChange = useCallback(
     (tab: CenterTab) => {
       if (!routeAgentId) return;
-      rememberCenterTab(routeAgentId, tab);
+      store.set(lastCenterTabAtomFamily(routeAgentId), tab);
       navigate(centerTabRoute(routeAgentId, tab), { replace: true });
     },
-    [navigate, routeAgentId]
+    [navigate, routeAgentId, store]
   );
 
   return {

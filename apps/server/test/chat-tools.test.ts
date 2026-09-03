@@ -104,28 +104,6 @@ describe("registerChatTools", () => {
     });
   });
 
-  it("requires question when kind is question", async () => {
-    const result = await tool("dispatch_chat_post").handler({
-      text: "Which one?",
-      kind: "question",
-    });
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/question .* required/);
-    expect(post).not.toHaveBeenCalled();
-  });
-
-  it("rejects question on other kinds", async () => {
-    const result = await tool("dispatch_chat_post").handler({
-      text: "fyi",
-      kind: "update",
-      question: { options: [{ label: "a" }] },
-    });
-    expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(
-      /only accepted when kind is "question"/
-    );
-  });
-
   it("forwards a well-formed question with its options", async () => {
     const question = {
       options: [{ label: "Yes", value: "y" }, { label: "No" }],
@@ -145,35 +123,6 @@ describe("registerChatTools", () => {
       question,
       attachments: [],
     });
-  });
-
-  it("enforces the option and attachment caps and the text limit", async () => {
-    const tooMany = await tool("dispatch_chat_post").handler({
-      text: "?",
-      kind: "question",
-      question: {
-        options: Array.from({ length: 11 }, (_, i) => ({ label: `o${i}` })),
-      },
-    });
-    expect(tooMany.isError).toBe(true);
-    expect(tooMany.content[0].text).toMatch(/10 entries or fewer/);
-
-    const attachments = Array.from({ length: 21 }, () => ({
-      type: "link" as const,
-      url: "https://example.com",
-    }));
-    const tooManyAttachments = await tool("dispatch_chat_post").handler({
-      text: "x",
-      attachments,
-    });
-    expect(tooManyAttachments.isError).toBe(true);
-    expect(tooManyAttachments.content[0].text).toMatch(/20 entries or fewer/);
-
-    const tooLong = await tool("dispatch_chat_post").handler({
-      text: "x".repeat(20_001),
-    });
-    expect(tooLong.isError).toBe(true);
-    expect(tooLong.content[0].text).toMatch(/20000 characters or fewer/);
   });
 
   it("surfaces service errors (e.g. unknown file) as tool errors", async () => {

@@ -30,3 +30,8 @@ CREATE INDEX IF NOT EXISTS agent_chat_messages_agent_created_idx
 CREATE INDEX IF NOT EXISTS agent_chat_messages_agent_unread_idx
   ON agent_chat_messages (agent_id)
   WHERE author_kind = 'agent' AND read_at IS NULL;
+
+-- The feed composer reads each agent's newest status events alongside its
+-- chat messages; agent_events had no (agent_id, created_at) index.
+CREATE INDEX IF NOT EXISTS agent_events_agent_created_idx
+  ON agent_events (agent_id, created_at DESC);

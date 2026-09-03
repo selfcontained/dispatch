@@ -403,6 +403,20 @@ export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
+export const CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
+
+/**
+ * The last center tab the user picked for an agent, so the bare
+ * `/agents/:id` route can land on Chat by default without trapping someone
+ * who deliberately switched to the Console. Only the routing hook reads it.
+ */
+export const lastCenterTabAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<CenterTab | null>(
+    `${CENTER_TAB_STORAGE_PREFIX}${agentId}`,
+    null
+  )
+);
+
 export function reconcileSplitPaneStateStorage(
   agentIds: Iterable<string>
 ): void {
@@ -535,6 +549,7 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
   { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
+  { prefix: CENTER_TAB_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
   { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },

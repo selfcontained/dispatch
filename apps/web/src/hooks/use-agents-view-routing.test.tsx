@@ -2,9 +2,10 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { Location, NavigateFunction } from "react-router-dom";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
+import { getDefaultStore } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { rememberCenterTab } from "@/lib/center-tab-memory";
+import { lastCenterTabAtomFamily } from "@/lib/store";
 
 import { useAgentsViewRouting } from "./use-agents-view-routing";
 
@@ -65,6 +66,7 @@ beforeEach(() => {
   chatFlag.enabled = false;
   chatFlag.loaded = true;
   window.localStorage.clear();
+  lastCenterTabAtomFamily.remove("agt_1");
 });
 
 afterEach(() => {
@@ -214,7 +216,7 @@ describe("useAgentsViewRouting", () => {
 
     it("stays on the console when that was the user's last choice", () => {
       chatFlag.enabled = true;
-      rememberCenterTab("agt_1", "terminal");
+      getDefaultStore().set(lastCenterTabAtomFamily("agt_1"), "terminal");
       const { result, pathname } = renderRouting("/agents/agt_1", loaded);
       expect(pathname()).toBe("/agents/agt_1");
       expect(result.current.chatMatch).toBe(false);
@@ -258,7 +260,7 @@ describe("useAgentsViewRouting", () => {
 
     it("resolves the console immediately when it was the last choice", () => {
       chatFlag.enabled = true;
-      rememberCenterTab("agt_1", "terminal");
+      getDefaultStore().set(lastCenterTabAtomFamily("agt_1"), "terminal");
       const { result } = renderRouting("/agents/agt_1", loaded);
       expect(result.current.centerTabResolved).toBe(true);
     });

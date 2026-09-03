@@ -1,7 +1,6 @@
 import {
   type KeyboardEvent,
   useCallback,
-  useEffect,
   useLayoutEffect,
   useRef,
   useState,
@@ -48,13 +47,6 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  const mountedRef = useRef(true);
-  useEffect(() => {
-    mountedRef.current = true;
-    return () => {
-      mountedRef.current = false;
-    };
-  }, []);
   const disabled = disabledReason !== null;
   const trimmed = text.trim();
   const canSend = !disabled && !sending && !inFlight && trimmed.length > 0;
@@ -76,15 +68,12 @@ export function ChatComposer({
     const submitted = text;
     onSend(trimmed)
       .then(() => {
-        if (!mountedRef.current) return;
         setText((current) => (current === submitted ? "" : current));
       })
       .catch((err: unknown) => {
-        if (!mountedRef.current) return;
         setError(err instanceof Error ? err.message : "Message not sent.");
       })
       .finally(() => {
-        if (!mountedRef.current) return;
         setInFlight(false);
         textareaRef.current?.focus();
       });
@@ -159,9 +148,7 @@ export function ChatComposer({
             }
             aria-label="Message the agent"
             // The box around it is the border; the field itself is bare.
-            className={cn(
-              "max-h-48 min-h-10 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
-            )}
+            className="max-h-48 min-h-10 flex-1 resize-none border-0 bg-transparent px-3 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
             data-testid="chat-composer-input"
           />
           <Button

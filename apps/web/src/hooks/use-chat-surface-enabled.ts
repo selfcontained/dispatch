@@ -6,7 +6,7 @@ import { api } from "@/lib/api";
 import { chatSurfaceEnabledHintAtom } from "@/lib/store";
 
 export const CHAT_SURFACE_ENDPOINT = "/api/v1/app/settings/chat-surface";
-export const CHAT_SURFACE_QUERY_KEY = ["settings", "chat-surface"] as const;
+const CHAT_SURFACE_QUERY_KEY = ["settings", "chat-surface"] as const;
 
 type ToggleSettingResponse = { enabled: boolean };
 

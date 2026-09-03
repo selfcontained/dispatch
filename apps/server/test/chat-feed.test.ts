@@ -87,7 +87,7 @@ async function seedAll() {
 describe("composeChatFeed", () => {
   it("merges every source for one agent in ascending time order", async () => {
     const { m1, m2 } = await seedAll();
-    const feed = await composeChatFeed(pool, A);
+    const feed = await composeChatFeed(store, A);
     expect(feed.hasMore).toBe(false);
     expect(feed.unreadCount).toBe(1);
     expect(feed.entries.map((e) => e.type)).toEqual([
@@ -129,14 +129,14 @@ describe("composeChatFeed", () => {
 
   it("pages backwards with cursor/limit and reports hasMore across sources", async () => {
     await seedAll();
-    const page1 = await composeChatFeed(pool, A, { limit: 3 });
+    const page1 = await composeChatFeed(store, A, { limit: 3 });
     expect(page1.hasMore).toBe(true);
     expect(page1.nextCursor).toBeTruthy();
     expect(page1.entries.map((e) => e.at)).toEqual(
       [5, 6, 7].map((s) => at(s).toISOString())
     );
 
-    const page2 = await composeChatFeed(pool, A, {
+    const page2 = await composeChatFeed(store, A, {
       limit: 3,
       cursor: decodeFeedCursor(page1.nextCursor!),
     });
@@ -145,7 +145,7 @@ describe("composeChatFeed", () => {
       [2, 3, 4].map((s) => at(s).toISOString())
     );
 
-    const page3 = await composeChatFeed(pool, A, {
+    const page3 = await composeChatFeed(store, A, {
       limit: 3,
       cursor: decodeFeedCursor(page2.nextCursor!),
     });
@@ -183,7 +183,7 @@ describe("composeChatFeed", () => {
     let cursor: string | null = null;
     let pages = 0;
     for (;;) {
-      const page = await composeChatFeed(pool, A, {
+      const page = await composeChatFeed(store, A, {
         limit: 2,
         cursor: cursor ? decodeFeedCursor(cursor) : null,
       });
@@ -247,7 +247,7 @@ describe("composeChatFeed", () => {
   });
 
   it("returns an empty feed for an agent with nothing", async () => {
-    const feed = await composeChatFeed(pool, "agt_feed_nobody");
+    const feed = await composeChatFeed(store, "agt_feed_nobody");
     expect(feed).toEqual({
       entries: [],
       hasMore: false,

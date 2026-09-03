@@ -97,33 +97,6 @@ describe("ChatStore", () => {
     expect((await store.getById(u.id))?.delivered).toBe(false);
   });
 
-  it("lists newest-first pages returned oldest-first with hasMore", async () => {
-    const ids = await seed(A, 5, "agent");
-    await seed(B, 2, "agent");
-
-    const page1 = await store.list(A, { limit: 2 });
-    expect(page1.hasMore).toBe(true);
-    expect(page1.messages.map((m) => m.id)).toEqual([ids[3], ids[4]]);
-
-    const page2 = await store.list(A, {
-      before: page1.messages[0].createdAt,
-      limit: 2,
-    });
-    expect(page2.hasMore).toBe(true);
-    expect(page2.messages.map((m) => m.id)).toEqual([ids[1], ids[2]]);
-
-    const page3 = await store.list(A, {
-      before: page2.messages[0].createdAt,
-      limit: 2,
-    });
-    expect(page3.hasMore).toBe(false);
-    expect(page3.messages.map((m) => m.id)).toEqual([ids[0]]);
-
-    const all = await store.list(A, { limit: 50 });
-    expect(all.hasMore).toBe(false);
-    expect(all.messages).toHaveLength(5);
-  });
-
   it("updates only supplied fields and bumps updated_at", async () => {
     const m = await store.insert({
       agentId: A,

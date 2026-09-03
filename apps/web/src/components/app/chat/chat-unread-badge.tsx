@@ -2,6 +2,7 @@ import { MessageCircleQuestion, MessageSquare } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { useAgentChatUnread } from "@/hooks/use-chat-unread-summary";
+import { formatBadgeCount } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
 /**
@@ -50,7 +51,7 @@ export function ChatUnreadBadge({
       ) : (
         <MessageSquare className="mr-1 h-3 w-3" />
       )}
-      {count > 99 ? "99+" : count}
+      {formatBadgeCount(count)}
     </Badge>
   );
 }

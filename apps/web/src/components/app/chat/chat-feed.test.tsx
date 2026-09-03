@@ -9,7 +9,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { type AttachmentContext } from "@/components/app/chat/chat-entries";
+import { type FeedContext } from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
   collapseFeed,
@@ -76,9 +76,9 @@ function status(
 }
 
 function makeCtx(
-  overrides: Partial<AttachmentContext> = {},
+  overrides: Partial<FeedContext> = {},
   onOpenMedia = vi.fn()
-): AttachmentContext {
+): FeedContext {
   return {
     agentId: AGENT_ID,
     agentName: "builder",
@@ -93,7 +93,7 @@ function makeCtx(
 function renderFeed(
   entries: ChatFeedEntry[],
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
-  ctxOverrides: Partial<AttachmentContext> = {}
+  ctxOverrides: Partial<FeedContext> = {}
 ) {
   const onAnswer = vi.fn();
   const onOpenMedia = vi.fn();

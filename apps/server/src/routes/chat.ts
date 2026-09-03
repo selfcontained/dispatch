@@ -135,18 +135,16 @@ export async function registerChatRoutes(
         error: "before is not supported; page with the cursor from nextCursor.",
       });
     }
-    const cursor =
-      query.cursor === undefined || query.cursor === ""
-        ? null
-        : decodeFeedCursor(query.cursor);
-    if (query.cursor !== undefined && query.cursor !== "" && !cursor) {
+    const rawCursor = query.cursor || null;
+    const cursor = rawCursor ? decodeFeedCursor(rawCursor) : null;
+    if (rawCursor && !cursor) {
       return reply.code(400).send({ error: "cursor is not valid." });
     }
     const limit = query.limit === undefined ? undefined : Number(query.limit);
     if (limit !== undefined && !Number.isFinite(limit)) {
       return reply.code(400).send({ error: "limit must be a number." });
     }
-    return composeChatFeed(deps.pool, id, { cursor, limit });
+    return composeChatFeed(store, id, { cursor, limit });
   });
 
   app.post("/api/v1/agents/:id/chat/messages", async (request, reply) => {

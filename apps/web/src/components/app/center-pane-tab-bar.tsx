@@ -1,6 +1,7 @@
 import { memo, useCallback, useEffect, useRef } from "react";
 
 import { TipSpot } from "@/components/tips/tip-spot";
+import { formatBadgeCount } from "@/lib/format";
 import { type CenterTab, type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -142,7 +143,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
                   aria-label={`${chatUnreadCount} unread chat messages`}
                   className="absolute -right-3.5 -top-1 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 tracking-normal text-primary-foreground"
                 >
-                  {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                  {formatBadgeCount(chatUnreadCount)}
                 </span>
               ) : null}
               {tab.id === "whiteboard" &&

@@ -1,9 +1,7 @@
 import { useEffect, useState, type JSX, type MutableRefObject } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import { Mail } from "lucide-react";
 
-import { type InjectionHoldState } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -16,6 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
 import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
@@ -24,12 +23,11 @@ const RING_RADIUS = 16;
 const RING_CIRCUMFERENCE = 2 * Math.PI * RING_RADIUS;
 
 // Badge shown while the server is holding an automated prompt injection
-// because the user is actively typing in the terminal. State arrives via the
-// `agent.injection_hold_changed` SSE event (written into the
-// ["injection-hold", agentId] query by use-sse). The ring fills clockwise as
-// the quiet window elapses — keystrokes and scrolls reset it, mirroring the
-// server-side gate. Pointer devices: hover explains, click sends now. Touch:
-// tap opens a popover with the explanation and an explicit "Send now" button.
+// because the user is actively typing in the terminal (see
+// useInjectionHoldState). The ring fills clockwise as the quiet window
+// elapses — keystrokes and scrolls reset it, mirroring the server-side gate.
+// Pointer devices: hover explains, click sends now. Touch: tap opens a
+// popover with the explanation and an explicit "Send now" button.
 export function TerminalInjectionHoldPill({
   agentId,
   terminalInputAtRef,
@@ -40,16 +38,7 @@ export function TerminalInjectionHoldPill({
   terminalInputAtRef?: MutableRefObject<number>;
   className?: string;
 }): JSX.Element {
-  const { data } = useQuery<InjectionHoldState>({
-    queryKey: ["injection-hold", agentId],
-    // No fetch endpoint — the cache is populated by SSE events; this default
-    // only seeds first render. A reload during an active hold misses the
-    // indicator until the next transition, which fails safe (hidden).
-    queryFn: () => ({ held: false, pendingCount: 0, quietMs: 10_000 }),
-    enabled: agentId !== null,
-    refetchOnWindowFocus: false,
-    staleTime: Number.POSITIVE_INFINITY,
-  });
+  const data = useInjectionHoldState(agentId);
 
   const reduceMotion = useReducedMotion();
   const [coarsePointer] = useState(

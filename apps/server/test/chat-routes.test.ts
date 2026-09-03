@@ -418,7 +418,6 @@ describe("chat routes with a deliverable terminal", () => {
       pool: ctx.pool,
       publishUiEvent: (event) => published.push(event),
       getAgent: async (id) => ({ id, mediaDir: null, pins: [] }),
-      mediaRoot: "/tmp/media",
     });
     const app = Fastify();
     const ready = registerChatRoutes(app, {

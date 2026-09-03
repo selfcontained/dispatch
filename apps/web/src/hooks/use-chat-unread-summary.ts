@@ -4,9 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { api } from "@/lib/api";
 
-export type { ChatUnreadSummary } from "@dispatch/shared";
-
-export type ChatAgentUnread = ChatUnreadSummary["agents"][string];
+type ChatAgentUnread = ChatUnreadSummary["agents"][string];
 
 export const CHAT_UNREAD_QUERY_KEY = ["chat-unread"] as const;
 
@@ -30,7 +28,7 @@ export function useChatUnreadSummary(): ChatUnreadSummary | undefined {
   return enabled ? data : undefined;
 }
 
-export function useAgentChatUnread(agentId: string): ChatAgentUnread {
+export function useAgentChatUnread(agentId: string | null): ChatAgentUnread {
   const summary = useChatUnreadSummary();
-  return summary?.agents[agentId] ?? NONE;
+  return (agentId && summary?.agents[agentId]) || NONE;
 }

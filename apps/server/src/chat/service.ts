@@ -12,6 +12,7 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord } from "../agents/types.js";
+import { mimeType } from "../shared/media.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -54,30 +55,13 @@ export type ChatServiceDeps = {
   getAgent: (
     agentId: string
   ) => Promise<Pick<AgentRecord, "id" | "mediaDir" | "pins"> | null>;
-  mediaRoot: string;
 };
 
 export class ChatValidationError extends Error {
   statusCode = 400;
 }
 
-const MIME_BY_EXT: Record<string, string> = {
-  ".png": "image/png",
-  ".jpg": "image/jpeg",
-  ".jpeg": "image/jpeg",
-  ".gif": "image/gif",
-  ".webp": "image/webp",
-  ".mp4": "video/mp4",
-  ".pdf": "application/pdf",
-  ".txt": "text/plain",
-  ".md": "text/markdown",
-  ".json": "application/json",
-};
-
-/**
- * Cross-field checks the zod shapes cannot express on their own. Shared by
- * the MCP tools and any future HTTP surface so the rule lives in one place.
- */
+/** Cross-field checks the zod shapes cannot express on their own. */
 export function validateChatContent(input: {
   text?: string;
   kind?: ChatMessageKind;
@@ -287,15 +271,13 @@ export class ChatService {
         `Unknown file ${fileName ? `"${fileName}"` : `#${mediaId}`} — share it first with dispatch_share_file and attach the fileName it returns.`
       );
     }
-    const dot = match.file_name.lastIndexOf(".");
-    const ext = dot >= 0 ? match.file_name.slice(dot).toLowerCase() : "";
-    const mimeType = MIME_BY_EXT[ext];
+    // The same lookup GET /media serves the file with.
     return {
       type: "file",
       mediaId: match.id,
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
-      ...(mimeType ? { mimeType } : {}),
+      mimeType: mimeType(match.file_name),
     };
   }
 }

@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Pool, PoolClient, QueryResult, QueryResultRow } from "pg";
+import type { PoolClient, QueryResult, QueryResultRow } from "pg";
 import type {
   ChatAnswer,
   ChatAttachment,
@@ -35,12 +35,6 @@ export type UpdateChatMessageInput = {
   kind?: ChatMessageKind;
   question?: ChatQuestion | null;
   attachments?: ChatAttachment[];
-};
-
-export type ListChatMessagesOptions = {
-  /** ISO timestamp or Date; only rows strictly older are returned. */
-  before?: string | Date | null;
-  limit: number;
 };
 
 const UUID_RE =
@@ -85,22 +79,12 @@ export function toChatMessage(row: Row): ChatMessage {
   };
 }
 
-function toCursor(before: string | Date | null | undefined): Date | null {
-  if (!before) return null;
-  const date = before instanceof Date ? before : new Date(before);
-  return Number.isNaN(date.getTime()) ? null : date;
-}
-
 export class ChatStore {
-  constructor(private readonly db: Queryable) {}
+  constructor(readonly db: Queryable) {}
 
   /** The same store bound to a transaction client. */
   withClient(client: PoolClient): ChatStore {
     return new ChatStore(client);
-  }
-
-  static forPool(pool: Pool): ChatStore {
-    return new ChatStore(pool);
   }
 
   async insert(input: InsertChatMessageInput): Promise<ChatMessage> {
@@ -178,28 +162,6 @@ export class ChatStore {
       [id]
     );
     return result.rows[0] ? toChatMessage(result.rows[0]) : null;
-  }
-
-  /**
-   * Newest `limit` messages older than `before`, returned oldest first.
-   * `hasMore` says whether older rows exist beyond the page.
-   */
-  async list(
-    agentId: string,
-    opts: ListChatMessagesOptions
-  ): Promise<{ messages: ChatMessage[]; hasMore: boolean }> {
-    const limit = Math.max(1, Math.floor(opts.limit));
-    const result = await this.db.query<Row>(
-      `SELECT * FROM agent_chat_messages
-        WHERE agent_id = $1
-          AND ($2::timestamptz IS NULL OR created_at < $2::timestamptz)
-        ORDER BY created_at DESC, id DESC
-        LIMIT $3`,
-      [agentId, toCursor(opts.before), limit + 1]
-    );
-    const hasMore = result.rows.length > limit;
-    const page = result.rows.slice(0, limit).reverse();
-    return { messages: page.map(toChatMessage), hasMore };
   }
 
   /**
