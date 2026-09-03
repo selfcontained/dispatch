@@ -12,8 +12,14 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
-import { cn } from "@/lib/utils";
 
 /**
  * The rendering unit for a set of pins: grouping policy and `PinItem` travel
@@ -106,9 +112,10 @@ type PinsPanelProps = {
 const EMPTY_SUB_AGENT_PINS: SubAgentPins[] = [];
 
 /**
- * Whose pins the tab shows. One row of pressed/unpressed chips: the selected
- * agent first, then each live sub agent with its pin count, so a sub agent's
- * pins are always one click away in a fixed place.
+ * Whose pins the tab shows: the selected agent by default, or one of its
+ * sub agents. A dropdown rather than a chip row because it stays one control
+ * high no matter how many sub agents there are, and it sits in a fixed spot
+ * above the list instead of somewhere below the agent's own pins.
  */
 function PinsOwnerSwitch({
   selectedAgentId,
@@ -125,65 +132,65 @@ function PinsOwnerSwitch({
   viewOwnerId: string | null;
   onChange: (ownerId: string | null) => void;
 }): JSX.Element {
-  const options: Array<{
-    id: string | null;
-    testId: string;
-    label: string;
-    count: number;
-  }> = [
+  // Radix Select values are strings, so the agent's own pins get a sentinel
+  // that cannot collide with an agent id.
+  const OWN = "__own__";
+  const options = [
     {
-      id: null,
-      testId: selectedAgentId ?? "self",
+      value: OWN,
+      testId: `pins-owner-option-${selectedAgentId ?? "self"}`,
       label: selectedAgentName ?? "This agent",
       count: ownPinCount,
     },
     ...subAgentPins.map(({ agent, pins }) => ({
-      id: agent.id,
-      testId: agent.id,
+      value: agent.id,
+      testId: `pins-owner-option-${agent.id}`,
       label: agent.name,
       count: pins.length,
     })),
   ];
+  const current = options.find(
+    (option) => option.value === (viewOwnerId ?? OWN)
+  );
   return (
     <div className="border-b border-border px-3 py-2">
-      <div
-        role="group"
-        aria-label="Whose pins to show"
-        data-testid="pins-owner-switch"
-        className="flex gap-0.5 overflow-x-auto rounded-md border border-border/60 bg-muted/30 p-0.5"
+      <Select
+        value={viewOwnerId ?? OWN}
+        onValueChange={(value) => onChange(value === OWN ? null : value)}
       >
-        {options.map((option) => {
-          const pressed = option.id === viewOwnerId;
-          return (
-            <button
-              key={option.testId}
-              type="button"
-              aria-pressed={pressed}
-              data-testid={`pins-owner-chip-${option.testId}`}
-              title={option.label}
-              className={cn(
-                "flex min-w-0 shrink-0 items-center gap-1.5 rounded-[3px] px-2 py-1 text-xs font-medium transition-colors",
-                pressed
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground"
-              )}
-              onClick={() => onChange(option.id)}
-            >
-              <span className="max-w-[10rem] truncate">{option.label}</span>
-              <span
-                className={cn(
-                  "rounded-full px-1.5 text-[10px] tabular-nums",
-                  pressed
-                    ? "bg-muted text-muted-foreground"
-                    : "bg-muted/60 text-muted-foreground"
-                )}
-              >
-                {option.count}
+        <SelectTrigger
+          aria-label="Whose pins to show"
+          data-testid="pins-owner-switch"
+          data-pins-owner={viewOwnerId ?? selectedAgentId ?? undefined}
+          className="h-8 text-xs"
+        >
+          <SelectValue>
+            <span className="flex min-w-0 items-center gap-2">
+              <span className="truncate">{current?.label}</span>
+              <span className="shrink-0 rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                {current?.count ?? 0}
               </span>
-            </button>
-          );
-        })}
-      </div>
+            </span>
+          </SelectValue>
+        </SelectTrigger>
+        <SelectContent>
+          {options.map((option) => (
+            <SelectItem
+              key={option.value}
+              value={option.value}
+              data-testid={option.testId}
+              textValue={option.label}
+            >
+              <span className="flex items-center gap-2">
+                <span className="truncate">{option.label}</span>
+                <span className="rounded-full bg-muted px-1.5 text-[10px] tabular-nums text-muted-foreground">
+                  {option.count}
+                </span>
+              </span>
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
     </div>
   );
 }

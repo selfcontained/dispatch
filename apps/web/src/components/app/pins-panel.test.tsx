@@ -6,7 +6,7 @@ import {
   screen,
   within,
 } from "@testing-library/react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentPin } from "@/components/app/types";
 
@@ -377,7 +377,16 @@ describe("sub agent owner switch", () => {
     },
   ];
 
-  it("lists the agent and every sub agent as chips, showing the agent's own pins by default", () => {
+  beforeEach(() => {
+    // Radix Select calls scrollIntoView when opening; jsdom lacks it.
+    Element.prototype.scrollIntoView = vi.fn();
+  });
+
+  function openSwitch(): void {
+    fireEvent.click(screen.getByTestId("pins-owner-switch"));
+  }
+
+  it("offers the agent and every sub agent, showing the agent's own pins by default", async () => {
     renderPanel([shortcutPin], {
       selectedAgentId: "agt_parent",
       subAgentPins: [
@@ -385,36 +394,30 @@ describe("sub agent owner switch", () => {
         { agent: quiet, pins: [] },
       ],
     });
-    const chips = within(screen.getByTestId("pins-owner-switch")).getAllByRole(
-      "button"
-    );
-    expect(chips.map((chip) => chip.textContent)).toEqual([
+    const trigger = screen.getByTestId("pins-owner-switch");
+    expect(trigger.textContent).toBe("agent1");
+    expect(trigger.dataset.pinsOwner).toBe("agt_parent");
+    expect(screen.getByRole("button", { name: /work on/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Merge it/ })).toBeNull();
+    openSwitch();
+    const options = await screen.findAllByRole("option");
+    expect(options.map((option) => option.textContent)).toEqual([
       "agent1",
       "builder2",
       "quiet0",
     ]);
-    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
-    expect(screen.getByTestId("pins-panel-scroll").dataset.pinsOwner).toBe(
-      "agt_parent"
-    );
-    expect(screen.getByRole("button", { name: /work on/i })).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /Merge it/ })).toBeNull();
   });
 
-  it("swaps to a sub agent's pins and fires its shortcut at that sub agent", () => {
+  it("swaps to a sub agent's pins and fires its shortcut at that sub agent", async () => {
     const onRunShortcut = vi.fn();
     renderPanel([shortcutPin], {
       selectedAgentId: "agt_parent",
       onRunShortcut,
       subAgentPins: [{ agent: child, pins: childPins }],
     });
-    fireEvent.click(screen.getByTestId("pins-owner-chip-agt_child"));
-    expect(
-      screen
-        .getByTestId("pins-owner-chip-agt_child")
-        .getAttribute("aria-pressed")
-    ).toBe("true");
-    expect(screen.getByTestId("pins-panel-scroll").dataset.pinsOwner).toBe(
+    openSwitch();
+    fireEvent.click(await screen.findByRole("option", { name: /^builder/ }));
+    expect(screen.getByTestId("pins-owner-switch").dataset.pinsOwner).toBe(
       "agt_child"
     );
     expect(screen.queryByRole("button", { name: /work on/i })).toBeNull();
@@ -422,12 +425,13 @@ describe("sub agent owner switch", () => {
     expect(onRunShortcut).toHaveBeenCalledWith(childPins[1], "agt_child");
   });
 
-  it("keeps the switch visible when the chosen sub agent has no pins", () => {
+  it("keeps the switch visible when the chosen sub agent has no pins", async () => {
     renderPanel([shortcutPin], {
       selectedAgentId: "agt_parent",
       subAgentPins: [{ agent: quiet, pins: [] }],
     });
-    fireEvent.click(screen.getByTestId("pins-owner-chip-agt_quiet"));
+    openSwitch();
+    fireEvent.click(await screen.findByRole("option", { name: /^quiet/ }));
     expect(screen.getByText("quiet has no pins yet.")).toBeTruthy();
     expect(screen.getByTestId("pins-owner-switch")).toBeTruthy();
   });

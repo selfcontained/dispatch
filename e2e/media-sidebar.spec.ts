@@ -683,16 +683,17 @@ test.describe("Media sidebar", () => {
       })
       .toBe(true);
 
-    // Pins tab: a switch at the top picks whose pins show; the parent's own
-    // are the default and the child's are one click away.
+    // Pins tab: a dropdown at the top picks whose pins show; the parent's own
+    // are the default and the child's are one pick away.
     await mediaSidebar.getByRole("button", { name: "Pins" }).click();
-    const ownChip = mediaSidebar.getByTestId(`pins-owner-chip-${parent.id}`);
-    const childChip = mediaSidebar.getByTestId(`pins-owner-chip-${child.id}`);
-    await expect(ownChip).toHaveAttribute("aria-pressed", "true");
-    await expect(childChip).toContainText("1");
+    const ownerSwitch = mediaSidebar.getByTestId("pins-owner-switch");
+    await expect(ownerSwitch).toHaveAttribute("data-pins-owner", parent.id);
     await expect(mediaSidebar.getByText("Child PR")).toHaveCount(0);
-    await childChip.click();
-    await expect(childChip).toHaveAttribute("aria-pressed", "true");
+    await ownerSwitch.click();
+    const childOption = page.getByTestId(`pins-owner-option-${child.id}`);
+    await expect(childOption).toContainText("1");
+    await childOption.click();
+    await expect(ownerSwitch).toHaveAttribute("data-pins-owner", child.id);
     await expect(mediaSidebar.getByText("Child PR")).toBeVisible();
 
     // The child's own panel is unchanged: no groups, its file already seen.
