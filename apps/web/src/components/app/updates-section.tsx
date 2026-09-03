@@ -1,4 +1,4 @@
-import { AssistedUpdateProgress } from "@/components/app/assisted-update-card";
+import { AssistedUpdateProgress } from "@/components/app/assisted-update-progress";
 import { OperationTakeover } from "@/components/app/release-operation-takeover";
 import { UpdatesCheckPanel } from "@/components/app/updates-check-panel";
 import { UpdatesForceConfirmDialog } from "@/components/app/updates-force-confirm-dialog";
