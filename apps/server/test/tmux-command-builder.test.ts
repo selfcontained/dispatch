@@ -924,3 +924,75 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     expect(cmd).not.toContain(PLAYWRIGHT_RULE);
   });
 });
+
+describe("buildLaunchGuidance — chat surface rule", () => {
+  const RULE = "The user reads the Chat tab, not the terminal.";
+
+  it("is absent by default and when the flag is off", () => {
+    expect(
+      buildLaunchGuidance(AGENT_ID, { agentType: "claude" })
+    ).not.toContain(RULE);
+    expect(
+      buildLaunchGuidance(AGENT_ID, { agentType: "claude", chatSurface: false })
+    ).not.toContain(RULE);
+  });
+
+  it("adds the same single rule to the full and trimmed variants", () => {
+    const full = buildLaunchGuidance(AGENT_ID, {
+      agentType: "claude",
+      chatSurface: true,
+    });
+    const trimmed = buildLaunchGuidance(AGENT_ID, {
+      agentType: "claude",
+      chatSurface: true,
+      trimmedGuidance: true,
+    });
+    for (const text of [full, trimmed]) {
+      expect(text).toContain(RULE);
+      expect(text).toContain("dispatch_chat_post");
+      expect(text).toContain("kind: question");
+      expect(text.split(RULE)).toHaveLength(2);
+    }
+    const ruleLine = (text: string) =>
+      text
+        .split("\n")
+        .find((line) => line.includes(RULE))!
+        .replace(/^\d+\. /, "");
+    expect(ruleLine(full)).toBe(ruleLine(trimmed));
+  });
+
+  it("leaves the job-run ruleset untouched", () => {
+    expect(
+      buildLaunchGuidance(AGENT_ID, {
+        agentType: "claude",
+        jobRunId: "run_1",
+        chatSurface: true,
+      })
+    ).not.toContain(RULE);
+  });
+
+  it("threads through buildAgentCommand", () => {
+    const withFlag = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "agent",
+      [],
+      "/tmp/media",
+      "dispatch-agt_1",
+      false,
+      { chatSurface: true }
+    );
+    expect(withFlag).toContain("dispatch_chat_post");
+    const without = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "agent",
+      [],
+      "/tmp/media",
+      "dispatch-agt_1",
+      false,
+      {}
+    );
+    expect(without).not.toContain("dispatch_chat_post");
+  });
+});
