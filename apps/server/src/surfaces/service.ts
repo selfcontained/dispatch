@@ -767,6 +767,14 @@ function validateAndCapture(
       throw new SurfaceError(
         "Action interactions must reference a section's actions, the document footer, or an item action."
       );
+    // A section's snapshot omits its descendant tree: a section may hold up
+    // to 100 nested blocks, and duplicating that subtree into every durable
+    // interaction record would let repeated clicks amplify storage. The
+    // section's own metadata plus the selected action is what audit needs.
+    const blockSnapshot =
+      block.type === "section"
+        ? (({ blocks: _children, ...sectionMeta }) => sectionMeta)(block)
+        : block;
     return {
       intent: action.intent,
       payload: {
@@ -774,7 +782,7 @@ function validateAndCapture(
         ...(item ? { itemId: item.id } : {}),
         actionId: action.id,
       },
-      snapshot: { block, ...(item ? { item } : {}), action },
+      snapshot: { block: blockSnapshot, ...(item ? { item } : {}), action },
       onceFormBlockId: null,
     };
   }

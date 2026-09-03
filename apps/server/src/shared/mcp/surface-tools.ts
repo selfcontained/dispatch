@@ -117,8 +117,11 @@ export function registerSurfaceTools(
       const owner = ownerAgentId ?? context.agentId;
       await service.assertReadable(context.agentId, owner);
       return {
+        // List is the tab-summary projection: the complete document (slots
+        // included) comes from dispatch_surface_get.
         surfaces: (await service.list(owner)).map(
-          ({ blocks: _blocks, ...surface }) => surface
+          ({ blocks: _blocks, header: _header, footer: _footer, ...surface }) =>
+            surface
         ),
       };
     }

@@ -89,6 +89,8 @@ describe("surface API", () => {
       unresolvedInteractionCount: 0,
       latestInteractions: [],
     });
+    // The HTTP list returns full documents; the MCP list below is the
+    // summary projection and must exclude blocks and both slots.
     expect(events).toContainEqual({
       type: "surface.changed",
       agentId,
@@ -200,6 +202,35 @@ describe("surface API", () => {
         "dispatch_surface_resolve",
       ])
     );
+  });
+
+  it("keeps the MCP surface list a summary projection without slots", async () => {
+    await service.create(agentId, actionDocument);
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/mcp/${agentId}`,
+      headers: {
+        cookie: await ctx.sessionCookie(),
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "dispatch_surface_list", arguments: {} },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const data = response.body
+      .split("\n")
+      .find((line) => line.startsWith("data: "));
+    const result = JSON.parse(data!.slice(6)).result;
+    const listed = result.structuredContent.surfaces[0];
+    expect(listed.title).toBe("Release choice");
+    expect(listed).not.toHaveProperty("blocks");
+    expect(listed).not.toHaveProperty("header");
+    expect(listed).not.toHaveProperty("footer");
   });
 });
 
@@ -488,6 +519,13 @@ describe("surface authoring and inbox", () => {
         action: { id: "start", intent: "start_deploy" },
       },
     });
+    // The snapshot keeps the section's metadata but never its descendant
+    // tree — a 100-block section must not be duplicated into every durable
+    // interaction record.
+    expect(
+      (result.interaction.definitionSnapshot as { block: { blocks?: unknown } })
+        .block.blocks
+    ).toBeUndefined();
   });
 
   it("accepts up to 100 top-level blocks", () => {

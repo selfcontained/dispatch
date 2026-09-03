@@ -725,6 +725,16 @@ test.describe("Agent-authored sidebar surfaces", () => {
     await expect(
       page.getByRole("menuitem", { name: "Release directly" })
     ).toBeVisible();
+    // Radix wires its escape handling and moves focus into the menu after
+    // mount; under CPU load an immediate Escape can outrun that. Wait for
+    // focus to land inside the menu before dismissing.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.activeElement?.closest('[role="menu"]') !== null
+        )
+      )
+      .toBe(true);
     await page.keyboard.press("Escape");
     await expect(
       page.getByRole("menuitem", { name: "Release directly" })
