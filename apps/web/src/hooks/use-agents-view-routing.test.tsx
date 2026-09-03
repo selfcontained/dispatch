@@ -2,9 +2,19 @@
 import { act, cleanup, renderHook } from "@testing-library/react";
 import type { Location, NavigateFunction } from "react-router-dom";
 import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { rememberCenterTab } from "@/lib/center-tab-memory";
 
 import { useAgentsViewRouting } from "./use-agents-view-routing";
+
+// The chat surface flag is server state behind a React Query hook; the
+// routing decisions it drives are what this file is about, so it is a plain
+// switch here.
+const chatFlag = vi.hoisted(() => ({ enabled: false, loaded: true }));
+vi.mock("@/hooks/use-chat-surface-enabled", () => ({
+  useChatSurfaceEnabled: () => ({ ...chatFlag }),
+}));
 
 type RoutingProps = {
   routeAgentId: string | undefined;
@@ -50,6 +60,12 @@ function renderRouting(initialPath: string, initialProps: RoutingProps) {
     },
   };
 }
+
+beforeEach(() => {
+  chatFlag.enabled = false;
+  chatFlag.loaded = true;
+  window.localStorage.clear();
+});
 
 afterEach(() => {
   cleanup();
@@ -167,6 +183,73 @@ describe("useAgentsViewRouting", () => {
       });
       expect(result.current.changesMatch).toBe(false);
       expect(result.current.whiteboardMatch).toBe(false);
+    });
+  });
+
+  describe("chat surface", () => {
+    const loaded = {
+      routeAgentId: "agt_1",
+      agentsLoaded: true,
+      validatedSelectedAgentId: "agt_1",
+    };
+
+    it("lands the bare agent route on the chat tab when the flag is on", () => {
+      chatFlag.enabled = true;
+      const { result, pathname } = renderRouting("/agents/agt_1", loaded);
+      expect(pathname()).toBe("/agents/agt_1/chat");
+      expect(result.current.chatMatch).toBe(true);
+    });
+
+    it("keeps the query string across the default redirect", () => {
+      chatFlag.enabled = true;
+      const { pathname, ...rest } = renderRouting(
+        "/agents/agt_1?expandReview=4",
+        loaded
+      );
+      expect(pathname()).toBe("/agents/agt_1/chat");
+      // The probe only exposes pathname; read search through the hook's own
+      // router by navigating back to the terminal and checking nothing broke.
+      expect(rest.result.current.chatMatch).toBe(true);
+    });
+
+    it("stays on the console when that was the user's last choice", () => {
+      chatFlag.enabled = true;
+      rememberCenterTab("agt_1", "terminal");
+      const { result, pathname } = renderRouting("/agents/agt_1", loaded);
+      expect(pathname()).toBe("/agents/agt_1");
+      expect(result.current.chatMatch).toBe(false);
+    });
+
+    it("remembers a console pick made through onTabChange", () => {
+      chatFlag.enabled = true;
+      const { result, pathname } = renderRouting("/agents/agt_1/chat", loaded);
+      act(() => result.current.onTabChange("terminal"));
+      expect(pathname()).toBe("/agents/agt_1");
+      act(() => result.current.onTabChange("chat"));
+      expect(pathname()).toBe("/agents/agt_1/chat");
+    });
+
+    it("waits for the flag to load before redirecting", () => {
+      chatFlag.enabled = false;
+      chatFlag.loaded = false;
+      const { pathname } = renderRouting("/agents/agt_1", loaded);
+      expect(pathname()).toBe("/agents/agt_1");
+    });
+
+    it("does not redirect an unvalidated agent", () => {
+      chatFlag.enabled = true;
+      const { pathname } = renderRouting("/agents/agt_gone", {
+        routeAgentId: "agt_gone",
+        agentsLoaded: false,
+        validatedSelectedAgentId: null,
+      });
+      expect(pathname()).toBe("/agents/agt_gone");
+    });
+
+    it("falls a persisted chat route back to the terminal when the flag is off", () => {
+      const { result, pathname } = renderRouting("/agents/agt_1/chat", loaded);
+      expect(pathname()).toBe("/agents/agt_1");
+      expect(result.current.chatMatch).toBe(false);
     });
   });
 

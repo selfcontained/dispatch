@@ -753,9 +753,12 @@ describe("useSSE message handling", () => {
       senderAgentId: "sender",
       recipientAgentId: "recipient",
     });
+    // Cross-agent messages also appear in both agents' chat feeds.
     expectInvalidatedSet(invalidateQueries, [
       ["messages", "sender"],
       ["messages", "recipient"],
+      ["chat", "sender"],
+      ["chat", "recipient"],
     ]);
 
     invalidateQueries.mockClear();

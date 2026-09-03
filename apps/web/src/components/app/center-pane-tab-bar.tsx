@@ -11,11 +11,30 @@ type TabDef = {
   label: string;
 };
 
-const TABS: TabDef[] = [
-  { id: "terminal", label: "Terminal" },
-  { id: "changes", label: "Changes" },
-  { id: "whiteboard", label: "Whiteboard" },
-];
+/**
+ * Tab labels depend on the chat surface flag: with it on the terminal is
+ * demoted to a lower-level "Console" behind the Chat tab; with it off the
+ * labels are exactly what they were before the flag existed.
+ */
+export function centerTabLabel(tab: CenterTab, chatEnabled: boolean): string {
+  switch (tab) {
+    case "chat":
+      return "Chat";
+    case "terminal":
+      return chatEnabled ? "Console" : "Terminal";
+    case "changes":
+      return "Changes";
+    case "whiteboard":
+      return "Whiteboard";
+  }
+}
+
+export function centerTabs(chatEnabled: boolean): TabDef[] {
+  const ids: CenterTab[] = chatEnabled
+    ? ["chat", "terminal", "changes", "whiteboard"]
+    : ["terminal", "changes", "whiteboard"];
+  return ids.map((id) => ({ id, label: centerTabLabel(id, chatEnabled) }));
+}
 
 const compactDiffCountFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -33,6 +52,8 @@ type CenterPaneTabBarProps = {
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
+  chatEnabled?: boolean;
+  chatUnreadCount?: number;
 };
 
 export const CenterPaneTabBar = memo(function CenterPaneTabBar({
@@ -42,12 +63,16 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   isSplit,
   splitState,
   isMobile,
+  chatEnabled = false,
+  chatUnreadCount = 0,
 }: CenterPaneTabBarProps): JSX.Element {
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
     : new Set<CenterTab>();
 
-  const visibleTabs = TABS.filter((t) => !splitTabs.has(t.id));
+  const visibleTabs = centerTabs(chatEnabled).filter(
+    (t) => !splitTabs.has(t.id)
+  );
 
   const handleDragStart = useCallback(
     (e: React.DragEvent, tabId: CenterTab) => {
@@ -62,6 +87,8 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   return (
     <div role="tablist" className="pointer-events-auto flex items-center">
       {visibleTabs.map((tab) => {
+        const showChatUnread =
+          tab.id === "chat" && activeTab !== "chat" && chatUnreadCount > 0;
         const button = (
           <button
             key={tab.id}
@@ -87,6 +114,15 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
           >
             <span className="relative pb-1.5 -mb-1.5">
               {tab.label}
+              {showChatUnread ? (
+                <span
+                  data-testid="chat-unread-count"
+                  aria-label={`${chatUnreadCount} unread chat messages`}
+                  className="absolute -right-3.5 -top-1 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 tracking-normal text-primary-foreground"
+                >
+                  {chatUnreadCount > 99 ? "99+" : chatUnreadCount}
+                </span>
+              ) : null}
               {tab.id === "whiteboard" &&
               whiteboardAgentDrew &&
               activeTab !== "whiteboard" ? (

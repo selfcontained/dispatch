@@ -69,6 +69,7 @@ const { H, stubModule, stubWrapper } = vi.hoisted(() => {
 });
 
 vi.mock("@/components/app/changes-tab", stubModule("ChangesTab"));
+vi.mock("@/components/app/chat/chat-pane", stubModule("ChatPane"));
 vi.mock("@/components/app/whiteboard-pane", stubModule("WhiteboardPane"));
 vi.mock("@/components/app/split-drop-zones", stubModule("SplitDropZones"));
 // The real split renders whichever panes it is handed into its two slots, so
@@ -181,9 +182,21 @@ vi.mock("@/hooks/use-agents-view-routing", () => ({
     return {
       changesMatch: s.changesMatch,
       whiteboardMatch: s.whiteboardMatch,
+      chatMatch: s.chatMatch ?? false,
       onTabChange: s.onTabChange,
     };
   },
+}));
+
+vi.mock("@/hooks/use-chat-surface-enabled", () => ({
+  useChatSurfaceEnabled: () => ({
+    enabled: H.state.chatEnabled ?? false,
+    loaded: true,
+  }),
+}));
+
+vi.mock("@/hooks/use-chat", () => ({
+  useChatUnreadCount: () => 0,
 }));
 
 vi.mock("@/hooks/use-expanded-agent", () => ({

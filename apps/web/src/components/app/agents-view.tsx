@@ -5,10 +5,12 @@ import { useAtomValue } from "jotai";
 
 import {
   bottomBarCollapsedAtom,
+  type CenterTab,
   whiteboardAgentDrewAtomFamily,
 } from "@/lib/store";
 
 import { ChangesTab } from "@/components/app/changes-tab";
+import { ChatPane } from "@/components/app/chat/chat-pane";
 import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { CenterPaneSplit } from "@/components/app/center-pane-split";
@@ -50,6 +52,8 @@ import {
 } from "@/hooks/use-agent-messages";
 import { useAgents } from "@/hooks/use-agents";
 import { useAgentSurfaces } from "@/hooks/use-agent-surfaces";
+import { useChatUnreadCount } from "@/hooks/use-chat";
+import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { useSurfaceSeen } from "@/components/app/agent-surfaces/use-surface-seen";
 import { useMedia } from "@/hooks/use-media";
 import { useMediaSidebarState } from "@/hooks/use-media-sidebar-state";
@@ -123,11 +127,20 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
-  const { changesMatch, whiteboardMatch, onTabChange } = useAgentsViewRouting({
-    routeAgentId,
-    agentsLoaded,
-    validatedSelectedAgentId,
-  });
+  const { changesMatch, whiteboardMatch, chatMatch, onTabChange } =
+    useAgentsViewRouting({
+      routeAgentId,
+      agentsLoaded,
+      validatedSelectedAgentId,
+    });
+  const { enabled: chatEnabled } = useChatSurfaceEnabled();
+  const activeTab: CenterTab = changesMatch
+    ? "changes"
+    : whiteboardMatch
+      ? "whiteboard"
+      : chatMatch
+        ? "chat"
+        : "terminal";
 
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
@@ -236,7 +249,12 @@ export function AgentsView({
     handleContentDrop,
     handleDropOnZone,
     handleSplitLayoutChange,
-  } = useCenterPaneLayout({ focusedAgentId, isMobile, changesMatch });
+  } = useCenterPaneLayout({
+    focusedAgentId,
+    isMobile,
+    activeTab,
+    chatEnabled,
+  });
 
   const {
     mediaFiles,
@@ -252,6 +270,7 @@ export function AgentsView({
   } = useMedia(focusedAgentId, mediaPanelOpen);
 
   const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
+  const chatUnreadCount = useChatUnreadCount(focusedAgentId, chatEnabled);
   const markMessagesRead = useMarkMessagesRead(focusedAgentId);
 
   // Closed-sidebar external signal for #2019: reuses the same surfaces query
@@ -512,6 +531,26 @@ export function AgentsView({
     <WhiteboardPane agentId={focusedAgentId} active={true} />
   ) : null;
 
+  const chatVisible =
+    chatEnabled &&
+    ((isSplit && (splitState.left === "chat" || splitState.right === "chat")) ||
+      (!isSplit && chatMatch));
+  const openConsole = useCallback(() => {
+    if (isSplit) exitSplit();
+    onTabChange("terminal");
+  }, [exitSplit, isSplit, onTabChange]);
+  const chatElement = chatVisible ? (
+    <ChatPane
+      agentId={focusedAgentId}
+      agent={focusedAgent}
+      terminalMode={terminalMode}
+      active={true}
+      onOpenConsole={openConsole}
+      openLightbox={openLightbox}
+      isMobile={isMobile}
+    />
+  ) : null;
+
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
       <div className="relative flex h-full min-h-0 min-w-0 overflow-hidden py-2">
@@ -607,6 +646,9 @@ export function AgentsView({
                 focusedDiffStats={focusedDiffStats}
                 changesMatch={changesMatch}
                 whiteboardMatch={whiteboardMatch}
+                chatMatch={chatMatch}
+                chatEnabled={chatEnabled}
+                chatUnreadCount={chatUnreadCount}
                 isSplit={isSplit}
                 splitState={splitState}
                 exitSplit={exitSplit}
@@ -635,6 +677,8 @@ export function AgentsView({
                     splitTerminalSlotRef={splitTerminalSlotRef}
                     changesElement={changesElement}
                     whiteboardElement={whiteboardElement}
+                    chatElement={chatElement}
+                    chatEnabled={chatEnabled}
                     isMobile={isMobile}
                     onLayoutChange={handleSplitLayoutChange}
                     onExitSplit={exitSplit}
@@ -645,13 +689,15 @@ export function AgentsView({
                       ref={defaultTerminalSlotRef}
                       className={cn(
                         "h-full",
-                        (changesMatch || whiteboardMatch) && "hidden"
+                        (changesMatch || whiteboardMatch || chatVisible) &&
+                          "hidden"
                       )}
                     />
                     <Routes>
                       <Route path="changes" element={changesElement} />
                     </Routes>
                     {whiteboardElement}
+                    {chatElement}
                   </>
                 )}
                 {stableTerminalContainer

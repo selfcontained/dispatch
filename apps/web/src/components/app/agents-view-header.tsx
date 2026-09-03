@@ -23,6 +23,9 @@ type AgentsViewHeaderProps = {
   focusedDiffStats: DiffStats | null | undefined;
   changesMatch: boolean;
   whiteboardMatch: boolean;
+  chatMatch?: boolean;
+  chatEnabled?: boolean;
+  chatUnreadCount?: number;
   isSplit: boolean;
   splitState: SplitPaneState;
   exitSplit: () => void;
@@ -47,6 +50,9 @@ export function AgentsViewHeader({
   focusedDiffStats,
   changesMatch,
   whiteboardMatch,
+  chatMatch = false,
+  chatEnabled = false,
+  chatUnreadCount = 0,
   isSplit,
   splitState,
   exitSplit,
@@ -110,7 +116,9 @@ export function AgentsViewHeader({
                   ? "changes"
                   : whiteboardMatch
                     ? "whiteboard"
-                    : "terminal"
+                    : chatMatch
+                      ? "chat"
+                      : "terminal"
               }
               onTabChange={(tab) => {
                 if (isSplit) {
@@ -122,6 +130,8 @@ export function AgentsViewHeader({
               isSplit={isSplit}
               splitState={splitState}
               isMobile={isMobile}
+              chatEnabled={chatEnabled}
+              chatUnreadCount={chatUnreadCount}
             />
           </>
         ) : null}

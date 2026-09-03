@@ -363,7 +363,7 @@ export function reconcileDiffViewStateStorage(
 // Split pane state — per-agent split/single mode and pane sizes
 // ---------------------------------------------------------------------------
 
-export type CenterTab = "terminal" | "changes" | "whiteboard";
+export type CenterTab = "chat" | "terminal" | "changes" | "whiteboard";
 
 export type SplitPaneState = {
   mode: "single" | "split";
