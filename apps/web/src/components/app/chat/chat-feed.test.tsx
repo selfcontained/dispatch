@@ -1168,6 +1168,17 @@ describe("ChatFeed", () => {
       third.querySelector("[data-testid='agent-relation-badge']")?.textContent
     ).toBe("child agent");
 
+    // Narrow screens: the header wraps and the recipient keeps a minimum
+    // width instead of collapsing to "→ …" beside a long sender name.
+    const header = first.querySelector("[data-testid='chat-side-header']");
+    expect(header?.className).toContain("flex-wrap");
+    expect(
+      first.querySelector("[data-testid='chat-side-recipient']")?.className
+    ).toContain("min-w-[8rem]");
+    expect(
+      first.querySelector("[data-testid='chat-post-author']")?.className
+    ).toContain("max-w-full");
+
     // The sender's icon with the arrows overlay, on header rows only.
     expect(first.querySelector("[aria-label='Claude agent']")).not.toBeNull();
     expect(

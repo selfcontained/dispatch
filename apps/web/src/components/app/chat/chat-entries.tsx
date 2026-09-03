@@ -328,7 +328,10 @@ export function Post({
       <div className="min-w-0 flex-1">
         {grouped ? null : (
           <div
-            className="flex items-baseline gap-2 leading-tight"
+            // Wrapping keeps the recipient readable on narrow screens: rather
+            // than squeezing "→ recipient" to nothing beside a long sender,
+            // it drops to its own line.
+            className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5 leading-tight"
             {...(side
               ? {
                   "aria-label": `${author.name} → ${side.recipientName}`,
@@ -337,7 +340,7 @@ export function Post({
               : {})}
           >
             <span
-              className="truncate text-sm font-semibold text-foreground"
+              className="max-w-full truncate text-sm font-semibold text-foreground"
               data-testid="chat-post-author"
             >
               {author.name}
@@ -347,7 +350,7 @@ export function Post({
             ) : null}
             {side ? (
               <span
-                className="truncate text-sm text-muted-foreground"
+                className="min-w-[8rem] max-w-full truncate text-sm text-muted-foreground"
                 data-testid="chat-side-recipient"
               >
                 <span aria-hidden="true">→ </span>
