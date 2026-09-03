@@ -46,6 +46,25 @@ export type ChatAttachment =
   | { type: "code"; code: string; language?: string; path?: string }
   | { type: "pin"; pinId: string };
 
+/**
+ * An attachment as the user supplies it from the Chat composer. `file` names
+ * a media row uploaded first via `POST /agents/:id/media`; the server resolves
+ * it into the stored `ChatAttachment` shape, verifies `pin` on the agent, and
+ * stores `link` as given.
+ */
+export type ChatUserAttachmentInput =
+  | { type: "file"; mediaId: number }
+  | { type: "pin"; pinId: string }
+  | { type: "link"; url: string; title?: string };
+
+/** Body of `POST /agents/:id/chat/messages`. */
+export type ChatSendRequest = {
+  /** May be blank when at least one attachment is present. */
+  text: string;
+  /** Up to `CHAT_ATTACHMENTS_MAX`. */
+  attachments?: ChatUserAttachmentInput[];
+};
+
 export type ChatMessage = {
   id: string;
   agentId: string;
@@ -88,7 +107,8 @@ export type ChatAgentMessageEntry = {
   recipientAgentId: string;
   recipientName: string;
   content: string;
-  delivered: boolean;
+  /** `null` while the pane delivery is still pending (see `agent_messages`). */
+  delivered: boolean | null;
   at: string;
 };
 

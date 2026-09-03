@@ -128,7 +128,8 @@ export function registerChatTools(
           `${CHAT_QUESTION_OPTIONS_MAX}) for a finite choice, and allowFreeform when a typed answer also works; the choice comes back as a user message with replyTo set to the question. ` +
           `text is markdown (≤ ${CHAT_MESSAGE_MAX_CHARS} chars). attachments (≤ ${CHAT_ATTACHMENTS_MAX}): ` +
           '{ type: "file", fileName } for a file already shared via dispatch_share_file (use the fileName it returned), { type: "link" | "pr", url, title? }, ' +
-          '{ type: "code", code, language?, path? }, or { type: "pin", pinId }. Returns { id, createdAt }; use the id with dispatch_chat_update to revise the message later.',
+          '{ type: "code", code, language?, path? }, or { type: "pin", pinId }. Returns { id, createdAt }; use the id with dispatch_chat_update to revise the message later. ' +
+          'An "update" post edited in place as work progresses is the durable form of progress — one message that ends up describing the result, not a trail of stale notes.',
         inputSchema: {
           text: textSchema,
           kind: chatKindSchema.optional().describe('Default "reply".'),
@@ -170,7 +171,8 @@ export function registerChatTools(
         description:
           "Revise a Chat tab message you posted earlier with dispatch_chat_post — e.g. turn a progress update into the final result, or fix a typo. " +
           "Only your own messages on this agent can be edited. Supply only the fields to change; attachments, when given, replace the whole list. " +
-          'Changing kind to "question" requires question; changing away from it clears the question. Returns { id, updatedAt }.',
+          'Changing kind to "question" requires question; changing away from it clears the question. Returns { id, updatedAt }. ' +
+          'Editing an "update" post in place is the durable form of progress: keep revising the same message rather than posting a new note for every step.',
         inputSchema: {
           messageId: z.uuid().describe("Id returned by dispatch_chat_post."),
           text: textSchema.optional(),

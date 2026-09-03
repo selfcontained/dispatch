@@ -1,6 +1,8 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
-import type { ChatUnreadSummary } from "@dispatch/shared";
+import * as z from "zod/v4";
+import type { ChatSendRequest, ChatUnreadSummary } from "@dispatch/shared";
+import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 
 import { composeChatFeed, decodeFeedCursor } from "../chat/feed.js";
 import { ChatServiceError, type ChatService } from "../chat/service.js";
@@ -12,6 +14,36 @@ type ChatRouteDeps = {
   /** Maps `AgentError` (and anything else) from the service to a response. */
   handleAgentError: (reply: FastifyReply, error: unknown) => FastifyReply;
 };
+
+/**
+ * `POST /agents/:id/chat/messages` body. Shape only: the cross-field rule
+ * (blank text needs an attachment) and attachment resolution live in the
+ * service. The user path takes files by `mediaId` only — the row came from
+ * `POST /agents/:id/media` moments ago, so there is no fileName to name.
+ */
+const userAttachmentSchema = z.discriminatedUnion("type", [
+  z.strictObject({ type: z.literal("file"), mediaId: z.int().positive() }),
+  z.strictObject({ type: z.literal("pin"), pinId: z.string().min(1) }),
+  z.strictObject({
+    type: z.literal("link"),
+    url: z.url(),
+    title: z.string().max(200).optional(),
+  }),
+]);
+
+const sendBodySchema = z.object({
+  text: z
+    .string()
+    .max(
+      CHAT_MESSAGE_MAX_CHARS,
+      `text must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
+    )
+    .default(""),
+  attachments: z
+    .array(userAttachmentSchema)
+    .max(CHAT_ATTACHMENTS_MAX)
+    .optional(),
+}) satisfies z.ZodType<ChatSendRequest, unknown>;
 
 /**
  * HTTP surface over `ChatService`: body shape checks and status-code mapping
@@ -74,10 +106,23 @@ export async function registerChatRoutes(
 
   app.post("/api/v1/agents/:id/chat/messages", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
-    const body = request.body as { text?: unknown } | null;
-    const text = typeof body?.text === "string" ? body.text : "";
+    const parsed = sendBodySchema.safeParse(request.body ?? {});
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      // Point at the offending attachment; top-level messages name their
+      // field themselves.
+      const where =
+        issue?.path[0] === "attachments" ? `${issue.path.join(".")}: ` : "";
+      return reply
+        .code(400)
+        .send({ error: `${where}${issue?.message ?? "Invalid body."}` });
+    }
     try {
-      return await chat.sendUserMessage(id, text);
+      return await chat.sendUserMessage(
+        id,
+        parsed.data.text,
+        parsed.data.attachments ?? []
+      );
     } catch (error) {
       return sendError(reply, error);
     }

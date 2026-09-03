@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { Pool } from "pg";
 import type {
   ChatAnswerResponse,
@@ -6,6 +8,7 @@ import type {
   ChatMessageKind,
   ChatQuestion,
   ChatSendResponse,
+  ChatUserAttachmentInput,
 } from "@dispatch/shared";
 import {
   CHAT_ATTACHMENTS_MAX,
@@ -14,8 +17,8 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
-import { mimeType } from "../shared/media.js";
-import { buildChatEnvelope } from "./envelope.js";
+import { mimeType, resolveMediaDir } from "../shared/media.js";
+import { buildChatEnvelope, formatAttachmentSize } from "./envelope.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -68,13 +71,19 @@ export type ChatDeliveryAdapter = {
   held: (agentId: string) => boolean;
 };
 
+type ChatAgent = Pick<AgentRecord, "id" | "mediaDir" | "pins">;
+
 export type ChatServiceDeps = {
   pool: Pool;
   publishUiEvent: (event: { type: "chat.changed"; agentId: string }) => void;
   /** Minimal agent lookup: media dir and pins are all the service needs. */
-  getAgent: (
-    agentId: string
-  ) => Promise<Pick<AgentRecord, "id" | "mediaDir" | "pins"> | null>;
+  getAgent: (agentId: string) => Promise<ChatAgent | null>;
+  /**
+   * Root of per-agent media directories (config.mediaRoot), so the envelope
+   * can hand the agent an absolute path for a file attachment — the same
+   * resolution `GET /media/:file` serves from.
+   */
+  mediaRoot: string;
   /** Required for the user-side workflows (send, answer). */
   delivery?: ChatDeliveryAdapter;
   log?: {
@@ -173,16 +182,35 @@ export class ChatService {
    * pane delivery, and return at once. The quiet gate can hold a delivery far
    * longer than a request should wait, so `delivered` stays null until the
    * injection settles; `held` reports whether the gate is holding right now.
+   *
+   * `text` may be blank when at least one attachment is present. Attachments
+   * are resolved (file by mediaId, pin verified on the agent, link as given)
+   * before anything is written, so a bad one is a 400 with no row behind it.
    */
   async sendUserMessage(
     agentId: string,
-    text: string
+    text: string,
+    attachments: ChatUserAttachmentInput[] = []
   ): Promise<ChatSendResponse> {
-    if (!text.trim()) throw new ChatValidationError("text is required.");
+    if (!text.trim() && attachments.length === 0) {
+      throw new ChatValidationError("text is required.");
+    }
     if (text.length > CHAT_MESSAGE_MAX_CHARS) {
       throw new ChatValidationError(
         `text must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
       );
+    }
+    if (attachments.length > CHAT_ATTACHMENTS_MAX) {
+      throw new ChatValidationError(
+        `attachments must have ${CHAT_ATTACHMENTS_MAX} entries or fewer.`
+      );
+    }
+    let resolved: ChatAttachment[] = [];
+    let attachmentLines: string[] = [];
+    if (attachments.length > 0) {
+      const agent = await this.requireAgent(agentId);
+      resolved = await this.resolveAttachmentsFor(agent, attachments);
+      attachmentLines = this.describeAttachments(agent, resolved);
     }
     const sessionName = await this.requireDeliverable(agentId);
     const message = await this.store.insert({
@@ -190,9 +218,15 @@ export class ChatService {
       authorKind: "user",
       kind: "reply",
       text,
+      attachments: resolved,
       delivered: null,
     });
-    const { held } = this.deliverDetached(agentId, sessionName, message);
+    const { held } = this.deliverDetached(
+      agentId,
+      sessionName,
+      message,
+      attachmentLines
+    );
     this.publishChanged(agentId);
     return { message, delivered: null, held };
   }
@@ -316,10 +350,15 @@ export class ChatService {
   private deliverDetached(
     agentId: string,
     sessionName: string,
-    message: ChatMessage
+    message: ChatMessage,
+    attachmentLines: string[] = []
   ): { held: boolean } {
     const delivery = this.delivery();
-    const envelope = buildChatEnvelope(message.id, message.text);
+    const envelope = buildChatEnvelope(
+      message.id,
+      message.text,
+      attachmentLines
+    );
     const settlement = delivery
       .inject(agentId, sessionName, envelope)
       .then(
@@ -517,15 +556,25 @@ export class ChatService {
     inputs: ChatAttachmentInput[]
   ): Promise<ChatAttachment[]> {
     if (inputs.length === 0) return [];
+    return this.resolveAttachmentsFor(await this.requireAgent(agentId), inputs);
+  }
+
+  private async requireAgent(agentId: string): Promise<ChatAgent> {
     const agent = await this.deps.getAgent(agentId);
     if (!agent) throw new ChatValidationError("Agent not found.");
+    return agent;
+  }
+
+  private async resolveAttachmentsFor(
+    agent: ChatAgent,
+    inputs: ChatAttachmentInput[]
+  ): Promise<ChatAttachment[]> {
     const out: ChatAttachment[] = [];
     for (const input of inputs) {
       if (input.type === "file") {
         out.push(await this.resolveFile(agent.id, input));
       } else if (input.type === "pin") {
-        const pins = Array.isArray(agent.pins) ? agent.pins : [];
-        if (!pins.some((pin) => pin.id === input.pinId)) {
+        if (!this.findPin(agent, input.pinId)) {
           throw new ChatValidationError(
             `Unknown pin "${input.pinId}" — dispatch_list_pins shows the ids on this agent.`
           );
@@ -536,6 +585,61 @@ export class ChatService {
       }
     }
     return out;
+  }
+
+  private findPin(agent: ChatAgent, pinId: string) {
+    const pins = Array.isArray(agent.pins) ? agent.pins : [];
+    return pins.find((pin) => pin.id === pinId);
+  }
+
+  /**
+   * One envelope line per resolved attachment, in the documented format:
+   * `file: <abs path> (<mime>, <size>)`, `pin: <label> — <value>`,
+   * `link: <url>`. File paths use the agent's media directory — the same
+   * resolution the media download route uses — so the agent can open them.
+   */
+  private describeAttachments(
+    agent: ChatAgent,
+    attachments: ChatAttachment[]
+  ): string[] {
+    const mediaDir = resolveMediaDir(
+      agent.id,
+      agent.mediaDir,
+      this.deps.mediaRoot
+    );
+    const lines: string[] = [];
+    for (const attachment of attachments) {
+      switch (attachment.type) {
+        case "file": {
+          const mime = attachment.mimeType ?? mimeType(attachment.fileName);
+          lines.push(
+            `- file: ${path.join(mediaDir, attachment.fileName)} (${mime}, ${formatAttachmentSize(attachment.sizeBytes)})`
+          );
+          break;
+        }
+        case "pin": {
+          const pin = this.findPin(agent, attachment.pinId);
+          lines.push(
+            pin
+              ? `- pin: ${pin.label} — ${pin.value}`
+              : `- pin: ${attachment.pinId}`
+          );
+          break;
+        }
+        case "link":
+        case "pr":
+          lines.push(
+            `- ${attachment.type}: ${attachment.url}${attachment.title ? ` — ${attachment.title}` : ""}`
+          );
+          break;
+        case "code":
+          lines.push(
+            `- code${attachment.path ? ` (${attachment.path})` : ""}:\n${attachment.code}`
+          );
+          break;
+      }
+    }
+    return lines;
   }
 
   private async resolveFile(

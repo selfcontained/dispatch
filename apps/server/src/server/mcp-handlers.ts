@@ -53,7 +53,11 @@ import {
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
 import type { ListedMediaItem } from "../shared/mcp/agent-lifecycle-tools.js";
-import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
+import type {
+  EnqueueAgentPrompt,
+  PublishUiEvent,
+  SendAgentPrompt,
+} from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 import { MessageStore } from "../messages/store.js";
 import { createWhiteboardHandlers } from "./mcp-whiteboard-handlers.js";
@@ -106,6 +110,11 @@ type CreateMcpHandlersDeps = {
     agent: T
   ) => T & { hasStream: boolean };
   sendAgentPrompt: SendAgentPrompt;
+  /**
+   * Enqueue-and-settle delivery for dispatch_send_message: the row records
+   * the real outcome once the pane write completes instead of "enqueued".
+   */
+  enqueueAgentPrompt: EnqueueAgentPrompt;
   appLog: FastifyBaseLogger;
   /**
    * Claim an archive and run its teardown in the background. Archiving cannot
@@ -934,18 +943,14 @@ async function handleSendMessage(
         : "";
   const prompt = `--- DISPATCH MESSAGE ---\n${envelope}\n--- END MESSAGE ---${provenanceLine}\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`;
 
-  // Deliver first: a persistence failure must never block delivery.
-  let delivered = false;
+  // Enqueue first: a persistence failure must never block delivery. The
+  // handler returns once the prompt is queued — awaiting gated delivery can
+  // exceed MCP client timeouts (~60s), and a timed-out sender retrying would
+  // inject the message twice. Session validation happens before this resolves.
+  let enqueued: Awaited<ReturnType<EnqueueAgentPrompt>> | null = null;
   let deliveryError: unknown = null;
   try {
-    await deps.sendAgentPrompt(target.id, prompt, {
-      swallowFailure: false,
-      // Enqueue-and-return: awaiting gated delivery can exceed MCP client
-      // timeouts (~60s), and a timed-out sender retrying would inject the
-      // message twice. Session validation still happens before this resolves.
-      awaitDelivery: false,
-    });
-    delivered = true;
+    enqueued = await deps.enqueueAgentPrompt(target.id, prompt);
   } catch (err) {
     deliveryError = err;
     deps.appLog.error(
@@ -953,11 +958,27 @@ async function handleSendMessage(
       "dispatch_send_message: tmux delivery failed"
     );
   }
+  // Attach the outcome handler at once so a fast rejection can never surface
+  // as an unhandled rejection while the insert below is still in flight.
+  const outcome: Promise<boolean> | null = enqueued
+    ? enqueued.delivery.then(
+        () => true,
+        (err: unknown) => {
+          deps.appLog.warn(
+            { err, senderId: agentId, targetId: target.id },
+            "dispatch_send_message: pane delivery failed — agent may have exited"
+          );
+          return false;
+        }
+      )
+    : null;
 
-  // Record the message (including failed deliveries) so it is viewable.
-  // Persistence must never block delivery, so a failed insert is swallowed
-  // and logged. Only announce message.created when the row actually landed,
-  // otherwise the UI would refetch and find nothing.
+  // Record the message (including failed enqueues) so it is viewable. A row
+  // that was queued starts as delivered = null and settles below; the UI
+  // renders null as "Sending". Persistence must never block delivery, so a
+  // failed insert is swallowed and logged. Only announce message.created
+  // when the row actually landed, otherwise the UI would refetch and find
+  // nothing.
   const recipientRepoRoot = await resolveRepoRoot(target.cwd).catch(() => null);
   const messageStore = new MessageStore(deps.pool);
   const persisted = await messageStore
@@ -967,36 +988,51 @@ async function handleSendMessage(
       senderName: sender.name,
       recipientName: target.name,
       content: input.message,
-      delivered,
+      delivered: enqueued ? null : false,
       senderRepoRoot,
       recipientRepoRoot,
     })
-    .then(() => true)
     .catch((err) => {
       deps.appLog.error(
         { err, senderId: agentId, targetId: target.id },
         "dispatch_send_message: failed to persist message"
       );
-      return false;
+      return null;
     });
 
-  if (persisted) {
+  const announce = () =>
     deps.publishUiEvent({
       type: "message.created",
       senderAgentId: agentId,
       recipientAgentId: target.id,
     });
+  if (persisted) announce();
+
+  if (persisted && outcome) {
+    // Settle the row once the pane write completes and announce the pair
+    // again so both sides' panels refetch the final state.
+    void outcome
+      .then(async (delivered) => {
+        await messageStore.setDelivered(persisted.id, delivered);
+        announce();
+      })
+      .catch((err: unknown) => {
+        deps.appLog.error(
+          { err, senderId: agentId, targetId: target.id },
+          "dispatch_send_message: failed to record delivery outcome"
+        );
+      });
   }
 
-  if (!delivered) {
+  if (!enqueued) {
     throw deliveryError instanceof Error
       ? deliveryError
       : new Error(`Failed to deliver message to "${target.name}".`);
   }
 
   deps.appLog.info(
-    { senderId: agentId, targetId: target.id },
-    "dispatch_send_message: delivered"
+    { senderId: agentId, targetId: target.id, held: enqueued.held },
+    "dispatch_send_message: queued for delivery"
   );
   return {
     delivered: true,

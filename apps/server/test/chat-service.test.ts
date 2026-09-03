@@ -34,6 +34,7 @@ beforeAll(async () => {
     publishUiEvent: (event) => published.push(event),
     getAgent: async (id) =>
       id === A ? { id, mediaDir: null, pins: PINS as never } : null,
+    mediaRoot: "/media-root",
   });
 });
 
@@ -339,7 +340,11 @@ describe("ChatService user workflows", () => {
     const svc = new ChatService({
       pool,
       publishUiEvent: (event) => events.push(event),
-      getAgent: async () => null,
+      getAgent: async (id) =>
+        id === A
+          ? { id, mediaDir: "/custom/media", pins: PINS as never }
+          : null,
+      mediaRoot: "/media-root",
       delivery: {
         access:
           opts.access ??
@@ -413,6 +418,85 @@ describe("ChatService user workflows", () => {
     // Nothing was written for any of them.
     const rows = await pool.query("SELECT 1 FROM agent_chat_messages");
     expect(rows.rowCount).toBe(0);
+  });
+
+  it("sendUserMessage resolves user attachments and lists them in the envelope", async () => {
+    await pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, 'shot-2026-01-01-00-00-00-000.png', 'user', 122880)`,
+      [A]
+    );
+    const media = await pool.query<{ id: number }>(
+      `SELECT id FROM media WHERE agent_id = $1`,
+      [A]
+    );
+    const mediaId = media.rows[0].id;
+    const { svc, injected } = build();
+    const res = await svc.sendUserMessage(A, "look at this", [
+      { type: "file", mediaId },
+      { type: "pin", pinId: "pin_1" },
+      { type: "link", url: "https://example.com/spec", title: "Spec" },
+    ]);
+    expect(res.message.attachments).toEqual([
+      {
+        type: "file",
+        mediaId,
+        fileName: "shot-2026-01-01-00-00-00-000.png",
+        sizeBytes: 122880,
+        mimeType: "image/png",
+      },
+      { type: "pin", pinId: "pin_1" },
+      { type: "link", url: "https://example.com/spec", title: "Spec" },
+    ]);
+    await settled(svc, res.message.id);
+    expect(injected[0].text).toBe(
+      [
+        `--- DISPATCH CHAT (id: ${res.message.id}) ---`,
+        "look at this",
+        "",
+        "Attachments:",
+        "- file: /custom/media/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
+        "- pin: URL — http://x",
+        "- link: https://example.com/spec — Spec",
+        "--- END DISPATCH CHAT ---",
+        `The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "${res.message.id}"); terminal output alone will not reach them.`,
+      ].join("\n")
+    );
+  });
+
+  it("sendUserMessage accepts blank text with an attachment and lists only the attachments", async () => {
+    const { svc, injected } = build();
+    const res = await svc.sendUserMessage(A, "", [
+      { type: "link", url: "https://example.com" },
+    ]);
+    expect(res.message.text).toBe("");
+    await settled(svc, res.message.id);
+    expect(injected[0].text).toContain(
+      `--- DISPATCH CHAT (id: ${res.message.id}) ---\nAttachments:\n- link: https://example.com\n--- END DISPATCH CHAT ---`
+    );
+  });
+
+  it("sendUserMessage rejects unknown media, foreign pins, and too many attachments before writing", async () => {
+    const { svc, injected } = build();
+    await expect(
+      svc.sendUserMessage(A, "x", [{ type: "file", mediaId: 999_999 }])
+    ).rejects.toThrow(/Unknown file #999999/);
+    await expect(
+      svc.sendUserMessage(A, "x", [{ type: "pin", pinId: "pin_nope" }])
+    ).rejects.toThrow(/Unknown pin/);
+    await expect(
+      svc.sendUserMessage(
+        A,
+        "x",
+        Array.from({ length: 21 }, () => ({
+          type: "link" as const,
+          url: "https://example.com",
+        }))
+      )
+    ).rejects.toThrow(/20 entries or fewer/);
+    const rows = await pool.query("SELECT 1 FROM agent_chat_messages");
+    expect(rows.rowCount).toBe(0);
+    expect(injected).toHaveLength(0);
   });
 
   it("answerQuestion resolves the option label, records the answer, and delivers", async () => {

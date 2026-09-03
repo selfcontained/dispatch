@@ -134,7 +134,7 @@ import { escapeLike } from "./shared/lib/escape-like.js";
 import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
 import { InjectionCoordinator } from "./terminal/injection-coordinator.js";
-import { TmuxTerminal } from "./terminal/tmux-terminal.js";
+import { MessageStore } from "./messages/store.js";
 import {
   injectionHoldEnabled,
   loadInjectionHoldEnabled,
@@ -409,7 +409,7 @@ const injectionCoordinator = new InjectionCoordinator({
       holdState,
     }),
 });
-const injectAgentPrompt = createPromptInjector(
+const { injectAgentPrompt, enqueueAgentPrompt } = createPromptInjector(
   agentManager,
   app.log,
   injectionCoordinator
@@ -436,12 +436,14 @@ const chatService = new ChatService({
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   getAgent: (agentId) => agentManager.getAgent(agentId),
+  mediaRoot: config.mediaRoot,
   delivery: {
     access: (agentId) => agentManager.getTerminalAccess(agentId),
-    inject: (agentId, sessionName, text) =>
-      injectionCoordinator.inject(agentId, () =>
-        new TmuxTerminal(sessionName).sendCommand(text)
-      ),
+    // The service already checked deliverability; the injector re-resolves
+    // the session itself, so a pane that vanished in between surfaces as a
+    // failed delivery rather than a stale session name.
+    inject: async (agentId, _sessionName, text) =>
+      (await enqueueAgentPrompt(agentId, text)).delivery,
     held: (agentId) => injectionCoordinator.holdState(agentId).held,
   },
   log: app.log,
@@ -457,6 +459,7 @@ const mcpHandlers = createMcpHandlers({
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   withStreamFlag,
   sendAgentPrompt: injectAgentPrompt,
+  enqueueAgentPrompt,
   appLog: app.log,
   beginBackgroundArchive: (agentId, cleanupWorktree, opts) =>
     agentLifecycleRuntime.beginBackgroundArchive(
@@ -647,6 +650,7 @@ async function registerRoutes() {
     brainStore,
     publishBrainChanged: (repoRoot: string) =>
       uiEventBroker.publish({ type: "brain.changed", repoRoot }),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
     getBearerToken,
     validateJobMcpToken,
     validateAgentMcpToken,
@@ -903,6 +907,17 @@ export async function initializeApp(options?: {
       app.log.info(
         { agentIds: recovered },
         "Marked chat deliveries abandoned by the previous process as not delivered"
+      );
+    }
+    // Same for cross-agent messages queued by dispatch_send_message.
+    const staleMessages = await new MessageStore(pool).sweepPendingDeliveries();
+    for (const pair of staleMessages) {
+      uiEventBroker.publish({ type: "message.created", ...pair });
+    }
+    if (staleMessages.length > 0) {
+      app.log.info(
+        { pairs: staleMessages.length },
+        "Marked agent messages abandoned by the previous process as not delivered"
       );
     }
     await agentLifecycleRuntime.restorePendingContinuations(jobService);

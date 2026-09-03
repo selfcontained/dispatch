@@ -156,6 +156,60 @@ describe("POST /api/v1/agents/:id/chat/messages (inert runtime)", () => {
     expect(big.json().error).toMatch(/20000 characters or fewer/);
   });
 
+  it("400s malformed, oversized, or path-based attachment lists", async () => {
+    const url = `/api/v1/agents/${agentId}/chat/messages`;
+    const tooMany = await authedInject("POST", url, {
+      text: "x",
+      attachments: Array.from({ length: 21 }, () => ({
+        type: "link",
+        url: "https://example.com",
+      })),
+    });
+    expect(tooMany.statusCode).toBe(400);
+    expect(tooMany.json().error).toMatch(/attachments/);
+    // The user path takes files by mediaId only; fileName is the agent's key.
+    const byName = await authedInject("POST", url, {
+      text: "x",
+      attachments: [{ type: "file", fileName: "shot.png" }],
+    });
+    expect(byName.statusCode).toBe(400);
+    expect(byName.json().error).toMatch(/attachments\.0/);
+    const badKind = await authedInject("POST", url, {
+      text: "x",
+      attachments: [{ type: "code", code: "x" }],
+    });
+    expect(badKind.statusCode).toBe(400);
+    const badUrl = await authedInject("POST", url, {
+      text: "x",
+      attachments: [{ type: "link", url: "not a url" }],
+    });
+    expect(badUrl.statusCode).toBe(400);
+    const notArray = await authedInject("POST", url, {
+      text: "x",
+      attachments: { type: "link", url: "https://example.com" },
+    });
+    expect(notArray.statusCode).toBe(400);
+    // Blank text needs at least one attachment.
+    const blank = await authedInject("POST", url, {
+      text: "",
+      attachments: [],
+    });
+    expect(blank.statusCode).toBe(400);
+    expect(blank.json().error).toMatch(/text is required/);
+    // An unknown media id is a 400 from the service, and nothing persists.
+    const unknownMedia = await authedInject("POST", url, {
+      text: "",
+      attachments: [{ type: "file", mediaId: 424242 }],
+    });
+    expect(unknownMedia.statusCode).toBe(400);
+    expect(unknownMedia.json().error).toMatch(/Unknown file/);
+    const rows = await ctx.pool.query(
+      "SELECT 1 FROM agent_chat_messages WHERE agent_id = $1",
+      [agentId]
+    );
+    expect(rows.rows).toHaveLength(0);
+  });
+
   it("409s when the agent has no tmux session, and persists nothing", async () => {
     // Same boundary as terminal inject-text: agents run inert in tests.
     const res = await authedInject(
@@ -417,7 +471,12 @@ describe("chat routes with a deliverable terminal", () => {
     const chat = new ChatService({
       pool: ctx.pool,
       publishUiEvent: (event) => published.push(event),
-      getAgent: async (id) => ({ id, mediaDir: null, pins: [] }),
+      getAgent: async (id) => ({
+        id,
+        mediaDir: null,
+        pins: [{ id: "pin_1", label: "PR", value: "https://gh/1" }] as never,
+      }),
+      mediaRoot: "/media-root",
       delivery: {
         access:
           opts.access ??
@@ -491,6 +550,57 @@ describe("chat routes with a deliverable terminal", () => {
       { type: "chat.changed", agentId },
       { type: "chat.changed", agentId },
     ]);
+    await app.close();
+  });
+
+  it("stores user attachments and lists them in the injected envelope", async () => {
+    const media = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, 'upload-2026-01-01-00-00-00-000.pdf', 'user', 2048)
+       RETURNING id`,
+      [agentId]
+    );
+    const mediaId = media.rows[0].id;
+    const { app, ready, prompts } = buildApp({});
+    await ready;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages`,
+      payload: {
+        text: "",
+        attachments: [
+          { type: "file", mediaId },
+          { type: "pin", pinId: "pin_1" },
+          { type: "link", url: "https://example.com/x" },
+        ],
+      },
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    expect(body.message.text).toBe("");
+    expect(body.message.attachments).toEqual([
+      {
+        type: "file",
+        mediaId,
+        fileName: "upload-2026-01-01-00-00-00-000.pdf",
+        sizeBytes: 2048,
+        mimeType: "application/pdf",
+      },
+      { type: "pin", pinId: "pin_1" },
+      { type: "link", url: "https://example.com/x" },
+    ]);
+    await settled(body.message.id);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].prompt).toContain(
+      [
+        `--- DISPATCH CHAT (id: ${body.message.id}) ---`,
+        "Attachments:",
+        `- file: /media-root/${agentId}/upload-2026-01-01-00-00-00-000.pdf (application/pdf, 2 KB)`,
+        "- pin: PR — https://gh/1",
+        "- link: https://example.com/x",
+        "--- END DISPATCH CHAT ---",
+      ].join("\n")
+    );
     await app.close();
   });
 

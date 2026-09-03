@@ -2,6 +2,7 @@ import path from "node:path";
 
 import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
+import type { SharedUiEvent } from "@dispatch/shared";
 
 import type { AgentManager } from "../agents/manager.js";
 import * as telemetry from "../agents/telemetry.js";
@@ -48,6 +49,8 @@ type McpRouteDeps = {
   templateService: TemplateService;
   brainStore: BrainStore;
   publishBrainChanged: (repoRoot: string) => void;
+  /** Fans `agent.tool_invoked` out to the SSE stream (presence strip). */
+  publishUiEvent: (event: SharedUiEvent) => void;
   getBearerToken: (request: {
     headers: { authorization?: string };
   }) => string | null;
@@ -275,6 +278,7 @@ export async function registerMcpRoutes(
       crudTools: buildCrudCallbacks(deps),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
+      publishUiEvent: deps.publishUiEvent,
       surfaces: deps.surfaces,
       chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
@@ -374,6 +378,7 @@ export async function registerMcpRoutes(
       crudTools: buildCrudCallbacks(deps),
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
+      publishUiEvent: deps.publishUiEvent,
       surfaces: deps.surfaces,
       chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);

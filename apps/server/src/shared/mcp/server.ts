@@ -319,10 +319,24 @@ export type NotifyResult = {
   reason?: string;
 };
 
+/** The ephemeral SSE member every tool invocation publishes. */
+export type ToolInvokedEvent = {
+  type: "agent.tool_invoked";
+  agentId: string;
+  tool: string;
+  at: string;
+};
+
 export type McpRequestContext = {
   agent: McpAgent | null;
   repoRoot: string | null;
   worktreeRoot: string | null;
+  /**
+   * Publishes `agent.tool_invoked` for every tool call on this server
+   * (dynamic repo tools included; `dispatch_event` excluded). Optional so
+   * the token-less `/api/mcp` route and unit tests can omit it.
+   */
+  publishUiEvent?: (event: ToolInvokedEvent) => void;
   surfaces?: SurfaceService;
   /** Chat tab posting (dispatch_chat_post / dispatch_chat_update). */
   chat?: Pick<ChatService, "post" | "update">;
@@ -655,13 +669,54 @@ export async function handleMcpRequest(
   await transport.handleRequest(req, res, body);
 }
 
-async function createDispatchMcpServer(
+/**
+ * Wrap `registerTool` once so every tool this server ends up with — static
+ * registrations and the dynamic repo tools alike — announces its invocation
+ * before running. The publish is fenced: a broken listener must never turn
+ * into a tool error.
+ */
+function instrumentToolInvocations(
+  server: McpServer,
+  agentId: string,
+  publish: (event: ToolInvokedEvent) => void
+): void {
+  type AnyRegister = (
+    name: string,
+    config: unknown,
+    callback: (...args: unknown[]) => unknown
+  ) => unknown;
+  const original = server.registerTool.bind(server) as unknown as AnyRegister;
+  const instrumented: AnyRegister = (name, config, callback) =>
+    original(name, config, (...args) => {
+      // dispatch_event already drives the phase; a blip for it is noise.
+      if (name !== "dispatch_event") {
+        try {
+          publish({
+            type: "agent.tool_invoked",
+            agentId,
+            tool: name,
+            at: new Date().toISOString(),
+          });
+        } catch {
+          // Presence is best-effort; the tool call itself must proceed.
+        }
+      }
+      return callback(...args);
+    });
+  (server as unknown as { registerTool: AnyRegister }).registerTool =
+    instrumented;
+}
+
+export async function createDispatchMcpServer(
   context: McpRequestContext
 ): Promise<McpServer> {
   const server = new McpServer({
     name: "dispatch",
     version: "0.0.0",
   });
+  if (context.agent && context.publishUiEvent) {
+    instrumentToolInvocations(server, context.agent.id, context.publishUiEvent);
+  }
   const defaultCwd = context.agent?.cwd ?? undefined;
   const agentType: AgentCapabilityType =
     context.agent?.role === "review"

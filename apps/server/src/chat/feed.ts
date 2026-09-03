@@ -224,7 +224,7 @@ async function listAgentMessageEntries(
     sender_name: string;
     recipient_name: string;
     content: string;
-    delivered: boolean;
+    delivered: boolean | null;
     created_at: Date;
     at_key: string;
   }>(

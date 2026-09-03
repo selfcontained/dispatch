@@ -43,9 +43,11 @@ export type {
   ChatMessageKind,
   ChatQuestion,
   ChatQuestionOption,
+  ChatSendRequest,
   ChatSendResponse,
   ChatStatusEntry,
   ChatUnreadSummary,
+  ChatUserAttachmentInput,
 } from "./chat-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {
