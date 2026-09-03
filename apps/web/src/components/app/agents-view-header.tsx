@@ -26,6 +26,12 @@ type AgentsViewHeaderProps = {
   whiteboardMatch: boolean;
   chatMatch?: boolean;
   chatEnabled?: boolean;
+  /**
+   * False while the route is still settling on a tab (flag not yet known, or
+   * a redirect pending). The tab bar waits, so it never shows "Terminal"
+   * highlighted for a frame before flipping to Chat/Console.
+   */
+  centerTabResolved?: boolean;
   chatUnreadCount?: number;
   isSplit: boolean;
   splitState: SplitPaneState;
@@ -53,6 +59,7 @@ export function AgentsViewHeader({
   whiteboardMatch,
   chatMatch = false,
   chatEnabled = false,
+  centerTabResolved = true,
   chatUnreadCount = 0,
   isSplit,
   splitState,
@@ -120,29 +127,31 @@ export function AgentsViewHeader({
             <span data-testid="current-session-name" className="sr-only">
               {focusedAgentName}
             </span>
-            <CenterPaneTabBar
-              activeTab={
-                changesMatch
-                  ? "changes"
-                  : whiteboardMatch
-                    ? "whiteboard"
-                    : chatMatch
-                      ? "chat"
-                      : "terminal"
-              }
-              onTabChange={(tab) => {
-                if (isSplit) {
-                  exitSplit();
+            {centerTabResolved ? (
+              <CenterPaneTabBar
+                activeTab={
+                  changesMatch
+                    ? "changes"
+                    : whiteboardMatch
+                      ? "whiteboard"
+                      : chatMatch
+                        ? "chat"
+                        : "terminal"
                 }
-                onTabChange(tab);
-              }}
-              whiteboardAgentDrew={whiteboardAgentDrew}
-              isSplit={isSplit}
-              splitState={splitState}
-              isMobile={isMobile}
-              chatEnabled={chatEnabled}
-              chatUnreadCount={chatUnreadCount}
-            />
+                onTabChange={(tab) => {
+                  if (isSplit) {
+                    exitSplit();
+                  }
+                  onTabChange(tab);
+                }}
+                whiteboardAgentDrew={whiteboardAgentDrew}
+                isSplit={isSplit}
+                splitState={splitState}
+                isMobile={isMobile}
+                chatEnabled={chatEnabled}
+                chatUnreadCount={chatUnreadCount}
+              />
+            ) : null}
           </>
         ) : null}
       </div>

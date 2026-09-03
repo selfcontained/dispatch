@@ -183,6 +183,7 @@ vi.mock("@/hooks/use-agents-view-routing", () => ({
       changesMatch: s.changesMatch,
       whiteboardMatch: s.whiteboardMatch,
       chatMatch: s.chatMatch ?? false,
+      centerTabResolved: s.centerTabResolved ?? true,
       onTabChange: s.onTabChange,
     };
   },
@@ -1047,6 +1048,45 @@ describe("AgentsView center pane", () => {
     // handed to the split and appear the moment a slot switched to it.
     expect(propsOf("CenterPaneSplit").changesElement).toBeNull();
     expect(propsOf("CenterPaneSplit").whiteboardElement).toBeNull();
+  });
+
+  // Regression: opening an agent with the chat flag on used to paint the
+  // Console for a frame before the Chat redirect landed. The terminal pane
+  // must not mount at all until the routing hook has settled on a tab.
+  it("does not mount the terminal until the center tab is resolved", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+      connState: "connected",
+      connectedAgentId: "a1",
+      centerTabResolved: false,
+    });
+    mount({ path: "/agents/a1" });
+
+    expect(renderedChildren()).not.toContain("TerminalPane");
+    expect(renderedChildren()).not.toContain("ChatPane");
+    // The tab bar waits too, so "Terminal" is never highlighted first.
+    expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(false);
+  });
+
+  it("mounts the terminal once resolved and keeps it across a later redirect", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+      connState: "connected",
+      connectedAgentId: "a1",
+      centerTabResolved: true,
+    });
+    const { rerender, props } = mount({ path: "/agents/a1" });
+    expect(renderedChildren()).toContain("TerminalPane");
+    expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(true);
+
+    // Switching agents puts the bare route through the redirect again; the
+    // terminal is hidden for that render but its DOM (and tmux link) must
+    // survive, so it stays mounted.
+    H.state.centerTabResolved = false;
+    rerender(tree("/agents/a1", props));
+    expect(renderedChildren()).toContain("TerminalPane");
   });
 
   it("renders the whiteboard inline when its route matches and nothing is split", () => {

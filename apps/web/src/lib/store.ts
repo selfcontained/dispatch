@@ -76,6 +76,17 @@ export const preferredIdeAtom = atomWithLocalStorage<IdeType>(
   "vscode"
 );
 
+/**
+ * Last value of the `chat_surface_enabled` flag this browser saw. The server
+ * owns the flag (see `useChatSurfaceEnabled`); this only lets the first paint
+ * of the agent view pick the right tab before the fetch resolves, so the
+ * Console never flashes under the Chat tab. `null` until the first fetch.
+ */
+export const chatSurfaceEnabledHintAtom = atomWithLocalStorage<boolean | null>(
+  "dispatch:chatSurfaceEnabledHint",
+  null
+);
+
 // Cached view of the server-wide cross-repo messaging gate (lets agents
 // message/list agents in OTHER repositories). The server enforces and owns the
 // value; CrossRepoMessagingSettings hydrates this atom from the GET endpoint on

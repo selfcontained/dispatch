@@ -236,6 +236,60 @@ describe("useAgentsViewRouting", () => {
       expect(pathname()).toBe("/agents/agt_1");
     });
 
+    // The Console must not paint under the Chat tab: while the flag is
+    // unknown the center tab is reported unresolved, and it becomes resolved
+    // in the same render the flag arrives *and* the redirect has landed.
+    it("reports the center tab unresolved until the flag loads and the redirect lands", () => {
+      chatFlag.enabled = false;
+      chatFlag.loaded = false;
+      const { result, rerender, pathname } = renderRouting(
+        "/agents/agt_1",
+        loaded
+      );
+      expect(result.current.centerTabResolved).toBe(false);
+
+      chatFlag.enabled = true;
+      chatFlag.loaded = true;
+      rerender(loaded);
+      expect(pathname()).toBe("/agents/agt_1/chat");
+      expect(result.current.chatMatch).toBe(true);
+      expect(result.current.centerTabResolved).toBe(true);
+    });
+
+    it("resolves the console immediately when it was the last choice", () => {
+      chatFlag.enabled = true;
+      rememberCenterTab("agt_1", "terminal");
+      const { result } = renderRouting("/agents/agt_1", loaded);
+      expect(result.current.centerTabResolved).toBe(true);
+    });
+
+    it("resolves the terminal immediately with the flag off", () => {
+      const { result } = renderRouting("/agents/agt_1", loaded);
+      expect(result.current.centerTabResolved).toBe(true);
+      expect(result.current.chatMatch).toBe(false);
+    });
+
+    it("resolves deep links to changes and chat without a redirect", () => {
+      chatFlag.enabled = true;
+      const changes = renderRouting("/agents/agt_1/changes", loaded);
+      expect(changes.pathname()).toBe("/agents/agt_1/changes");
+      expect(changes.result.current.centerTabResolved).toBe(true);
+      changes.unmount();
+
+      const chat = renderRouting("/agents/agt_1/chat", loaded);
+      expect(chat.pathname()).toBe("/agents/agt_1/chat");
+      expect(chat.result.current.centerTabResolved).toBe(true);
+    });
+
+    it("stays resolved on the bare /agents route with nothing selected", () => {
+      const { result } = renderRouting("/agents", {
+        routeAgentId: undefined,
+        agentsLoaded: true,
+        validatedSelectedAgentId: null,
+      });
+      expect(result.current.centerTabResolved).toBe(true);
+    });
+
     it("does not redirect an unvalidated agent", () => {
       chatFlag.enabled = true;
       const { pathname } = renderRouting("/agents/agt_gone", {
