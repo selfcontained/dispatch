@@ -25,26 +25,23 @@ async function authed(method: "GET" | "POST", url: string, payload?: unknown) {
 const actionDocument = {
   title: "Release choice",
   icon: "flag",
-  blocks: [
-    {
-      id: "choices",
-      type: "actions",
-      actions: [
-        {
-          id: "canary",
-          label: "Use canary",
-          intent: "choose_canary",
-          style: "primary",
-        },
-        {
-          id: "disabled",
-          label: "Unavailable",
-          intent: "disabled",
-          disabled: true,
-        },
-      ],
-    },
-  ],
+  blocks: [{ id: "context", type: "text", text: "Choose the rollout shape." }],
+  footer: {
+    actions: [
+      {
+        id: "canary",
+        label: "Use canary",
+        intent: "choose_canary",
+        style: "primary",
+      },
+      {
+        id: "disabled",
+        label: "Unavailable",
+        intent: "disabled",
+        disabled: true,
+      },
+    ],
+  },
 };
 
 beforeEach(async () => {
@@ -86,12 +83,14 @@ describe("surface API", () => {
       first.id,
     ]);
     expect(body.surfaces[1]).toMatchObject({
-      schemaVersion: 1,
+      schemaVersion: 2,
       title: "Release choice",
       revision: 1,
       unresolvedInteractionCount: 0,
       latestInteractions: [],
     });
+    // The HTTP list returns full documents; the MCP list below is the
+    // summary projection and must exclude blocks and both slots.
     expect(events).toContainEqual({
       type: "surface.changed",
       agentId,
@@ -114,7 +113,7 @@ describe("surface API", () => {
     const request = {
       idempotencyKey: "click-1",
       kind: "action",
-      blockId: "choices",
+      blockId: "footer",
       actionId: "canary",
       baseRevision: 1,
     };
@@ -130,7 +129,7 @@ describe("surface API", () => {
       interaction: {
         status: "queued",
         intent: "choose_canary",
-        payload: { blockId: "choices", actionId: "canary" },
+        payload: { blockId: "footer", actionId: "canary" },
       },
     });
 
@@ -163,7 +162,7 @@ describe("surface API", () => {
       expect.objectContaining({
         id: first.json().interaction.id,
         tabRevision: 1,
-        blockId: "choices",
+        blockId: "footer",
         actionId: "canary",
         kind: "action",
         status: "queued",
@@ -204,6 +203,35 @@ describe("surface API", () => {
       ])
     );
   });
+
+  it("keeps the MCP surface list a summary projection without slots", async () => {
+    await service.create(agentId, actionDocument);
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: `/api/mcp/${agentId}`,
+      headers: {
+        cookie: await ctx.sessionCookie(),
+        accept: "application/json, text/event-stream",
+        "content-type": "application/json",
+      },
+      payload: {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tools/call",
+        params: { name: "dispatch_surface_list", arguments: {} },
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    const data = response.body
+      .split("\n")
+      .find((line) => line.startsWith("data: "));
+    const result = JSON.parse(data!.slice(6)).result;
+    const listed = result.structuredContent.surfaces[0];
+    expect(listed.title).toBe("Release choice");
+    expect(listed).not.toHaveProperty("blocks");
+    expect(listed).not.toHaveProperty("header");
+    expect(listed).not.toHaveProperty("footer");
+  });
 });
 
 describe("surface authoring and inbox", () => {
@@ -226,11 +254,13 @@ describe("surface authoring and inbox", () => {
               checked: false,
               group: "Before rollout",
               url: "https://example.com/runbook",
-              action: {
-                id: "open-runbook",
-                label: "Open runbook",
-                intent: "open_release_runbook",
-              },
+              actions: [
+                {
+                  id: "open-runbook",
+                  label: "Open runbook",
+                  intent: "open_release_runbook",
+                },
+              ],
             },
             { id: "verify", text: "Verify health" },
             { id: "announce", text: "Announce release" },
@@ -278,12 +308,12 @@ describe("surface authoring and inbox", () => {
             {
               id: "first",
               text: "First task",
-              action: { id: "run", label: "Run", intent: "run_first" },
+              actions: [{ id: "run", label: "Run", intent: "run_first" }],
             },
             {
               id: "second",
               text: "Second task",
-              action: { id: "run", label: "Run", intent: "run_second" },
+              actions: [{ id: "run", label: "Run", intent: "run_second" }],
             },
           ],
         },
@@ -296,11 +326,13 @@ describe("surface authoring and inbox", () => {
             {
               id: "api",
               cells: { name: "API" },
-              action: {
-                id: "restart",
-                label: "Restart",
-                intent: "restart_api",
-              },
+              actions: [
+                {
+                  id: "restart",
+                  label: "Restart",
+                  intent: "restart_api",
+                },
+              ],
             },
           ],
         },
@@ -389,14 +421,9 @@ describe("surface authoring and inbox", () => {
           description: "The current deployment steps.",
           collapse: { initiallyCollapsed: true },
           blocks: [
-            {
-              id: "deploy",
-              type: "actions" as const,
-              actions: [
-                { id: "start", label: "Start", intent: "start_deploy" },
-              ],
-            },
+            { id: "deploy", type: "text" as const, text: "Deploy steps." },
           ],
+          actions: [{ id: "start", label: "Start", intent: "start_deploy" }],
         },
       ],
     };
@@ -480,18 +507,25 @@ describe("surface authoring and inbox", () => {
     const result = await service.submitInteraction(agentId, surface.id, {
       idempotencyKey: "nested-start",
       kind: "action",
-      blockId: "deploy",
+      blockId: "rollout",
       actionId: "start",
       baseRevision: 1,
     });
     expect(result.interaction).toMatchObject({
       intent: "start_deploy",
-      payload: { blockId: "deploy", actionId: "start" },
+      payload: { blockId: "rollout", actionId: "start" },
       definitionSnapshot: {
-        block: { id: "deploy", type: "actions" },
+        block: { id: "rollout", type: "section" },
         action: { id: "start", intent: "start_deploy" },
       },
     });
+    // The snapshot keeps the section's metadata but never its descendant
+    // tree — a 100-block section must not be duplicated into every durable
+    // interaction record.
+    expect(
+      (result.interaction.definitionSnapshot as { block: { blocks?: unknown } })
+        .block.blocks
+    ).toBeUndefined();
   });
 
   it("accepts up to 100 top-level blocks", () => {
@@ -662,7 +696,7 @@ describe("surface authoring and inbox", () => {
     await service.submitInteraction(agentId, surface.id, {
       idempotencyKey: "pending",
       kind: "action",
-      blockId: "choices",
+      blockId: "footer",
       actionId: "canary",
       baseRevision: 2,
     });
@@ -782,7 +816,7 @@ describe("surface authoring and inbox", () => {
       service.submitInteraction(agentId, surface.id, {
         idempotencyKey: key,
         kind: "action",
-        blockId: "choices",
+        blockId: "footer",
         actionId: "canary",
         baseRevision: 1,
       });
@@ -832,7 +866,7 @@ describe("surface authoring and inbox", () => {
     const result = await notifying.submitInteraction(agentId, surface.id, {
       idempotencyKey: "durable",
       kind: "action",
-      blockId: "choices",
+      blockId: "footer",
       actionId: "canary",
       baseRevision: 1,
     });
@@ -870,14 +904,14 @@ describe("surface authoring and inbox", () => {
     await notifying.submitInteraction(agentId, surface.id, {
       idempotencyKey: "one",
       kind: "action",
-      blockId: "choices",
+      blockId: "footer",
       actionId: "canary",
       baseRevision: 1,
     });
     await notifying.submitInteraction(agentId, surface.id, {
       idempotencyKey: "two",
       kind: "action",
-      blockId: "choices",
+      blockId: "footer",
       actionId: "canary",
       baseRevision: 1,
     });
@@ -903,10 +937,170 @@ describe("surface authoring and inbox", () => {
       notifying.submitInteraction(agentId, surface.id, {
         idempotencyKey: "three",
         kind: "action",
-        blockId: "choices",
+        blockId: "footer",
         actionId: "canary",
         baseRevision: 2,
       })
     ).rejects.toMatchObject({ statusCode: 409 });
+  });
+});
+
+describe("surface schema v2", () => {
+  it("rejects block ids reserved for document slots", () => {
+    const parsed = surfaceDocumentSchema.safeParse({
+      title: "Reserved",
+      blocks: [{ id: "footer", type: "text", text: "Nope" }],
+    });
+    expect(parsed.success).toBe(false);
+    expect(parsed.error?.issues[0]?.message).toMatch(/reserved/);
+  });
+
+  it("enforces the 3-primary-column table budget", () => {
+    const table = (priorities: ("primary" | "secondary" | undefined)[]) => ({
+      title: "Wide",
+      blocks: [
+        {
+          id: "wide",
+          type: "table",
+          columns: priorities.map((priority, index) => ({
+            id: `c${index}`,
+            label: `C${index}`,
+            ...(priority ? { priority } : {}),
+          })),
+          rows: [],
+        },
+      ],
+    });
+    expect(
+      surfaceDocumentSchema.safeParse(
+        table([undefined, undefined, undefined, undefined])
+      ).success
+    ).toBe(false);
+    expect(
+      surfaceDocumentSchema.safeParse(
+        table([undefined, undefined, undefined, "secondary"])
+      ).success
+    ).toBe(true);
+  });
+
+  it("rejects the retired center alignment", () => {
+    const parsed = surfaceDocumentSchema.safeParse({
+      title: "Centered",
+      blocks: [
+        {
+          id: "t",
+          type: "table",
+          columns: [{ id: "a", label: "A", align: "center" }],
+          rows: [],
+        },
+      ],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("rejects a style knob on a form submit", () => {
+    const parsed = surfaceDocumentSchema.safeParse({
+      title: "Form",
+      blocks: [
+        {
+          id: "f",
+          type: "form",
+          fields: [{ id: "note", type: "text", label: "Note" }],
+          submit: {
+            id: "send",
+            label: "Send",
+            intent: "send",
+            style: "primary",
+          },
+        },
+      ],
+    });
+    expect(parsed.success).toBe(false);
+  });
+
+  it("validates header and footer slots with duplicate-id checks", () => {
+    const document = {
+      title: "Slots",
+      header: {
+        status: { id: "hs", type: "status", status: "OK" },
+        progress: { id: "hp", type: "progress", value: 1, max: 2 },
+      },
+      blocks: [{ id: "body", type: "text", text: "Body" }],
+      footer: {
+        actions: [
+          { id: "go", label: "Go", intent: "go" },
+          { id: "stop", label: "Stop", intent: "stop" },
+        ],
+      },
+    };
+    expect(surfaceDocumentSchema.safeParse(document).success).toBe(true);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        footer: {
+          actions: [
+            { id: "go", label: "Go", intent: "go" },
+            { id: "go", label: "Again", intent: "again" },
+          ],
+        },
+      }).success
+    ).toBe(false);
+    expect(
+      surfaceDocumentSchema.safeParse({
+        ...document,
+        header: {
+          status: { id: "body", type: "status", status: "OK" },
+        },
+      }).success
+    ).toBe(false);
+  });
+
+  it("stores slots, requires full upgrades for v1 rows, and gates their interactions", async () => {
+    const created = await service.create(agentId, {
+      title: "Slots",
+      header: { status: { id: "hs", type: "status", status: "OK" } },
+      blocks: [{ id: "body", type: "text", text: "Body" }],
+      footer: { actions: [{ id: "go", label: "Go", intent: "go" }] },
+    });
+    expect(created.schemaVersion).toBe(2);
+    const fetched = await service.get(created.id);
+    expect(fetched?.header?.status?.status).toBe("OK");
+    expect(fetched?.footer?.actions[0]?.id).toBe("go");
+
+    // A stored v1 row (legacy shape, schema_version 1) must not crash reads,
+    // must refuse partial updates, and must refuse interactions.
+    await ctx.pool.query(
+      `INSERT INTO agent_surfaces (id, agent_id, title, sort_order, schema_version, blocks)
+       VALUES ('tab_legacy_v1', $1, 'Legacy', 99, 1, $2)`,
+      [
+        agentId,
+        JSON.stringify([
+          {
+            id: "old-actions",
+            type: "actions",
+            actions: [{ id: "go", label: "Go", intent: "go" }],
+          },
+        ]),
+      ]
+    );
+    const legacy = await service.get("tab_legacy_v1");
+    expect(legacy?.schemaVersion).toBe(1);
+    await expect(
+      service.update(agentId, "tab_legacy_v1", 1, { title: "Renamed" })
+    ).rejects.toMatchObject({ statusCode: 409 });
+    await expect(
+      service.submitInteraction(agentId, "tab_legacy_v1", {
+        idempotencyKey: "legacy-click",
+        kind: "action",
+        blockId: "old-actions",
+        actionId: "go",
+        baseRevision: 1,
+      })
+    ).rejects.toMatchObject({ statusCode: 409 });
+    // A full v2 blocks replacement upgrades the row in place.
+    const upgraded = await service.update(agentId, "tab_legacy_v1", 1, {
+      blocks: [{ id: "body", type: "text", text: "Upgraded" }],
+    });
+    expect(upgraded.schemaVersion).toBe(2);
   });
 });

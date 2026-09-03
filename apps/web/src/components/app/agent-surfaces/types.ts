@@ -1,6 +1,5 @@
 export type {
   ActionRef,
-  ActionsBlock,
   FormBlock,
   FormField,
   FormFieldOption,
@@ -11,6 +10,8 @@ export type {
   StatusBlock,
   Surface,
   SurfaceBlock,
+  SurfaceFooter,
+  SurfaceHeader,
   SurfaceIcon,
   SurfaceInteraction,
   SurfaceInteractionRequest,
@@ -20,9 +21,14 @@ export type {
   SurfaceItemAction,
   SurfaceLifecycle,
   SurfaceListItem,
+  SurfaceSubmitAction,
   TableBlock,
   TableColumn,
   TableRow,
   TextBlock,
   Tone,
+} from "@dispatch/shared";
+export {
+  SURFACE_FOOTER_BLOCK_ID,
+  SURFACE_SCHEMA_VERSION,
 } from "@dispatch/shared";

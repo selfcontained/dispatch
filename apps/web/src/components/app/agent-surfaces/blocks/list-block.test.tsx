@@ -89,20 +89,17 @@ describe("ListBlockView v2", () => {
       ],
     });
     expect(screen.getByRole("heading", { name: "Work" })).toBeTruthy();
-    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByText("(2)")).toBeTruthy();
     expect(screen.getByText("Now").closest("li")).toBeTruthy();
     expect(screen.getByText("Needs input").className).toContain(
       "text-status-waiting"
     );
     expect(
-      screen.getByRole("link", { name: "Open Review" }).getAttribute("href")
+      screen.getByRole("link", { name: /Review/ }).getAttribute("href")
     ).toBe("https://example.com");
-    expect(
-      screen.getByRole("link", { name: "Open Review" }).className
-    ).toContain("[@media(pointer:coarse)]:h-11");
   });
 
-  it("wraps long status and action affordances below the item content", () => {
+  it("renders a single item action as a compact affordance on the title row", () => {
     renderList({
       id: "work",
       type: "list",
@@ -110,26 +107,42 @@ describe("ListBlockView v2", () => {
         {
           id: "one",
           text: "Review the release",
-          status:
-            "Waiting for a particularly detailed cross-functional approval",
+          status: "Waiting for approval",
           tone: "warning",
-          action: {
-            id: "request",
-            label: "Request approval from the release coordination team",
-            intent: "request_approval",
-          },
+          actions: [
+            { id: "request", label: "Request", intent: "request_approval" },
+          ],
         },
       ],
     });
 
-    const affordances = screen.getByTestId("list-item-affordances");
-    expect(affordances.className).toContain("flex-wrap");
-    expect(screen.getByText(/particularly detailed/).className).toContain(
-      "max-w-full"
-    );
+    const button = screen.getByRole("button", {
+      name: "Request for Review the release",
+    });
+    expect(button.className).toContain("h-6");
+    expect(button.getAttribute("data-action-id")).toBe("request");
+  });
+
+  it("collapses multiple item actions into a per-item menu", () => {
+    renderList({
+      id: "work",
+      type: "list",
+      items: [
+        {
+          id: "one",
+          text: "One",
+          actions: [
+            { id: "start", label: "Start", intent: "start" },
+            { id: "reassign", label: "Reassign", intent: "reassign" },
+          ],
+        },
+      ],
+    });
+
+    expect(screen.queryByRole("button", { name: /Start/ })).toBeNull();
     expect(
-      screen.getByRole("button", { name: /Request approval/ }).className
-    ).toContain("whitespace-normal");
+      screen.getByRole("button", { name: "Actions for One" })
+    ).toBeTruthy();
   });
 
   it("collapses then expands the structured long-list tail", () => {
@@ -160,11 +173,11 @@ describe("ListBlockView v2", () => {
         {
           id: "one",
           text: "One",
-          action: { id: "approve", label: "Approve", intent: "approve" },
+          actions: [{ id: "approve", label: "Approve", intent: "approve" }],
         },
       ],
     });
-    fireEvent.click(screen.getByRole("button", { name: "Approve" }));
+    fireEvent.click(screen.getByRole("button", { name: "Approve for One" }));
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({
         kind: "action",

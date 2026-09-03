@@ -12,11 +12,13 @@ afterEach(() => {
 const BASE: ActionRef = { id: "go", label: "Go", intent: "go" };
 
 describe("actionButtonVariant", () => {
-  it("maps each ActionRef style to its Button variant, including destructive", () => {
+  it("maps each ActionRef style to its Button variant, de-emphasizing destructive", () => {
     expect(actionButtonVariant(undefined)).toBe("default");
     expect(actionButtonVariant("default")).toBe("default");
     expect(actionButtonVariant("primary")).toBe("primary");
-    expect(actionButtonVariant("destructive")).toBe("destructive");
+    // An irreversible verb should be findable, not the loudest object on the
+    // surface — destructive renders as the ghost danger variant.
+    expect(actionButtonVariant("destructive")).toBe("ghost-destructive");
   });
 });
 
@@ -45,7 +47,7 @@ describe("ActionRefButton", () => {
     expect(button.querySelector("svg.animate-spin")).not.toBeNull();
   });
 
-  it("applies the destructive style class for a destructive action", () => {
+  it("applies the quiet ghost-destructive treatment for a destructive action", () => {
     render(
       <ActionRefButton
         action={{ ...BASE, style: "destructive" }}
@@ -54,7 +56,8 @@ describe("ActionRefButton", () => {
       />
     );
     const button = screen.getByRole("button", { name: "Go" });
-    expect(button.className).toContain("bg-destructive");
+    expect(button.className).toContain("text-status-blocked");
+    expect(button.className).not.toContain("bg-destructive");
   });
 
   it("wires disabledReasonId as the accessible description", () => {

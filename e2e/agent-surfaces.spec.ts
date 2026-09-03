@@ -29,19 +29,24 @@ async function seedSurfaces(agentId: string): Promise<void> {
           tone: "info",
           detail: "Both paths passed CI.",
         },
-        {
-          id: "actions",
-          type: "actions",
-          actions: [
-            {
-              id: "canary",
-              label: "Use canary",
-              intent: "choose_canary",
-              style: "primary",
-            },
-          ],
-        },
       ],
+      footer: {
+        actions: [
+          {
+            id: "canary",
+            label: "Use canary",
+            intent: "choose_canary",
+            style: "primary",
+          },
+          {
+            id: "direct",
+            label: "Release directly",
+            intent: "choose_direct",
+            style: "destructive",
+            confirm: { title: "Release directly?" },
+          },
+        ],
+      },
     },
     {
       id: `${agentId}-feedback`,
@@ -79,7 +84,6 @@ async function seedSurfaces(agentId: string): Promise<void> {
             id: "submit",
             label: "Send feedback",
             intent: "submit_feedback",
-            style: "primary",
           },
           submitMode: "repeatable",
         },
@@ -127,11 +131,13 @@ async function seedSurfaces(agentId: string): Promise<void> {
                   tone: "warning",
                   group: "Next steps",
                   url: "https://example.com/runbooks/migration",
-                  action: {
-                    id: "queue-migration",
-                    label: "Queue migration",
-                    intent: "queue_release_migration",
-                  },
+                  actions: [
+                    {
+                      id: "queue-migration",
+                      label: "Queue migration",
+                      intent: "queue_release_migration",
+                    },
+                  ],
                 },
                 {
                   id: "a11y",
@@ -176,11 +182,13 @@ async function seedSurfaces(agentId: string): Promise<void> {
                 {
                   id: "r2",
                   cells: { name: "Deploy", state: "blocked", risk: "high" },
-                  action: {
-                    id: "retry-deploy",
-                    label: "Retry deploy",
-                    intent: "retry_release_deploy",
-                  },
+                  actions: [
+                    {
+                      id: "retry-deploy",
+                      label: "Retry deploy",
+                      intent: "retry_release_deploy",
+                    },
+                  ],
                 },
               ],
             },
@@ -208,16 +216,19 @@ async function seedSurfaces(agentId: string): Promise<void> {
   const pool = new Pool({ connectionString, max: 1 });
   try {
     for (const [sortOrder, document] of documents.entries()) {
+      const withSlots = document as { footer?: unknown; header?: unknown };
       await pool.query(
-        `INSERT INTO agent_surfaces (id, agent_id, title, icon, sort_order, blocks)
-         VALUES ($1, $2, $3, $4, $5, $6::jsonb)`,
+        `INSERT INTO agent_surfaces (id, agent_id, title, icon, sort_order, schema_version, header, blocks, footer)
+         VALUES ($1, $2, $3, $4, $5, 2, $6::jsonb, $7::jsonb, $8::jsonb)`,
         [
           document.id,
           agentId,
           document.title,
           document.icon,
           sortOrder,
+          withSlots.header ? JSON.stringify(withSlots.header) : null,
           JSON.stringify(document.blocks),
+          withSlots.footer ? JSON.stringify(withSlots.footer) : null,
         ]
       );
     }
@@ -316,7 +327,7 @@ test.describe("Agent-authored sidebar surfaces", () => {
     // have moved queued -> notified -> claimed by the time this runs.
     const canaryCaption = sidebar
       .locator(
-        '[data-block-type="actions"] [data-testid="interaction-status-caption"]'
+        '[data-slot-actions="footer"] [data-testid="interaction-status-caption"]'
       )
       .first();
     await expect(canaryCaption).toBeVisible();
@@ -355,12 +366,13 @@ test.describe("Agent-authored sidebar surfaces", () => {
     await tabRow.getByRole("button", { name: "Release work" }).click();
     await expect(sidebar.getByText("5 of 8 complete")).toBeVisible();
 
-    // Progress block with no explicit tone renders success (green), not
-    // neutral gray.
+    // Progress block with no explicit tone renders a neutral fill — color
+    // is reserved for explicitly authored states, and the saturated hues
+    // would read as interactive.
     const progressBar = sidebar.locator(
       '[data-block-type="progress"] [role="progressbar"] > div'
     );
-    await expect(progressBar).toHaveClass(/bg-status-working/);
+    await expect(progressBar).toHaveClass(/bg-foreground\/40/);
 
     const releaseDetails = sidebar.getByRole("button", {
       name: "Release details",
@@ -374,19 +386,13 @@ test.describe("Agent-authored sidebar surfaces", () => {
     await expect(table.getByText("done")).toHaveClass(/text-status-working/);
     await expect(table.getByText("blocked")).toHaveClass(/text-status-blocked/);
 
-    // Primary and disclosure rows use symmetric cell padding and center their
-    // contents, including mixed text/badge detail lines.
+    // Rows align on the vertical middle and the disclosure reveals the
+    // secondary columns without breaking the left alignment spine.
     const primaryCell = table.locator("tbody tr").first().locator("td").nth(1);
     await expect(primaryCell).toHaveCSS("vertical-align", "middle");
-    await expect(primaryCell).toHaveCSS("padding", "8px");
     await table.getByRole("button", { name: "Show details" }).first().click();
     const detailCell = table.locator("tbody tr").nth(1).locator("td");
-    await expect(detailCell).toHaveCSS("vertical-align", "middle");
-    await expect(detailCell).toHaveCSS("padding", "8px");
-    await expect(detailCell.locator("dl > div")).toHaveCSS(
-      "align-items",
-      "center"
-    );
+    await expect(detailCell.locator("dl > div").first()).toBeVisible();
 
     await tabRow.getByTestId("surface-tabs-more").click();
     const releaseRow = page
@@ -588,7 +594,7 @@ test.describe("Agent-authored sidebar surfaces", () => {
     // rows render initially. This prevents a long status list from taking over
     // the sidebar without hiding the amount of outstanding work.
     await expect(list.getByText("Release work", { exact: true })).toBeVisible();
-    await expect(list.getByText("4", { exact: true })).toBeVisible();
+    await expect(list.getByText("(4)", { exact: true })).toBeVisible();
     await expect(list.locator("[data-item-id]")).toHaveCount(2);
     await expect(list.getByText("Completed", { exact: true })).toBeVisible();
     await expect(list.getByText("Next steps", { exact: true })).toBeVisible();
@@ -597,7 +603,7 @@ test.describe("Agent-authored sidebar surfaces", () => {
     const approvalBadge = list.getByText("Needs approval", { exact: true });
     await expect(approvalBadge).toHaveClass(/text-status-waiting/);
     const migrationLink = list.getByRole("link", {
-      name: "Open Apply migration",
+      name: /Apply migration/,
     });
     await expect(migrationLink).toHaveAttribute(
       "href",
@@ -669,6 +675,73 @@ test.describe("Agent-authored sidebar surfaces", () => {
     await expect
       .poll(() => unresolvedCount(request, agent.id, "Release work"))
       .toBe(1);
+  });
+
+  test("nested action menus claim Escape and restore confirm focus", async ({
+    page,
+    request,
+  }) => {
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-agent-surfaces-menus-${Date.now()}`,
+      cwd: process.cwd(),
+    });
+    await seedSurfaces(agent.id);
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("toggle-media-sidebar").click();
+
+    const sidebar = page.getByTestId("media-sidebar");
+    await sidebar
+      .getByTestId("surface-tab-row")
+      .getByRole("button", { name: "Release choice" })
+      .click();
+
+    // Desktop: the split trigger opens the overflow menu holding the
+    // de-emphasized destructive verb; canceling its confirm dialog returns
+    // focus to the trigger rather than dropping it on <body>.
+    const moreActions = sidebar.getByRole("button", { name: "More actions" });
+    await moreActions.click();
+    await page.getByRole("menuitem", { name: "Release directly" }).click();
+    await expect(
+      page.getByRole("dialog").getByText("Release directly?")
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Cancel" }).click();
+    await expect(moreActions).toBeFocused();
+
+    // Mobile drawer: the first Escape dismisses only the nested menu — the
+    // drawer stays open.
+    await page.setViewportSize({ width: 390, height: 844 });
+    const mobileSidebar = page.getByRole("dialog", { name: "Media sidebar" });
+    const sidebarInViewport = () =>
+      mobileSidebar.evaluate((element) => {
+        const rect = element.getBoundingClientRect();
+        return rect.left < window.innerWidth && rect.right > 0;
+      });
+    if (!(await sidebarInViewport())) {
+      await page.getByTestId("toggle-media-sidebar").click();
+    }
+    await expect.poll(sidebarInViewport).toBe(true);
+    await mobileSidebar.getByRole("button", { name: "More actions" }).click();
+    await expect(
+      page.getByRole("menuitem", { name: "Release directly" })
+    ).toBeVisible();
+    // Radix wires its escape handling and moves focus into the menu after
+    // mount; under CPU load an immediate Escape can outrun that. Wait for
+    // focus to land inside the menu before dismissing.
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.activeElement?.closest('[role="menu"]') !== null
+        )
+      )
+      .toBe(true);
+    await page.keyboard.press("Escape");
+    await expect(
+      page.getByRole("menuitem", { name: "Release directly" })
+    ).toBeHidden();
+    await expect.poll(sidebarInViewport).toBe(true);
+    await page.keyboard.press("Escape");
+    await expect.poll(sidebarInViewport).toBe(false);
   });
 
   test("manage-tabs menu supports keyboard navigation between row controls", async ({

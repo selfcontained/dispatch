@@ -1,5 +1,7 @@
 import type {
+  AgentPin,
   AgentRecord,
+  AgentStatus,
   DiffStats as ServerDiffStats,
 } from "@dispatch/shared";
 

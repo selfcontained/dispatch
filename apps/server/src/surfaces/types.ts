@@ -7,6 +7,7 @@ import type {
   SurfaceInteractionStatus,
   SurfaceLifecycle,
 } from "@dispatch/shared";
+import { SURFACE_FOOTER_BLOCK_ID } from "@dispatch/shared";
 
 export const SURFACE_ICONS = [
   "layout",
@@ -79,11 +80,18 @@ const actionSchema = z
     disabledReason: z.string().max(240).optional(),
   })
   .strict();
+// A form submit is by definition its form's primary action, so it carries no
+// style knob — the renderer always gives it primary weight.
+const submitActionSchema = actionSchema.omit({ style: true });
+/** Slot actions: 1 renders inline / as the split-button main; more collapse
+ * into the overflow menu. Small caps keep the slot a decision, not a menu. */
+const slotActionsSchema = z.array(actionSchema).min(1).max(4);
 const itemActionSchema = actionSchema.pick({
   id: true,
   label: true,
   intent: true,
 });
+const itemActionsSchema = z.array(itemActionSchema).min(1).max(4);
 const collapseSchema = z
   .object({
     after: z.number().int().min(1).max(99),
@@ -154,12 +162,36 @@ const fieldSchema = z.discriminatedUnion("type", [
     .strict(),
 ]);
 
+const statusBlockSchema = z
+  .object({
+    ...base,
+    type: z.literal("status"),
+    status: z.string().trim().min(1).max(40),
+    tone: toneSchema.optional(),
+    detail: constrainedMarkdown(1000).optional(),
+    timestamp: z.iso.datetime().optional(),
+  })
+  .strict();
+const progressBlockSchema = z
+  .object({
+    ...base,
+    type: z.literal("progress"),
+    value: z.number().min(0),
+    max: z.number().positive(),
+    label: z.string().max(120).optional(),
+    detail: constrainedMarkdown(1000).optional(),
+    tone: z.enum(["neutral", "info", "success", "warning"]).optional(),
+  })
+  .strict();
+
 const leafBlockSchema = z.discriminatedUnion("type", [
   z
     .object({
       ...base,
       type: z.literal("text"),
       text: constrainedMarkdown(8000),
+      // Renders the block as a callout; reserve for decision-changing prose.
+      tone: toneSchema.optional(),
     })
     .strict(),
   z
@@ -185,7 +217,7 @@ const leafBlockSchema = z.discriminatedUnion("type", [
                 })
                 .optional(),
               group: z.string().trim().min(1).max(80).optional(),
-              action: itemActionSchema.optional(),
+              actions: itemActionsSchema.optional(),
             })
             .strict()
         )
@@ -216,7 +248,7 @@ const leafBlockSchema = z.discriminatedUnion("type", [
                   message: "badgeVariants supports at most 50 entries",
                 })
                 .optional(),
-              align: z.enum(["left", "center", "right"]).optional(),
+              align: z.enum(["left", "right"]).optional(),
               // "secondary" always renders behind a per-row disclosure (the
               // rail is a fixed width, not a breakpoint) — reserve it for
               // verbose diagnostics, never a decision-critical value.
@@ -232,48 +264,21 @@ const leafBlockSchema = z.discriminatedUnion("type", [
             .object({
               id: idSchema,
               cells: z.record(z.string(), tableCellScalarSchema),
-              action: itemActionSchema.optional(),
+              actions: itemActionsSchema.optional(),
             })
             .strict()
         )
         .max(100),
     })
     .strict(),
-  z
-    .object({
-      ...base,
-      type: z.literal("status"),
-      status: z.string().trim().min(1).max(40),
-      tone: toneSchema.optional(),
-      detail: constrainedMarkdown(1000).optional(),
-      timestamp: z.iso.datetime().optional(),
-    })
-    .strict(),
-  z
-    .object({
-      ...base,
-      type: z.literal("progress"),
-      value: z.number().min(0),
-      max: z.number().positive(),
-      label: z.string().max(120).optional(),
-      detail: constrainedMarkdown(1000).optional(),
-      tone: z.enum(["neutral", "info", "success", "warning"]).optional(),
-    })
-    .strict(),
-  z
-    .object({
-      ...base,
-      type: z.literal("actions"),
-      layout: z.enum(["auto", "stack"]).optional(),
-      actions: z.array(actionSchema).min(1).max(6),
-    })
-    .strict(),
+  statusBlockSchema,
+  progressBlockSchema,
   z
     .object({
       ...base,
       type: z.literal("form"),
       fields: z.array(fieldSchema).min(1).max(20),
-      submit: actionSchema,
+      submit: submitActionSchema,
       resetLabel: z.string().min(1).max(48).optional(),
       submitMode: z.enum(["once", "repeatable"]).optional(),
     })
@@ -283,6 +288,7 @@ const leafBlockSchema = z.discriminatedUnion("type", [
 const MAX_SECTION_DEPTH = 4;
 const MAX_SECTION_CHILDREN = 20;
 const MAX_NESTED_BLOCKS = 100;
+const MAX_PRIMARY_TABLE_COLUMNS = 3;
 export const MAX_SURFACE_TOP_LEVEL_BLOCKS = 100;
 const sectionCollapseSchema = z
   .object({ initiallyCollapsed: z.boolean().optional() })
@@ -300,6 +306,8 @@ function blockSchemaAtDepth(depth: number): z.ZodType<SharedSurfaceBlock> {
         // A section heading is always visible, including when its body is collapsed.
         title: titleSchema,
         blocks: z.array(childSchema).min(1).max(MAX_SECTION_CHILDREN),
+        // The section's footer slot: verbs that act on this group.
+        actions: slotActionsSchema.optional(),
         collapse: sectionCollapseSchema.optional(),
       })
       .strict(),
@@ -313,11 +321,23 @@ function blockSchemaAtDepth(depth: number): z.ZodType<SharedSurfaceBlock> {
  */
 export const surfaceBlockSchema = blockSchemaAtDepth(0);
 
+export const surfaceHeaderSchema = z
+  .object({
+    status: statusBlockSchema.optional(),
+    progress: progressBlockSchema.optional(),
+  })
+  .strict();
+export const surfaceFooterSchema = z
+  .object({ actions: slotActionsSchema })
+  .strict();
+
 export const surfaceDocumentSchema = z
   .object({
     title: z.string().trim().min(1).max(32),
     icon: surfaceIconSchema.optional(),
+    header: surfaceHeaderSchema.optional(),
     blocks: z.array(surfaceBlockSchema).max(MAX_SURFACE_TOP_LEVEL_BLOCKS),
+    footer: surfaceFooterSchema.optional(),
   })
   .strict()
   .superRefine((doc, ctx) => {
@@ -336,7 +356,22 @@ export const surfaceDocumentSchema = z
         code: "custom",
         message: "Surface supports at most 100 nested blocks",
       });
+    if (doc.header?.status) blocks.push(doc.header.status);
+    if (doc.header?.progress) blocks.push(doc.header.progress);
+    if (doc.footer) {
+      const footerActionIds = doc.footer.actions.map((action) => action.id);
+      if (new Set(footerActionIds).size !== footerActionIds.length)
+        ctx.addIssue({
+          code: "custom",
+          message: "Duplicate action id in footer",
+        });
+    }
     for (const block of blocks) {
+      if (block.id === SURFACE_FOOTER_BLOCK_ID || block.id === "header")
+        ctx.addIssue({
+          code: "custom",
+          message: `Block id "${block.id}" is reserved for the document slot`,
+        });
       if (blockIds.has(block.id))
         ctx.addIssue({
           code: "custom",
@@ -356,8 +391,8 @@ export const surfaceDocumentSchema = z
                 ...block.columns.map((x) => x.id),
                 ...block.rows.map((x) => x.id),
               ]
-            : block.type === "actions"
-              ? block.actions.map((x) => x.id)
+            : block.type === "section"
+              ? (block.actions ?? []).map((x) => x.id)
               : block.type === "form"
                 ? [...block.fields.map((x) => x.id), block.submit.id]
                 : [];
@@ -366,7 +401,26 @@ export const surfaceDocumentSchema = z
           code: "custom",
           message: `Duplicate child id in block ${block.id}`,
         });
+      if (block.type === "list" || block.type === "table") {
+        const entries = block.type === "list" ? block.items : block.rows;
+        for (const entry of entries) {
+          const actionIds = (entry.actions ?? []).map((action) => action.id);
+          if (new Set(actionIds).size !== actionIds.length)
+            ctx.addIssue({
+              code: "custom",
+              message: `Duplicate action id in item ${entry.id} of block ${block.id}`,
+            });
+        }
+      }
       if (block.type === "table") {
+        const primaryCount = block.columns.filter(
+          (column) => column.priority !== "secondary"
+        ).length;
+        if (primaryCount > MAX_PRIMARY_TABLE_COLUMNS)
+          ctx.addIssue({
+            code: "custom",
+            message: `Table ${block.id} allows at most ${MAX_PRIMARY_TABLE_COLUMNS} primary columns at the 400px rail; mark the rest priority: "secondary" (they collapse behind a per-row disclosure)`,
+          });
         for (const column of block.columns)
           if (column.badgeVariants && column.format !== "badge")
             ctx.addIssue({

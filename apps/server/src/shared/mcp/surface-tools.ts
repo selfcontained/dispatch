@@ -4,6 +4,8 @@ import type { SurfaceService } from "../../surfaces/service.js";
 import {
   MAX_SURFACE_TOP_LEVEL_BLOCKS,
   surfaceBlockSchema,
+  surfaceFooterSchema,
+  surfaceHeaderSchema,
   surfaceIconSchema,
 } from "../../surfaces/types.js";
 import { jsonText } from "./response.js";
@@ -36,23 +38,42 @@ export function registerSurfaceTools(
     });
   };
 
+  const designContract =
+    "Design contract — the renderer owns styling; supply meaning, not layout. " +
+    "Put the surface's headline state in header (status + progress) and its verbs in footer.actions — they render as a compact split button with an overflow menu. " +
+    "One primary action per surface; leave others default. Use destructive only for irreversible verbs and always with confirm — it renders in the overflow menu on purpose. " +
+    "Sections group related blocks and take their own actions footer for group-scoped verbs. List items and table rows take actions (one renders inline, more become a per-item menu); repeating one label across every item is fine. " +
+    "Tables: at most 3 primary columns; mark the rest secondary (they collapse behind a per-row disclosure); 2-column tables render as a key/value list. " +
+    'Color means state: tone neutral for categories (environment, repo, owner), danger/warning for exceptions; write human labels ("Rolled back"), never enum tokens. ' +
+    "text takes a tone — use it for the one sentence that changes a decision. Collapse finished work, never the thesis. " +
+    "Shapes: dashboard = header+table+footer · worklist = header+list(group, actions) · approval = text(tone warning)+form · board = section-per-column+check list · report = text+2-col table+list.";
+
   register(
     "dispatch_surface_create",
-    "Create a one-column custom sidebar tab with up to 100 top-level blocks and 100 additional nested blocks. Blocks support text, list, table, status, progress, actions, form, and titled section groups. A section may nest up to four levels, hold 20 direct children, and use collapse: { initiallyCollapsed? }; its title remains visible. Keep block, item, and field IDs stable; list/table action IDs are scoped to their item or row.",
+    'Create a custom sidebar tab (fixed 400px column): optional header { status?, progress? }, blocks (text, list, table, status, progress, form, section; up to 100 top-level and 100 nested), optional footer { actions }. Sections nest four levels, hold 20 direct children, take collapse: { initiallyCollapsed? } and an optional actions footer. Keep block, item, action, and field IDs stable; item/row action IDs are scoped to their item, and footer actions use the reserved block id "footer" in interactions. ' +
+      designContract,
     {
       title: z.string().min(1).max(32),
       icon: surfaceIconSchema.optional(),
+      header: surfaceHeaderSchema.optional(),
       blocks: z.array(surfaceBlockSchema).max(MAX_SURFACE_TOP_LEVEL_BLOCKS),
+      footer: surfaceFooterSchema.optional(),
     },
-    async ({ title, icon, blocks }) => {
-      const s = await service.create(context.agentId, { title, icon, blocks });
+    async ({ title, icon, header, blocks, footer }) => {
+      const s = await service.create(context.agentId, {
+        title,
+        icon,
+        header,
+        blocks,
+        footer,
+      });
       return { tabId: s.id, revision: s.revision, sortOrder: s.sortOrder };
     }
   );
 
   register(
     "dispatch_surface_update",
-    "Replace all or part of an owned surface document using expectedRevision. Whole-document blocks replacement only; no JSON Patch. Section groups use a required title, nested blocks, and optional collapse: { initiallyCollapsed? }.",
+    "Replace all or part of an owned surface document using expectedRevision. Whole-document blocks replacement only; no JSON Patch. header and footer accept null to clear the slot. Same design contract as dispatch_surface_create.",
     {
       tabId: z.string().min(1),
       expectedRevision: z.number().int().positive(),
@@ -61,10 +82,18 @@ export function registerSurfaceTools(
         .union([surfaceIconSchema, z.null()])
         .optional()
         .describe("Set null to clear the icon."),
+      header: z
+        .union([surfaceHeaderSchema, z.null()])
+        .optional()
+        .describe("Set null to clear the header slot."),
       blocks: z
         .array(surfaceBlockSchema)
         .max(MAX_SURFACE_TOP_LEVEL_BLOCKS)
         .optional(),
+      footer: z
+        .union([surfaceFooterSchema, z.null()])
+        .optional()
+        .describe("Set null to clear the footer slot."),
       lifecycle: z.enum(["active", "frozen"]).optional(),
     },
     async ({ tabId, expectedRevision, ...patch }) => {
@@ -88,8 +117,11 @@ export function registerSurfaceTools(
       const owner = ownerAgentId ?? context.agentId;
       await service.assertReadable(context.agentId, owner);
       return {
+        // List is the tab-summary projection: the complete document (slots
+        // included) comes from dispatch_surface_get.
         surfaces: (await service.list(owner)).map(
-          ({ blocks: _blocks, ...surface }) => surface
+          ({ blocks: _blocks, header: _header, footer: _footer, ...surface }) =>
+            surface
         ),
       };
     }

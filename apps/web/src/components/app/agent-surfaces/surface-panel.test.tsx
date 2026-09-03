@@ -20,7 +20,7 @@ afterEach(() => {
 
 function surface(overrides: Partial<Surface> = {}): Surface {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     id: "surface-1",
     ownerAgentId: "agent-1",
     title: "Details",
@@ -42,7 +42,7 @@ function summary(
   return {
     id: "ix_1",
     tabRevision: 1,
-    blockId: "actions-1",
+    blockId: "footer",
     actionId: "go",
     kind: "action",
     status: "queued",
@@ -63,11 +63,7 @@ function renderPanel(value: Surface) {
   );
 }
 
-const actionsBlock = {
-  id: "actions-1",
-  type: "actions" as const,
-  actions: [{ id: "go", label: "Go", intent: "go" }],
-};
+const footer = { actions: [{ id: "go", label: "Go", intent: "go" }] };
 
 const sectionBlock = {
   id: "section-1",
@@ -76,7 +72,25 @@ const sectionBlock = {
   blocks: [{ id: "note-1", type: "text" as const, text: "Ready to ship." }],
 };
 
-describe("SurfacePanel block fallback", () => {
+describe("SurfacePanel schema gate", () => {
+  it("shows a re-create notice for a v1 document instead of rendering it", () => {
+    renderPanel(
+      surface({
+        schemaVersion: 1,
+        blocks: [
+          { id: "old-1", type: "actions", actions: [] },
+        ] as unknown as Surface["blocks"],
+      })
+    );
+
+    expect(
+      screen.getByText(
+        "This tab uses an older surface format. Ask the agent to recreate it."
+      )
+    ).toBeTruthy();
+    expect(document.querySelector("[data-block-id]")).toBeNull();
+  });
+
   it("shows a visible message for an unsupported wire block", () => {
     renderPanel(
       surface({
@@ -93,11 +107,36 @@ describe("SurfacePanel block fallback", () => {
   });
 });
 
-describe("SurfacePanel interaction hydration", () => {
-  it("routes each block's durable record to the matching action on first render", () => {
+describe("SurfacePanel document slots", () => {
+  it("renders the header strip before the blocks and the footer actions last", () => {
     renderPanel(
       surface({
-        blocks: [actionsBlock],
+        header: {
+          status: {
+            id: "hs",
+            type: "status",
+            status: "Canary deployed",
+            tone: "info",
+          },
+          progress: { id: "hp", type: "progress", value: 3, max: 10 },
+        },
+        blocks: [sectionBlock],
+        footer,
+      })
+    );
+
+    expect(screen.getByTestId("surface-header").textContent).toContain(
+      "Canary deployed"
+    );
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+    const footerRegion = screen.getByTestId("surface-footer");
+    expect(footerRegion.querySelector('[data-action-id="go"]')).toBeTruthy();
+  });
+
+  it("routes a footer action's durable record to the matching button", () => {
+    renderPanel(
+      surface({
+        footer,
         latestInteractions: [summary({ status: "claimed" })],
       })
     );
@@ -110,10 +149,10 @@ describe("SurfacePanel interaction hydration", () => {
     ).toContain("In progress");
   });
 
-  it("leaves an action untouched when the payload's record belongs to a different block", () => {
+  it("leaves a footer action untouched when the record belongs to a block", () => {
     renderPanel(
       surface({
-        blocks: [actionsBlock],
+        footer,
         latestInteractions: [
           summary({ blockId: "some-other-block", status: "claimed" }),
         ],
@@ -126,11 +165,25 @@ describe("SurfacePanel interaction hydration", () => {
     expect(screen.queryByTestId("interaction-status-caption")).toBeNull();
   });
 
+  it("submits a footer action with the reserved footer block id", () => {
+    renderPanel(surface({ footer }));
+
+    fireEvent.click(screen.getByRole("button", { name: "Go" }));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "action",
+        blockId: "footer",
+        actionId: "go",
+      }),
+      expect.any(Object)
+    );
+  });
+
   it("shows a resolved outcome for a frozen tab, with the control locked", () => {
     renderPanel(
       surface({
         lifecycle: "frozen",
-        blocks: [actionsBlock],
+        footer,
         latestInteractions: [
           summary({
             status: "completed",
@@ -194,7 +247,7 @@ describe("SurfacePanel sections", () => {
     expect(screen.getByText("Ready to ship.")).toBeTruthy();
   });
 
-  it("starts initially collapsed and preserves durable interaction state when reopened", () => {
+  it("renders section footer actions and preserves durable state when reopened", () => {
     renderPanel(
       surface({
         blocks: [
@@ -203,10 +256,13 @@ describe("SurfacePanel sections", () => {
             type: "section",
             title: "Deploy",
             collapse: { initiallyCollapsed: true },
-            blocks: [actionsBlock],
+            blocks: [{ id: "note-1", type: "text", text: "Ready to ship." }],
+            actions: [{ id: "go", label: "Go", intent: "go" }],
           },
         ] as Surface["blocks"],
-        latestInteractions: [summary({ status: "claimed" })],
+        latestInteractions: [
+          summary({ blockId: "section-1", status: "claimed" }),
+        ],
       })
     );
 
@@ -217,7 +273,6 @@ describe("SurfacePanel sections", () => {
     expect(screen.getByRole("heading", { name: "Deploy" })).toBeTruthy();
     expect(toggle.getAttribute("aria-expanded")).toBe("false");
     expect(content.hidden).toBe(true);
-    expect(screen.queryByRole("button", { name: "Go" })).toBeNull();
 
     fireEvent.click(toggle);
     expect(content.hidden).toBe(false);
@@ -227,6 +282,29 @@ describe("SurfacePanel sections", () => {
     expect(
       screen.getByTestId("interaction-status-caption").textContent
     ).toContain("In progress");
+  });
+
+  it("submits a section action with the section's block id", () => {
+    renderPanel(
+      surface({
+        blocks: [
+          {
+            ...sectionBlock,
+            actions: [{ id: "refresh", label: "Refresh", intent: "refresh" }],
+          },
+        ] as Surface["blocks"],
+      })
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Refresh" }));
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        kind: "action",
+        blockId: "section-1",
+        actionId: "refresh",
+      }),
+      expect.any(Object)
+    );
   });
 
   it("preserves an unsubmitted nested form draft when the section is reopened", () => {
