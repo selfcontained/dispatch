@@ -365,8 +365,18 @@ describe("shortcut pins", () => {
 });
 
 describe("sub agent owner switch", () => {
-  const child = { id: "agt_child", name: "builder", status: "running" };
-  const quiet = { id: "agt_quiet", name: "quiet", status: "stopped" };
+  const child = {
+    id: "agt_child",
+    name: "builder",
+    status: "running" as const,
+    workspaceRoot: "/repo/.worktrees/child",
+  };
+  const quiet = {
+    id: "agt_quiet",
+    name: "quiet",
+    status: "stopped" as const,
+    workspaceRoot: null,
+  };
   const childPins: AgentPin[] = [
     { id: "child_pr", label: "PR", value: "https://example/pr/1", type: "pr" },
     {

@@ -5,6 +5,20 @@ import type { NotifyInput } from "./server.js";
 import { jsonText, LIST_STRING_MAX, truncateLongStrings } from "./response.js";
 import { toToolError } from "./tool-error.js";
 
+/**
+ * One row of a media listing. `ownerAgentId` is always present: a listing can
+ * mix owners once family reads exist, so every row says whose it is.
+ */
+export type ListedMediaItem = {
+  ownerAgentId: string;
+  fileName: string;
+  filePath: string;
+  source: string;
+  description: string | null;
+  sizeBytes: number;
+  createdAt: string;
+};
+
 export type AgentLifecycleContext = {
   agentId: string;
   upsertEvent?: (
@@ -25,17 +39,7 @@ export type AgentLifecycleContext = {
   listMedia?: (
     agentId: string,
     opts: { source?: string; ownerAgentId?: string }
-  ) => Promise<
-    Array<{
-      ownerAgentId?: string;
-      fileName: string;
-      filePath: string;
-      source: string;
-      description: string | null;
-      sizeBytes: number;
-      createdAt: string;
-    }>
-  >;
+  ) => Promise<ListedMediaItem[]>;
   deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
   listPins?: (
     agentId: string,

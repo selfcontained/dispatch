@@ -238,7 +238,12 @@ describe("useMedia lightbox identity", () => {
 });
 
 describe("useMedia sub agent media", () => {
-  const CHILD = { id: "agt_child", name: "builder" };
+  const CHILD = {
+    id: "agt_child",
+    name: "builder",
+    status: "running" as const,
+    workspaceRoot: null,
+  };
 
   function mockPerAgent(byAgent: Record<string, MediaFile[]>) {
     apiMock.mockImplementation(async (path: string) => {

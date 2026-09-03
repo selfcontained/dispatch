@@ -121,11 +121,16 @@ export type MediaFile = {
   ownerAgentId?: string;
 };
 
-/** A sub agent whose pins and media are grouped under the selected agent. */
+/**
+ * A sub agent whose pins and media are grouped under the selected agent.
+ * Carries the child's own workspace root so its filename pins resolve
+ * against the child's worktree, not the parent's.
+ */
 export type SubAgentRef = {
   id: string;
   name: string;
-  status?: string;
+  status: AgentStatus;
+  workspaceRoot: string | null;
 };
 
 export type SubAgentMedia = { agent: SubAgentRef; files: MediaFile[] };

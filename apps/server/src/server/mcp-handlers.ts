@@ -52,6 +52,7 @@ import {
 } from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
+import type { ListedMediaItem } from "../shared/mcp/agent-lifecycle-tools.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 import { MessageStore } from "../messages/store.js";
@@ -1093,17 +1094,7 @@ async function handleListMedia(
   deps: CreateMcpHandlersDeps,
   agentId: string,
   opts: { source?: string; ownerAgentId?: string }
-): Promise<
-  Array<{
-    ownerAgentId: string;
-    fileName: string;
-    filePath: string;
-    source: string;
-    description: string | null;
-    sizeBytes: number;
-    createdAt: string;
-  }>
-> {
+): Promise<ListedMediaItem[]> {
   const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
 
   // Files stay in the owner's directory; a family read hands back the owner's

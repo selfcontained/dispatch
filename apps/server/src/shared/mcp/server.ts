@@ -15,7 +15,10 @@ import type {
 import type { BrainStore } from "../../brain/store.js";
 import { registerAgentArchiveTools } from "./agent-archive-tools.js";
 import { registerAgentLaunchTools } from "./agent-launch-tools.js";
-import { registerAgentLifecycleTools } from "./agent-lifecycle-tools.js";
+import {
+  registerAgentLifecycleTools,
+  type ListedMediaItem,
+} from "./agent-lifecycle-tools.js";
 import { registerAnalyticsTools } from "./analytics-tools.js";
 import { registerBrainTools } from "./brain-tools.js";
 import { registerCrudTools, type CrudToolCallbacks } from "./crud-tools.js";
@@ -336,17 +339,7 @@ export type McpRequestContext = {
   listMedia?: (
     agentId: string,
     opts: { source?: string; ownerAgentId?: string }
-  ) => Promise<
-    Array<{
-      ownerAgentId?: string;
-      fileName: string;
-      filePath: string;
-      source: string;
-      description: string | null;
-      sizeBytes: number;
-      createdAt: string;
-    }>
-  >;
+  ) => Promise<ListedMediaItem[]>;
   deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
   listPins?: (
     agentId: string,
