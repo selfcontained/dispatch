@@ -44,7 +44,6 @@ import {
   type ChatComposerDraft,
   type ChatDraftFile,
   EMPTY_CHAT_DRAFT,
-  fitChatDraft,
   isChatComposerDraft,
 } from "@/lib/chat-draft";
 import { isAcceptedUploadFile } from "@/lib/media-upload";
@@ -108,6 +107,107 @@ function sameFiles(a: ChatDraftFile[], b: ChatDraftFile[]): boolean {
 }
 
 /**
+ * A stored descriptor and a live file are the same attachment when name and
+ * size agree — and the MIME type too, when both sides know it (a picked
+ * file of an unregistered type reports none).
+ */
+function describesFile(entry: ChatDraftFile, file: File): boolean {
+  return (
+    entry.name === file.name &&
+    entry.size === file.size &&
+    (entry.mime === "" || file.type === "" || entry.mime === file.type)
+  );
+}
+
+function sameDescriptor(a: ChatDraftFile, b: ChatDraftFile): boolean {
+  return (
+    a.name === b.name &&
+    a.size === b.size &&
+    a.mime === b.mime &&
+    (a.pasted ?? null) === (b.pasted ?? null)
+  );
+}
+
+function sameList<T>(a: readonly T[], b: readonly T[]): boolean {
+  return a.length === b.length && a.every((item, i) => item === b[i]);
+}
+
+/**
+ * Re-attaching a file that a placeholder stands for (after a reload, say)
+ * replaces the placeholder rather than sitting beside it. Returns the
+ * placeholders left over and how many the incoming files took.
+ */
+function consumePlaceholders(
+  placeholders: ChatDraftFile[],
+  incoming: File[]
+): { remaining: ChatDraftFile[]; consumed: number } {
+  const remaining = [...placeholders];
+  for (const file of incoming) {
+    const index = remaining.findIndex((entry) => describesFile(entry, file));
+    if (index !== -1) remaining.splice(index, 1);
+  }
+  return { remaining, consumed: placeholders.length - remaining.length };
+}
+
+/**
+ * Brings this tab's live/placeholder model in line with the draft's file
+ * descriptors after they changed under it — another tab attached, removed
+ * or pasted something. Descriptors this tab has a `File` for (by name and
+ * size) keep that object; a pasted body it lacks becomes a live pasted-text
+ * chip; anything else becomes a placeholder; live files no descriptor
+ * mentions any more are dropped. Order follows the descriptors, so every
+ * tab converges on the same chip order.
+ */
+function reconcileDraftFiles(
+  stored: ChatDraftFile[],
+  live: File[],
+  placeholders: ChatDraftFile[]
+): {
+  files: File[];
+  placeholders: ChatDraftFile[];
+  dropped: File[];
+  restoredPasted: Map<string, string>;
+  changed: boolean;
+} {
+  const unusedLive = [...live];
+  const unusedPlaceholders = [...placeholders];
+  const files: File[] = [];
+  const nextPlaceholders: ChatDraftFile[] = [];
+  const restoredPasted = new Map<string, string>();
+  for (const entry of stored) {
+    const liveIndex = unusedLive.findIndex((file) =>
+      describesFile(entry, file)
+    );
+    if (liveIndex !== -1) {
+      files.push(unusedLive.splice(liveIndex, 1)[0]!);
+      continue;
+    }
+    if (typeof entry.pasted === "string") {
+      const file = pastedTextFile(entry.pasted, entry.name);
+      restoredPasted.set(startupFileKey(file), entry.pasted);
+      files.push(file);
+      continue;
+    }
+    const placeholderIndex = unusedPlaceholders.findIndex((candidate) =>
+      sameDescriptor(candidate, entry)
+    );
+    nextPlaceholders.push(
+      placeholderIndex === -1
+        ? entry
+        : unusedPlaceholders.splice(placeholderIndex, 1)[0]!
+    );
+  }
+  return {
+    files,
+    placeholders: nextPlaceholders,
+    dropped: unusedLive,
+    restoredPasted,
+    changed:
+      !sameList(files, live) || !sameList(nextPlaceholders, placeholders),
+  };
+}
+
+/**
  * Splits a stored draft's files into what can come back live (a pasted text
  * chip whose body was kept) and what can only be a placeholder (a picked
  * file, or a paste whose body was dropped for size).
@@ -155,7 +255,9 @@ const SUPPORTED_FILE_HINT =
  * The draft — text, links, pins, pasted text — is persisted per agent
  * (`chatDraftAtomFamily`) and comes back after a reload. Picked files
  * cannot: they come back as "needs re-attaching" placeholders that hold the
- * send until they are re-attached or removed.
+ * send until they are re-attached (which replaces the placeholder) or
+ * removed. Another tab editing the same draft shows up here too, files
+ * included — see `reconcileDraftFiles`.
  */
 export function ChatComposer({
   agentId,
@@ -178,10 +280,12 @@ export function ChatComposer({
   const draft = isChatComposerDraft(storedDraft)
     ? storedDraft
     : EMPTY_CHAT_DRAFT;
+  // The atom holds the draft in full; the size cap applies to what the atom
+  // writes to storage (`chatDraftAtomFamily`), not to what is typed.
   const updateDraft = useCallback(
     (patch: (current: ChatComposerDraft) => ChatComposerDraft) => {
       setStoredDraft((prev) =>
-        fitChatDraft(patch(isChatComposerDraft(prev) ? prev : EMPTY_CHAT_DRAFT))
+        patch(isChatComposerDraft(prev) ? prev : EMPTY_CHAT_DRAFT)
       );
     },
     [setStoredDraft]
@@ -205,8 +309,10 @@ export function ChatComposer({
   const trimmed = text.trim();
 
   // ---- files: live File objects, in memory only -----------------------------
-  // Restored once, from the draft as it was on mount; from then on the draft's
-  // file list mirrors this state (see the sync effect below).
+  // Restored from the draft on mount. From then on the two are kept in step
+  // both ways: the draft's file list mirrors this state (the describe effect
+  // below), and a change to the draft's list from elsewhere — another tab,
+  // via the atom's storage subscription — is reconciled back into it.
   const [restored] = useState(() => restoreDraftFiles(draft));
   const [files, setFiles] = useState<File[]>(restored.files);
   const [placeholders, setPlaceholders] = useState<ChatDraftFile[]>(
@@ -232,6 +338,23 @@ export function ChatComposer({
     };
   }, []);
 
+  /** Drops everything remembered about a file that is no longer attached. */
+  const forgetFile = useCallback((key: string) => {
+    pastedTextRef.current.delete(key);
+    mediaIdsRef.current.delete(key);
+    const preview = previewsRef.current.get(key);
+    if (preview) {
+      URL.revokeObjectURL(preview);
+      previewsRef.current.delete(key);
+    }
+    setFileStatus((current) => {
+      if (!(key in current)) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
   useEffect(() => {
     const described = [
       ...placeholders,
@@ -246,8 +369,36 @@ export function ChatComposer({
     );
   }, [files, placeholders, updateDraft]);
 
+  // The other direction. Keyed on the draft's list alone and reading the
+  // local model through refs, so it runs after a change *to the draft* —
+  // never after a local change, whose describe above has not landed yet —
+  // and is a no-op when the two already agree (which is the case right
+  // after every local change, and on mount).
+  const filesRef = useRef(files);
+  filesRef.current = files;
+  const placeholdersRef = useRef(placeholders);
+  placeholdersRef.current = placeholders;
+  useEffect(() => {
+    const next = reconcileDraftFiles(
+      draft.files,
+      filesRef.current,
+      placeholdersRef.current
+    );
+    if (!next.changed) return;
+    for (const file of next.dropped) forgetFile(startupFileKey(file));
+    for (const [key, text] of next.restoredPasted) {
+      pastedTextRef.current.set(key, text);
+    }
+    setFiles(next.files);
+    setPlaceholders(next.placeholders);
+  }, [draft.files, forgetFile]);
+
   const appendFiles = useCallback((incoming: File[]) => {
     if (incoming.length === 0) return;
+    setPlaceholders((current) => {
+      const { remaining, consumed } = consumePlaceholders(current, incoming);
+      return consumed === 0 ? current : remaining;
+    });
     setFiles((current) => {
       const next = [...current];
       const seen = new Set(current.map(startupFileKey));
@@ -300,11 +451,16 @@ export function ChatComposer({
       } else {
         setError(null);
       }
-      const room = Math.max(0, CHAT_ATTACHMENTS_MAX - attachmentCount);
+      // A file that re-attaches a placeholder takes its slot, not a new one.
+      const { consumed } = consumePlaceholders(placeholders, accepted);
+      const room = Math.max(
+        0,
+        CHAT_ATTACHMENTS_MAX - attachmentCount + consumed
+      );
       if (accepted.length > room) noteAttachmentLimit();
       appendFiles(accepted.slice(0, room));
     },
-    [appendFiles, attachmentCount, noteAttachmentLimit]
+    [appendFiles, attachmentCount, noteAttachmentLimit, placeholders]
   );
 
   const addLink = useCallback(
@@ -360,25 +516,16 @@ export function ChatComposer({
     [updateDraft]
   );
 
-  const removeFile = useCallback((file: File) => {
-    const key = startupFileKey(file);
-    pastedTextRef.current.delete(key);
-    mediaIdsRef.current.delete(key);
-    const preview = previewsRef.current.get(key);
-    if (preview) {
-      URL.revokeObjectURL(preview);
-      previewsRef.current.delete(key);
-    }
-    setFileStatus((current) => {
-      if (!(key in current)) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-    setFiles((current) =>
-      current.filter((candidate) => startupFileKey(candidate) !== key)
-    );
-  }, []);
+  const removeFile = useCallback(
+    (file: File) => {
+      const key = startupFileKey(file);
+      forgetFile(key);
+      setFiles((current) =>
+        current.filter((candidate) => startupFileKey(candidate) !== key)
+      );
+    },
+    [forgetFile]
+  );
 
   const removePlaceholder = useCallback((index: number) => {
     setPlaceholders((current) => current.filter((_, i) => i !== index));

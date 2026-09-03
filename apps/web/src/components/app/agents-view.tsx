@@ -570,17 +570,29 @@ export function AgentsView({
   ) : null;
 
   // The Agent pane's Chat | Console choice, remembered per agent. Flipping
-  // to the Console hands it focus once it has been unhidden.
+  // to the Console hands it focus once it has been unhidden: the focus is
+  // deferred a tick, and a flip back (or an unmount) before it lands drops
+  // it, so the Chat composer's own focus is never stolen.
   const [agentView, setAgentViewRaw] = useAgentPaneView(focusedAgentId);
+  const consoleFocusTimerRef = useRef<number | null>(null);
+  const cancelConsoleFocus = useCallback(() => {
+    if (consoleFocusTimerRef.current === null) return;
+    window.clearTimeout(consoleFocusTimerRef.current);
+    consoleFocusTimerRef.current = null;
+  }, []);
+  useEffect(() => cancelConsoleFocus, [cancelConsoleFocus]);
   const setAgentView = useCallback(
     (view: AgentPaneView) => {
       setAgentViewRaw(view);
+      cancelConsoleFocus();
       if (view === "console") {
-        const timer = window.setTimeout(focusTerminal, 0);
-        return () => window.clearTimeout(timer);
+        consoleFocusTimerRef.current = window.setTimeout(() => {
+          consoleFocusTimerRef.current = null;
+          focusTerminal();
+        }, 0);
       }
     },
-    [focusTerminal, setAgentViewRaw]
+    [cancelConsoleFocus, focusTerminal, setAgentViewRaw]
   );
   const agentPaneVisible = !isSplit
     ? centerTabResolved && !changesMatch && !whiteboardMatch

@@ -92,3 +92,8 @@ export function terminalHostTab(chatEnabled: boolean): CenterTab {
 export function isCenterTab(value: unknown): value is CenterTab {
   return typeof value === "string" && BY_ID.has(value as CenterTab);
 }
+
+/** `isCenterTab`, plus the round-1/2 "chat" id that stored state may still carry. */
+export function isLegacyCenterTab(value: unknown): value is LegacyCenterTab {
+  return value === "chat" || isCenterTab(value);
+}

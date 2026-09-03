@@ -380,8 +380,17 @@ changes; the flag, routes and tools are unchanged.
   re-attaching" placeholder chip with a remove button. The send is held
   until placeholders are re-attached or removed. Pasted-text chips keep
   their text and come back whole.
-- Size cap: 64 KB per agent (`CHAT_DRAFT_MAX_BYTES`). Over that, pasted-text
-  bodies are dropped largest-first; such a chip comes back as a "too large
-  to keep — paste again" placeholder.
+- Size cap: 64 KB per agent (`CHAT_DRAFT_MAX_BYTES`). The atom holds the
+  full draft; what it writes to storage is `fitChatDraft`'s lossy snapshot,
+  bounded for any input: pasted-text bodies go first, largest-first (such a
+  chip comes back as a "too large to keep — paste again" placeholder), then
+  links longest-first, then the text is cut at a code-point boundary with a
+  visible marker on the end. A write that storage refuses (quota) keeps the
+  in-memory draft and is simply not persisted.
+- Cross-tab: the draft follows `storage` events like any other persisted
+  atom, files included — descriptors are reconciled into the tab's live
+  chips (a file this tab holds stays live, one it lacks is a placeholder, a
+  pasted body comes back whole). Re-attaching a placeholder's file replaces
+  the placeholder.
 - Within a session a Chat → Console → Chat flip keeps live files too, since
   the composer stays mounted.

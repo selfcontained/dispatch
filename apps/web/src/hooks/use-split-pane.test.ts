@@ -5,8 +5,8 @@ import { createStore, Provider } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
-  type CenterTab,
   LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX,
+  type PersistedSplitPaneState,
   SPLIT_PANE_STATE_STORAGE_PREFIX,
   type SplitPaneState,
 } from "@/lib/store";
@@ -42,17 +42,13 @@ describe("normalizeSplitPaneState", () => {
       right: "changes",
       sizes: [30, 70],
     });
-    expect(
-      normalizeSplitPaneState(
-        {
-          mode: "split",
-          left: "whiteboard",
-          right: "chat" as CenterTab,
-          sizes: [50, 50],
-        },
-        true
-      )
-    ).toEqual({
+    const roundTwo: PersistedSplitPaneState = {
+      mode: "split",
+      left: "whiteboard",
+      right: "chat",
+      sizes: [50, 50],
+    };
+    expect(normalizeSplitPaneState(roundTwo, true)).toEqual({
       mode: "split",
       left: "whiteboard",
       right: "agent",
@@ -60,18 +56,15 @@ describe("normalizeSplitPaneState", () => {
     });
   });
 
+  const chatBesideTerminal: PersistedSplitPaneState = {
+    mode: "split",
+    left: "chat",
+    right: "terminal",
+    sizes: [50, 50],
+  };
+
   it("collapses a chat/terminal split to a single Agent pane when the flag is on", () => {
-    expect(
-      normalizeSplitPaneState(
-        {
-          mode: "split",
-          left: "chat" as CenterTab,
-          right: "terminal",
-          sizes: [50, 50],
-        },
-        true
-      )
-    ).toEqual({
+    expect(normalizeSplitPaneState(chatBesideTerminal, true)).toEqual({
       mode: "single",
       left: "agent",
       right: "agent",
@@ -91,17 +84,7 @@ describe("normalizeSplitPaneState", () => {
       right: "changes",
       sizes: [30, 70],
     });
-    expect(
-      normalizeSplitPaneState(
-        {
-          mode: "split",
-          left: "chat" as CenterTab,
-          right: "terminal",
-          sizes: [50, 50],
-        },
-        false
-      )
-    ).toEqual({
+    expect(normalizeSplitPaneState(chatBesideTerminal, false)).toEqual({
       mode: "single",
       left: "terminal",
       right: "terminal",

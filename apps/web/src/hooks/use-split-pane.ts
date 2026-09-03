@@ -5,9 +5,11 @@ import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { type LegacyCenterTab, terminalHostTab } from "@/lib/center-tabs";
 import {
   type CenterTab,
+  type PersistedSplitPaneState,
   type SplitPaneState,
   defaultSplitPaneState,
   inactiveSplitPaneStateAtom,
+  isCurrentSplitPaneState,
   splitPaneStateAtomFamily,
 } from "@/lib/store";
 
@@ -21,7 +23,7 @@ import {
  * the flag flips back.
  */
 export function normalizeSplitPaneState(
-  state: SplitPaneState,
+  state: PersistedSplitPaneState,
   chatEnabled: boolean
 ): SplitPaneState {
   const host = terminalHostTab(chatEnabled);
@@ -29,7 +31,13 @@ export function normalizeSplitPaneState(
     tab === "chat" || tab === "agent" || tab === "terminal" ? host : tab;
   const left = fold(state.left);
   const right = fold(state.right);
-  if (left === state.left && right === state.right) return state;
+  if (
+    left === state.left &&
+    right === state.right &&
+    isCurrentSplitPaneState(state)
+  ) {
+    return state;
+  }
   return {
     ...state,
     left,

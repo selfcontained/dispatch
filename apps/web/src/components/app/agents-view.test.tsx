@@ -688,6 +688,44 @@ describe("AgentsView agent pane", () => {
     expect(propsOf("AgentPane").view).toBe("chat");
   });
 
+  it("focuses the terminal a tick after a flip to Console, unless the flip is undone first", () => {
+    vi.useFakeTimers();
+    try {
+      focusOn("a1");
+      const view = mount({ path: "/agents/a1" });
+      const flip = (v: string) =>
+        act(() => {
+          (propsOf("AgentPane").onViewChange as (v: string) => void)(v);
+        });
+
+      flip("console");
+      expect(H.state.focusTerminal).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
+
+      // Back to Chat before the tick lands: the composer keeps its focus.
+      flip("chat");
+      flip("console");
+      flip("chat");
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
+
+      // Unmounting with a tick pending drops it too.
+      flip("console");
+      view.unmount();
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("hands the Agent pane to the split slot with the split's terminal slot", () => {
     focusOn("a1");
     Object.assign(H.state, {
