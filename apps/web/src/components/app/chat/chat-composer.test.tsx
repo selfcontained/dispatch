@@ -99,9 +99,11 @@ describe("ChatComposer", () => {
       reject(new Error("Agent has no terminal"));
     });
     expect(input.value).toBe("important");
-    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
-      "Agent has no terminal"
-    );
+    const error = screen.getByTestId("chat-composer-error");
+    expect(error.textContent).toContain("Agent has no terminal");
+    // The draft survived, so a retry is on offer.
+    expect(error.textContent).toContain("press Enter to try again");
+    expect(error.getAttribute("data-retryable")).toBe("true");
 
     // Retrying clears the error and sends the same draft again.
     fireEvent.keyDown(input, { key: "Enter" });

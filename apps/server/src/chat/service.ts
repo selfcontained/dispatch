@@ -113,6 +113,8 @@ export type ChatAnswerInput = {
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;
+  /** Ride along on the reply message, resolved like sendUserMessage's. */
+  attachments?: ChatUserAttachmentInput[];
 };
 
 const ANSWER_LABEL_MAX = 200;
@@ -234,8 +236,10 @@ export class ChatService {
   /**
    * Answer an agent question. The stored question decides what `value`
    * means: an option's label is the reply text, and a client label only
-   * matters for a freeform answer. The reply row and the answer land in one
-   * transaction, so racing answers leave exactly one reply.
+   * matters for a freeform answer. Attachments are resolved before anything
+   * is written and stored on the reply, exactly as for a plain user message.
+   * The reply row and the answer land in one transaction, so racing answers
+   * leave exactly one reply.
    */
   async answerQuestion(
     agentId: string,
@@ -247,6 +251,12 @@ export class ChatService {
     }
     if (!input.value.trim()) {
       throw new ChatValidationError("value is required.");
+    }
+    const attachments = input.attachments ?? [];
+    if (attachments.length > CHAT_ATTACHMENTS_MAX) {
+      throw new ChatValidationError(
+        `attachments must have ${CHAT_ATTACHMENTS_MAX} entries or fewer.`
+      );
     }
     const question = await this.store.getById(messageId);
     if (
@@ -280,6 +290,13 @@ export class ChatService {
         `value must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
       );
     }
+    let resolved: ChatAttachment[] = [];
+    let attachmentLines: string[] = [];
+    if (attachments.length > 0) {
+      const agent = await this.requireAgent(agentId);
+      resolved = await this.resolveAttachmentsFor(agent, attachments);
+      attachmentLines = this.describeAttachments(agent, resolved);
+    }
 
     const sessionName = await this.requireDeliverable(agentId);
 
@@ -298,6 +315,7 @@ export class ChatService {
         kind: "reply",
         text,
         replyTo: question.id,
+        attachments: resolved,
         delivered: null,
       });
       answered = await tx.recordAnswer(question.id, {
@@ -318,7 +336,7 @@ export class ChatService {
       client.release();
     }
 
-    this.deliverDetached(agentId, sessionName, replyMessage);
+    this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
     this.publishChanged(agentId);
     return { question: answered, reply: replyMessage, delivered: null };
   }

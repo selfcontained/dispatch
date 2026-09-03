@@ -218,9 +218,8 @@ export function ChatPane({
   // callbacks survive the re-renders every status event causes.
   const { mutateAsync: answerAsync, mutate: answerNow } = answer;
   const { mutateAsync: sendAsync } = send;
-  // The answer route carries a bare value, so a reply that brings
-  // attachments goes out as a plain message instead — the agent still reads
-  // it in order, it just is not linked to the question.
+  // While a free-text question is open, what gets typed answers it —
+  // attachments included, so the reply stays linked to the question.
   const onSend = useCallback(
     async (
       text: string,
@@ -228,8 +227,12 @@ export function ChatPane({
     ): Promise<void> => {
       setSendError(null);
       setFollowing(true);
-      if (replyTarget && attachments.length === 0) {
-        await answerAsync({ messageId: replyTarget.id, value: text });
+      if (replyTarget) {
+        await answerAsync({
+          messageId: replyTarget.id,
+          value: text,
+          attachments,
+        });
         return;
       }
       await sendAsync({ text, attachments });

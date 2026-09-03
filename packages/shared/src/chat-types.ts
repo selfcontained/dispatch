@@ -65,6 +65,15 @@ export type ChatSendRequest = {
   attachments?: ChatUserAttachmentInput[];
 };
 
+/** Body of `POST /agents/:id/chat/messages/:messageId/answer`. */
+export type ChatAnswerRequest = {
+  value: string;
+  /** Only consulted for a freeform answer; an option's label wins otherwise. */
+  label?: string;
+  /** Up to `CHAT_ATTACHMENTS_MAX`; stored on the reply message. */
+  attachments?: ChatUserAttachmentInput[];
+};
+
 export type ChatMessage = {
   id: string;
   agentId: string;

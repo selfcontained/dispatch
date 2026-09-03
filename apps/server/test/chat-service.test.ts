@@ -581,6 +581,101 @@ describe("ChatService user workflows", () => {
     });
   });
 
+  it("answerQuestion stores attachments on the reply and lists them in the envelope", async () => {
+    await pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, 'shot-2026-01-01-00-00-00-000.png', 'user', 122880)`,
+      [A]
+    );
+    const media = await pool.query<{ id: number }>(
+      `SELECT id FROM media WHERE agent_id = $1`,
+      [A]
+    );
+    const mediaId = media.rows[0].id;
+    const { svc, injected } = build();
+    const q = await svc.post(A, {
+      text: "Which one?",
+      kind: "question",
+      question: { options: [{ label: "a" }], allowFreeform: true },
+    });
+    const res = await svc.answerQuestion(A, q.id, {
+      value: "this one",
+      attachments: [
+        { type: "file", mediaId },
+        { type: "pin", pinId: "pin_1" },
+        { type: "link", url: "https://example.com/spec", title: "Spec" },
+      ],
+    });
+    expect(res.reply.replyTo).toBe(q.id);
+    expect(res.reply.attachments).toEqual([
+      {
+        type: "file",
+        mediaId,
+        fileName: "shot-2026-01-01-00-00-00-000.png",
+        sizeBytes: 122880,
+        mimeType: "image/png",
+      },
+      { type: "pin", pinId: "pin_1" },
+      { type: "link", url: "https://example.com/spec", title: "Spec" },
+    ]);
+    expect(res.question.answer).toMatchObject({
+      value: "this one",
+      replyMessageId: res.reply.id,
+    });
+    expect((await svc.store.getById(res.reply.id))?.attachments).toEqual(
+      res.reply.attachments
+    );
+    await settled(svc, res.reply.id);
+    expect(injected[0].text).toContain(
+      [
+        `--- DISPATCH CHAT (id: ${res.reply.id}) ---`,
+        "this one",
+        "",
+        "Attachments:",
+        "- file: /custom/media/shot-2026-01-01-00-00-00-000.png (image/png, 120 KB)",
+        "- pin: URL — http://x",
+        "- link: https://example.com/spec — Spec",
+        "--- END DISPATCH CHAT ---",
+      ].join("\n")
+    );
+  });
+
+  it("answerQuestion rejects unknown media, foreign pins, and too many attachments before writing", async () => {
+    const { svc, injected } = build();
+    const q = await svc.post(A, {
+      text: "?",
+      kind: "question",
+      question: { options: [{ label: "a" }], allowFreeform: true },
+    });
+    await expect(
+      svc.answerQuestion(A, q.id, {
+        value: "x",
+        attachments: [{ type: "file", mediaId: 999_999 }],
+      })
+    ).rejects.toThrow(/Unknown file #999999/);
+    await expect(
+      svc.answerQuestion(A, q.id, {
+        value: "x",
+        attachments: [{ type: "pin", pinId: "pin_nope" }],
+      })
+    ).rejects.toThrow(/Unknown pin/);
+    await expect(
+      svc.answerQuestion(A, q.id, {
+        value: "x",
+        attachments: Array.from({ length: 21 }, () => ({
+          type: "link" as const,
+          url: "https://example.com",
+        })),
+      })
+    ).rejects.toThrow(/20 entries or fewer/);
+    expect((await svc.store.getById(q.id))?.answer).toBeNull();
+    const rows = await pool.query(
+      "SELECT 1 FROM agent_chat_messages WHERE author_kind = 'user'"
+    );
+    expect(rows.rowCount).toBe(0);
+    expect(injected).toHaveLength(0);
+  });
+
   it("recoverPendingDeliveries sweeps pending user rows and announces each feed", async () => {
     const { svc, events } = build();
     const pending = await svc.store.insert({

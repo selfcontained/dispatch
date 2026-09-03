@@ -1,7 +1,11 @@
 import type { FastifyInstance, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import * as z from "zod/v4";
-import type { ChatSendRequest, ChatUnreadSummary } from "@dispatch/shared";
+import type {
+  ChatAnswerRequest,
+  ChatSendRequest,
+  ChatUnreadSummary,
+} from "@dispatch/shared";
 import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 
 import { composeChatFeed, decodeFeedCursor } from "../chat/feed.js";
@@ -45,6 +49,30 @@ const sendBodySchema = z.object({
     .max(CHAT_ATTACHMENTS_MAX)
     .optional(),
 }) satisfies z.ZodType<ChatSendRequest, unknown>;
+
+/**
+ * `POST /agents/:id/chat/messages/:messageId/answer` body. Attachments take
+ * the same shape and cap as a plain message; the service resolves them onto
+ * the reply.
+ */
+const answerBodySchema = z.object({
+  value: z.string("value is required."),
+  label: z.string("label must be a string.").optional(),
+  attachments: z
+    .array(userAttachmentSchema)
+    .max(CHAT_ATTACHMENTS_MAX)
+    .optional(),
+}) satisfies z.ZodType<ChatAnswerRequest, unknown>;
+
+/** First zod issue as a 400 message, pointing at the offending attachment. */
+function bodyIssueMessage(error: z.ZodError): string {
+  const issue = error.issues[0];
+  // Point at the offending attachment; top-level messages name their
+  // field themselves.
+  const where =
+    issue?.path[0] === "attachments" ? `${issue.path.join(".")}: ` : "";
+  return `${where}${issue?.message ?? "Invalid body."}`;
+}
 
 /**
  * HTTP surface over `ChatService`: body shape checks and status-code mapping
@@ -109,14 +137,7 @@ export async function registerChatRoutes(
     const id = (request.params as { id?: string }).id ?? "";
     const parsed = sendBodySchema.safeParse(request.body ?? {});
     if (!parsed.success) {
-      const issue = parsed.error.issues[0];
-      // Point at the offending attachment; top-level messages name their
-      // field themselves.
-      const where =
-        issue?.path[0] === "attachments" ? `${issue.path.join(".")}: ` : "";
-      return reply
-        .code(400)
-        .send({ error: `${where}${issue?.message ?? "Invalid body."}` });
+      return reply.code(400).send({ error: bodyIssueMessage(parsed.error) });
     }
     try {
       return await chat.sendUserMessage(
@@ -135,17 +156,16 @@ export async function registerChatRoutes(
       const params = request.params as { id?: string; messageId?: string };
       const id = params.id ?? "";
       const messageId = params.messageId ?? "";
-      const body = request.body as { value?: unknown; label?: unknown } | null;
-      if (typeof body?.value !== "string") {
-        return reply.code(400).send({ error: "value is required." });
+      const parsed = answerBodySchema.safeParse(request.body ?? {});
+      if (!parsed.success) {
+        return reply.code(400).send({ error: bodyIssueMessage(parsed.error) });
       }
-      if (body.label !== undefined && typeof body.label !== "string") {
-        return reply.code(400).send({ error: "label must be a string." });
-      }
+      const { value, label, attachments } = parsed.data;
       try {
         return await chat.answerQuestion(id, messageId, {
-          value: body.value,
-          ...(body.label !== undefined ? { label: body.label } : {}),
+          value,
+          ...(label !== undefined ? { label } : {}),
+          ...(attachments && attachments.length > 0 ? { attachments } : {}),
         });
       } catch (error) {
         return sendError(reply, error);

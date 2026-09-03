@@ -31,6 +31,7 @@ export {
 export type {
   ChatAgentMessageEntry,
   ChatAnswer,
+  ChatAnswerRequest,
   ChatAnswerResponse,
   ChatAttachment,
   ChatAuthorKind,
