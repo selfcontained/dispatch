@@ -273,6 +273,11 @@ export function ChatPane({
         <div
           ref={scrollRef}
           onScroll={onScroll}
+          // Images in the feed size themselves after they load; keep the
+          // bottom pinned when that happens while following.
+          onLoadCapture={() => {
+            if (following) scrollToBottom();
+          }}
           className="h-full overflow-y-auto overscroll-contain px-4 py-3"
           data-testid="chat-scroll"
         >
@@ -317,6 +322,7 @@ export function ChatPane({
               ctx={ctx}
               heldMessageId={heldMessageId}
               answeringMessageId={answeringMessageId}
+              answersDisabled={disabledReason !== null}
               onAnswer={onAnswer}
             />
           )}

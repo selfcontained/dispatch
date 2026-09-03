@@ -156,9 +156,13 @@ test.describe("Chat surface", () => {
     await expect(pane).toBeVisible();
 
     // Every seeded entry renders.
-    const statusLines = pane.getByTestId("chat-status");
-    await expect(statusLines.first()).toBeVisible();
-    await expect(statusLines.first()).toContainText("Running tests");
+    // The server logs its own "Session started" event first; the two seeded
+    // working events collapse into the line after it.
+    const workingLine = pane
+      .getByTestId("chat-status")
+      .filter({ hasText: "Running tests" });
+    await expect(workingLine).toBeVisible();
+    await expect(workingLine).not.toContainText("Reading the plan");
     await expect(pane.getByTestId("chat-status-collapsed-count")).toHaveText(
       "×2"
     );
@@ -166,7 +170,7 @@ test.describe("Chat surface", () => {
     const messages = pane.getByTestId("chat-message");
     await expect(messages).toHaveCount(3);
     await expect(messages.nth(0).locator("strong")).toHaveText("green");
-    await expect(pane.getByText("Report")).toHaveAttribute(
+    await expect(pane.getByRole("link", { name: "Report" })).toHaveAttribute(
       "href",
       "https://example.com/report"
     );
@@ -189,16 +193,11 @@ test.describe("Chat surface", () => {
       pane.getByTestId("chat-composer-disabled-reason")
     ).toBeVisible();
 
-    // Answering a question records the choice even when delivery cannot
-    // happen; the chosen option stays marked and the rest lock.
-    await pane.getByTestId("chat-question-option").nth(1).click();
-    await expect(
-      pane.getByTestId("chat-question-option").nth(1)
-    ).toHaveAttribute("aria-pressed", "true");
-    await expect(pane.getByTestId("chat-needs-reply")).toHaveCount(0);
-    await expect(messages).toHaveCount(4);
-    await expect(messages.nth(3)).toHaveAttribute("data-author", "user");
-    await expect(messages.nth(3)).toContainText("Wait");
+    // Answers are injected like typed messages, so they lock with the
+    // composer: the server would 409 on an inert agent.
+    const options = pane.getByTestId("chat-question-option");
+    await expect(options.nth(0)).toBeDisabled();
+    await expect(options.nth(1)).toBeDisabled();
 
     await page.screenshot({
       path: test.info().outputPath("chat-surface.png"),
@@ -224,8 +223,15 @@ test.describe("Chat surface", () => {
     );
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
 
-    await clickAgentRow(page, agent.id);
+    // The bare route now stays on the Console for this agent instead of
+    // redirecting to Chat.
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("center-tab-chat").waitFor({ state: "visible" });
     await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
+    await expect(page.getByTestId("center-tab-terminal")).toHaveAttribute(
+      "aria-selected",
+      "true"
+    );
 
     // Back to Chat through the tab bar.
     await chatTab.click();

@@ -81,6 +81,8 @@ export type ChatFeedProps = {
   heldMessageId: string | null;
   /** Question whose answer is in flight, if any. */
   answeringMessageId: string | null;
+  /** Answers go through the same injection as the composer; lock them together. */
+  answersDisabled?: boolean;
   onAnswer: (messageId: string, option: ChatQuestionOption) => void;
 };
 
@@ -89,6 +91,7 @@ export function ChatFeed({
   ctx,
   heldMessageId,
   answeringMessageId,
+  answersDisabled = false,
   onAnswer,
 }: ChatFeedProps): JSX.Element {
   const items = useMemo(() => collapseFeed(entries), [entries]);
@@ -114,7 +117,9 @@ export function ChatFeed({
                 message={entry.message}
                 held={heldMessageId === entry.message.id}
                 ctx={ctx}
-                answering={answeringMessageId === entry.message.id}
+                answering={
+                  answersDisabled || answeringMessageId === entry.message.id
+                }
                 onAnswer={onAnswer}
               />
             );
