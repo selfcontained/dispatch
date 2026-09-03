@@ -3,7 +3,15 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { CenterPaneTabBar, centerTabs } from "./center-pane-tab-bar";
+import { centerTabs } from "@/lib/center-tabs";
+
+import { CenterPaneTabBar } from "./center-pane-tab-bar";
+
+const H = vi.hoisted(() => ({ chatEnabled: false }));
+
+vi.mock("@/hooks/use-chat-surface-enabled", () => ({
+  useChatSurfaceEnabled: () => ({ enabled: H.chatEnabled, loaded: true }),
+}));
 
 const singleState = {
   mode: "single" as const,
@@ -14,6 +22,7 @@ const singleState = {
 
 afterEach(() => {
   cleanup();
+  H.chatEnabled = false;
 });
 
 describe("CenterPaneTabBar", () => {
@@ -26,7 +35,6 @@ describe("CenterPaneTabBar", () => {
           isSplit={false}
           splitState={singleState}
           isMobile={false}
-          chatEnabled={false}
           chatUnreadCount={3}
         />
       </MemoryRouter>
@@ -37,6 +45,7 @@ describe("CenterPaneTabBar", () => {
   });
 
   it("puts Chat first and relabels the terminal Console with the flag on", () => {
+    H.chatEnabled = true;
     render(
       <MemoryRouter>
         <CenterPaneTabBar
@@ -45,7 +54,6 @@ describe("CenterPaneTabBar", () => {
           isSplit={false}
           splitState={singleState}
           isMobile={false}
-          chatEnabled={true}
           chatUnreadCount={3}
         />
       </MemoryRouter>
@@ -58,6 +66,7 @@ describe("CenterPaneTabBar", () => {
   });
 
   it("hides the unread badge while the chat tab is active", () => {
+    H.chatEnabled = true;
     render(
       <MemoryRouter>
         <CenterPaneTabBar
@@ -66,7 +75,6 @@ describe("CenterPaneTabBar", () => {
           isSplit={false}
           splitState={singleState}
           isMobile={false}
-          chatEnabled={true}
           chatUnreadCount={3}
         />
       </MemoryRouter>

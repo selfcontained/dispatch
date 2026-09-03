@@ -23,7 +23,6 @@ type AgentsViewHeaderProps = {
   focusTerminal: () => void;
   focusedDiffStats: DiffStats | null | undefined;
   activeTab: CenterTab;
-  chatEnabled?: boolean;
   /**
    * False while the route is still settling on a tab (flag not yet known, or
    * a redirect pending). The tab bar waits, so it never shows "Terminal"
@@ -54,7 +53,6 @@ export function AgentsViewHeader({
   focusTerminal,
   focusedDiffStats,
   activeTab,
-  chatEnabled = false,
   centerTabResolved = true,
   chatUnreadCount = 0,
   isSplit,
@@ -136,7 +134,6 @@ export function AgentsViewHeader({
                 isSplit={isSplit}
                 splitState={splitState}
                 isMobile={isMobile}
-                chatEnabled={chatEnabled}
                 chatUnreadCount={chatUnreadCount}
               />
             ) : null}

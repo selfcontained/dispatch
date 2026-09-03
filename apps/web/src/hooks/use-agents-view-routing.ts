@@ -2,45 +2,16 @@ import { useCallback, useEffect } from "react";
 import { useStore } from "jotai";
 import { useLocation, useMatch, useNavigate } from "react-router-dom";
 
-import { centerTabs } from "@/components/app/center-pane-tab-bar";
 import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
-import {
-  agentChangesRoute,
-  agentChatRoute,
-  agentRoute,
-  agentWhiteboardRoute,
-} from "@/lib/agent-routes";
-import { type CenterTab, lastCenterTabAtomFamily } from "@/lib/store";
+import { agentChatRoute, agentRoute } from "@/lib/agent-routes";
+import { type CenterTab, centerTabRoute, isCenterTab } from "@/lib/center-tabs";
+import { lastCenterTabAtomFamily } from "@/lib/store";
 
 type UseAgentsViewRoutingOptions = {
   routeAgentId: string | undefined;
   agentsLoaded: boolean;
   validatedSelectedAgentId: string | null;
 };
-
-const KNOWN_TABS: ReadonlySet<string> = new Set(
-  centerTabs(true).map((tab) => tab.id)
-);
-
-/** Stored values are user-editable localStorage; anything unknown reads as unset. */
-function knownCenterTab(value: unknown): CenterTab | null {
-  return typeof value === "string" && KNOWN_TABS.has(value)
-    ? (value as CenterTab)
-    : null;
-}
-
-export function centerTabRoute(agentId: string, tab: CenterTab): string {
-  switch (tab) {
-    case "chat":
-      return agentChatRoute(agentId);
-    case "changes":
-      return agentChangesRoute(agentId);
-    case "whiteboard":
-      return agentWhiteboardRoute(agentId);
-    default:
-      return agentRoute(agentId);
-  }
-}
 
 export function useAgentsViewRouting({
   routeAgentId,
@@ -87,7 +58,10 @@ export function useAgentsViewRouting({
   // the same commit the redirect is scheduled: nothing paints the Console
   // for a frame while the URL catches up.
   const lastTab = routeAgentId
-    ? knownCenterTab(store.get(lastCenterTabAtomFamily(routeAgentId)))
+    ? (() => {
+        const stored = store.get(lastCenterTabAtomFamily(routeAgentId));
+        return isCenterTab(stored) ? stored : null;
+      })()
     : null;
   const wantsChatByDefault =
     !!routeAgentId && !!bareMatch && lastTab !== "terminal";

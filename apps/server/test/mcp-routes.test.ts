@@ -61,6 +61,7 @@ function createMockDeps() {
     },
     brainStore: {} as never,
     publishBrainChanged: vi.fn(),
+    publishUiEvent: vi.fn(),
     getBearerToken: vi.fn(() => "bearer-token"),
     validateJobMcpToken: vi.fn(() => true),
     validateAgentMcpToken: vi.fn(() => true),

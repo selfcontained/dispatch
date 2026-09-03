@@ -82,6 +82,12 @@ export type SharedUiEvent =
       recipientAgentId: string;
     }
   | { type: "message.read"; agentId: string }
+  /**
+   * Ephemeral: an agent invoked an MCP tool (`dispatch_event` excluded — it
+   * already drives the phase). Not persisted, not fetched; feeds the presence
+   * strip's tool blip.
+   */
+  | { type: "agent.tool_invoked"; agentId: string; tool: string; at: string }
   | SurfaceChangedEvent
   | ChatChangedEvent
   | { type: "stream.started"; agentId: string }

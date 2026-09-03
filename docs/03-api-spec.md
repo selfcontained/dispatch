@@ -157,26 +157,27 @@ Event types: `working`, `blocked`, `waiting_user`, `done`, `idle`
 
 Server-Sent Events stream. Used by the frontend for real-time UI updates. Event types:
 
-| Event type                     | Payload                                                             |
-| ------------------------------ | ------------------------------------------------------------------- |
-| `snapshot`                     | Full agent list (sent on initial connection)                        |
-| `agent.upsert`                 | Single agent record (created or updated)                            |
-| `agent.terminal_state_changed` | Terminal UI state for an agent                                      |
-| `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)                    |
-| `agent.injection_hold_changed` | Agent ID + injection hold state (`held`, `pendingCount`, `quietMs`) |
-| `agent.deleted`                | Agent ID that was deleted                                           |
-| `media.changed`                | Agent ID whose media list changed                                   |
-| `media.seen`                   | Agent ID + array of media keys marked seen                          |
-| `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)                 |
-| `chat.changed`                 | Agent ID whose Chat feed changed (any `agent_chat_messages` write)  |
-| `stream.started`               | Agent ID whose live stream started                                  |
-| `stream.stopped`               | Agent ID whose live stream stopped                                  |
-| `feedback.created`             | Agent ID + new feedback record                                      |
-| `feedback.updated`             | Agent ID + updated feedback record                                  |
-| `job.changed`                  | (no payload) — job config or run state changed                      |
-| `template.changed`             | (no payload) — template created, updated, or deleted                |
-| `notification`                 | Web notification payload (id, agent, event, message)                |
-| `release.cached_info_changed`  | Latest release-info snapshot (or `null`)                            |
+| Event type                     | Payload                                                                                 |
+| ------------------------------ | --------------------------------------------------------------------------------------- |
+| `snapshot`                     | Full agent list (sent on initial connection)                                            |
+| `agent.upsert`                 | Single agent record (created or updated)                                                |
+| `agent.terminal_state_changed` | Terminal UI state for an agent                                                          |
+| `agent.diff_state_changed`     | Diff stats for an agent (or `null` when cleared)                                        |
+| `agent.injection_hold_changed` | Agent ID + injection hold state (`held`, `pendingCount`, `quietMs`)                     |
+| `agent.deleted`                | Agent ID that was deleted                                                               |
+| `media.changed`                | Agent ID whose media list changed                                                       |
+| `media.seen`                   | Agent ID + array of media keys marked seen                                              |
+| `whiteboard.changed`           | Agent ID + new version + source (`user` or `agent`)                                     |
+| `chat.changed`                 | Agent ID whose Chat feed changed (any `agent_chat_messages` write)                      |
+| `agent.tool_invoked`           | `{ agentId, tool, at }` — an agent called an MCP tool (ephemeral; not `dispatch_event`) |
+| `stream.started`               | Agent ID whose live stream started                                                      |
+| `stream.stopped`               | Agent ID whose live stream stopped                                                      |
+| `feedback.created`             | Agent ID + new feedback record                                                          |
+| `feedback.updated`             | Agent ID + updated feedback record                                                      |
+| `job.changed`                  | (no payload) — job config or run state changed                                          |
+| `template.changed`             | (no payload) — template created, updated, or deleted                                    |
+| `notification`                 | Web notification payload (id, agent, event, message)                                    |
+| `release.cached_info_changed`  | Latest release-info snapshot (or `null`)                                                |
 
 ## Terminal
 
@@ -222,15 +223,28 @@ The inject-phrase endpoint accepts `phraseId`, optional `args` (key-value map fo
 
 The Chat tab feed (`docs/chat-surface-plan.md`). Wire types live in `packages/shared/src/chat-types.ts`. The routes work regardless of the `chat_surface_enabled` flag — the flag only controls the web UI and the launch-guidance rule.
 
-| Method | Path                                          | Description                                                                         |
-| ------ | --------------------------------------------- | ----------------------------------------------------------------------------------- |
-| GET    | `/chat/unread`                                | Per-agent `{ unread, pendingQuestions }` for every live agent with a non-zero count |
-| GET    | `/agents/:id/chat?cursor=<c>&limit=<n>`       | Feed: chat messages, status events, cross-agent messages, media, time ascending     |
-| POST   | `/agents/:id/chat/messages`                   | Persist a user message (`{ text }`), then inject it into the agent's pane           |
-| POST   | `/agents/:id/chat/messages/:messageId/answer` | Answer a question message (`{ value, label? }`); injects the answer as a reply      |
-| POST   | `/agents/:id/chat/read`                       | Mark agent messages read (`{ upTo? }` message id); returns `{ unreadCount }`        |
+| Method | Path                                          | Description                                                                                  |
+| ------ | --------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| GET    | `/chat/unread`                                | Per-agent `{ unread, pendingQuestions }` for every live agent with a non-zero count          |
+| GET    | `/agents/:id/chat?cursor=<c>&limit=<n>`       | Feed: chat messages, status events, cross-agent messages, media, time ascending              |
+| POST   | `/agents/:id/chat/messages`                   | Persist a user message (`{ text, attachments? }`), then inject it into the pane              |
+| POST   | `/agents/:id/chat/messages/:messageId/answer` | Answer a question message (`{ value, label?, attachments? }`); injects the answer as a reply |
+| POST   | `/agents/:id/chat/read`                       | Mark agent messages read (`{ upTo? }` message id); returns `{ unreadCount }`                 |
 
-The feed is composed at read time from `agent_chat_messages`, `agent_events`, `agent_messages` (both directions), and `media`. `limit` defaults to 200 (max 500); the response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards (it encodes the boundary row's exact timestamp, source, and id, so rows sharing a timestamp are never dropped or repeated). The two write routes return `409` when the agent has no tmux session (same rule as `inject-text`); they respond as soon as the message is queued, with `delivered: null` (pending) until the pane write settles, at which point the row flips to `true`/`false` and `chat.changed` fires. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered. `read` accepts an optional `upTo` message id (`400` if present but not a UUID). Every write publishes the `chat.changed` SSE event. Agents post to the feed with the `dispatch_chat_post` / `dispatch_chat_update` MCP tools; `file` attachments name a `fileName` returned by `dispatch_share_file`.
+The feed is composed at read time from `agent_chat_messages`, `agent_events`, `agent_messages` (both directions), and `media`. `limit` defaults to 200 (max 500); the response carries `hasMore`, `unreadCount`, and an opaque `nextCursor` — pass it back as `cursor` to page backwards (it encodes the boundary row's exact timestamp, source, and id, so rows sharing a timestamp are never dropped or repeated). The two write routes return `409` when the agent has no tmux session (same rule as `inject-text`); they respond as soon as the message is queued, with `delivered: null` (pending) until the pane write settles, at which point the row flips to `true`/`false` and `chat.changed` fires. `answer` resolves the chosen option from the stored question (unknown values are `400` unless `allowFreeform`) and returns `409` once a question has been answered; its optional `attachments` take the same shape and cap (`CHAT_ATTACHMENTS_MAX`, 20) as `messages`, are resolved the same way (`400` for an unknown `mediaId` or pin), and are stored on the reply message and listed in its envelope. `read` accepts an optional `upTo` message id (`400` if present but not a UUID). Every write publishes the `chat.changed` SSE event. Agents post to the feed with the `dispatch_chat_post` / `dispatch_chat_update` MCP tools; `file` attachments name a `fileName` returned by `dispatch_share_file`.
+
+User messages take up to 20 `attachments` (`ChatUserAttachmentInput`): `{ type: "file", mediaId }` for a file uploaded first via `POST /agents/:id/media`, `{ type: "pin", pinId }` for one of the agent's pins, or `{ type: "link", url, title? }`. The body is zod-validated (`400` on shape errors, unknown media or pins); `text` may be blank when at least one attachment is present. The stored message carries the resolved `ChatAttachment[]`, and the injected envelope lists each one after the text (`- file: <absolute media path> (<mime>, <size>)`, `- pin: <label> — <value>`, `- link: <url>`).
+
+## Messages
+
+Cross-agent messages sent with the `dispatch_send_message` MCP tool.
+
+| Method | Path                        | Description                                                 |
+| ------ | --------------------------- | ----------------------------------------------------------- |
+| GET    | `/agents/:id/messages`      | `{ messages, unreadCount }` — both directions, oldest first |
+| POST   | `/agents/:id/messages/read` | Mark messages addressed to the agent as read                |
+
+`delivered` is `null` while the pane write is queued (possibly behind the injection quiet gate), then `true`/`false` once it settles; `message.created` is published for the sender/recipient pair at insert and again at settlement, so clients refetch both times. Rows still pending when the server starts were abandoned by the previous process and are swept to `false` (no replay).
 
 ## Whiteboard
 

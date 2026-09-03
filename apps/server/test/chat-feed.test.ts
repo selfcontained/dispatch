@@ -246,6 +246,21 @@ describe("composeChatFeed", () => {
     ).toMatchObject({ at: "0001-01-01 00:00:00.000000" });
   });
 
+  it("omits composer uploads (source user) that render as post attachments", async () => {
+    await pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+       VALUES ($1, 'from-composer.png', 'user', 5, $2),
+              ($1, 'from-agent.png', 'screenshot', 5, $2)`,
+      [A, at(50)]
+    );
+    const feed = await composeChatFeed(store, A, { limit: 50 });
+    const names = feed.entries
+      .filter((e) => e.type === "media")
+      .map((e) => (e.type === "media" ? e.fileName : ""));
+    expect(names).toContain("from-agent.png");
+    expect(names).not.toContain("from-composer.png");
+  });
+
   it("returns an empty feed for an agent with nothing", async () => {
     const feed = await composeChatFeed(store, "agt_feed_nobody");
     expect(feed).toEqual({

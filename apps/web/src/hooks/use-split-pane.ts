@@ -1,6 +1,7 @@
 import { useCallback, useMemo } from "react";
 import { useAtom } from "jotai";
 
+import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import {
   type CenterTab,
   type SplitPaneState,
@@ -31,11 +32,8 @@ export function normalizeSplitPaneState(
   };
 }
 
-export function useSplitPane(
-  agentId: string | null,
-  isMobile: boolean,
-  chatEnabled = false
-) {
+export function useSplitPane(agentId: string | null, isMobile: boolean) {
+  const { enabled: chatEnabled } = useChatSurfaceEnabled();
   const atom = agentId
     ? splitPaneStateAtomFamily(agentId)
     : inactiveSplitPaneStateAtom;

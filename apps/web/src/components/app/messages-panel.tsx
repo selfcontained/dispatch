@@ -10,6 +10,7 @@ import {
   ChevronRight,
   Copy,
   Check,
+  Loader2,
 } from "lucide-react";
 
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
@@ -91,7 +92,15 @@ export function MessageBubble({
             <ArrowDownLeft className="h-2.5 w-2.5" />
           )}
           <span>{formatRelativeTime(message.createdAt)}</span>
-          {!message.delivered && (
+          {message.delivered === null ? (
+            <span
+              className="inline-flex items-center gap-1"
+              title="Delivering to the recipient agent's terminal."
+              data-testid="message-sending"
+            >
+              · <Loader2 className="h-2.5 w-2.5 animate-spin" /> sending
+            </span>
+          ) : !message.delivered ? (
             <span
               className={cn(
                 isSent ? "text-destructive-foreground" : "text-destructive"
@@ -100,7 +109,7 @@ export function MessageBubble({
             >
               · not delivered
             </span>
-          )}
+          ) : null}
           <button
             type="button"
             onClick={() => copyText(message.content)}

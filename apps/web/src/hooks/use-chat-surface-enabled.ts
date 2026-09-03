@@ -1,43 +1,29 @@
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useAtom } from "jotai";
 
+import {
+  type ServerFlagResponse,
+  serverFlagQueryKey,
+  useServerFlag,
+} from "@/hooks/use-server-flag";
 import { api } from "@/lib/api";
 import { chatSurfaceEnabledHintAtom } from "@/lib/store";
 
 export const CHAT_SURFACE_ENDPOINT = "/api/v1/app/settings/chat-surface";
-const CHAT_SURFACE_QUERY_KEY = ["settings", "chat-surface"] as const;
+const CHAT_SURFACE_QUERY_KEY = serverFlagQueryKey(CHAT_SURFACE_ENDPOINT);
 
-type ToggleSettingResponse = { enabled: boolean };
+type ToggleSettingResponse = ServerFlagResponse;
 
 /**
- * The `chat_surface_enabled` feature flag. The server owns the value; this is
- * a long-lived React Query cache of it, written through by the settings
- * toggle (see `useChatSurfaceSetting`) so the tab bar and routing react
- * the moment the user flips it — no reload, no atom for the live value.
- *
- * Until the fetch resolves the last value this browser saw stands in for it
- * (`chatSurfaceEnabledHintAtom`), so the first paint of an agent already
- * knows which tab to show. `loaded` is false only on a browser that has never
- * fetched the flag; callers hold tab-dependent rendering until then. If the
- * hint turns out stale the routing reconciles as soon as the server answers.
+ * The `chat_surface_enabled` feature flag: a `useServerFlag` over the
+ * chat-surface endpoint, with `chatSurfaceEnabledHintAtom` standing in for
+ * the value until the first fetch resolves so the first paint of an agent
+ * already knows which tab to show. The settings toggle
+ * (`useChatSurfaceSetting`) writes through the same query, so the tab bar
+ * and routing react the moment the user flips it.
  */
 export function useChatSurfaceEnabled(): { enabled: boolean; loaded: boolean } {
-  const [hint, setHint] = useAtom(chatSurfaceEnabledHintAtom);
-  const { data } = useQuery<ToggleSettingResponse>({
-    queryKey: CHAT_SURFACE_QUERY_KEY,
-    queryFn: () => api<ToggleSettingResponse>(CHAT_SURFACE_ENDPOINT),
-    staleTime: Infinity,
-    refetchOnWindowFocus: false,
-  });
-
-  useEffect(() => {
-    if (data === undefined || data.enabled === hint) return;
-    setHint(data.enabled);
-  }, [data, hint, setHint]);
-
-  if (data !== undefined) return { enabled: data.enabled, loaded: true };
-  return { enabled: hint ?? false, loaded: hint !== null };
+  return useServerFlag(CHAT_SURFACE_ENDPOINT, chatSurfaceEnabledHintAtom);
 }
 
 export type ChatSurfaceSetting = {

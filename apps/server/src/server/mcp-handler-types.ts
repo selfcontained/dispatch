@@ -4,3 +4,4 @@ export type SendAgentPrompt = (
   prompt: string,
   opts?: { swallowFailure?: boolean; awaitDelivery?: boolean }
 ) => Promise<void>;
+export type { EnqueueAgentPrompt } from "./agent-prompts.js";

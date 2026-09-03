@@ -18,7 +18,9 @@ afterEach(() => {
 function renderComposer(
   props: Partial<Parameters<typeof ChatComposer>[0]> = {}
 ) {
-  const onSend = vi.fn(async (_text: string) => undefined);
+  const onSend = vi.fn(
+    async (_text: string, _attachments: unknown[]) => undefined
+  );
   render(<ChatComposer onSend={onSend} disabledReason={null} {...props} />);
   const input = screen.getByTestId(
     "chat-composer-input"
@@ -32,7 +34,7 @@ describe("ChatComposer", () => {
     fireEvent.change(input, { target: { value: "  hello  " } });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).toHaveBeenCalledTimes(1);
-    expect(onSend).toHaveBeenCalledWith("hello");
+    expect(onSend).toHaveBeenCalledWith("hello", []);
     await waitFor(() => expect(input.value).toBe(""));
   });
 
@@ -50,7 +52,7 @@ describe("ChatComposer", () => {
     ) as HTMLTextAreaElement;
     fireEvent.change(input, { target: { value: "first" } });
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onSend).toHaveBeenCalledWith("first");
+    expect(onSend).toHaveBeenCalledWith("first", []);
 
     fireEvent.change(input, { target: { value: "second draft" } });
     await act(async () => {
@@ -60,7 +62,7 @@ describe("ChatComposer", () => {
 
     // The new draft sends normally once the first has settled.
     fireEvent.keyDown(input, { key: "Enter" });
-    expect(onSend).toHaveBeenLastCalledWith("second draft");
+    expect(onSend).toHaveBeenLastCalledWith("second draft", []);
   });
 
   it("keeps the draft and shows the error when the send fails", async () => {
@@ -86,14 +88,16 @@ describe("ChatComposer", () => {
       reject(new Error("Agent has no terminal"));
     });
     expect(input.value).toBe("important");
-    expect(screen.getByTestId("chat-composer-error").textContent).toContain(
-      "Agent has no terminal"
-    );
+    const error = screen.getByTestId("chat-composer-error");
+    expect(error.textContent).toContain("Agent has no terminal");
+    // The draft survived, so a retry is on offer.
+    expect(error.textContent).toContain("press Enter to try again");
+    expect(error.getAttribute("data-retryable")).toBe("true");
 
     // Retrying clears the error and sends the same draft again.
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).toHaveBeenCalledTimes(2);
-    expect(onSend).toHaveBeenLastCalledWith("important");
+    expect(onSend).toHaveBeenLastCalledWith("important", []);
     expect(screen.queryByTestId("chat-composer-error")).toBeNull();
   });
 
@@ -134,7 +138,7 @@ describe("ChatComposer", () => {
     const { onSend, input } = renderComposer();
     fireEvent.change(input, { target: { value: "go" } });
     fireEvent.click(screen.getByTestId("chat-composer-send"));
-    expect(onSend).toHaveBeenCalledWith("go");
+    expect(onSend).toHaveBeenCalledWith("go", []);
     await waitFor(() => expect(input.value).toBe(""));
   });
 

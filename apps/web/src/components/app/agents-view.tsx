@@ -265,7 +265,6 @@ export function AgentsView({
     focusedAgentId,
     isMobile,
     activeTab,
-    chatEnabled,
   });
 
   // The focused agent's direct children, whose pins and media the sidebar
@@ -692,7 +691,6 @@ export function AgentsView({
                 focusTerminal={focusTerminal}
                 focusedDiffStats={focusedDiffStats}
                 activeTab={activeTab}
-                chatEnabled={chatEnabled}
                 centerTabResolved={centerTabResolved}
                 chatUnreadCount={chatUnreadCount}
                 isSplit={isSplit}
@@ -724,7 +722,6 @@ export function AgentsView({
                     changesElement={changesElement}
                     whiteboardElement={whiteboardElement}
                     chatElement={chatElement}
-                    chatEnabled={chatEnabled}
                     isMobile={isMobile}
                     onLayoutChange={handleSplitLayoutChange}
                     onExitSplit={exitSplit}

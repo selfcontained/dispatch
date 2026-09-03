@@ -2,13 +2,16 @@
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, cleanup, renderHook } from "@testing-library/react";
-import { createStore, Provider } from "jotai";
+import { createStore, getDefaultStore, Provider } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
-import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
+import {
+  agentToolBlipAtomFamily,
+  whiteboardAgentDrewAtomFamily,
+} from "@/lib/store";
 import { showWebNotification } from "@/lib/web-notifications";
 
 import {
@@ -224,6 +227,24 @@ describe("useSSE reconnect", () => {
     expect(queryClient.getQueryState(["chat", "agt_2"])?.isInvalidated).toBe(
       true
     );
+  });
+
+  it("records a tool invocation as a blip for the presence strip", () => {
+    vi.setSystemTime(new Date("2026-09-03T10:00:00.000Z"));
+    renderSSE();
+    act(() =>
+      FakeEventSource.instances[0].emit({
+        type: "agent.tool_invoked",
+        agentId: "agt_1",
+        tool: "dispatch_share_file",
+        at: "2026-09-03T09:59:00.000Z",
+      })
+    );
+    // Stamped with local receipt time, not the server's clock.
+    expect(getDefaultStore().get(agentToolBlipAtomFamily("agt_1"))).toEqual({
+      tool: "dispatch_share_file",
+      at: Date.now(),
+    });
   });
 
   it("leaves transient errors to the browser's own retry", () => {

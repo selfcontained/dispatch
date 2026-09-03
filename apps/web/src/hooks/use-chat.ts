@@ -1,10 +1,14 @@
 import { useCallback, useMemo } from "react";
 import type {
+  ChatAnswerRequest,
   ChatAnswerResponse,
+  ChatAttachment,
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMessage,
+  ChatSendRequest,
   ChatSendResponse,
+  ChatUserAttachmentInput,
 } from "@dispatch/shared";
 import {
   type InfiniteData,
@@ -112,7 +116,27 @@ export function useChatFeed(agentId: string | null): ChatFeedState {
 
 let optimisticSeq = 0;
 
-function optimisticUserMessage(agentId: string, text: string): ChatMessage {
+/**
+ * What the optimistic post can show before the server answers: links and
+ * pins as given; files only once the response names them, since the feed
+ * renders a file by its stored name and size.
+ */
+function optimisticAttachments(
+  inputs: ChatUserAttachmentInput[]
+): ChatAttachment[] {
+  const out: ChatAttachment[] = [];
+  for (const input of inputs) {
+    if (input.type === "link") out.push(input);
+    else if (input.type === "pin") out.push(input);
+  }
+  return out;
+}
+
+function optimisticUserMessage(
+  agentId: string,
+  text: string,
+  attachments: ChatAttachment[] = []
+): ChatMessage {
   const now = new Date().toISOString();
   optimisticSeq += 1;
   return {
@@ -124,7 +148,7 @@ function optimisticUserMessage(agentId: string, text: string): ChatMessage {
     replyTo: null,
     question: null,
     answer: null,
-    attachments: [],
+    attachments,
     delivered: null,
     readAt: null,
     createdAt: now,
@@ -168,6 +192,9 @@ function replaceMessage(
   };
 }
 
+/** Files here are already uploaded (`POST /agents/:id/media`). */
+export type ChatSendInput = ChatSendRequest;
+
 export function useSendChatMessage(agentId: string | null) {
   const queryClient = useQueryClient();
   const key = chatFeedQueryKey(agentId);
@@ -175,27 +202,35 @@ export function useSendChatMessage(agentId: string | null) {
   return useMutation<
     ChatSendResponse,
     Error,
-    string,
+    ChatSendInput,
     { previous: FeedCache | undefined; tempId: string }
   >({
-    mutationFn: async (text) =>
+    mutationFn: async ({ text, attachments }) =>
       api<ChatSendResponse>(`/api/v1/agents/${agentId}/chat/messages`, {
         method: "POST",
-        body: JSON.stringify({ text }),
+        body: JSON.stringify(
+          attachments && attachments.length > 0
+            ? ({ text, attachments } satisfies ChatSendRequest)
+            : ({ text } satisfies ChatSendRequest)
+        ),
       }),
-    onMutate: async (text) => {
+    onMutate: async ({ text, attachments }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
       const previous = queryClient.getQueryData<FeedCache>(key);
-      const temp = optimisticUserMessage(agentId ?? "", text);
+      const temp = optimisticUserMessage(
+        agentId ?? "",
+        text,
+        optimisticAttachments(attachments ?? [])
+      );
       queryClient.setQueryData<FeedCache>(key, (old) =>
         appendToNewestPage(old, temp)
       );
       return { previous, tempId: temp.id };
     },
-    onError: (_err, _text, context) => {
+    onError: (_err, _input, context) => {
       if (context) queryClient.setQueryData(key, context.previous);
     },
-    onSuccess: (data, _text, context) => {
+    onSuccess: (data, _input, context) => {
       queryClient.setQueryData<FeedCache>(key, (old) =>
         replaceMessage(old, context.tempId, data.message)
       );
@@ -206,11 +241,8 @@ export function useSendChatMessage(agentId: string | null) {
   });
 }
 
-export type ChatAnswerInput = {
-  messageId: string;
-  value: string;
-  label?: string;
-};
+/** Files here are already uploaded, as for `ChatSendInput`. */
+export type ChatAnswerInput = ChatAnswerRequest & { messageId: string };
 
 export function useAnswerChatQuestion(agentId: string | null) {
   const queryClient = useQueryClient();
@@ -222,19 +254,24 @@ export function useAnswerChatQuestion(agentId: string | null) {
     ChatAnswerInput,
     { previous: FeedCache | undefined; tempId: string }
   >({
-    mutationFn: async ({ messageId, value, label }) =>
-      api<ChatAnswerResponse>(
+    mutationFn: async ({ messageId, value, label, attachments }) => {
+      const body: ChatAnswerRequest = { value };
+      if (label) body.label = label;
+      if (attachments && attachments.length > 0) body.attachments = attachments;
+      return api<ChatAnswerResponse>(
         `/api/v1/agents/${agentId}/chat/messages/${encodeURIComponent(messageId)}/answer`,
-        {
-          method: "POST",
-          body: JSON.stringify(label ? { value, label } : { value }),
-        }
-      ),
-    onMutate: async ({ messageId, value, label }) => {
+        { method: "POST", body: JSON.stringify(body) }
+      );
+    },
+    onMutate: async ({ messageId, value, label, attachments }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
       const previous = queryClient.getQueryData<FeedCache>(key);
       const temp = {
-        ...optimisticUserMessage(agentId ?? "", label ?? value),
+        ...optimisticUserMessage(
+          agentId ?? "",
+          label ?? value,
+          optimisticAttachments(attachments ?? [])
+        ),
         replyTo: messageId,
       };
       queryClient.setQueryData<FeedCache>(key, (old) =>

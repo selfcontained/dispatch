@@ -284,6 +284,10 @@ function createMockDeps() {
     publishUiEvent: vi.fn(),
     withStreamFlag: vi.fn((agent: any) => ({ ...agent, hasStream: false })),
     sendAgentPrompt: vi.fn(async () => {}),
+    enqueueAgentPrompt: vi.fn(async () => ({
+      held: false,
+      delivery: Promise.resolve(),
+    })),
     appLog: {
       info: vi.fn(),
       error: vi.fn(),
@@ -2027,7 +2031,7 @@ describe("createMcpHandlers", () => {
       });
       expect(result.delivered).toBe(true);
       expect(result.targetAgentId).toBe("agt_target1");
-      expect(deps.sendAgentPrompt).toHaveBeenCalledWith(
+      expect(deps.enqueueAgentPrompt).toHaveBeenCalledWith(
         "agt_target1",
         `--- DISPATCH MESSAGE ---\n${JSON.stringify({
           from: "test-agent",
@@ -2035,16 +2039,17 @@ describe("createMcpHandlers", () => {
           senderRelation: "unrelated",
           message: "hello",
           replyTarget: "agt_test1",
-        })}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`,
-        { swallowFailure: false, awaitDelivery: false }
+        })}\n--- END MESSAGE ---\nOptional reply channel: If a response is necessary, use dispatch_send_message with the replyTarget above. Do not acknowledge routine status updates or completion messages unless a reply is explicitly requested.`
       );
-      expect(deps.sendAgentPrompt).not.toHaveBeenCalledWith(
+      expect(deps.enqueueAgentPrompt).not.toHaveBeenCalledWith(
         "agt_target1",
         expect.stringContaining(
           "Reply with dispatch_send_message using the replyTarget above."
-        ),
-        { swallowFailure: false }
+        )
       );
+      // The handler returns once the prompt is queued; it never waits on
+      // the (possibly gated) pane write.
+      expect(deps.sendAgentPrompt).not.toHaveBeenCalled();
     });
 
     it("surfaces the delegation chain when the sender is a grandchild", async () => {
@@ -2086,7 +2091,7 @@ describe("createMcpHandlers", () => {
         senderRepoRoot: "/repo",
       });
 
-      const prompt = deps.sendAgentPrompt.mock.calls[0][1] as string;
+      const prompt = deps.enqueueAgentPrompt.mock.calls[0][1] as string;
       const envelope = JSON.parse(
         prompt.slice(
           prompt.indexOf("\n") + 1,
@@ -2137,7 +2142,7 @@ describe("createMcpHandlers", () => {
         senderRepoRoot: "/repo",
       });
 
-      const prompt = deps.sendAgentPrompt.mock.calls[0][1] as string;
+      const prompt = deps.enqueueAgentPrompt.mock.calls[0][1] as string;
       expect(prompt).toContain('"senderRelation":"child"');
       // The chain is [child, parent] and the recipient is the parent, so it adds
       // nothing the recipient did not already know.
@@ -2183,7 +2188,7 @@ describe("createMcpHandlers", () => {
         senderRepoRoot: "/repo",
       });
 
-      const prompt = deps.sendAgentPrompt.mock.calls[0][1] as string;
+      const prompt = deps.enqueueAgentPrompt.mock.calls[0][1] as string;
       expect(prompt).toContain('"senderRelation":"unrelated"');
       expect(prompt).toContain(
         "Provenance: child (agt_child) -> parent (agt_parent)."

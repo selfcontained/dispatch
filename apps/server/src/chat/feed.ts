@@ -224,7 +224,7 @@ async function listAgentMessageEntries(
     sender_name: string;
     recipient_name: string;
     content: string;
-    delivered: boolean;
+    delivered: boolean | null;
     created_at: Date;
     at_key: string;
   }>(
@@ -276,7 +276,10 @@ async function listMediaEntries(
     `SELECT id, file_name, size_bytes, description, created_at,
             ${AT_KEY_SQL} AS at_key
        FROM media
-      WHERE agent_id = $1 ${clause}
+      WHERE agent_id = $1
+        -- Composer uploads (source 'user') already render as attachments on
+        -- the user's own post; listing them again would double them up.
+        AND source <> 'user' ${clause}
       ORDER BY created_at DESC, id DESC
       LIMIT $${params.length}`,
     params

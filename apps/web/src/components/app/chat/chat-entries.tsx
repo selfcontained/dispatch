@@ -310,6 +310,9 @@ function FileAttachment({
   const url = mediaFileUrl(ctx.agentId, attachment.fileName);
   const open = () =>
     ctx.onOpenMedia({
+      // ownerAgentId is part of the lightbox identity; without it the
+      // synthesized file never matches the media list and nothing opens.
+      ownerAgentId: ctx.agentId,
       name: attachment.fileName,
       size: attachment.sizeBytes,
       updatedAt: at,
@@ -625,7 +628,14 @@ export const ChatMessageView = memo(function ChatMessageView({
         data-author="user"
         data-message-id={message.id}
       >
-        <div className="whitespace-pre-wrap break-words">{message.text}</div>
+        {message.text ? (
+          <div className="whitespace-pre-wrap break-words">{message.text}</div>
+        ) : null}
+        <AttachmentList
+          attachments={message.attachments}
+          at={message.createdAt}
+          ctx={ctx}
+        />
         <DeliveryMeta message={message} held={held} />
       </Post>
     );
@@ -766,6 +776,7 @@ export function AgentMessageView({
   ctx: FeedContext;
 }): JSX.Element {
   const isSent = entry.direction === "out";
+  const { delivered } = entry;
   return (
     <Post
       author={agentMessageAuthor(entry, ctx)}
@@ -780,7 +791,16 @@ export function AgentMessageView({
         </div>
       ) : null}
       <div className="whitespace-pre-wrap break-words">{entry.content}</div>
-      {!entry.delivered ? (
+      {delivered === null ? (
+        <div
+          className="mt-1 inline-flex items-center gap-1 text-[11px] text-muted-foreground"
+          title="Delivering to the recipient agent's terminal."
+          data-testid="chat-agent-message-pending"
+        >
+          <Loader2 className="h-3 w-3 animate-spin" />
+          Sending
+        </div>
+      ) : delivered === false ? (
         <div
           className="mt-1 inline-flex items-center gap-1 text-[11px] text-destructive"
           title="The recipient agent wasn't running, so it never received this message."
@@ -805,6 +825,7 @@ export function MediaEntryView({
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
   const open = () =>
     ctx.onOpenMedia({
+      ownerAgentId: ctx.agentId,
       name: entry.fileName,
       size: entry.sizeBytes,
       updatedAt: entry.at,

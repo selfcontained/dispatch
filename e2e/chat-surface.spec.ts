@@ -6,9 +6,13 @@ import {
   clickAgentRow,
   createAgentViaAPI,
   loadApp,
+  seedAgentMessageViaDB,
+  seedChatMessageViaDB,
+  setAgentPinsViaDB,
 } from "./helpers";
 
 const SETTING = "/api/v1/app/settings/chat-surface";
+const IS_LIVE = process.env.DISPATCH_AGENT_RUNTIME === "tmux";
 
 async function setChatSurface(
   request: APIRequestContext,
@@ -187,17 +191,19 @@ test.describe("Chat surface", () => {
       "Running tests"
     );
 
-    // Agents run inert in E2E, so the composer explains it cannot deliver.
-    await expect(pane.getByTestId("chat-composer-input")).toBeDisabled();
-    await expect(
-      pane.getByTestId("chat-composer-disabled-reason")
-    ).toBeVisible();
+    if (!IS_LIVE) {
+      // Agents run inert in E2E, so the composer explains it cannot deliver.
+      await expect(pane.getByTestId("chat-composer-input")).toBeDisabled();
+      await expect(
+        pane.getByTestId("chat-composer-disabled-reason")
+      ).toBeVisible();
 
-    // Answers are injected like typed messages, so they lock with the
-    // composer: the server would 409 on an inert agent.
-    const options = pane.getByTestId("chat-question-option");
-    await expect(options.nth(0)).toBeDisabled();
-    await expect(options.nth(1)).toBeDisabled();
+      // Answers are injected like typed messages, so they lock with the
+      // composer: the server would 409 on an inert agent.
+      const options = pane.getByTestId("chat-question-option");
+      await expect(options.nth(0)).toBeDisabled();
+      await expect(options.nth(1)).toBeDisabled();
+    }
 
     await page.screenshot({
       path: test.info().outputPath("chat-surface.png"),
@@ -237,6 +243,173 @@ test.describe("Chat surface", () => {
     await chatTab.click();
     await page.waitForURL(new RegExp(`/agents/${agent.id}/chat$`));
     await expect(pane).toBeVisible();
+  });
+
+  test("renders a user post's attachments and a pending agent message", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-attach-${Date.now()}`,
+    });
+    const peer = await createAgentViaAPI(request, {
+      name: `e2e-chat-peer-${Date.now()}`,
+    });
+    await setAgentPinsViaDB(agent.id, [
+      {
+        id: "pin-dev",
+        label: "Dev URL",
+        value: "http://localhost:5173",
+        type: "url",
+      },
+    ]);
+    // A user message with every user-side attachment kind, as the send route
+    // stores them once the composer has uploaded the file.
+    await seedChatMessageViaDB({
+      agentId: agent.id,
+      authorKind: "user",
+      text: "Have a look at these.",
+      attachments: [
+        { type: "link", url: "https://example.com/spec", title: "The spec" },
+        { type: "pin", pinId: "pin-dev" },
+      ],
+      delivered: true,
+    });
+    // An attachment-only message has no text line at all.
+    await seedChatMessageViaDB({
+      agentId: agent.id,
+      authorKind: "user",
+      text: "",
+      attachments: [{ type: "link", url: "https://example.com/bare" }],
+      delivered: true,
+    });
+    // A cross-agent message whose pane delivery has not settled yet.
+    await seedAgentMessageViaDB({
+      senderAgentId: agent.id,
+      recipientAgentId: peer.id,
+      senderName: agent.name,
+      recipientName: peer.name,
+      content: "Ping from the chat agent",
+      delivered: null,
+    });
+
+    await page.goto(`/agents/${agent.id}/chat`, {
+      waitUntil: "domcontentloaded",
+    });
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+
+    const posts = pane.getByTestId("chat-message");
+    await expect(posts).toHaveCount(2);
+    await expect(posts.nth(0)).toContainText("Have a look at these.");
+    await expect(
+      posts.nth(0).getByRole("link", { name: "The spec" })
+    ).toHaveAttribute("href", "https://example.com/spec");
+    await expect(posts.nth(0).getByTestId("chat-attachment-pin")).toContainText(
+      "Dev URL"
+    );
+    await expect(
+      posts.nth(1).getByRole("link", { name: "https://example.com/bare" })
+    ).toBeVisible();
+
+    const pending = pane.getByTestId("chat-agent-message");
+    await expect(pending).toContainText("Ping from the chat agent");
+    await expect(pending.getByTestId("chat-agent-message-pending")).toHaveText(
+      "Sending"
+    );
+
+    // The messages panel renders the same pending state.
+    await page.getByTestId("toggle-media-sidebar").click();
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await mediaSidebar.getByRole("button", { name: "Messages" }).click();
+    await expect(mediaSidebar.getByTestId("message-sending")).toContainText(
+      "sending"
+    );
+
+    await page.screenshot({
+      path: test.info().outputPath("chat-attachments.png"),
+      fullPage: true,
+    });
+  });
+
+  test("sends a message with a link attachment from the composer", async ({
+    page,
+    request,
+  }) => {
+    test.skip(
+      !IS_LIVE,
+      "Sending needs a live pane — run via E2E_AGENT_RUNTIME=tmux"
+    );
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-send-${Date.now()}`,
+      type: "terminal",
+    });
+    await expect
+      .poll(async () => {
+        const res = await request.get(`/api/v1/agents/${agent.id}`, {
+          headers: authHeaders(),
+        });
+        return ((await res.json()) as { agent: { status: string } }).agent
+          .status;
+      })
+      .toBe("running");
+
+    await page.goto(`/agents/${agent.id}/chat`, {
+      waitUntil: "domcontentloaded",
+    });
+    const composer = page.getByTestId("chat-composer");
+    const input = composer.getByTestId("chat-composer-input");
+    await expect(input).toBeEnabled();
+    await input.fill("Please read this");
+
+    // A lone URL on the clipboard becomes a link chip instead of text.
+    await input.evaluate((el) => {
+      const data = new DataTransfer();
+      data.setData("text/plain", "https://example.com/design");
+      el.dispatchEvent(
+        new ClipboardEvent("paste", {
+          clipboardData: data,
+          bubbles: true,
+          cancelable: true,
+        })
+      );
+    });
+    const chip = composer.getByTestId("context-link-item");
+    await expect(chip).toHaveAttribute("title", "https://example.com/design");
+    await expect(input).toHaveValue("Please read this");
+
+    await composer.getByTestId("chat-composer-send").click();
+    await expect(input).toHaveValue("");
+    await expect(chip).toHaveCount(0);
+
+    const post = page.getByTestId("chat-message").filter({
+      hasText: "Please read this",
+    });
+    await expect(post).toBeVisible();
+    await expect(
+      post.getByRole("link", { name: "https://example.com/design" })
+    ).toHaveAttribute("href", "https://example.com/design");
+
+    // The server stored the attachment on the message.
+    await expect
+      .poll(async () => {
+        const res = await request.get(`/api/v1/agents/${agent.id}/chat`, {
+          headers: authHeaders(),
+        });
+        const body = (await res.json()) as {
+          entries: Array<{
+            type: string;
+            message?: { attachments: Array<{ type: string; url?: string }> };
+          }>;
+        };
+        return body.entries
+          .filter((entry) => entry.type === "chat")
+          .flatMap((entry) => entry.message?.attachments ?? [])
+          .map((attachment) => `${attachment.type}:${attachment.url ?? ""}`);
+      })
+      .toEqual(["link:https://example.com/design"]);
   });
 
   test("unread count shows on the Chat tab while another tab is active", async ({

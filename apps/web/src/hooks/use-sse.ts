@@ -17,7 +17,10 @@ import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
-import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
+import {
+  agentToolBlipAtomFamily,
+  whiteboardAgentDrewAtomFamily,
+} from "@/lib/store";
 import { showWebNotification } from "@/lib/web-notifications";
 import {
   CACHED_RELEASE_INFO_QUERY_KEY,
@@ -223,6 +226,16 @@ export function useSSE(authState: AuthState): void {
             applyAgentUpsert(old, payload.agent)
           );
           if (eventChanged) invalidateChatFeed(queryClient, payload.agent.id);
+          return;
+        }
+
+        if (payload.type === "agent.tool_invoked") {
+          // Ephemeral: the presence strip shows it for a few seconds. Local
+          // receipt time keeps the blip's timer independent of clock skew.
+          jotaiStore.set(agentToolBlipAtomFamily(payload.agentId), {
+            tool: payload.tool,
+            at: Date.now(),
+          });
           return;
         }
 

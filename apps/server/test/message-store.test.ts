@@ -48,6 +48,28 @@ describe("MessageStore", () => {
     expect(forRecipient.map((m) => m.content)).toContain("hello bob");
   });
 
+  it("stores a pending delivery as null and settles it with setDelivered", async () => {
+    const pending = await store.insertMessage({
+      senderAgentId: A,
+      recipientAgentId: B,
+      senderName: "Alice",
+      recipientName: "Bob",
+      content: "queued",
+      delivered: null,
+      senderRepoRoot: REPO,
+      recipientRepoRoot: REPO,
+    });
+    expect(pending.delivered).toBeNull();
+    expect((await store.listForAgent(B))[0].delivered).toBeNull();
+
+    const settled = await store.setDelivered(pending.id, true);
+    expect(settled?.delivered).toBe(true);
+    expect((await store.listForAgent(B))[0].delivered).toBe(true);
+    expect(
+      await store.setDelivered("00000000-0000-0000-0000-000000000000", false)
+    ).toBeNull();
+  });
+
   it("counts and clears unread for the recipient only", async () => {
     await store.insertMessage({
       senderAgentId: A,
