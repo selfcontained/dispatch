@@ -102,16 +102,14 @@ export function OwnerSwitch({
           data-testid={`${testIdPrefix}-switch`}
           data-owner={viewOwnerId ?? selectedAgentId ?? undefined}
           // Taller on touch layouts so the primary switch is a real target.
-          // Radix wraps the value in an inline span; it has to be a shrinking
-          // flex child for the name to truncate and the badges to stay.
-          className="h-11 text-xs md:h-8 [&>span:first-child]:flex [&>span:first-child]:min-w-0 [&>span:first-child]:flex-1"
+          // The badges sit beside Radix's value wrapper rather than inside
+          // it, and the wrapper is forced back to a plain truncating block:
+          // the base trigger line-clamps it, which centres the text once the
+          // span is stretched to fill the row.
+          className="h-11 gap-2 text-xs md:h-8 [&>span:first-child]:!block [&>span:first-child]:min-w-0 [&>span:first-child]:flex-1 [&>span:first-child]:truncate [&>span:first-child]:text-left"
         >
-          <SelectValue>
-            <span className="flex min-w-0 flex-1 items-center gap-2">
-              <span className="min-w-0 flex-1 truncate">{current?.label}</span>
-              {current ? counts(current) : null}
-            </span>
-          </SelectValue>
+          <SelectValue>{current?.label}</SelectValue>
+          {current ? counts(current) : null}
         </SelectTrigger>
         {/* Sized to the trigger, not to the longest agent name: names are
             user-supplied and a long one would otherwise push the listbox
