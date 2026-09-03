@@ -1,18 +1,18 @@
-import type { DiffStats as ServerDiffStats } from "@dispatch/shared";
-
-import type { AgentRecord } from "../../../../server/src/agents/types";
+import type {
+  AgentRecord,
+  DiffStats as ServerDiffStats,
+} from "@dispatch/shared";
 
 /**
- * Agent wire types, derived from the server's `AgentRecord` rather than
- * restated so a column added on one side can't be missed. Re-exported from
- * here so the components that already import them from this module keep
- * resolving.
+ * Agent wire types, taken from the shared contract rather than restated so a
+ * column added on one side can't be missed. Re-exported from here so the
+ * components that already import them from this module keep resolving.
  */
 export type {
   AgentPin,
   AgentStatus,
   PinShortcutVariant,
-} from "../../../../server/src/agents/types";
+} from "@dispatch/shared";
 
 /**
  * Fields the client treats as optional even though the server always sends
@@ -49,7 +49,7 @@ type LenientAgentField =
  * An agent as it arrives over the wire. Both the `snapshot` and
  * `agent.upsert` payloads are `AgentRecord` enriched with `hasStream` by
  * `withStreamFlag` (apps/server/src/server.ts), which is why that field is
- * declared here rather than on `AgentRecord` itself.
+ * declared here rather than on the shared `AgentRecord` itself.
  */
 export type Agent = Omit<AgentRecord, LenientAgentField> &
   Partial<Pick<AgentRecord, LenientAgentField>> & {

@@ -1,18 +1,14 @@
-const VALID_PIN_TYPES = [
-  "string",
-  "url",
-  "port",
-  "code",
-  "pr",
-  "filename",
-  "markdown",
-  "shortcut",
-] as const;
-const VALID_PIN_SHORTCUT_VARIANTS = [
-  "default",
-  "primary",
-  "destructive",
-] as const;
+import {
+  VALID_PIN_SHORTCUT_VARIANTS,
+  VALID_PIN_TYPES,
+  type PinShortcutVariant,
+  type PinType,
+} from "@dispatch/shared";
+
+// The tables live in @dispatch/shared because AgentPin is part of the agent
+// wire contract; validation and sanitization stay here.
+export type { PinShortcutVariant, PinType };
+
 /**
  * Icons a shortcut pin may use. Mirrored by the web icon map
  * (apps/web/src/lib/pin-shortcut-icons.ts); a guard test asserts the two stay
@@ -118,8 +114,6 @@ function validateMarkdownPinValue(value: string): void {
   }
 }
 
-export type PinType = (typeof VALID_PIN_TYPES)[number];
-export type PinShortcutVariant = (typeof VALID_PIN_SHORTCUT_VARIANTS)[number];
 export type PinShortcutIcon = (typeof VALID_PIN_SHORTCUT_ICONS)[number];
 
 export function isPinType(value: string): value is PinType {
