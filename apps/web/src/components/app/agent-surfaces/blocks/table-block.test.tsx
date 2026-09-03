@@ -89,27 +89,21 @@ describe("TableBlockView URL cells", () => {
       name: "Show details for https://example.com",
     });
     expect(disclosure.className).toContain("h-6");
-    expect(disclosure.className).toContain("w-full");
-    expect(disclosure.className).toContain("h-8");
     expect(disclosure.className).toContain("[@media(pointer:coarse)]:min-h-11");
-    expect(disclosure.textContent).toContain("Show");
     const detailsId = disclosure.getAttribute("aria-controls");
     expect(detailsId).toBeTruthy();
     const detailsRow = document.getElementById(detailsId!);
     expect(detailsRow?.hidden).toBe(true);
-    expect(detailsRow?.className).toContain("hidden");
 
     fireEvent.click(disclosure);
     expect(screen.getByText("More information")).not.toBeNull();
     expect(detailsRow?.hidden).toBe(false);
-    expect(detailsRow?.className).toContain("md:table-row");
     fireEvent.click(
       screen.getByRole("button", {
         name: "Hide details for https://example.com",
       })
     );
     expect(detailsRow?.hidden).toBe(true);
-    expect(detailsRow?.className).toContain("hidden");
   });
 
   it("preserves authored calendar days when formatting date-only values", () => {
@@ -171,7 +165,7 @@ describe("TableBlockView URL cells", () => {
     ).toBeNull();
   });
 
-  it("keeps row actions inline at a safe width and submits with the row id", () => {
+  it("keeps row actions compact and submits with the row id", () => {
     const block: TableBlock = {
       id: "deployments",
       type: "table",
@@ -185,35 +179,23 @@ describe("TableBlockView URL cells", () => {
         {
           id: "one",
           cells: { name: "One", detail: "First detail" },
-          action: { id: "approve", label: "Approve", intent: "approve" },
+          actions: [{ id: "approve", label: "Approve", intent: "approve" }],
         },
         { id: "two", cells: { name: "Two", detail: "Second detail" } },
       ],
     };
-    const { container } = renderTable(block);
+    renderTable(block);
     expect(screen.getByText("2")).toBeTruthy();
-    expect(screen.getByRole("columnheader", { name: "Action" })).toBeTruthy();
     const rows = document.querySelectorAll("tbody tr[data-row-id]");
     expect(rows[0].querySelectorAll("td").length).toBe(
       rows[1].querySelectorAll("td").length
     );
-    const actionCell = rows[0].querySelector("td:last-child");
-    expect(actionCell?.className).toContain("md:min-w-32");
-    expect(actionCell?.querySelector("button")?.className).toContain(
-      "md:whitespace-nowrap"
-    );
-    expect(actionCell?.querySelector("button")?.className).toContain("min-h-8");
-    expect(rows[0].className).toContain("grid");
-    expect(rows[0].className).toContain("md:table-row");
-    expect(container.querySelector("table")?.className).toContain("md:table");
-    expect(actionCell?.className).toContain("order-3");
-    const disclosureCell = rows[0].querySelector("td:first-child");
-    expect(disclosureCell?.className).toContain("order-2");
-    expect(disclosureCell?.textContent).toContain("Show");
-    expect(rows[1].querySelector("td:last-child")?.className).toContain(
-      "hidden"
-    );
-    fireEvent.click(screen.getByRole("button", { name: "Approve for One" }));
+    const actionButton = screen.getByRole("button", {
+      name: "Approve for One",
+    });
+    // Ghost row affordance: no extra row height, quiet by default.
+    expect(actionButton.className).toContain("h-6");
+    fireEvent.click(actionButton);
     expect(mutate).toHaveBeenCalledWith(
       expect.objectContaining({ itemId: "one", actionId: "approve" }),
       expect.any(Object)
@@ -229,12 +211,12 @@ describe("TableBlockView URL cells", () => {
         {
           id: "one",
           cells: { name: "Canary" },
-          action: { id: "retry", label: "Retry", intent: "retry" },
+          actions: [{ id: "retry", label: "Retry", intent: "retry" }],
         },
         {
           id: "two",
           cells: { name: "Production" },
-          action: { id: "retry", label: "Retry", intent: "retry" },
+          actions: [{ id: "retry", label: "Retry", intent: "retry" }],
         },
       ],
     });
@@ -244,6 +226,49 @@ describe("TableBlockView URL cells", () => {
     ).toBeTruthy();
     expect(
       screen.getByRole("button", { name: "Retry for Production" })
+    ).toBeTruthy();
+  });
+
+  it("renders a 2-column action-free table as a key/value list", () => {
+    renderTable({
+      id: "impact",
+      type: "table",
+      columns: [
+        { id: "metric", label: "Metric" },
+        { id: "value", label: "Value" },
+      ],
+      rows: [
+        { id: "duration", cells: { metric: "Duration", value: "47 minutes" } },
+        {
+          id: "revenue",
+          cells: { metric: "Revenue impact", value: "$18,600" },
+        },
+      ],
+    });
+
+    // No table chrome: the boilerplate header row disappears entirely.
+    expect(document.querySelector("table")).toBeNull();
+    expect(screen.queryByText("Metric")).toBeNull();
+    expect(screen.getByText("Duration")).toBeTruthy();
+    expect(screen.getByText("$18,600")).toBeTruthy();
+  });
+
+  it("demotes columns past the 3-primary budget behind the row disclosure", () => {
+    renderTable({
+      id: "wide",
+      type: "table",
+      columns: [
+        { id: "a", label: "A" },
+        { id: "b", label: "B" },
+        { id: "c", label: "C" },
+        { id: "d", label: "D" },
+      ],
+      rows: [{ id: "one", cells: { a: "1", b: "2", c: "3", d: "4" } }],
+    });
+
+    expect(screen.queryByRole("columnheader", { name: "D" })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Show details for/ })
     ).toBeTruthy();
   });
 });

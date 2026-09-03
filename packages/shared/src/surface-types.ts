@@ -1,4 +1,4 @@
-/** Runtime-free wire contract for agent-authored surfaces. */
+/** Runtime-free wire contract for agent-authored surfaces (schema v2). */
 
 export type Scalar = string | number | boolean | null;
 
@@ -21,7 +21,13 @@ type BlockBase = {
   description?: string;
 };
 
-export type TextBlock = BlockBase & { type: "text"; text: string };
+export type TextBlock = BlockBase & {
+  type: "text";
+  text: string;
+  /** Renders the block as a callout in the tone's color. Reserve for the
+   * sentence that changes a decision; plain prose omits it. */
+  tone?: Tone;
+};
 
 /** A compact action scoped to one list item or table row. */
 export type SurfaceItemAction = Pick<ActionRef, "id" | "label" | "intent">;
@@ -39,7 +45,9 @@ export type SurfaceListItem = {
   url?: string;
   /** A small subheading that groups adjacent items in this list. */
   group?: string;
-  action?: SurfaceItemAction;
+  /** One action renders inline on the item's title row; more collapse into a
+   * per-item overflow menu. Placement and weight are renderer-owned. */
+  actions?: SurfaceItemAction[];
 };
 
 export type ListBlock = BlockBase & {
@@ -57,13 +65,13 @@ export type TableColumn = {
   label: string;
   format?: "text" | "number" | "date" | "badge" | "code" | "url";
   badgeVariants?: Record<string, Tone>;
-  align?: "left" | "center" | "right";
+  align?: "left" | "right";
   /**
    * `secondary` always renders behind a per-row disclosure — the sidebar
-   * rail is a fixed width, not a responsive breakpoint. Reserve it for
-   * verbose diagnostics; a decision-critical value (a risk/status badge,
-   * anything the user needs to compare at a glance) belongs in the
-   * `primary` default so it's visible without an extra click.
+   * rail is a fixed width, not a responsive breakpoint. At most 3 columns
+   * may be primary; reserve `secondary` for verbose diagnostics, and keep
+   * a decision-critical value (a risk/status badge, anything the user
+   * compares at a glance) in the `primary` default.
    */
   priority?: "primary" | "secondary";
 };
@@ -71,7 +79,9 @@ export type TableColumn = {
 export type TableRow = {
   id: string;
   cells: Record<string, Scalar>;
-  action?: SurfaceItemAction;
+  /** One action renders inline at the row's end; more collapse into a
+   * per-row overflow menu. */
+  actions?: SurfaceItemAction[];
 };
 
 export type TableBlock = BlockBase & {
@@ -103,6 +113,9 @@ export type ActionRef = {
   id: string;
   label: string;
   intent: string;
+  /** Semantic weight only — the renderer owns visual treatment. One primary
+   * per surface; destructive is reserved for irreversible verbs and renders
+   * de-emphasized (in the overflow menu when other actions exist). */
   style?: "default" | "primary" | "destructive";
   icon?: SurfaceIcon;
   confirm?: { title: string; description?: string };
@@ -110,11 +123,9 @@ export type ActionRef = {
   disabledReason?: string;
 };
 
-export type ActionsBlock = BlockBase & {
-  type: "actions";
-  layout?: "auto" | "stack";
-  actions: ActionRef[];
-};
+/** A form's submit control. Always rendered as the form's primary action, so
+ * it carries no style knob. */
+export type SurfaceSubmitAction = Omit<ActionRef, "style">;
 
 export type FormFieldOption = {
   value: string;
@@ -161,7 +172,7 @@ export type FormField =
 export type FormBlock = BlockBase & {
   type: "form";
   fields: FormField[];
-  submit: ActionRef;
+  submit: SurfaceSubmitAction;
   resetLabel?: string;
   submitMode?: "once" | "repeatable";
 };
@@ -172,6 +183,9 @@ export type SurfaceSectionBlock = BlockBase & {
   /** Required so a collapsed section always retains a visible header. */
   title: string;
   blocks: SurfaceBlock[];
+  /** The section's footer slot: verbs that act on this group. Rendered
+   * right-aligned and compact at the group's bottom edge. */
+  actions?: ActionRef[];
   collapse?: { initiallyCollapsed?: boolean };
 };
 
@@ -181,14 +195,28 @@ export type SurfaceBlock =
   | TableBlock
   | StatusBlock
   | ProgressBlock
-  | ActionsBlock
   | FormBlock
   | SurfaceSectionBlock;
+
+/** The always-first summary strip: the surface's headline state. */
+export type SurfaceHeader = {
+  status?: StatusBlock;
+  progress?: ProgressBlock;
+};
+
+/** The surface's verbs. Rendered at the document's bottom edge as a compact
+ * split button with an overflow menu; interactions address it with the
+ * reserved block id "footer". */
+export type SurfaceFooter = {
+  actions: ActionRef[];
+};
 
 export type SurfaceDocumentInput = {
   title: string;
   icon?: SurfaceIcon;
+  header?: SurfaceHeader;
   blocks: SurfaceBlock[];
+  footer?: SurfaceFooter;
 };
 
 export type SurfaceLifecycle = "active" | "frozen";
@@ -206,6 +234,8 @@ export type SurfaceInteractionRequest =
   | {
       idempotencyKey: string;
       kind: "action";
+      /** A block id, a section id, or the reserved id "footer" for the
+       * document's footer actions. */
       blockId: string;
       actionId: string;
       /** Required for actions scoped to a list item or table row. */
@@ -237,7 +267,10 @@ export type SurfaceInteractionSummary = {
 };
 
 export type Surface = {
-  schemaVersion: 1;
+  /** Stored documents carry the version they were authored under; the
+   * sidebar renders only the current version and shows a re-create notice
+   * for older ones. */
+  schemaVersion: number;
   id: string;
   ownerAgentId: string;
   title: string;
@@ -245,15 +278,22 @@ export type Surface = {
   revision: number;
   lifecycle: SurfaceLifecycle;
   sortOrder: number;
+  header?: SurfaceHeader;
   blocks: SurfaceBlock[];
+  footer?: SurfaceFooter;
   createdAt: string;
   updatedAt: string;
   unresolvedInteractionCount: number;
   latestInteractions: SurfaceInteractionSummary[];
 };
 
+export const SURFACE_SCHEMA_VERSION = 2;
+
+/** Reserved interaction address for document footer actions. */
+export const SURFACE_FOOTER_BLOCK_ID = "footer";
+
 export type SurfaceInteractionRecord = {
-  schemaVersion: 1;
+  schemaVersion: number;
   id: string;
   agentId: string;
   tabId: string;

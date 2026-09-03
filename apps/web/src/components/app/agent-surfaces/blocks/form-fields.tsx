@@ -36,7 +36,12 @@ function FieldShell({
       >
         {field.label}
         {field.required ? (
-          <span className="text-status-blocked"> *</span>
+          // Muted, not danger-colored: a required marker is not an error
+          // state, and five red glyphs down a form read as five failures.
+          <span aria-hidden="true" className="text-muted-foreground">
+            {" "}
+            *
+          </span>
         ) : null}
       </label>
       {field.description ? (

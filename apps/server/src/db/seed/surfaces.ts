@@ -1,18 +1,21 @@
 import type { PoolClient } from "pg";
+import { SURFACE_SCHEMA_VERSION } from "@dispatch/shared";
 
 const owner = "seed-agent-running-feature";
 
 // These documents are intentionally narrow-pane examples rather than a page
-// builder. Together they exercise every V1 leaf and form control in realistic
-// agent-to-user decision flows.
+// builder. Together they exercise every v2 leaf, slot, and form control in
+// realistic agent-to-user decision flows: header (status + progress), footer
+// actions, section actions, per-item action menus, toned text callouts, and
+// key/value tables.
 export const surfaceExamples = [
   {
     id: "tab_seed_release_choice",
     title: "Release decision",
     icon: "flag",
     sortOrder: 0,
-    blocks: [
-      {
+    header: {
+      status: {
         id: "context",
         type: "status",
         title: "Deployment status",
@@ -21,6 +24,8 @@ export const surfaceExamples = [
         detail: "Both paths passed CI. **Canary** reduces blast radius.",
         timestamp: "2026-08-27T15:30:00.000Z",
       },
+    },
+    blocks: [
       {
         id: "comparison",
         type: "table",
@@ -48,46 +53,44 @@ export const surfaceExamples = [
           },
         ],
       },
-      {
-        id: "choices",
-        type: "actions",
-        title: "Choose a path",
-        layout: "stack",
-        actions: [
-          {
-            id: "canary",
-            label: "Use canary",
-            intent: "choose_release_canary",
-            style: "primary",
-            icon: "flag",
-          },
-          {
-            id: "direct",
-            label: "Release directly",
-            intent: "choose_release_direct",
-            style: "destructive",
-            confirm: {
-              title: "Release directly?",
-              description: "This skips the observation window.",
-            },
-          },
-        ],
-      },
     ],
+    footer: {
+      actions: [
+        {
+          id: "canary",
+          label: "Use canary",
+          intent: "choose_release_canary",
+          style: "primary",
+          icon: "flag",
+        },
+        {
+          id: "direct",
+          label: "Release directly",
+          intent: "choose_release_direct",
+          style: "destructive",
+          confirm: {
+            title: "Release directly?",
+            description: "This skips the observation window.",
+          },
+        },
+      ],
+    },
   },
   {
     id: "tab_seed_feedback",
     title: "Design feedback",
     icon: "form",
     sortOrder: 1,
-    blocks: [
-      {
+    header: {
+      status: {
         id: "status",
         type: "status",
         status: "Ready for review",
         tone: "success",
         detail: "Focus on hierarchy, density, and the interaction flow.",
       },
+    },
+    blocks: [
       {
         id: "feedback",
         type: "form",
@@ -128,7 +131,6 @@ export const surfaceExamples = [
           id: "submit",
           label: "Send feedback",
           intent: "submit_design_feedback",
-          style: "primary",
           icon: "message",
         },
         resetLabel: "Clear draft",
@@ -141,8 +143,8 @@ export const surfaceExamples = [
     title: "Release work summary",
     icon: "checklist",
     sortOrder: 2,
-    blocks: [
-      {
+    header: {
+      progress: {
         id: "readiness",
         type: "progress",
         title: "Release readiness",
@@ -151,6 +153,8 @@ export const surfaceExamples = [
         label: "5 of 8 complete",
         detail: "Two items need a decision; one is waiting on CI.",
       },
+    },
+    blocks: [
       {
         id: "release_details",
         type: "section",
@@ -181,11 +185,18 @@ export const surfaceExamples = [
                 detail: "Queue it once the release owner approves.",
                 url: "https://example.com/runbooks/migration",
                 group: "Next steps",
-                action: {
-                  id: "queue_migration",
-                  label: "Queue migration",
-                  intent: "queue_release_migration",
-                },
+                actions: [
+                  {
+                    id: "queue_migration",
+                    label: "Queue",
+                    intent: "queue_release_migration",
+                  },
+                  {
+                    id: "hold_migration",
+                    label: "Hold",
+                    intent: "hold_release_migration",
+                  },
+                ],
               },
               {
                 id: "a11y",
@@ -206,24 +217,19 @@ export const surfaceExamples = [
             collapse: { after: 2, label: "Show all release work" },
             showItemCount: true,
           },
+        ],
+        actions: [
           {
-            id: "queued_action",
-            type: "actions",
-            title: "Unblock work",
-            actions: [
-              {
-                id: "queue_migration",
-                label: "Queue migration",
-                intent: "queue_release_migration",
-                style: "primary",
-                icon: "clock",
-              },
-              {
-                id: "hold",
-                label: "Keep on hold",
-                intent: "hold_release_work",
-              },
-            ],
+            id: "queue_all",
+            label: "Queue migration",
+            intent: "queue_release_migration",
+            style: "primary",
+            icon: "clock",
+          },
+          {
+            id: "hold",
+            label: "Keep on hold",
+            intent: "hold_release_work",
           },
         ],
       },
@@ -234,6 +240,17 @@ export const surfaceExamples = [
     title: "Incident handoff",
     icon: "message",
     sortOrder: 3,
+    header: {
+      status: {
+        id: "severity",
+        type: "status",
+        status: "Monitoring",
+        tone: "warning",
+        detail:
+          "No new errors for 12 minutes; continue watching the primary region.",
+        timestamp: "2026-08-27T15:42:00.000Z",
+      },
+    },
     blocks: [
       {
         id: "summary",
@@ -242,13 +259,11 @@ export const surfaceExamples = [
         text: "The checkout error rate is back within baseline after rolling back the **pricing worker**. [Open the runbook](https://example.com/runbook) before taking the handoff.",
       },
       {
-        id: "severity",
-        type: "status",
-        status: "Monitoring",
+        id: "risk_note",
+        type: "text",
+        title: "Watch out",
         tone: "warning",
-        detail:
-          "No new errors for 12 minutes; continue watching the primary region.",
-        timestamp: "2026-08-27T15:42:00.000Z",
+        text: "The pricing worker rollback leaves surge pricing disabled — re-enable it before the 18:00 UTC peak.",
       },
       {
         id: "timeline",
@@ -277,28 +292,45 @@ export const surfaceExamples = [
         ],
       },
       {
-        id: "handoff",
-        type: "actions",
-        layout: "auto",
-        actions: [
+        id: "impact",
+        type: "table",
+        title: "Impact",
+        columns: [
+          { id: "metric", label: "Metric" },
+          { id: "value", label: "Value" },
+        ],
+        rows: [
           {
-            id: "ack",
-            label: "Acknowledge handoff",
-            intent: "acknowledge_incident_handoff",
-            style: "primary",
-            icon: "checklist",
+            id: "duration",
+            cells: { metric: "Duration", value: "34 minutes" },
           },
+          { id: "failed", cells: { metric: "Failed checkouts", value: 1204 } },
           {
-            id: "page",
-            label: "Page incident lead",
-            intent: "page_incident_lead",
-            style: "destructive",
-            icon: "flag",
-            confirm: { title: "Page the incident lead?" },
+            id: "regions",
+            cells: { metric: "Regions affected", value: "us-east-1" },
           },
         ],
       },
     ],
+    footer: {
+      actions: [
+        {
+          id: "ack",
+          label: "Acknowledge handoff",
+          intent: "acknowledge_incident_handoff",
+          style: "primary",
+          icon: "checklist",
+        },
+        {
+          id: "page",
+          label: "Page incident lead",
+          intent: "page_incident_lead",
+          style: "destructive",
+          icon: "flag",
+          confirm: { title: "Page the incident lead?" },
+        },
+      ],
+    },
   },
   {
     id: "tab_seed_service_health",
@@ -356,11 +388,13 @@ export const surfaceExamples = [
               trace: "https://example.com/traces/api",
               build: "api@4.18.0",
             },
-            action: {
-              id: "inspect_api",
-              label: "Inspect API",
-              intent: "inspect_api_health",
-            },
+            actions: [
+              {
+                id: "inspect_api",
+                label: "Inspect",
+                intent: "inspect_api_health",
+              },
+            ],
           },
           {
             id: "search",
@@ -372,11 +406,18 @@ export const surfaceExamples = [
               trace: "https://example.com/traces/search",
               build: "search@4.18.0",
             },
-            action: {
-              id: "retry_search",
-              label: "Retry search check",
-              intent: "retry_search_health_check",
-            },
+            actions: [
+              {
+                id: "retry_search",
+                label: "Retry",
+                intent: "retry_search_health_check",
+              },
+              {
+                id: "mute_search",
+                label: "Mute alerts",
+                intent: "mute_search_alerts",
+              },
+            ],
           },
           {
             id: "worker",
@@ -486,7 +527,6 @@ export const surfaceExamples = [
           id: "start",
           label: "Start research",
           intent: "submit_research_request",
-          style: "primary",
           icon: "sparkles",
         },
         resetLabel: "Reset request",
@@ -509,7 +549,7 @@ export const surfaceExamples = [
           {
             id: "seed",
             text: "Expanded **surface examples** for sidebar coverage.",
-            detail: "Includes actions, forms, and compact data leaves.",
+            detail: "Includes slots, forms, and compact data leaves.",
           },
           {
             id: "badge",
@@ -535,57 +575,68 @@ export const surfaceExamples = [
     title: "Access request",
     icon: "clock",
     sortOrder: 7,
-    blocks: [
-      {
+    header: {
+      status: {
         id: "review_state",
         type: "status",
         status: "Awaiting approval",
         tone: "danger",
         detail: "The requested production role is not yet assigned.",
       },
+    },
+    blocks: [
       {
-        id: "approve_actions",
-        type: "actions",
-        title: "Approval controls",
-        description: "A disabled action explains why it cannot currently run.",
-        layout: "stack",
-        actions: [
-          {
-            id: "approve",
-            label: "Approve temporary access",
-            intent: "approve_temporary_access",
-            style: "primary",
-            confirm: {
-              title: "Approve temporary access?",
-              description: "Access expires automatically after one hour.",
-            },
-          },
-          {
-            id: "revoke",
-            label: "Revoke access",
-            intent: "revoke_access",
-            style: "destructive",
-            disabled: true,
-            disabledReason: "No active access grant exists.",
-          },
-        ],
+        id: "grant_terms",
+        type: "text",
+        title: "Grant terms",
+        tone: "info",
+        text: "Approval issues a temporary production role that expires automatically after one hour.",
       },
     ],
+    footer: {
+      actions: [
+        {
+          id: "approve",
+          label: "Approve temporary access",
+          intent: "approve_temporary_access",
+          style: "primary",
+          confirm: {
+            title: "Approve temporary access?",
+            description: "Access expires automatically after one hour.",
+          },
+        },
+        {
+          id: "revoke",
+          label: "Revoke access",
+          intent: "revoke_access",
+          style: "destructive",
+          disabled: true,
+          disabledReason: "No active access grant exists.",
+        },
+      ],
+    },
   },
 ] as const;
 
 export async function seedSurfaces(client: PoolClient): Promise<void> {
   for (const surface of surfaceExamples) {
+    const withSlots = surface as {
+      header?: unknown;
+      footer?: unknown;
+    };
     await client.query(
-      `INSERT INTO agent_surfaces (id, agent_id, title, icon, sort_order, blocks)
-       VALUES ($1,$2,$3,$4,$5,$6)`,
+      `INSERT INTO agent_surfaces (id, agent_id, title, icon, sort_order, schema_version, header, blocks, footer)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
       [
         surface.id,
         owner,
         surface.title,
         surface.icon,
         surface.sortOrder,
+        SURFACE_SCHEMA_VERSION,
+        withSlots.header ? JSON.stringify(withSlots.header) : null,
         JSON.stringify(surface.blocks),
+        withSlots.footer ? JSON.stringify(withSlots.footer) : null,
       ]
     );
   }

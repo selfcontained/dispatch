@@ -19,7 +19,6 @@ export type {
 } from "./diff-types.js";
 export type {
   ActionRef,
-  ActionsBlock,
   FormBlock,
   FormField,
   FormFieldOption,
@@ -31,6 +30,8 @@ export type {
   SurfaceBlock,
   SurfaceChangedEvent,
   SurfaceDocumentInput,
+  SurfaceFooter,
+  SurfaceHeader,
   SurfaceIcon,
   SurfaceInteraction,
   SurfaceInteractionRecord,
@@ -42,11 +43,16 @@ export type {
   SurfaceLifecycle,
   SurfaceListItem,
   SurfaceSectionBlock,
+  SurfaceSubmitAction,
   TableBlock,
   TableColumn,
   TableRow,
   TextBlock,
   Tone,
+} from "./surface-types.js";
+export {
+  SURFACE_FOOTER_BLOCK_ID,
+  SURFACE_SCHEMA_VERSION,
 } from "./surface-types.js";
 export type {
   InjectionHoldState,

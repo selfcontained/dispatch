@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { Fragment, useId, useState } from "react";
 import { ChevronRight } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
@@ -10,10 +10,19 @@ import type {
   TableColumn,
 } from "@/components/app/agent-surfaces/types";
 import { BlockHeader } from "@/components/app/agent-surfaces/blocks/block-header";
-import { ItemAction } from "@/components/app/agent-surfaces/blocks/item-action";
+import { ItemActions } from "@/components/app/agent-surfaces/blocks/item-actions";
 import type { SurfaceInteractionIndex } from "@/components/app/agent-surfaces/interaction-presentation";
+import {
+  formatSurfaceTime,
+  humanizeLabel,
+} from "@/components/app/agent-surfaces/format";
 import { isAllowedSurfaceUrl } from "@/components/app/agent-surfaces/surface-url";
 import { TONE_CLASSES } from "@/components/app/agent-surfaces/tone";
+
+/** The rail is a fixed 400px, so the practical budget is 3 visible columns;
+ * the schema enforces it for v2 documents and this constant is the renderer's
+ * defensive fallback for anything that slips through. */
+const MAX_PRIMARY_COLUMNS = 3;
 
 function formatCell(value: Scalar, format: TableColumn["format"]): string {
   if (value === null || value === undefined) return "—";
@@ -26,7 +35,8 @@ function formatCell(value: Scalar, format: TableColumn["format"]): string {
       if (parsed.toISOString().slice(0, 10) !== value) return value;
       return parsed.toLocaleDateString(undefined, { timeZone: "UTC" });
     }
-    return parsed.toLocaleDateString();
+    // Datetime instants get the renderer-owned compact treatment.
+    return formatSurfaceTime(value).text;
   }
   return String(value);
 }
@@ -45,9 +55,12 @@ function Cell({
     return (
       <Badge
         variant="default"
-        className={tone ? TONE_CLASSES[tone].badge : undefined}
+        className={cn(
+          "normal-case tracking-normal",
+          tone ? TONE_CLASSES[tone].badge : undefined
+        )}
       >
-        {text}
+        {humanizeLabel(text)}
       </Badge>
     );
   }
@@ -77,10 +90,50 @@ function Cell({
   return <span className="text-foreground">{text}</span>;
 }
 
-/** One row: primary columns stay visible and reflow into a labeled card when
- * the containing rail is narrow. Secondary columns remain behind a disclosure.
- * Agents should reserve `secondary` for verbose diagnostics; decision-critical
- * values belong in `primary`. */
+function cellAlignment(column: TableColumn): string | undefined {
+  // Numbers right-align automatically so magnitudes line up; an explicit
+  // align always wins.
+  if (column.align === "right") return "text-right";
+  if (column.align === "left") return "text-left";
+  if (column.format === "number") return "text-right";
+  return undefined;
+}
+
+/** A 2-column, action-free table is a key/value list wearing table chrome —
+ * render it as the stat list it is: dim keys left, values emphasized right,
+ * no header row, no rules. */
+function KeyValueView({
+  block,
+  keyColumn,
+  valueColumn,
+}: {
+  block: TableBlock;
+  keyColumn: TableColumn;
+  valueColumn: TableColumn;
+}): JSX.Element {
+  return (
+    <dl className="space-y-1">
+      {block.rows.map((row) => (
+        <div
+          key={row.id}
+          data-row-id={row.id}
+          className="flex items-baseline justify-between gap-3"
+        >
+          <dt className="shrink-0 text-xs text-muted-foreground">
+            <Cell value={row.cells[keyColumn.id] ?? null} column={keyColumn} />
+          </dt>
+          <dd className="min-w-0 text-right text-xs font-medium">
+            <Cell
+              value={row.cells[valueColumn.id] ?? null}
+              column={valueColumn}
+            />
+          </dd>
+        </div>
+      ))}
+    </dl>
+  );
+}
+
 function TableRowView({
   row,
   primaryColumns,
@@ -94,8 +147,8 @@ function TableRowView({
   secondaryColumns: TableColumn[];
   block: TableBlock;
   interactionProps: Omit<
-    React.ComponentProps<typeof ItemAction>,
-    "action" | "itemId" | "blockId"
+    React.ComponentProps<typeof ItemActions>,
+    "actions" | "itemId" | "blockId" | "itemLabel"
   >;
   hasActionColumn: boolean;
 }): JSX.Element {
@@ -107,22 +160,16 @@ function TableRowView({
   );
 
   return (
-    <>
+    <Fragment>
       <tr
         data-row-id={row.id}
         className={cn(
-          "grid grid-cols-[minmax(0,0.7fr)_minmax(0,1.3fr)] border-b border-border/50 p-2 last:border-0 md:table-row md:p-0",
-          expanded && "border-b-0 md:border-b"
+          "border-b border-border/40 last:border-0",
+          expanded && "border-b-0"
         )}
       >
         {secondaryColumns.length > 0 ? (
-          <td
-            className={cn(
-              "mt-1 border-t border-border/50 p-1.5 align-middle md:table-cell md:w-8 md:border-0 md:p-2",
-              "order-2",
-              row.action ? "col-span-1" : "col-span-2"
-            )}
-          >
+          <td className="w-6 py-1.5 pr-1 align-middle">
             <Button
               type="button"
               variant="ghost"
@@ -131,7 +178,7 @@ function TableRowView({
               aria-expanded={expanded}
               aria-controls={detailsId}
               aria-label={`${expanded ? "Hide" : "Show"} details for ${rowLabel}`}
-              className="h-8 w-full gap-1.5 px-2 text-[11px] text-muted-foreground md:h-6 md:w-6 md:p-0 [@media(pointer:coarse)]:min-h-11"
+              className="h-6 w-6 p-0 text-muted-foreground [@media(pointer:coarse)]:min-h-11"
             >
               <ChevronRight
                 className={cn(
@@ -139,44 +186,29 @@ function TableRowView({
                   expanded && "rotate-90"
                 )}
               />
-              <span className="md:sr-only">{expanded ? "Hide" : "Show"}</span>
             </Button>
           </td>
         ) : null}
-        {primaryColumns.map((column) => (
+        {primaryColumns.map((column, index) => (
           <td
             key={column.id}
             className={cn(
-              "order-1 col-span-2 grid min-w-0 grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-2 px-2 py-1.5 align-middle text-xs md:table-cell md:p-2",
-              column.align === "right" && "md:text-right",
-              column.align === "center" && "md:text-center"
+              "min-w-0 break-words py-1.5 pr-2 align-middle text-xs first:pl-0 last:pr-0",
+              index > 0 && secondaryColumns.length === 0 && "pl-0",
+              cellAlignment(column)
             )}
           >
-            <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground md:hidden">
-              {column.label}
-            </span>
-            <span className="min-w-0 break-words">
-              <Cell value={row.cells[column.id] ?? null} column={column} />
-            </span>
+            <Cell value={row.cells[column.id] ?? null} column={column} />
           </td>
         ))}
         {hasActionColumn ? (
-          <td
-            className={cn(
-              "order-3 col-span-1 mt-1 min-w-0 border-t border-border/50 p-1.5 text-right align-middle md:table-cell md:w-px md:min-w-32 md:border-0 md:p-2",
-              row.action ? "block" : "hidden"
-            )}
-          >
-            {row.action ? (
-              <ItemAction
-                action={row.action}
+          <td className="w-px py-1 pl-1 text-right align-middle">
+            {row.actions?.length ? (
+              <ItemActions
+                actions={row.actions}
                 itemId={row.id}
                 blockId={block.id}
-                buttonClassName="min-h-8 w-full whitespace-normal break-words md:min-h-7 md:w-auto md:whitespace-nowrap md:break-normal"
-                ariaLabel={`${row.action.label} for ${formatCell(
-                  row.cells[primaryColumns[0]?.id] ?? row.id,
-                  primaryColumns[0]?.format
-                )}`}
+                itemLabel={rowLabel}
                 {...interactionProps}
               />
             ) : null}
@@ -187,20 +219,17 @@ function TableRowView({
         <tr
           id={detailsId}
           hidden={!expanded}
-          className={cn(
-            "border-b border-border/50 last:border-0",
-            expanded ? "block md:table-row" : "hidden"
-          )}
+          className="border-b border-border/40 last:border-0"
         >
           <td
             colSpan={primaryColumns.length + 1 + (hasActionColumn ? 1 : 0)}
-            className="block bg-muted/25 px-4 py-3 align-middle md:table-cell md:bg-transparent md:p-2"
+            className="pb-2 pl-6 pt-0.5 align-middle"
           >
-            <dl className="space-y-1.5 md:ml-6 md:space-y-0.5">
+            <dl className="space-y-0.5">
               {secondaryColumns.map((column) => (
                 <div
                   key={column.id}
-                  className="grid grid-cols-[5rem_minmax(0,1fr)] items-baseline gap-2 text-[11px] md:flex md:items-center md:gap-1.5"
+                  className="flex items-baseline gap-1.5 text-[11px]"
                 >
                   <dt className="shrink-0 text-muted-foreground">
                     {column.label}:
@@ -217,7 +246,7 @@ function TableRowView({
           </td>
         </tr>
       ) : null}
-    </>
+    </Fragment>
   );
 }
 
@@ -234,17 +263,30 @@ export function TableBlockView({
   readOnly: boolean;
   idPrefix: string;
 }): JSX.Element {
-  const primaryColumns = block.columns.filter(
+  const authoredPrimary = block.columns.filter(
     (c) => c.priority !== "secondary"
   );
-  const secondaryColumns = block.columns.filter(
-    (c) => c.priority === "secondary"
-  );
+  // Defensive demotion past the budget; column 1 (row identity) never demotes.
+  const primaryColumns = authoredPrimary.slice(0, MAX_PRIMARY_COLUMNS);
+  const secondaryColumns = [
+    ...authoredPrimary.slice(MAX_PRIMARY_COLUMNS),
+    ...block.columns.filter((c) => c.priority === "secondary"),
+  ];
   // A table with only secondary columns still needs something visible.
   const effectivePrimary =
-    primaryColumns.length > 0 ? primaryColumns : block.columns;
-  const effectiveSecondary = primaryColumns.length > 0 ? secondaryColumns : [];
-  const hasActionColumn = block.rows.some((row) => row.action);
+    primaryColumns.length > 0
+      ? primaryColumns
+      : block.columns.slice(0, MAX_PRIMARY_COLUMNS);
+  const effectiveSecondary =
+    primaryColumns.length > 0
+      ? secondaryColumns
+      : block.columns.slice(MAX_PRIMARY_COLUMNS);
+  const hasActionColumn = block.rows.some((row) => row.actions?.length);
+  const isKeyValue =
+    block.columns.length === 2 &&
+    effectiveSecondary.length === 0 &&
+    !hasActionColumn;
+
   return (
     <div data-block-id={block.id} data-block-type="table">
       <BlockHeader
@@ -252,49 +294,48 @@ export function TableBlockView({
         description={block.description}
         count={block.showItemCount ? block.rows.length : undefined}
       />
-      <div className="rounded-md border border-border/50">
-        <div className="overflow-hidden md:overflow-x-auto">
-          <table className="block w-full border-collapse md:table">
-            <thead className="hidden md:table-header-group">
-              <tr className="border-b border-border/50 text-[11px] uppercase tracking-wide text-muted-foreground">
-                {effectiveSecondary.length > 0 ? (
-                  <th className="w-8 p-2" />
-                ) : null}
-                {effectivePrimary.map((column) => (
-                  <th
-                    key={column.id}
-                    className={cn(
-                      "p-2 text-left align-middle font-medium",
-                      column.align === "right" && "text-right",
-                      column.align === "center" && "text-center"
-                    )}
-                  >
-                    {column.label}
-                  </th>
-                ))}
-                {hasActionColumn ? (
-                  <th className="w-px min-w-32 p-2 text-right align-middle font-medium">
-                    Action
-                  </th>
-                ) : null}
-              </tr>
-            </thead>
-            <tbody className="block md:table-row-group">
-              {block.rows.map((row) => (
-                <TableRowView
-                  key={row.id}
-                  row={row}
-                  primaryColumns={effectivePrimary}
-                  secondaryColumns={effectiveSecondary}
-                  block={block}
-                  interactionProps={interactionProps}
-                  hasActionColumn={hasActionColumn}
-                />
+      {isKeyValue ? (
+        <KeyValueView
+          block={block}
+          keyColumn={block.columns[0]}
+          valueColumn={block.columns[1]}
+        />
+      ) : (
+        <table className="w-full border-collapse">
+          <thead>
+            <tr className="border-b border-border/40 text-[10px] uppercase tracking-[0.08em] text-muted-foreground">
+              {effectiveSecondary.length > 0 ? (
+                <th className="w-6 py-1.5 pr-1" />
+              ) : null}
+              {effectivePrimary.map((column) => (
+                <th
+                  key={column.id}
+                  className={cn(
+                    "py-1.5 pr-2 text-left align-middle font-medium first:pl-0 last:pr-0",
+                    cellAlignment(column)
+                  )}
+                >
+                  {column.label}
+                </th>
               ))}
-            </tbody>
-          </table>
-        </div>
-      </div>
+              {hasActionColumn ? <th className="w-px py-1.5 pl-1" /> : null}
+            </tr>
+          </thead>
+          <tbody>
+            {block.rows.map((row) => (
+              <TableRowView
+                key={row.id}
+                row={row}
+                primaryColumns={effectivePrimary}
+                secondaryColumns={effectiveSecondary}
+                block={block}
+                interactionProps={interactionProps}
+                hasActionColumn={hasActionColumn}
+              />
+            ))}
+          </tbody>
+        </table>
+      )}
     </div>
   );
 }

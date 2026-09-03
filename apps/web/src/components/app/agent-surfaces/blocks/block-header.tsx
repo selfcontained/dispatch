@@ -1,7 +1,9 @@
 import { Markdown } from "@/components/ui/markdown";
-import { Badge } from "@/components/ui/badge";
 
-/** Shared title/description header used by every block renderer. */
+/** Shared title/description header used by every block renderer. Block titles
+ * get a real size step above item text (the typographic ramp: section label <
+ * item text < block title), and counts render as quiet text — pill-shaped
+ * attention belongs to state, not to a number the list below makes obvious. */
 export function BlockHeader({
   title,
   description,
@@ -15,12 +17,16 @@ export function BlockHeader({
   return (
     <div className="mb-1.5">
       {title || count !== undefined ? (
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-baseline gap-1.5">
           {title ? (
-            <h3 className="text-xs font-semibold text-foreground">{title}</h3>
+            <h3 className="text-[13px] font-semibold text-foreground">
+              {title}
+            </h3>
           ) : null}
           {count !== undefined ? (
-            <Badge className="px-1.5 py-0 text-[10px]">{count}</Badge>
+            <span className="text-[11px] tabular-nums text-muted-foreground">
+              {count}
+            </span>
           ) : null}
         </div>
       ) : null}
