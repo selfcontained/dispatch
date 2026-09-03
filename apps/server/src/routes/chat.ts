@@ -219,11 +219,9 @@ export async function registerChatRoutes(
           typeof body.label === "string" ? body.label.trim() : "";
         label = supplied ? supplied.slice(0, ANSWER_LABEL_MAX) : undefined;
       } else {
-        return reply
-          .code(400)
-          .send({
-            error: "value does not match one of the question's options.",
-          });
+        return reply.code(400).send({
+          error: "value does not match one of the question's options.",
+        });
       }
       const text = option ? option.label : value;
       if (text.length > CHAT_MESSAGE_MAX_CHARS) {
