@@ -419,6 +419,7 @@ describe("AgentCardStatus wiring", () => {
         type: "blocked",
         message: "Waiting on a merge conflict",
         updatedAt: new Date().toISOString(),
+        metadata: {},
       },
     });
     const { rerender } = renderCard({ agent });
@@ -435,6 +436,7 @@ describe("AgentCardStatus wiring", () => {
       type: "working" as const,
       message: "Running tests",
       updatedAt: new Date().toISOString(),
+      metadata: {},
     };
     const { rerender } = renderCard({
       agent: makeAgent({ type: "terminal", latestEvent }),

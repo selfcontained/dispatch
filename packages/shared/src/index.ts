@@ -7,6 +7,22 @@
  * and in the compiled server binary at once, so keep those to plain constants
  * that both sides genuinely have to agree on.
  */
+export { AGENT_TYPES, CLI_AGENT_TYPES } from "./agent-types.js";
+export type { AgentType, CliAgentType } from "./agent-types.js";
+export type {
+  AgentGitContext,
+  AgentLatestEvent,
+  AgentLatestEventType,
+  AgentPin,
+  AgentRecord,
+  AgentRole,
+  AgentStatus,
+  ArchivePhase,
+  SetupPhase,
+  WorktreeCleanupMode,
+} from "./agent-record.js";
+export { VALID_PIN_SHORTCUT_VARIANTS, VALID_PIN_TYPES } from "./pin-types.js";
+export type { PinShortcutVariant, PinType } from "./pin-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {
   DiffFile,

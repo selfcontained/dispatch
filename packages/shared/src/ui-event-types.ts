@@ -44,10 +44,11 @@ export type InjectionHoldState = {
  *
  * NOT here, on purpose — each side declares these four itself because the
  * payload types genuinely differ:
- *   - `snapshot` / `agent.upsert` — the server publishes `AgentRecord`, while
- *     the web client models the same rows with a deliberately lenient `Agent`
- *     (server-only columns dropped, most fields optional, plus the
- *     `hasStream` flag the publish sites attach).
+ *   - `snapshot` / `agent.upsert` — `AgentRecord` lives in `./agent-record.js`,
+ *     but the payload types still differ: the server publishes it enriched
+ *     with the `hasStream` flag, and the web client models the same rows with
+ *     a deliberately lenient `Agent` that relaxes the always-sent columns to
+ *     optional.
  *   - `agent.diff_state_changed` — web's `DiffStats` makes `excludingTests`
  *     optional so an older server can still drive a newer bundle.
  *   - `release.cached_info_changed` — `ReleaseInfoSnapshot` is declared in a
