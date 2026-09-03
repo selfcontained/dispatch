@@ -24,6 +24,7 @@ import {
 } from "../shared/git/git-context.js";
 import { getActivePersonality } from "../db/personalities.js";
 import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
+import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
 import { findCodexSessionId } from "./codex-sessions.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
@@ -703,9 +704,12 @@ export class AgentManager {
           : await getActivePersonality(this.pool);
       // Job runs get their own ruleset, which the trim never touches — so
       // don't make an unchanged launch path depend on this settings read.
-      const trimmedGuidance = opts.jobRunId
-        ? false
-        : await isTrimmedLaunchGuidanceEnabled(this.pool);
+      const [trimmedGuidance, chatSurface] = opts.jobRunId
+        ? [false, false]
+        : await Promise.all([
+            isTrimmedLaunchGuidanceEnabled(this.pool),
+            isChatSurfaceEnabled(this.pool),
+          ]);
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -724,6 +728,7 @@ export class AgentManager {
           }),
           autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
           trimmedGuidance,
+          chatSurface,
           initialPrompt: startupPrompt,
           personalityPrompt: personality?.prompt ?? null,
           model,
@@ -921,7 +926,10 @@ export class AgentManager {
         agent.persona || agent.role === "assisted_update"
           ? null
           : await getActivePersonality(this.pool);
-      const trimmedGuidance = await isTrimmedLaunchGuidanceEnabled(this.pool);
+      const [trimmedGuidance, chatSurface] = await Promise.all([
+        isTrimmedLaunchGuidanceEnabled(this.pool),
+        isChatSurfaceEnabled(this.pool),
+      ]);
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -939,6 +947,7 @@ export class AgentManager {
           }),
           autoReview: !agent.persona && (agent.autoReview ?? false),
           trimmedGuidance,
+          chatSurface,
           personalityPrompt: personality?.prompt ?? null,
           model: agent.model ?? undefined,
         }

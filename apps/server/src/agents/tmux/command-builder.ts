@@ -159,6 +159,14 @@ export function buildStartupPrompt(
 }
 
 /**
+ * The one chat-surface rule, added only when the flag is on. Kept to a single
+ * sentence pair on purpose — `dispatch_chat_post`'s description carries the
+ * kinds, question options, and attachment schema.
+ */
+export const CHAT_SURFACE_GUIDANCE_RULE =
+  "The user reads the Chat tab, not the terminal. Post your reply with dispatch_chat_post whenever you finish a turn or have something to tell them, and ask questions through it (kind: question, with options when the choice is finite) instead of asking in the terminal.";
+
+/**
  * Build the numbered launch guidance text shared by all CLI agent types.
  *
  * `trimmedGuidance` swaps the verbose rules for short generic ones. Two
@@ -203,6 +211,13 @@ export function buildLaunchGuidance(
     suggestSessionRename?: boolean;
     autoReview?: boolean;
     trimmedGuidance?: boolean;
+    /**
+     * The chat-surface flag (`chat_surface_enabled`). When on, the user is
+     * reading the Chat tab, so one rule routes replies and questions through
+     * dispatch_chat_post. Same text trimmed or not: the tool description
+     * carries the schema.
+     */
+    chatSurface?: boolean;
   }
 ): string {
   const {
@@ -211,6 +226,7 @@ export function buildLaunchGuidance(
     suggestSessionRename,
     autoReview,
     trimmedGuidance,
+    chatSurface,
   } = opts;
   const trimmed =
     trimmedGuidance === true &&
@@ -254,6 +270,9 @@ export function buildLaunchGuidance(
         ? "Report status with dispatch_event as you work and before your final response — blocked means genuinely stuck, not an error you're about to fix. Your reported status is verified against session activity and auto-corrected."
         : "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
     );
+    if (chatSurface) {
+      rules.push(CHAT_SURFACE_GUIDANCE_RULE);
+    }
     if (trimmed) {
       // One rule instead of two: surface values, and ask questions, with pins.
       // The tool schema carries the types, shortcut mechanics, and deletion.
@@ -319,6 +338,7 @@ type BuildAgentCommandOptions = {
   suggestSessionRename?: boolean;
   autoReview?: boolean;
   trimmedGuidance?: boolean;
+  chatSurface?: boolean;
   initialPrompt?: string;
   personalityPrompt?: string | null;
   model?: string;
@@ -339,6 +359,7 @@ export function buildAgentCommand(
     suggestSessionRename,
     autoReview,
     trimmedGuidance,
+    chatSurface,
     initialPrompt,
     personalityPrompt,
     model,
@@ -351,6 +372,7 @@ export function buildAgentCommand(
     suggestSessionRename,
     autoReview,
     trimmedGuidance,
+    chatSurface,
   });
 
   const userLocalBin = process.env.HOME

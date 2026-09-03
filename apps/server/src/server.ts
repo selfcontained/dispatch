@@ -108,6 +108,8 @@ import { registerJobRoutes } from "./routes/jobs.js";
 import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerMessagesRoutes } from "./routes/messages.js";
+import { registerChatRoutes } from "./routes/chat.js";
+import { ChatService } from "./chat/service.js";
 import { registerSurfaceRoutes } from "./routes/surfaces.js";
 import { registerWhiteboardRoutes } from "./routes/whiteboard.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
@@ -429,6 +431,12 @@ const surfaceService = new SurfaceService(pool, {
   publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   sendAgentPrompt: injectAgentPrompt,
 });
+const chatService = new ChatService({
+  pool,
+  publishUiEvent: (event) => uiEventBroker.publish(event),
+  getAgent: (agentId) => agentManager.getAgent(agentId),
+  mediaRoot: config.mediaRoot,
+});
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,
@@ -672,6 +680,7 @@ async function registerRoutes() {
     mcpJobLog: mcpHandlers.jobLog,
     mcpMethodNotAllowed,
     surfaces: surfaceService,
+    chat: chatService,
   });
 
   await registerSystemRoutes(app, {
@@ -764,6 +773,15 @@ async function registerRoutes() {
   await registerMessagesRoutes(app, {
     pool,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  });
+
+  await registerChatRoutes(app, {
+    pool,
+    chat: chatService,
+    agentManager,
+    injectionCoordinator,
+    sendAgentPrompt: injectAgentPrompt,
+    handleAgentError,
   });
 
   await registerSurfaceRoutes(app, { surfaces: surfaceService });

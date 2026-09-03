@@ -19,6 +19,7 @@ import {
 import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 import type { SurfaceService } from "../surfaces/service.js";
+import type { ChatService } from "../chat/service.js";
 
 /**
  * Resolves once the response has left the server — `finish` when it was
@@ -100,6 +101,7 @@ type McpRouteDeps = {
   mcpListAgentsForAgent: unknown;
   mcpMethodNotAllowed: () => unknown;
   surfaces: SurfaceService;
+  chat: Pick<ChatService, "post" | "update">;
 };
 
 function buildCrudCallbacks(deps: McpRouteDeps): CrudToolCallbacks {
@@ -274,6 +276,7 @@ export async function registerMcpRoutes(
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       surfaces: deps.surfaces,
+      chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
@@ -372,6 +375,7 @@ export async function registerMcpRoutes(
       brainStore: deps.brainStore,
       publishBrainChanged: deps.publishBrainChanged,
       surfaces: deps.surfaces,
+      chat: deps.chat,
     } as Parameters<typeof handleMcpRequest>[3]);
   });
 
