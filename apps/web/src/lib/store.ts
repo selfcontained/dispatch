@@ -140,6 +140,18 @@ export const pinGroupCollapsedAtomFamily = atomFamily((key: string) =>
   )
 );
 
+/**
+ * Collapse choice for a sub agent's media group under its parent's Media tab,
+ * keyed `parentId::childId`. Same `null` = untouched convention as pin groups;
+ * the default (expanded) is applied at render.
+ */
+export const mediaGroupCollapsedAtomFamily = atomFamily((key: string) =>
+  atomWithLocalStorage<boolean | null>(
+    `dispatch:mediaGroupCollapsed:${key}`,
+    null
+  )
+);
+
 export type DiffViewType = "unified" | "split";
 
 export const diffViewTypeAtom = atomWithLocalStorage<DiffViewType>(

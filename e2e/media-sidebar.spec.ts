@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import {
+  authHeaders,
   cleanupE2EAgents,
   clickAgentRow,
   createAgentViaAPI,
@@ -9,6 +10,8 @@ import {
   uploadMediaViaAPI,
   uploadTextMediaViaAPI,
 } from "./helpers";
+
+const API = "/api/v1";
 
 async function openMediaSidebarForAgent(
   page: Page,
@@ -626,6 +629,81 @@ test.describe("Media sidebar", () => {
       .getByRole("button", { name: "Re-run E2E suite" })
       .click();
     expect((await runResponse).request().method()).toBe("POST");
+  });
+
+  test("groups a sub agent's media and pins under its parent", async ({
+    page,
+    request,
+  }) => {
+    const parent = await createAgentViaAPI(request, {
+      name: `e2e-agent-family-parent-${Date.now()}`,
+    });
+    const child = await createAgentViaAPI(request, {
+      name: `e2e-agent-family-child-${Date.now()}`,
+      parentAgentId: parent.id,
+    });
+    await uploadMediaViaAPI(
+      request,
+      child.id,
+      "Child screenshot",
+      "child-shot.png"
+    );
+    await setAgentPinsViaDB(child.id, [
+      {
+        id: "child_pr",
+        label: "Child PR",
+        value: "https://github.com/example/repo/pull/1",
+        type: "pr",
+      },
+    ]);
+
+    await loadApp(page);
+    await openMediaSidebarForAgent(page, parent);
+    const mediaSidebar = page.getByTestId("media-sidebar");
+    await expect(mediaSidebar).toBeVisible();
+
+    // Media tab: the child's file renders inside a group named after it,
+    // still addressed to the child (data-media-owner) so seen-tracking posts
+    // against the child rather than the parent.
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    const group = mediaSidebar.getByTestId("sub-agent-media-group");
+    await expect(group).toHaveAttribute("data-sub-agent-id", child.id);
+    await expect(group).toHaveAttribute("data-media-group-collapsed", "false");
+    await expect(group.getByText("Child screenshot")).toBeVisible();
+    await expect(group.locator(`[data-media-owner="${child.id}"]`)).toHaveCount(
+      1
+    );
+    await expect
+      .poll(async () => {
+        const res = await request.get(`${API}/agents/${child.id}/media`, {
+          headers: authHeaders(),
+        });
+        const body = (await res.json()) as { files: { seen: boolean }[] };
+        return body.files[0]?.seen ?? false;
+      })
+      .toBe(true);
+
+    // Pins tab: a switch at the top picks whose pins show; the parent's own
+    // are the default and the child's are one click away.
+    await mediaSidebar.getByRole("button", { name: "Pins" }).click();
+    const ownChip = mediaSidebar.getByTestId(`pins-owner-chip-${parent.id}`);
+    const childChip = mediaSidebar.getByTestId(`pins-owner-chip-${child.id}`);
+    await expect(ownChip).toHaveAttribute("aria-pressed", "true");
+    await expect(childChip).toContainText("1");
+    await expect(mediaSidebar.getByText("Child PR")).toHaveCount(0);
+    await childChip.click();
+    await expect(childChip).toHaveAttribute("aria-pressed", "true");
+    await expect(mediaSidebar.getByText("Child PR")).toBeVisible();
+
+    // The child's own panel is unchanged: no groups, its file already seen.
+    // Switching agents closes the drawer, so reopen it for the child.
+    await page.getByTestId(`child-agent-row-${child.id}`).click();
+    await page.getByTestId("toggle-media-sidebar").click();
+    await mediaSidebar.getByRole("button", { name: "Media" }).click();
+    await expect(mediaSidebar.getByText("Child screenshot")).toBeVisible();
+    await expect(mediaSidebar.getByTestId("sub-agent-media-group")).toHaveCount(
+      0
+    );
   });
 
   test("remembers a collapsed pin group across a reload", async ({

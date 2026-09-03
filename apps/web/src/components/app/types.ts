@@ -113,7 +113,23 @@ export type MediaFile = {
   seen?: boolean;
   source?: "screenshot" | "stream" | "simulator" | "text" | "user";
   description?: string | null;
+  /**
+   * Stamped client-side, not returned by the API. The selected agent's panel
+   * also lists its sub agents' media, so a file has to say whose it is for
+   * seen-tracking and the lightbox to address the right agent.
+   */
+  ownerAgentId?: string;
 };
+
+/** A sub agent whose pins and media are grouped under the selected agent. */
+export type SubAgentRef = {
+  id: string;
+  name: string;
+  status?: string;
+};
+
+export type SubAgentMedia = { agent: SubAgentRef; files: MediaFile[] };
+export type SubAgentPins = { agent: SubAgentRef; pins: AgentPin[] };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";
 export type ServiceState = "ok" | "down" | "checking";

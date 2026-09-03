@@ -65,7 +65,7 @@ describe("shortcut pins", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /work on/i }));
 
-    expect(onRunShortcut).toHaveBeenCalledWith(shortcutPin);
+    expect(onRunShortcut).toHaveBeenCalledWith(shortcutPin, null);
   });
 
   it("asks for confirmation first when the pin sets confirm", () => {
@@ -82,7 +82,7 @@ describe("shortcut pins", () => {
     ).toContain("work on sse-eventsource-reconnect");
 
     fireEvent.click(screen.getByTestId("pin-shortcut-confirm"));
-    expect(onRunShortcut).toHaveBeenCalledWith(pin);
+    expect(onRunShortcut).toHaveBeenCalledWith(pin, null);
   });
 
   it("does not fire the shortcut when the confirmation is cancelled", () => {
@@ -361,5 +361,79 @@ describe("shortcut pins", () => {
 
     fireEvent.click(button);
     expect(onRunShortcut).not.toHaveBeenCalled();
+  });
+});
+
+describe("sub agent owner switch", () => {
+  const child = { id: "agt_child", name: "builder", status: "running" };
+  const quiet = { id: "agt_quiet", name: "quiet", status: "stopped" };
+  const childPins: AgentPin[] = [
+    { id: "child_pr", label: "PR", value: "https://example/pr/1", type: "pr" },
+    {
+      id: "child_go",
+      label: "Merge it",
+      value: "merge the PR",
+      type: "shortcut",
+    },
+  ];
+
+  it("lists the agent and every sub agent as chips, showing the agent's own pins by default", () => {
+    renderPanel([shortcutPin], {
+      selectedAgentId: "agt_parent",
+      subAgentPins: [
+        { agent: child, pins: childPins },
+        { agent: quiet, pins: [] },
+      ],
+    });
+    const chips = within(screen.getByTestId("pins-owner-switch")).getAllByRole(
+      "button"
+    );
+    expect(chips.map((chip) => chip.textContent)).toEqual([
+      "agent1",
+      "builder2",
+      "quiet0",
+    ]);
+    expect(chips[0]!.getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("pins-panel-scroll").dataset.pinsOwner).toBe(
+      "agt_parent"
+    );
+    expect(screen.getByRole("button", { name: /work on/i })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Merge it/ })).toBeNull();
+  });
+
+  it("swaps to a sub agent's pins and fires its shortcut at that sub agent", () => {
+    const onRunShortcut = vi.fn();
+    renderPanel([shortcutPin], {
+      selectedAgentId: "agt_parent",
+      onRunShortcut,
+      subAgentPins: [{ agent: child, pins: childPins }],
+    });
+    fireEvent.click(screen.getByTestId("pins-owner-chip-agt_child"));
+    expect(
+      screen
+        .getByTestId("pins-owner-chip-agt_child")
+        .getAttribute("aria-pressed")
+    ).toBe("true");
+    expect(screen.getByTestId("pins-panel-scroll").dataset.pinsOwner).toBe(
+      "agt_child"
+    );
+    expect(screen.queryByRole("button", { name: /work on/i })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Merge it/ }));
+    expect(onRunShortcut).toHaveBeenCalledWith(childPins[1], "agt_child");
+  });
+
+  it("keeps the switch visible when the chosen sub agent has no pins", () => {
+    renderPanel([shortcutPin], {
+      selectedAgentId: "agt_parent",
+      subAgentPins: [{ agent: quiet, pins: [] }],
+    });
+    fireEvent.click(screen.getByTestId("pins-owner-chip-agt_quiet"));
+    expect(screen.getByText("quiet has no pins yet.")).toBeTruthy();
+    expect(screen.getByTestId("pins-owner-switch")).toBeTruthy();
+  });
+
+  it("renders no switch without sub agents", () => {
+    renderPanel([shortcutPin], { selectedAgentId: "agt_parent" });
+    expect(screen.queryByTestId("pins-owner-switch")).toBeNull();
   });
 });

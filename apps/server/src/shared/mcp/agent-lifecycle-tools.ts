@@ -24,9 +24,10 @@ export type AgentLifecycleContext = {
   }>;
   listMedia?: (
     agentId: string,
-    opts: { source?: string }
+    opts: { source?: string; ownerAgentId?: string }
   ) => Promise<
     Array<{
+      ownerAgentId?: string;
       fileName: string;
       filePath: string;
       source: string;
@@ -37,7 +38,8 @@ export type AgentLifecycleContext = {
   >;
   deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
   listPins?: (
-    agentId: string
+    agentId: string,
+    opts?: { ownerAgentId?: string }
   ) => Promise<
     Array<{ id: string; label: string; value: string; type: string }>
   >;
@@ -200,7 +202,7 @@ export function registerAgentLifecycleTools(
       "dispatch_list_media",
       {
         description:
-          "List media files shared with or by this agent. Returns metadata only — use file reading tools to access content via filePath.",
+          "List media files shared with or by this agent, or by its parent or one of its direct children when ownerAgentId is supplied (read-only; an archived one still lists). Returns metadata only — use file reading tools to access content via filePath.",
         inputSchema: {
           source: z
             .string()
@@ -208,11 +210,21 @@ export function registerAgentLifecycleTools(
             .describe(
               'Optional source filter (e.g. "user", "screenshot", "text", "simulator", "stream"). Omit to list all media.'
             ),
+          ownerAgentId: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              "Whose media to list: omit for your own, or pass your parent's or a direct child's id (see list_agents). Any other agent reports as not found."
+            ),
         },
       },
       async (args) => {
         try {
-          const items = await listMedia(agentId, { source: args.source });
+          const items = await listMedia(agentId, {
+            source: args.source,
+            ownerAgentId: args.ownerAgentId,
+          });
           return {
             content: [{ type: "text" as const, text: jsonText(items) }],
           };
@@ -257,7 +269,7 @@ export function registerAgentLifecycleTools(
       "dispatch_list_pins",
       {
         description:
-          "List this agent's current Dispatch sidebar pins. Use dispatch_delete_pin with a returned id to remove a stale pin. " +
+          "List this agent's current Dispatch sidebar pins, or — with ownerAgentId — the pins of its parent or one of its direct children, read-only. Use dispatch_delete_pin with a returned id to remove a stale pin of your own. " +
           `Pin values longer than ${LIST_STRING_MAX} characters are truncated (marked with the number of characters dropped). ` +
           "Pass an id to get that one pin back in full instead — that is how you read a long shortcut pin's whole prompt.",
         inputSchema: {
@@ -268,11 +280,20 @@ export function registerAgentLifecycleTools(
             .describe(
               "Return only this pin, untruncated. Omit to list every pin."
             ),
+          ownerAgentId: z
+            .string()
+            .min(1)
+            .optional()
+            .describe(
+              "Whose pins to list: omit for your own, or pass your parent's or a direct child's id (see list_agents). Any other agent reports as not found."
+            ),
         },
       },
       async (args) => {
         try {
-          const pins = await listPins(agentId);
+          const pins = await listPins(agentId, {
+            ownerAgentId: args.ownerAgentId,
+          });
           if (args.id !== undefined) {
             const pin = pins.find((candidate) => candidate.id === args.id);
             if (!pin) {

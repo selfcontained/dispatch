@@ -335,9 +335,10 @@ export type McpRequestContext = {
   ) => Promise<MediaResult>;
   listMedia?: (
     agentId: string,
-    opts: { source?: string }
+    opts: { source?: string; ownerAgentId?: string }
   ) => Promise<
     Array<{
+      ownerAgentId?: string;
       fileName: string;
       filePath: string;
       source: string;
@@ -347,7 +348,10 @@ export type McpRequestContext = {
     }>
   >;
   deleteMedia?: (agentId: string, fileName: string) => Promise<void>;
-  listPins?: (agentId: string) => Promise<
+  listPins?: (
+    agentId: string,
+    opts?: { ownerAgentId?: string }
+  ) => Promise<
     Array<{
       id: string;
       label: string;

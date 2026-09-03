@@ -82,6 +82,14 @@ Messaging is for coordination, not for streaming progress. A parent that wants a
 start and an end does not want twelve interim pings; fold the detail into the
 final report.
 
+Artifacts do not travel by message. A child's shared media and pins are readable
+from the parent with `ownerAgentId` on `dispatch_list_media` / `dispatch_list_pins`,
+and the parent's are readable from the child the same way — so a child shares a
+screenshot with `dispatch_share_file` and says so, rather than pasting the path,
+and reads the parent's pinned dev URL rather than asking for it. The user sees a
+child's media and pins grouped under the parent's card already; re-sharing them
+from the parent only duplicates the file.
+
 For results that need to outlive either session — a finding, a decision, an
 accumulating list — write to the brain instead of messaging it. See the `brain`
 skill.
