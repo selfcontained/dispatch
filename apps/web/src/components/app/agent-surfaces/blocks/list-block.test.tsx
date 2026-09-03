@@ -89,7 +89,7 @@ describe("ListBlockView v2", () => {
       ],
     });
     expect(screen.getByRole("heading", { name: "Work" })).toBeTruthy();
-    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByText("(2)")).toBeTruthy();
     expect(screen.getByText("Now").closest("li")).toBeTruthy();
     expect(screen.getByText("Needs input").className).toContain(
       "text-status-waiting"

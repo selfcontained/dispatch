@@ -24,8 +24,10 @@ export function BlockHeader({
             </h3>
           ) : null}
           {count !== undefined ? (
-            <span className="text-[11px] tabular-nums text-muted-foreground">
-              {count}
+            // Parenthesized so the numeral reads as part of the title line
+            // rather than a stray detached digit.
+            <span className="text-xs tabular-nums text-muted-foreground">
+              ({count})
             </span>
           ) : null}
         </div>

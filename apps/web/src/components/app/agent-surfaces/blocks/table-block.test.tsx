@@ -185,7 +185,7 @@ describe("TableBlockView URL cells", () => {
       ],
     };
     renderTable(block);
-    expect(screen.getByText("2")).toBeTruthy();
+    expect(screen.getByText("(2)")).toBeTruthy();
     const rows = document.querySelectorAll("tbody tr[data-row-id]");
     expect(rows[0].querySelectorAll("td").length).toBe(
       rows[1].querySelectorAll("td").length

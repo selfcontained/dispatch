@@ -118,8 +118,10 @@ with a current document rather than patching it.
   `showItemCount: true` when the total matters.
 - `table`: compact repeated data; at most 3 primary columns, badge variants
   for semantic values, `priority: "secondary"` for verbose diagnostics behind
-  the per-row disclosure. Two plain columns render as a key/value list. Rows
-  take `actions` like list items.
+  the per-row disclosure. When recency matters (deploy history, run logs),
+  keep a relative-time column primary rather than demoting it — a history
+  with no visible time cue is worse than one fewer data column. Two plain
+  columns render as a key/value list. Rows take `actions` like list items.
 - `form`: text, textarea, number, checkbox, radio, and single/multi-select
   input submitted together. The submit is always the form's primary action
   (no style knob) and renders full width; a trailing run of checkboxes

@@ -587,7 +587,7 @@ test.describe("Agent-authored sidebar surfaces", () => {
     // rows render initially. This prevents a long status list from taking over
     // the sidebar without hiding the amount of outstanding work.
     await expect(list.getByText("Release work", { exact: true })).toBeVisible();
-    await expect(list.getByText("4", { exact: true })).toBeVisible();
+    await expect(list.getByText("(4)", { exact: true })).toBeVisible();
     await expect(list.locator("[data-item-id]")).toHaveCount(2);
     await expect(list.getByText("Completed", { exact: true })).toBeVisible();
     await expect(list.getByText("Next steps", { exact: true })).toBeVisible();
