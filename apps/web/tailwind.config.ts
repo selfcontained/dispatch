@@ -66,6 +66,10 @@ export default {
         sm: "0.45rem",
       },
       keyframes: {
+        "chat-enter": {
+          from: { opacity: "0", transform: "translateY(3px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
         "mobile-toolbar-flash": {
           "0%": {
             backgroundColor: "rgba(255,255,255,0.06)",
@@ -86,6 +90,8 @@ export default {
       },
       animation: {
         "mobile-toolbar-flash": "mobile-toolbar-flash 420ms ease-out forwards",
+        // A feed entry arriving after the initial render (see ChatFeed).
+        "chat-enter": "chat-enter 200ms ease-out both",
       },
     },
   },

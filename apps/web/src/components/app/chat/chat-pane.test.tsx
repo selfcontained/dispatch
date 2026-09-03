@@ -125,7 +125,6 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
       agent={agent}
       terminalMode="tmux"
       active={true}
-      onOpenConsole={vi.fn()}
       openLightbox={vi.fn()}
       isMobile={false}
       {...props}
@@ -330,7 +329,6 @@ describe("ChatPane", () => {
         agent={agent}
         terminalMode="tmux"
         active={true}
-        onOpenConsole={vi.fn()}
         openLightbox={vi.fn()}
         isMobile={false}
       />

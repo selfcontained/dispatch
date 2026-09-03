@@ -13,6 +13,7 @@ import {
   Loader2,
 } from "lucide-react";
 
+import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import type { Agent } from "@/components/app/types";
 import {
@@ -20,6 +21,7 @@ import {
   type AgentMessage,
 } from "@/hooks/use-agent-messages";
 import { useCopyText } from "@/hooks/use-copy";
+import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { api } from "@/lib/api";
 import { formatRelativeTime } from "@/lib/format";
 import { messageGroupsCollapsedAtomFamily } from "@/lib/store";
@@ -29,6 +31,8 @@ export type Thread = {
   otherId: string;
   otherName: string;
   otherType?: string;
+  /** How the other agent stands to this one; "agent" until the list is known. */
+  relation: AgentRelation;
   messages: AgentMessage[];
 };
 
@@ -51,6 +55,9 @@ export function groupByParticipant(
         otherId,
         otherName,
         otherType: otherAgent?.type ?? undefined,
+        relation: agentMap
+          ? agentRelation(agentId, otherId, agentMap)
+          : "agent",
         messages: [m],
       });
     }
@@ -161,6 +168,7 @@ export function MessageThreadAccordion({
         )}
         <AgentTypeIcon type={thread.otherType} className="shrink-0" />
         <span className="truncate">{thread.otherName}</span>
+        <AgentRelationBadge relation={thread.relation} />
         <span className="ml-auto shrink-0 rounded-full bg-muted px-2 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground">
           {thread.messages.length}
         </span>

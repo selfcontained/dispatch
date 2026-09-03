@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  agentRelation,
   cardIdForAgent,
   descendantAgents,
   partitionAgentsByLineage,
@@ -172,5 +173,39 @@ describe("descendantAgents", () => {
     expect(descendantAgents("a", agents).map((agent) => agent.id)).toEqual([
       "b",
     ]);
+  });
+});
+
+describe("agentRelation", () => {
+  const byId = new Map(
+    [
+      { id: "agt_root", parentAgentId: null },
+      { id: "agt_me", parentAgentId: "agt_root" },
+      { id: "agt_sib", parentAgentId: "agt_root" },
+      { id: "agt_kid", parentAgentId: "agt_me" },
+      { id: "agt_other", parentAgentId: null },
+      { id: "agt_cousin", parentAgentId: "agt_other" },
+    ].map((agent) => [agent.id, agent])
+  );
+
+  it("names the lineage from this agent's point of view", () => {
+    expect(agentRelation("agt_me", "agt_kid", byId)).toBe("child");
+    expect(agentRelation("agt_me", "agt_root", byId)).toBe("parent");
+    expect(agentRelation("agt_me", "agt_sib", byId)).toBe("sibling");
+    expect(agentRelation("agt_me", "agt_other", byId)).toBe("agent");
+    expect(agentRelation("agt_me", "agt_cousin", byId)).toBe("agent");
+    // The same pair reads the other way round from the other side.
+    expect(agentRelation("agt_kid", "agt_me", byId)).toBe("parent");
+    expect(agentRelation("agt_root", "agt_me", byId)).toBe("child");
+  });
+
+  it("does not call two parentless agents siblings", () => {
+    expect(agentRelation("agt_root", "agt_other", byId)).toBe("agent");
+  });
+
+  it("falls back to a plain agent when either side is unknown", () => {
+    expect(agentRelation("agt_me", "agt_gone", byId)).toBe("agent");
+    expect(agentRelation("agt_gone", "agt_me", byId)).toBe("agent");
+    expect(agentRelation("agt_me", "agt_me", byId)).toBe("agent");
   });
 });

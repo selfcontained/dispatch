@@ -1,25 +1,56 @@
 import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 
-import { type CenterTab } from "./center-tabs";
+import {
+  type CenterTab,
+  isCenterTab,
+  isLegacyCenterTab,
+  type LegacyCenterTab,
+} from "./center-tabs";
+import {
+  type ChatComposerDraft,
+  EMPTY_CHAT_DRAFT,
+  fitChatDraft,
+  isChatComposerDraft,
+} from "./chat-draft";
 import { type IdeType } from "./ide-types";
 
 export { type CenterTab } from "./center-tabs";
 
-type AtomWithLocalStorageOptions = {
+type AtomWithLocalStorageOptions<T> = {
   /**
    * Older key to read when `key` is absent. Read-only migration path: writes
    * go to `key` alone, so a client rolled back to the old schema only ever
    * sees values it wrote itself.
    */
   legacyKey?: string;
+  /**
+   * Shape check for what comes back from storage (user-editable, and maybe
+   * written by another build). A value that fails it reads as
+   * `initialValue`. Without one, whatever parses is trusted as a `T`.
+   */
+  validate?: (value: unknown) => value is T;
+  /**
+   * What actually gets written for a value — for state whose stored form is
+   * a bounded, lossy snapshot of the in-memory one. The atom itself always
+   * holds the value as set; only storage (and so other tabs, and the next
+   * reload) sees the snapshot. Defaults to `JSON.stringify`.
+   */
+  serialize?: (value: T) => string;
 };
 
 export function atomWithLocalStorage<T>(
   key: string,
   initialValue: T,
-  options: AtomWithLocalStorageOptions = {}
+  options: AtomWithLocalStorageOptions<T> = {}
 ) {
+  const parse = (raw: string): T => {
+    const value: unknown = JSON.parse(raw);
+    if (options.validate && !options.validate(value)) return initialValue;
+    return value as T;
+  };
+  const serialize = options.serialize ?? ((value: T) => JSON.stringify(value));
+
   const baseAtom = atom<T>(
     (() => {
       if (typeof window === "undefined") return initialValue;
@@ -29,7 +60,7 @@ export function atomWithLocalStorage<T>(
           stored = window.localStorage.getItem(options.legacyKey);
         }
         if (stored === null) return initialValue;
-        return JSON.parse(stored) as T;
+        return parse(stored);
       } catch {
         return initialValue;
       }
@@ -50,7 +81,7 @@ export function atomWithLocalStorage<T>(
         return;
       }
       try {
-        setSelf(JSON.parse(event.newValue) as T);
+        setSelf(parse(event.newValue));
       } catch {
         // Ignore malformed payloads from other tabs — keep current state.
       }
@@ -67,7 +98,13 @@ export function atomWithLocalStorage<T>(
           ? (update as (prev: T) => T)(_get(baseAtom))
           : update;
       set(baseAtom, nextValue);
-      window.localStorage.setItem(key, JSON.stringify(nextValue));
+      try {
+        window.localStorage.setItem(key, serialize(nextValue));
+      } catch {
+        // Quota exceeded, storage disabled, or a serializer bug: the
+        // in-memory value is already set and stays the truth for this
+        // session; it just will not outlive it.
+      }
     }
   );
 
@@ -393,10 +430,26 @@ export function reconcileDiffViewStateStorage(
 // Split pane state — per-agent split/single mode and pane sizes
 // ---------------------------------------------------------------------------
 
+export type SplitPaneMode = "single" | "split";
+
+/** What the layout renders: sides drawn from the current tab set only. */
 export type SplitPaneState = {
-  mode: "single" | "split";
+  mode: SplitPaneMode;
   left: CenterTab;
   right: CenterTab;
+  sizes: [number, number];
+};
+
+/**
+ * What storage holds. Sides may still carry the round-1/2 "chat" id (and
+ * "terminal"/"agent" from under the other flag value);
+ * `normalizeSplitPaneState` in use-split-pane.ts turns one of these into a
+ * `SplitPaneState` before anything renders it.
+ */
+export type PersistedSplitPaneState = {
+  mode: SplitPaneMode;
+  left: LegacyCenterTab;
+  right: LegacyCenterTab;
   sizes: [number, number];
 };
 
@@ -407,7 +460,32 @@ export const defaultSplitPaneState: SplitPaneState = {
   sizes: [50, 50],
 };
 
-export const inactiveSplitPaneStateAtom = atom<SplitPaneState>(
+/** Stored values are user-editable localStorage; anything off-shape reads as the default. */
+export function isPersistedSplitPaneState(
+  value: unknown
+): value is PersistedSplitPaneState {
+  if (!value || typeof value !== "object") return false;
+  const state = value as Record<string, unknown>;
+  return (
+    (state.mode === "single" || state.mode === "split") &&
+    isLegacyCenterTab(state.left) &&
+    isLegacyCenterTab(state.right) &&
+    Array.isArray(state.sizes) &&
+    state.sizes.length === 2 &&
+    state.sizes.every((n) => typeof n === "number" && Number.isFinite(n))
+  );
+}
+
+/** A persisted state whose sides are already current tabs, as stored by this build. */
+export function isCurrentSplitPaneState(
+  state: PersistedSplitPaneState
+): state is SplitPaneState {
+  return isCenterTab(state.left) && isCenterTab(state.right);
+}
+
+// Typed as the persisted shape so it can stand in for a family member in
+// `useSplitPane`; the default it holds is a current-shape state.
+export const inactiveSplitPaneStateAtom = atom<PersistedSplitPaneState>(
   defaultSplitPaneState
 );
 
@@ -421,24 +499,63 @@ export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPaneV2:";
 export const LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
 
 export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<SplitPaneState>(
+  atomWithLocalStorage<PersistedSplitPaneState>(
     `${SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
     defaultSplitPaneState,
-    { legacyKey: `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}` }
+    {
+      legacyKey: `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
+      validate: isPersistedSplitPaneState,
+    }
   )
 );
 
-export const CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
-
 /**
- * The last center tab the user picked for an agent, so the bare
- * `/agents/:id` route can land on Chat by default without trapping someone
- * who deliberately switched to the Console. Only the routing hook reads it.
+ * Round 1/2 remembered a last-picked center tab under this prefix so the bare
+ * agent route could land on Chat. The Agent pane replaced that with a view
+ * toggle (`agentPaneViewAtomFamily`); the prefix is only kept so the
+ * reconciler still sweeps the old keys.
  */
-export const lastCenterTabAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<CenterTab | null>(
-    `${CENTER_TAB_STORAGE_PREFIX}${agentId}`,
-    null
+export const LEGACY_CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
+
+// ---------------------------------------------------------------------------
+// Agent pane view — which of Chat / Console the Agent tab shows, per agent.
+// Not in the URL on purpose: it is a preference, not a place, and the /chat
+// route of round 1 only survives as a redirect that flips it to "chat".
+// ---------------------------------------------------------------------------
+
+export type AgentPaneView = "chat" | "console";
+
+export const AGENT_PANE_VIEW_STORAGE_PREFIX = "dispatch:agentPaneView:";
+
+export const agentPaneViewAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<AgentPaneView>(
+    `${AGENT_PANE_VIEW_STORAGE_PREFIX}${agentId}`,
+    "chat"
+  )
+);
+
+export const inactiveAgentPaneViewAtom = atom<AgentPaneView>("chat");
+
+export function isAgentPaneView(value: unknown): value is AgentPaneView {
+  return value === "chat" || value === "console";
+}
+
+// ---------------------------------------------------------------------------
+// Chat composer drafts — what was typed and attached but not yet sent, per
+// agent. The atom holds the full draft; storage gets `fitChatDraft`'s
+// bounded snapshot of it. See lib/chat-draft.ts for the shape and the cap.
+// ---------------------------------------------------------------------------
+
+export const CHAT_DRAFT_STORAGE_PREFIX = "dispatch:chatDraft:";
+
+export const chatDraftAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<ChatComposerDraft>(
+    `${CHAT_DRAFT_STORAGE_PREFIX}${agentId}`,
+    EMPTY_CHAT_DRAFT,
+    {
+      validate: isChatComposerDraft,
+      serialize: (draft) => JSON.stringify(fitChatDraft(draft)),
+    }
   )
 );
 
@@ -576,7 +693,9 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
   { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
-  { prefix: CENTER_TAB_STORAGE_PREFIX },
+  { prefix: LEGACY_CENTER_TAB_STORAGE_PREFIX },
+  { prefix: AGENT_PANE_VIEW_STORAGE_PREFIX },
+  { prefix: CHAT_DRAFT_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
   { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },

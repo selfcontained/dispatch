@@ -6,7 +6,6 @@ import {
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { type CenterTab, centerTabLabel } from "@/lib/center-tabs";
 import { type SplitPaneState } from "@/lib/store";
 
@@ -17,7 +16,10 @@ type CenterPaneSplitProps = {
   splitTerminalSlotRef: React.RefObject<HTMLDivElement>;
   changesElement: React.ReactNode;
   whiteboardElement: React.ReactNode;
-  chatElement?: React.ReactNode;
+  /** The Agent pane (Chat + Console) for the "agent" slot, flag on. */
+  agentElement?: React.ReactNode;
+  /** The Chat | Console toggle, shown in the "agent" slot's header. */
+  agentHeaderAccessory?: React.ReactNode;
   isMobile: boolean;
   onLayoutChange: (layout: Record<string, number>) => void;
   onExitSplit: () => void;
@@ -28,6 +30,10 @@ type CenterPaneSplitProps = {
  * either the terminal (via the shared terminal slot) or the Changes tab, with an
  * unsplit button anchored on the divider. Purely presentational — the terminal
  * DOM node is portaled into `splitTerminalSlotRef` by the parent.
+ *
+ * The unsplit button straddles the divider, so each header keeps its
+ * divider-side padding wider than the button's overhang and its title yields
+ * (truncates) before an accessory would be pushed under the button.
  */
 export function CenterPaneSplit({
   splitState,
@@ -36,23 +42,28 @@ export function CenterPaneSplit({
   splitTerminalSlotRef,
   changesElement,
   whiteboardElement,
-  chatElement = null,
+  agentElement = null,
+  agentHeaderAccessory = null,
   isMobile,
   onLayoutChange,
   onExitSplit,
 }: CenterPaneSplitProps): JSX.Element {
-  const { enabled: chatEnabled } = useChatSurfaceEnabled();
   const paneFor = (tab: CenterTab): React.ReactNode => {
     switch (tab) {
       case "terminal":
         return <div ref={splitTerminalSlotRef} className="h-full" />;
+      case "agent":
+        return agentElement;
       case "whiteboard":
         return whiteboardElement;
-      case "chat":
-        return chatElement;
       default:
         return changesElement;
     }
+  };
+  const accessoryFor = (tab: CenterTab): React.ReactNode => {
+    if (tab === "changes" && !isMobile) return <ChangesSettingsPopover />;
+    if (tab === "agent") return agentHeaderAccessory;
+    return null;
   };
 
   return (
@@ -68,13 +79,11 @@ export function CenterPaneSplit({
           minSize={20}
         >
           <div ref={splitLeftRef} className="flex h-full flex-col">
-            <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {centerTabLabel(splitState.left, chatEnabled)}
+            <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 pl-3 pr-6">
+              <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {centerTabLabel(splitState.left)}
               </span>
-              {splitState.left === "changes" && !isMobile ? (
-                <ChangesSettingsPopover />
-              ) : null}
+              {accessoryFor(splitState.left)}
             </div>
             <div className="min-h-0 flex-1">{paneFor(splitState.left)}</div>
           </div>
@@ -86,13 +95,11 @@ export function CenterPaneSplit({
           minSize={20}
         >
           <div className="flex h-full flex-col">
-            <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 pl-6 pr-3">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {centerTabLabel(splitState.right, chatEnabled)}
+            <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 pl-6 pr-3">
+              <span className="min-w-0 truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                {centerTabLabel(splitState.right)}
               </span>
-              {splitState.right === "changes" && !isMobile ? (
-                <ChangesSettingsPopover />
-              ) : null}
+              {accessoryFor(splitState.right)}
             </div>
             <div className="min-h-0 flex-1">{paneFor(splitState.right)}</div>
           </div>

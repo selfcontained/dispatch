@@ -60,6 +60,7 @@ function renderComposer(
   }));
   render(
     <ChatComposer
+      agentId={null}
       onSend={onSend}
       uploadFile={uploadFile}
       pins={pins}

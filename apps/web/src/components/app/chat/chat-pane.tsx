@@ -7,12 +7,17 @@ import {
   useState,
 } from "react";
 import type { ChatQuestionOption } from "@dispatch/shared";
-import { ArrowDown, Hash, MessageSquare, TerminalSquare } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ArrowDown, MessageSquare } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import { ChatPresenceStrip } from "@/components/app/chat/chat-presence-strip";
-import { type FeedContext } from "@/components/app/chat/chat-entries";
+import {
+  type FeedContext,
+  type PeerDirectory,
+  peerDirectory,
+} from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
   latestAgentMessageId,
@@ -32,6 +37,7 @@ import {
   useSendChatMessage,
 } from "@/hooks/use-chat";
 import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
+import { api } from "@/lib/api";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
@@ -39,9 +45,13 @@ export type ChatPaneProps = {
   agentId: string | null;
   agent: Agent | null;
   terminalMode: "tmux" | "inert" | null;
-  /** The pane is on screen (its tab is active, or it sits in a split). */
+  /**
+   * The pane is on screen: its tab is active (or it sits in a split) and the
+   * Agent pane is showing Chat rather than the Console. While false the
+   * pane stays mounted — feed, scroll position and draft intact — but does
+   * not mark anything read or take focus.
+   */
   active: boolean;
-  onOpenConsole: () => void;
   openLightbox: (file: MediaFile) => void;
   isMobile: boolean;
 };
@@ -86,7 +96,6 @@ export function ChatPane({
   agent,
   terminalMode,
   active,
-  onOpenConsole,
   openLightbox,
   isMobile,
 }: ChatPaneProps): JSX.Element {
@@ -276,11 +285,23 @@ export function ChatPane({
   // content so unchanged pins don't invalidate every memoised post.
   const pinsKey = JSON.stringify(agent?.pins ?? []);
   const pins = useMemo<AgentPin[]>(() => JSON.parse(pinsKey), [pinsKey]);
+  // The sidebar's agent list, read for a peer post's icon and lineage.
+  // `select` narrows it to what the feed shows, so structural sharing keeps
+  // the directory's identity across agent updates that change nothing here.
+  const { data: peers } = useQuery<Agent[], Error, PeerDirectory>({
+    queryKey: ["agents"],
+    queryFn: async () => {
+      const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
+      return payload.agents;
+    },
+    select: (agents) => peerDirectory(agentId ?? "", agents),
+  });
   const ctx = useMemo<FeedContext>(
     () => ({
       agentId: agentId ?? "",
       agentName: agent?.name,
       agentType: agent?.type ?? null,
+      peers,
       pins,
       workspaceRoot: agent?.worktreePath ?? agent?.cwd ?? null,
       onOpenMedia: openLightbox,
@@ -292,6 +313,7 @@ export function ChatPane({
       agent?.worktreePath,
       agentId,
       openLightbox,
+      peers,
       pins,
     ]
   );
@@ -309,24 +331,6 @@ export function ChatPane({
       className="flex h-full min-h-0 flex-col bg-background"
       data-testid="chat-pane"
     >
-      <div className="flex h-8 shrink-0 items-center justify-between border-b border-border/40 px-3">
-        <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
-          <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          <span className="truncate">{agent?.name ?? "Chat"}</span>
-        </span>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          className="h-6 gap-1 px-2 text-xs text-muted-foreground"
-          onClick={onOpenConsole}
-          data-testid="chat-open-console"
-        >
-          <TerminalSquare className="h-3.5 w-3.5" />
-          Open Console
-        </Button>
-      </div>
-
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
@@ -448,6 +452,7 @@ export function ChatPane({
           ) : null}
         </div>
         <ChatComposer
+          agentId={agentId}
           onSend={onSend}
           uploadFile={uploadFile}
           pins={pins}

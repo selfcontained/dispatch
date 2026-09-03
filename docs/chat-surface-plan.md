@@ -333,3 +333,85 @@ string; at: string }`, published from one wrapper around `registerTool` in
   replacing the per-file `CenterTab` switches and the `chatEnabled` prop drill.
 - `useServerFlag(endpoint, hintAtom)` extracted from `use-chat-surface-enabled.ts`
   and reused by it.
+
+## Round 3 (web only): the Agent pane
+
+Decided 2026-09-03 after Brad reviewed round 2. No server or shared-type
+changes; the flag, routes and tools are unchanged.
+
+### One "Agent" tab with a Chat | Console toggle
+
+- Flag on, the center tabs are **Agent · Changes · Whiteboard**. The Agent
+  tab (`CenterTab` id `"agent"`, `lib/center-tabs.ts`) hosts both the Chat
+  feed and the Console (the terminal); a segmented **Chat | Console** toggle
+  (shadcn `ToggleGroup`, `AgentViewToggle` in `agent-pane.tsx`) in the pane
+  header flips between them. Flag off, the tab is still **Terminal** (id
+  `"terminal"`) with no toggle; nothing else changes.
+- The view is a per-agent preference, not a place: `agentPaneViewAtomFamily`
+  in `lib/store.ts` (localStorage, default Chat), never in the URL.
+  `/agents/:id` is the Agent tab. `/agents/:id/chat` survives only as a
+  redirect to `/agents/:id` that sets the view to Chat (old links; flag off
+  it still falls back to the terminal). The no-console-flash guarantee
+  stands: `centerTabResolved` holds the pane until the flag is known and any
+  redirect has landed, and the terminal is only armed after that.
+- Both views stay mounted. The terminal is the same portaled pane as before,
+  hidden with CSS under Chat; the Chat pane (and its composer) stays mounted
+  under the Console, so flipping is instant and nothing typed is lost.
+  `AgentPane` always renders the terminal slot at the same tree position,
+  flag on or off, so the reparented terminal DOM is never stranded.
+- Unread: the badge sits on the **Agent** tab label while another tab is
+  active, and on the **Chat** segment of the toggle while the Console is up.
+- Split panes: `"agent"` replaces `"chat"`/`"terminal"` as a pane choice.
+  `normalizeSplitPaneState` folds persisted `chat`/`terminal` values into
+  `agent` with the flag on (and `agent`/`chat` into `terminal` with it off);
+  a split that collapses onto the same pane twice shows as a single pane.
+  The split pane's header carries the toggle.
+- Mobile: the terminal toolbar shows only while the Agent pane is in Console
+  view (flag on); flag off it shows on every tab as before.
+
+### Peer posts and arrivals
+
+- A post from another agent (`agent_message`, direction `in`) shows that
+  agent's own type icon and, after its name, a relation chip computed on the
+  client from the sidebar's agent list: **child agent** when this agent
+  launched it, **parent** when it launched this agent, **sibling** when both
+  share a parent, otherwise **agent** — also the fallback when the sender is
+  no longer in the list (generic bot icon). `agentRelation` in
+  `lib/agent-lineage.ts`; the same chip sits on the Messages panel's thread
+  headers so the two agree. The violet tint and the outgoing "to <name>"
+  line stay.
+- Entries that arrive after the feed first rendered — new posts, status
+  lines, media, and posts edited in place — fade in (200 ms opacity with a
+  3 px rise, `animate-chat-enter`); the initial page and anything paged in
+  with "Load older" never do. `prefers-reduced-motion` drops the animation
+  entirely. The row animates, not the scroll, so auto-follow is unaffected.
+- The Chat | Console segments grow to 44 px on coarse pointers, and the
+  Agent-pane / split headers grow with them; split headers keep their
+  divider-side padding wider than the unsplit button's overhang so it never
+  covers the toggle.
+
+### Composer draft persistence
+
+- `chatDraftAtomFamily(agentId)` (`lib/store.ts`, shape in
+  `lib/chat-draft.ts`) keeps the unsent draft per agent in localStorage:
+  text, link chips, pin ids, and file chips. Restored on mount; what was sent
+  is cleared on a successful send; a failed send keeps everything.
+- Files cannot survive a reload (they upload at send time), so only their
+  name/size/type is kept and they come back as a disabled "needs
+  re-attaching" placeholder chip with a remove button. The send is held
+  until placeholders are re-attached or removed. Pasted-text chips keep
+  their text and come back whole.
+- Size cap: 64 KB per agent (`CHAT_DRAFT_MAX_BYTES`). The atom holds the
+  full draft; what it writes to storage is `fitChatDraft`'s lossy snapshot,
+  bounded for any input: pasted-text bodies go first, largest-first (such a
+  chip comes back as a "too large to keep — paste again" placeholder), then
+  links longest-first, then the text is cut at a code-point boundary with a
+  visible marker on the end. A write that storage refuses (quota) keeps the
+  in-memory draft and is simply not persisted.
+- Cross-tab: the draft follows `storage` events like any other persisted
+  atom, files included — descriptors are reconciled into the tab's live
+  chips (a file this tab holds stays live, one it lacks is a placeholder, a
+  pasted body comes back whole). Re-attaching a placeholder's file replaces
+  the placeholder.
+- Within a session a Chat → Console → Chat flip keeps live files too, since
+  the composer stays mounted.

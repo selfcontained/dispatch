@@ -110,3 +110,36 @@ export function descendantAgents<
   }
   return collected;
 }
+
+/**
+ * How another agent stands to this one in the lineage: it was launched by
+ * this agent (`child`), it launched this agent (`parent`), the same agent
+ * launched both (`sibling`), or none of those (`agent`) — which is also the
+ * answer when either side is not in `agentsById` (archived, or in another
+ * repository), since the lineage cannot be read.
+ */
+export type AgentRelation = "child" | "parent" | "sibling" | "agent";
+
+export const AGENT_RELATION_LABEL: Record<AgentRelation, string> = {
+  child: "child agent",
+  parent: "parent",
+  sibling: "sibling",
+  agent: "agent",
+};
+
+export function agentRelation(
+  selfId: string,
+  otherId: string,
+  agentsById: ReadonlyMap<string, { id: string; parentAgentId?: string | null }>
+): AgentRelation {
+  if (selfId === otherId) return "agent";
+  const self = agentsById.get(selfId);
+  const other = agentsById.get(otherId);
+  if (!self || !other) return "agent";
+  if (other.parentAgentId === selfId) return "child";
+  if (self.parentAgentId === otherId) return "parent";
+  if (self.parentAgentId && self.parentAgentId === other.parentAgentId) {
+    return "sibling";
+  }
+  return "agent";
+}

@@ -21,7 +21,14 @@ function renderComposer(
   const onSend = vi.fn(
     async (_text: string, _attachments: unknown[]) => undefined
   );
-  render(<ChatComposer onSend={onSend} disabledReason={null} {...props} />);
+  render(
+    <ChatComposer
+      agentId={null}
+      onSend={onSend}
+      disabledReason={null}
+      {...props}
+    />
+  );
   const input = screen.getByTestId(
     "chat-composer-input"
   ) as HTMLTextAreaElement;
@@ -46,7 +53,9 @@ describe("ChatComposer", () => {
           resolve = res;
         })
     );
-    render(<ChatComposer onSend={onSend} disabledReason={null} />);
+    render(
+      <ChatComposer agentId={null} onSend={onSend} disabledReason={null} />
+    );
     const input = screen.getByTestId(
       "chat-composer-input"
     ) as HTMLTextAreaElement;
@@ -73,7 +82,9 @@ describe("ChatComposer", () => {
           reject = rej;
         })
     );
-    render(<ChatComposer onSend={onSend} disabledReason={null} />);
+    render(
+      <ChatComposer agentId={null} onSend={onSend} disabledReason={null} />
+    );
     const input = screen.getByTestId(
       "chat-composer-input"
     ) as HTMLTextAreaElement;
