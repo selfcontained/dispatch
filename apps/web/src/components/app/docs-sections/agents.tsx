@@ -274,26 +274,33 @@ export function AgentsContent() {
       </Section>
 
       <Section>
-        <H3>Chat tab (beta)</H3>
+        <H3>Agent pane: Chat and Console (beta)</H3>
         <P>
-          Turn on <strong>Chat surface</strong> under Settings → Agents to put a{" "}
-          <strong>Chat</strong> tab in front of each agent's terminal. The
-          agent's replies, questions, status updates, shared files, and messages
-          from other agents appear there as a feed; what you type is delivered
-          into the agent's terminal, and the terminal itself stays one click
-          away as the <strong>Console</strong> tab. Agents reply through the{" "}
-          <Code>dispatch_chat_post</Code> tool, so an agent that only prints in
-          its terminal has nothing in the Chat tab — open the Console to see it.
-          Questions come with option buttons; picking one sends that answer
-          back. An unread count on the tab tracks replies you haven't seen. With
-          the setting off nothing changes.
+          Turn on <strong>Chat surface</strong> under Settings → Agents and the
+          first center tab becomes <strong>Agent</strong>, with a{" "}
+          <strong>Chat | Console</strong> toggle in its header. Chat is a feed
+          of the agent's replies, questions, status updates, shared files, and
+          messages from other agents; what you type is delivered into the
+          agent's terminal. Console is that terminal. Flipping the toggle is
+          instant — both stay live underneath, so no output is missed and an
+          unsent draft is kept — and the choice is remembered per agent. Agents
+          reply through the <Code>dispatch_chat_post</Code> tool, so an agent
+          that only prints in its terminal has nothing in Chat — flip to the
+          Console to see it. Questions come with option buttons; picking one
+          sends that answer back. An unread count sits on the Agent tab (or on
+          the Chat segment while the Console is up) until you read the replies.
+          Drafts survive a reload: text, links, pins and pasted text come back
+          as they were; a picked file comes back as a placeholder to re-attach.
+          With the setting off nothing changes: the tab is{" "}
+          <strong>Terminal</strong>, with no toggle.
         </P>
       </Section>
 
       <Section>
         <H3>Split pane</H3>
         <P>
-          Drag an inactive tab (<strong>Terminal</strong>,{" "}
+          Drag an inactive tab (<strong>Terminal</strong> — or{" "}
+          <strong>Agent</strong> with the chat surface on —{" "}
           <strong>Changes</strong>, or <strong>Whiteboard</strong>) onto the
           left or right drop zone to show two side by side. A resize handle
           between the panes lets you adjust the ratio. Click the{" "}

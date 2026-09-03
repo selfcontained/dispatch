@@ -486,8 +486,8 @@ describe("splitPaneStateAtomFamily storage migration", () => {
 
   const split: SplitPaneState = {
     mode: "split",
-    left: "chat",
-    right: "terminal",
+    left: "agent",
+    right: "changes",
     sizes: [40, 60],
   };
 

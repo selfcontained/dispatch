@@ -64,7 +64,7 @@ test.describe("Chat surface", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("flag off: no Chat tab, terminal keeps its label, /chat falls back", async ({
+  test("flag off: no Agent tab or toggle, terminal keeps its label, /chat falls back", async ({
     page,
     request,
   }) => {
@@ -83,9 +83,13 @@ test.describe("Chat surface", () => {
       "Terminal"
     );
     await expect(page.getByTestId("center-tab-chat")).toHaveCount(0);
+    await expect(page.getByTestId("center-tab-agent")).toHaveCount(0);
+    await expect(page.getByTestId("agent-view-toggle")).toHaveCount(0);
+    await expect(page.getByTestId("chat-pane")).toHaveCount(0);
+    await expect(page.getByTestId("terminal-pane")).toBeVisible();
   });
 
-  test("flag on: settings toggle, Chat tab, seeded feed, console link", async ({
+  test("flag on: settings toggle, Agent tab, seeded feed, Chat | Console toggle", async ({
     page,
     request,
   }) => {
@@ -147,14 +151,18 @@ test.describe("Chat surface", () => {
       kind: "summary",
     });
 
-    // Opening the agent lands on the Chat tab by default.
+    // Opening the agent lands on the Agent tab, showing Chat by default.
     await page.getByTestId("agents-button").click();
     await clickAgentRow(page, agent.id);
-    await page.waitForURL(new RegExp(`/agents/${agent.id}/chat$`));
+    await page.waitForURL(new RegExp(`/agents/${agent.id}$`));
 
-    const chatTab = page.getByTestId("center-tab-chat");
-    await expect(chatTab).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByTestId("center-tab-terminal")).toHaveText("Console");
+    const agentTab = page.getByTestId("center-tab-agent");
+    await expect(agentTab).toHaveAttribute("aria-selected", "true");
+    await expect(agentTab).toHaveText("Agent");
+    await expect(page.getByTestId("center-tab-terminal")).toHaveCount(0);
+    await expect(page.getByTestId("center-tab-chat")).toHaveCount(0);
+    const viewToggle = page.getByTestId("agent-view-toggle");
+    await expect(viewToggle).toHaveAttribute("data-view", "chat");
 
     const pane = page.getByTestId("chat-pane");
     await expect(pane).toBeVisible();
@@ -220,29 +228,41 @@ test.describe("Chat surface", () => {
       })
       .toBe(0);
 
-    // "Open Console" switches to the terminal tab and remembers the choice.
-    await pane.getByTestId("chat-open-console").click();
-    await page.waitForURL(new RegExp(`/agents/${agent.id}$`));
-    await expect(page.getByTestId("center-tab-terminal")).toHaveAttribute(
-      "aria-selected",
-      "true"
+    // The toggle flips to the Console in place: same URL, same tab, the
+    // terminal shows and the chat hides.
+    await viewToggle.getByTestId("agent-view-console").click();
+    await expect(viewToggle).toHaveAttribute("data-view", "console");
+    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
+    await expect(agentTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await expect(pane).toBeHidden();
+
+    // The choice is remembered per agent across a reload.
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    await page.getByTestId("agent-view-toggle").waitFor({ state: "visible" });
+    await expect(page.getByTestId("agent-view-toggle")).toHaveAttribute(
+      "data-view",
+      "console"
     );
     await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await expect(page.getByTestId("chat-pane")).toBeHidden();
 
-    // The bare route now stays on the Console for this agent instead of
-    // redirecting to Chat.
-    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
-    await page.getByTestId("center-tab-chat").waitFor({ state: "visible" });
-    await expect(page).toHaveURL(new RegExp(`/agents/${agent.id}$`));
-    await expect(page.getByTestId("center-tab-terminal")).toHaveAttribute(
-      "aria-selected",
-      "true"
+    // An old /chat link lands on the Agent tab with Chat showing.
+    await page.goto(`/agents/${agent.id}/chat`, {
+      waitUntil: "domcontentloaded",
+    });
+    await page.waitForURL(new RegExp(`/agents/${agent.id}$`));
+    await expect(page.getByTestId("agent-view-toggle")).toHaveAttribute(
+      "data-view",
+      "chat"
     );
+    await expect(page.getByTestId("chat-pane")).toBeVisible();
 
-    // Back to Chat through the tab bar.
-    await chatTab.click();
-    await page.waitForURL(new RegExp(`/agents/${agent.id}/chat$`));
-    await expect(pane).toBeVisible();
+    // And back to the Console through the toggle, then Chat again.
+    await page.getByTestId("agent-view-console").click();
+    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await page.getByTestId("agent-view-chat").click();
+    await expect(page.getByTestId("chat-pane")).toBeVisible();
   });
 
   test("renders a user post's attachments and a pending agent message", async ({
@@ -356,13 +376,21 @@ test.describe("Chat surface", () => {
       })
       .toBe("running");
 
-    await page.goto(`/agents/${agent.id}/chat`, {
-      waitUntil: "domcontentloaded",
-    });
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
     const composer = page.getByTestId("chat-composer");
     const input = composer.getByTestId("chat-composer-input");
     await expect(input).toBeEnabled();
     await input.fill("Please read this");
+
+    // The draft survives a Chat → Console → Chat flip and a reload.
+    await page.getByTestId("agent-view-console").click();
+    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await page.getByTestId("agent-view-chat").click();
+    await expect(input).toHaveValue("Please read this");
+    await page.reload({ waitUntil: "domcontentloaded" });
+    await expect(page.getByTestId("chat-composer-input")).toHaveValue(
+      "Please read this"
+    );
 
     // A lone URL on the clipboard becomes a link chip instead of text.
     await input.evaluate((el) => {
@@ -412,7 +440,7 @@ test.describe("Chat surface", () => {
       .toEqual(["link:https://example.com/design"]);
   });
 
-  test("unread count shows on the Chat tab while another tab is active", async ({
+  test("unread count shows on the Agent tab, then on the Chat segment under Console", async ({
     page,
     request,
   }) => {
@@ -424,16 +452,33 @@ test.describe("Chat surface", () => {
     await page.goto(`/agents/${agent.id}/changes`, {
       waitUntil: "domcontentloaded",
     });
-    await page.getByTestId("center-tab-chat").waitFor({ state: "visible" });
+    await page.getByTestId("center-tab-agent").waitFor({ state: "visible" });
 
     await callMcpTool(request, agent.id, "dispatch_chat_post", {
       text: "Something new for you.",
     });
 
-    await expect(page.getByTestId("chat-unread-count")).toHaveText("1");
+    // The count sits on the Agent tab while Changes is up...
+    const agentTab = page.getByTestId("center-tab-agent");
+    await expect(agentTab.getByTestId("chat-unread-count")).toHaveText("1");
 
-    await page.getByTestId("center-tab-chat").click();
-    await page.waitForURL(new RegExp(`/agents/${agent.id}/chat$`));
+    await agentTab.click();
+    await page.waitForURL(new RegExp(`/agents/${agent.id}$`));
+    await expect(page.getByTestId("chat-pane")).toBeVisible();
     await expect(page.getByTestId("chat-unread-count")).toHaveCount(0);
+    await expect(page.getByTestId("agent-view-chat-unread")).toHaveCount(0);
+
+    // ...and on the Chat segment of the toggle while the Console is up.
+    await page.getByTestId("agent-view-console").click();
+    await expect(page.getByTestId("terminal-pane")).toBeVisible();
+    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+      text: "And another.",
+    });
+    await expect(page.getByTestId("agent-view-chat-unread")).toHaveText("1");
+    await expect(page.getByTestId("chat-unread-count")).toHaveCount(0);
+
+    await page.getByTestId("agent-view-chat").click();
+    await expect(page.getByTestId("chat-pane")).toBeVisible();
+    await expect(page.getByTestId("agent-view-chat-unread")).toHaveCount(0);
   });
 });

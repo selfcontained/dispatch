@@ -80,8 +80,11 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
       )}
     >
       {visibleTabs.map((tab) => {
+        // Unread chat replies sit on the Agent tab while another tab is up;
+        // with the Agent tab active the pane's own Chat | Console toggle
+        // carries the count (see AgentViewToggle).
         const showChatUnread =
-          tab.id === "chat" && activeTab !== "chat" && chatUnreadCount > 0;
+          tab.id === "agent" && activeTab !== "agent" && chatUnreadCount > 0;
         const button = (
           <button
             key={tab.id}
@@ -107,7 +110,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             }}
           >
             <span className="relative pb-1.5 -mb-1.5">
-              {tab.label(chatEnabled)}
+              {tab.label}
               {showChatUnread ? (
                 <span
                   data-testid="chat-unread-count"

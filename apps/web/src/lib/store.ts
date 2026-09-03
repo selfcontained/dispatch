@@ -2,6 +2,7 @@ import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 
 import { type CenterTab } from "./center-tabs";
+import { type ChatComposerDraft, EMPTY_CHAT_DRAFT } from "./chat-draft";
 import { type IdeType } from "./ide-types";
 
 export { type CenterTab } from "./center-tabs";
@@ -395,6 +396,11 @@ export function reconcileDiffViewStateStorage(
 
 export type SplitPaneState = {
   mode: "single" | "split";
+  /**
+   * Typed as the current tab set; what is actually read back may also be the
+   * round-1/2 "chat" id, which `normalizeSplitPaneState` folds into the
+   * Agent pane before anything renders it.
+   */
   left: CenterTab;
   right: CenterTab;
   sizes: [number, number];
@@ -428,17 +434,48 @@ export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
-export const CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
-
 /**
- * The last center tab the user picked for an agent, so the bare
- * `/agents/:id` route can land on Chat by default without trapping someone
- * who deliberately switched to the Console. Only the routing hook reads it.
+ * Round 1/2 remembered a last-picked center tab under this prefix so the bare
+ * agent route could land on Chat. The Agent pane replaced that with a view
+ * toggle (`agentPaneViewAtomFamily`); the prefix is only kept so the
+ * reconciler still sweeps the old keys.
  */
-export const lastCenterTabAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<CenterTab | null>(
-    `${CENTER_TAB_STORAGE_PREFIX}${agentId}`,
-    null
+export const LEGACY_CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
+
+// ---------------------------------------------------------------------------
+// Agent pane view — which of Chat / Console the Agent tab shows, per agent.
+// Not in the URL on purpose: it is a preference, not a place, and the /chat
+// route of round 1 only survives as a redirect that flips it to "chat".
+// ---------------------------------------------------------------------------
+
+export type AgentPaneView = "chat" | "console";
+
+export const AGENT_PANE_VIEW_STORAGE_PREFIX = "dispatch:agentPaneView:";
+
+export const agentPaneViewAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<AgentPaneView>(
+    `${AGENT_PANE_VIEW_STORAGE_PREFIX}${agentId}`,
+    "chat"
+  )
+);
+
+export const inactiveAgentPaneViewAtom = atom<AgentPaneView>("chat");
+
+export function isAgentPaneView(value: unknown): value is AgentPaneView {
+  return value === "chat" || value === "console";
+}
+
+// ---------------------------------------------------------------------------
+// Chat composer drafts — what was typed and attached but not yet sent, per
+// agent. See lib/chat-draft.ts for the shape and the size cap.
+// ---------------------------------------------------------------------------
+
+export const CHAT_DRAFT_STORAGE_PREFIX = "dispatch:chatDraft:";
+
+export const chatDraftAtomFamily = atomFamily((agentId: string) =>
+  atomWithLocalStorage<ChatComposerDraft>(
+    `${CHAT_DRAFT_STORAGE_PREFIX}${agentId}`,
+    EMPTY_CHAT_DRAFT
   )
 );
 
@@ -576,7 +613,9 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
   { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
-  { prefix: CENTER_TAB_STORAGE_PREFIX },
+  { prefix: LEGACY_CENTER_TAB_STORAGE_PREFIX },
+  { prefix: AGENT_PANE_VIEW_STORAGE_PREFIX },
+  { prefix: CHAT_DRAFT_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
   { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },
