@@ -36,6 +36,12 @@ export type ChatFeedRow =
       kind: "entry";
       entry: Exclude<ChatFeedEntry, ChatStatusEntry>;
       grouped: boolean;
+      /**
+       * A hairline above this post: it starts a new author group right after
+       * another post. Off when a day rule or a status cluster already sits
+       * between the two, so nothing is separated twice.
+       */
+      rule: boolean;
     };
 
 /** Posts by one author this close together share a header, like Slack. */
@@ -128,7 +134,8 @@ export function layoutFeed(
       lastPost.key === key &&
       Number.isFinite(at) &&
       at - lastPost.at <= GROUP_WINDOW_MS;
-    rows.push({ kind: "entry", entry: item.entry, grouped });
+    const rule = !grouped && rows[rows.length - 1]?.kind === "entry";
+    rows.push({ kind: "entry", entry: item.entry, grouped, rule });
     lastPost = { key, at: Number.isFinite(at) ? at : 0 };
   }
   return rows;
@@ -196,21 +203,57 @@ export function ChatFeed({
 }: ChatFeedProps): JSX.Element {
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
 
+  // Consecutive status lines sit as one quiet cluster between posts, so they
+  // read as a separator rather than as posts of their own.
+  const blocks = useMemo(() => {
+    const out: Array<
+      | { kind: "row"; row: ChatFeedRow }
+      | {
+          kind: "statuses";
+          key: string;
+          rows: Extract<ChatFeedRow, { kind: "status" }>[];
+        }
+    > = [];
+    for (const row of rows) {
+      if (row.kind !== "status") {
+        out.push({ kind: "row", row });
+        continue;
+      }
+      const last = out[out.length - 1];
+      if (last?.kind === "statuses") {
+        last.rows.push(row);
+      } else {
+        out.push({ kind: "statuses", key: row.entry.id, rows: [row] });
+      }
+    }
+    return out;
+  }, [rows]);
+
   return (
     <div className="flex flex-col pb-1" data-testid="chat-feed">
-      {rows.map((row) => {
+      {blocks.map((block) => {
+        if (block.kind === "statuses") {
+          return (
+            <div
+              key={`statuses:${block.key}`}
+              className="my-1.5 flex flex-col"
+              data-testid="chat-status-cluster"
+            >
+              {block.rows.map((row) => (
+                <StatusLine
+                  key={row.entry.id}
+                  entry={row.entry}
+                  collapsedCount={row.collapsedCount}
+                />
+              ))}
+            </div>
+          );
+        }
+        const row = block.row;
         if (row.kind === "divider") {
           return <DayDivider key={row.key} label={row.label} />;
         }
-        if (row.kind === "status") {
-          return (
-            <StatusLine
-              key={row.entry.id}
-              entry={row.entry}
-              collapsedCount={row.collapsedCount}
-            />
-          );
-        }
+        if (row.kind === "status") return null;
         const entry = row.entry;
         switch (entry.type) {
           case "chat":
@@ -220,6 +263,7 @@ export function ChatFeed({
                 message={entry.message}
                 held={heldMessageId === entry.message.id}
                 grouped={row.grouped}
+                rule={row.rule}
                 ctx={ctx}
                 answering={answeringMessageId === entry.message.id}
                 answersDisabled={answersDisabled}
@@ -232,6 +276,7 @@ export function ChatFeed({
                 key={entry.id}
                 entry={entry}
                 grouped={row.grouped}
+                rule={row.rule}
                 ctx={ctx}
               />
             );
@@ -241,6 +286,7 @@ export function ChatFeed({
                 key={entry.id}
                 entry={entry}
                 grouped={row.grouped}
+                rule={row.rule}
                 ctx={ctx}
               />
             );

@@ -194,6 +194,45 @@ describe("layoutFeed", () => {
     ]);
   });
 
+  it("draws a rule only where a new author group follows another post directly", () => {
+    const rows = layoutFeed(
+      [
+        chat(message({ id: "a1", createdAt: at("10:00") })),
+        chat(message({ id: "a2", createdAt: at("10:01") })),
+        chat(message({ id: "u1", authorKind: "user", createdAt: at("10:02") })),
+        status("s1", "working", "x", at("10:03")),
+        chat(message({ id: "a3", createdAt: at("10:03") })),
+        chat(message({ id: "a4", createdAt: at("10:00", "03") })),
+        chat(
+          message({
+            id: "u2",
+            authorKind: "user",
+            createdAt: at("10:01", "03"),
+          })
+        ),
+      ],
+      makeCtx(),
+      now
+    );
+    expect(
+      rows
+        .filter((r) => r.kind === "entry")
+        .map((r) => (r.kind === "entry" ? [r.entry.id, r.rule] : null))
+    ).toEqual([
+      // First post of the day: the day rule already separates it.
+      ["a1", false],
+      // Grouped under a1: no boundary at all.
+      ["a2", false],
+      // Author change straight after a post: hairline.
+      ["u1", true],
+      // A status cluster sits between: no second separator.
+      ["a3", false],
+      // Day rule again.
+      ["a4", false],
+      ["u2", true],
+    ]);
+  });
+
   it("treats media and outgoing agent messages as the agent's own posts", () => {
     const rows = layoutFeed(
       [
@@ -386,6 +425,67 @@ describe("ChatFeed", () => {
     expect(authors.map((a) => a.textContent)).toEqual(["builder", "You"]);
     expect(screen.getAllByTestId("chat-gutter-time")).toHaveLength(1);
     expect(screen.getByTestId("chat-day-divider")).toBeTruthy();
+  });
+
+  it("tints You and peer posts, leaves the agent's plain, and marks group boundaries", () => {
+    renderFeed([
+      chat(message({ id: "a1", text: "agent one" })),
+      chat(
+        message({
+          id: "u1",
+          authorKind: "user",
+          text: "user one",
+          createdAt: "2026-09-02T10:01:00.000Z",
+        })
+      ),
+      chat(
+        message({
+          id: "u2",
+          authorKind: "user",
+          text: "user two",
+          createdAt: "2026-09-02T10:02:00.000Z",
+        })
+      ),
+      {
+        type: "agent_message",
+        id: "am1",
+        direction: "in",
+        senderAgentId: "agt_2",
+        senderName: "Reviewer",
+        recipientAgentId: AGENT_ID,
+        recipientName: "Me",
+        content: "peer",
+        delivered: true,
+        at: "2026-09-02T10:03:00.000Z",
+      },
+    ]);
+    const [agentPost, userOne, userTwo] = screen.getAllByTestId("chat-message");
+    const peer = screen.getByTestId("chat-agent-message");
+
+    expect(agentPost!.getAttribute("data-author-kind")).toBe("agent");
+    expect(agentPost!.className).not.toMatch(/bg-primary|bg-violet/);
+    expect(agentPost!.getAttribute("data-group-start")).toBe("true");
+    // First post after the day rule: no hairline.
+    expect(agentPost!.getAttribute("data-rule")).toBeNull();
+
+    expect(userOne!.getAttribute("data-author-kind")).toBe("user");
+    expect(userOne!.className).toContain("bg-primary/[0.06]");
+    expect(userOne!.getAttribute("data-group-start")).toBe("true");
+    expect(userOne!.getAttribute("data-rule")).toBe("true");
+    expect(userOne!.className).toContain("border-t");
+    // A grouped row keeps the tint (one block) but no boundary of its own.
+    expect(userTwo!.className).toContain("bg-primary/[0.06]");
+    expect(userTwo!.getAttribute("data-group-start")).toBeNull();
+    expect(userTwo!.getAttribute("data-rule")).toBeNull();
+    expect(userTwo!.className).not.toContain("border-t");
+
+    expect(peer.getAttribute("data-author-kind")).toBe("peer");
+    expect(peer.className).toContain("bg-violet-500/[0.06]");
+    expect(peer.getAttribute("data-rule")).toBe("true");
+
+    // Bodies stop at a reading measure; the row itself spans the pane.
+    const body = agentPost!.querySelector(".max-w-\\[90ch\\]");
+    expect(body?.textContent).toContain("agent one");
   });
 
   it("uses the agent's type for its avatar", () => {
@@ -648,6 +748,13 @@ describe("ChatFeed", () => {
     ]);
     const lines = screen.getAllByTestId("chat-status");
     expect(lines).toHaveLength(2);
+    // Consecutive lines sit in one cluster.
+    const clusters = screen.getAllByTestId("chat-status-cluster");
+    expect(clusters).toHaveLength(1);
+    expect(
+      clusters[0]!.querySelectorAll("[data-testid='chat-status']")
+    ).toHaveLength(2);
+    expect(lines[0]!.className).toContain("text-[10px]");
     expect(lines[0]!.textContent).toContain("Working");
     expect(lines[0]!.textContent).toContain("Testing");
     expect(lines[0]!.textContent).not.toContain("Reading");
