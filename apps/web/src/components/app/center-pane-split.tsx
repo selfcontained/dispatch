@@ -1,13 +1,14 @@
 import { Split } from "lucide-react";
 
-import { centerTabLabel } from "@/components/app/center-pane-tab-bar";
 import { ChangesSettingsPopover } from "@/components/app/changes-settings-popover";
 import {
   ResizableHandle,
   ResizablePanel,
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
-import { type CenterTab, type SplitPaneState } from "@/lib/store";
+import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
+import { type CenterTab, centerTabLabel } from "@/lib/center-tabs";
+import { type SplitPaneState } from "@/lib/store";
 
 type CenterPaneSplitProps = {
   splitState: SplitPaneState;
@@ -17,7 +18,6 @@ type CenterPaneSplitProps = {
   changesElement: React.ReactNode;
   whiteboardElement: React.ReactNode;
   chatElement?: React.ReactNode;
-  chatEnabled?: boolean;
   isMobile: boolean;
   onLayoutChange: (layout: Record<string, number>) => void;
   onExitSplit: () => void;
@@ -37,11 +37,11 @@ export function CenterPaneSplit({
   changesElement,
   whiteboardElement,
   chatElement = null,
-  chatEnabled = false,
   isMobile,
   onLayoutChange,
   onExitSplit,
 }: CenterPaneSplitProps): JSX.Element {
+  const { enabled: chatEnabled } = useChatSurfaceEnabled();
   const paneFor = (tab: CenterTab): React.ReactNode => {
     switch (tab) {
       case "terminal":

@@ -19,7 +19,7 @@ const H = vi.hoisted(() => ({
   isLoading: false,
   error: null as Error | null,
   refetch: vi.fn(),
-  send: vi.fn(async (_text: string) => ({}) as never),
+  send: vi.fn(async (_input: unknown) => ({}) as never),
   answer: vi.fn(async (_input: unknown) => ({}) as never),
   markRead: vi.fn(),
 }));
@@ -187,7 +187,10 @@ describe("ChatPane", () => {
     renderPane();
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
     typeAndSend("hello there");
-    expect(H.send).toHaveBeenCalledWith("hello there");
+    expect(H.send).toHaveBeenCalledWith({
+      text: "hello there",
+      attachments: [],
+    });
     expect(H.answer).not.toHaveBeenCalled();
   });
 
@@ -279,7 +282,10 @@ describe("ChatPane", () => {
     fireEvent.click(screen.getByTestId("chat-reply-context-dismiss"));
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
     typeAndSend("unrelated note");
-    expect(H.send).toHaveBeenCalledWith("unrelated note");
+    expect(H.send).toHaveBeenCalledWith({
+      text: "unrelated note",
+      attachments: [],
+    });
     expect(H.answer).not.toHaveBeenCalled();
   });
 

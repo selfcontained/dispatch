@@ -7,7 +7,7 @@ import {
 } from "react";
 
 import { TAB_DRAG_MIME } from "@/components/app/center-pane-tab-bar";
-import { type CenterTab } from "@/lib/store";
+import { type CenterTab } from "@/lib/center-tabs";
 import { useSplitPane } from "@/hooks/use-split-pane";
 
 type UseCenterPaneLayoutArgs = {
@@ -15,7 +15,6 @@ type UseCenterPaneLayoutArgs = {
   isMobile: boolean;
   /** The tab currently shown full-width; the drop target for a dragged tab. */
   activeTab: CenterTab;
-  chatEnabled?: boolean;
 };
 
 /**
@@ -28,12 +27,11 @@ export function useCenterPaneLayout({
   focusedAgentId,
   isMobile,
   activeTab,
-  chatEnabled = false,
 }: UseCenterPaneLayoutArgs) {
   const [isDraggingTab, setIsDraggingTab] = useState(false);
 
   const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
-    useSplitPane(focusedAgentId, isMobile, chatEnabled);
+    useSplitPane(focusedAgentId, isMobile);
 
   const splitLeftRef = useRef<HTMLDivElement>(null);
   const splitButtonRef = useRef<HTMLButtonElement>(null);

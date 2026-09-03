@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useStore } from "jotai";
 import { Terminal as XTerm } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import {
@@ -18,6 +19,7 @@ import {
   type TerminalUiState,
 } from "@/components/app/types";
 import { api } from "@/lib/api";
+import { terminalOutputActivityAtomFamily } from "@/lib/store";
 
 import { recordWSReconnect } from "@/lib/energy-metrics";
 import { type ThemeId, getTerminalPalette } from "@/hooks/use-theme";
@@ -33,6 +35,7 @@ import {
   openTerminalSocket,
   probeTerminalSocket,
 } from "@/hooks/terminal-socket";
+import { createOutputActivityTracker } from "@/hooks/terminal-output-activity";
 import { createTerminalSurface } from "@/hooks/terminal-surface";
 import { uploadTerminalFiles } from "@/hooks/terminal-uploads";
 
@@ -91,6 +94,7 @@ export function useTerminal(args: {
     mediaResizeSettleKey,
   } = args;
   const queryClient = useQueryClient();
+  const jotaiStore = useStore();
 
   const [connState, setConnState] = useState<ConnState>("disconnected");
   const [connectedAgentId, setConnectedAgentId] = useState<string | null>(null);
@@ -453,6 +457,11 @@ export function useTerminal(args: {
           const rows = term?.rows ?? 42;
           setTerminalMode("tmux");
           setTerminalPlaceholderMessage(null);
+          // The chat presence strip reads this while the Console is hidden
+          // under the Chat tab; it only says whether output is flowing.
+          const outputActivity = createOutputActivityTracker((activity) =>
+            jotaiStore.set(terminalOutputActivityAtomFamily(agent.id), activity)
+          );
           const ws = openTerminalSocket(
             terminalSession.wsUrl,
             cols,
@@ -471,6 +480,7 @@ export function useTerminal(args: {
                 markSocketHealthy(socketHealthRef.current, "heartbeat"),
               onOutput: (data) => {
                 markSocketHealthy(socketHealthRef.current, "output");
+                outputActivity.note(data);
                 terminalRef.current?.write(data);
               },
               onError: (message) => {
@@ -487,6 +497,7 @@ export function useTerminal(args: {
                 setStatusMessage("Session ended.");
               },
               onClose: (event) => {
+                outputActivity.dispose();
                 wsRef.current = null;
                 const lastErrorMessage =
                   socketHealthRef.current.lastErrorMessage;
@@ -561,6 +572,7 @@ export function useTerminal(args: {
       closeSocket,
       closeSocketTransport,
       hasFreshSocket,
+      jotaiStore,
       probeSocket,
       queryClient,
       resetTerminalState,

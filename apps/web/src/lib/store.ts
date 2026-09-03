@@ -1,7 +1,10 @@
 import { atom } from "jotai";
 import { atomFamily } from "jotai/utils";
 
+import { type CenterTab } from "./center-tabs";
 import { type IdeType } from "./ide-types";
+
+export { type CenterTab } from "./center-tabs";
 
 type AtomWithLocalStorageOptions = {
   /**
@@ -390,8 +393,6 @@ export function reconcileDiffViewStateStorage(
 // Split pane state — per-agent split/single mode and pane sizes
 // ---------------------------------------------------------------------------
 
-export type CenterTab = "chat" | "terminal" | "changes" | "whiteboard";
-
 export type SplitPaneState = {
   mode: "single" | "split";
   left: CenterTab;
@@ -590,3 +591,31 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
 export function reconcileAgentScopedStorage(agentIds: Iterable<string>): void {
   reconcileAgentScopedStorageDomains(agentIds, AGENT_SCOPED_STORAGE_DOMAINS);
 }
+
+// ---------------------------------------------------------------------------
+// Live terminal signals for the chat presence strip — ephemeral, per agent,
+// never persisted. Written by the terminal socket (output) and the SSE
+// stream (tool invocations); readable while the pane is hidden under Chat.
+// ---------------------------------------------------------------------------
+
+export type TerminalOutputActivity = {
+  /** `Date.now()` of the last output flush; 0 until any output is seen. */
+  lastOutputAt: number;
+  /** Throughput over the window that ended at `lastOutputAt`. */
+  bytesPerSecond: number;
+};
+
+export const terminalOutputActivityAtomFamily = atomFamily((_agentId: string) =>
+  atom<TerminalOutputActivity>({ lastOutputAt: 0, bytesPerSecond: 0 })
+);
+
+export type AgentToolBlip = {
+  /** MCP tool name as the server reported it, e.g. `dispatch_share_file`. */
+  tool: string;
+  /** `Date.now()` on receipt — local time, so the blip's timer ignores clock skew. */
+  at: number;
+};
+
+export const agentToolBlipAtomFamily = atomFamily((_agentId: string) =>
+  atom<AgentToolBlip | null>(null)
+);

@@ -2,7 +2,7 @@
 import { createElement, type ReactNode } from "react";
 import { act, cleanup, renderHook } from "@testing-library/react";
 import { createStore, Provider } from "jotai";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX,
@@ -11,6 +11,12 @@ import {
 } from "@/lib/store";
 
 import { normalizeSplitPaneState, useSplitPane } from "./use-split-pane";
+
+const H = vi.hoisted(() => ({ chatEnabled: true }));
+
+vi.mock("@/hooks/use-chat-surface-enabled", () => ({
+  useChatSurfaceEnabled: () => ({ enabled: H.chatEnabled, loaded: true }),
+}));
 
 describe("normalizeSplitPaneState", () => {
   it("leaves state alone while the chat surface is on", () => {
@@ -91,8 +97,9 @@ describe("useSplitPane persistence", () => {
   };
 
   function renderPane(agentId: string, chatEnabled = true) {
+    H.chatEnabled = chatEnabled;
     const store = createStore();
-    return renderHook(() => useSplitPane(agentId, false, chatEnabled), {
+    return renderHook(() => useSplitPane(agentId, false), {
       wrapper: ({ children }: { children: ReactNode }) =>
         createElement(Provider, { store }, children),
     });

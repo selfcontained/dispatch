@@ -2,40 +2,12 @@ import { memo, useCallback, useEffect, useRef } from "react";
 
 import { TipSpot } from "@/components/tips/tip-spot";
 import { formatBadgeCount } from "@/lib/format";
-import { type CenterTab, type SplitPaneState } from "@/lib/store";
+import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
+import { type CenterTab, centerTabs } from "@/lib/center-tabs";
+import { type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
 export const TAB_DRAG_MIME = "application/x-dispatch-tab";
-
-type TabDef = {
-  id: CenterTab;
-  label: string;
-};
-
-/**
- * Tab labels depend on the chat surface flag: with it on the terminal is
- * demoted to a lower-level "Console" behind the Chat tab; with it off the
- * labels are exactly what they were before the flag existed.
- */
-export function centerTabLabel(tab: CenterTab, chatEnabled: boolean): string {
-  switch (tab) {
-    case "chat":
-      return "Chat";
-    case "terminal":
-      return chatEnabled ? "Console" : "Terminal";
-    case "changes":
-      return "Changes";
-    case "whiteboard":
-      return "Whiteboard";
-  }
-}
-
-export function centerTabs(chatEnabled: boolean): TabDef[] {
-  const ids: CenterTab[] = chatEnabled
-    ? ["chat", "terminal", "changes", "whiteboard"]
-    : ["terminal", "changes", "whiteboard"];
-  return ids.map((id) => ({ id, label: centerTabLabel(id, chatEnabled) }));
-}
 
 const compactDiffCountFormatter = new Intl.NumberFormat("en-US", {
   notation: "compact",
@@ -53,7 +25,6 @@ type CenterPaneTabBarProps = {
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
-  chatEnabled?: boolean;
   chatUnreadCount?: number;
 };
 
@@ -64,9 +35,9 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   isSplit,
   splitState,
   isMobile,
-  chatEnabled = false,
   chatUnreadCount = 0,
 }: CenterPaneTabBarProps): JSX.Element {
+  const { enabled: chatEnabled } = useChatSurfaceEnabled();
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
     : new Set<CenterTab>();
@@ -136,7 +107,7 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
             }}
           >
             <span className="relative pb-1.5 -mb-1.5">
-              {tab.label}
+              {tab.label(chatEnabled)}
               {showChatUnread ? (
                 <span
                   data-testid="chat-unread-count"

@@ -9,8 +9,9 @@ import {
 import type { ChatQuestionOption } from "@dispatch/shared";
 import { ArrowDown, Hash, MessageSquare, TerminalSquare } from "lucide-react";
 
-import { describeAgentStatus } from "@/components/app/agent-event-utils";
+import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
+import { ChatPresenceStrip } from "@/components/app/chat/chat-presence-strip";
 import { type FeedContext } from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
@@ -31,6 +32,7 @@ import {
   useSendChatMessage,
 } from "@/hooks/use-chat";
 import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
+import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
 export type ChatPaneProps = {
@@ -77,36 +79,6 @@ function composerDisabledReason(
     return "The agent is not running. Start it to send messages.";
   }
   return null;
-}
-
-function PresenceLine({ agent }: { agent: Agent | null }): JSX.Element | null {
-  if (!agent) return null;
-  const { label, colorClass } = describeAgentStatus(
-    agent,
-    agent.status !== "running"
-  );
-  const message =
-    agent.status === "running" ? agent.latestEvent?.message?.trim() : "";
-  return (
-    <div
-      className="flex min-w-0 items-center gap-1.5 px-1 text-[11px] text-muted-foreground"
-      data-testid="chat-presence"
-    >
-      <span
-        className={cn(
-          "h-1.5 w-1.5 shrink-0 rounded-full bg-current",
-          colorClass
-        )}
-      />
-      <span className={cn("shrink-0 font-medium", colorClass)}>{label}</span>
-      {message ? (
-        <>
-          <span className="shrink-0">·</span>
-          <span className="truncate">{message}</span>
-        </>
-      ) : null}
-    </div>
-  );
 }
 
 export function ChatPane({
@@ -243,17 +215,31 @@ export function ChatPane({
   // callbacks survive the re-renders every status event causes.
   const { mutateAsync: answerAsync, mutate: answerNow } = answer;
   const { mutateAsync: sendAsync } = send;
+  // The answer route carries a bare value, so a reply that brings
+  // attachments goes out as a plain message instead — the agent still reads
+  // it in order, it just is not linked to the question.
   const onSend = useCallback(
-    async (text: string): Promise<void> => {
+    async (
+      text: string,
+      attachments: ChatUserAttachmentInput[]
+    ): Promise<void> => {
       setSendError(null);
       setFollowing(true);
-      if (replyTarget) {
+      if (replyTarget && attachments.length === 0) {
         await answerAsync({ messageId: replyTarget.id, value: text });
         return;
       }
-      await sendAsync(text);
+      await sendAsync({ text, attachments });
     },
     [answerAsync, replyTarget, sendAsync]
+  );
+
+  const uploadFile = useCallback(
+    (file: File) => {
+      if (!agentId) return Promise.reject(new Error("No agent selected."));
+      return uploadAgentMedia(agentId, file, { source: "user", inject: false });
+    },
+    [agentId]
   );
 
   const replyContext = useMemo(
@@ -448,7 +434,7 @@ export function ChatPane({
         )}
       >
         <div className="mb-1.5 flex items-center justify-between gap-2">
-          <PresenceLine agent={agent} />
+          <ChatPresenceStrip agentId={agentId} agent={agent} />
           {sendError ? (
             <span
               role="alert"
@@ -460,6 +446,8 @@ export function ChatPane({
         </div>
         <ChatComposer
           onSend={onSend}
+          uploadFile={uploadFile}
+          pins={pins}
           disabledReason={disabledReason}
           sending={send.isPending || answer.isPending}
           autoFocus={active && !isMobile}

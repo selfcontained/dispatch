@@ -268,7 +268,8 @@ export async function seedAgentMessageViaDB(message: {
   senderName: string;
   recipientName: string;
   content: string;
-  delivered?: boolean;
+  /** `null` seeds a delivery still in flight. */
+  delivered?: boolean | null;
   read?: boolean;
   senderRepoRoot?: string | null;
   recipientRepoRoot?: string | null;
@@ -293,10 +294,47 @@ export async function seedAgentMessageViaDB(message: {
         message.senderName,
         message.recipientName,
         message.content,
-        message.delivered ?? true,
+        message.delivered === undefined ? true : message.delivered,
         message.read ? new Date() : null,
         message.senderRepoRoot ?? null,
         message.recipientRepoRoot ?? null,
+      ]
+    );
+  } finally {
+    await pool.end();
+  }
+  return id;
+}
+
+/**
+ * Insert a chat message straight into `agent_chat_messages`, bypassing the
+ * send route (which needs a live pane). Attachments use the stored shape.
+ */
+export async function seedChatMessageViaDB(message: {
+  agentId: string;
+  authorKind: "user" | "agent";
+  text: string;
+  attachments?: unknown[];
+  delivered?: boolean | null;
+}): Promise<string> {
+  const connectionString = process.env.DATABASE_URL;
+  if (!connectionString) {
+    throw new Error("DATABASE_URL is required to seed chat messages.");
+  }
+  const id = randomUUID();
+  const pool = new Pool({ connectionString, max: 1 });
+  try {
+    await pool.query(
+      `INSERT INTO agent_chat_messages
+         (id, agent_id, author_kind, kind, text, attachments, delivered)
+       VALUES ($1, $2, $3, 'reply', $4, $5::jsonb, $6)`,
+      [
+        id,
+        message.agentId,
+        message.authorKind,
+        message.text,
+        JSON.stringify(message.attachments ?? []),
+        message.delivered ?? null,
       ]
     );
   } finally {
