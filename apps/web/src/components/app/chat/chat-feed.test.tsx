@@ -52,12 +52,13 @@ function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
   };
 }
 
-type FileAttachment = Extract<ChatAttachment, { type: "file" }>;
-
 function fileAttachment(
-  fields: Pick<FileAttachment, "mediaId" | "fileName" | "sizeBytes">
+  fields: Pick<
+    Extract<ChatAttachment, { type: "file" }>,
+    "mediaId" | "fileName" | "sizeBytes"
+  >
 ): ChatAttachment {
-  return { type: "file", ...fields } as FileAttachment;
+  return { type: "file", ...fields };
 }
 
 function chat(m: ChatMessage): ChatFeedEntry {

@@ -14,6 +14,13 @@ beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   store = new ChatStore(pool);
+  await pool.query(
+    `INSERT INTO agents (id, name, cwd, status, deleted_at)
+     VALUES ($1, 'A', '/tmp', 'running', NULL),
+            ($2, 'B', '/tmp', 'running', NULL),
+            ('agt_chat_gone', 'Gone', '/tmp', 'stopped', now())`,
+    [A, B]
+  );
 });
 
 afterAll(async () => {
@@ -164,6 +171,57 @@ describe("ChatStore", () => {
     expect(await store.markRead(A)).toBe(1);
     expect(await store.countUnread(A)).toBe(0);
     expect(await store.countUnread(B)).toBe(1);
+  });
+
+  it("treats malformed ids as not found instead of erroring", async () => {
+    expect(await store.getById("nope")).toBeNull();
+    expect(await store.update("nope", { text: "x" })).toBeNull();
+    expect(await store.markRead(A, "nope")).toBe(0);
+    expect(
+      await store.recordAnswer("nope", {
+        value: "a",
+        replyMessageId: "x",
+        answeredAt: new Date().toISOString(),
+      })
+    ).toBeNull();
+    await expect(store.setDelivered("nope", true)).resolves.toBeUndefined();
+  });
+
+  it("summarises unread and pending questions per live agent", async () => {
+    await store.insert({ agentId: A, authorKind: "agent", text: "1" });
+    const q = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      kind: "question",
+      text: "?",
+      question: { options: [{ label: "a" }] },
+    });
+    await store.insert({ agentId: A, authorKind: "user", text: "ignored" });
+    await store.insert({
+      agentId: "agt_chat_gone",
+      authorKind: "agent",
+      text: "x",
+    });
+    await store.insert({
+      agentId: "agt_chat_unknown",
+      authorKind: "agent",
+      text: "x",
+    });
+    expect(await store.unreadSummary()).toEqual({
+      agents: { [A]: { unread: 2, pendingQuestions: 1 } },
+    });
+
+    // Read but still unanswered keeps the agent listed.
+    await store.markRead(A);
+    expect(await store.unreadSummary()).toEqual({
+      agents: { [A]: { unread: 0, pendingQuestions: 1 } },
+    });
+    await store.recordAnswer(q.id, {
+      value: "a",
+      replyMessageId: q.id,
+      answeredAt: new Date().toISOString(),
+    });
+    expect(await store.unreadSummary()).toEqual({ agents: {} });
   });
 
   it("records an answer once", async () => {

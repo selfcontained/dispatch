@@ -29,6 +29,7 @@ export type {
   ChatQuestionOption,
   ChatSendResponse,
   ChatStatusEntry,
+  ChatUnreadSummary,
 } from "./chat-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {

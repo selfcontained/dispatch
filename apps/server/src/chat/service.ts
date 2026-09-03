@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { Pool } from "pg";
 import type {
   ChatAttachment,
@@ -13,14 +12,24 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord } from "../agents/types.js";
-import { ChatStore, type UpdateChatMessageInput } from "./store.js";
+import {
+  ChatStore,
+  isChatMessageId,
+  type UpdateChatMessageInput,
+} from "./store.js";
 
 /**
  * An attachment as an agent supplies it to dispatch_chat_post: `file` carries
  * only the path; the server fills in the media row fields.
  */
 export type ChatAttachmentInput =
-  | { type: "file"; path: string }
+  | {
+      type: "file";
+      /** Stored name returned by dispatch_share_file. */
+      fileName?: string;
+      /** Media row id, as an alternative to fileName. */
+      mediaId?: number;
+    }
   | Exclude<ChatAttachment, { type: "file" }>;
 
 export type ChatPostInput = {
@@ -64,10 +73,6 @@ const MIME_BY_EXT: Record<string, string> = {
   ".md": "text/markdown",
   ".json": "application/json",
 };
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
 
 /**
  * Cross-field checks the zod shapes cannot express on their own. Shared by
@@ -131,6 +136,11 @@ export class ChatService {
   /** Agent-authored message from dispatch_chat_post. */
   async post(agentId: string, input: ChatPostInput): Promise<ChatMessage> {
     validateChatContent(input);
+    if (input.replyTo != null && !isChatMessageId(input.replyTo)) {
+      throw new ChatValidationError(
+        "replyTo must be the message id from a DISPATCH CHAT envelope."
+      );
+    }
     const kind = input.kind ?? "reply";
     const attachments = await this.resolveAttachments(
       agentId,
@@ -155,6 +165,11 @@ export class ChatService {
     messageId: string,
     input: ChatUpdateInput
   ): Promise<ChatMessage> {
+    if (!isChatMessageId(messageId)) {
+      throw new ChatValidationError(
+        "messageId must be an id returned by dispatch_chat_post."
+      );
+    }
     const existing = await this.store.getById(messageId);
     if (
       !existing ||
@@ -203,8 +218,10 @@ export class ChatService {
 
   /**
    * Turn agent-supplied attachments into their stored form: `file` resolves
-   * to the media row (the path the agent shared, or the stored copy under
-   * the agent's media dir), `pin` must name a pin on this agent.
+   * to this agent's media row by the stored fileName (or mediaId) that
+   * dispatch_share_file returned — never by a local path, so an unshared
+   * file cannot masquerade as an earlier share — and `pin` must name a pin
+   * on this agent.
    */
   async resolveAttachments(
     agentId: string,
@@ -216,7 +233,7 @@ export class ChatService {
     const out: ChatAttachment[] = [];
     for (const input of inputs) {
       if (input.type === "file") {
-        out.push(await this.resolveFile(agent, input.path));
+        out.push(await this.resolveFile(agent.id, input));
       } else if (input.type === "pin") {
         const pins = Array.isArray(agent.pins) ? agent.pins : [];
         if (!pins.some((pin) => pin.id === input.pinId)) {
@@ -233,17 +250,19 @@ export class ChatService {
   }
 
   private async resolveFile(
-    agent: Pick<AgentRecord, "id" | "mediaDir">,
-    filePath: string
+    agentId: string,
+    input: { fileName?: string; mediaId?: number }
   ): Promise<ChatAttachment> {
-    const baseName = path.basename(filePath);
-    const ext = path.extname(baseName);
-    const stem = path.basename(baseName, ext);
-    // dispatch_share_file stores a copy named `<stem>-<timestamp><ext>`; the
-    // agent may hand us either its original path or the stored copy's path.
-    const sharedCopy = new RegExp(
-      `^${escapeRegExp(stem)}-\\d{4}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{2}-\\d{3}${escapeRegExp(ext)}$`
-    );
+    const fileName = input.fileName?.trim();
+    const mediaId =
+      typeof input.mediaId === "number" && Number.isInteger(input.mediaId)
+        ? input.mediaId
+        : undefined;
+    if (!fileName && mediaId === undefined) {
+      throw new ChatValidationError(
+        "file attachments need fileName (from dispatch_share_file) or mediaId."
+      );
+    }
     const result = await this.deps.pool.query<{
       id: number;
       file_name: string;
@@ -251,21 +270,22 @@ export class ChatService {
     }>(
       `SELECT id, file_name, size_bytes FROM media
         WHERE agent_id = $1
-        ORDER BY created_at DESC, id DESC`,
-      [agent.id]
+          AND (($2::text IS NOT NULL AND file_name = $2::text)
+               OR ($3::int IS NOT NULL AND id = $3::int))
+        LIMIT 1`,
+      [agentId, fileName ?? null, mediaId ?? null]
     );
-    const exact = result.rows.find((row) => row.file_name === baseName);
-    const match =
-      exact ?? result.rows.find((row) => sharedCopy.test(row.file_name));
+    const match = result.rows[0];
     if (!match) {
       throw new ChatValidationError(
-        `Unknown file "${filePath}" — share it first with dispatch_share_file, then attach the path you shared.`
+        `Unknown file ${fileName ? `"${fileName}"` : `#${mediaId}`} — share it first with dispatch_share_file and attach the fileName it returns.`
       );
     }
-    const mimeType = MIME_BY_EXT[ext.toLowerCase()];
+    const dot = match.file_name.lastIndexOf(".");
+    const ext = dot >= 0 ? match.file_name.slice(dot).toLowerCase() : "";
+    const mimeType = MIME_BY_EXT[ext];
     return {
       type: "file",
-      path: filePath,
       mediaId: match.id,
       fileName: match.file_name,
       sizeBytes: match.size_bytes,

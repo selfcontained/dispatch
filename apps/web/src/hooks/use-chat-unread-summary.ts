@@ -1,20 +1,12 @@
+import type { ChatUnreadSummary } from "@dispatch/shared";
 import { useQuery } from "@tanstack/react-query";
 
 import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { api } from "@/lib/api";
 
-/**
- * Wire shape of GET /api/v1/chat/unread — the per-agent unread counts the
- * sidebar badges read. Mirrors `ChatUnreadSummary` in the shared contract.
- */
-export type ChatUnreadSummary = {
-  agents: Record<string, ChatAgentUnread>;
-};
+export type { ChatUnreadSummary } from "@dispatch/shared";
 
-export type ChatAgentUnread = {
-  unread: number;
-  pendingQuestions: number;
-};
+export type ChatAgentUnread = ChatUnreadSummary["agents"][string];
 
 export const CHAT_UNREAD_QUERY_KEY = ["chat-unread"] as const;
 
