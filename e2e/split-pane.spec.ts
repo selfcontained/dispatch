@@ -34,7 +34,7 @@ async function seedSplitState(
 ): Promise<void> {
   await page.evaluate((id) => {
     window.localStorage.setItem(
-      `dispatch:splitPane:${id}`,
+      `dispatch:splitPaneV2:${id}`,
       JSON.stringify({
         mode: "split",
         left: "terminal",

@@ -17,8 +17,11 @@ import { api } from "@/lib/api";
 
 const PAGE_SIZE = 100;
 
+/** Prefix shared by every agent's feed key, for bulk invalidation. */
+export const CHAT_QUERY_PREFIX = ["chat"] as const;
+
 export function chatFeedQueryKey(agentId: string | null) {
-  return ["chat", agentId] as const;
+  return [...CHAT_QUERY_PREFIX, agentId] as const;
 }
 
 type FeedCache = InfiniteData<ChatFeedResponse, string | undefined>;

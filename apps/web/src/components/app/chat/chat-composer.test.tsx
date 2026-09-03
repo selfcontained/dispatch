@@ -182,4 +182,17 @@ describe("ChatComposer", () => {
       (screen.getByTestId("chat-composer-send") as HTMLButtonElement).disabled
     ).toBe(true);
   });
+
+  it("gives the Send button a 44px target on coarse pointers only", () => {
+    // Desktop keeps the compact icon; the pointer-coarse variant (see
+    // tailwind.config.ts) swaps in the 44px minimum without an inset so the
+    // button still sits inside the composer box.
+    renderComposer();
+    const send = screen.getByTestId("chat-composer-send");
+    expect(send.className).toMatch(/\bh-7\b/);
+    expect(send.className).toMatch(/\bw-7\b/);
+    expect(send.className).toContain("pointer-coarse:min-h-11");
+    expect(send.className).toContain("pointer-coarse:min-w-11");
+    expect(send.className).toContain("pointer-coarse:m-0");
+  });
 });

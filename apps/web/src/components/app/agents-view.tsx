@@ -582,8 +582,12 @@ export function AgentsView({
     if (isSplit) exitSplit();
     onTabChange("terminal");
   }, [exitSplit, isSplit, onTabChange]);
+  // Keyed per agent: the pane's draft, dismissed question, send error and
+  // scroll position are agent-local, and a direct /agents/a/chat →
+  // /agents/b/chat transition must not carry them across.
   const chatElement = chatVisible ? (
     <ChatPane
+      key={focusedAgentId ?? "none"}
       agentId={focusedAgentId}
       agent={focusedAgent}
       terminalMode={terminalMode}

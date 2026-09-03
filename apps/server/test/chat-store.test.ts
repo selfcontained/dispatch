@@ -222,3 +222,50 @@ describe("ChatStore", () => {
     expect(await store.recordAnswer(plain.id, answer)).toBeNull();
   });
 });
+
+describe("ChatStore.sweepPendingDeliveries", () => {
+  it("flips only pending user rows to not-delivered and reports their agents", async () => {
+    const pendingA = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "p1",
+      delivered: null,
+    });
+    const pendingA2 = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "p2",
+      delivered: null,
+    });
+    const pendingB = await store.insert({
+      agentId: B,
+      authorKind: "user",
+      text: "p3",
+      delivered: null,
+    });
+    const settled = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "ok",
+      delivered: true,
+    });
+    // Agent rows never carry a delivery state; NULL there means nothing.
+    const agentRow = await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      text: "hi",
+    });
+
+    const touched = await store.sweepPendingDeliveries();
+    expect(touched.sort()).toEqual([A, B].sort());
+
+    for (const id of [pendingA.id, pendingA2.id, pendingB.id]) {
+      expect((await store.getById(id))?.delivered).toBe(false);
+    }
+    expect((await store.getById(settled.id))?.delivered).toBe(true);
+    expect((await store.getById(agentRow.id))?.delivered).toBeNull();
+
+    // Idempotent: a second sweep finds nothing.
+    expect(await store.sweepPendingDeliveries()).toEqual([]);
+  });
+});

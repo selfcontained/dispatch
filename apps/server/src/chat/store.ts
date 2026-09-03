@@ -155,6 +155,22 @@ export class ChatStore {
     );
   }
 
+  /**
+   * Startup recovery: a user row still `delivered IS NULL` belongs to a
+   * delivery that was waiting in a previous process's in-memory queue and
+   * died with it. Mark them all not-delivered so the UI offers a resend
+   * instead of showing "pending" forever. Returns the distinct agent ids
+   * touched, so the caller can publish one `chat.changed` per feed.
+   */
+  async sweepPendingDeliveries(): Promise<string[]> {
+    const result = await this.db.query<{ agent_id: string }>(
+      `UPDATE agent_chat_messages SET delivered = false
+        WHERE author_kind = 'user' AND delivered IS NULL
+        RETURNING agent_id`
+    );
+    return [...new Set(result.rows.map((row) => row.agent_id))];
+  }
+
   async getById(id: string): Promise<ChatMessage | null> {
     if (!isChatMessageId(id)) return null;
     const result = await this.db.query<Row>(

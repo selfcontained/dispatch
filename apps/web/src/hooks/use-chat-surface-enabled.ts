@@ -1,5 +1,5 @@
-import { useCallback, useEffect } from "react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useCallback, useEffect, useRef } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useAtom } from "jotai";
 
 import { api } from "@/lib/api";
@@ -13,7 +13,7 @@ type ToggleSettingResponse = { enabled: boolean };
 /**
  * The `chat_surface_enabled` feature flag. The server owns the value; this is
  * a long-lived React Query cache of it, written through by the settings
- * toggle (see `useChatSurfaceSettingState`) so the tab bar and routing react
+ * toggle (see `useChatSurfaceSetting`) so the tab bar and routing react
  * the moment the user flips it — no reload, no atom for the live value.
  *
  * Until the fetch resolves the last value this browser saw stands in for it
@@ -40,23 +40,93 @@ export function useChatSurfaceEnabled(): { enabled: boolean; loaded: boolean } {
   return { enabled: hint ?? false, loaded: hint !== null };
 }
 
+export type ChatSurfaceSetting = {
+  /** The confirmed value, or the optimistic one while a write is in flight. */
+  enabled: boolean;
+  /** False until either the fetch or a toggle has produced a value. */
+  loaded: boolean;
+  /** Empty string when there is nothing to report. */
+  error: string;
+  setEnabled: (next: boolean) => void;
+};
+
 /**
- * A `[value, set]` pair for `useOptimisticToggleSetting`'s `state` option that
- * lives in the same query cache `useChatSurfaceEnabled` reads from.
+ * The settings-page toggle for the flag. One state machine over the same
+ * query `useChatSurfaceEnabled` reads: the GET is the query's own fetch, a
+ * toggle writes the optimistic value straight into the cache and cancels any
+ * GET still in flight (so a slow initial fetch cannot land after a successful
+ * toggle and revert it), and a failed POST rolls the cache back to the last
+ * confirmed value. Nothing here fetches on its own.
+ *
+ * Writes are sequence-guarded: only the newest toggle's outcome touches the
+ * cache, so two quick flips cannot leave the UI on the older value.
  */
-export function useChatSurfaceSettingState(): readonly [
-  boolean,
-  (next: boolean) => void,
-] {
+export function useChatSurfaceSetting(): ChatSurfaceSetting {
   const queryClient = useQueryClient();
-  const { enabled } = useChatSurfaceEnabled();
-  const set = useCallback(
-    (next: boolean) => {
+  const { enabled, loaded } = useChatSurfaceEnabled();
+  const { isError: loadFailed } = useQuery<ToggleSettingResponse>({
+    queryKey: CHAT_SURFACE_QUERY_KEY,
+    queryFn: () => api<ToggleSettingResponse>(CHAT_SURFACE_ENDPOINT),
+    staleTime: Infinity,
+    refetchOnWindowFocus: false,
+  });
+  const latestWrite = useRef(0);
+
+  const mutation = useMutation({
+    mutationFn: (next: boolean) =>
+      api<ToggleSettingResponse>(CHAT_SURFACE_ENDPOINT, {
+        method: "POST",
+        body: JSON.stringify({ enabled: next }),
+      }),
+    onMutate: async (next) => {
+      const seq = (latestWrite.current += 1);
+      // A GET still in flight would otherwise resolve after this toggle and
+      // overwrite the optimistic value with the pre-toggle one.
+      await queryClient.cancelQueries({ queryKey: CHAT_SURFACE_QUERY_KEY });
+      const previous = queryClient.getQueryData<ToggleSettingResponse>(
+        CHAT_SURFACE_QUERY_KEY
+      );
       queryClient.setQueryData<ToggleSettingResponse>(CHAT_SURFACE_QUERY_KEY, {
         enabled: next,
       });
+      return { seq, previous };
     },
-    [queryClient]
+    onSuccess: (data, _next, context) => {
+      if (context?.seq !== latestWrite.current) return;
+      queryClient.setQueryData<ToggleSettingResponse>(
+        CHAT_SURFACE_QUERY_KEY,
+        data
+      );
+    },
+    onError: (_error, _next, context) => {
+      if (context?.seq !== latestWrite.current) return;
+      if (context.previous !== undefined) {
+        queryClient.setQueryData(CHAT_SURFACE_QUERY_KEY, context.previous);
+      } else {
+        // Nothing confirmed to fall back to: let the query fetch it again.
+        void queryClient.invalidateQueries({
+          queryKey: CHAT_SURFACE_QUERY_KEY,
+        });
+      }
+    },
+  });
+
+  const { mutate, reset } = mutation;
+  const setEnabled = useCallback(
+    (next: boolean) => {
+      reset();
+      mutate(next);
+    },
+    [mutate, reset]
   );
-  return [enabled, set] as const;
+
+  const error = mutation.isError
+    ? mutation.error instanceof Error && mutation.error.message
+      ? mutation.error.message
+      : "Failed to save chat surface setting."
+    : loadFailed && !loaded
+      ? "Failed to load chat surface setting."
+      : "";
+
+  return { enabled, loaded, error, setEnabled };
 }

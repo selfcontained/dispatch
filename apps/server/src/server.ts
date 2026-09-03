@@ -134,6 +134,7 @@ import { escapeLike } from "./shared/lib/escape-like.js";
 import { createAgentLifecycleRuntime } from "./server/agent-lifecycle-runtime.js";
 import { createPromptInjector } from "./server/agent-prompts.js";
 import { InjectionCoordinator } from "./terminal/injection-coordinator.js";
+import { TmuxTerminal } from "./terminal/tmux-terminal.js";
 import {
   injectionHoldEnabled,
   loadInjectionHoldEnabled,
@@ -435,6 +436,15 @@ const chatService = new ChatService({
   pool,
   publishUiEvent: (event) => uiEventBroker.publish(event),
   getAgent: (agentId) => agentManager.getAgent(agentId),
+  delivery: {
+    access: (agentId) => agentManager.getTerminalAccess(agentId),
+    inject: (agentId, sessionName, text) =>
+      injectionCoordinator.inject(agentId, () =>
+        new TmuxTerminal(sessionName).sendCommand(text)
+      ),
+    held: (agentId) => injectionCoordinator.holdState(agentId).held,
+  },
+  log: app.log,
 });
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
@@ -774,14 +784,7 @@ async function registerRoutes() {
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
 
-  await registerChatRoutes(app, {
-    pool,
-    chat: chatService,
-    agentManager,
-    injectionCoordinator,
-    handleAgentError,
-    appLog: app.log,
-  });
+  await registerChatRoutes(app, { pool, chat: chatService, handleAgentError });
 
   await registerSurfaceRoutes(app, { surfaces: surfaceService });
 
@@ -893,6 +896,15 @@ export async function initializeApp(options?: {
   const shouldReconcileState = options?.reconcileState ?? true;
   if (shouldReconcileState) {
     await agentManager.reconcileAgents();
+    // Chat deliveries queued in the previous process died with it; flip their
+    // rows from pending to not-delivered so the UI offers a resend.
+    const recovered = await chatService.recoverPendingDeliveries();
+    if (recovered.length > 0) {
+      app.log.info(
+        { agentIds: recovered },
+        "Marked chat deliveries abandoned by the previous process as not delivered"
+      );
+    }
     await agentLifecycleRuntime.restorePendingContinuations(jobService);
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
@@ -968,6 +980,14 @@ async function cleanupAppResources(): Promise<void> {
 
   await jobService.shutdown();
   await agentLifecycleRuntime.waitForActiveArchives(10_000);
+  // Let deliveries that are about to settle record their outcome; anything
+  // still waiting on the quiet gate is swept to not-delivered at next start.
+  if (!(await chatService.waitForInFlightDeliveries(5_000))) {
+    app.log.warn(
+      { pending: chatService.inFlightDeliveryCount },
+      "Shutting down with chat deliveries still in flight"
+    );
+  }
 
   await pool.end().catch(() => null);
   await app.close().catch(() => null);

@@ -2,10 +2,14 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
 import {
+  ChatConflictError,
+  ChatNotFoundError,
   ChatService,
   ChatValidationError,
+  type ChatDeliveryAdapter,
   validateChatContent,
 } from "../src/chat/service.js";
+import type { ChatMessage } from "@dispatch/shared";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -255,5 +259,289 @@ describe("ChatService.update", () => {
     expect(updated.attachments).toEqual([
       { type: "code", code: "let x = 1", language: "ts" },
     ]);
+  });
+});
+
+describe("ChatService.update on an answered question", () => {
+  async function answeredQuestion(): Promise<ChatMessage> {
+    const q = await service.post(A, {
+      text: "Ship it?",
+      kind: "question",
+      question: { options: [{ label: "Yes", value: "yes" }, { label: "No" }] },
+    });
+    await service.store.recordAnswer(q.id, {
+      value: "yes",
+      label: "Yes",
+      replyMessageId: q.id,
+      answeredAt: new Date().toISOString(),
+    });
+    return (await service.store.getById(q.id))!;
+  }
+
+  it("refuses to change the kind once the question is answered", async () => {
+    const q = await answeredQuestion();
+    await expect(
+      service.update(A, q.id, { kind: "update", text: "never mind" })
+    ).rejects.toThrow(/already been answered/);
+    const after = await service.store.getById(q.id);
+    expect(after).toMatchObject({
+      kind: "question",
+      text: "Ship it?",
+      question: q.question,
+      answer: q.answer,
+    });
+  });
+
+  it("refuses to replace the options once the question is answered", async () => {
+    const q = await answeredQuestion();
+    await expect(
+      service.update(A, q.id, {
+        question: { options: [{ label: "Maybe", value: "maybe" }] },
+      })
+    ).rejects.toThrow(/already been answered/);
+    expect((await service.store.getById(q.id))?.question).toEqual(q.question);
+  });
+
+  it("still lets the text and attachments of an answered question change", async () => {
+    const q = await answeredQuestion();
+    const updated = await service.update(A, q.id, {
+      text: "Ship it? (decided)",
+      attachments: [{ type: "link", url: "https://example.com" }],
+    });
+    expect(updated).toMatchObject({
+      kind: "question",
+      text: "Ship it? (decided)",
+      question: q.question,
+      answer: q.answer,
+      attachments: [{ type: "link", url: "https://example.com" }],
+    });
+    // Restating the current kind is not a change.
+    await expect(
+      service.update(A, q.id, { kind: "question", text: "again" })
+    ).resolves.toMatchObject({ text: "again" });
+  });
+});
+
+describe("ChatService user workflows", () => {
+  type Injected = { agentId: string; sessionName: string; text: string };
+
+  function build(
+    opts: {
+      access?: ChatDeliveryAdapter["access"];
+      held?: boolean;
+      /** Resolve to release deliveries; absent = deliver immediately. */
+      gate?: Promise<void>;
+      fail?: boolean;
+    } = {}
+  ) {
+    const events: unknown[] = [];
+    const injected: Injected[] = [];
+    const svc = new ChatService({
+      pool,
+      publishUiEvent: (event) => events.push(event),
+      getAgent: async () => null,
+      delivery: {
+        access:
+          opts.access ??
+          (async () => ({ mode: "tmux" as const, sessionName: "sess" })),
+        inject: async (agentId, sessionName, text) => {
+          if (opts.gate) await opts.gate;
+          injected.push({ agentId, sessionName, text });
+          if (opts.fail) throw new Error("pane gone");
+        },
+        held: () => opts.held ?? false,
+      },
+    });
+    return { svc, events, injected };
+  }
+
+  async function settled(svc: ChatService, id: string): Promise<ChatMessage> {
+    for (let i = 0; i < 50; i++) {
+      const row = await svc.store.getById(id);
+      if (row && row.delivered !== null) return row;
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    throw new Error("delivery never settled");
+  }
+
+  it("sendUserMessage persists pending, returns held, then settles delivered", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const { svc, events, injected } = build({ held: true, gate });
+    const res = await svc.sendUserMessage(A, "do the thing");
+    expect(res).toMatchObject({
+      delivered: null,
+      held: true,
+      message: { authorKind: "user", kind: "reply", delivered: null },
+    });
+    expect(injected).toHaveLength(0);
+    expect(events).toEqual([{ type: "chat.changed", agentId: A }]);
+    expect(svc.inFlightDeliveryCount).toBe(1);
+
+    release();
+    const row = await settled(svc, res.message.id);
+    expect(row.delivered).toBe(true);
+    expect(injected[0]).toMatchObject({ agentId: A, sessionName: "sess" });
+    expect(injected[0].text).toContain(`(id: ${res.message.id})`);
+    expect(injected[0].text).toContain("\ndo the thing\n");
+    expect(events).toHaveLength(2);
+    expect(await svc.waitForInFlightDeliveries(1_000)).toBe(true);
+    expect(svc.inFlightDeliveryCount).toBe(0);
+  });
+
+  it("sendUserMessage records delivered=false when the pane write fails", async () => {
+    const { svc } = build({ fail: true });
+    const res = await svc.sendUserMessage(A, "hello");
+    expect((await settled(svc, res.message.id)).delivered).toBe(false);
+  });
+
+  it("sendUserMessage rejects empty/oversized text and an undeliverable agent", async () => {
+    const { svc } = build({
+      access: async () => ({ mode: "inert", message: "No pane." }),
+    });
+    await expect(svc.sendUserMessage(A, "   ")).rejects.toBeInstanceOf(
+      ChatValidationError
+    );
+    await expect(
+      svc.sendUserMessage(A, "x".repeat(20_001))
+    ).rejects.toBeInstanceOf(ChatValidationError);
+    await expect(svc.sendUserMessage(A, "hi")).rejects.toThrow(
+      new ChatConflictError("No pane.")
+    );
+    // Nothing was written for any of them.
+    const rows = await pool.query("SELECT 1 FROM agent_chat_messages");
+    expect(rows.rowCount).toBe(0);
+  });
+
+  it("answerQuestion resolves the option label, records the answer, and delivers", async () => {
+    const { svc, injected, events } = build();
+    const q = await svc.post(A, {
+      text: "Ship it?",
+      kind: "question",
+      question: { options: [{ label: "Yes", value: "yes" }, { label: "No" }] },
+    });
+    events.length = 0;
+    const res = await svc.answerQuestion(A, q.id, {
+      value: "yes",
+      label: "ignored for option answers",
+    });
+    expect(res.delivered).toBeNull();
+    expect(res.reply).toMatchObject({
+      authorKind: "user",
+      text: "Yes",
+      replyTo: q.id,
+      delivered: null,
+    });
+    expect(res.question.answer).toMatchObject({
+      value: "yes",
+      label: "Yes",
+      replyMessageId: res.reply.id,
+    });
+    expect(events[0]).toEqual({ type: "chat.changed", agentId: A });
+    expect((await settled(svc, res.reply.id)).delivered).toBe(true);
+    expect(injected[0].text).toContain("\nYes\n");
+
+    await expect(
+      svc.answerQuestion(A, q.id, { value: "No" })
+    ).rejects.toBeInstanceOf(ChatConflictError);
+  });
+
+  it("answerQuestion maps missing, foreign, non-question, and bad values to domain errors", async () => {
+    const { svc } = build();
+    await expect(
+      svc.answerQuestion(A, "not-a-uuid", { value: "a" })
+    ).rejects.toBeInstanceOf(ChatValidationError);
+    await expect(
+      svc.answerQuestion(A, "00000000-0000-4000-8000-000000000000", {
+        value: "a",
+      })
+    ).rejects.toBeInstanceOf(ChatNotFoundError);
+    const plain = await svc.post(A, { text: "not a question" });
+    await expect(
+      svc.answerQuestion(A, plain.id, { value: "a" })
+    ).rejects.toBeInstanceOf(ChatNotFoundError);
+    const q = await svc.post(A, {
+      text: "?",
+      kind: "question",
+      question: { options: [{ label: "a" }] },
+    });
+    await expect(
+      svc.answerQuestion("agt_someone_else", q.id, { value: "a" })
+    ).rejects.toBeInstanceOf(ChatNotFoundError);
+    await expect(
+      svc.answerQuestion(A, q.id, { value: "  " })
+    ).rejects.toBeInstanceOf(ChatValidationError);
+    await expect(
+      svc.answerQuestion(A, q.id, { value: "typed" })
+    ).rejects.toThrow(/does not match/);
+    expect((await svc.store.getById(q.id))?.answer).toBeNull();
+  });
+
+  it("answerQuestion accepts a freeform answer with a trimmed label", async () => {
+    const { svc } = build();
+    const q = await svc.post(A, {
+      text: "?",
+      kind: "question",
+      question: { options: [{ label: "a" }], allowFreeform: true },
+    });
+    const res = await svc.answerQuestion(A, q.id, {
+      value: "something typed",
+      label: "  typed  ",
+    });
+    expect(res.reply.text).toBe("something typed");
+    expect(res.question.answer).toMatchObject({
+      value: "something typed",
+      label: "typed",
+    });
+  });
+
+  it("recoverPendingDeliveries sweeps pending user rows and announces each feed", async () => {
+    const { svc, events } = build();
+    const pending = await svc.store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "stuck",
+      delivered: null,
+    });
+    const other = await svc.store.insert({
+      agentId: "agt_someone_else",
+      authorKind: "user",
+      text: "stuck too",
+      delivered: null,
+    });
+    const fine = await svc.store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "ok",
+      delivered: true,
+    });
+    const touched = await svc.recoverPendingDeliveries();
+    expect(touched.sort()).toEqual([A, "agt_someone_else"].sort());
+    expect((await svc.store.getById(pending.id))?.delivered).toBe(false);
+    expect((await svc.store.getById(other.id))?.delivered).toBe(false);
+    expect((await svc.store.getById(fine.id))?.delivered).toBe(true);
+    expect(events).toEqual(
+      expect.arrayContaining([
+        { type: "chat.changed", agentId: A },
+        { type: "chat.changed", agentId: "agt_someone_else" },
+      ])
+    );
+    expect(events).toHaveLength(2);
+    // Nothing pending, nothing published.
+    events.length = 0;
+    expect(await svc.recoverPendingDeliveries()).toEqual([]);
+    expect(events).toEqual([]);
+  });
+
+  it("waitForInFlightDeliveries resolves at once with nothing in flight and times out otherwise", async () => {
+    const { svc } = build({ gate: new Promise<void>(() => {}) });
+    expect(await svc.waitForInFlightDeliveries(5)).toBe(true);
+    await svc.sendUserMessage(A, "never lands");
+    const started = Date.now();
+    expect(await svc.waitForInFlightDeliveries(30)).toBe(false);
+    expect(Date.now() - started).toBeLessThan(1_000);
+    expect(svc.inFlightDeliveryCount).toBe(1);
   });
 });

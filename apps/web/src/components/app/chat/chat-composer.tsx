@@ -159,7 +159,10 @@ export function ChatComposer({
             title="Send (Enter)"
             aria-label="Send message"
             data-testid="chat-composer-send"
-            className="m-1.5 h-7 w-7 shrink-0"
+            // Compact icon under a mouse; on touch devices the button grows
+            // to a 44px target and drops its inset so it still sits inside
+            // the composer box next to the 40px-min field.
+            className="m-1.5 h-7 w-7 shrink-0 pointer-coarse:m-0 pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11"
           >
             <SendHorizontal className="h-4 w-4" />
           </Button>

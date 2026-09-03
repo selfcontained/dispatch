@@ -11,7 +11,7 @@ import {
   type TerminalUiState,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
-import { chatFeedQueryKey } from "@/hooks/use-chat";
+import { CHAT_QUERY_PREFIX, chatFeedQueryKey } from "@/hooks/use-chat";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
@@ -194,6 +194,11 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
+          // `chat.changed` is not replayed after a gap, so every mounted chat
+          // feed refetches on (re)connect — otherwise an open Chat tab keeps
+          // missing whatever landed while the stream was down. Prefix match:
+          // one key per agent.
+          void queryClient.invalidateQueries({ queryKey: CHAT_QUERY_PREFIX });
           // Injection-hold state is event-sourced with no fetch endpoint; a
           // release event missed during an SSE gap would leave the hold badge
           // stuck. Reset on every (re)connect snapshot — fails safe to hidden.

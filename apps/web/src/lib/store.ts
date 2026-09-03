@@ -3,12 +3,28 @@ import { atomFamily } from "jotai/utils";
 
 import { type IdeType } from "./ide-types";
 
-export function atomWithLocalStorage<T>(key: string, initialValue: T) {
+type AtomWithLocalStorageOptions = {
+  /**
+   * Older key to read when `key` is absent. Read-only migration path: writes
+   * go to `key` alone, so a client rolled back to the old schema only ever
+   * sees values it wrote itself.
+   */
+  legacyKey?: string;
+};
+
+export function atomWithLocalStorage<T>(
+  key: string,
+  initialValue: T,
+  options: AtomWithLocalStorageOptions = {}
+) {
   const baseAtom = atom<T>(
     (() => {
       if (typeof window === "undefined") return initialValue;
       try {
-        const stored = window.localStorage.getItem(key);
+        let stored = window.localStorage.getItem(key);
+        if (stored === null && options.legacyKey !== undefined) {
+          stored = window.localStorage.getItem(options.legacyKey);
+        }
         if (stored === null) return initialValue;
         return JSON.parse(stored) as T;
       } catch {
@@ -394,12 +410,20 @@ export const inactiveSplitPaneStateAtom = atom<SplitPaneState>(
   defaultSplitPaneState
 );
 
-export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
+/**
+ * Versioned key. v1 (`dispatch:splitPane:`) predates the "chat" tab; a client
+ * rolled back to a v1 build reading "chat" out of its own key would render a
+ * blank pane, so the current schema lives under its own key and the legacy
+ * one is only ever read (see `atomWithLocalStorage`'s `legacyKey`).
+ */
+export const SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPaneV2:";
+export const LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX = "dispatch:splitPane:";
 
 export const splitPaneStateAtomFamily = atomFamily((agentId: string) =>
   atomWithLocalStorage<SplitPaneState>(
     `${SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}`,
-    defaultSplitPaneState
+    defaultSplitPaneState,
+    { legacyKey: `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}${agentId}` }
   )
 );
 
@@ -422,6 +446,7 @@ export function reconcileSplitPaneStateStorage(
 ): void {
   reconcileAgentScopedStorageDomains(agentIds, [
     { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
+    { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
   ]);
 }
 
@@ -549,6 +574,7 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
   { prefix: DIFF_VIEW_STATE_STORAGE_PREFIX },
   { prefix: SPLIT_PANE_STATE_STORAGE_PREFIX },
+  { prefix: LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX },
   { prefix: CENTER_TAB_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
   { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },

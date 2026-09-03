@@ -1,24 +1,14 @@
 import { Checkbox } from "@/components/ui/checkbox";
-import {
-  CHAT_SURFACE_ENDPOINT,
-  useChatSurfaceSettingState,
-} from "@/hooks/use-chat-surface-enabled";
-import { useOptimisticToggleSetting } from "@/hooks/use-optimistic-toggle-setting";
+import { useChatSurfaceSetting } from "@/hooks/use-chat-surface-enabled";
 
 /**
  * Toggle for the Chat surface beta. Server-owned like the other flags (GET on
- * mount, POST on explicit toggle); the confirmed value is mirrored into the
- * React Query cache that the tab bar and routing read, so flipping it here
- * re-labels the tabs without a reload.
+ * mount, POST on explicit toggle), but it lives in the React Query cache that
+ * the tab bar and routing read, so flipping it here re-labels the tabs
+ * without a reload. See `useChatSurfaceSetting` for the optimistic write.
  */
 export function ChatSurfaceSettings(): JSX.Element {
-  const state = useChatSurfaceSettingState();
-  const { enabled, error, setEnabled } = useOptimisticToggleSetting({
-    endpoint: CHAT_SURFACE_ENDPOINT,
-    loadErrorMessage: "Failed to load chat surface setting.",
-    saveErrorMessage: "Failed to save chat surface setting.",
-    state,
-  });
+  const { enabled, error, setEnabled } = useChatSurfaceSetting();
 
   return (
     <div className="p-6">

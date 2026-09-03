@@ -418,37 +418,25 @@ describe("chat routes with a deliverable terminal", () => {
       pool: ctx.pool,
       publishUiEvent: (event) => published.push(event),
       getAgent: async (id) => ({ id, mediaDir: null, pins: [] }),
+      delivery: {
+        access:
+          opts.access ??
+          (async () => ({ mode: "tmux" as const, sessionName: "s" })),
+        inject: async (id: string, _sessionName: string, prompt: string) => {
+          if (opts.gate) await opts.gate;
+          prompts.push({ agentId: id, prompt });
+          if (opts.sendCommand) await opts.sendCommand(prompt);
+        },
+        held: () => opts.held ?? false,
+      },
     });
     const app = Fastify();
     const ready = registerChatRoutes(app, {
       pool: ctx.pool,
       chat,
-      agentManager: {
-        getTerminalAccess:
-          opts.access ??
-          (async () => ({ mode: "tmux" as const, sessionName: "s" })),
-      } as never,
-      injectionCoordinator: {
-        holdState: () => ({
-          held: opts.held ?? false,
-          pendingCount: 0,
-          quietMs: 0,
-        }),
-        inject: async (_agentId: string, fn: () => Promise<void>) => {
-          if (opts.gate) await opts.gate;
-          await fn();
-        },
-      },
-      createTerminal: () => ({
-        sendCommand: async (prompt: string) => {
-          prompts.push({ agentId, prompt });
-          if (opts.sendCommand) await opts.sendCommand(prompt);
-        },
-      }),
       handleAgentError,
-      appLog: { warn() {}, error() {}, info() {}, debug() {} } as never,
     });
-    return { app, ready, published, prompts };
+    return { app, ready, chat, published, prompts };
   }
 
   async function settled(id: string): Promise<ChatMessage> {
@@ -522,6 +510,34 @@ describe("chat routes with a deliverable terminal", () => {
     expect(res.json().delivered).toBeNull();
     const row = await settled(res.json().message.id);
     expect(row.delivered).toBe(false);
+    await app.close();
+  });
+
+  it("marks a delivery abandoned by a restart as not delivered on recovery", async () => {
+    // The quiet gate never releases: this stands in for a process that died
+    // with the delivery still queued in memory.
+    const { app, ready, chat, published } = buildApp({
+      held: true,
+      gate: new Promise<void>(() => {}),
+    });
+    await ready;
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages`,
+      payload: { text: "lost in the restart" },
+    });
+    expect(res.statusCode).toBe(200);
+    const id = res.json().message.id as string;
+    expect((await store.getById(id))?.delivered).toBeNull();
+    expect(chat.inFlightDeliveryCount).toBe(1);
+    // Shutdown gives it a bounded chance to settle, then gives up.
+    expect(await chat.waitForInFlightDeliveries(20)).toBe(false);
+
+    // Next process start.
+    published.length = 0;
+    expect(await chat.recoverPendingDeliveries()).toEqual([agentId]);
+    expect((await store.getById(id))?.delivered).toBe(false);
+    expect(published).toEqual([{ type: "chat.changed", agentId }]);
     await app.close();
   });
 

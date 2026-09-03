@@ -80,26 +80,27 @@ vi.mock("@/components/app/center-pane-split", async () => {
   return {
     CenterPaneSplit: (received: Record<string, unknown>) => {
       H.record("CenterPaneSplit", received);
+      const slot = (tab: string) =>
+        tab === "changes"
+          ? (received.changesElement as never)
+          : tab === "whiteboard"
+            ? (received.whiteboardElement as never)
+            : tab === "chat"
+              ? (received.chatElement as never)
+              : null;
+      const splitState = received.splitState as { left: string; right: string };
       return React.createElement(
         "div",
         { "data-testid": "stub-CenterPaneSplit" },
         React.createElement(
           "div",
           { "data-testid": "split-left" },
-          (received.splitState as { left: string }).left === "changes"
-            ? (received.changesElement as never)
-            : (received.splitState as { left: string }).left === "whiteboard"
-              ? (received.whiteboardElement as never)
-              : null
+          slot(splitState.left)
         ),
         React.createElement(
           "div",
           { "data-testid": "split-right" },
-          (received.splitState as { right: string }).right === "changes"
-            ? (received.changesElement as never)
-            : (received.splitState as { right: string }).right === "whiteboard"
-              ? (received.whiteboardElement as never)
-              : null
+          slot(splitState.right)
         )
       );
     },
@@ -616,6 +617,70 @@ describe("AgentsView focused agent", () => {
     // hasActiveAgent is derived from the selection, not from focus, so the
     // header still reports an active agent while the terminal is detached.
     expect(propsOf("AgentsViewHeader").hasActiveAgent).toBe(true);
+  });
+});
+
+describe("AgentsView chat pane identity", () => {
+  function focusChatOn(agentId: string) {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
+      validatedSelectedAgentId: agentId,
+      connState: "connected",
+      connectedAgentId: agentId,
+      chatEnabled: true,
+      chatMatch: true,
+    });
+  }
+
+  it("remounts the chat pane when the focused agent changes", () => {
+    // ChatPane keeps agent-local state (draft, dismissed question, send
+    // error, scroll follow). A direct /agents/a1/chat → /agents/a2/chat
+    // transition reuses AgentsView, so only a per-agent key keeps a1's draft
+    // from showing up under a2.
+    focusChatOn("a1");
+    const view = mount({ path: "/agents/a1/chat" });
+    const first = screen.getByTestId("stub-ChatPane");
+    expect(propsOf("ChatPane").agentId).toBe("a1");
+
+    focusChatOn("a2");
+    view.rerender(tree("/agents/a2/chat", view.props));
+
+    const second = screen.getByTestId("stub-ChatPane");
+    expect(propsOf("ChatPane").agentId).toBe("a2");
+    expect(second).not.toBe(first);
+  });
+
+  it("keeps the same chat pane instance across re-renders for one agent", () => {
+    focusChatOn("a1");
+    const view = mount({ path: "/agents/a1/chat" });
+    const first = screen.getByTestId("stub-ChatPane");
+
+    view.rerender(tree("/agents/a1/chat", view.props));
+
+    expect(screen.getByTestId("stub-ChatPane")).toBe(first);
+  });
+
+  it("keys the pane per agent in a split as well", () => {
+    focusChatOn("a1");
+    Object.assign(H.state, {
+      isSplit: true,
+      splitState: { left: "chat", right: "terminal" },
+      chatMatch: false,
+    });
+    const view = mount({ path: "/agents/a1" });
+    const first = screen.getByTestId("stub-ChatPane");
+    expect(propsOf("ChatPane").agentId).toBe("a1");
+
+    focusChatOn("a2");
+    Object.assign(H.state, {
+      isSplit: true,
+      splitState: { left: "chat", right: "terminal" },
+      chatMatch: false,
+    });
+    view.rerender(tree("/agents/a2", view.props));
+
+    expect(propsOf("ChatPane").agentId).toBe("a2");
+    expect(screen.getByTestId("stub-ChatPane")).not.toBe(first);
   });
 });
 
