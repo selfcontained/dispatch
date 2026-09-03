@@ -200,6 +200,9 @@ export class JobService {
         model: agentConfig.model ?? undefined,
         cwd: job.directory,
         agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
+        // The CLI receives the prompt through agentArgs; the Chat feed's
+        // launch post needs it stated separately.
+        launchContext: { prompt },
         fullAccess: agentConfig.fullAccess,
         ...templateWorktreeConfig(agentConfig),
         jobRunId: run.id,
@@ -468,6 +471,7 @@ export class JobService {
         prompt,
         agentConfig.fullAccess
       ),
+      launchContext: { prompt },
       fullAccess: agentConfig.fullAccess,
       ...templateWorktreeConfig(agentConfig),
       jobRunId: run.id,

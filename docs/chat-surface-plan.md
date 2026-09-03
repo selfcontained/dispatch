@@ -425,8 +425,10 @@ when the agent starts — otherwise it is only visible in the Console.
 - **One post per launch.** `AgentManager.createAgent` records the context
   through a `LaunchContextRecorder` attached post-construction
   (`ChatService.recordLaunchContext`), after the agent row and its media
-  rows exist and before the CLI starts, so every launch path (create dialog,
-  `dispatch_launch_agent`, templates, jobs) gets it. The post is a user
+  rows exist and alongside the runtime launch, so every launch path (create
+  dialog, `dispatch_launch_agent`, templates, jobs) gets it. The write is
+  best-effort: it never blocks the runtime launch, and `createAgent` waits
+  for it at most 5s before returning (a late write still lands). The post is a user
   message, kind `reply`, `delivered: true` (the prompt reaches the CLI by the
   normal launch path; nothing is injected), text = the initial prompt, and
   attachments = a `file` per startup media row (resolved by `mediaId`), a
@@ -441,8 +443,11 @@ when the agent starts — otherwise it is only visible in the Console.
   `launchedByAgentId?: string`; both are absent (not null) on every other
   message, and the store only emits the keys when set.
 - **Agent-launched agents.** When another agent launched this one,
-  `launched_by_agent_id` is the launcher (`launchedByAgentId ?? parentAgentId`
-  — the same value the agents row records). The post stays `authorKind:
+  `launched_by_agent_id` is the launcher — only the explicit
+  `CreateAgentInput.launchedByAgentId` the agent-authenticated launch paths
+  (`dispatch_launch_agent`, persona launches) set, never a body-supplied
+  `parentAgentId`, so a create-route caller cannot make the post read as
+  another agent's. The post stays `authorKind:
 "user"` so unread and pending-question counts are unaffected; the web
   renders the author from `launchedByAgentId`. The MCP launch path wraps the
   prompt in a "You were launched by…" header for the CLI; the post keeps the

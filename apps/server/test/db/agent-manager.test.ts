@@ -38,7 +38,7 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 }));
 
 // We need to dynamically import AgentManager AFTER the mock is in place
-const { AgentManager, AgentError } =
+const { AgentManager, AgentError, LAUNCH_CONTEXT_WRITE_TIMEOUT_MS } =
   await import("../../src/agents/manager.js");
 const { ChatService } = await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
@@ -354,6 +354,76 @@ describe("AgentManager", () => {
           text: "Go",
         });
       });
+
+      it("never attributes the post from parentAgentId alone", async () => {
+        // The create route accepts parentAgentId from the request body, so
+        // only the explicit launcher (set by agent-authenticated launch
+        // paths) may name who the post reads as.
+        const parent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        const child = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+          parentAgentId: parent.id,
+          initialPrompt: "Pretend I am the parent",
+        });
+        expect((await launchPosts(child.id))[0]).toMatchObject({
+          author_kind: "user",
+          text: "Pretend I am the parent",
+          launched_by_agent_id: null,
+        });
+      });
+
+      it("starts the runtime without waiting on a recorder that never resolves", async () => {
+        const warn = vi.fn();
+        const stuckManager = new AgentManager(
+          pool,
+          { ...noopLogger, warn, child: () => noopLogger } as never,
+          inertTestConfig
+        );
+        stuckManager.attachLaunchContextRecorder({
+          recordLaunchContext: () => new Promise(() => {}),
+        });
+
+        const startedAt = Date.now();
+        const pending = stuckManager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+          initialPrompt: "Go",
+        });
+        // The runtime launch runs alongside the stuck write: the agent row
+        // reaches "running" long before the write's bounded wait expires.
+        const running = await vi.waitFor(
+          async () => {
+            const result = await pool.query<{ status: string }>(
+              `SELECT status FROM agents WHERE status = 'running'
+                 AND created_at >= to_timestamp($1 / 1000.0)`,
+              [startedAt]
+            );
+            expect(result.rows).toHaveLength(1);
+            return result.rows[0];
+          },
+          { timeout: 3000, interval: 50 }
+        );
+        expect(running.status).toBe("running");
+        expect(Date.now() - startedAt).toBeLessThan(
+          LAUNCH_CONTEXT_WRITE_TIMEOUT_MS
+        );
+
+        // createAgent itself returns once the bounded wait expires, and says so.
+        const agent = await pending;
+        expect(agent.status).toBe("running");
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agentId: agent.id,
+            timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
+          }),
+          expect.stringContaining("launch context write still pending")
+        );
+        expect(await launchPosts(agent.id)).toEqual([]);
+      }, 15_000);
     });
 
     it("de-duplicates initialPins by case-insensitive label (last write wins)", async () => {

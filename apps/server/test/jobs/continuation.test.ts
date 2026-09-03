@@ -630,6 +630,9 @@ describe("continuation jobs", () => {
       cwd: "/tmp/continuation",
       useWorktree: true,
       baseBranch: "main",
+      launchContext: {
+        prompt: expect.stringContaining("Continuation chain: chain-1"),
+      },
       // No stored branch name, so each iteration gets its own generated branch
       // rather than colliding with the previous iteration's.
       worktreeBranch: undefined,

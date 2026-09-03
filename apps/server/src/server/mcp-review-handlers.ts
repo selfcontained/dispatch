@@ -600,6 +600,7 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         useWorktree: false,
         persona: opts.persona,
         parentAgentId: agentId,
+        launchedByAgentId: agentId,
         personaContext: opts.context,
         cliSessionId,
         initialPrompt: buildPersonaKickoffPrompt(),

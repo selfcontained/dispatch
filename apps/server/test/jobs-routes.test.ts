@@ -304,6 +304,41 @@ describe("POST /api/v1/jobs/run", () => {
     await new Promise((resolve) => setTimeout(resolve, 2500));
   });
 
+  it("records the job prompt as the agent's launch post", async () => {
+    await createJob("run-launch-post", { prompt: "Sweep the stale branches" });
+    const res = await authedInject("POST", "/api/v1/jobs/run", {
+      name: "run-launch-post",
+      directory: "/tmp",
+      wait: false,
+    });
+    expect(res.statusCode).toBe(200);
+    const body = res.json();
+    const posts = await ctx.pool.query(
+      `SELECT author_kind, kind, text, delivered, origin, attachments
+         FROM agent_chat_messages WHERE agent_id = $1`,
+      [body.agentId]
+    );
+    expect(posts.rows).toHaveLength(1);
+    expect(posts.rows[0]).toMatchObject({
+      author_kind: "user",
+      kind: "reply",
+      delivered: true,
+      origin: "launch",
+      attachments: [],
+    });
+    // The post carries the same prompt the CLI receives through agentArgs:
+    // the job header plus the job's own prompt.
+    expect(posts.rows[0].text).toContain(`Run ID: ${body.runId}`);
+    expect(posts.rows[0].text).toContain(
+      "\nJob prompt:\nSweep the stale branches"
+    );
+    await ctx.pool.query(
+      `UPDATE job_runs SET status = 'completed' WHERE id = $1`,
+      [body.runId]
+    );
+    await new Promise((resolve) => setTimeout(resolve, 2500));
+  });
+
   it("returns 500 for non-existent job", async () => {
     const res = await authedInject("POST", "/api/v1/jobs/run", {
       name: "ghost",

@@ -251,6 +251,9 @@ async function readLaunchGuidanceFlags(
   return { trimmedGuidance, chatSurface };
 }
 
+/** Upper bound on how long a launch waits for its Chat launch post. */
+export const LAUNCH_CONTEXT_WRITE_TIMEOUT_MS = 5_000;
+
 export class AgentManager {
   private readonly pool: Pool;
   private readonly logger: FastifyBaseLogger;
@@ -442,7 +445,10 @@ export class AgentManager {
       p.initialPins,
       initialMedia
     );
-    await this.recordLaunchContext(p, input, initialMedia);
+    // Best-effort: the write runs alongside the runtime launch, never blocks
+    // it, and is only waited on (bounded) so the feed has the post when the
+    // caller gets the agent back.
+    const launchContextWrite = this.recordLaunchContext(p, input, initialMedia);
 
     if (this.config.agentRuntime === "inert") {
       await this.launchInertAgent({
@@ -482,40 +488,72 @@ export class AgentManager {
       });
     }
 
+    await launchContextWrite;
     return (await this.getAgent(p.id)) as AgentRecord;
   }
 
   /**
-   * Put the launch context at the top of the Chat feed before the CLI
-   * starts, so the feed opens with it. A recorder failure is logged and
-   * never fails the launch — the prompt still reaches the CLI.
+   * Put the launch context at the top of the Chat feed, so the feed opens
+   * with it. Best-effort and detached from the launch: the write is started
+   * alongside the runtime launch, a failure is logged and never fails the
+   * launch (the prompt still reaches the CLI), and the returned promise
+   * settles after at most `LAUNCH_CONTEXT_WRITE_TIMEOUT_MS` so a slow or hung
+   * Chat write cannot hold the agent start. A write that outlives the wait
+   * still lands (and announces itself) whenever it completes.
+   *
+   * Only an explicit `launchedByAgentId` attributes the post to an agent —
+   * the agent-authenticated launch paths set it. `parentAgentId` is never
+   * used for attribution: the create route accepts it from the request body.
    */
-  private async recordLaunchContext(
+  private recordLaunchContext(
     p: PreparedCreateInputs,
     input: CreateAgentInput,
     initialMedia: Array<{ mediaId: number }>
   ): Promise<void> {
-    if (!this.launchContextRecorder || p.type === "terminal") return;
-    try {
-      await this.launchContextRecorder.recordLaunchContext({
-        agentId: p.id,
-        text: input.launchContext?.prompt ?? input.initialPrompt,
-        files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
-        links: input.launchContext?.links ?? [],
-        pins: p.initialPins.map((pin) => ({
-          id: pin.id ?? "",
-          type: pin.type,
-          value: pin.value,
-        })),
-        launchedByAgentId:
-          input.launchedByAgentId ?? input.parentAgentId ?? null,
-      });
-    } catch (error) {
-      this.logger.warn(
-        { err: error, agentId: p.id },
-        "chat: failed to record launch context"
+    const recorder = this.launchContextRecorder;
+    if (!recorder || p.type === "terminal") return Promise.resolve();
+    const write = Promise.resolve()
+      .then(() =>
+        recorder.recordLaunchContext({
+          agentId: p.id,
+          text: input.launchContext?.prompt ?? input.initialPrompt,
+          files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
+          links: input.launchContext?.links ?? [],
+          pins: p.initialPins.map((pin) => ({
+            id: pin.id ?? "",
+            type: pin.type,
+            value: pin.value,
+          })),
+          launchedByAgentId: input.launchedByAgentId ?? null,
+        })
+      )
+      .then(
+        () => "written" as const,
+        (error: unknown) => {
+          this.logger.warn(
+            { err: error, agentId: p.id },
+            "chat: failed to record launch context"
+          );
+          return "failed" as const;
+        }
       );
-    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((resolve) => {
+      timer = setTimeout(
+        () => resolve("timeout"),
+        LAUNCH_CONTEXT_WRITE_TIMEOUT_MS
+      );
+      timer.unref?.();
+    });
+    return Promise.race([write, timeout]).then((outcome) => {
+      clearTimeout(timer);
+      if (outcome === "timeout") {
+        this.logger.warn(
+          { agentId: p.id, timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS },
+          "chat: launch context write still pending; launch continues without it"
+        );
+      }
+    });
   }
 
   private async prepareCreateInputs(

@@ -266,6 +266,7 @@ export async function registerTemplateRoutes(
           ...parsed,
           startupFiles,
           startupPins,
+          startupLinks,
         });
         deps.publishUiEvent({
           type: "agent.upsert",
