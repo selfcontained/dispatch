@@ -15,6 +15,8 @@ import {
   splitPaneStateAtomFamily,
   defaultSplitPaneState,
   type SplitPaneState,
+  atomWithLocalStorage,
+  isPersistedSplitPaneState,
   reconcileSeenSurfaceIdsStorage,
   SEEN_SURFACE_IDS_STORAGE_PREFIX,
   isSystemSidebarTab,
@@ -486,8 +488,8 @@ describe("splitPaneStateAtomFamily storage migration", () => {
 
   const split: SplitPaneState = {
     mode: "split",
-    left: "chat",
-    right: "terminal",
+    left: "agent",
+    right: "changes",
     sizes: [40, 60],
   };
 
@@ -513,6 +515,17 @@ describe("splitPaneStateAtomFamily storage migration", () => {
     );
     const store = createStore();
     expect(store.get(splitPaneStateAtomFamily("agt_both"))).toEqual(
+      defaultSplitPaneState
+    );
+  });
+
+  it("reads an off-shape stored value as the default", () => {
+    window.localStorage.setItem(
+      `${SPLIT_PANE_STATE_STORAGE_PREFIX}agt_corrupt`,
+      JSON.stringify({ mode: "split", left: "nope", right: "changes" })
+    );
+    const store = createStore();
+    expect(store.get(splitPaneStateAtomFamily("agt_corrupt"))).toEqual(
       defaultSplitPaneState
     );
   });
@@ -543,5 +556,95 @@ describe("splitPaneStateAtomFamily storage migration", () => {
         `${LEGACY_SPLIT_PANE_STATE_STORAGE_PREFIX}agt_legacy_write`
       )
     ).toBe(legacy);
+  });
+});
+
+describe("isPersistedSplitPaneState", () => {
+  it("accepts current and round-1/2 tab ids on either side", () => {
+    expect(
+      isPersistedSplitPaneState({
+        mode: "split",
+        left: "chat",
+        right: "terminal",
+        sizes: [30, 70],
+      })
+    ).toBe(true);
+    expect(isPersistedSplitPaneState(defaultSplitPaneState)).toBe(true);
+  });
+
+  it("rejects anything else", () => {
+    expect(isPersistedSplitPaneState(null)).toBe(false);
+    expect(isPersistedSplitPaneState("split")).toBe(false);
+    expect(
+      isPersistedSplitPaneState({ ...defaultSplitPaneState, mode: "wide" })
+    ).toBe(false);
+    expect(
+      isPersistedSplitPaneState({ ...defaultSplitPaneState, left: "files" })
+    ).toBe(false);
+    expect(
+      isPersistedSplitPaneState({ ...defaultSplitPaneState, sizes: [50] })
+    ).toBe(false);
+    expect(
+      isPersistedSplitPaneState({ ...defaultSplitPaneState, sizes: ["a", 1] })
+    ).toBe(false);
+  });
+});
+
+describe("atomWithLocalStorage", () => {
+  const { createStore } = jotai;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("keeps the in-memory value when the write fails", () => {
+    const testAtom = atomWithLocalStorage("dispatch:test:quota", "before");
+    const store = createStore();
+    const setItem = window.localStorage.setItem.bind(window.localStorage);
+    const original = Object.getOwnPropertyDescriptor(
+      Storage.prototype,
+      "setItem"
+    )!;
+    Object.defineProperty(Storage.prototype, "setItem", {
+      configurable: true,
+      value: () => {
+        throw new DOMException("quota", "QuotaExceededError");
+      },
+    });
+    try {
+      expect(() => store.set(testAtom, "after")).not.toThrow();
+      expect(store.get(testAtom)).toBe("after");
+      expect(window.localStorage.getItem("dispatch:test:quota")).toBeNull();
+    } finally {
+      Object.defineProperty(Storage.prototype, "setItem", original);
+    }
+    setItem("dispatch:test:quota", JSON.stringify("later"));
+    expect(window.localStorage.getItem("dispatch:test:quota")).toBe('"later"');
+  });
+
+  it("writes the serialized form and holds the value as set", () => {
+    const testAtom = atomWithLocalStorage<string[]>(
+      "dispatch:test:serialize",
+      [],
+      { serialize: (value) => JSON.stringify(value.slice(0, 1)) }
+    );
+    const store = createStore();
+    store.set(testAtom, ["a", "b"]);
+    expect(store.get(testAtom)).toEqual(["a", "b"]);
+    expect(window.localStorage.getItem("dispatch:test:serialize")).toBe(
+      '["a"]'
+    );
+  });
+
+  it("reads a value that fails validation as the initial one", () => {
+    window.localStorage.setItem("dispatch:test:validate", '"nope"');
+    const testAtom = atomWithLocalStorage<number>("dispatch:test:validate", 7, {
+      validate: (value): value is number => typeof value === "number",
+    });
+    expect(createStore().get(testAtom)).toBe(7);
   });
 });

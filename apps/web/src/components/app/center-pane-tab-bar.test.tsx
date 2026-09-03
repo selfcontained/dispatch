@@ -26,7 +26,7 @@ afterEach(() => {
 });
 
 describe("CenterPaneTabBar", () => {
-  it("offers no chat tab and keeps the Terminal label with the flag off", () => {
+  it("offers no Agent tab and keeps the Terminal label with the flag off", () => {
     render(
       <MemoryRouter>
         <CenterPaneTabBar
@@ -39,17 +39,19 @@ describe("CenterPaneTabBar", () => {
         />
       </MemoryRouter>
     );
+    expect(screen.queryByRole("tab", { name: /agent/i })).toBeNull();
     expect(screen.queryByRole("tab", { name: /chat/i })).toBeNull();
     expect(screen.getByRole("tab", { name: /^terminal$/i })).toBeTruthy();
+    expect(screen.queryByTestId("center-tab-agent")).toBeNull();
     expect(screen.queryByTestId("chat-unread-count")).toBeNull();
   });
 
-  it("puts Chat first and relabels the terminal Console with the flag on", () => {
+  it("puts the Agent tab first, in place of Terminal, with the flag on", () => {
     H.chatEnabled = true;
     render(
       <MemoryRouter>
         <CenterPaneTabBar
-          activeTab="terminal"
+          activeTab="changes"
           onTabChange={vi.fn()}
           isSplit={false}
           splitState={singleState}
@@ -59,18 +61,26 @@ describe("CenterPaneTabBar", () => {
       </MemoryRouter>
     );
     const tabs = screen.getAllByRole("tab").map((el) => el.textContent);
-    expect(tabs[0]).toMatch(/^Chat/);
-    expect(tabs[1]).toBe("Console");
+    expect(tabs[0]).toMatch(/^Agent/);
+    expect(tabs).toHaveLength(3);
     expect(screen.queryByRole("tab", { name: /^terminal$/i })).toBeNull();
+    expect(screen.queryByTestId("center-tab-terminal")).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^chat$/i })).toBeNull();
+    expect(screen.queryByRole("tab", { name: /^console$/i })).toBeNull();
+    // Unread chat replies land on the Agent tab while another tab is up.
+    const agentTab = screen.getByTestId("center-tab-agent");
+    expect(
+      agentTab.querySelector("[data-testid='chat-unread-count']")
+    ).not.toBeNull();
     expect(screen.getByTestId("chat-unread-count").textContent).toBe("3");
   });
 
-  it("hides the unread badge while the chat tab is active", () => {
+  it("hides the unread badge while the Agent tab is active", () => {
     H.chatEnabled = true;
     render(
       <MemoryRouter>
         <CenterPaneTabBar
-          activeTab="chat"
+          activeTab="agent"
           onTabChange={vi.fn()}
           isSplit={false}
           splitState={singleState}
@@ -82,10 +92,9 @@ describe("CenterPaneTabBar", () => {
     expect(screen.queryByTestId("chat-unread-count")).toBeNull();
   });
 
-  it("orders the tabs Chat, Console, Changes, Whiteboard", () => {
+  it("orders the tabs Agent, Changes, Whiteboard", () => {
     expect(centerTabs(true).map((t) => t.id)).toEqual([
-      "chat",
-      "terminal",
+      "agent",
       "changes",
       "whiteboard",
     ]);

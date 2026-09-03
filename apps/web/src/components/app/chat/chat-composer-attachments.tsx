@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { FileText, Pin } from "lucide-react";
+import { FileText, Paperclip, Pin } from "lucide-react";
 
 import { ContextChip } from "@/components/app/context-picker-items";
 import { type AgentPin } from "@/components/app/types";
+import { type ChatDraftFile } from "@/lib/chat-draft";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -78,6 +79,40 @@ export function PastedTextChip({
       tooltip={`${file.name} — pasted text, ${lines} lines`}
       className={cn(status === "failed" && "border-destructive/60")}
       testId="chat-attachment-chip-pasted"
+    />
+  );
+}
+
+/**
+ * A file the draft remembers but cannot bring back: a picked file (only the
+ * name survives a reload) or a paste whose text was dropped to fit the
+ * draft's size cap. Inert apart from removal; the composer holds the send
+ * until it is re-attached or removed.
+ */
+export function DraftPlaceholderChip({
+  entry,
+  onRemove,
+}: {
+  entry: ChatDraftFile;
+  onRemove: () => void;
+}): JSX.Element {
+  const wasPaste = entry.pasted === null;
+  return (
+    <ContextChip
+      icon={wasPaste ? <FileText /> : <Paperclip />}
+      title={entry.name}
+      subtitle={
+        wasPaste ? "Too large to keep — paste again" : "Needs re-attaching"
+      }
+      onRemove={onRemove}
+      removeLabel={`Remove ${entry.name}`}
+      tooltip={
+        wasPaste
+          ? `${entry.name} — the pasted text was too large to keep across a reload`
+          : `${entry.name} — files can't be kept across a reload; attach it again`
+      }
+      className="border-dashed opacity-70"
+      testId="chat-attachment-chip-placeholder"
     />
   );
 }

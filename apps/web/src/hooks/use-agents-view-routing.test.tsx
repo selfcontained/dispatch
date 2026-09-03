@@ -5,7 +5,7 @@ import { MemoryRouter, useLocation, useNavigate } from "react-router-dom";
 import { getDefaultStore } from "jotai";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { lastCenterTabAtomFamily } from "@/lib/store";
+import { agentPaneViewAtomFamily } from "@/lib/store";
 
 import { useAgentsViewRouting } from "./use-agents-view-routing";
 
@@ -56,6 +56,11 @@ function renderRouting(initialPath: string, initialProps: RoutingProps) {
       if (!location) throw new Error("location probe never rendered");
       return location.pathname;
     },
+    search: () => {
+      const location = locationRef.current;
+      if (!location) throw new Error("location probe never rendered");
+      return location.search;
+    },
     goBack: () => {
       act(() => navigateRef.current?.(-1));
     },
@@ -66,7 +71,7 @@ beforeEach(() => {
   chatFlag.enabled = false;
   chatFlag.loaded = true;
   window.localStorage.clear();
-  lastCenterTabAtomFamily.remove("agt_1");
+  agentPaneViewAtomFamily.remove("agt_1");
 });
 
 afterEach(() => {
@@ -194,58 +199,58 @@ describe("useAgentsViewRouting", () => {
       agentsLoaded: true,
       validatedSelectedAgentId: "agt_1",
     };
+    const viewOf = (agentId: string) =>
+      getDefaultStore().get(agentPaneViewAtomFamily(agentId));
 
-    it("lands the bare agent route on the chat tab when the flag is on", () => {
+    it("keeps the bare agent route as the Agent tab when the flag is on", () => {
       chatFlag.enabled = true;
       const { result, pathname } = renderRouting("/agents/agt_1", loaded);
-      expect(pathname()).toBe("/agents/agt_1/chat");
-      expect(result.current.chatMatch).toBe(true);
+      expect(pathname()).toBe("/agents/agt_1");
+      expect(result.current.centerTabResolved).toBe(true);
     });
 
-    it("keeps the query string across the default redirect", () => {
+    it("redirects an old /chat link to the Agent tab with the Chat view", () => {
       chatFlag.enabled = true;
-      const { pathname, ...rest } = renderRouting(
-        "/agents/agt_1?expandReview=4",
+      getDefaultStore().set(agentPaneViewAtomFamily("agt_1"), "console");
+      const { result, pathname } = renderRouting("/agents/agt_1/chat", loaded);
+      expect(pathname()).toBe("/agents/agt_1");
+      expect(viewOf("agt_1")).toBe("chat");
+      expect(result.current.centerTabResolved).toBe(true);
+    });
+
+    it("keeps the query string across the /chat redirect", () => {
+      chatFlag.enabled = true;
+      const { pathname, search } = renderRouting(
+        "/agents/agt_1/chat?expandReview=4",
         loaded
       );
-      expect(pathname()).toBe("/agents/agt_1/chat");
-      // The probe only exposes pathname; read search through the hook's own
-      // router by navigating back to the terminal and checking nothing broke.
-      expect(rest.result.current.chatMatch).toBe(true);
-    });
-
-    it("stays on the console when that was the user's last choice", () => {
-      chatFlag.enabled = true;
-      getDefaultStore().set(lastCenterTabAtomFamily("agt_1"), "terminal");
-      const { result, pathname } = renderRouting("/agents/agt_1", loaded);
       expect(pathname()).toBe("/agents/agt_1");
-      expect(result.current.chatMatch).toBe(false);
+      expect(search()).toBe("?expandReview=4");
     });
 
-    it("remembers a console pick made through onTabChange", () => {
-      chatFlag.enabled = true;
+    it("falls a /chat route back to the terminal without touching the view when the flag is off", () => {
+      getDefaultStore().set(agentPaneViewAtomFamily("agt_1"), "console");
       const { result, pathname } = renderRouting("/agents/agt_1/chat", loaded);
-      act(() => result.current.onTabChange("terminal"));
       expect(pathname()).toBe("/agents/agt_1");
-      act(() => result.current.onTabChange("chat"));
-      expect(pathname()).toBe("/agents/agt_1/chat");
+      expect(viewOf("agt_1")).toBe("console");
+      expect(result.current.centerTabResolved).toBe(true);
     });
 
     it("waits for the flag to load before redirecting", () => {
       chatFlag.enabled = false;
       chatFlag.loaded = false;
-      const { pathname } = renderRouting("/agents/agt_1", loaded);
-      expect(pathname()).toBe("/agents/agt_1");
+      const { pathname } = renderRouting("/agents/agt_1/chat", loaded);
+      expect(pathname()).toBe("/agents/agt_1/chat");
     });
 
-    // The Console must not paint under the Chat tab: while the flag is
+    // The Console must not paint under the Chat view: while the flag is
     // unknown the center tab is reported unresolved, and it becomes resolved
-    // in the same render the flag arrives *and* the redirect has landed.
+    // in the same render the flag arrives *and* any redirect has landed.
     it("reports the center tab unresolved until the flag loads and the redirect lands", () => {
       chatFlag.enabled = false;
       chatFlag.loaded = false;
       const { result, rerender, pathname } = renderRouting(
-        "/agents/agt_1",
+        "/agents/agt_1/chat",
         loaded
       );
       expect(result.current.centerTabResolved).toBe(false);
@@ -253,34 +258,31 @@ describe("useAgentsViewRouting", () => {
       chatFlag.enabled = true;
       chatFlag.loaded = true;
       rerender(loaded);
-      expect(pathname()).toBe("/agents/agt_1/chat");
-      expect(result.current.chatMatch).toBe(true);
+      expect(pathname()).toBe("/agents/agt_1");
+      expect(viewOf("agt_1")).toBe("chat");
       expect(result.current.centerTabResolved).toBe(true);
     });
 
-    it("resolves the console immediately when it was the last choice", () => {
+    it("stays unresolved on the bare route only while the flag is unknown", () => {
+      chatFlag.loaded = false;
+      const { result, rerender } = renderRouting("/agents/agt_1", loaded);
+      expect(result.current.centerTabResolved).toBe(false);
       chatFlag.enabled = true;
-      getDefaultStore().set(lastCenterTabAtomFamily("agt_1"), "terminal");
-      const { result } = renderRouting("/agents/agt_1", loaded);
+      chatFlag.loaded = true;
+      rerender(loaded);
       expect(result.current.centerTabResolved).toBe(true);
     });
 
     it("resolves the terminal immediately with the flag off", () => {
       const { result } = renderRouting("/agents/agt_1", loaded);
       expect(result.current.centerTabResolved).toBe(true);
-      expect(result.current.chatMatch).toBe(false);
     });
 
-    it("resolves deep links to changes and chat without a redirect", () => {
+    it("resolves deep links to changes without a redirect", () => {
       chatFlag.enabled = true;
       const changes = renderRouting("/agents/agt_1/changes", loaded);
       expect(changes.pathname()).toBe("/agents/agt_1/changes");
       expect(changes.result.current.centerTabResolved).toBe(true);
-      changes.unmount();
-
-      const chat = renderRouting("/agents/agt_1/chat", loaded);
-      expect(chat.pathname()).toBe("/agents/agt_1/chat");
-      expect(chat.result.current.centerTabResolved).toBe(true);
     });
 
     it("stays resolved on the bare /agents route with nothing selected", () => {
@@ -294,18 +296,22 @@ describe("useAgentsViewRouting", () => {
 
     it("does not redirect an unvalidated agent", () => {
       chatFlag.enabled = true;
-      const { pathname } = renderRouting("/agents/agt_gone", {
+      const { pathname } = renderRouting("/agents/agt_gone/chat", {
         routeAgentId: "agt_gone",
         agentsLoaded: false,
         validatedSelectedAgentId: null,
       });
-      expect(pathname()).toBe("/agents/agt_gone");
+      expect(pathname()).toBe("/agents/agt_gone/chat");
     });
 
-    it("falls a persisted chat route back to the terminal when the flag is off", () => {
-      const { result, pathname } = renderRouting("/agents/agt_1/chat", loaded);
+    it("routes the Agent tab to the bare agent route", () => {
+      chatFlag.enabled = true;
+      const { result, pathname } = renderRouting(
+        "/agents/agt_1/changes",
+        loaded
+      );
+      act(() => result.current.onTabChange("agent"));
       expect(pathname()).toBe("/agents/agt_1");
-      expect(result.current.chatMatch).toBe(false);
     });
   });
 

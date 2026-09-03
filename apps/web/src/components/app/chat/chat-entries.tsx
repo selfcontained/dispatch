@@ -22,12 +22,18 @@ import {
   latestEventColor,
   latestEventLabel,
 } from "@/components/app/agent-event-utils";
+import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { PinItem } from "@/components/app/pin-item";
-import { type AgentPin, type MediaFile } from "@/components/app/types";
+import {
+  type Agent,
+  type AgentPin,
+  type MediaFile,
+} from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { formatBytes } from "@/components/app/service-resources-format";
+import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { formatDateTime } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
@@ -78,12 +84,44 @@ function hostOf(url: string): string {
 // Authors and the post layout
 // ---------------------------------------------------------------------------
 
+/** What a peer's post shows of the agent behind it: its icon and its lineage. */
+export type PeerInfo = {
+  agentType: string | null;
+  relation: AgentRelation;
+};
+
+/** Peers by id, from this agent's point of view. */
+export type PeerDirectory = Readonly<Record<string, PeerInfo>>;
+
+/**
+ * Every other agent in the list, as this agent's feed sees it. A plain
+ * record (not a Map) so React Query's structural sharing keeps its identity
+ * across agent updates that change nothing here.
+ */
+export function peerDirectory(
+  agentId: string,
+  agents: readonly Pick<Agent, "id" | "type" | "parentAgentId">[]
+): PeerDirectory {
+  const byId = new Map(agents.map((agent) => [agent.id, agent]));
+  const peers: Record<string, PeerInfo> = {};
+  for (const agent of agents) {
+    if (agent.id === agentId) continue;
+    peers[agent.id] = {
+      agentType: agent.type ?? null,
+      relation: agentRelation(agentId, agent.id, byId),
+    };
+  }
+  return peers;
+}
+
 /** What every row of the channel needs to know about the agent it belongs to. */
 export type FeedContext = {
   agentId: string;
   /** The agent this channel belongs to; names its posts. */
   agentName?: string;
   agentType?: string | null;
+  /** Other agents, for a peer post's avatar and relation; absent until loaded. */
+  peers?: PeerDirectory;
   pins: AgentPin[];
   workspaceRoot: string | null;
   onOpenMedia: (file: MediaFile) => void;
@@ -95,6 +133,8 @@ export type PostAuthor = {
   name: string;
   kind: "user" | "agent" | "peer";
   agentType?: string | null;
+  /** Peers only: how the sender stands to this agent. */
+  relation?: AgentRelation;
 };
 
 function userAuthor(): PostAuthor {
@@ -110,8 +150,24 @@ function agentAuthor(ctx: FeedContext, fallback = ""): PostAuthor {
   };
 }
 
-function peerAuthor(agentId: string, name: string): PostAuthor {
-  return { key: `peer:${agentId}`, name, kind: "peer" };
+/**
+ * A sender that is not this agent: its own icon and its place in the
+ * lineage when the list knows it, a generic agent otherwise (archived, or
+ * from another repository).
+ */
+function peerAuthor(
+  agentId: string,
+  name: string,
+  ctx: FeedContext
+): PostAuthor {
+  const peer = ctx.peers?.[agentId];
+  return {
+    key: `peer:${agentId}`,
+    name,
+    kind: "peer",
+    agentType: peer?.agentType ?? null,
+    relation: peer?.relation ?? "agent",
+  };
 }
 
 const AVATAR_ICON = "[&>svg]:h-[18px] [&>svg]:w-[18px]";
@@ -131,37 +187,69 @@ function Avatar({ author }: { author: PostAuthor }): JSX.Element {
   }
   return (
     <AgentTypeIcon
-      type={author.kind === "agent" ? author.agentType : null}
+      type={author.agentType}
       className={cn("h-8 w-8 rounded-md", AVATAR_ICON)}
     />
   );
 }
 
 /**
+ * Who a post reads as, at a glance: "You" and other agents get a faint
+ * full-width tint so their posts stand apart from this agent's prose, which
+ * stays plain. The tint runs the whole author group, so a run of posts
+ * reads as one block.
+ */
+export const POST_TINT: Record<PostAuthor["kind"], string> = {
+  user: "bg-primary/[0.06] hover:bg-primary/[0.09]",
+  peer: "bg-violet-500/[0.06] hover:bg-violet-500/[0.09]",
+  agent: "hover:bg-muted/40",
+};
+
+/**
+ * Post bodies stop growing at a comfortable reading measure; on a wide pane
+ * a paragraph must not run edge to edge. The tint and the header still span
+ * the full width.
+ */
+export const POST_BODY_MEASURE = "max-w-[90ch]";
+
+/**
  * One full-width row of the channel. A header row carries the avatar, the
  * author and the time; a grouped row (same author, shortly after) keeps only
  * the body, and shows the time in the gutter on hover.
+ *
+ * Rhythm: a group start sits further below the post above it than grouped
+ * rows sit below each other, and draws a hairline when it follows another
+ * post directly (`rule`), so the boundary between authors is visible even
+ * between two long markdown bodies.
  */
 export function Post({
   author,
   at,
   grouped,
+  rule = false,
   children,
   ...rest
 }: {
   author: PostAuthor;
   at: string;
   grouped: boolean;
+  /** Draw a hairline above: this group starts right after another post. */
+  rule?: boolean;
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
   return (
     <div
       className={cn(
-        "group relative flex gap-3 px-4 transition-colors hover:bg-muted/40",
-        grouped ? "py-0.5" : "mt-2 pb-0.5 pt-1.5"
+        "group relative flex gap-3 px-4 transition-colors",
+        POST_TINT[author.kind],
+        grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
+        rule && "border-t border-border/40"
       )}
       data-grouped={grouped ? "true" : undefined}
+      data-group-start={grouped ? undefined : "true"}
+      data-author-kind={author.kind}
+      data-rule={rule ? "true" : undefined}
       {...rest}
     >
       <div className="flex w-8 shrink-0 justify-end">
@@ -186,6 +274,9 @@ export function Post({
             >
               {author.name}
             </span>
+            {author.kind === "peer" ? (
+              <AgentRelationBadge relation={author.relation ?? "agent"} />
+            ) : null}
             <span
               className="shrink-0 text-[11px] text-muted-foreground"
               title={formatDateTime(at)}
@@ -194,7 +285,9 @@ export function Post({
             </span>
           </div>
         )}
-        <div className="text-sm text-foreground">{children}</div>
+        <div className={cn("text-sm text-foreground", POST_BODY_MEASURE)}>
+          {children}
+        </div>
       </div>
     </div>
   );
@@ -603,6 +696,7 @@ export const ChatMessageView = memo(function ChatMessageView({
   message,
   held,
   grouped,
+  rule = false,
   ctx,
   answering,
   answersDisabled = false,
@@ -611,6 +705,7 @@ export const ChatMessageView = memo(function ChatMessageView({
   message: ChatMessage;
   held: boolean;
   grouped: boolean;
+  rule?: boolean;
   ctx: FeedContext;
   /** This message's answer is in flight. */
   answering: boolean;
@@ -624,6 +719,7 @@ export const ChatMessageView = memo(function ChatMessageView({
         author={userAuthor()}
         at={message.createdAt}
         grouped={grouped}
+        rule={rule}
         data-testid="chat-message"
         data-author="user"
         data-message-id={message.id}
@@ -650,6 +746,7 @@ export const ChatMessageView = memo(function ChatMessageView({
         author={author}
         at={message.createdAt}
         grouped={grouped}
+        rule={rule}
         data-testid="chat-message"
         data-author="agent"
         data-kind="update"
@@ -683,6 +780,7 @@ export const ChatMessageView = memo(function ChatMessageView({
       author={author}
       at={message.createdAt}
       grouped={grouped}
+      rule={rule}
       data-testid="chat-message"
       data-author="agent"
       data-kind={message.kind}
@@ -718,7 +816,11 @@ export const ChatMessageView = memo(function ChatMessageView({
 // Status, cross-agent messages, media
 // ---------------------------------------------------------------------------
 
-/** A muted system line, aligned with the post bodies like "joined the channel". */
+/**
+ * A quiet system line: smaller and dimmer than a post, its dot tucked into
+ * the gutter and its text starting where the gutter ends, so a run of them
+ * reads as a seam between posts rather than as posts of its own.
+ */
 export function StatusLine({
   entry,
   collapsedCount = 1,
@@ -729,14 +831,14 @@ export function StatusLine({
   const type = asEventType(entry.eventType);
   return (
     <div
-      className="flex items-center gap-3 px-4 py-0.5 text-[11px] text-muted-foreground"
+      className="flex items-center gap-2 px-4 py-px text-[10px] leading-4 text-muted-foreground/75"
       data-testid="chat-status"
       title={formatDateTime(entry.at)}
     >
-      <div className="flex w-8 shrink-0 justify-center">
+      <div className="flex w-8 shrink-0 justify-end pr-0.5">
         <span
           className={cn(
-            "h-1.5 w-1.5 rounded-full bg-current",
+            "h-1 w-1 rounded-full bg-current",
             latestEventColor(type)
           )}
         />
@@ -763,16 +865,18 @@ export function agentMessageAuthor(
 ): PostAuthor {
   return entry.direction === "out"
     ? agentAuthor(ctx, entry.senderName)
-    : peerAuthor(entry.senderAgentId, entry.senderName);
+    : peerAuthor(entry.senderAgentId, entry.senderName, ctx);
 }
 
 export function AgentMessageView({
   entry,
   grouped,
+  rule = false,
   ctx,
 }: {
   entry: ChatAgentMessageEntry;
   grouped: boolean;
+  rule?: boolean;
   ctx: FeedContext;
 }): JSX.Element {
   const isSent = entry.direction === "out";
@@ -782,6 +886,7 @@ export function AgentMessageView({
       author={agentMessageAuthor(entry, ctx)}
       at={entry.at}
       grouped={grouped}
+      rule={rule}
       data-testid="chat-agent-message"
       data-direction={entry.direction}
     >
@@ -816,10 +921,12 @@ export function AgentMessageView({
 export function MediaEntryView({
   entry,
   grouped,
+  rule = false,
   ctx,
 }: {
   entry: ChatMediaEntry;
   grouped: boolean;
+  rule?: boolean;
   ctx: FeedContext;
 }): JSX.Element {
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
@@ -838,6 +945,7 @@ export function MediaEntryView({
       author={agentAuthor(ctx, "Agent")}
       at={entry.at}
       grouped={grouped}
+      rule={rule}
       data-testid="chat-media"
     >
       <AttachmentBlock className="mt-1">

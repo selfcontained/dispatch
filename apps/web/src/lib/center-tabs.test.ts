@@ -6,13 +6,13 @@ import {
   centerTabRoute,
   centerTabs,
   isCenterTab,
+  terminalHostTab,
 } from "./center-tabs";
 
 describe("center tabs registry", () => {
-  it("offers Chat only with the flag on, in display order", () => {
+  it("offers the Agent pane with the flag on and the Terminal with it off", () => {
     expect(centerTabs(true).map((t) => t.id)).toEqual([
-      "chat",
-      "terminal",
+      "agent",
       "changes",
       "whiteboard",
     ]);
@@ -23,25 +23,36 @@ describe("center tabs registry", () => {
     ]);
   });
 
-  it("relabels the terminal Console under the flag and nothing else", () => {
-    expect(centerTabLabel("terminal", false)).toBe("Terminal");
-    expect(centerTabLabel("terminal", true)).toBe("Console");
-    for (const tab of CENTER_TABS) {
-      if (tab.id === "terminal") continue;
-      expect(tab.label(true)).toBe(tab.label(false));
-    }
+  it("labels the tabs Agent / Terminal / Changes / Whiteboard", () => {
+    expect(centerTabLabel("agent")).toBe("Agent");
+    expect(centerTabLabel("terminal")).toBe("Terminal");
+    expect(centerTabLabel("changes")).toBe("Changes");
+    expect(centerTabLabel("whiteboard")).toBe("Whiteboard");
+    expect(CENTER_TABS.map((t) => t.label)).toEqual([
+      "Agent",
+      "Terminal",
+      "Changes",
+      "Whiteboard",
+    ]);
   });
 
-  it("routes every tab under the agent", () => {
+  it("routes the Agent pane and the Terminal to the bare agent route", () => {
+    expect(centerTabRoute("a1", "agent")).toBe("/agents/a1");
     expect(centerTabRoute("a1", "terminal")).toBe("/agents/a1");
-    expect(centerTabRoute("a1", "chat")).toBe("/agents/a1/chat");
     expect(centerTabRoute("a1", "changes")).toBe("/agents/a1/changes");
     expect(centerTabRoute("a1", "whiteboard")).toBe("/agents/a1/whiteboard");
   });
 
+  it("names the terminal-hosting tab per flag value", () => {
+    expect(terminalHostTab(true)).toBe("agent");
+    expect(terminalHostTab(false)).toBe("terminal");
+  });
+
   it("recognises stored tab ids and rejects anything else", () => {
-    expect(isCenterTab("chat")).toBe(true);
+    expect(isCenterTab("agent")).toBe(true);
     expect(isCenterTab("terminal")).toBe(true);
+    // The round-1/2 chat tab is no longer a tab of its own.
+    expect(isCenterTab("chat")).toBe(false);
     expect(isCenterTab("console")).toBe(false);
     expect(isCenterTab(null)).toBe(false);
     expect(isCenterTab(3)).toBe(false);

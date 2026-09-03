@@ -2,28 +2,42 @@ import { useCallback, useMemo } from "react";
 import { useAtom } from "jotai";
 
 import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
+import { type LegacyCenterTab, terminalHostTab } from "@/lib/center-tabs";
 import {
   type CenterTab,
+  type PersistedSplitPaneState,
   type SplitPaneState,
   defaultSplitPaneState,
   inactiveSplitPaneStateAtom,
+  isCurrentSplitPaneState,
   splitPaneStateAtomFamily,
 } from "@/lib/store";
 
 /**
- * With the chat surface off, a persisted "chat" pane has nothing to render:
- * it falls back to the terminal, and a split that collapses to two terminals
- * is shown as a single pane. The stored value is left alone so it comes back
- * when the flag is turned on again.
+ * The terminal-hosting tab goes by "agent" with the chat surface on and
+ * "terminal" with it off, and round 1/2 persisted a separate "chat" pane. A
+ * stored value from any of those reads as whichever id is current, so a
+ * split saved under one flag value still renders under the other. A split
+ * that collapses to the same pane twice (Chat beside Console, say) is shown
+ * as a single pane. The stored value is left alone so nothing is lost if
+ * the flag flips back.
  */
 export function normalizeSplitPaneState(
-  state: SplitPaneState,
+  state: PersistedSplitPaneState,
   chatEnabled: boolean
 ): SplitPaneState {
-  if (chatEnabled) return state;
-  if (state.left !== "chat" && state.right !== "chat") return state;
-  const left: CenterTab = state.left === "chat" ? "terminal" : state.left;
-  const right: CenterTab = state.right === "chat" ? "terminal" : state.right;
+  const host = terminalHostTab(chatEnabled);
+  const fold = (tab: LegacyCenterTab): CenterTab =>
+    tab === "chat" || tab === "agent" || tab === "terminal" ? host : tab;
+  const left = fold(state.left);
+  const right = fold(state.right);
+  if (
+    left === state.left &&
+    right === state.right &&
+    isCurrentSplitPaneState(state)
+  ) {
+    return state;
+  }
   return {
     ...state,
     left,

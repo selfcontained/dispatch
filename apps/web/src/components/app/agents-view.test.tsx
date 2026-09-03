@@ -11,7 +11,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { getDefaultStore } from "jotai";
 
-import { whiteboardAgentDrewAtomFamily } from "@/lib/store";
+import {
+  agentPaneViewAtomFamily,
+  whiteboardAgentDrewAtomFamily,
+} from "@/lib/store";
 import type { Agent } from "@/components/app/types";
 
 import { AgentsView } from "./agents-view";
@@ -69,7 +72,10 @@ const { H, stubModule, stubWrapper } = vi.hoisted(() => {
 });
 
 vi.mock("@/components/app/changes-tab", stubModule("ChangesTab"));
-vi.mock("@/components/app/chat/chat-pane", stubModule("ChatPane"));
+vi.mock(
+  "@/components/app/agent-pane",
+  stubModule("AgentPane", "AgentViewToggle")
+);
 vi.mock("@/components/app/whiteboard-pane", stubModule("WhiteboardPane"));
 vi.mock("@/components/app/split-drop-zones", stubModule("SplitDropZones"));
 // The real split renders whichever panes it is handed into its two slots, so
@@ -85,8 +91,8 @@ vi.mock("@/components/app/center-pane-split", async () => {
           ? (received.changesElement as never)
           : tab === "whiteboard"
             ? (received.whiteboardElement as never)
-            : tab === "chat"
-              ? (received.chatElement as never)
+            : tab === "agent"
+              ? (received.agentElement as never)
               : null;
       const splitState = received.splitState as { left: string; right: string };
       return React.createElement(
@@ -183,7 +189,6 @@ vi.mock("@/hooks/use-agents-view-routing", () => ({
     return {
       changesMatch: s.changesMatch,
       whiteboardMatch: s.whiteboardMatch,
-      chatMatch: s.chatMatch ?? false,
       centerTabResolved: s.centerTabResolved ?? true,
       onTabChange: s.onTabChange,
     };
@@ -443,6 +448,11 @@ function terminalContainer(): HTMLElement {
 
 beforeEach(() => {
   H.clearProps();
+  // Per-agent view atoms live in the default store and cache their first
+  // localStorage read; drop them so a Console pick in one test cannot leak.
+  window.localStorage.clear();
+  agentPaneViewAtomFamily.remove("a1");
+  agentPaneViewAtomFamily.remove("a2");
   const container = document.createElement("div");
   container.id = "stable-terminal";
   document.body.appendChild(container);
@@ -620,67 +630,126 @@ describe("AgentsView focused agent", () => {
   });
 });
 
-describe("AgentsView chat pane identity", () => {
-  function focusChatOn(agentId: string) {
+describe("AgentsView agent pane", () => {
+  function focusOn(agentId: string, chatEnabled = true) {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" }), makeAgent({ id: "a2" })],
       validatedSelectedAgentId: agentId,
       connState: "connected",
       connectedAgentId: agentId,
-      chatEnabled: true,
-      chatMatch: true,
+      chatEnabled,
     });
   }
 
-  it("remounts the chat pane when the focused agent changes", () => {
-    // ChatPane keeps agent-local state (draft, dismissed question, send
-    // error, scroll follow). A direct /agents/a1/chat → /agents/a2/chat
-    // transition reuses AgentsView, so only a per-agent key keeps a1's draft
-    // from showing up under a2.
-    focusChatOn("a1");
-    const view = mount({ path: "/agents/a1/chat" });
-    const first = screen.getByTestId("stub-ChatPane");
-    expect(propsOf("ChatPane").agentId).toBe("a1");
-
-    focusChatOn("a2");
-    view.rerender(tree("/agents/a2/chat", view.props));
-
-    const second = screen.getByTestId("stub-ChatPane");
-    expect(propsOf("ChatPane").agentId).toBe("a2");
-    expect(second).not.toBe(first);
-  });
-
-  it("keeps the same chat pane instance across re-renders for one agent", () => {
-    focusChatOn("a1");
-    const view = mount({ path: "/agents/a1/chat" });
-    const first = screen.getByTestId("stub-ChatPane");
-
-    view.rerender(tree("/agents/a1/chat", view.props));
-
-    expect(screen.getByTestId("stub-ChatPane")).toBe(first);
-  });
-
-  it("keys the pane per agent in a split as well", () => {
-    focusChatOn("a1");
-    Object.assign(H.state, {
-      isSplit: true,
-      splitState: { left: "chat", right: "terminal" },
-      chatMatch: false,
-    });
+  it("hosts the terminal slot in the Agent pane, with the chat surface on or off", () => {
+    // The pane is always rendered in single mode so the terminal slot keeps
+    // its DOM identity across a flag change; with the flag off it is told so
+    // and renders as the bare terminal.
+    focusOn("a1", false);
     const view = mount({ path: "/agents/a1" });
-    const first = screen.getByTestId("stub-ChatPane");
-    expect(propsOf("ChatPane").agentId).toBe("a1");
+    expect(propsOf("AgentPane").chatEnabled).toBe(false);
+    expect(propsOf("AgentPane").header).toBe(true);
+    expect(propsOf("AgentPane").terminalSlotRef).toBe(
+      H.state.defaultTerminalSlotRef
+    );
 
-    focusChatOn("a2");
+    focusOn("a1", true);
+    view.rerender(tree("/agents/a1", view.props));
+    expect(propsOf("AgentPane").chatEnabled).toBe(true);
+    expect(propsOf("AgentPane").agentId).toBe("a1");
+    expect(propsOf("AgentPane").active).toBe(true);
+  });
+
+  it("keeps the pane mounted but inactive under the Changes tab", () => {
+    focusOn("a1");
+    H.state.changesMatch = true;
+    mount({ path: "/agents/a1/changes" });
+    expect(propsOf("AgentPane").active).toBe(false);
+    expect(renderedChildren()).toContain("ChangesTab");
+  });
+
+  it("defaults the view to Chat and remembers a Console pick per agent", () => {
+    focusOn("a1");
+    const view = mount({ path: "/agents/a1" });
+    expect(propsOf("AgentPane").view).toBe("chat");
+
+    act(() => {
+      (propsOf("AgentPane").onViewChange as (v: string) => void)("console");
+    });
+    expect(propsOf("AgentPane").view).toBe("console");
+    expect(
+      JSON.parse(window.localStorage.getItem("dispatch:agentPaneView:a1")!)
+    ).toBe("console");
+
+    // Another agent starts on its own default.
+    focusOn("a2");
+    view.rerender(tree("/agents/a2", view.props));
+    expect(propsOf("AgentPane").agentId).toBe("a2");
+    expect(propsOf("AgentPane").view).toBe("chat");
+  });
+
+  it("focuses the terminal a tick after a flip to Console, unless the flip is undone first", () => {
+    vi.useFakeTimers();
+    try {
+      focusOn("a1");
+      const view = mount({ path: "/agents/a1" });
+      const flip = (v: string) =>
+        act(() => {
+          (propsOf("AgentPane").onViewChange as (v: string) => void)(v);
+        });
+
+      flip("console");
+      expect(H.state.focusTerminal).not.toHaveBeenCalled();
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
+
+      // Back to Chat before the tick lands: the composer keeps its focus.
+      flip("chat");
+      flip("console");
+      flip("chat");
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
+
+      // Unmounting with a tick pending drops it too.
+      flip("console");
+      view.unmount();
+      act(() => {
+        vi.advanceTimersByTime(0);
+      });
+      expect(H.state.focusTerminal).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("hands the Agent pane to the split slot with the split's terminal slot", () => {
+    focusOn("a1");
     Object.assign(H.state, {
       isSplit: true,
-      splitState: { left: "chat", right: "terminal" },
-      chatMatch: false,
+      splitState: { left: "agent", right: "changes" },
     });
-    view.rerender(tree("/agents/a2", view.props));
+    mount({ path: "/agents/a1" });
+    expect(propsOf("AgentPane").header).toBe(false);
+    expect(propsOf("AgentPane").terminalSlotRef).toBe(
+      H.state.splitTerminalSlotRef
+    );
+    expect(propsOf("CenterPaneSplit").agentElement).not.toBeNull();
+    expect(propsOf("CenterPaneSplit").agentHeaderAccessory).not.toBeNull();
+  });
 
-    expect(propsOf("ChatPane").agentId).toBe("a2");
-    expect(screen.getByTestId("stub-ChatPane")).not.toBe(first);
+  it("gives the split no Agent pane when neither slot shows it", () => {
+    focusOn("a1");
+    Object.assign(H.state, {
+      isSplit: true,
+      splitState: { left: "whiteboard", right: "changes" },
+    });
+    mount({ path: "/agents/a1" });
+    expect(propsOf("CenterPaneSplit").agentElement).toBeNull();
+    expect(propsOf("CenterPaneSplit").agentHeaderAccessory).toBeNull();
   });
 });
 
@@ -1129,7 +1198,8 @@ describe("AgentsView center pane", () => {
     mount({ path: "/agents/a1" });
 
     expect(renderedChildren()).not.toContain("TerminalPane");
-    expect(renderedChildren()).not.toContain("ChatPane");
+    // The Agent pane is mounted (it hosts the slot) but hidden and inactive.
+    expect(propsOf("AgentPane").active).toBe(false);
     // The tab bar waits too, so "Terminal" is never highlighted first.
     expect(propsOf("AgentsViewHeader").centerTabResolved).toBe(false);
   });
@@ -1277,17 +1347,39 @@ describe("AgentsView mobile chrome", () => {
     expect(renderedChildren()).not.toContain("BottomBar");
   });
 
-  it("hides the mobile terminal toolbar while the Chat tab is active", () => {
+  it("shows the mobile terminal toolbar only for the Console view with the chat surface on", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
       validatedSelectedAgentId: "a1",
       connState: "connected",
       connectedAgentId: "a1",
-      chatMatch: true,
+      chatEnabled: true,
     });
-    mount({ path: "/agents/a1/chat", isMobile: true });
-
+    const view = mount({ path: "/agents/a1", isMobile: true });
+    // Default view is Chat: no terminal toolbar.
     expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
+
+    act(() => {
+      (propsOf("AgentPane").onViewChange as (v: string) => void)("console");
+    });
+    expect(renderedChildren()).toContain("MobileTerminalToolbar");
+
+    // Other tabs are not the Console either.
+    H.state.changesMatch = true;
+    view.rerender(tree("/agents/a1/changes", view.props));
+    expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
+  });
+
+  it("keeps the mobile terminal toolbar on every tab with the chat surface off", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "a1" })],
+      validatedSelectedAgentId: "a1",
+      connState: "connected",
+      connectedAgentId: "a1",
+      changesMatch: true,
+    });
+    mount({ path: "/agents/a1/changes", isMobile: true });
+    expect(renderedChildren()).toContain("MobileTerminalToolbar");
   });
 
   it("mounts the desktop chrome and no mobile toolbar on a wide screen", () => {

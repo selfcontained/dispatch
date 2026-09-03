@@ -4,13 +4,14 @@ import { Routes, Route, useNavigate, useParams } from "react-router-dom";
 import { useAtomValue } from "jotai";
 
 import {
+  type AgentPaneView,
   bottomBarCollapsedAtom,
   type CenterTab,
   whiteboardAgentDrewAtomFamily,
 } from "@/lib/store";
 
+import { AgentPane, AgentViewToggle } from "@/components/app/agent-pane";
 import { ChangesTab } from "@/components/app/changes-tab";
-import { ChatPane } from "@/components/app/chat/chat-pane";
 import { WhiteboardPane } from "@/components/app/whiteboard-pane";
 import { SplitDropZones } from "@/components/app/split-drop-zones";
 import { CenterPaneSplit } from "@/components/app/center-pane-split";
@@ -42,10 +43,12 @@ import {
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType } from "@/lib/agent-types";
+import { terminalHostTab } from "@/lib/center-tabs";
 import { type IdeType } from "@/lib/ide-types";
 import { type ThemeId } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
 import { useAgentActions } from "@/hooks/use-agent-actions";
+import { useAgentPaneView } from "@/hooks/use-agent-pane-view";
 import {
   useAgentUnreadCount,
   useMarkMessagesRead,
@@ -127,17 +130,12 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
-  const {
-    changesMatch,
-    whiteboardMatch,
-    chatMatch,
-    centerTabResolved,
-    onTabChange,
-  } = useAgentsViewRouting({
-    routeAgentId,
-    agentsLoaded,
-    validatedSelectedAgentId,
-  });
+  const { changesMatch, whiteboardMatch, centerTabResolved, onTabChange } =
+    useAgentsViewRouting({
+      routeAgentId,
+      agentsLoaded,
+      validatedSelectedAgentId,
+    });
   const { enabled: chatEnabled } = useChatSurfaceEnabled();
   // The terminal DOM stays mounted (hidden) across tab switches so tmux
   // output keeps flowing into it, but it must not mount at all until the
@@ -150,9 +148,7 @@ export function AgentsView({
     ? "changes"
     : whiteboardMatch
       ? "whiteboard"
-      : chatMatch
-        ? "chat"
-        : "terminal";
+      : terminalHostTab(chatEnabled);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
@@ -573,29 +569,65 @@ export function AgentsView({
     <WhiteboardPane agentId={focusedAgentId} active={true} />
   ) : null;
 
-  const chatVisible =
-    chatEnabled &&
-    ((isSplit && (splitState.left === "chat" || splitState.right === "chat")) ||
-      (!isSplit && chatMatch));
-  const openConsole = useCallback(() => {
-    if (isSplit) exitSplit();
-    onTabChange("terminal");
-  }, [exitSplit, isSplit, onTabChange]);
-  // Keyed per agent: the pane's draft, dismissed question, send error and
-  // scroll position are agent-local, and a direct /agents/a/chat →
-  // /agents/b/chat transition must not carry them across.
-  const chatElement = chatVisible ? (
-    <ChatPane
-      key={focusedAgentId ?? "none"}
-      agentId={focusedAgentId}
-      agent={focusedAgent}
-      terminalMode={terminalMode}
-      active={true}
-      onOpenConsole={openConsole}
-      openLightbox={openLightbox}
-      isMobile={isMobile}
-    />
-  ) : null;
+  // The Agent pane's Chat | Console choice, remembered per agent. Flipping
+  // to the Console hands it focus once it has been unhidden: the focus is
+  // deferred a tick, and a flip back (or an unmount) before it lands drops
+  // it, so the Chat composer's own focus is never stolen.
+  const [agentView, setAgentViewRaw] = useAgentPaneView(focusedAgentId);
+  const consoleFocusTimerRef = useRef<number | null>(null);
+  const cancelConsoleFocus = useCallback(() => {
+    if (consoleFocusTimerRef.current === null) return;
+    window.clearTimeout(consoleFocusTimerRef.current);
+    consoleFocusTimerRef.current = null;
+  }, []);
+  useEffect(() => cancelConsoleFocus, [cancelConsoleFocus]);
+  const setAgentView = useCallback(
+    (view: AgentPaneView) => {
+      setAgentViewRaw(view);
+      cancelConsoleFocus();
+      if (view === "console") {
+        consoleFocusTimerRef.current = window.setTimeout(() => {
+          consoleFocusTimerRef.current = null;
+          focusTerminal();
+        }, 0);
+      }
+    },
+    [cancelConsoleFocus, focusTerminal, setAgentViewRaw]
+  );
+  const agentPaneVisible = !isSplit
+    ? centerTabResolved && !changesMatch && !whiteboardMatch
+    : splitState.left === "agent" || splitState.right === "agent";
+  const agentPaneProps = {
+    agentId: focusedAgentId,
+    agent: focusedAgent,
+    terminalMode,
+    chatEnabled,
+    view: agentView,
+    onViewChange: setAgentView,
+    chatUnreadCount,
+    openLightbox,
+    isMobile,
+  };
+  // Only in a split: the single-pane Agent pane is always rendered (hidden
+  // under Changes/Whiteboard) so the terminal slot keeps its DOM identity —
+  // see AgentPane.
+  const splitAgentElement =
+    isSplit && agentPaneVisible ? (
+      <AgentPane
+        {...agentPaneProps}
+        active={true}
+        terminalSlotRef={splitTerminalSlotRef}
+        header={false}
+      />
+    ) : null;
+  const splitAgentHeaderAccessory =
+    isSplit && agentPaneVisible ? (
+      <AgentViewToggle
+        view={agentView}
+        onViewChange={setAgentView}
+        chatUnreadCount={chatUnreadCount}
+      />
+    ) : null;
 
   return (
     <div className="h-full min-h-0 overflow-hidden text-foreground">
@@ -721,7 +753,8 @@ export function AgentsView({
                     splitTerminalSlotRef={splitTerminalSlotRef}
                     changesElement={changesElement}
                     whiteboardElement={whiteboardElement}
-                    chatElement={chatElement}
+                    agentElement={splitAgentElement}
+                    agentHeaderAccessory={splitAgentHeaderAccessory}
                     isMobile={isMobile}
                     onLayoutChange={handleSplitLayoutChange}
                     onExitSplit={exitSplit}
@@ -729,21 +762,19 @@ export function AgentsView({
                 ) : (
                   <>
                     <div
-                      ref={defaultTerminalSlotRef}
-                      className={cn(
-                        "h-full",
-                        (!centerTabResolved ||
-                          changesMatch ||
-                          whiteboardMatch ||
-                          chatVisible) &&
-                          "hidden"
-                      )}
-                    />
+                      className={cn("h-full", !agentPaneVisible && "hidden")}
+                    >
+                      <AgentPane
+                        {...agentPaneProps}
+                        active={agentPaneVisible}
+                        terminalSlotRef={defaultTerminalSlotRef}
+                        header={true}
+                      />
+                    </div>
                     <Routes>
                       <Route path="changes" element={changesElement} />
                     </Routes>
                     {whiteboardElement}
-                    {chatElement}
                   </>
                 )}
                 {stableTerminalContainer && terminalArmed
@@ -774,7 +805,9 @@ export function AgentsView({
               ) : null}
             </div>
 
-            {isMobile && activeTab !== "chat" ? (
+            {isMobile &&
+            (!chatEnabled ||
+              (activeTab === "agent" && agentView === "console")) ? (
               <MobileTerminalToolbar
                 agentId={connectedAgentId}
                 onSendInput={sendTerminalInput}
