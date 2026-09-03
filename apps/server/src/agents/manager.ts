@@ -55,7 +55,7 @@ import {
   validatePinShortcutFields,
   validatePinValue,
 } from "../pins.js";
-import { seedInitialMedia } from "./media-seed.js";
+import { type SeededMedia, seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
@@ -170,6 +170,14 @@ type CreateAgentInput = {
   cliSessionId?: string;
   jobRunId?: string;
   initialPrompt?: string;
+  /**
+   * What the Chat feed shows as the launch context, when it differs from
+   * what the CLI receives: `prompt` is the message as the person or launching
+   * agent wrote it (the MCP launch path wraps `initialPrompt` in a header the
+   * feed should not repeat); `links` are the raw startup URLs the route also
+   * turned into url pins. Defaults to `initialPrompt` and no links.
+   */
+  launchContext?: { prompt?: string; links?: string[] };
   initialPins?: AgentPin[];
   initialFiles?: Array<{
     fileName: string;
@@ -216,6 +224,22 @@ export type DiffStatsRefresherHandle = {
   clear: (agentId: string) => void;
 };
 
+/**
+ * Records what an agent was launched with as the first post of its Chat
+ * feed. Implemented by `ChatService.recordLaunchContext`; narrowed so the
+ * manager never imports the chat module.
+ */
+export type LaunchContextRecorder = {
+  recordLaunchContext: (input: {
+    agentId: string;
+    text?: string;
+    files?: Array<{ mediaId: number }>;
+    links?: string[];
+    pins?: Array<{ id: string; type: string; value: string }>;
+    launchedByAgentId?: string | null;
+  }) => Promise<unknown>;
+};
+
 /** The two settings-backed switches the launch guidance is built from. */
 async function readLaunchGuidanceFlags(
   pool: Pool
@@ -236,6 +260,7 @@ export class AgentManager {
   private readonly runtime: AgentRuntime;
   private readonly reconciler: Reconciler;
   private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
+  private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
     [];
 
@@ -276,6 +301,14 @@ export class AgentManager {
    */
   attachDiffStatsRefresher(refresher: DiffStatsRefresherHandle): void {
     this.diffStatsRefresher = refresher;
+  }
+
+  /**
+   * Inject the Chat feed's launch-context recorder. Wired post-construction
+   * because the chat service reads agents through this manager.
+   */
+  attachLaunchContextRecorder(recorder: LaunchContextRecorder): void {
+    this.launchContextRecorder = recorder;
   }
 
   async listAgents(): Promise<AgentRecord[]> {
@@ -387,12 +420,7 @@ export class AgentManager {
       }
     }
 
-    let initialMedia: Array<{
-      fileName: string;
-      displayName: string;
-      source: string;
-      description: string | null;
-    }> = [];
+    let initialMedia: SeededMedia[] = [];
     if (input.initialFiles && input.initialFiles.length > 0) {
       try {
         initialMedia = await seedInitialMedia(
@@ -414,6 +442,7 @@ export class AgentManager {
       p.initialPins,
       initialMedia
     );
+    await this.recordLaunchContext(p, input, initialMedia);
 
     if (this.config.agentRuntime === "inert") {
       await this.launchInertAgent({
@@ -454,6 +483,39 @@ export class AgentManager {
     }
 
     return (await this.getAgent(p.id)) as AgentRecord;
+  }
+
+  /**
+   * Put the launch context at the top of the Chat feed before the CLI
+   * starts, so the feed opens with it. A recorder failure is logged and
+   * never fails the launch — the prompt still reaches the CLI.
+   */
+  private async recordLaunchContext(
+    p: PreparedCreateInputs,
+    input: CreateAgentInput,
+    initialMedia: Array<{ mediaId: number }>
+  ): Promise<void> {
+    if (!this.launchContextRecorder || p.type === "terminal") return;
+    try {
+      await this.launchContextRecorder.recordLaunchContext({
+        agentId: p.id,
+        text: input.launchContext?.prompt ?? input.initialPrompt,
+        files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
+        links: input.launchContext?.links ?? [],
+        pins: p.initialPins.map((pin) => ({
+          id: pin.id ?? "",
+          type: pin.type,
+          value: pin.value,
+        })),
+        launchedByAgentId:
+          input.launchedByAgentId ?? input.parentAgentId ?? null,
+      });
+    } catch (error) {
+      this.logger.warn(
+        { err: error, agentId: p.id },
+        "chat: failed to record launch context"
+      );
+    }
   }
 
   private async prepareCreateInputs(

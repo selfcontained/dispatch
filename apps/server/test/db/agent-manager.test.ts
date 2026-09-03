@@ -40,6 +40,7 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 // We need to dynamically import AgentManager AFTER the mock is in place
 const { AgentManager, AgentError } =
   await import("../../src/agents/manager.js");
+const { ChatService } = await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const execFileAsync = promisify(execFile);
 
@@ -81,10 +82,21 @@ const inertTestConfig = {
 
 let manager: InstanceType<typeof AgentManager>;
 
+let chatEvents: unknown[] = [];
+
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   manager = new AgentManager(pool, noopLogger, testConfig);
+  // The Chat feed's launch-context recorder, wired the way server.ts does.
+  manager.attachLaunchContextRecorder(
+    new ChatService({
+      pool,
+      publishUiEvent: (event) => chatEvents.push(event),
+      getAgent: (id) => manager.getAgent(id),
+      mediaRoot: testConfig.mediaRoot,
+    })
+  );
 });
 
 afterAll(async () => {
@@ -93,6 +105,8 @@ afterAll(async () => {
 
 beforeEach(async () => {
   // Clean up agents between tests
+  chatEvents = [];
+  await pool.query("DELETE FROM agent_chat_messages");
   await pool.query("DELETE FROM agent_token_usage");
   await pool.query("DELETE FROM media_seen");
   await pool.query("DELETE FROM media");
@@ -216,6 +230,130 @@ describe("AgentManager", () => {
         useWorktree: false,
       });
       expect(agent.agentArgs).toEqual(["--model", "o3"]);
+    });
+
+    describe("launch context in the Chat feed", () => {
+      async function launchPosts(agentId: string) {
+        const result = await pool.query(
+          `SELECT * FROM agent_chat_messages WHERE agent_id = $1 ORDER BY created_at`,
+          [agentId]
+        );
+        return result.rows as Array<{
+          author_kind: string;
+          kind: string;
+          text: string;
+          delivered: boolean | null;
+          origin: string | null;
+          launched_by_agent_id: string | null;
+          attachments: Array<Record<string, unknown>>;
+        }>;
+      }
+
+      it("records the prompt, startup file, link and pins as one delivered user post", async () => {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+          initialPrompt: "Build the widget",
+          launchContext: { links: ["https://example.com/spec"] },
+          initialPins: [
+            {
+              label: "example.com",
+              value: "https://example.com/spec",
+              type: "url",
+            },
+            { label: "Ticket", value: "DIS-42", type: "string" },
+          ],
+          initialFiles: [
+            {
+              fileName: "brief.md",
+              originalName: "brief.md",
+              buffer: Buffer.from("# brief"),
+              source: "text",
+            },
+          ],
+        });
+        const posts = await launchPosts(agent.id);
+        expect(posts).toHaveLength(1);
+        const media = await pool.query<{ id: number; file_name: string }>(
+          `SELECT id, file_name FROM media WHERE agent_id = $1`,
+          [agent.id]
+        );
+        const ticketPin = agent.pins.find((pin) => pin.label === "Ticket");
+        expect(posts[0]).toMatchObject({
+          author_kind: "user",
+          kind: "reply",
+          text: "Build the widget",
+          delivered: true,
+          origin: "launch",
+          launched_by_agent_id: null,
+          attachments: [
+            {
+              type: "file",
+              mediaId: media.rows[0].id,
+              fileName: media.rows[0].file_name,
+              sizeBytes: 7,
+            },
+            { type: "link", url: "https://example.com/spec" },
+            // The url pin made from the link is not repeated; the other is.
+            { type: "pin", pinId: ticketPin?.id },
+          ],
+        });
+        expect(chatEvents).toEqual([
+          { type: "chat.changed", agentId: agent.id },
+        ]);
+      });
+
+      it("records nothing for a bare launch or a terminal agent", async () => {
+        const bare = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        expect(await launchPosts(bare.id)).toEqual([]);
+        const terminal = await manager.createAgent({
+          cwd: "/tmp",
+          type: "terminal",
+          useWorktree: false,
+          initialPrompt: "ignored",
+        });
+        expect(await launchPosts(terminal.id)).toEqual([]);
+        expect(chatEvents).toEqual([]);
+      });
+
+      it("attributes an agent-launched post to the launcher and uses the unwrapped prompt", async () => {
+        const parent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+        });
+        const child = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+          parentAgentId: parent.id,
+          launchedByAgentId: parent.id,
+          initialPrompt: `You were launched by "${parent.id}".\n\nReview the diff`,
+          launchContext: { prompt: "Review the diff" },
+        });
+        const posts = await launchPosts(child.id);
+        expect(posts).toHaveLength(1);
+        expect(posts[0]).toMatchObject({
+          author_kind: "user",
+          text: "Review the diff",
+          origin: "launch",
+          launched_by_agent_id: parent.id,
+          delivered: true,
+        });
+
+        // child: false launches carry the launcher but no parent.
+        const independent = await manager.createAgent({
+          cwd: "/tmp",
+          useWorktree: false,
+          launchedByAgentId: parent.id,
+          initialPrompt: "Go",
+        });
+        expect((await launchPosts(independent.id))[0]).toMatchObject({
+          launched_by_agent_id: parent.id,
+          text: "Go",
+        });
+      });
     });
 
     it("de-duplicates initialPins by case-insensitive label (last write wins)", async () => {

@@ -6,6 +6,7 @@ import type {
   ChatAuthorKind,
   ChatMessage,
   ChatMessageKind,
+  ChatMessageOrigin,
   ChatQuestion,
   ChatUnreadSummary,
 } from "@dispatch/shared";
@@ -28,6 +29,10 @@ export type InsertChatMessageInput = {
   attachments?: ChatAttachment[];
   /** User messages only; `null` = delivery pending. */
   delivered?: boolean | null;
+  /** Launch-context posts only; see `ChatMessage.origin`. */
+  origin?: ChatMessageOrigin | null;
+  /** Launch-context posts only: the agent that created this one. */
+  launchedByAgentId?: string | null;
 };
 
 export type UpdateChatMessageInput = {
@@ -57,6 +62,8 @@ type Row = {
   attachments: ChatAttachment[] | null;
   delivered: boolean | null;
   read_at: Date | null;
+  origin: ChatMessageOrigin | null;
+  launched_by_agent_id: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -74,6 +81,11 @@ export function toChatMessage(row: Row): ChatMessage {
     attachments: Array.isArray(row.attachments) ? row.attachments : [],
     delivered: row.delivered,
     readAt: row.read_at ? row.read_at.toISOString() : null,
+    // Absent, not null, on the wire: ordinary posts carry neither key.
+    ...(row.origin ? { origin: row.origin } : {}),
+    ...(row.launched_by_agent_id
+      ? { launchedByAgentId: row.launched_by_agent_id }
+      : {}),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
   };
@@ -91,8 +103,8 @@ export class ChatStore {
     const result = await this.db.query<Row>(
       `INSERT INTO agent_chat_messages
          (id, agent_id, author_kind, kind, text, reply_to, question,
-          attachments, delivered)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9)
+          attachments, delivered, origin, launched_by_agent_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
        RETURNING *`,
       [
         randomUUID(),
@@ -104,6 +116,8 @@ export class ChatStore {
         input.question ? JSON.stringify(input.question) : null,
         JSON.stringify(input.attachments ?? []),
         input.delivered ?? null,
+        input.origin ?? null,
+        input.launchedByAgentId ?? null,
       ]
     );
     return toChatMessage(result.rows[0]);

@@ -415,3 +415,44 @@ changes; the flag, routes and tools are unchanged.
   the placeholder.
 - Within a session a Chat → Console → Chat flip keeps live files too, since
   the composer stays mounted.
+
+## Round 4: launch context in the feed
+
+Decided 2026-09-03. Brad's ask: when someone launches an agent with context
+(an initial message, startup files, links, pins), show it in the Chat right
+when the agent starts — otherwise it is only visible in the Console.
+
+- **One post per launch.** `AgentManager.createAgent` records the context
+  through a `LaunchContextRecorder` attached post-construction
+  (`ChatService.recordLaunchContext`), after the agent row and its media
+  rows exist and before the CLI starts, so every launch path (create dialog,
+  `dispatch_launch_agent`, templates, jobs) gets it. The post is a user
+  message, kind `reply`, `delivered: true` (the prompt reaches the CLI by the
+  normal launch path; nothing is injected), text = the initial prompt, and
+  attachments = a `file` per startup media row (resolved by `mediaId`), a
+  `link` per startup link, and a `pin` per initial pin — except a url pin
+  the route made from one of the links, so the URL is not shown twice. A
+  launch with none of these records nothing. Terminal agents never do. A
+  recorder failure is logged and never fails the launch. `chat.changed` is
+  published like any write.
+- **Contract.** Migration `0047_agent-chat-messages-origin.sql` adds
+  `origin text CHECK (origin IN ('launch'))` and `launched_by_agent_id text`,
+  both nullable. `ChatMessage` gains `origin?: "launch"` and
+  `launchedByAgentId?: string`; both are absent (not null) on every other
+  message, and the store only emits the keys when set.
+- **Agent-launched agents.** When another agent launched this one,
+  `launched_by_agent_id` is the launcher (`launchedByAgentId ?? parentAgentId`
+  — the same value the agents row records). The post stays `authorKind:
+"user"` so unread and pending-question counts are unaffected; the web
+  renders the author from `launchedByAgentId`. The MCP launch path wraps the
+  prompt in a "You were launched by…" header for the CLI; the post keeps the
+  prompt as the launcher wrote it (`CreateAgentInput.launchContext.prompt`).
+- **Web.** A user post with `origin: "launch"` shows a small muted
+  "Launch context" label (rocket icon) above the body; attachments render as
+  usual, and no delivery marker is shown. With `launchedByAgentId` the post
+  is attributed to that agent: its name from the agents list, its type icon
+  as avatar, and the relation chip (parent / sibling / agent), falling back
+  to "Agent" with the generic icon when the launcher is gone. `PeerInfo` now
+  carries the peer's `name`. Feed grouping treats the post like any other
+  from that author (`chatMessageAuthor` in `chat-entries.tsx` is the one
+  place that decides who a chat message reads as).

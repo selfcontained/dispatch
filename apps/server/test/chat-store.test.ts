@@ -71,6 +71,48 @@ describe("ChatStore", () => {
     );
   });
 
+  it("stores origin and launchedByAgentId, and leaves both off the wire otherwise", async () => {
+    const plain = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "typed",
+    });
+    expect("origin" in plain).toBe(false);
+    expect("launchedByAgentId" in plain).toBe(false);
+
+    const launch = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "Build it",
+      delivered: true,
+      origin: "launch",
+      launchedByAgentId: B,
+    });
+    expect(launch).toMatchObject({
+      origin: "launch",
+      launchedByAgentId: B,
+      delivered: true,
+    });
+    expect(await store.getById(launch.id)).toEqual(launch);
+
+    const own = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "Build it",
+      origin: "launch",
+    });
+    expect(own.origin).toBe("launch");
+    expect("launchedByAgentId" in own).toBe(false);
+
+    await expect(
+      pool.query(
+        `INSERT INTO agent_chat_messages (id, agent_id, author_kind, text, origin)
+         VALUES (gen_random_uuid(), $1, 'user', 'x', 'typed')`,
+        [A]
+      )
+    ).rejects.toThrow(/check constraint/i);
+  });
+
   it("stores question, attachments, replyTo and delivered", async () => {
     const q = await store.insert({
       agentId: A,

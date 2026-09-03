@@ -15,6 +15,7 @@ import {
   GitPullRequest,
   Hourglass,
   Loader2,
+  Rocket,
   UserRound,
 } from "lucide-react";
 
@@ -86,6 +87,7 @@ function hostOf(url: string): string {
 
 /** What a peer's post shows of the agent behind it: its icon and its lineage. */
 export type PeerInfo = {
+  name: string;
   agentType: string | null;
   relation: AgentRelation;
 };
@@ -100,13 +102,14 @@ export type PeerDirectory = Readonly<Record<string, PeerInfo>>;
  */
 export function peerDirectory(
   agentId: string,
-  agents: readonly Pick<Agent, "id" | "type" | "parentAgentId">[]
+  agents: readonly Pick<Agent, "id" | "name" | "type" | "parentAgentId">[]
 ): PeerDirectory {
   const byId = new Map(agents.map((agent) => [agent.id, agent]));
   const peers: Record<string, PeerInfo> = {};
   for (const agent of agents) {
     if (agent.id === agentId) continue;
     peers[agent.id] = {
+      name: agent.name,
       agentType: agent.type ?? null,
       relation: agentRelation(agentId, agent.id, byId),
     };
@@ -168,6 +171,23 @@ function peerAuthor(
     agentType: peer?.agentType ?? null,
     relation: peer?.relation ?? "agent",
   };
+}
+
+/**
+ * Who a user post reads as. A launch-context post made by another agent
+ * (dispatch_launch_agent) is that agent's, named from the agents list when
+ * it is still there and "Agent" otherwise; every other user post is "You".
+ */
+export function chatMessageAuthor(
+  message: ChatMessage,
+  ctx: FeedContext
+): PostAuthor {
+  if (message.authorKind !== "user") return agentAuthor(ctx, "Agent");
+  if (message.launchedByAgentId) {
+    const peer = ctx.peers?.[message.launchedByAgentId];
+    return peerAuthor(message.launchedByAgentId, peer?.name ?? "Agent", ctx);
+  }
+  return userAuthor();
 }
 
 const AVATAR_ICON = "[&>svg]:h-[18px] [&>svg]:w-[18px]";
@@ -716,14 +736,26 @@ export const ChatMessageView = memo(function ChatMessageView({
   if (message.authorKind === "user") {
     return (
       <Post
-        author={userAuthor()}
+        author={chatMessageAuthor(message, ctx)}
         at={message.createdAt}
         grouped={grouped}
         rule={rule}
         data-testid="chat-message"
         data-author="user"
+        data-origin={message.origin}
+        data-launched-by={message.launchedByAgentId}
         data-message-id={message.id}
       >
+        {message.origin === "launch" ? (
+          <div
+            className="mb-0.5 inline-flex items-center gap-1 text-[11px] font-medium text-muted-foreground"
+            title="What this agent was started with — the prompt, files, links and pins from its launch."
+            data-testid="chat-launch-context"
+          >
+            <Rocket className="h-3 w-3" aria-hidden="true" />
+            Launch context
+          </div>
+        ) : null}
         {message.text ? (
           <div className="whitespace-pre-wrap break-words">{message.text}</div>
         ) : null}

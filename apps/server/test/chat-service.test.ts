@@ -48,6 +48,104 @@ beforeEach(async () => {
   await pool.query("DELETE FROM media");
 });
 
+describe("ChatService.recordLaunchContext", () => {
+  async function seedMedia(fileName: string, size = 12): Promise<number> {
+    const result = await pool.query<{ id: number }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, $2, 'user', $3) RETURNING id`,
+      [A, fileName, size]
+    );
+    return result.rows[0].id;
+  }
+
+  it("records one delivered user post with file, link and pin attachments", async () => {
+    const mediaId = await seedMedia("brief-2026.md", 300);
+    const message = await service.recordLaunchContext({
+      agentId: A,
+      text: "Build the widget",
+      files: [{ mediaId }],
+      links: ["https://example.com/spec"],
+      pins: [{ id: "pin_1", type: "url", value: "http://x" }],
+    });
+    expect(message).toMatchObject({
+      agentId: A,
+      authorKind: "user",
+      kind: "reply",
+      text: "Build the widget",
+      delivered: true,
+      origin: "launch",
+      attachments: [
+        {
+          type: "file",
+          mediaId,
+          fileName: "brief-2026.md",
+          sizeBytes: 300,
+          mimeType: "text/markdown",
+        },
+        { type: "link", url: "https://example.com/spec" },
+        { type: "pin", pinId: "pin_1" },
+      ],
+    });
+    expect(message && "launchedByAgentId" in message).toBe(false);
+    expect(published).toEqual([{ type: "chat.changed", agentId: A }]);
+    expect(await service.store.getById(message!.id)).toEqual(message);
+  });
+
+  it("skips a url pin that duplicates a startup link", async () => {
+    const message = await service.recordLaunchContext({
+      agentId: A,
+      text: "",
+      links: ["http://x"],
+      pins: [{ id: "pin_1", type: "url", value: "http://x" }],
+    });
+    expect(message?.attachments).toEqual([{ type: "link", url: "http://x" }]);
+    expect(message?.text).toBe("");
+  });
+
+  it("records nothing for a launch with no context", async () => {
+    expect(
+      await service.recordLaunchContext({ agentId: A, text: "   " })
+    ).toBeNull();
+    expect(published).toEqual([]);
+    const rows = await pool.query(
+      `SELECT count(*)::int AS n FROM agent_chat_messages WHERE agent_id = $1`,
+      [A]
+    );
+    expect(rows.rows[0].n).toBe(0);
+  });
+
+  it("attributes the post to the launching agent", async () => {
+    const message = await service.recordLaunchContext({
+      agentId: A,
+      text: "Review the diff",
+      launchedByAgentId: "agt_someone_else",
+    });
+    expect(message).toMatchObject({
+      authorKind: "user",
+      origin: "launch",
+      launchedByAgentId: "agt_someone_else",
+      delivered: true,
+    });
+  });
+
+  it("rejects an unknown file or pin like any user attachment", async () => {
+    await expect(
+      service.recordLaunchContext({
+        agentId: A,
+        text: "x",
+        files: [{ mediaId: 999_999 }],
+      })
+    ).rejects.toBeInstanceOf(ChatValidationError);
+    await expect(
+      service.recordLaunchContext({
+        agentId: A,
+        text: "x",
+        pins: [{ id: "pin_nope", type: "string", value: "v" }],
+      })
+    ).rejects.toBeInstanceOf(ChatValidationError);
+  });
+});
+
 describe("ChatService.post", () => {
   it("persists an agent message and publishes chat.changed", async () => {
     const message = await service.post(A, { text: "hello", kind: "update" });

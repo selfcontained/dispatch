@@ -443,11 +443,21 @@ describe("ChatFeed", () => {
 
   it("shows a peer's own icon and its relation to this agent", () => {
     const peers = peerDirectory(AGENT_ID, [
-      { id: AGENT_ID, type: "claude", parentAgentId: "agt_root" },
-      { id: "agt_kid", type: "codex", parentAgentId: AGENT_ID },
-      { id: "agt_root", type: "claude", parentAgentId: null },
-      { id: "agt_sib", type: "opencode", parentAgentId: "agt_root" },
-      { id: "agt_far", type: "terminal", parentAgentId: null },
+      {
+        id: AGENT_ID,
+        name: "builder",
+        type: "claude",
+        parentAgentId: "agt_root",
+      },
+      { id: "agt_kid", name: "kid", type: "codex", parentAgentId: AGENT_ID },
+      { id: "agt_root", name: "root", type: "claude", parentAgentId: null },
+      {
+        id: "agt_sib",
+        name: "sib",
+        type: "opencode",
+        parentAgentId: "agt_root",
+      },
+      { id: "agt_far", name: "far", type: "terminal", parentAgentId: null },
     ]);
     expect(peers[AGENT_ID]).toBeUndefined();
     const peerPost = (
@@ -548,6 +558,99 @@ describe("ChatFeed", () => {
     ).toBeNull();
     expect(post.querySelector('[aria-label="Claude agent"]')).not.toBeNull();
     expect(post.textContent).toContain("to Reviewer");
+  });
+
+  it('labels a launch-context post "Launch context" and keeps it a You post', () => {
+    const launch = message({
+      id: "launch",
+      authorKind: "user",
+      origin: "launch",
+      text: "Build the widget",
+      attachments: [
+        { type: "link", url: "https://example.com/spec" },
+        fileAttachment({ mediaId: 7, fileName: "brief.md", sizeBytes: 300 }),
+      ],
+      delivered: true,
+      createdAt: "2026-09-02T10:00:00.000Z",
+    });
+    const followUp = message({
+      id: "follow",
+      authorKind: "user",
+      text: "Also add tests",
+      delivered: true,
+      createdAt: "2026-09-02T10:01:00.000Z",
+    });
+    renderFeed([chat(launch), chat(followUp)]);
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts[0]?.getAttribute("data-origin")).toBe("launch");
+    expect(posts[0]?.getAttribute("data-author-kind")).toBe("user");
+    expect(screen.getByTestId("chat-launch-context").textContent).toContain(
+      "Launch context"
+    );
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("You");
+    expect(screen.getByTestId("chat-avatar-user")).toBeTruthy();
+    expect(screen.getByTestId("chat-attachment-link")).toBeTruthy();
+    expect(screen.getByTestId("chat-attachment-file")).toBeTruthy();
+    expect(screen.getByText("Build the widget")).toBeTruthy();
+    // No delivery marker: the prompt went out with the launch.
+    expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
+    expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
+    // Grouping treats it like any You post: the next one collapses under it.
+    expect(posts.map((p) => p.getAttribute("data-grouped"))).toEqual([
+      null,
+      "true",
+    ]);
+  });
+
+  it("attributes a launched-by post to the launching agent, falling back to Agent", () => {
+    const peers = peerDirectory(AGENT_ID, [
+      {
+        id: AGENT_ID,
+        name: "builder",
+        type: "claude",
+        parentAgentId: "agt_root",
+      },
+      {
+        id: "agt_root",
+        name: "orchestrator",
+        type: "codex",
+        parentAgentId: null,
+      },
+    ]);
+    const launch = message({
+      id: "launch",
+      authorKind: "user",
+      origin: "launch",
+      launchedByAgentId: "agt_root",
+      text: "Build the widget",
+      delivered: true,
+      createdAt: "2026-09-02T10:00:00.000Z",
+    });
+    renderFeed([chat(launch)], {}, { peers });
+    let post = screen.getByTestId("chat-message");
+    expect(post.getAttribute("data-author-kind")).toBe("peer");
+    expect(post.getAttribute("data-launched-by")).toBe("agt_root");
+    expect(screen.getByTestId("chat-launch-context")).toBeTruthy();
+    expect(screen.getByTestId("chat-post-author").textContent).toBe(
+      "orchestrator"
+    );
+    expect(screen.getByTestId("agent-relation-badge").textContent).toBe(
+      "parent"
+    );
+    expect(
+      post.querySelector('[aria-label$=" agent"]')?.getAttribute("aria-label")
+    ).toBe("Codex agent");
+    expect(screen.queryByTestId("chat-avatar-user")).toBeNull();
+    cleanup();
+
+    // The launcher is gone from the list: still a peer post, generic name.
+    renderFeed([chat(launch)], {}, { peers: {} });
+    post = screen.getByTestId("chat-message");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("Agent");
+    expect(screen.getByTestId("agent-relation-badge").textContent).toBe(
+      "agent"
+    );
+    expect(screen.getByTestId("chat-launch-context")).toBeTruthy();
   });
 
   it("tints You and peer posts, leaves the agent's plain, and marks group boundaries", () => {
