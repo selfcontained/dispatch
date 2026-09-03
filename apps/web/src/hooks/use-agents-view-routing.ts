@@ -66,12 +66,25 @@ export function useAgentsViewRouting({
   // flag off the chat route has nothing to render, so it falls back to the
   // terminal — that also covers a bookmarked /chat URL after the flag is
   // turned off.
+  //
+  // The redirect is decided during render (`pendingTabRedirect`) and only
+  // performed in the effect below, so the view can hold the center pane on
+  // the same commit the redirect is scheduled: nothing paints the Console
+  // for a frame while the URL catches up.
+  const wantsChatByDefault =
+    !!routeAgentId &&
+    !!bareMatch &&
+    readLastCenterTab(routeAgentId) !== "terminal";
+  const pendingTabRedirect =
+    !!routeAgentId &&
+    (!chatFlagLoaded || (chatEnabled ? wantsChatByDefault : !!chatMatch));
+
   useEffect(() => {
     if (!routeAgentId) return;
     if (!agentsLoaded || !validatedSelectedAgentId) return;
     if (!chatFlagLoaded) return;
     if (chatEnabled) {
-      if (bareMatch && readLastCenterTab(routeAgentId) !== "terminal") {
+      if (wantsChatByDefault) {
         navigate(
           { pathname: agentChatRoute(routeAgentId), search: location.search },
           { replace: true }
@@ -87,7 +100,6 @@ export function useAgentsViewRouting({
     }
   }, [
     agentsLoaded,
-    bareMatch,
     chatEnabled,
     chatFlagLoaded,
     chatMatch,
@@ -95,6 +107,7 @@ export function useAgentsViewRouting({
     navigate,
     routeAgentId,
     validatedSelectedAgentId,
+    wantsChatByDefault,
   ]);
 
   const onTabChange = useCallback(
@@ -110,6 +123,13 @@ export function useAgentsViewRouting({
     changesMatch: !!changesMatch,
     whiteboardMatch: !!whiteboardMatch,
     chatMatch: chatEnabled && !!chatMatch,
+    /**
+     * False while the tab the route resolves to is still unknown: the flag
+     * has not loaded on this browser yet, or the bare/chat route is about to
+     * be replaced. The center pane renders nothing tab-specific until this is
+     * true, so the Console never shows up underneath the Chat tab.
+     */
+    centerTabResolved: !pendingTabRedirect,
     onTabChange,
   };
 }

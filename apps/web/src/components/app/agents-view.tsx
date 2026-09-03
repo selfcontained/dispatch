@@ -127,13 +127,25 @@ export function AgentsView({
     routeAgentId ?? null
   );
 
-  const { changesMatch, whiteboardMatch, chatMatch, onTabChange } =
-    useAgentsViewRouting({
-      routeAgentId,
-      agentsLoaded,
-      validatedSelectedAgentId,
-    });
+  const {
+    changesMatch,
+    whiteboardMatch,
+    chatMatch,
+    centerTabResolved,
+    onTabChange,
+  } = useAgentsViewRouting({
+    routeAgentId,
+    agentsLoaded,
+    validatedSelectedAgentId,
+  });
   const { enabled: chatEnabled } = useChatSurfaceEnabled();
+  // The terminal DOM stays mounted (hidden) across tab switches so tmux
+  // output keeps flowing into it, but it must not mount at all until the
+  // route has settled on a tab: on a fresh navigation the Console would
+  // otherwise paint for a frame before the Chat redirect lands. Once armed
+  // it stays armed — a later agent switch must not tear xterm down.
+  const [terminalArmed, setTerminalArmed] = useState(false);
+  if (centerTabResolved && !terminalArmed) setTerminalArmed(true);
   const activeTab: CenterTab = changesMatch
     ? "changes"
     : whiteboardMatch
@@ -648,6 +660,7 @@ export function AgentsView({
                 whiteboardMatch={whiteboardMatch}
                 chatMatch={chatMatch}
                 chatEnabled={chatEnabled}
+                centerTabResolved={centerTabResolved}
                 chatUnreadCount={chatUnreadCount}
                 isSplit={isSplit}
                 splitState={splitState}
@@ -689,7 +702,10 @@ export function AgentsView({
                       ref={defaultTerminalSlotRef}
                       className={cn(
                         "h-full",
-                        (changesMatch || whiteboardMatch || chatVisible) &&
+                        (!centerTabResolved ||
+                          changesMatch ||
+                          whiteboardMatch ||
+                          chatVisible) &&
                           "hidden"
                       )}
                     />
@@ -700,7 +716,7 @@ export function AgentsView({
                     {chatElement}
                   </>
                 )}
-                {stableTerminalContainer
+                {stableTerminalContainer && terminalArmed
                   ? createPortal(terminalElement, stableTerminalContainer)
                   : null}
                 <SplitDropZones
