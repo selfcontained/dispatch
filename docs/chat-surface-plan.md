@@ -25,11 +25,11 @@ the two disagree.
   Settings → Agents. When off, nothing in the app changes.
 - **Naming:** center tab is **Chat**. When the flag is on, the terminal tab is
   labelled **Console**. When off, labels are unchanged.
-- **Migration number is `0044`** (0043 shipped in v0.37.7).
+- **Migration number is `0045`** (0044 is surfaces v2, shipped in v0.37.10).
 
 ## Data model
 
-### `agent_chat_messages` (new table, migration `0044_agent-chat-messages.sql`)
+### `agent_chat_messages` (new table, migration `0045_agent-chat-messages.sql`)
 
 | column      | type        | notes                                                                            |
 | ----------- | ----------- | -------------------------------------------------------------------------------- |
