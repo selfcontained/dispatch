@@ -137,7 +137,11 @@ import {
 } from "../src/personas/loader.js";
 import { GENERIC_REVIEW_PERSONA_SLUG } from "../src/personas/built-in.js";
 import { getEnabledAgentTypes } from "../src/agent-type-settings.js";
-import { isMediaFile, isTextFile } from "../src/shared/media.js";
+import {
+  isMediaFile,
+  isTextFile,
+  resolveMediaDir,
+} from "../src/shared/media.js";
 import {
   resolveReviewFeedbackItem,
   addThreadMessage,
@@ -574,19 +578,85 @@ describe("createMcpHandlers", () => {
     });
   });
 
+  // Agent rows as the family-read query returns them. `deleted_at` is not
+  // selected on purpose: an archived owner is still readable.
+  const FAMILY_ROWS: Record<
+    string,
+    {
+      id: string;
+      name: string;
+      media_dir: string | null;
+      pins: unknown[];
+      parent_agent_id: string | null;
+    }
+  > = {
+    agt_test1: {
+      id: "agt_test1",
+      name: "parent",
+      media_dir: null,
+      pins: [
+        { id: "pin_url", label: "URL", value: "http://localhost", type: "url" },
+      ],
+      parent_agent_id: null,
+    },
+    agt_child: {
+      id: "agt_child",
+      name: "child",
+      media_dir: "/custom/child-media",
+      pins: [
+        {
+          id: "pin_pr",
+          label: "PR",
+          value: "https://example/pr/1",
+          type: "pr",
+        },
+      ],
+      parent_agent_id: "agt_test1",
+    },
+    agt_grandchild: {
+      id: "agt_grandchild",
+      name: "grandchild",
+      media_dir: null,
+      pins: [],
+      parent_agent_id: "agt_child",
+    },
+    agt_stranger: {
+      id: "agt_stranger",
+      name: "stranger",
+      media_dir: null,
+      pins: [{ id: "pin_x", label: "X", value: "y", type: "string" }],
+      parent_agent_id: null,
+    },
+  };
+
+  function mockFamilyRows(): void {
+    deps.pool.query.mockImplementation(
+      async (sql: string, params?: unknown[]) => {
+        if (sql.includes("FROM agents WHERE id = ANY")) {
+          const ids = (params?.[0] as string[]) ?? [];
+          return { rows: ids.map((id) => FAMILY_ROWS[id]).filter(Boolean) };
+        }
+        if (sql.includes("FROM media")) {
+          return {
+            rows: [
+              {
+                file_name: "shot.png",
+                source: "screenshot",
+                description: "the shot",
+                size_bytes: 10,
+                created_at: new Date("2026-01-01T00:00:00Z"),
+              },
+            ],
+          };
+        }
+        return { rows: [] };
+      }
+    );
+  }
+
   describe("listPins", () => {
     it("returns the current agent pins", async () => {
-      deps.agentManager.getAgent.mockResolvedValue({
-        id: "agt_test1",
-        pins: [
-          {
-            id: "pin_url",
-            label: "URL",
-            value: "http://localhost",
-            type: "url",
-          },
-        ],
-      });
+      mockFamilyRows();
 
       await expect(handlers.listPins("agt_test1")).resolves.toEqual([
         {
@@ -596,6 +666,93 @@ describe("createMcpHandlers", () => {
           type: "url",
         },
       ]);
+    });
+
+    it("reads a direct child's pins", async () => {
+      mockFamilyRows();
+      await expect(
+        handlers.listPins("agt_test1", { ownerAgentId: "agt_child" })
+      ).resolves.toEqual([
+        {
+          id: "pin_pr",
+          label: "PR",
+          value: "https://example/pr/1",
+          type: "pr",
+        },
+      ]);
+    });
+
+    it("reads the parent's pins from a child", async () => {
+      mockFamilyRows();
+      await expect(
+        handlers.listPins("agt_child", { ownerAgentId: "agt_test1" })
+      ).resolves.toEqual([
+        { id: "pin_url", label: "URL", value: "http://localhost", type: "url" },
+      ]);
+    });
+
+    it.each([
+      ["a grandchild", "agt_test1", "agt_grandchild"],
+      ["a grandparent", "agt_grandchild", "agt_test1"],
+      ["an unrelated agent", "agt_test1", "agt_stranger"],
+      ["an unknown id", "agt_test1", "agt_missing"],
+    ])("reports %s as not found", async (_label, requester, owner) => {
+      mockFamilyRows();
+      await expect(
+        handlers.listPins(requester, { ownerAgentId: owner })
+      ).rejects.toThrow("Agent not found.");
+    });
+  });
+
+  describe("listMedia", () => {
+    it("lists a child's media from the child's own directory", async () => {
+      mockFamilyRows();
+      const items = await handlers.listMedia("agt_test1", {
+        ownerAgentId: "agt_child",
+      });
+      expect(items).toEqual([
+        {
+          ownerAgentId: "agt_child",
+          fileName: "shot.png",
+          // resolveMediaDir is mocked to a fixed path in this file; the call
+          // below is what proves the child's own directory was requested.
+          filePath: "/tmp/media/agt_test1/shot.png",
+          source: "screenshot",
+          description: "the shot",
+          sizeBytes: 10,
+          createdAt: "2026-01-01T00:00:00.000Z",
+        },
+      ]);
+      expect(resolveMediaDir).toHaveBeenLastCalledWith(
+        "agt_child",
+        "/custom/child-media",
+        "/tmp/media"
+      );
+      const mediaCall = deps.pool.query.mock.calls.find(([sql]: [string]) =>
+        sql.includes("FROM media")
+      );
+      expect(mediaCall?.[1]).toEqual(["agt_child"]);
+    });
+
+    it("defaults to the caller's own media directory", async () => {
+      mockFamilyRows();
+      const items = await handlers.listMedia("agt_test1", {});
+      expect(items[0]).toMatchObject({
+        ownerAgentId: "agt_test1",
+        filePath: "/tmp/media/agt_test1/shot.png",
+      });
+      expect(resolveMediaDir).toHaveBeenLastCalledWith(
+        "agt_test1",
+        null,
+        "/tmp/media"
+      );
+    });
+
+    it("refuses an unrelated owner", async () => {
+      mockFamilyRows();
+      await expect(
+        handlers.listMedia("agt_test1", { ownerAgentId: "agt_stranger" })
+      ).rejects.toThrow("Agent not found.");
     });
   });
 
@@ -2873,34 +3030,24 @@ describe("createMcpHandlers", () => {
     });
   });
 
-  describe("listMedia", () => {
+  describe("listMedia (own)", () => {
     it("returns media for agent", async () => {
-      deps.pool.query.mockResolvedValue({
-        rows: [
-          {
-            file_name: "shot.png",
-            source: "screenshot",
-            description: "a shot",
-            size_bytes: 1024,
-            created_at: new Date("2026-01-01"),
-          },
-        ],
-      });
+      mockFamilyRows();
       const result = await handlers.listMedia("agt_test1", {});
       expect(result).toHaveLength(1);
       expect(result[0].fileName).toBe("shot.png");
-      expect(result[0].sizeBytes).toBe(1024);
+      expect(result[0].sizeBytes).toBe(10);
     });
 
     it("throws when agent not found", async () => {
-      deps.agentManager.getAgent.mockResolvedValue(null);
+      mockFamilyRows();
       await expect(handlers.listMedia("agt_missing", {})).rejects.toThrow(
         "Agent not found."
       );
     });
 
     it("filters by source when provided", async () => {
-      deps.pool.query.mockResolvedValue({ rows: [] });
+      mockFamilyRows();
       await handlers.listMedia("agt_test1", { source: "screenshot" });
       expect(deps.pool.query).toHaveBeenCalledWith(
         expect.stringContaining("source = $2"),
@@ -2909,7 +3056,7 @@ describe("createMcpHandlers", () => {
     });
 
     it("omits source filter when not provided", async () => {
-      deps.pool.query.mockResolvedValue({ rows: [] });
+      mockFamilyRows();
       await handlers.listMedia("agt_test1", {});
       expect(deps.pool.query).toHaveBeenCalledWith(
         expect.not.stringContaining("source = $2"),

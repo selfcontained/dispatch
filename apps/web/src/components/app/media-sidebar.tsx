@@ -1,7 +1,12 @@
 import { type RefObject } from "react";
 import { ChevronRight, Pin, PinOff, X } from "lucide-react";
 
-import { type AgentPin, type MediaFile } from "@/components/app/types";
+import {
+  type AgentPin,
+  type MediaFile,
+  type SubAgentMedia,
+  type SubAgentPins,
+} from "@/components/app/types";
 import { isSystemSidebarTab, type MediaSidebarTab } from "@/lib/store";
 import { MediaContent } from "@/components/app/media-content";
 import { MessagesPanel } from "@/components/app/messages-panel";
@@ -33,6 +38,14 @@ type MediaSidebarSharedProps = {
   selectedAgentWorkspaceRoot: string | null;
   selectedAgentPins: AgentPin[];
   selectedAgentIsRunning?: boolean;
+  /** Direct children of the selected agent, grouped under its Pins tab. */
+  subAgentPins?: SubAgentPins[];
+  /** Direct children of the selected agent, selectable in its Media tab. */
+  subAgentMedia?: SubAgentMedia[];
+  /** The selected agent's own files when `mediaFiles` is showing a sub agent's. */
+  ownMediaFiles?: MediaFile[];
+  mediaOwnerId?: string | null;
+  onMediaOwnerChange?: (ownerId: string | null) => void;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
   openLightbox: (file: MediaFile) => void;
@@ -79,6 +92,11 @@ export function MediaSidebarContent({
   selectedAgentWorkspaceRoot,
   selectedAgentPins,
   selectedAgentIsRunning,
+  subAgentPins,
+  subAgentMedia,
+  ownMediaFiles,
+  mediaOwnerId,
+  onMediaOwnerChange,
   animatingMediaKeys,
   mediaViewportRef,
   openLightbox,
@@ -258,9 +276,11 @@ export function MediaSidebarContent({
       >
         <PinsPanel
           pins={selectedAgentPins}
+          selectedAgentId={selectedAgentId}
           selectedAgentName={selectedAgentName}
           selectedAgentWorkspaceRoot={selectedAgentWorkspaceRoot}
           agentIsRunning={selectedAgentIsRunning}
+          subAgentPins={subAgentPins}
           collapseScope={selectedAgentId}
           // A shortcut fires a real prompt into a live session, so an
           // in-flight run blocks its own button until it settles — a
@@ -272,11 +292,11 @@ export function MediaSidebarContent({
           }
           onRunShortcut={
             selectedAgentId
-              ? (pin) => {
+              ? (pin, ownerAgentId) => {
                   if (!pin.id || runPinShortcut.isPending) return;
                   runPinShortcut.mutate(
                     {
-                      agentId: selectedAgentId,
+                      agentId: ownerAgentId ?? selectedAgentId,
                       pinId: pin.id,
                       label: pin.label,
                     },
@@ -295,7 +315,12 @@ export function MediaSidebarContent({
       >
         <MediaContent
           mediaFiles={mediaFiles}
+          ownMediaFiles={ownMediaFiles}
+          subAgentMedia={subAgentMedia}
+          mediaOwnerId={mediaOwnerId}
+          onMediaOwnerChange={onMediaOwnerChange}
           selectedAgentId={selectedAgentId}
+          selectedAgentName={selectedAgentName}
           animatingMediaKeys={animatingMediaKeys}
           mediaViewportRef={mediaViewportRef}
           openLightbox={openLightbox}

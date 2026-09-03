@@ -20,10 +20,16 @@ export function ActionConfirmDialog({
   action,
   onCancel,
   onConfirm,
+  returnFocusRef,
 }: {
   action: ActionRef | null;
   onCancel: () => void;
   onConfirm: (action: ActionRef) => void;
+  /** Explicit close-focus target for openers whose triggering element
+   * unmounts before the dialog opens (a menu item inside a Radix dropdown
+   * that closes on select) — the captured activeElement is already <body>
+   * by then. */
+  returnFocusRef?: React.MutableRefObject<HTMLElement | null>;
 }): JSX.Element {
   // Radix restores focus to whatever was focused before Content mounted —
   // but only when Radix's own Presence controls the mount/unmount. Rendering
@@ -64,7 +70,7 @@ export function ActionConfirmDialog({
           }}
           onCloseAutoFocus={(event) => {
             event.preventDefault();
-            triggerRef.current?.focus();
+            (returnFocusRef?.current ?? triggerRef.current)?.focus();
           }}
         >
           <DialogHeader>

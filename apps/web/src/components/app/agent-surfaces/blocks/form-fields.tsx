@@ -36,7 +36,12 @@ function FieldShell({
       >
         {field.label}
         {field.required ? (
-          <span className="text-status-blocked"> *</span>
+          // Muted, not danger-colored: a required marker is not an error
+          // state, and five red glyphs down a form read as five failures.
+          <span aria-hidden="true" className="text-muted-foreground">
+            {" "}
+            *
+          </span>
         ) : null}
       </label>
       {field.description ? (
@@ -128,6 +133,9 @@ export function FormFieldControl({
             <Checkbox
               id={fieldId}
               checked={typeof value === "boolean" ? value : false}
+              // The visual asterisk is aria-hidden, so the control itself
+              // must carry the required semantics.
+              aria-required={field.required || undefined}
               aria-invalid={!!error}
               onCheckedChange={(checked) => onChange(checked === true)}
             />
@@ -137,7 +145,11 @@ export function FormFieldControl({
             >
               {field.label}
               {field.required ? (
-                <span className="text-status-blocked"> *</span>
+                // Muted like FieldShell's marker — required is not an error.
+                <span aria-hidden="true" className="text-muted-foreground">
+                  {" "}
+                  *
+                </span>
               ) : null}
             </label>
           </div>
@@ -160,6 +172,7 @@ export function FormFieldControl({
           <div
             role="radiogroup"
             aria-labelledby={`${fieldId}-label`}
+            aria-required={field.required || undefined}
             className="space-y-1.5"
           >
             {field.options.map((option) => {
@@ -196,6 +209,7 @@ export function FormFieldControl({
             <div
               role="group"
               aria-labelledby={`${fieldId}-label`}
+              aria-required={field.required || undefined}
               className="space-y-1.5"
             >
               {field.options.map((option) => {
@@ -237,6 +251,7 @@ export function FormFieldControl({
           >
             <SelectTrigger
               id={fieldId}
+              aria-required={field.required || undefined}
               aria-invalid={!!error}
               className={cn(error && "ring-1 ring-status-blocked")}
             >

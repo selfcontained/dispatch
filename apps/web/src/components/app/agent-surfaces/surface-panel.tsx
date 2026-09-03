@@ -6,6 +6,10 @@ import type {
   SurfaceBlock,
 } from "@/components/app/agent-surfaces/types";
 import {
+  SURFACE_FOOTER_BLOCK_ID,
+  SURFACE_SCHEMA_VERSION,
+} from "@/components/app/agent-surfaces/types";
+import {
   indexInteractions,
   type SurfaceInteractionIndex,
 } from "@/components/app/agent-surfaces/interaction-presentation";
@@ -14,9 +18,9 @@ import { ListBlockView } from "@/components/app/agent-surfaces/blocks/list-block
 import { TableBlockView } from "@/components/app/agent-surfaces/blocks/table-block";
 import { StatusBlockView } from "@/components/app/agent-surfaces/blocks/status-block";
 import { ProgressBlockView } from "@/components/app/agent-surfaces/blocks/progress-block";
-import { ActionsBlockView } from "@/components/app/agent-surfaces/blocks/actions-block";
 import { FormBlockView } from "@/components/app/agent-surfaces/blocks/form-block";
 import { SectionBlockView } from "@/components/app/agent-surfaces/blocks/section-block";
+import { SlotActions } from "@/components/app/agent-surfaces/blocks/slot-actions";
 
 function UnsupportedBlockView({
   blockType,
@@ -82,19 +86,6 @@ function BlockRenderer({
       return <StatusBlockView block={block} />;
     case "progress":
       return <ProgressBlockView block={block} />;
-    case "actions":
-      return (
-        <ActionsBlockView
-          block={block}
-          agentId={agentId}
-          surfaceId={surfaceId}
-          surfaceRevision={surfaceRevision}
-          interactions={interactions}
-          onRequestRefresh={onRequestRefresh}
-          readOnly={readOnly}
-          idPrefix={idPrefix}
-        />
-      );
     case "form":
       return (
         <FormBlockView
@@ -110,7 +101,16 @@ function BlockRenderer({
       );
     case "section":
       return (
-        <SectionBlockView block={block}>
+        <SectionBlockView
+          block={block}
+          agentId={agentId}
+          surfaceId={surfaceId}
+          surfaceRevision={surfaceRevision}
+          interactions={interactions}
+          onRequestRefresh={onRequestRefresh}
+          readOnly={readOnly}
+          idPrefix={idPrefix}
+        >
           {block.blocks.map((child) => (
             <BlockRenderer
               key={child.id}
@@ -199,35 +199,90 @@ export function SurfacePanel({
     );
   }
 
+  // Documents authored under an older schema render a notice instead of a
+  // best-effort partial view — the feature is pre-stable and the owning agent
+  // can recreate the tab under the current contract.
+  if (surface.schemaVersion !== SURFACE_SCHEMA_VERSION) {
+    return (
+      <div
+        data-testid="surface-panel"
+        data-surface-id={surface.id}
+        data-surface-revision={surface.revision}
+        className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center text-sm text-muted-foreground"
+      >
+        <AlertTriangle className="h-5 w-5 text-status-waiting" />
+        <p>
+          This tab uses an older surface format. Ask the agent to recreate it.
+        </p>
+      </div>
+    );
+  }
+
+  const readOnly = surface.lifecycle === "frozen";
+  const shared = {
+    agentId,
+    surfaceId: surface.id,
+    surfaceRevision: surface.revision,
+    interactions,
+    onRequestRefresh,
+    readOnly,
+    idPrefix,
+  };
+  const hasHeader = !!(surface.header?.status || surface.header?.progress);
+
   return (
     <div
       data-testid="surface-panel"
       data-surface-id={surface.id}
       data-surface-revision={surface.revision}
-      className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto p-3"
+      className="flex min-h-0 flex-1 flex-col overflow-y-auto p-3"
     >
-      {surface.lifecycle === "frozen" ? (
-        <p className="rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
+      {readOnly ? (
+        <p className="mb-3 rounded-md border border-border/60 bg-muted/40 px-2.5 py-1.5 text-[11px] text-muted-foreground">
           This tab is archived and read-only.
         </p>
       ) : null}
-      {surface.blocks.length === 0 ? (
+      {hasHeader ? (
+        <div
+          data-testid="surface-header"
+          className="mb-4 space-y-3 border-b border-border/40 pb-4"
+        >
+          {surface.header?.status ? (
+            <StatusBlockView block={surface.header.status} />
+          ) : null}
+          {surface.header?.progress ? (
+            <ProgressBlockView block={surface.header.progress} />
+          ) : null}
+        </div>
+      ) : null}
+      {surface.blocks.length === 0 && !hasHeader ? (
         <p className="text-sm text-muted-foreground">Nothing here yet.</p>
       ) : (
-        surface.blocks.map((block) => (
-          <BlockRenderer
-            key={block.id}
-            block={block}
-            agentId={agentId}
-            surfaceId={surface.id}
-            surfaceRevision={surface.revision}
-            interactions={interactions}
-            onRequestRefresh={onRequestRefresh}
-            readOnly={surface.lifecycle === "frozen"}
-            idPrefix={idPrefix}
-          />
-        ))
+        <div className="flex flex-col">
+          {surface.blocks.map((block, index) => (
+            <div
+              key={block.id}
+              className={
+                index > 0 ? "mt-5 border-t border-border/30 pt-5" : undefined
+              }
+            >
+              <BlockRenderer block={block} {...shared} />
+            </div>
+          ))}
+        </div>
       )}
+      {surface.footer?.actions.length ? (
+        <div
+          data-testid="surface-footer"
+          className="mt-5 border-t border-border/40 pt-3"
+        >
+          <SlotActions
+            blockId={SURFACE_FOOTER_BLOCK_ID}
+            actions={surface.footer.actions}
+            {...shared}
+          />
+        </div>
+      ) : null}
     </div>
   );
 }

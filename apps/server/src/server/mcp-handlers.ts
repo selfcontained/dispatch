@@ -8,7 +8,7 @@ import type { Pool } from "pg";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { PinSpec } from "../agents/pin-write.js";
 import { AgentError } from "../agents/errors.js";
-import type { WorktreeCleanupMode } from "../agents/types.js";
+import type { AgentPin, WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
@@ -45,12 +45,14 @@ import {
   createLineageIndex,
   delegationChain,
   formatDelegationChain,
+  isFamily,
   relationTo,
   sanitizeAgentNameForPrompt,
   type AgentRelation,
 } from "../agents/lineage.js";
 import { resolveRepoRoot } from "../shared/git/git-context.js";
 import { isMediaFile, isTextFile, resolveMediaDir } from "../shared/media.js";
+import type { ListedMediaItem } from "../shared/mcp/agent-lifecycle-tools.js";
 import type { PublishUiEvent, SendAgentPrompt } from "./mcp-handler-types.js";
 import { createReviewHandlers } from "./mcp-review-handlers.js";
 import { MessageStore } from "../messages/store.js";
@@ -80,6 +82,8 @@ function buildLaunchedAgentInitialPrompt(
         // otherwise, halfway through work the agent has already planned around.
         "You are a child agent: you cannot launch child agents or persona reviews of your own. " +
           "If you need to hand work off, launch an independent agent with dispatch_launch_agent's `child: false`.",
+        "Your parent's pins and media are readable: pass its id as ownerAgentId to dispatch_list_pins or " +
+          "dispatch_list_media. A dev-stack URL or PR link it pinned is there without asking for it.",
       ]
     : [
         `You were launched by Dispatch agent "${launcherAgentId}" via dispatch_launch_agent as an independent agent — you are not its child.`,
@@ -379,15 +383,75 @@ async function handleDeletePinByLabel(
   });
 }
 
+type ReadableOwner = {
+  id: string;
+  name: string;
+  mediaDir: string | null;
+  pins: AgentPin[];
+};
+
+/**
+ * The agent whose pins or media a read tool should return: the caller itself,
+ * or — when `ownerAgentId` is given — its parent or one of its direct children
+ * (see `isFamily`). Anything else is "not found", the way surfaces answer a
+ * non-child owner: the tool neither confirms nor denies the agent exists.
+ *
+ * Reads the table directly rather than through `agentManager.getAgent`, which
+ * filters out archived rows. Media outlives an archive, and a parent that has
+ * already archived a finished child still needs that child's screenshots to
+ * write its report — so a family read works on an archived owner too.
+ */
+async function resolveReadableOwner(
+  deps: CreateMcpHandlersDeps,
+  requesterId: string,
+  ownerAgentId: string | undefined
+): Promise<ReadableOwner> {
+  const ownerId = ownerAgentId ?? requesterId;
+  const result = await deps.pool.query<{
+    id: string;
+    name: string;
+    media_dir: string | null;
+    pins: AgentPin[] | null;
+    parent_agent_id: string | null;
+  }>(
+    `SELECT id, name, media_dir, COALESCE(pins, '[]'::jsonb) AS pins, parent_agent_id
+     FROM agents WHERE id = ANY($1::text[])`,
+    [Array.from(new Set([requesterId, ownerId]))]
+  );
+  const byId = new Map(result.rows.map((row) => [row.id, row]));
+  const requester = byId.get(requesterId);
+  const owner = byId.get(ownerId);
+  if (
+    !requester ||
+    !owner ||
+    !isFamily(
+      {
+        id: requester.id,
+        name: requester.name,
+        parentAgentId: requester.parent_agent_id,
+      },
+      { id: owner.id, name: owner.name, parentAgentId: owner.parent_agent_id }
+    )
+  ) {
+    throw new Error("Agent not found.");
+  }
+  return {
+    id: owner.id,
+    name: owner.name,
+    mediaDir: owner.media_dir,
+    pins: owner.pins ?? [],
+  };
+}
+
 async function handleListPins(
   deps: CreateMcpHandlersDeps,
-  agentId: string
+  agentId: string,
+  opts: { ownerAgentId?: string } = {}
 ): Promise<PinListing[]> {
-  const agent = await deps.agentManager.getAgent(agentId);
-  if (!agent) throw new Error("Agent not found.");
+  const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
   // Decorations are listed too, so an agent can see what a pin already has
   // (its group, caption, icon) before deciding what to change.
-  return (agent.pins ?? []).map(toPinListing);
+  return owner.pins.map(toPinListing);
 }
 
 async function handleRenameSession(
@@ -1029,27 +1093,19 @@ async function handleListAgentsForAgent(
 async function handleListMedia(
   deps: CreateMcpHandlersDeps,
   agentId: string,
-  opts: { source?: string }
-): Promise<
-  Array<{
-    fileName: string;
-    filePath: string;
-    source: string;
-    description: string | null;
-    sizeBytes: number;
-    createdAt: string;
-  }>
-> {
-  const agent = await deps.agentManager.getAgent(agentId);
-  if (!agent) throw new Error("Agent not found.");
+  opts: { source?: string; ownerAgentId?: string }
+): Promise<ListedMediaItem[]> {
+  const owner = await resolveReadableOwner(deps, agentId, opts.ownerAgentId);
 
-  const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
+  // Files stay in the owner's directory; a family read hands back the owner's
+  // path and nothing is copied. Agents read media by path, never over HTTP.
+  const mediaDir = resolveMediaDir(owner.id, owner.mediaDir, deps.mediaRoot);
   const whereClause = opts.source
     ? `WHERE agent_id = $1 AND source = $2`
     : `WHERE agent_id = $1`;
   const params: (string | number)[] = opts.source
-    ? [agentId, opts.source]
-    : [agentId];
+    ? [owner.id, opts.source]
+    : [owner.id];
 
   const result = await deps.pool.query<{
     file_name: string;
@@ -1065,6 +1121,7 @@ async function handleListMedia(
   );
 
   return result.rows.map((row) => ({
+    ownerAgentId: owner.id,
     fileName: row.file_name,
     filePath: path.join(mediaDir, row.file_name),
     source: row.source,
@@ -1215,7 +1272,8 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     deletePinByLabel: (agentId: string, label: string) =>
       handleDeletePinByLabel(deps, agentId, label),
 
-    listPins: (agentId: string) => handleListPins(deps, agentId),
+    listPins: (agentId: string, opts?: { ownerAgentId?: string }) =>
+      handleListPins(deps, agentId, opts),
 
     renameSession: (agentId: string, name: string) =>
       handleRenameSession(deps, agentId, name),
@@ -1285,8 +1343,10 @@ export function createMcpHandlers(deps: CreateMcpHandlersDeps) {
     listAgentsForAgent: (agentId: string, senderRepoRoot: string | null) =>
       handleListAgentsForAgent(deps, agentId, senderRepoRoot),
 
-    listMedia: (agentId: string, opts: { source?: string }) =>
-      handleListMedia(deps, agentId, opts),
+    listMedia: (
+      agentId: string,
+      opts: { source?: string; ownerAgentId?: string }
+    ) => handleListMedia(deps, agentId, opts),
 
     deleteMedia: (agentId: string, fileName: string) =>
       handleDeleteMedia(deps, agentId, fileName),

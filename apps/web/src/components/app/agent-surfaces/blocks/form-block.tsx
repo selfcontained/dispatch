@@ -112,6 +112,22 @@ export function FormBlockView({
     );
   };
 
+  // Trailing consecutive checkbox fields form the attestation group.
+  let attestationStart = block.fields.length;
+  while (
+    attestationStart > 0 &&
+    block.fields[attestationStart - 1].type === "checkbox"
+  )
+    attestationStart -= 1;
+  const hasAttestationGroup =
+    attestationStart < block.fields.length && attestationStart > 0;
+  const leadingFields = hasAttestationGroup
+    ? block.fields.slice(0, attestationStart)
+    : block.fields;
+  const attestationFields = hasAttestationGroup
+    ? block.fields.slice(attestationStart)
+    : [];
+
   const handleSubmit = (event: FormEvent) => {
     event.preventDefault();
     if (inputsLocked || authoredDisabled) return;
@@ -137,7 +153,7 @@ export function FormBlockView({
     >
       <BlockHeader title={block.title} description={block.description} />
       <fieldset disabled={inputsLocked} className="space-y-3">
-        {block.fields.map((field) => (
+        {leadingFields.map((field) => (
           <FormFieldControl
             key={field.id}
             field={field}
@@ -147,27 +163,51 @@ export function FormBlockView({
             onChange={(value) => setFieldValue(field.id, value)}
           />
         ))}
+        {attestationFields.length > 0 ? (
+          // A trailing run of checkboxes right before the submit reads as a
+          // gate ("migrations reviewed", "rollback plan ready") — group it so
+          // it doesn't scatter as loose options.
+          <div className="space-y-2 rounded-md border border-border/50 p-2.5">
+            {attestationFields.map((field) => (
+              <FormFieldControl
+                key={field.id}
+                field={field}
+                fieldId={`${idPrefix}-${block.id}-${field.id}`}
+                value={values[field.id]}
+                error={errors[field.id]}
+                onChange={(value) => setFieldValue(field.id, value)}
+              />
+            ))}
+          </div>
+        ) : null}
       </fieldset>
 
-      <div className="flex items-center gap-2">
+      <div className="space-y-1.5">
+        {/* A form has exactly one submit; it is by definition the form's
+            primary action, and it matches the fields' full width. */}
         <ActionRefButton
           action={block.submit}
           type="submit"
+          variantOverride="primary"
+          className="w-full"
           busy={presentation.busy}
           disabled={presentation.locked}
           authoredDisabled={authoredDisabled}
           disabledReasonId={showsReason ? disabledReasonId : undefined}
         />
         {block.resetLabel ? (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={handleReset}
-            disabled={inputsLocked}
-          >
-            {block.resetLabel}
-          </Button>
+          <div className="text-right">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-[11px] text-muted-foreground"
+              onClick={handleReset}
+              disabled={inputsLocked}
+            >
+              {block.resetLabel}
+            </Button>
+          </div>
         ) : null}
       </div>
 

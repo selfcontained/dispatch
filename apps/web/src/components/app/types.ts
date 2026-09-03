@@ -1,109 +1,62 @@
-import type { DiffStats as ServerDiffStats } from "@dispatch/shared";
+import type {
+  AgentPin,
+  AgentRecord,
+  AgentStatus,
+  DiffStats as ServerDiffStats,
+} from "@dispatch/shared";
 
-export type AgentStatus =
-  | "creating"
-  | "running"
-  | "stopping"
-  | "stopped"
-  | "archiving"
-  | "error"
-  | "unknown";
+/**
+ * Agent wire types, taken from the shared contract rather than restated so a
+ * column added on one side can't be missed. Re-exported from here so the
+ * components that already import them from this module keep resolving.
+ */
+export type {
+  AgentPin,
+  AgentStatus,
+  PinShortcutVariant,
+} from "@dispatch/shared";
 
-export type PinShortcutVariant = "default" | "primary" | "destructive";
+/**
+ * Fields the client treats as optional even though the server always sends
+ * them. `AgentRecord` has them as required-nullable, but web builds partial
+ * agents in a lot of places (test fixtures, optimistic cache entries), and a
+ * component that reads one of these already handles `undefined` the same way
+ * it handles `null`.
+ */
+type LenientAgentField =
+  | "type"
+  | "role"
+  | "setupPhase"
+  | "archivePhase"
+  | "archiveCleanupMode"
+  | "simulatorUdid"
+  | "lastError"
+  | "latestEvent"
+  | "pins"
+  | "gitContext"
+  | "gitContextStale"
+  | "gitContextUpdatedAt"
+  | "persona"
+  | "parentAgentId"
+  | "launchedByAgentId"
+  | "personaContext"
+  | "reviewAgentType"
+  | "submittedReviewId"
+  | "baseBranch"
+  | "templateId"
+  | "autoReview"
+  | "cliSessionId";
 
-export type AgentPin = {
-  id?: string;
-  label: string;
-  value: string;
-  type:
-    | "string"
-    | "url"
-    | "port"
-    | "code"
-    | "pr"
-    | "filename"
-    | "markdown"
-    | "shortcut";
-  /**
-   * Caption rendered under a shortcut pin's button — inline markdown.
-   * Shortcut pins only.
-   */
-  caption?: string;
-  /** Icon name for a shortcut pin's button. Shortcut pins only. */
-  icon?: string;
-  /**
-   * Renders this pin under a shared heading with every other pin carrying the
-   * same group name. Any pin type may set it.
-   */
-  group?: string;
-  /** Button styling for a shortcut pin. Shortcut pins only. */
-  variant?: PinShortcutVariant;
-  /** When true, clicking a shortcut pin asks for confirmation first. */
-  confirm?: boolean;
-  /**
-   * When true, the shortcut renders non-interactive instead of being
-   * deleted — for an action that has become temporarily or permanently
-   * unavailable but is still worth showing (e.g. a launch pin once its
-   * builder is already running). `caption` doubles as the reason shown in
-   * place of its normal subtitle. Shortcut pins only.
-   */
-  disabled?: boolean;
-};
-
-export type Agent = {
-  id: string;
-  name: string;
-  type?: string;
-  role?: "standard" | "review" | "assisted_update";
-  status: AgentStatus;
-  cwd: string;
-  worktreePath: string | null;
-  worktreeBranch: string | null;
-  tmuxSession: string | null;
-  agentArgs: string[];
-  model: string | null;
-  fullAccess: boolean;
-  setupPhase?: "worktree" | "env" | "deps" | "session" | null;
-  archivePhase?:
-    | "stopping"
-    | "worktree-check"
-    | "worktree-cleanup"
-    | "finalizing"
-    | null;
-  lastError?: string | null;
-  latestEvent?: {
-    type: "working" | "blocked" | "waiting_user" | "done" | "idle";
-    message: string;
-    updatedAt: string;
-    metadata?: Record<string, unknown> | null;
-  } | null;
-  pins?: AgentPin[];
-  mediaDir: string | null;
-  gitContext?: {
-    repoRoot: string;
-    branch: string;
-    worktreePath: string;
-    worktreeName: string;
-    isWorktree: boolean;
-    repoIconPath?: string | null;
-  } | null;
-  persona?: string | null;
-  parentAgentId?: string | null;
-  personaContext?: string | null;
-  reviewAgentType?: "codex" | "claude" | "opencode" | "cursor" | null;
-  submittedReviewId?: number | null;
-  baseBranch?: string | null;
-  templateId?: string | null;
-  autoReview?: boolean;
-  jobRun?: {
-    continuationEnabled: boolean;
-    iteration: number | null;
-    maxIterations: number | null;
-  } | null;
-  hasStream?: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
+/**
+ * An agent as it arrives over the wire. Both the `snapshot` and
+ * `agent.upsert` payloads are `AgentRecord` enriched with `hasStream` by
+ * `withStreamFlag` (apps/server/src/server.ts), which is why that field is
+ * declared here rather than on the shared `AgentRecord` itself.
+ */
+export type Agent = Omit<AgentRecord, LenientAgentField> &
+  Partial<Pick<AgentRecord, LenientAgentField>> & {
+    hasStream?: boolean;
+  };
 
 export type MediaFile = {
   name: string;
@@ -113,7 +66,33 @@ export type MediaFile = {
   seen?: boolean;
   source?: "screenshot" | "stream" | "simulator" | "text" | "user";
   description?: string | null;
+  /**
+   * Stamped client-side, not returned by the API. The selected agent's panel
+   * also lists its sub agents' media, so a file has to say whose it is for
+   * seen-tracking and the lightbox to address the right agent.
+   */
+  ownerAgentId?: string;
 };
+
+/**
+ * A sub agent whose pins and media are grouped under the selected agent.
+ * Carries the child's own workspace root so its filename pins resolve
+ * against the child's worktree, not the parent's.
+ */
+export type SubAgentRef = {
+  id: string;
+  name: string;
+  status: AgentStatus;
+  workspaceRoot: string | null;
+};
+
+export type SubAgentMedia = {
+  agent: SubAgentRef;
+  files: MediaFile[];
+  /** The child's media query state, so an unresolved fetch is not shown as "nothing shared". */
+  status: "pending" | "error" | "success";
+};
+export type SubAgentPins = { agent: SubAgentRef; pins: AgentPin[] };
 
 export type ConnState = "connected" | "reconnecting" | "disconnected";
 export type ServiceState = "ok" | "down" | "checking";

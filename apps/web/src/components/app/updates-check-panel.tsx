@@ -6,10 +6,8 @@ import {
 } from "lucide-react";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { Button } from "@/components/ui/button";
-import {
-  AssistedUpdateGate,
-  PendingMigrationsGate,
-} from "@/components/app/assisted-update-card";
+import { AssistedUpdateGate } from "@/components/app/assisted-update-gate";
+import { PendingMigrationsGate } from "@/components/app/pending-migrations-gate";
 import { UpdateActions } from "@/components/app/release-update-actions";
 import type { ReleaseInfo, ReleaseProgress } from "@/hooks/use-release-stream";
 import type { ReleaseInfoSnapshot } from "@/hooks/use-cached-release-info";

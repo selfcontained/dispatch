@@ -2,9 +2,15 @@ import { randomUUID } from "node:crypto";
 import type { Pool, PoolClient } from "pg";
 import type {
   Surface,
+  SurfaceFooter,
+  SurfaceHeader,
   SurfaceInteractionRecord as SurfaceInteraction,
   SurfaceInteractionResponse,
   SurfaceInteractionSummary,
+} from "@dispatch/shared";
+import {
+  SURFACE_FOOTER_BLOCK_ID,
+  SURFACE_SCHEMA_VERSION,
 } from "@dispatch/shared";
 
 import {
@@ -43,7 +49,9 @@ type SurfaceRow = {
   revision: number;
   lifecycle: SurfaceLifecycle;
   sort_order: number;
+  header: SurfaceHeader | null;
   blocks: SurfaceBlock[];
+  footer: SurfaceFooter | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -76,7 +84,7 @@ function toSurface(
   latestInteractions: SurfaceInteractionSummary[] = []
 ): Surface {
   return {
-    schemaVersion: 1,
+    schemaVersion: row.schema_version,
     id: row.id,
     ownerAgentId: row.agent_id,
     title: row.title,
@@ -84,7 +92,9 @@ function toSurface(
     revision: row.revision,
     lifecycle: row.lifecycle,
     sortOrder: row.sort_order,
+    ...(row.header ? { header: row.header } : {}),
     blocks: row.blocks,
+    ...(row.footer ? { footer: row.footer } : {}),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     unresolvedInteractionCount: unresolved,
@@ -251,14 +261,17 @@ export class SurfaceService {
       );
       const id = surfaceId();
       const row = await client.query<SurfaceRow>(
-        `INSERT INTO agent_surfaces (id, agent_id, title, icon, sort_order, blocks) VALUES ($1,$2,$3,$4,$5,$6) RETURNING *`,
+        `INSERT INTO agent_surfaces (id, agent_id, title, icon, sort_order, schema_version, header, blocks, footer) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING *`,
         [
           id,
           agentId,
           parsed.data.title,
           parsed.data.icon ?? null,
           order.rows[0].next,
+          SURFACE_SCHEMA_VERSION,
+          parsed.data.header ? JSON.stringify(parsed.data.header) : null,
           JSON.stringify(parsed.data.blocks),
+          parsed.data.footer ? JSON.stringify(parsed.data.footer) : null,
         ]
       );
       await client.query("COMMIT");
@@ -280,19 +293,37 @@ export class SurfaceService {
     patch: {
       title?: unknown;
       icon?: unknown;
+      header?: unknown;
       blocks?: unknown;
+      footer?: unknown;
       lifecycle?: unknown;
     }
   ): Promise<Surface> {
     const current = await this.getOwned(id, agentId);
     if (current.lifecycle === "frozen")
       throw new SurfaceError("Frozen surfaces cannot be updated.", 409);
+    if (
+      current.schemaVersion !== SURFACE_SCHEMA_VERSION &&
+      patch.blocks === undefined
+    )
+      throw new SurfaceError(
+        `This surface was authored under schema v${current.schemaVersion}; supply a complete v${SURFACE_SCHEMA_VERSION} blocks array (plus optional header/footer) to upgrade it, or delete and recreate the tab.`,
+        409
+      );
     const nextIcon =
       patch.icon === null ? undefined : (patch.icon ?? current.icon);
+    // Like icon, header/footer use null-to-clear semantics; omitting keeps
+    // the stored slot.
+    const nextHeader =
+      patch.header === null ? undefined : (patch.header ?? current.header);
+    const nextFooter =
+      patch.footer === null ? undefined : (patch.footer ?? current.footer);
     const document = {
       title: patch.title ?? current.title,
       blocks: patch.blocks ?? current.blocks,
       ...(nextIcon ? { icon: nextIcon } : {}),
+      ...(nextHeader ? { header: nextHeader } : {}),
+      ...(nextFooter ? { footer: nextFooter } : {}),
     };
     const parsed = surfaceDocumentSchema.safeParse(document);
     if (!parsed.success)
@@ -304,7 +335,7 @@ export class SurfaceService {
     if (lifecycle !== "active" && lifecycle !== "frozen")
       throw new SurfaceError("lifecycle must be active or frozen.");
     const result = await this.pool.query<SurfaceRow>(
-      `UPDATE agent_surfaces SET title=$4, icon=$5, blocks=$6, lifecycle=$7, revision=revision+1, updated_at=NOW()
+      `UPDATE agent_surfaces SET title=$4, icon=$5, header=$6, blocks=$7, footer=$8, lifecycle=$9, schema_version=$10, revision=revision+1, updated_at=NOW()
        WHERE id=$1 AND agent_id=$2 AND revision=$3 AND deleted_at IS NULL RETURNING *`,
       [
         id,
@@ -312,8 +343,11 @@ export class SurfaceService {
         expectedRevision,
         parsed.data.title,
         parsed.data.icon ?? null,
+        parsed.data.header ? JSON.stringify(parsed.data.header) : null,
         JSON.stringify(parsed.data.blocks),
+        parsed.data.footer ? JSON.stringify(parsed.data.footer) : null,
         lifecycle,
+        SURFACE_SCHEMA_VERSION,
       ]
     );
     if (!result.rows[0])
@@ -435,6 +469,11 @@ export class SurfaceService {
     if (surface.lifecycle !== "active")
       throw new SurfaceError(
         "This surface is frozen and no longer accepts interactions.",
+        409
+      );
+    if (surface.schemaVersion !== SURFACE_SCHEMA_VERSION)
+      throw new SurfaceError(
+        "This surface uses an older schema and no longer accepts interactions; the agent must recreate it.",
         409
       );
     if (surface.revision !== parsed.data.baseRevision)
@@ -641,6 +680,20 @@ export class SurfaceService {
   }
 }
 
+function assertActionEnabled(action: {
+  disabled?: boolean;
+  disabledReason?: string;
+  id: string;
+}): void {
+  if (action.disabled)
+    throw new SurfaceError(
+      typeof action.disabledReason === "string"
+        ? action.disabledReason
+        : "This action is disabled.",
+      409
+    );
+}
+
 function validateAndCapture(
   surface: Surface,
   request: InteractionRequest
@@ -650,6 +703,24 @@ function validateAndCapture(
   snapshot: Record<string, unknown>;
   onceFormBlockId: string | null;
 } {
+  // Document footer actions are addressed with the reserved block id.
+  if (request.blockId === SURFACE_FOOTER_BLOCK_ID) {
+    if (request.kind !== "action")
+      throw new SurfaceError("Form submissions must reference a form block.");
+    if (request.itemId)
+      throw new SurfaceError("This action does not accept an itemId.");
+    const action = surface.footer?.actions.find(
+      (candidate) => candidate.id === request.actionId
+    );
+    if (!action) throw new SurfaceError("Referenced action does not exist.");
+    assertActionEnabled(action);
+    return {
+      intent: action.intent,
+      payload: { blockId: SURFACE_FOOTER_BLOCK_ID, actionId: action.id },
+      snapshot: { footer: surface.footer, action },
+      onceFormBlockId: null,
+    };
+  }
   const findBlock = (blocks: SurfaceBlock[]): SurfaceBlock | undefined => {
     for (const candidate of blocks) {
       if (candidate.id === request.blockId) return candidate;
@@ -671,7 +742,7 @@ function validateAndCapture(
     throw new SurfaceError("Item actions must include an itemId.");
   if (
     request.kind === "action" &&
-    (block.type === "actions" || block.type === "form") &&
+    (block.type === "section" || block.type === "form") &&
     itemId
   )
     throw new SurfaceError("This action does not accept an itemId.");
@@ -682,26 +753,28 @@ function validateAndCapture(
         ? block.rows.find((candidate) => candidate.id === itemId)
         : undefined;
   const action =
-    block.type === "actions"
-      ? block.actions.find((a) => a.id === request.actionId)
-      : item?.action?.id === request.actionId
-        ? item.action
+    block.type === "section"
+      ? (block.actions ?? []).find((a) => a.id === request.actionId)
+      : item
+        ? (item.actions ?? []).find((a) => a.id === request.actionId)
         : block.type === "form" && block.submit.id === request.actionId
           ? block.submit
           : undefined;
   if (!action) throw new SurfaceError("Referenced action does not exist.");
-  if ("disabled" in action && action.disabled)
-    throw new SurfaceError(
-      "disabledReason" in action && typeof action.disabledReason === "string"
-        ? action.disabledReason
-        : "This action is disabled.",
-      409
-    );
+  assertActionEnabled(action);
   if (request.kind === "action") {
-    if (block.type !== "actions" && !item)
+    if (block.type !== "section" && !item)
       throw new SurfaceError(
-        "Action interactions must reference an actions block or an item action."
+        "Action interactions must reference a section's actions, the document footer, or an item action."
       );
+    // A section's snapshot omits its descendant tree: a section may hold up
+    // to 100 nested blocks, and duplicating that subtree into every durable
+    // interaction record would let repeated clicks amplify storage. The
+    // section's own metadata plus the selected action is what audit needs.
+    const blockSnapshot =
+      block.type === "section"
+        ? (({ blocks: _children, ...sectionMeta }) => sectionMeta)(block)
+        : block;
     return {
       intent: action.intent,
       payload: {
@@ -709,7 +782,7 @@ function validateAndCapture(
         ...(item ? { itemId: item.id } : {}),
         actionId: action.id,
       },
-      snapshot: { block, ...(item ? { item } : {}), action },
+      snapshot: { block: blockSnapshot, ...(item ? { item } : {}), action },
       onceFormBlockId: null,
     };
   }

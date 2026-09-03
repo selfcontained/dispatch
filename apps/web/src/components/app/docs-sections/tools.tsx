@@ -198,7 +198,8 @@ export function ToolsContent() {
           </li>
           <li>
             <Code>dispatch_list_media</Code> — list media shared with or by the
-            current agent
+            current agent, or by its parent or a direct child via{" "}
+            <Code>ownerAgentId</Code>
           </li>
           <li>
             <Code>dispatch_delete_media</Code> — permanently remove a shared
@@ -207,7 +208,9 @@ export function ToolsContent() {
           <li>
             <Code>dispatch_list_pins</Code> — list the current sidebar pins with
             their stable IDs; long values are truncated in the listing, so pass
-            an <Code>id</Code> to read one pin back whole
+            an <Code>id</Code> to read one pin back whole. Takes{" "}
+            <Code>ownerAgentId</Code> to read a parent&apos;s or direct
+            child&apos;s pins
           </li>
           <li>
             <Code>dispatch_delete_pin</Code> — permanently remove pins by{" "}
