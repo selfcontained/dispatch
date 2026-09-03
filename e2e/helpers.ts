@@ -72,6 +72,8 @@ export async function createAgentViaAPI(
     cwd?: string;
     useWorktree?: boolean;
     worktreeBranch?: string;
+    /** Launch as a child of this agent (renders as a sub agent row). */
+    parentAgentId?: string;
   } = {}
 ): Promise<AgentResult> {
   const res = await request.post(`${API}/agents`, {
@@ -82,6 +84,7 @@ export async function createAgentViaAPI(
       cwd: overrides.cwd ?? "/tmp",
       useWorktree: overrides.useWorktree ?? false,
       worktreeBranch: overrides.worktreeBranch,
+      parentAgentId: overrides.parentAgentId,
     },
   });
   const body = (await res.json()) as { agent: AgentResult };

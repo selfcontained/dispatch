@@ -76,8 +76,9 @@ function MobileSidebar({
   useEffect(() => {
     if (!open) return;
     const onKeyDown = (event: KeyboardEvent) => {
-      // A nested layer (dropdown menu, dialog) that consumed this Escape
-      // prevents default; the drawer only closes on an unclaimed Escape.
+      // A nested Radix layer (a Select's listbox, a popover, a dropdown
+      // menu) marks the Escape it dismissed with preventDefault before it
+      // reaches the window; that press was for the layer, not the sheet.
       if (event.key === "Escape" && !event.defaultPrevented)
         onOpenChange(false);
     };

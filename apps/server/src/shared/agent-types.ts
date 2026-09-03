@@ -1,31 +1,22 @@
 /**
- * Agent-type tables and predicates.
+ * Agent-type predicates over the shared table.
  *
- * Single source of truth shared by the server (settings sanitization, job
- * and persona agent validation) and the web client (agent pickers, settings
- * toggles) — web imports this module directly across the workspace boundary
- * (see apps/web/src/lib/agent-types.ts). Keep it dependency-free: no node
+ * The member lists themselves live in `@dispatch/shared` so the web client
+ * agrees on them without reaching into the server. They are re-exported here
+ * because ~15 server modules (and apps/web/src/lib/agent-types.ts) already
+ * import them from this path. Keep this module dependency-free: no node
  * imports, no browser globals.
  */
 
-export const AGENT_TYPES = [
-  "claude",
-  "codex",
-  "cursor",
-  "opencode",
-  "terminal",
-] as const;
-export type AgentType = (typeof AGENT_TYPES)[number];
+import {
+  AGENT_TYPES,
+  CLI_AGENT_TYPES,
+  type AgentType,
+  type CliAgentType,
+} from "@dispatch/shared";
 
-// Agent types that run an AI CLI — eligible for jobs, review assignment, and
-// persona launches. Terminal agents are excluded because they don't run a CLI.
-export const CLI_AGENT_TYPES = [
-  "claude",
-  "codex",
-  "cursor",
-  "opencode",
-] as const;
-export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
+export { AGENT_TYPES, CLI_AGENT_TYPES };
+export type { AgentType, CliAgentType };
 
 export function isCliAgentType(value: unknown): value is CliAgentType {
   return (

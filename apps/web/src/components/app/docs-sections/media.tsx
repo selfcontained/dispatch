@@ -73,6 +73,15 @@ export function MediaContent() {
           <Code>"simulator"</Code>, or <Code>"stream"</Code>.
         </P>
         <P>
+          An optional <Code>ownerAgentId</Code> lists what the agent&apos;s
+          parent or one of its direct children has shared instead, read-only and
+          from that agent&apos;s own directory — an archived child still lists.{" "}
+          <Code>dispatch_list_pins</Code> accepts the same parameter. Nothing is
+          copied: a parent reads its child&apos;s screenshots by their original
+          path, and the user sees them grouped under the parent&apos;s card in
+          the sidebar.
+        </P>
+        <P>
           To remove an item that is no longer relevant, call{" "}
           <Code>dispatch_delete_media</Code> with its exact{" "}
           <Code>fileName</Code> from the listing. This permanently removes the

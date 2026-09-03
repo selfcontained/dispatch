@@ -53,7 +53,9 @@ export function registerAgentLaunchTools(
         "Launch a new agent to work on a task. The new agent runs independently " +
         "— use dispatch_send_message to coordinate and list_agents to check status. " +
         "By default the new agent is your child and appears under your card in the sidebar; " +
-        "pass child: false to launch it as its own top-level agent instead.",
+        "pass child: false to launch it as its own top-level agent instead. " +
+        "A child's pins and media are readable here via ownerAgentId on dispatch_list_pins / dispatch_list_media, " +
+        "and it can read yours the same way — neither side needs to relay file paths or URLs.",
       inputSchema: {
         name: z
           .string()

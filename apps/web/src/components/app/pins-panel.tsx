@@ -1,9 +1,10 @@
 import { Pin } from "lucide-react";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { PinGroup, layoutPins } from "@/components/app/pin-group";
+import { OwnerSwitch } from "@/components/app/owner-switch";
 import { PinItem } from "@/components/app/pin-item";
-import { type AgentPin } from "@/components/app/types";
+import { type AgentPin, type SubAgentPins } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   Dialog,
@@ -79,14 +80,30 @@ export function PinList({
 
 type PinsPanelProps = {
   pins: AgentPin[];
+  selectedAgentId?: string | null;
   selectedAgentName: string | null;
   selectedAgentWorkspaceRoot: string | null;
   agentIsRunning?: boolean;
-  onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
+  /**
+   * `ownerAgentId` is null for the selected agent's own pins and a sub agent's
+   * id when the panel is showing that sub agent, so a shortcut fires at the
+   * agent that owns it rather than at whoever is selected.
+   */
+  onRunShortcut?: (pin: AgentPin, ownerAgentId: string | null) => void;
   pendingPinId?: string | null;
   /** Agent id, so persisted group collapse survives a session rename. Omit to keep collapse ephemeral. */
   collapseScope?: string | null;
+  /**
+   * The selected agent's direct children and their pins. When present, a
+   * switcher at the top of the tab picks whose pins the tab shows — the
+   * selected agent's by default, or one sub agent's. Appending each child as
+   * a group below the agent's own pins was rejected: the groups landed at
+   * unpredictable positions depending on how many pins came before them.
+   */
+  subAgentPins?: SubAgentPins[];
 };
+
+const EMPTY_SUB_AGENT_PINS: SubAgentPins[] = [];
 
 /**
  * Confirmation is opt-in per shortcut pin (`confirm: true`) — the owning agent
@@ -146,16 +163,49 @@ function ConfirmShortcutDialog({
 
 export function PinsPanel({
   pins,
+  selectedAgentId = null,
   selectedAgentName,
   selectedAgentWorkspaceRoot,
   agentIsRunning,
   onRunShortcut,
   pendingPinId = null,
   collapseScope,
+  subAgentPins = EMPTY_SUB_AGENT_PINS,
 }: PinsPanelProps): JSX.Element {
-  const [pendingShortcutPin, setPendingShortcutPin] = useState<AgentPin | null>(
-    null
-  );
+  const [pendingShortcut, setPendingShortcut] = useState<{
+    pin: AgentPin;
+    ownerAgentId: string | null;
+  } | null>(null);
+  const pendingShortcutPin = pendingShortcut?.pin ?? null;
+  // Which owner the tab is showing; null is the selected agent. Reset when
+  // the selection moves, and fall back to the agent's own pins if the chosen
+  // sub agent has since been archived out of the list.
+  const [viewOwnerId, setViewOwnerId] = useState<string | null>(null);
+  useEffect(() => {
+    setViewOwnerId(null);
+  }, [selectedAgentId]);
+  const viewedSubAgent =
+    viewOwnerId === null
+      ? null
+      : (subAgentPins.find(({ agent }) => agent.id === viewOwnerId) ?? null);
+  const viewedPins = viewedSubAgent ? viewedSubAgent.pins : pins;
+  const ownerSwitch =
+    subAgentPins.length > 0 ? (
+      <OwnerSwitch
+        testIdPrefix="pins-owner"
+        ariaLabel="Whose pins to show"
+        itemNoun={["pin", "pins"]}
+        selectedAgentId={selectedAgentId}
+        selectedAgentName={selectedAgentName}
+        own={{ count: pins.length }}
+        subAgents={subAgentPins.map(({ agent, pins: agentPins }) => ({
+          agent,
+          count: agentPins.length,
+        }))}
+        viewOwnerId={viewedSubAgent?.agent.id ?? null}
+        onChange={setViewOwnerId}
+      />
+    ) : null;
   const coarsePointer = useCoarsePointer();
   // This dialog has no DialogTrigger (one instance serves the whole panel), so
   // Radix has nothing to hand focus back to on close — track the button that
@@ -176,56 +226,93 @@ export function PinsPanel({
   // so the prompt would be delivered having shown the user only the label.
   // The confirm dialog already renders the full prompt, so route everything
   // through it there regardless of the pin's own `confirm` setting.
-  const handleRunShortcut = (pin: AgentPin, pointerType?: string): void => {
+  const handleRunShortcut = (
+    pin: AgentPin,
+    pointerType: string | undefined,
+    ownerAgentId: string | null
+  ): void => {
     if (pin.confirm || coarsePointer || pointerType === "touch") {
       lastTrigger.current = pin.id
         ? (shortcutButtons.current.get(pin.id) ?? null)
         : null;
-      setPendingShortcutPin(pin);
+      setPendingShortcut({ pin, ownerAgentId });
       return;
     }
-    onRunShortcut?.(pin);
+    onRunShortcut?.(pin, ownerAgentId);
   };
 
-  if (pins.length === 0) {
+  if (viewedPins.length === 0) {
     return (
-      <div className="grid h-full place-items-center p-4 text-center text-sm text-muted-foreground">
-        <div className="flex flex-col items-center gap-2">
-          <Pin className="h-8 w-8 text-muted-foreground" />
-          <div className="mt-4">
-            {selectedAgentName
-              ? "No pins yet. Agents can pin URLs, files, ports, summaries, and other info here."
-              : "Focus an agent to view pins."}
+      <div className="flex min-h-0 flex-1 flex-col">
+        {ownerSwitch}
+        <div className="grid flex-1 place-items-center p-4 text-center text-sm text-muted-foreground">
+          <div className="flex flex-col items-center gap-2">
+            <Pin className="h-8 w-8 text-muted-foreground" />
+            <div className="mt-4">
+              {viewedSubAgent
+                ? `${viewedSubAgent.agent.name} has no pins yet.`
+                : selectedAgentName
+                  ? "No pins yet. Agents can pin URLs, files, ports, summaries, and other info here."
+                  : "Focus an agent to view pins."}
+            </div>
           </div>
         </div>
       </div>
     );
   }
 
+  const ownerAgentId = viewedSubAgent?.agent.id ?? null;
   return (
-    <div
-      data-testid="pins-panel-scroll"
-      className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
-    >
-      <PinList
-        pins={pins}
-        workspaceRoot={selectedAgentWorkspaceRoot}
-        agentIsRunning={agentIsRunning}
-        onRunShortcut={onRunShortcut ? handleRunShortcut : undefined}
-        agentName={selectedAgentName}
-        pendingPinId={pendingPinId}
-        buttonRef={registerShortcutButton}
-        collapseScope={collapseScope ?? null}
-      />
+    <div className="flex min-h-0 flex-1 flex-col">
+      {ownerSwitch}
+      <div
+        data-testid="pins-panel-scroll"
+        data-pins-owner={ownerAgentId ?? selectedAgentId ?? undefined}
+        className="min-h-0 flex-1 overflow-y-auto pb-[env(safe-area-inset-bottom)]"
+      >
+        <PinList
+          pins={viewedPins}
+          // Filename pins resolve against their owner's worktree.
+          workspaceRoot={
+            viewedSubAgent
+              ? viewedSubAgent.agent.workspaceRoot
+              : selectedAgentWorkspaceRoot
+          }
+          agentIsRunning={
+            viewedSubAgent
+              ? viewedSubAgent.agent.status === "running"
+              : agentIsRunning
+          }
+          onRunShortcut={
+            onRunShortcut
+              ? (pin, pointerType) =>
+                  handleRunShortcut(pin, pointerType, ownerAgentId)
+              : undefined
+          }
+          agentName={viewedSubAgent?.agent.name ?? selectedAgentName}
+          pendingPinId={pendingPinId}
+          buttonRef={registerShortcutButton}
+          // Keyed by the owner's id, not its name: a rename must not reset
+          // a persisted group collapse.
+          collapseScope={
+            collapseScope
+              ? ownerAgentId
+                ? `${collapseScope}::sub:${ownerAgentId}`
+                : collapseScope
+              : null
+          }
+        />
+      </div>
       <ConfirmShortcutDialog
         onRestoreFocus={() => lastTrigger.current?.focus()}
         pin={pendingShortcutPin}
         onOpenChange={(open) => {
-          if (!open) setPendingShortcutPin(null);
+          if (!open) setPendingShortcut(null);
         }}
         onConfirm={() => {
-          if (pendingShortcutPin) onRunShortcut?.(pendingShortcutPin);
-          setPendingShortcutPin(null);
+          if (pendingShortcut)
+            onRunShortcut?.(pendingShortcut.pin, pendingShortcut.ownerAgentId);
+          setPendingShortcut(null);
         }}
       />
     </div>

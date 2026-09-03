@@ -236,3 +236,153 @@ describe("useMedia lightbox identity", () => {
     expect(result.current.lightboxIndex).toBe(2);
   });
 });
+
+describe("useMedia sub agent media", () => {
+  const CHILD = {
+    id: "agt_child",
+    name: "builder",
+    status: "running" as const,
+    workspaceRoot: null,
+  };
+
+  function mockPerAgent(byAgent: Record<string, MediaFile[]>) {
+    apiMock.mockImplementation(async (path: string) => {
+      if (path.endsWith("/media/seen")) return { ok: true };
+      const id = /agents\/([^/]+)\/media/.exec(path)?.[1] ?? "";
+      return { files: byAgent[id] ?? [] };
+    });
+  }
+
+  it("lists each child's files stamped with its owner and counts them unseen", async () => {
+    mockPerAgent({
+      [AGENT_ID]: [file({ name: "own.png", seen: true })],
+      agt_child: [
+        file({
+          name: "shot.png",
+          url: "/api/v1/agents/agt_child/media/shot.png",
+        }),
+      ],
+    });
+    const subAgents = [CHILD];
+    const { result } = renderHook(() => useMedia(AGENT_ID, true, subAgents), {
+      wrapper,
+    });
+
+    await waitFor(() =>
+      expect(result.current.subAgentMedia[0]?.files).toHaveLength(1)
+    );
+    expect(result.current.mediaFiles[0]?.ownerAgentId).toBe(AGENT_ID);
+    expect(result.current.subAgentMedia[0]?.agent).toBe(CHILD);
+    expect(result.current.subAgentMedia[0]?.files[0]?.ownerAgentId).toBe(
+      "agt_child"
+    );
+    // Own file is seen, the child's is not: the badge counts the child's.
+    expect(result.current.unseenMediaCount).toBe(1);
+  });
+
+  it("shows one owner's files at a time and scopes the lightbox to them", async () => {
+    mockPerAgent({
+      [AGENT_ID]: [file({ name: "own.png" })],
+      agt_child: [file({ name: "shot.png" })],
+    });
+    const subAgents = [CHILD];
+    const { result } = renderHook(() => useMedia(AGENT_ID, true, subAgents), {
+      wrapper,
+    });
+    await waitFor(() =>
+      expect(result.current.subAgentMedia[0]?.files).toHaveLength(1)
+    );
+
+    expect(result.current.mediaOwnerId).toBeNull();
+    expect(result.current.visibleMediaFiles.map((f) => f.name)).toEqual([
+      "own.png",
+    ]);
+    act(() => result.current.setMediaOwnerId("agt_child"));
+    expect(result.current.mediaOwnerId).toBe("agt_child");
+    expect(result.current.visibleMediaFiles.map((f) => f.name)).toEqual([
+      "shot.png",
+    ]);
+
+    act(() =>
+      result.current.openLightbox(result.current.visibleMediaFiles[0]!)
+    );
+    expect(result.current.lightboxTotalItems).toBe(1);
+    expect(result.current.lightboxItem?.file.ownerAgentId).toBe("agt_child");
+
+    // A sub agent that disappears falls back to the agent's own files.
+    act(() => result.current.setMediaOwnerId("agt_gone"));
+    expect(result.current.mediaOwnerId).toBeNull();
+    expect(result.current.visibleMediaFiles[0]?.name).toBe("own.png");
+  });
+
+  it("marks a child's file seen against the child, not the parent", async () => {
+    mockPerAgent({
+      [AGENT_ID]: [],
+      agt_child: [file({ name: "shot.png" })],
+    });
+    // Stand in for the panel: a card carrying the child's owner attribute
+    // inside the viewport the observer watches.
+    const root = document.createElement("div");
+    const card = document.createElement("article");
+    card.dataset.mediaKey = "shot.png:2026-08-31T00:00:00Z";
+    card.dataset.mediaOwner = "agt_child";
+    root.appendChild(card);
+    document.body.appendChild(root);
+
+    let callback: IntersectionObserverCallback | null = null;
+    const observe = vi.fn();
+    vi.stubGlobal(
+      "IntersectionObserver",
+      class {
+        constructor(cb: IntersectionObserverCallback) {
+          callback = cb;
+        }
+        observe = observe;
+        disconnect = vi.fn();
+      }
+    );
+    try {
+      const subAgents = [CHILD];
+      const { result } = renderHook(() => useMedia(AGENT_ID, true, subAgents), {
+        wrapper,
+      });
+      // Attach the viewport before the files land, so the observer effect
+      // that re-runs on the new file list finds it.
+      (
+        result.current.mediaViewportRef as { current: HTMLDivElement | null }
+      ).current = root;
+      await waitFor(() =>
+        expect(result.current.subAgentMedia[0]?.files).toHaveLength(1)
+      );
+      await waitFor(() => expect(observe).toHaveBeenCalled());
+
+      act(() => {
+        callback?.(
+          [
+            {
+              isIntersecting: true,
+              target: card,
+            } as unknown as IntersectionObserverEntry,
+          ],
+          {} as IntersectionObserver
+        );
+      });
+
+      expect(apiMock).toHaveBeenCalledWith(
+        "/api/v1/agents/agt_child/media/seen",
+        expect.objectContaining({ method: "POST" })
+      );
+      expect(
+        apiMock.mock.calls.some(([path]) =>
+          String(path).startsWith(`/api/v1/agents/${AGENT_ID}/media/seen`)
+        )
+      ).toBe(false);
+      await waitFor(() =>
+        expect(result.current.subAgentMedia[0]?.files[0]?.seen).toBe(true)
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      root.remove();
+    }
+  });
+});

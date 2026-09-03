@@ -113,6 +113,28 @@ export function relationTo(
 }
 
 /**
+ * Whether `owner`'s sidebar state (pins, media) is readable by `requester`.
+ *
+ * A family is one agent, its parent, and its direct children — exactly the
+ * sidebar card, since a child cannot launch children of its own. Both
+ * directions are readable on purpose: a child wants the dev-stack URL and PR
+ * its parent pinned; a parent wants the screenshots its child shared. Siblings
+ * and `launched_by` provenance (child: false launches) are outside the family.
+ *
+ * Deliberately a pure relation on the two rows, with no liveness check: media
+ * outlives an archive, and a parent that archives a finished child still needs
+ * that child's screenshots to write its report.
+ */
+export function isFamily(
+  requester: LineageAgent,
+  owner: LineageAgent
+): boolean {
+  if (requester.id === owner.id) return true;
+  if ((owner.parentAgentId ?? null) === requester.id) return true;
+  return (requester.parentAgentId ?? null) === owner.id;
+}
+
+/**
  * The delegation chain of a message: sender first, then each ancestor up to and
  * including the recipient when the recipient is one of them. When the recipient
  * is not an ancestor, the chain still walks to the sender's root so the

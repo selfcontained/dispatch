@@ -238,8 +238,39 @@ export function AgentsView({
     handleSplitLayoutChange,
   } = useCenterPaneLayout({ focusedAgentId, isMobile, changesMatch });
 
+  // The focused agent's direct children, whose pins and media the sidebar
+  // groups under it. Direct children only — the same family the server's
+  // ownerAgentId reads allow — and live ones only, since this is the live
+  // agent list; an archived child's media stays reachable from its history.
+  const focusedSubAgents = useMemo(
+    () =>
+      focusedAgentId
+        ? agents
+            .filter((agent) => agent.parentAgentId === focusedAgentId)
+            .map((agent) => ({
+              id: agent.id,
+              name: agent.name,
+              status: agent.status,
+              workspaceRoot: agent.worktreePath ?? agent.cwd ?? null,
+            }))
+        : [],
+    [agents, focusedAgentId]
+  );
+  const focusedSubAgentPins = useMemo(
+    () =>
+      focusedSubAgents.map((agent) => ({
+        agent,
+        pins: agents.find((a) => a.id === agent.id)?.pins ?? [],
+      })),
+    [agents, focusedSubAgents]
+  );
+
   const {
     mediaFiles,
+    visibleMediaFiles,
+    subAgentMedia,
+    mediaOwnerId,
+    setMediaOwnerId,
     animatingMediaKeys,
     unseenMediaCount,
     lightboxIndex,
@@ -249,7 +280,7 @@ export function AgentsView({
     openLightbox,
     mediaViewportRef,
     refreshMedia,
-  } = useMedia(focusedAgentId, mediaPanelOpen);
+  } = useMedia(focusedAgentId, mediaPanelOpen, focusedSubAgents);
 
   const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
   const markMessagesRead = useMarkMessagesRead(focusedAgentId);
@@ -702,7 +733,7 @@ export function AgentsView({
         <div className="hidden shrink-0 md:block">
           <MediaSidebar
             mediaOpen={mediaOpen && hasActiveAgent}
-            mediaFiles={mediaFiles}
+            mediaFiles={visibleMediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
             selectedAgentWorkspaceRoot={
@@ -710,6 +741,11 @@ export function AgentsView({
             }
             selectedAgentPins={focusedAgent?.pins ?? []}
             selectedAgentIsRunning={focusedAgent?.status === "running"}
+            subAgentPins={focusedSubAgentPins}
+            subAgentMedia={subAgentMedia}
+            ownMediaFiles={mediaFiles}
+            mediaOwnerId={mediaOwnerId}
+            onMediaOwnerChange={setMediaOwnerId}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}
             unreadMessageCount={unreadMessageCount}
@@ -741,7 +777,7 @@ export function AgentsView({
           label="Media sidebar"
         >
           <MediaSidebarContent
-            mediaFiles={mediaFiles}
+            mediaFiles={visibleMediaFiles}
             selectedAgentId={focusedAgentId}
             selectedAgentName={focusedAgent?.name ?? null}
             selectedAgentWorkspaceRoot={
@@ -749,6 +785,11 @@ export function AgentsView({
             }
             selectedAgentPins={focusedAgent?.pins ?? []}
             selectedAgentIsRunning={focusedAgent?.status === "running"}
+            subAgentPins={focusedSubAgentPins}
+            subAgentMedia={subAgentMedia}
+            ownMediaFiles={mediaFiles}
+            mediaOwnerId={mediaOwnerId}
+            onMediaOwnerChange={setMediaOwnerId}
             onShortcutRun={() => setMobileMediaOpen(false)}
             animatingMediaKeys={animatingMediaKeys}
             unseenMediaCount={unseenMediaCount}

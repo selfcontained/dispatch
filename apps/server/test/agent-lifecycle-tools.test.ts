@@ -379,6 +379,7 @@ describe("registerAgentLifecycleTools", () => {
 
       expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
         source: "screenshot",
+        ownerAgentId: undefined,
       });
       expect(result).toEqual({
         content: [{ type: "text", text: JSON.stringify(items) }],
@@ -396,6 +397,22 @@ describe("registerAgentLifecycleTools", () => {
       await server.tools[0]!.handler({});
       expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
         source: undefined,
+        ownerAgentId: undefined,
+      });
+    });
+
+    it("passes ownerAgentId through for a family read", async () => {
+      const ctx = baseContext();
+      registerAgentLifecycleTools(
+        server as never,
+        new Set(["dispatch_list_media"]),
+        ctx
+      );
+
+      await server.tools[0]!.handler({ ownerAgentId: "agt_child" });
+      expect(ctx.listMedia).toHaveBeenCalledWith(AGENT_ID, {
+        source: undefined,
+        ownerAgentId: "agt_child",
       });
     });
 
@@ -487,7 +504,9 @@ describe("registerAgentLifecycleTools", () => {
 
       const result = await server.tools[0]!.handler({});
 
-      expect(ctx.listPins).toHaveBeenCalledWith(AGENT_ID);
+      expect(ctx.listPins).toHaveBeenCalledWith(AGENT_ID, {
+        ownerAgentId: undefined,
+      });
       expect(result).toEqual({
         content: [{ type: "text", text: JSON.stringify(pins) }],
       });
