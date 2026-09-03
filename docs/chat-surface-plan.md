@@ -236,3 +236,100 @@ Pins in the feed, notification entries, threading UI beyond `replyTo`,
 reactions, search, cross-agent posting through the chat tool, replacing the
 mobile fullscreen textarea, transcript reading, hooks, permission-prompt
 detection.
+
+## Follow-ups (round 2, one PR)
+
+Decided 2026-09-03 after #1042 merged. Surfaces v2 integration is deferred
+until v2 matures. Everything below ships in one PR, feature-flag unchanged.
+
+### A. User-side attachments in the composer
+
+Wire contract (`packages/shared/src/chat-types.ts`):
+
+```
+ChatUserAttachmentInput =
+  | { type: "file"; mediaId: number }        // uploaded first via POST /agents/:id/media
+  | { type: "pin";  pinId: string }
+  | { type: "link"; url: string; title?: string }
+
+POST /api/v1/agents/:id/chat/messages
+  body { text: string; attachments?: ChatUserAttachmentInput[] }   // ≤ 20 attachments
+  → ChatSendResponse (unchanged)
+```
+
+- The stored user message carries `ChatAttachment[]` in the same shape agent
+  posts use (`file` resolved from the media row, `pin` verified on the agent,
+  `link` as given). The feed renderer is unchanged.
+- `text` may be empty when at least one attachment is present.
+- Upload path: the web uploads each file with `uploadAgentMedia(agentId, file,
+{ source: "user", inject: false })`, then sends the message with the returned
+  media ids. Server-wide 20 MB cap and `isMediaFile` gate apply.
+- Envelope: after the text and before the closing marker, list attachments so
+  the agent can act on them:
+
+```
+--- DISPATCH CHAT (id: <uuid>) ---
+<text>
+
+Attachments:
+- file: /abs/path/to/media/<fileName> (image/png, 120 KB)
+- pin: <label> — <value>
+- link: <url>
+--- END DISPATCH CHAT ---
+<existing trailer>
+```
+
+- Composer UX (mirror the create-agent context input): paperclip button →
+  file picker (accept from `STARTUP_FILE_ACCEPT`); a pin picker popover listing
+  the agent's pins; drag-and-drop onto the composer; paste handling: clipboard
+  files → file attachments, a pasted URL alone → link attachment, pasted text
+  longer than 4 000 characters or 80 lines → offered as a `pasted.txt` file
+  attachment (chip with "keep inline" undo). Attachment chips above the
+  textarea with remove buttons; image chips show a thumbnail. Send stays
+  disabled while uploads are in flight; upload failures keep the draft.
+
+### B. Shared injector enqueue API
+
+- `createPromptInjector` gains `enqueueAgentPrompt(agentId, prompt, { gate? })
+→ { held: boolean; delivery: Promise<void> }` which throws on a non-tmux
+  agent; `injectAgentPrompt` becomes a wrapper over it.
+- The chat `ChatDeliveryAdapter` in `server.ts` is built from `enqueueAgentPrompt`
+  (no more inline `new TmuxTerminal`).
+- `dispatch_send_message` (`server/mcp-handlers.ts handleSendMessage`) uses it
+  too and records real delivery: migration `0046_agent-messages-delivered-null.sql`
+  drops NOT NULL/DEFAULT on `agent_messages.delivered`; rows insert with `null`
+  (pending), settle to true/false when the write completes, and republish
+  `message.created` for the pair so clients refetch. The startup recovery sweep
+  marks stale `null` agent_messages false, like chat. `StoredMessage.delivered`
+  and the web `AgentMessage.delivered` become `boolean | null`; the messages
+  panel and the chat feed render null as "Sending".
+
+### C. Presence strip
+
+Replaces the static presence line above the composer. Only observed signals,
+no pane-text parsing.
+
+- **Server:** ephemeral SSE member `{ type: "agent.tool_invoked"; agentId; tool:
+string; at: string }`, published from one wrapper around `registerTool` in
+  `createDispatchMcpServer` (covers dynamic repo tools too). `McpRequestContext`
+  gains `publishUiEvent` threaded from `routes/mcp.ts`. Not persisted, not
+  fetched. Skip `dispatch_event` itself (it already drives the phase).
+- **Web:** `terminalOutputActivityAtomFamily(agentId)` in `lib/store.ts`
+  (`{ lastOutputAt: number; bytesPerSecond: number }`), written from the
+  terminal socket `onOutput` path in `use-terminal.ts` (throttled to ≤ 4
+  writes/s), readable while the pane is mounted but hidden under Chat.
+- **Strip states:** working + output in the last 3 s → animated dots + phase
+  text (`latestEvent.message`); working + no output for ≥ 60 s → "quiet for
+  Nm" in the muted tone; `waiting_user`/`blocked` → their existing colours and
+  message; not running → existing status text. A tool blip ("sharing a file",
+  "pinning", "posting to chat", "launching an agent", "saving notes", default:
+  humanised tool name) overlays for 4 s after `agent.tool_invoked`.
+- Tool descriptions for `dispatch_chat_post`/`dispatch_chat_update` mention
+  that an `update` post edited in place is the durable form of progress.
+
+### D. Small refactors (only if they stay small)
+
+- `CENTER_TABS` registry (`{ id, label(flagOn), route, available(flagOn) }`)
+  replacing the per-file `CenterTab` switches and the `chatEnabled` prop drill.
+- `useServerFlag(endpoint, hintAtom)` extracted from `use-chat-surface-enabled.ts`
+  and reused by it.
