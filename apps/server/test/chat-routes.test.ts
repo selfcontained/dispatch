@@ -184,6 +184,29 @@ describe("POST /api/v1/agents/:id/chat/messages (inert runtime)", () => {
       attachments: [{ type: "link", url: "not a url" }],
     });
     expect(badUrl.statusCode).toBe(400);
+    // Only absolute http(s) URLs: the value is persisted, printed into the
+    // agent's pane, and rendered as an anchor href.
+    for (const scheme of [
+      "javascript:alert(1)",
+      "data:text/html,hi",
+      "file:///etc/passwd",
+      "ftp://example.com/x",
+    ]) {
+      const badScheme = await authedInject("POST", url, {
+        text: "x",
+        attachments: [{ type: "link", url: scheme }],
+      });
+      expect(badScheme.statusCode).toBe(400);
+      expect(badScheme.json().error).toMatch(/http or https/);
+    }
+    const oversizedUrl = await authedInject("POST", url, {
+      text: "x",
+      attachments: [
+        { type: "link", url: `https://example.com/${"a".repeat(2100)}` },
+      ],
+    });
+    expect(oversizedUrl.statusCode).toBe(400);
+    expect(oversizedUrl.json().error).toMatch(/2048 characters or fewer/);
     const notArray = await authedInject("POST", url, {
       text: "x",
       attachments: { type: "link", url: "https://example.com" },

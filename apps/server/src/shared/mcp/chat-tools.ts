@@ -9,6 +9,7 @@ import {
 import type { ChatService } from "../../chat/service.js";
 import { jsonText } from "./response.js";
 import { toToolError } from "./tool-error.js";
+import { chatUrlSchema } from "../../chat/validation.js";
 
 export type ChatToolsContext = {
   agentId: string;
@@ -69,12 +70,12 @@ const chatAttachmentSchema = z.discriminatedUnion("type", [
     }),
   z.object({
     type: z.literal("link"),
-    url: z.string().url(),
+    url: chatUrlSchema,
     title: z.string().max(200).optional(),
   }),
   z.object({
     type: z.literal("pr"),
-    url: z.string().url(),
+    url: chatUrlSchema,
     title: z.string().max(200).optional(),
   }),
   z.object({

@@ -7,6 +7,7 @@ import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { composeChatFeed, decodeFeedCursor } from "../chat/feed.js";
 import { ChatServiceError, type ChatService } from "../chat/service.js";
 import { isChatMessageId } from "../chat/store.js";
+import { chatUrlSchema } from "../chat/validation.js";
 
 type ChatRouteDeps = {
   pool: Pool;
@@ -26,7 +27,7 @@ const userAttachmentSchema = z.discriminatedUnion("type", [
   z.strictObject({ type: z.literal("pin"), pinId: z.string().min(1) }),
   z.strictObject({
     type: z.literal("link"),
-    url: z.url(),
+    url: chatUrlSchema,
     title: z.string().max(200).optional(),
   }),
 ]);
