@@ -718,7 +718,7 @@ test.describe("Chat surface", () => {
             ),
           };
         })
-        .toEqual({ railWidth: 124, controlsOverlap: 0, pageOverflow: 0 });
+        .toEqual({ railWidth: 152, controlsOverlap: 0, pageOverflow: 0 });
       await touchPage.screenshot({
         path: test.info().outputPath("chat-surface-touch-long-name-320.png"),
       });
