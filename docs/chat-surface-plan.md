@@ -461,3 +461,54 @@ when the agent starts — otherwise it is only visible in the Console.
   carries the peer's `name`. Feed grouping treats the post like any other
   from that author (`chatMessageAuthor` in `chat-entries.tsx` is the one
   place that decides who a chat message reads as).
+
+## Round 5: the launch prompt as a Chat message
+
+Decided 2026-09-03. Brad's ask: a session started with an initial prompt
+should arrive in the CLI the same way a Chat message does, so an agent
+launched from the Chat tab knows to answer there.
+
+- **The first turn is the envelope.** With the flag on and a launch post
+  recorded, the CLI's first user turn is `buildChatEnvelope(postId, prompt,
+attachmentLines)` — the `--- DISPATCH CHAT (id: …) ---` block, the
+  `Attachments:` lines for the startup files (absolute media path, mime,
+  size), links and pins, and the trailer telling the agent the user reads
+  the Chat tab and to reply with `dispatch_chat_post` (`replyTo` the launch
+  post). The reply therefore threads onto the launch post. Composed by
+  `buildStartupTurn` (`agents/tmux/command-builder.ts`) and delivered
+  through each CLI's existing first-turn channel: a positional arg for
+  Claude and Codex, `--prompt` for opencode, the trailing prompt for cursor.
+- **Unwrapped otherwise.** Flag off, no launch context, a job run (its
+  prompt is a system-prompt append), or a terminal agent: the plain
+  `buildStartupPrompt` as before, with its pins and attached-files sections.
+- **One id, one set of attachment lines.** `createAgent` mints the post id
+  before the command is built and hands it to
+  `ChatService.prepareLaunchContext`, which resolves the attachments and
+  returns both the envelope lines it will store and a `record()` that writes
+  the row (`ChatStore.insert` now accepts an explicit id). The recorder and
+  the pane therefore describe the same attachments, and the id in the
+  envelope is the id of the post in the feed. `recordLaunchContext` is kept
+  as `prepare` + `record` for callers that do not need the id up front.
+- **Bounded both ways.** Resolving the post is on the launch's critical path
+  (the first turn needs its id), so it gives up after
+  `LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS` and the agent launches unwrapped with
+  no post — never a post the CLI was not told about, or an envelope naming a
+  row that was never written. The write itself stays detached and bounded by
+  `LAUNCH_CONTEXT_WRITE_TIMEOUT_MS` as in round 4.
+- **Agent-launched agents.** `dispatch_launch_agent` wraps the launcher's
+  prompt in a "You were launched by…" header for the CLI; the envelope wraps
+  that whole thing, header included, while the feed post keeps the prompt as
+  the launcher wrote it.
+
+### Terminal sessions never offer Chat (web)
+
+A terminal-type session is a shell with no CLI to chat with, so the chat
+surface does not apply to it however the flag is set: `agentSupportsChat`
+(`lib/center-tabs.ts`) is ANDed with the flag once, in `agents-view.tsx`,
+and the narrowed value is what the tab bar, the Agent pane, the split-pane
+normaliser and the center-pane layout receive. The tab is labelled
+**Terminal**, the pane is Console-only with no Chat | Console toggle, the
+remembered view is ignored, no unread badge is shown, a persisted `chat` or
+`agent` split value folds onto the Console, `/agents/:id/chat` redirects to
+the bare route without touching the view, and the mobile terminal toolbar
+shows as it always did.

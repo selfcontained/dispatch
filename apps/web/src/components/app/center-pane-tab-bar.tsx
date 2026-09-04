@@ -2,7 +2,6 @@ import { memo, useCallback, useEffect, useRef } from "react";
 
 import { TipSpot } from "@/components/tips/tip-spot";
 import { formatBadgeCount } from "@/lib/format";
-import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { type CenterTab, centerTabs } from "@/lib/center-tabs";
 import { type SplitPaneState } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -25,6 +24,8 @@ type CenterPaneTabBarProps = {
   isSplit: boolean;
   splitState: SplitPaneState;
   isMobile: boolean;
+  /** The chat surface as it applies to this agent (see `agentSupportsChat`). */
+  chatEnabled: boolean;
   chatUnreadCount?: number;
 };
 
@@ -35,9 +36,9 @@ export const CenterPaneTabBar = memo(function CenterPaneTabBar({
   isSplit,
   splitState,
   isMobile,
+  chatEnabled,
   chatUnreadCount = 0,
 }: CenterPaneTabBarProps): JSX.Element {
-  const { enabled: chatEnabled } = useChatSurfaceEnabled();
   const splitTabs = isSplit
     ? new Set<CenterTab>([splitState.left, splitState.right])
     : new Set<CenterTab>();

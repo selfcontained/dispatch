@@ -29,6 +29,8 @@ type AgentsViewHeaderProps = {
    * highlighted for a frame before flipping to Chat/Console.
    */
   centerTabResolved?: boolean;
+  /** The chat surface as it applies to this agent (see `agentSupportsChat`). */
+  chatEnabled: boolean;
   chatUnreadCount?: number;
   isSplit: boolean;
   splitState: SplitPaneState;
@@ -54,6 +56,7 @@ export function AgentsViewHeader({
   focusedDiffStats,
   activeTab,
   centerTabResolved = true,
+  chatEnabled,
   chatUnreadCount = 0,
   isSplit,
   splitState,
@@ -134,6 +137,7 @@ export function AgentsViewHeader({
                 isSplit={isSplit}
                 splitState={splitState}
                 isMobile={isMobile}
+                chatEnabled={chatEnabled}
                 chatUnreadCount={chatUnreadCount}
               />
             ) : null}

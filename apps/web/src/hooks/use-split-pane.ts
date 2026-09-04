@@ -1,7 +1,6 @@
 import { useCallback, useMemo } from "react";
 import { useAtom } from "jotai";
 
-import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { type LegacyCenterTab, terminalHostTab } from "@/lib/center-tabs";
 import {
   type CenterTab,
@@ -46,8 +45,16 @@ export function normalizeSplitPaneState(
   };
 }
 
-export function useSplitPane(agentId: string | null, isMobile: boolean) {
-  const { enabled: chatEnabled } = useChatSurfaceEnabled();
+/**
+ * `chatEnabled` is the flag as it applies to *this* agent (off for a
+ * terminal session), so a split saved with the Chat pane folds back onto
+ * the Console for one.
+ */
+export function useSplitPane(
+  agentId: string | null,
+  isMobile: boolean,
+  chatEnabled: boolean
+) {
   const atom = agentId
     ? splitPaneStateAtomFamily(agentId)
     : inactiveSplitPaneStateAtom;

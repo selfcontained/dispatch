@@ -15,6 +15,8 @@ type UseCenterPaneLayoutArgs = {
   isMobile: boolean;
   /** The tab currently shown full-width; the drop target for a dragged tab. */
   activeTab: CenterTab;
+  /** The chat surface as it applies to this agent (see `agentSupportsChat`). */
+  chatEnabled: boolean;
 };
 
 /**
@@ -27,11 +29,12 @@ export function useCenterPaneLayout({
   focusedAgentId,
   isMobile,
   activeTab,
+  chatEnabled,
 }: UseCenterPaneLayoutArgs) {
   const [isDraggingTab, setIsDraggingTab] = useState(false);
 
   const { splitState, isSplit, exitSplit, updateSizes, handleTabDrop } =
-    useSplitPane(focusedAgentId, isMobile);
+    useSplitPane(focusedAgentId, isMobile, chatEnabled);
 
   const splitLeftRef = useRef<HTMLDivElement>(null);
   const splitButtonRef = useRef<HTMLButtonElement>(null);
