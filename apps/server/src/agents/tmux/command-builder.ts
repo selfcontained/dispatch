@@ -216,7 +216,7 @@ export function buildStartupPrompt(
  * and attachment schema.
  */
 export const CHAT_SURFACE_GUIDANCE_RULE =
-  "Send user-facing replies and questions with dispatch_chat_post; use kind: question with options for finite choices. Terminal output remains in Console.";
+  "The user is reading Chat, not Console. Send every user-facing reply and question with dispatch_chat_post; use kind: question with options for finite choices.";
 
 /**
  * Build the numbered launch guidance text shared by all CLI agent types.

@@ -15,15 +15,18 @@ let store: ChatStore;
 
 const A = "agt_feed_a";
 const OTHER = "agt_feed_other";
+const ARCHIVED_CHILD = "agt_feed_archived_child";
 
 beforeAll(async () => {
   pool = await setupTestDb();
   await runTestMigrations();
   store = new ChatStore(pool);
   await pool.query(
-    `INSERT INTO agents (id, name, cwd, status)
-     VALUES ($1, 'Feed A', '/tmp', 'running'), ($2, 'Other', '/tmp', 'running')`,
-    [A, OTHER]
+    `INSERT INTO agents (id, name, cwd, status, parent_agent_id, deleted_at)
+     VALUES ($1, 'Feed A', '/tmp', 'running', NULL, NULL),
+            ($2, 'Other', '/tmp', 'running', NULL, NULL),
+            ($3, 'Archived child', '/tmp', 'stopped', $1, NOW())`,
+    [A, OTHER, ARCHIVED_CHILD]
   );
 });
 
@@ -152,6 +155,32 @@ describe("composeChatFeed", () => {
     expect(page3.hasMore).toBe(false);
     expect(page3.nextCursor).toBeNull();
     expect(page3.entries.map((e) => e.type)).toEqual(["status"]);
+  });
+
+  it("marks both directions of archived child conversations", async () => {
+    await pool.query(
+      `INSERT INTO agent_messages
+         (id, sender_agent_id, recipient_agent_id, sender_name, recipient_name,
+          content, delivered, created_at)
+       VALUES (gen_random_uuid(), $2, $1, 'Archived child', 'Feed A', 'in', true, $3),
+              (gen_random_uuid(), $1, $2, 'Feed A', 'Archived child', 'out', true, $4),
+              (gen_random_uuid(), $5, $1, 'Other', 'Feed A', 'peer', true, $4)`,
+      [A, ARCHIVED_CHILD, at(10), at(11), OTHER]
+    );
+
+    const messages = (await composeChatFeed(store, A)).entries.filter(
+      (entry) => entry.type === "agent_message"
+    );
+    expect(messages).toHaveLength(3);
+    expect(
+      messages
+        .map((entry) => [entry.content, entry.involvesChildAgent])
+        .sort(([left], [right]) => String(left).localeCompare(String(right)))
+    ).toEqual([
+      ["in", true],
+      ["out", true],
+      ["peer", false],
+    ]);
   });
 
   it("never drops or repeats rows that share a timestamp across sources", async () => {

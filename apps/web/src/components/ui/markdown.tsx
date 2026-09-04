@@ -154,10 +154,10 @@ function MarkdownDefault({
   return (
     <div
       className={cn(
-        "prose prose-sm max-w-none",
+        "prose prose-sm min-w-0 max-w-full",
         // Use theme CSS variables for colors so it works across all themes
         "text-foreground prose-headings:text-foreground prose-strong:text-foreground",
-        "prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5",
+        "prose-p:my-1 prose-p:[overflow-wrap:anywhere] prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-li:[overflow-wrap:anywhere]",
         "prose-headings:mt-3 prose-headings:mb-1",
         // Color h1/h2 for skimming a long document — a file that's mostly
         // headings and short paragraphs needs more than a size bump,
@@ -171,10 +171,10 @@ function MarkdownDefault({
         // those two levels.
         headingAccents && "prose-h1:text-heading-accent-1",
         headingAccents && "prose-h2:text-heading-accent-2",
-        "prose-pre:bg-muted prose-pre:rounded-md prose-pre:p-2 prose-pre:text-xs prose-pre:overflow-x-auto",
+        "prose-pre:max-w-full prose-pre:overflow-x-auto prose-pre:rounded-md prose-pre:bg-muted prose-pre:p-2 prose-pre:text-xs",
         "prose-code:text-xs prose-code:text-foreground prose-code:bg-muted prose-code:rounded prose-code:px-1 prose-code:py-0.5 prose-code:break-words prose-code:[overflow-wrap:anywhere]",
         "prose-code:before:content-none prose-code:after:content-none",
-        "prose-a:text-primary prose-a:underline",
+        "prose-a:text-primary prose-a:underline prose-a:[overflow-wrap:anywhere]",
         "prose-li:text-foreground prose-li:marker:text-muted-foreground",
         // Typography's default blockquote/hr/table colors are a fixed
         // light-mode gray scale (e.g. text-gray-900 quotes), which reads as
@@ -195,6 +195,16 @@ function MarkdownDefault({
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         components={{
+          table({ node: _node, ...props }) {
+            return (
+              <div
+                className="max-w-full overflow-x-auto"
+                data-testid="markdown-table-scroll"
+              >
+                <table {...props} />
+              </div>
+            );
+          },
           pre({ children }) {
             const block = getCodeBlock(children);
             if (block?.className === "language-mermaid") {

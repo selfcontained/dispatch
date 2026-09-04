@@ -307,7 +307,8 @@ describe("POST /api/v1/templates/:id/launch", () => {
         value: "https://example.com/spec",
       }),
     ]);
-    // ...but the launch post shows the URL once, as a link attachment.
+    // ...but the launch post shows the URL once, as a link attachment, while
+    // template runtime instructions stay out of Chat.
     const posts = await ctx.pool.query(
       `SELECT text, origin, attachments FROM agent_chat_messages
          WHERE agent_id = $1`,
@@ -315,7 +316,7 @@ describe("POST /api/v1/templates/:id/launch", () => {
     );
     expect(posts.rows).toHaveLength(1);
     expect(posts.rows[0]).toMatchObject({
-      text: "Read the spec",
+      text: "",
       origin: "launch",
       attachments: [{ type: "link", url: "https://example.com/spec" }],
     });

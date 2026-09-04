@@ -566,7 +566,7 @@ describe("chat routes with a deliverable terminal", () => {
         `--- DISPATCH CHAT (id: ${body.message.id}) ---`,
         "please do X",
         "--- END DISPATCH CHAT ---",
-        `The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "${body.message.id}"); terminal output alone will not reach them.`,
+        `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${body.message.id}").`,
       ].join("\n")
     );
     expect(published).toEqual([

@@ -259,7 +259,10 @@ describe("AgentManager", () => {
           cwd: "/tmp",
           useWorktree: false,
           initialPrompt: "Build the widget",
-          launchContext: { links: ["https://example.com/spec"] },
+          launchContext: {
+            prompt: "Build the widget",
+            links: ["https://example.com/spec"],
+          },
           initialPins: [
             {
               label: "example.com",
@@ -353,6 +356,7 @@ describe("AgentManager", () => {
           useWorktree: false,
           launchedByAgentId: parent.id,
           initialPrompt: "Go",
+          launchContext: { prompt: "Go" },
         });
         expect((await launchPosts(independent.id))[0]).toMatchObject({
           launched_by_agent_id: parent.id,
@@ -373,6 +377,7 @@ describe("AgentManager", () => {
           useWorktree: false,
           parentAgentId: parent.id,
           initialPrompt: "Pretend I am the parent",
+          launchContext: { prompt: "Pretend I am the parent" },
         });
         expect((await launchPosts(child.id))[0]).toMatchObject({
           author_kind: "user",
@@ -456,7 +461,10 @@ describe("AgentManager", () => {
             type: "claude",
             useWorktree: false,
             initialPrompt: "Build the widget",
-            launchContext: { links: ["https://example.com/spec"] },
+            launchContext: {
+              prompt: "Build the widget",
+              links: ["https://example.com/spec"],
+            },
             initialFiles: [
               {
                 fileName: "brief.md",
@@ -501,6 +509,7 @@ describe("AgentManager", () => {
           type: "claude",
           useWorktree: false,
           initialPrompt: "Build the widget",
+          launchContext: { prompt: "Build the widget" },
         });
         expect(await launchPosts(agent.id)).toHaveLength(1);
         const setupScript = await readFile(
@@ -509,6 +518,27 @@ describe("AgentManager", () => {
         );
         expect(setupScript).not.toContain("DISPATCH CHAT");
         expect(setupScript).toContain("Build the widget");
+      });
+
+      it("keeps generated startup prompts out of Chat while retaining Chat guidance", async () => {
+        await withChatSurface(async () => {
+          const agent = await manager.createAgent({
+            cwd: "/tmp",
+            type: "claude",
+            useWorktree: false,
+            initialPrompt: "Internal launch instructions",
+          });
+          expect(await launchPosts(agent.id)).toEqual([]);
+          const setupScript = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+          expect(setupScript).toContain("Internal launch instructions");
+          expect(setupScript).toContain(
+            "The user is reading Chat, not Console."
+          );
+          expect(setupScript).not.toContain("--- DISPATCH CHAT");
+        });
       });
 
       it("starts the runtime without waiting on a write that never resolves", async () => {
@@ -586,6 +616,7 @@ describe("AgentManager", () => {
             type: "claude",
             useWorktree: false,
             initialPrompt: "Go",
+            launchContext: { prompt: "Go" },
           });
           expect(warn).toHaveBeenCalledWith(
             expect.objectContaining({
@@ -703,6 +734,7 @@ describe("AgentManager", () => {
             type: "claude",
             useWorktree: false,
             initialPrompt: "Go",
+            launchContext: { prompt: "Go" },
           });
           expect(warn).toHaveBeenCalledWith(
             expect.objectContaining({ agentId: agent.id }),

@@ -131,6 +131,8 @@ export type ChatAgentMessageEntry = {
   senderName: string;
   recipientAgentId: string;
   recipientName: string;
+  /** True when either endpoint is a direct child of this feed's agent. */
+  involvesChildAgent?: boolean;
   content: string;
   /** `null` while the pane delivery is still pending (see `agent_messages`). */
   delivered: boolean | null;

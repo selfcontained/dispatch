@@ -175,9 +175,13 @@ type CreateAgentInput = {
    * what the CLI receives: `prompt` is the message as the person or launching
    * agent wrote it (the MCP launch path wraps `initialPrompt` in a header the
    * feed should not repeat); `links` are the raw startup URLs the route also
-   * turned into url pins. Defaults to `initialPrompt` and no links.
+   * turned into url pins. Internal/generated startup prompts are deliberately
+   * omitted unless a caller explicitly supplies their user-authored context.
    */
-  launchContext?: { prompt?: string; links?: string[] };
+  launchContext?: {
+    prompt?: string;
+    links?: string[];
+  };
   initialPins?: AgentPin[];
   initialFiles?: Array<{
     fileName: string;
@@ -590,7 +594,7 @@ export class AgentManager {
     return {
       id: launchPostId,
       agentId: p.id,
-      text: input.launchContext?.prompt ?? input.initialPrompt,
+      text: input.launchContext?.prompt,
       files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
       links: input.launchContext?.links ?? [],
       pins: p.initialPins.map((pin) => ({

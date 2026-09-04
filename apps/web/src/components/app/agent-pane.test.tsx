@@ -168,6 +168,24 @@ describe("AgentViewToggle", () => {
     expect(screen.queryByTestId("agent-view-chat-unread")).toBeNull();
   });
 
+  it("slides one compact indicator between views", () => {
+    const view = render(<AgentViewToggle view="chat" onViewChange={vi.fn()} />);
+    const toggle = screen.getByTestId("agent-view-toggle");
+    const track = screen.getByTestId("agent-view-track");
+    const indicator = screen.getByTestId("agent-view-indicator");
+    expect(toggle.className).toContain("h-6");
+    expect(toggle.className).toContain("w-[7.75rem]");
+    expect(toggle.className).toContain("pointer-coarse:h-11");
+    expect(track.className).toContain("h-6");
+    expect(indicator.className).toContain("transition-transform");
+    expect(indicator.className).not.toContain(
+      "translate-x-[calc(100%+0.25rem)]"
+    );
+
+    view.rerender(<AgentViewToggle view="console" onViewChange={vi.fn()} />);
+    expect(indicator.className).toContain("translate-x-[calc(100%+0.25rem)]");
+  });
+
   it("opens chat filters and reports child-agent visibility changes", () => {
     const onShowChildAgentsChange = vi.fn();
     const view = render(
@@ -197,6 +215,28 @@ describe("AgentViewToggle", () => {
     expect(
       screen.getByTestId("chat-filters-trigger").getAttribute("aria-label")
     ).toBe("Chat filters, child-agent messages hidden");
+  });
+
+  it("keeps the filter icon unchanged inside a compact visible surface", () => {
+    render(<AgentViewToggle view="chat" onViewChange={vi.fn()} />);
+    const trigger = screen.getByTestId("chat-filters-trigger");
+    const surface = screen.getByTestId("chat-filters-surface");
+    const icon = screen.getByTestId("chat-filters-icon");
+
+    expect(trigger.className).toContain("pointer-coarse:h-11");
+    expect(trigger.className).toContain("hover:bg-transparent");
+    expect(surface.className).toContain("h-6");
+    expect(surface.className).toContain("w-6");
+    expect(icon.getAttribute("class")).toContain("h-3.5");
+    expect(icon.getAttribute("class")).toContain("w-3.5");
+  });
+
+  it("keeps the complete control group from shrinking under header pressure", () => {
+    render(<AgentViewToggle view="chat" onViewChange={vi.fn()} />);
+    const controls = screen.getByTestId("agent-view-toggle").parentElement;
+
+    expect(controls?.className).toContain("shrink-0");
+    expect(controls?.className).not.toContain("min-w-0");
   });
 });
 

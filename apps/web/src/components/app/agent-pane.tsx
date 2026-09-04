@@ -41,7 +41,7 @@ export function AgentViewToggle({
     ? "Chat filters"
     : "Chat filters, child-agent messages hidden";
   return (
-    <div className="flex items-center gap-1">
+    <div className="flex shrink-0 items-center gap-0.5">
       <ToggleGroup
         type="single"
         size="sm"
@@ -54,15 +54,28 @@ export function AgentViewToggle({
         aria-label="Agent pane view"
         data-testid="agent-view-toggle"
         data-view={view}
-        className="rounded-full border-border/70 bg-muted p-0.5 shadow-inner"
+        className="relative isolate grid h-6 w-[7.75rem] grid-cols-2 border-0 bg-transparent p-0 shadow-none sm:w-[8.5rem] pointer-coarse:h-11"
       >
+        <span
+          aria-hidden="true"
+          data-testid="agent-view-track"
+          className="pointer-events-none absolute inset-x-0 top-1/2 z-0 h-6 -translate-y-1/2 rounded-full border border-border/70 bg-muted shadow-inner"
+        />
+        <span
+          aria-hidden="true"
+          data-testid="agent-view-indicator"
+          className={cn(
+            "pointer-events-none absolute left-0.5 top-1/2 z-0 h-5 w-[calc(50%-0.25rem)] -translate-y-1/2 rounded-full bg-primary shadow transition-transform duration-200 ease-out motion-reduce:transition-none",
+            view === "console" && "translate-x-[calc(100%+0.25rem)]"
+          )}
+        />
         <ToggleGroupItem
           value="chat"
           aria-label="Chat"
           data-testid="agent-view-chat"
-          className="relative rounded-full px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow"
+          className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
         >
-          <MessageSquare className="h-3 w-3" />
+          <MessageSquare className="h-2.5 w-2.5" />
           Chat
           {showUnread ? (
             <span
@@ -78,9 +91,9 @@ export function AgentViewToggle({
           value="console"
           aria-label="Console"
           data-testid="agent-view-console"
-          className="rounded-full px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow"
+          className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
         >
-          <TerminalSquare className="h-3 w-3" />
+          <TerminalSquare className="h-2.5 w-2.5" />
           Console
         </ToggleGroupItem>
       </ToggleGroup>
@@ -94,11 +107,22 @@ export function AgentViewToggle({
             title={filtersLabel}
             data-testid="chat-filters-trigger"
             className={cn(
-              "h-7 w-7 rounded-full pointer-coarse:h-11 pointer-coarse:w-11",
-              !showChildAgents && "bg-primary/10 text-primary"
+              "group h-7 w-7 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11",
+              !showChildAgents && "text-primary"
             )}
           >
-            <ListFilter className="h-3.5 w-3.5" />
+            <span
+              data-testid="chat-filters-surface"
+              className={cn(
+                "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring",
+                !showChildAgents && "bg-primary/10"
+              )}
+            >
+              <ListFilter
+                data-testid="chat-filters-icon"
+                className="h-3.5 w-3.5"
+              />
+            </span>
           </Button>
         </PopoverTrigger>
         <PopoverContent
@@ -198,7 +222,7 @@ export function AgentPane({
   const chatShown = chatEnabled && view === "chat";
   return (
     <div
-      className="flex h-full min-h-0 flex-col"
+      className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden"
       data-testid="agent-pane"
       data-view={chatEnabled ? view : undefined}
     >
@@ -219,7 +243,10 @@ export function AgentPane({
       ) : null}
       {chatEnabled ? (
         <div
-          className={cn("min-h-0 flex-1", !chatShown && "hidden")}
+          className={cn(
+            "min-h-0 min-w-0 max-w-full flex-1 overflow-hidden",
+            !chatShown && "hidden"
+          )}
           data-testid="agent-pane-chat"
         >
           {/*

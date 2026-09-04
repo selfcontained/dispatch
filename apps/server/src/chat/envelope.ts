@@ -53,8 +53,8 @@ export function escapeEnvelopeMarkers(text: string): string {
 
 /**
  * The pane-injection envelope wrapping a user's Chat message. The trailing
- * line tells the agent how to answer so the reply lands back in the Chat
- * tab (docs/chat-surface-plan.md, "Injection envelope").
+ * line gives the minimum routing reminder needed to thread the reply back
+ * into Chat; the persistent launch guidance explains why.
  *
  * `attachmentLines` (one `- kind: …` line each) are listed after the text and
  * before the closing marker so the agent can act on them. A blank text with
@@ -79,7 +79,7 @@ export function buildChatEnvelope(
     `--- DISPATCH CHAT (id: ${messageId}) ---`,
     ...(body.length > 0 ? [safeBody] : []),
     "--- END DISPATCH CHAT ---",
-    `The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "${messageId}"); terminal output alone will not reach them.`,
+    `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${messageId}").`,
   ].join("\n");
 }
 

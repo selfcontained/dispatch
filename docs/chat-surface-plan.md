@@ -107,7 +107,7 @@ write to `agent_chat_messages`. The web also invalidates the feed on
 --- DISPATCH CHAT (id: <uuid>) ---
 <text>
 --- END DISPATCH CHAT ---
-The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "<uuid>"); terminal output alone will not reach them.
+Reply with dispatch_chat_post (replyTo: "<uuid>").
 ```
 
 Answers to a question use the same envelope with the chosen label as text.
@@ -429,7 +429,7 @@ Decided 2026-09-03. Brad's ask: when someone launches an agent with context
 (an initial message, startup files, links, pins), show it in the Chat right
 when the agent starts — otherwise it is only visible in the Console.
 
-- **One post per launch.** `AgentManager.createAgent` records the context
+- **One post per launch with user-visible context.** `AgentManager.createAgent` records the context
   through a `LaunchContextRecorder` attached post-construction
   (`ChatService.recordLaunchContext`), after the agent row and its media
   rows exist and alongside the runtime launch, so every launch path (create
@@ -437,7 +437,8 @@ when the agent starts — otherwise it is only visible in the Console.
   best-effort: it never blocks the runtime launch, and `createAgent` waits
   for it at most 5s before returning (a late write still lands). The post is a user
   message, kind `reply`, `delivered: true` (the prompt reaches the CLI by the
-  normal launch path; nothing is injected), text = the initial prompt, and
+  normal launch path; nothing is injected), text = the explicitly supplied
+  user-authored launch context (never generated/internal startup guidance), and
   attachments = a `file` per startup media row (resolved by `mediaId`), a
   `link` per startup link, and a `pin` per initial pin — except a url pin
   the route made from one of the links, so the URL is not shown twice. A

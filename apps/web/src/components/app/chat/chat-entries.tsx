@@ -306,7 +306,7 @@ export function Post({
   return (
     <div
       className={cn(
-        "group relative flex gap-3 transition-colors",
+        "group relative flex min-w-0 max-w-full gap-3 transition-colors",
         side ? cn(SIDE_POST_INDENT, "pr-4") : "px-4",
         side ? POST_TINT.peer : POST_TINT[author.kind],
         grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
@@ -374,7 +374,7 @@ export function Post({
         )}
         <div
           className={cn(
-            "text-sm",
+            "min-w-0 max-w-full text-sm",
             side ? "text-muted-foreground" : "text-foreground",
             POST_BODY_MEASURE
           )}
@@ -835,7 +835,9 @@ export const ChatMessageView = memo(function ChatMessageView({
           </div>
         ) : null}
         {message.text ? (
-          <div className="whitespace-pre-wrap break-words">{message.text}</div>
+          <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+            {message.text}
+          </div>
         ) : null}
         <AttachmentList
           attachments={message.attachments}

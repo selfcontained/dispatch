@@ -326,12 +326,9 @@ describe("POST /api/v1/jobs/run", () => {
       origin: "launch",
       attachments: [],
     });
-    // The post carries the same prompt the CLI receives through agentArgs:
-    // the job header plus the job's own prompt.
-    expect(posts.rows[0].text).toContain(`Run ID: ${body.runId}`);
-    expect(posts.rows[0].text).toContain(
-      "\nJob prompt:\nSweep the stale branches"
-    );
+    // Chat shows only the user-authored prompt, not generated job lifecycle
+    // scaffolding (which still reaches the CLI through agentArgs).
+    expect(posts.rows[0].text).toBe("Sweep the stale branches");
     await ctx.pool.query(
       `UPDATE job_runs SET status = 'completed' WHERE id = $1`,
       [body.runId]

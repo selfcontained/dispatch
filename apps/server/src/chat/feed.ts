@@ -223,17 +223,25 @@ async function listAgentMessageEntries(
     recipient_agent_id: string;
     sender_name: string;
     recipient_name: string;
+    involves_child_agent: boolean;
     content: string;
     delivered: boolean | null;
     created_at: Date;
     at_key: string;
   }>(
-    `SELECT id, sender_agent_id, recipient_agent_id, sender_name,
-            recipient_name, content, delivered, created_at,
+    `SELECT m.id, m.sender_agent_id, m.recipient_agent_id, m.sender_name,
+            m.recipient_name,
+            EXISTS (
+              SELECT 1
+                FROM agents child
+               WHERE child.id IN (m.sender_agent_id, m.recipient_agent_id)
+                 AND child.parent_agent_id = $1
+            ) AS involves_child_agent,
+            m.content, m.delivered, m.created_at,
             ${AT_KEY_SQL} AS at_key
-       FROM agent_messages
-      WHERE (sender_agent_id = $1 OR recipient_agent_id = $1) ${clause}
-      ORDER BY created_at DESC, id DESC
+       FROM agent_messages m
+      WHERE (m.sender_agent_id = $1 OR m.recipient_agent_id = $1) ${clause}
+      ORDER BY m.created_at DESC, m.id DESC
       LIMIT $${params.length}`,
     params
   );
@@ -246,6 +254,7 @@ async function listAgentMessageEntries(
       senderName: row.sender_name,
       recipientAgentId: row.recipient_agent_id,
       recipientName: row.recipient_name,
+      involvesChildAgent: row.involves_child_agent,
       content: row.content,
       delivered: row.delivered,
       at: row.created_at.toISOString(),
