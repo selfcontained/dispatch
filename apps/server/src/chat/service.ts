@@ -72,7 +72,7 @@ export type ChatDeliveryAdapter = {
   held: (agentId: string) => boolean;
 };
 
-type ChatAgent = Pick<AgentRecord, "id" | "mediaDir" | "pins">;
+type ChatAgent = Pick<AgentRecord, "id" | "type" | "mediaDir" | "pins">;
 
 export type ChatServiceDeps = {
   pool: Pool;
@@ -316,7 +316,8 @@ export class ChatService {
       agentId,
       sessionName,
       message,
-      attachmentLines
+      attachmentLines,
+      await this.nativeReplies(agentId)
     );
     this.publishChanged(agentId);
     return { message, delivered: null, held };
@@ -425,7 +426,13 @@ export class ChatService {
       client.release();
     }
 
-    this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
+    this.deliverDetached(
+      agentId,
+      sessionName,
+      replyMessage,
+      attachmentLines,
+      await this.nativeReplies(agentId)
+    );
     this.publishChanged(agentId);
     return { question: answered, reply: replyMessage, delivered: null };
   }
@@ -454,17 +461,25 @@ export class ChatService {
    * shutdown waits (briefly) for it, and a restart sweeps whatever it could
    * not wait for to delivered=false.
    */
+  /** Whether the agent's harness streams its replies into Chat itself. */
+  private async nativeReplies(agentId: string): Promise<boolean> {
+    const agent = await this.deps.getAgent(agentId);
+    return agent?.type === "dsh";
+  }
+
   private deliverDetached(
     agentId: string,
     sessionName: string,
     message: ChatMessage,
-    attachmentLines: string[] = []
+    attachmentLines: string[] = [],
+    nativeReplies = false
   ): { held: boolean } {
     const delivery = this.delivery();
     const envelope = buildChatEnvelope(
       message.id,
       message.text,
-      attachmentLines
+      attachmentLines,
+      { nativeReplies }
     );
     const settlement = delivery
       .inject(agentId, sessionName, envelope)

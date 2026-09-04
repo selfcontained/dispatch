@@ -63,10 +63,20 @@ export function escapeEnvelopeMarkers(text: string): string {
  * The whole body — text and attachment lines alike — passes through
  * `escapeEnvelopeMarkers`, so nothing embedded here can forge a block.
  */
+export type ChatEnvelopeOptions = {
+  /**
+   * The agent's replies reach the Chat tab on their own (a stream-driven
+   * harness such as dsh), so the trailer must not send it to
+   * dispatch_chat_post for a plain reply, or it posts twice.
+   */
+  nativeReplies?: boolean;
+};
+
 export function buildChatEnvelope(
   messageId: string,
   text: string,
-  attachmentLines: string[] = []
+  attachmentLines: string[] = [],
+  options: ChatEnvelopeOptions = {}
 ): string {
   const body: string[] = [];
   if (text.trim().length > 0) body.push(text);
@@ -79,7 +89,9 @@ export function buildChatEnvelope(
     `--- DISPATCH CHAT (id: ${messageId}) ---`,
     ...(body.length > 0 ? [safeBody] : []),
     "--- END DISPATCH CHAT ---",
-    `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${messageId}").`,
+    options.nativeReplies
+      ? `The user is reading Chat; your reply appears there as you write it. Only a question with options needs dispatch_chat_post (replyTo: "${messageId}").`
+      : `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${messageId}").`,
   ].join("\n");
 }
 

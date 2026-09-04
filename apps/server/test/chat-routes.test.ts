@@ -496,6 +496,7 @@ describe("chat routes with a deliverable terminal", () => {
       publishUiEvent: (event) => published.push(event),
       getAgent: async (id) => ({
         id,
+        type: "claude",
         mediaDir: null,
         pins: [{ id: "pin_1", label: "PR", value: "https://gh/1" }] as never,
       }),

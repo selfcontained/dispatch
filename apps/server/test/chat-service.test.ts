@@ -35,7 +35,9 @@ beforeAll(async () => {
     pool,
     publishUiEvent: (event) => published.push(event),
     getAgent: async (id) =>
-      id === A ? { id, mediaDir: null, pins: PINS as never } : null,
+      id === A
+        ? { id, type: "claude", mediaDir: null, pins: PINS as never }
+        : null,
     mediaRoot: "/media-root",
   });
 });
@@ -587,6 +589,7 @@ describe("ChatService user workflows", () => {
       /** Resolve to release deliveries; absent = deliver immediately. */
       gate?: Promise<void>;
       fail?: boolean;
+      agentType?: "claude" | "dsh";
     } = {}
   ) {
     const events: unknown[] = [];
@@ -596,7 +599,12 @@ describe("ChatService user workflows", () => {
       publishUiEvent: (event) => events.push(event),
       getAgent: async (id) =>
         id === A
-          ? { id, mediaDir: "/custom/media", pins: PINS as never }
+          ? {
+              id,
+              type: opts.agentType ?? "claude",
+              mediaDir: "/custom/media",
+              pins: PINS as never,
+            }
           : null,
       mediaRoot: "/media-root",
       delivery: {
@@ -715,6 +723,18 @@ describe("ChatService user workflows", () => {
         "--- END DISPATCH CHAT ---",
         `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${res.message.id}").`,
       ].join("\n")
+    );
+  });
+
+  it("tells a stream-driven (dsh) agent its replies land in Chat by themselves", async () => {
+    const { svc, injected } = build({ agentType: "dsh" });
+    const res = await svc.sendUserMessage(A, "hello harness");
+    await settled(svc, res.message.id);
+    expect(injected[0].text).toContain("--- DISPATCH CHAT");
+    expect(injected[0].text).toContain("hello harness");
+    expect(injected[0].text).not.toContain("The user only sees Chat");
+    expect(injected[0].text).toContain(
+      `Only a question with options needs dispatch_chat_post (replyTo: "${res.message.id}")`
     );
   });
 
