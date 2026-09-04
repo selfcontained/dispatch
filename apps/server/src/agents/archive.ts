@@ -25,6 +25,8 @@ export type ArchiveDeps = {
   getAgent: (id: string) => Promise<AgentRecord | null>;
   getRequiredAgent: (id: string) => Promise<AgentRecord>;
   harvestAgentTokens: (agent: AgentRecord) => Promise<void>;
+  /** Stop a protocol-driven harness (dsh) that lives outside the tmux pane. */
+  stopHarness?: (agent: AgentRecord) => Promise<void>;
   setAgentStatus: (
     id: string,
     status: AgentStatus,
@@ -261,6 +263,7 @@ export async function executeArchive(
           "Stop hook failed during archive; continuing"
         )
       );
+      await deps.stopHarness?.(agent);
       if (agent.tmuxSession && (await runtime.hasSession(agent.tmuxSession))) {
         await runtime.stopSession(agent.tmuxSession, true);
       }
@@ -423,6 +426,7 @@ export async function deleteAgentDirect(
           "Stop hook failed during delete; continuing"
         )
       );
+      await deps.stopHarness?.(agent);
       if (agent.tmuxSession && sessionExists) {
         await runtime.stopSession(agent.tmuxSession, true);
       }

@@ -28,6 +28,8 @@ import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
 import { findCodexSessionId } from "./codex-sessions.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
+import { buildDshPersona } from "./dsh/persona.js";
+import type { DshSupervisor } from "./dsh/supervisor.js";
 import {
   beginArchive as beginArchiveImpl,
   executeArchive as executeArchiveImpl,
@@ -307,6 +309,7 @@ export class AgentManager {
   private readonly runtime: AgentRuntime;
   private readonly reconciler: Reconciler;
   private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
+  private dshSupervisor: DshSupervisor | null = null;
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
     [];
@@ -329,6 +332,47 @@ export class AgentManager {
         this.setAgentStatus(id, status, lastError, tmuxSession),
       setSystemLatestEvent: (id, input) => this.setSystemLatestEvent(id, input),
     });
+  }
+
+  /**
+   * Inject the dsh supervisor. Wired post-construction like the other
+   * collaborators; without it a dsh agent fails setup loudly rather than
+   * sitting in a shell with no harness behind it.
+   */
+  attachDshSupervisor(supervisor: DshSupervisor): void {
+    this.dshSupervisor = supervisor;
+  }
+
+  getDshSupervisor(): DshSupervisor | null {
+    return this.dshSupervisor;
+  }
+
+  /** The system-prompt persona a dsh agent launches with (see dsh/persona.ts). */
+  async buildDshPersonaFor(agent: AgentRecord): Promise<string> {
+    const personality =
+      agent.persona || agent.role === "assisted_update"
+        ? null
+        : await getActivePersonality(this.pool);
+    const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
+      this.pool
+    );
+    return buildDshPersona({
+      agent,
+      personalityPrompt: personality?.prompt ?? null,
+      trimmedGuidance,
+      chatSurface,
+      suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
+        persona: agent.persona,
+      }),
+    });
+  }
+
+  /** Record the harness session id a dsh agent runs under (for resume). */
+  async setCliSessionId(id: string, cliSessionId: string): Promise<void> {
+    await this.pool.query(
+      `UPDATE agents SET cli_session_id = $2, updated_at = NOW() WHERE id = $1`,
+      [id, cliSessionId]
+    );
   }
 
   /** Register a callback invoked after every upsertLatestEvent. */
@@ -1092,12 +1136,32 @@ export class AgentManager {
     // upsert) carries the populated context.
     await this.populateGitContext(id);
 
-    await this.setSystemLatestEvent(
-      id,
-      agent.type === "terminal"
-        ? { type: "idle", message: "Terminal session started." }
-        : { type: "idle", message: "Session started." }
-    );
+    if (agent.type === "dsh") {
+      // The pane is only a shell; the harness is the ACP child the
+      // supervisor starts now that the worktree exists.
+      if (!this.dshSupervisor) {
+        throw new AgentError("dsh supervisor is not attached.", 500);
+      }
+      try {
+        await this.dshSupervisor.start(id);
+      } catch (error) {
+        const message = errorMessage(error);
+        await this.setAgentStatus(id, "error", message);
+        await this.setSystemLatestEvent(id, {
+          type: "blocked",
+          message: `dsh failed to start: ${message}`.slice(0, 200),
+          metadata: { source: "system", phase: "start" },
+        });
+        throw new AgentError(`dsh failed to start: ${message}`, 500);
+      }
+    } else {
+      await this.setSystemLatestEvent(
+        id,
+        agent.type === "terminal"
+          ? { type: "idle", message: "Terminal session started." }
+          : { type: "idle", message: "Session started." }
+      );
+    }
 
     // Clean up setup script
     const setupScriptPath = `/tmp/dispatch_setup_${id}.sh`;
@@ -1252,6 +1316,14 @@ export class AgentManager {
       // predate inline-populate still get a fresh context (and any drift
       // from external git activity gets picked up at start time).
       await this.populateGitContext(id);
+      if (agent.type === "dsh") {
+        if (!this.dshSupervisor) {
+          throw new Error("dsh supervisor is not attached.");
+        }
+        // Resumes the stored session id; the supervisor sets the idle event.
+        await this.dshSupervisor.start(id);
+        return (await this.getAgent(id)) as AgentRecord;
+      }
       await this.setSystemLatestEvent(
         id,
         agent.type === "terminal"
@@ -1339,6 +1411,7 @@ export class AgentManager {
     );
 
     try {
+      if (agent.type === "dsh") await this.dshSupervisor?.stop(id);
       if (tmuxSession && (await this.runtime.hasSession(tmuxSession))) {
         await this.runtime.stopSession(tmuxSession, force);
       }
@@ -1818,6 +1891,9 @@ export class AgentManager {
       getAgent: (id) => this.getAgent(id),
       getRequiredAgent: (id) => this.getRequiredAgent(id),
       harvestAgentTokens: (agent) => this.harvestAgentTokens(agent),
+      stopHarness: async (agent) => {
+        if (agent.type === "dsh") await this.dshSupervisor?.stop(agent.id);
+      },
       setAgentStatus: (id, status, lastError, tmuxSession) =>
         this.setAgentStatus(id, status, lastError, tmuxSession),
       setArchivePhase: (id, phase) => this.setArchivePhase(id, phase),

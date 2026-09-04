@@ -18,6 +18,7 @@ import Fastify from "fastify";
 import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
+import { DshSupervisor } from "./agents/dsh/supervisor.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
   validateSession,
@@ -450,6 +451,20 @@ const chatService = new ChatService({
   log: app.log,
 });
 agentManager.attachLaunchContextRecorder(chatService);
+const dshSupervisor = new DshSupervisor({
+  pool,
+  config,
+  logger: app.log,
+  getAgent: (agentId) => agentManager.getAgent(agentId),
+  setCliSessionId: (agentId, sessionId) =>
+    agentManager.setCliSessionId(agentId, sessionId),
+  setLatestEvent: async (agentId, input) => {
+    await agentManager.upsertLatestEvent(agentId, input);
+  },
+  publishChat: (agentId) => chatService.publishChanged(agentId),
+  personaPromptFor: (agent) => agentManager.buildDshPersonaFor(agent),
+});
+agentManager.attachDshSupervisor(dshSupervisor);
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,
