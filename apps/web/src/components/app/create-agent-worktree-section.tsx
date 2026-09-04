@@ -8,7 +8,6 @@ import { cn } from "@/lib/utils";
 type WorktreeSectionProps = {
   cwd: string;
   worktreeAvailable: boolean;
-  worktreeChecked: boolean;
   useWorktree: boolean;
   onUseWorktreeChange: (value: boolean) => void;
   baseBranch: string;
@@ -22,7 +21,6 @@ type WorktreeSectionProps = {
 export function WorktreeSection({
   cwd,
   worktreeAvailable,
-  worktreeChecked,
   useWorktree,
   onUseWorktreeChange,
   baseBranch,
@@ -32,9 +30,9 @@ export function WorktreeSection({
   createNewBranch,
   onCreateNewBranchChange,
 }: WorktreeSectionProps): JSX.Element {
-  const controlsDisabled = !worktreeAvailable || !worktreeChecked;
-  const branchOptionsEnabled = worktreeAvailable && worktreeChecked;
-  const newBranchChecked = branchOptionsEnabled && createNewBranch;
+  const worktreeChecked = worktreeAvailable && useWorktree;
+  const branchControlsEnabled = worktreeChecked;
+  const newBranchChecked = branchControlsEnabled && createNewBranch;
 
   return (
     <div
@@ -52,10 +50,7 @@ export function WorktreeSection({
       >
         <Checkbox
           checked={worktreeChecked}
-          onCheckedChange={() => {
-            const nextUseWorktree = !useWorktree;
-            onUseWorktreeChange(nextUseWorktree);
-          }}
+          onCheckedChange={(checked) => onUseWorktreeChange(checked === true)}
           disabled={!worktreeAvailable}
           className="mt-0.5"
           title={
@@ -78,10 +73,10 @@ export function WorktreeSection({
         </span>
       </label>
       <div
-        aria-disabled={controlsDisabled}
+        aria-disabled={!branchControlsEnabled}
         className={cn(
           "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
-          branchOptionsEnabled
+          branchControlsEnabled
             ? "grid-rows-[1fr] opacity-100"
             : "grid-rows-[1fr] opacity-60"
         )}
@@ -98,27 +93,29 @@ export function WorktreeSection({
               baseBranchHelper="The branch to check out in the worktree."
               showNewBranchInput={false}
               testIdPrefix="create-agent"
-              disabled={controlsDisabled}
+              disabled={!branchControlsEnabled}
             />
             <div
-              aria-disabled={controlsDisabled}
+              aria-disabled={!branchControlsEnabled}
               className="space-y-2 rounded-md border border-border/60 bg-background/40 px-3 py-3"
             >
               <label
                 className={cn(
                   "flex items-start gap-3",
-                  controlsDisabled ? "cursor-not-allowed" : "cursor-pointer"
+                  branchControlsEnabled
+                    ? "cursor-pointer"
+                    : "cursor-not-allowed"
                 )}
               >
                 <Checkbox
                   checked={newBranchChecked}
-                  onCheckedChange={() =>
-                    onCreateNewBranchChange(!createNewBranch)
+                  onCheckedChange={(checked) =>
+                    onCreateNewBranchChange(checked === true)
                   }
                   className="mt-0.5"
                   title="Toggle new branch creation"
                   data-testid="create-agent-new-branch"
-                  disabled={controlsDisabled}
+                  disabled={!branchControlsEnabled}
                 />
                 <span className="space-y-1">
                   <span className="block text-sm font-medium text-foreground">
@@ -131,7 +128,7 @@ export function WorktreeSection({
                 </span>
               </label>
               <div
-                aria-disabled={controlsDisabled || !newBranchChecked}
+                aria-disabled={!newBranchChecked}
                 className={cn(
                   "grid transition-[grid-template-rows,opacity] duration-200 ease-out",
                   newBranchChecked
@@ -151,7 +148,7 @@ export function WorktreeSection({
                       }
                       placeholder="auto-generated if empty"
                       data-testid="create-agent-worktree-branch"
-                      disabled={controlsDisabled || !newBranchChecked}
+                      disabled={!newBranchChecked}
                     />
                   </div>
                 </div>
