@@ -275,11 +275,24 @@ async function listMediaEntries(
   }>(
     `SELECT id, file_name, size_bytes, description, created_at,
             ${AT_KEY_SQL} AS at_key
-       FROM media
-      WHERE agent_id = $1
+       FROM media m
+      WHERE m.agent_id = $1
         -- Composer uploads (source 'user') already render as attachments on
         -- the user's own post; listing them again would double them up.
-        AND source <> 'user' ${clause}
+        AND m.source <> 'user'
+        -- Same reasoning for a file an agent shared and then attached to a
+        -- post: the attachment is the richer rendering, so the standalone
+        -- media entry would be a duplicate. Checked against every message on
+        -- this agent, not just the ones on this page, so paging can't make a
+        -- file reappear.
+        AND NOT EXISTS (
+          SELECT 1
+            FROM agent_chat_messages c
+           WHERE c.agent_id = $1
+             AND c.attachments @> jsonb_build_array(
+                   jsonb_build_object('type', 'file', 'mediaId', m.id)
+                 )
+        ) ${clause}
       ORDER BY created_at DESC, id DESC
       LIMIT $${params.length}`,
     params

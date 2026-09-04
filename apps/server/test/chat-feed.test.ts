@@ -246,6 +246,40 @@ describe("composeChatFeed", () => {
     ).toMatchObject({ at: "0001-01-01 00:00:00.000000" });
   });
 
+  it("omits a shared file that a post already attaches", async () => {
+    const media = await pool.query<{ id: number }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+       VALUES ($1, 'shared-and-attached.png', 'screenshot', 9, $2),
+              ($1, 'shared-only.png', 'screenshot', 9, $2)
+       RETURNING id`,
+      [A, at(60)]
+    );
+    const attachedId = media.rows[0]!.id;
+    await store.insert({
+      agentId: A,
+      authorKind: "agent",
+      kind: "reply",
+      text: "Here it is.",
+      attachments: [
+        {
+          type: "file",
+          mediaId: attachedId,
+          fileName: "shared-and-attached.png",
+          sizeBytes: 9,
+        },
+      ],
+    });
+
+    const feed = await composeChatFeed(store, A, { limit: 50 });
+    const names = feed.entries
+      .filter((e) => e.type === "media")
+      .map((e) => (e.type === "media" ? e.fileName : ""));
+    // The attachment is the richer rendering; the standalone entry would
+    // repeat the same file in the same feed.
+    expect(names).not.toContain("shared-and-attached.png");
+    expect(names).toContain("shared-only.png");
+  });
+
   it("omits composer uploads (source user) that render as post attachments", async () => {
     await pool.query(
       `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
