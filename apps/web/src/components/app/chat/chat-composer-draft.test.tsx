@@ -10,22 +10,12 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatComposer } from "@/components/app/chat/chat-composer";
-import type { AgentPin } from "@/components/app/types";
 import {
   CHAT_DRAFT_MAX_BYTES,
   type ChatComposerDraft,
   EMPTY_CHAT_DRAFT,
 } from "@/lib/chat-draft";
 import { CHAT_DRAFT_STORAGE_PREFIX, chatDraftAtomFamily } from "@/lib/store";
-
-const pins: AgentPin[] = [
-  {
-    id: "pin-1",
-    label: "Dev URL",
-    value: "http://localhost:5173",
-    type: "url",
-  },
-];
 
 const usedAgentIds = new Set<string>();
 
@@ -84,7 +74,6 @@ function renderComposer(
       agentId={agentId}
       onSend={onSend}
       uploadFile={uploadFile}
-      pins={pins}
       disabledReason={null}
       {...props}
     />
@@ -162,13 +151,45 @@ describe("ChatComposer draft persistence", () => {
     expect(writes.every((draft) => draft.files.length === 0)).toBe(true);
   });
 
+  it("stays put after sending a file: one write clears it and no chip comes back", async () => {
+    // The regression: with local file state mirrored into the draft by
+    // effects, a send left the two disagreeing for a render and the chip
+    // flickered back (and typing then cleared it). Now the draft is the
+    // only source of what is attached, so the send is one write and the
+    // chips after it are whatever that write says — nothing.
+    const { onSend, input } = renderComposer("agt_stable");
+    pasteFiles(input, [new File(["png"], "shot.png", { type: "image/png" })]);
+    fireEvent.change(input, { target: { value: "look" } });
+    expect(screen.getByTestId("context-file-item")).toBeTruthy();
+
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(input.value).toBe(""));
+    const writes = () =>
+      setItem.mock.calls.filter(([key]) => key === storageKey("agt_stable"));
+    expect(writes()).toHaveLength(1);
+    expect(stored("agt_stable")).toEqual(EMPTY_CHAT_DRAFT);
+    expect(chipNames()).toEqual([]);
+    expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
+
+    // Further renders — typing, a tick — change nothing about the chips,
+    // and typing is a write about the text alone.
+    fireEvent.change(input, { target: { value: "next" } });
+    await act(async () => {});
+    expect(chipNames()).toEqual([]);
+    expect(writes()).toHaveLength(2);
+    expect(stored("agt_stable")).toEqual({ ...EMPTY_CHAT_DRAFT, text: "next" });
+    // The image's object URL went with its chip, once.
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+  });
+
   it("does not echo its copy of the draft back to storage when another tab's write only reshapes local chips", () => {
     renderComposer("agt_echo");
     const setItem = vi.spyOn(Storage.prototype, "setItem");
     otherTabWrites("agt_echo", {
       text: "typed over there",
       links: [],
-      pinIds: [],
       files: [{ name: "shot.png", size: 3, mime: "image/png" }],
     });
     // The file becomes a placeholder here...
@@ -183,33 +204,63 @@ describe("ChatComposer draft persistence", () => {
     ).toHaveLength(1);
   });
 
-  it("persists the text, links and pins as they are added", () => {
+  it("persists the text and links as they are added", () => {
     const { input } = renderComposer("agt_persist");
     fireEvent.change(input, { target: { value: "half a thought" } });
     expect(stored("agt_persist").text).toBe("half a thought");
 
     pasteText(input, "https://example.com/spec");
     expect(stored("agt_persist").links).toEqual(["https://example.com/spec"]);
-
-    fireEvent.click(screen.getByTestId("chat-composer-pin-button"));
-    fireEvent.click(screen.getByTestId("chat-composer-pin-option"));
-    expect(stored("agt_persist").pinIds).toEqual(["pin-1"]);
+    expect(stored("agt_persist")).toEqual({
+      text: "half a thought",
+      links: ["https://example.com/spec"],
+      files: [],
+    });
   });
 
-  it("restores the text, link and pin chips on mount", () => {
+  it("restores the text and link chips on mount", () => {
     seed("agt_restore", {
       text: "still here",
       links: ["https://example.com/a"],
-      pinIds: ["pin-1", "pin-gone"],
     });
     const { input } = renderComposer("agt_restore");
     expect(input.value).toBe("still here");
     expect(screen.getByTestId("context-link-item").getAttribute("title")).toBe(
       "https://example.com/a"
     );
-    // A pin the agent no longer has is not shown and not sent.
-    expect(screen.getAllByTestId("chat-attachment-chip-pin")).toHaveLength(1);
     expect(sendButton().disabled).toBe(false);
+  });
+
+  it("restores a legacy draft that carried pinIds, ignoring them", async () => {
+    // Drafts written before the pin picker was dropped: the field must not
+    // fail validation, bring back a chip, be sent, or be written back.
+    usedAgentIds.add("agt_legacy");
+    window.localStorage.setItem(
+      storageKey("agt_legacy"),
+      JSON.stringify({
+        text: "from before",
+        links: ["https://example.com/a"],
+        pinIds: ["pin-1", "pin-gone"],
+        files: [],
+      })
+    );
+    const { input, onSend } = renderComposer("agt_legacy");
+    expect(input.value).toBe("from before");
+    expect(screen.getByTestId("context-link-item")).toBeTruthy();
+    expect(screen.queryByTestId("chat-attachment-chip-pin")).toBeNull();
+
+    fireEvent.change(input, { target: { value: "from before, edited" } });
+    expect(stored("agt_legacy")).toEqual({
+      text: "from before, edited",
+      links: ["https://example.com/a"],
+      files: [],
+    });
+
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    expect(onSend).toHaveBeenCalledWith("from before, edited", [
+      { type: "link", url: "https://example.com/a" },
+    ]);
   });
 
   it("keeps drafts apart per agent", () => {
@@ -286,15 +337,16 @@ describe("ChatComposer draft persistence", () => {
     expect(sendButton().disabled).toBe(true);
 
     pasteFiles(input, [new File(["png"], "shot.png", { type: "image/png" })]);
-    // One placeholder consumed, the other still holds the send.
+    // One placeholder consumed — the file takes its slot, in its place — the
+    // other still holds the send.
     expect(
       screen.getAllByTestId("chat-attachment-chip-placeholder")
     ).toHaveLength(1);
     expect(screen.getAllByTestId("context-file-item")).toHaveLength(1);
     expect(sendButton().disabled).toBe(true);
     expect(stored("agt_reattach").files).toEqual([
-      { name: "notes.txt", size: 5, mime: "text/plain" },
       { name: "shot.png", size: 3, mime: "image/png" },
+      { name: "notes.txt", size: 5, mime: "text/plain" },
     ]);
 
     // A different file of the same name is not the one that was attached.
@@ -394,13 +446,11 @@ describe("ChatComposer draft persistence", () => {
     seed("agt_clear", {
       text: "ship it",
       links: ["https://example.com/pr"],
-      pinIds: ["pin-1"],
     });
     const { input } = renderComposer("agt_clear", { onSend });
     fireEvent.keyDown(input, { key: "Enter" });
     expect(onSend).toHaveBeenCalledWith("ship it", [
       { type: "link", url: "https://example.com/pr" },
-      { type: "pin", pinId: "pin-1" },
     ]);
 
     fireEvent.change(input, { target: { value: "next thought" } });
@@ -413,7 +463,6 @@ describe("ChatComposer draft persistence", () => {
       text: "next thought",
     });
     expect(screen.queryByTestId("context-link-item")).toBeNull();
-    expect(screen.queryByTestId("chat-attachment-chip-pin")).toBeNull();
   });
 
   it("keeps the draft on a failed send", async () => {
@@ -496,8 +545,8 @@ describe("ChatComposer draft persistence", () => {
       screen.getByTestId("chat-attachment-chip-pasted").textContent
     ).toContain("90 lines");
     expect(sendButton().disabled).toBe(true);
-    // This tab's description of the draft matches what was written, in
-    // its order, so nothing bounces back to storage.
+    // The chips are the other tab's list, in its order; this tab wrote
+    // nothing back.
     expect(stored("agt_tabs").files.map((f) => f.name)).toEqual([
       "notes.pdf",
       "shot.png",

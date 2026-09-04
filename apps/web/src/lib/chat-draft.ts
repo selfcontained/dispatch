@@ -25,14 +25,12 @@ export type ChatDraftFile = {
 export type ChatComposerDraft = {
   text: string;
   links: string[];
-  pinIds: string[];
   files: ChatDraftFile[];
 };
 
 export const EMPTY_CHAT_DRAFT: ChatComposerDraft = {
   text: "",
   links: [],
-  pinIds: [],
   files: [],
 };
 
@@ -50,12 +48,15 @@ export function isEmptyChatDraft(draft: ChatComposerDraft): boolean {
   return (
     draft.text.length === 0 &&
     draft.links.length === 0 &&
-    draft.pinIds.length === 0 &&
     draft.files.length === 0
   );
 }
 
-/** Stored values are user-editable localStorage; anything off-shape reads as empty. */
+/**
+ * Stored values are user-editable localStorage; anything off-shape reads as
+ * empty. Unknown fields are tolerated — an older draft carried a `pinIds`
+ * list, which is simply ignored (see `readChatComposerDraft`).
+ */
 export function isChatComposerDraft(
   value: unknown
 ): value is ChatComposerDraft {
@@ -63,11 +64,25 @@ export function isChatComposerDraft(
   const draft = value as Record<string, unknown>;
   if (typeof draft.text !== "string") return false;
   if (!Array.isArray(draft.links) || !draft.links.every(isString)) return false;
-  if (!Array.isArray(draft.pinIds) || !draft.pinIds.every(isString))
-    return false;
   if (!Array.isArray(draft.files) || !draft.files.every(isDraftFile))
     return false;
   return true;
+}
+
+/**
+ * The draft a stored value stands for: the known fields of a well-formed
+ * value, nothing else (so a legacy `pinIds` never reaches the composer or
+ * goes back to storage), and the empty draft for anything off-shape. A
+ * value that is already exactly the shape comes back as the same object, so
+ * a caller can tell an unchanged draft by identity and skip a write.
+ */
+export function readChatComposerDraft(value: unknown): ChatComposerDraft {
+  if (!isChatComposerDraft(value)) return EMPTY_CHAT_DRAFT;
+  const keys = Object.keys(value);
+  if (keys.length === 3 && keys.every((key) => key in EMPTY_CHAT_DRAFT)) {
+    return value;
+  }
+  return { text: value.text, links: value.links, files: value.files };
 }
 
 function isString(value: unknown): value is string {
@@ -106,9 +121,9 @@ const fits = (draft: ChatComposerDraft): boolean =>
  * 2. links, longest first;
  * 3. the text, cut at a code-point boundary with
  *    `CHAT_DRAFT_TRUNCATED_MARKER` on the end;
- * 4. file chips and then pins, from the end — only reachable with names or
- *    ids far beyond anything the UI produces, kept so the bound holds for
- *    any input rather than any *likely* input.
+ * 4. file chips — only reachable with names far beyond anything the UI
+ *    produces, kept so the bound holds for any input rather than any
+ *    *likely* input.
  *
  * Returns the same object when nothing had to change; never mutates it.
  */
@@ -120,9 +135,7 @@ export function fitChatDraft(draft: ChatComposerDraft): ChatComposerDraft {
   if (fits(next)) return next;
   next = truncateText(next);
   if (fits(next)) return next;
-  next = { ...next, files: [] };
-  if (fits(next)) return next;
-  return { ...next, pinIds: [] };
+  return { ...next, files: [] };
 }
 
 function dropPastedBodies(draft: ChatComposerDraft): ChatComposerDraft {
