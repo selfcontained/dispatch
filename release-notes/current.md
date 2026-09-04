@@ -1,6 +1,6 @@
 ## What's Changed
-* feat(chat): composer attachments, presence strip, real delivery for agent messages by @selfcontained in https://github.com/selfcontained/dispatch/pull/1045
-* feat(chat): single Agent pane with Chat|Console toggle, persisted drafts, clearer post boundaries by @selfcontained in https://github.com/selfcontained/dispatch/pull/1046
+* test(web): add unit coverage for pin-value-utils by @selfcontained in https://github.com/selfcontained/dispatch/pull/1048
+* feat(chat): launch context as the first post of an agent's feed by @selfcontained in https://github.com/selfcontained/dispatch/pull/1047
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.0...v0.38.1
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.1...v0.38.2
