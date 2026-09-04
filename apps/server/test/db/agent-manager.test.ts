@@ -2431,38 +2431,23 @@ describe("AgentManager", () => {
     });
 
     it("should skip session ownership logic for non-claude agents", async () => {
-      // Point the codex harvest at an empty temp dir: without this the
-      // harvester walks the real ~/.codex/sessions, and on a developer
-      // machine (or the self-hosted runner) that can be gigabytes of
-      // rollout files — enough to blow the test timeout.
-      const codexHome = await mkdtemp(
-        path.join(os.tmpdir(), "dispatch-codex-home-")
+      const agent = await manager.createAgent({
+        name: "codex-agent",
+        type: "codex",
+        cwd: "/tmp",
+        useWorktree: false,
+      });
+
+      // Should not throw — codex agents don't use session ownership
+      await manager.harvestAgentTokens(agent);
+
+      // vitest.config.ts points CODEX_HOME at an empty directory for the whole
+      // suite, so no rollout files exist and nothing is harvested.
+      const usage = await pool.query(
+        `SELECT COUNT(*)::int AS count FROM agent_token_usage WHERE agent_id = $1`,
+        [agent.id]
       );
-      const previousCodexHome = process.env.CODEX_HOME;
-      process.env.CODEX_HOME = codexHome;
-      try {
-        const agent = await manager.createAgent({
-          name: "codex-agent",
-          type: "codex",
-          cwd: "/tmp",
-          useWorktree: false,
-        });
-
-        // Should not throw — codex agents don't use session ownership
-        await manager.harvestAgentTokens(agent);
-
-        // No sessions exist under the isolated CODEX_HOME, so nothing is
-        // harvested.
-        const usage = await pool.query(
-          `SELECT COUNT(*)::int AS count FROM agent_token_usage WHERE agent_id = $1`,
-          [agent.id]
-        );
-        expect(usage.rows[0].count).toBe(0);
-      } finally {
-        if (previousCodexHome === undefined) delete process.env.CODEX_HOME;
-        else process.env.CODEX_HOME = previousCodexHome;
-        await rm(codexHome, { recursive: true, force: true });
-      }
+      expect(usage.rows[0].count).toBe(0);
     });
   });
 
