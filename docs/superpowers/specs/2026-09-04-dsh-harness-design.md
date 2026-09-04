@@ -243,6 +243,11 @@ A Dispatch settings page for keys is a follow-up.
 
 Named so they are chosen later, not forgotten.
 
+- Unread and read receipts for stream entries. The sidebar badge and
+  `markRead` key on `agent_chat_messages`; a dsh agent's assistant posts do
+  not light the badge or advance the read marker. Needs a per-agent read
+  watermark over `agent_stream_events` (raised by the frontend UX review).
+
 - Permission prompts as approval cards in the Chat tab.
 - Native persona `toolFilter` and `complete` mode through agent presets.
 - Agent Teams mailbox bridged to Dispatch messages.

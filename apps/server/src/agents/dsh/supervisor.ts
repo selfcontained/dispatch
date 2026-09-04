@@ -224,14 +224,18 @@ export class DshSupervisor {
       markStarted = resolve;
     });
     const prior = this.turns.get(agentId) ?? Promise.resolve();
-    const run: Promise<void> = prior.then(() =>
-      this.runTurn(
-        agentId,
-        text,
-        markStarted,
-        () => this.turns.get(agentId) === run
-      )
-    );
+    // runTurn only rejects if the pre-try status write throws; never let
+    // that skip the next turn and strand its `started`.
+    const run: Promise<void> = prior
+      .catch(() => {})
+      .then(() =>
+        this.runTurn(
+          agentId,
+          text,
+          markStarted,
+          () => this.turns.get(agentId) === run
+        )
+      );
     this.turns.set(agentId, run);
     void run.finally(() => {
       if (this.turns.get(agentId) === run) this.turns.delete(agentId);

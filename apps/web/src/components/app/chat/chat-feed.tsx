@@ -54,9 +54,21 @@ export type ChatFeedRow =
 /** Posts by one author this close together share a header, like Slack. */
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
-/** What "the same entry, changed" means: a post edited in place has a new one. */
-function entryVersion(entry: ChatFeedEntry): string {
-  return entry.type === "chat" ? entry.message.updatedAt : entry.at;
+/**
+ * What "the same entry, changed" means: a post edited in place has a new
+ * one, and so does a stream row that grew or settled since the last render.
+ */
+export function entryVersion(entry: ChatFeedEntry): string {
+  switch (entry.type) {
+    case "chat":
+      return entry.message.updatedAt;
+    case "assistant":
+      return `${entry.at}:${entry.text.length}:${entry.streaming ? 1 : 0}`;
+    case "activity":
+      return `${entry.at}:${entry.status}:${entry.terminalOutput?.length ?? 0}:${entry.diff ? 1 : 0}`;
+    default:
+      return entry.at;
+  }
 }
 
 /**
@@ -235,6 +247,10 @@ export function layoutFeed(
       at - lastPost.at <= GROUP_WINDOW_MS;
     const rule = !grouped && rows[rows.length - 1]?.kind === "entry";
     rows.push({ kind: "entry", entry: item.entry, grouped, rule });
+    // Tool activity rides under the agent's current post without becoming
+    // one: the assistant text that follows a tool run still opens with the
+    // agent's avatar and name instead of trailing headerless.
+    if (item.entry.type === "activity") continue;
     lastPost = { key, at: Number.isFinite(at) ? at : 0 };
   }
   return rows;

@@ -216,6 +216,7 @@ export class DshDriver {
     // missing cwd) is an `error` event with no `exit`, and an unhandled one
     // would take the whole server down.
     const stderrTail: string[] = [];
+    let settledExit: ExitInfo | null = null;
     const exited = new Promise<ExitInfo>((resolve) => {
       child.on("exit", (code, signal) =>
         resolve({ code, signal: signal ?? null })
@@ -223,6 +224,9 @@ export class DshDriver {
       child.on("error", (error: Error) =>
         resolve({ code: null, signal: null, error })
       );
+    });
+    void exited.then((exit) => {
+      settledExit = exit;
     });
     child.stderr?.on("data", (chunk: Buffer) => {
       for (const line of chunk.toString("utf8").split("\n")) {
@@ -335,8 +339,13 @@ export class DshDriver {
     if (!outcome.ok) {
       handshake.catch(() => {});
       child.kill("SIGKILL");
+      // A spawn failure aborts the handshake too, and that rejection can win
+      // the race; the child's own exit reason is the useful one.
+      const reason = settledExit
+        ? `${describeExit(settledExit)} during startup`
+        : outcome.reason;
       const tail = stderrTail.length ? `\n${stderrTail.join("\n")}` : "";
-      throw new Error(`dsh start failed: ${outcome.reason}${tail}`);
+      throw new Error(`dsh start failed: ${reason}${tail}`);
     }
 
     const entry: Live = {

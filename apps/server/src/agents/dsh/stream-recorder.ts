@@ -16,6 +16,8 @@ type OpenText = {
   /** Text as last written; a flush is a no-op when nothing changed. */
   written: string;
   flushTimer: NodeJS.Timeout | null;
+  /** Writes for this row run in order: a timer flush never lands after close. */
+  writing: Promise<void>;
 };
 
 /** Model output is not trusted input: bound what one row can hold. */
@@ -251,10 +253,11 @@ export class StreamRecorder {
     }
     if (current.written === current.text && streaming) return;
     current.written = current.text;
-    await this.store.updatePayload(
-      current.row.id,
-      this.payloadFor(kind, current, streaming)
-    );
+    const payload = this.payloadFor(kind, current, streaming);
+    current.writing = current.writing
+      .catch(() => {})
+      .then(() => this.store.updatePayload(current.row.id, payload));
+    await current.writing;
   }
 
   private async appendText(
@@ -281,6 +284,7 @@ export class StreamRecorder {
         truncated: false,
         written: delta,
         flushTimer: null,
+        writing: Promise.resolve(),
       };
       state[kind] = current;
       this.open.set(agentId, state);

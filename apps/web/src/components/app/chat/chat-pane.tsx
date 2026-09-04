@@ -23,6 +23,7 @@ import {
   latestAgentMessageId,
   latestOpenFreeformQuestion,
   latestUserMessageId,
+  entryVersion,
 } from "@/components/app/chat/chat-feed";
 import {
   type Agent,
@@ -170,6 +171,8 @@ export function ChatPane({
   const [following, setFollowing] = useState(true);
   const [pendingBelow, setPendingBelow] = useState(false);
   const lastEntryIdRef = useRef<string | null>(null);
+  /** Id plus version of the tail entry: a streaming row grows in place. */
+  const lastEntryKeyRef = useRef<string | null>(null);
   const lastShowChildAgentsRef = useRef(showChildAgents);
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
 
@@ -206,7 +209,9 @@ export function ChatPane({
       olderLoadRef.current = null;
       return;
     }
-    const lastId = visibleEntries[visibleEntries.length - 1]?.id ?? null;
+    const last = visibleEntries[visibleEntries.length - 1];
+    const lastId = last?.id ?? null;
+    const lastKey = last ? `${last.id}:${entryVersion(last)}` : null;
     const filterChanged = lastShowChildAgentsRef.current !== showChildAgents;
     lastShowChildAgentsRef.current = showChildAgents;
     // Changing the filter can expose an older tail or remove the current one.
@@ -214,15 +219,20 @@ export function ChatPane({
     // manufacture a “New messages” prompt or move the scroll position.
     if (filterChanged) {
       lastEntryIdRef.current = lastId;
+      lastEntryKeyRef.current = lastKey;
       setPendingBelow(false);
       return;
     }
     const appended = lastId !== lastEntryIdRef.current;
+    // A streaming assistant row keeps its id while its text grows; that is
+    // still new content below the fold for a reader who is following.
+    const grew = !appended && lastKey !== lastEntryKeyRef.current;
     lastEntryIdRef.current = lastId;
-    if (!appended) return;
+    lastEntryKeyRef.current = lastKey;
+    if (!appended && !grew) return;
     if (following) {
       scrollToBottom();
-    } else {
+    } else if (appended) {
       setPendingBelow(true);
     }
   }, [following, scrollToBottom, showChildAgents, visibleEntries]);
@@ -232,6 +242,7 @@ export function ChatPane({
     setFollowing(true);
     setPendingBelow(false);
     lastEntryIdRef.current = null;
+    lastEntryKeyRef.current = null;
     olderLoadRef.current = null;
   }, [agentId]);
 

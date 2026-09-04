@@ -23,6 +23,7 @@ import {
   latestOpenFreeformQuestion,
   latestUserMessageId,
   layoutFeed,
+  entryVersion,
 } from "@/components/app/chat/chat-feed";
 
 // Mermaid + the copy hook touch browser APIs jsdom lacks; neither is under
@@ -1404,7 +1405,7 @@ describe("stream entries", () => {
     expect(screen.getByLabelText("completed")).toBeTruthy();
   });
 
-  it("shows a streaming indicator while an assistant message is open", () => {
+  it("shows a labelled writing indicator while an assistant message is open", () => {
     renderFeed([
       {
         type: "assistant",
@@ -1414,7 +1415,125 @@ describe("stream entries", () => {
         at: "2026-09-04T10:00:00.000Z",
       },
     ]);
-    expect(screen.getByLabelText("streaming")).toBeTruthy();
+    expect(screen.getByRole("status").textContent).toContain("Writing");
+  });
+
+  it("renders a non-expandable activity row as plain text, not a button", () => {
+    renderFeed([
+      {
+        type: "activity",
+        id: "stream:9",
+        toolKind: "read",
+        title: "Read README.md",
+        status: "in_progress",
+        locations: [{ path: "README.md" }],
+        diff: null,
+        terminalOutput: null,
+        at: "2026-09-04T10:00:00.000Z",
+      },
+    ]);
+    expect(screen.queryByRole("button", { name: /Read README.md/ })).toBeNull();
+    expect(screen.getByLabelText("in progress")).toBeTruthy();
+  });
+
+  it("keeps the agent header on the assistant post that follows a tool run", () => {
+    const rows = layoutFeed(
+      [
+        status("s1", "working", "Working", "2026-09-04T10:00:00.000Z"),
+        {
+          type: "activity",
+          id: "stream:1",
+          toolKind: "read",
+          title: "Read a",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+          at: "2026-09-04T10:00:01.000Z",
+        },
+        {
+          type: "activity",
+          id: "stream:2",
+          toolKind: "read",
+          title: "Read b",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+          at: "2026-09-04T10:00:02.000Z",
+        },
+        {
+          type: "assistant",
+          id: "stream:3",
+          text: "Done.",
+          streaming: false,
+          at: "2026-09-04T10:00:03.000Z",
+        },
+      ],
+      makeCtx(),
+      new Date("2026-09-04T12:00:00.000Z")
+    );
+    const entries = rows.filter((r) => r.kind === "entry");
+    expect(entries.map((r) => [r.entry.id, r.grouped])).toEqual([
+      ["stream:1", false],
+      ["stream:2", false],
+      ["stream:3", false],
+    ]);
+  });
+
+  it("groups a second assistant post under the first even across tool rows", () => {
+    const rows = layoutFeed(
+      [
+        {
+          type: "assistant",
+          id: "stream:1",
+          text: "First.",
+          streaming: false,
+          at: "2026-09-04T10:00:00.000Z",
+        },
+        {
+          type: "activity",
+          id: "stream:2",
+          toolKind: "edit",
+          title: "Edit x",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+          at: "2026-09-04T10:00:01.000Z",
+        },
+        {
+          type: "assistant",
+          id: "stream:3",
+          text: "Second.",
+          streaming: false,
+          at: "2026-09-04T10:00:02.000Z",
+        },
+      ],
+      makeCtx(),
+      new Date("2026-09-04T12:00:00.000Z")
+    );
+    const entries = rows.filter((r) => r.kind === "entry");
+    expect(entries.map((r) => [r.entry.id, r.grouped])).toEqual([
+      ["stream:1", false],
+      ["stream:2", true],
+      ["stream:3", true],
+    ]);
+  });
+
+  it("versions a streaming assistant row by its text so growth is visible", () => {
+    const base = {
+      type: "assistant" as const,
+      id: "stream:1",
+      streaming: true,
+      at: "2026-09-04T10:00:00.000Z",
+    };
+    expect(entryVersion({ ...base, text: "a" })).not.toBe(
+      entryVersion({ ...base, text: "ab" })
+    );
+    expect(entryVersion({ ...base, text: "ab" })).not.toBe(
+      entryVersion({ ...base, text: "ab", streaming: false })
+    );
   });
 
   it("expands an activity row to show its diff", () => {
@@ -1431,10 +1550,15 @@ describe("stream entries", () => {
         at: "2026-09-04T10:00:02.000Z",
       },
     ]);
-    fireEvent.click(screen.getByRole("button", { name: /Edit index.ts/ }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "Edit index.ts, completed" })
+    );
     const row = screen.getByTestId("chat-activity");
     expect(row.getAttribute("data-status")).toBe("completed");
-    expect(row.textContent).toContain("- b");
-    expect(row.textContent).toContain("+ c");
+    const diff = screen.getByTestId("chat-activity-diff");
+    const kinds = [...diff.querySelectorAll("[data-kind]")].map(
+      (el) => `${el.getAttribute("data-kind")}:${el.textContent?.trim()}`
+    );
+    expect(kinds).toEqual(["same:a", "del:-b", "add:+c"]);
   });
 });
