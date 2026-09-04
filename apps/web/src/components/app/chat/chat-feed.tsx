@@ -16,6 +16,8 @@ import {
   dayLabel,
   MediaEntryView,
   reviewAuthor,
+  ActivityEntryView,
+  AssistantEntryView,
   ReviewEntryView,
   StatusLine,
 } from "@/components/app/chat/chat-entries";
@@ -391,6 +393,24 @@ export function ChatFeed({
             case "review":
               return (
                 <ReviewEntryView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
+            case "assistant":
+              return (
+                <AssistantEntryView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
+            case "activity":
+              return (
+                <ActivityEntryView
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}

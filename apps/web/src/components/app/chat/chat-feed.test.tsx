@@ -1376,3 +1376,65 @@ describe("ChatFeed enter animation", () => {
     expect(enterOf(edited)).not.toBeNull();
   });
 });
+
+describe("stream entries", () => {
+  it("renders assistant text and a tool activity row", () => {
+    renderFeed([
+      {
+        type: "assistant",
+        id: "stream:1",
+        text: "I will read the file.",
+        streaming: false,
+        at: "2026-09-04T10:00:00.000Z",
+      },
+      {
+        type: "activity",
+        id: "stream:2",
+        toolKind: "read",
+        title: "Read README.md",
+        status: "completed",
+        locations: [{ path: "/w/README.md" }],
+        diff: null,
+        terminalOutput: null,
+        at: "2026-09-04T10:00:01.000Z",
+      },
+    ]);
+    expect(screen.getByText("I will read the file.")).toBeTruthy();
+    expect(screen.getByText("Read README.md")).toBeTruthy();
+    expect(screen.getByLabelText("completed")).toBeTruthy();
+  });
+
+  it("shows a streaming indicator while an assistant message is open", () => {
+    renderFeed([
+      {
+        type: "assistant",
+        id: "stream:1",
+        text: "Thinking",
+        streaming: true,
+        at: "2026-09-04T10:00:00.000Z",
+      },
+    ]);
+    expect(screen.getByLabelText("streaming")).toBeTruthy();
+  });
+
+  it("expands an activity row to show its diff", () => {
+    renderFeed([
+      {
+        type: "activity",
+        id: "stream:3",
+        toolKind: "edit",
+        title: "Edit index.ts",
+        status: "completed",
+        locations: [{ path: "/w/index.ts", line: 3 }],
+        diff: { path: "/w/index.ts", oldText: "a\nb", newText: "a\nc" },
+        terminalOutput: null,
+        at: "2026-09-04T10:00:02.000Z",
+      },
+    ]);
+    fireEvent.click(screen.getByRole("button", { name: /Edit index.ts/ }));
+    const row = screen.getByTestId("chat-activity");
+    expect(row.getAttribute("data-status")).toBe("completed");
+    expect(row.textContent).toContain("- b");
+    expect(row.textContent).toContain("+ c");
+  });
+});
