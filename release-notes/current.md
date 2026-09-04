@@ -1,5 +1,5 @@
 ## What's Changed
-* feat(chat): reviews in the stream; quick prompts as chat messages by @selfcontained in https://github.com/selfcontained/dispatch/pull/1056
+* fix(chat): persist the child-agent filter; quieter Chat|Console toggle by @selfcontained in https://github.com/selfcontained/dispatch/pull/1057
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.5...v0.38.6
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7
