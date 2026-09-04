@@ -2,7 +2,11 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
 import type { DriverEvent } from "../src/agents/dsh/driver.js";
-import { StreamRecorder } from "../src/agents/dsh/stream-recorder.js";
+import {
+  boundOutput,
+  StreamRecorder,
+  TEXT_MAX_BYTES,
+} from "../src/agents/dsh/stream-recorder.js";
 import { StreamStore } from "../src/agents/dsh/stream-store.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
@@ -52,6 +56,7 @@ describe("StreamRecorder", () => {
     await rec.handle({ type: "turn", agentId: A, state: "started" });
     await rec.handle(chunk("Hel"));
     await rec.handle(chunk("lo"));
+    await rec.flush(A);
     const open = await store.list(A, 10);
     expect(open[0].payload).toEqual({ text: "Hello", streaming: true });
     await rec.handle({
@@ -92,6 +97,7 @@ describe("StreamRecorder", () => {
       },
     });
     await rec.handle(chunk("two"));
+    await rec.flush(A);
     const rows = (await store.list(A, 10)).reverse();
     expect(rows.map((r) => r.kind)).toEqual([
       "assistant",
@@ -170,6 +176,7 @@ describe("StreamRecorder", () => {
       code: 1,
       signal: null,
       stderrTail: "boom",
+      expected: false,
     });
     await rec.handle({
       type: "exit",
@@ -177,11 +184,83 @@ describe("StreamRecorder", () => {
       code: 0,
       signal: null,
       stderrTail: "",
+      expected: false,
+    });
+    // A stop Dispatch asked for is not a crash, whatever signal it took.
+    await rec.handle({
+      type: "exit",
+      agentId: A,
+      code: null,
+      signal: "SIGTERM",
+      stderrTail: "",
+      expected: true,
     });
     const rows = (await store.list(A, 10)).reverse();
     expect(rows.map((r) => r.payload.message)).toEqual([
       "no API key",
       "dsh exited with code 1: boom",
     ]);
+  });
+
+  it("renders tool locations relative to the agent's cwd", async () => {
+    const rec = new StreamRecorder(store);
+    rec.setCwd(A, "/w/repo");
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "r1",
+        title: "Read",
+        kind: "read",
+        status: "completed",
+        locations: [
+          { path: "/w/repo/src/index.ts", line: 3 },
+          { path: "/etc/hosts" },
+        ],
+      },
+    });
+    const rows = await store.list(A, 1);
+    expect(rows[0].payload.locations).toEqual([
+      { path: "src/index.ts", line: 3 },
+      { path: "/etc/hosts" },
+    ]);
+  });
+
+  it("bounds an assistant message and marks it truncated", async () => {
+    const rec = new StreamRecorder(store);
+    const big = "x".repeat(TEXT_MAX_BYTES + 10);
+    await rec.handle(chunk("start"));
+    await rec.handle(chunk(big));
+    await rec.handle(chunk("ignored after the cap"));
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    const rows = await store.list(A, 1);
+    const payload = rows[0].payload as {
+      text: string;
+      truncated?: boolean;
+      streaming: boolean;
+    };
+    expect(payload.truncated).toBe(true);
+    expect(payload.streaming).toBe(false);
+    expect(Buffer.byteLength(payload.text, "utf8")).toBeLessThanOrEqual(
+      TEXT_MAX_BYTES + 32
+    );
+    expect(payload.text).toContain("[truncated]");
+  });
+
+  it("bounds terminal output head and tail", () => {
+    const out = boundOutput("a".repeat(100) + "b".repeat(100), 50);
+    expect(out.truncated).toBe(true);
+    expect(out.text.startsWith("a".repeat(25))).toBe(true);
+    expect(out.text.endsWith("b".repeat(25))).toBe(true);
+    expect(boundOutput("short", 50)).toEqual({
+      text: "short",
+      truncated: false,
+    });
   });
 });

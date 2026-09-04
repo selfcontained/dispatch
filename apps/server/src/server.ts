@@ -463,6 +463,9 @@ const dshSupervisor = new DshSupervisor({
   },
   publishChat: (agentId) => chatService.publishChanged(agentId),
   personaPromptFor: (agent) => agentManager.buildDshPersonaFor(agent),
+  listRunningAgentIds: () => agentManager.listRunningDshAgentIds(),
+  markStartFailed: (agentId, message) =>
+    agentManager.markDshStartFailed(agentId, message),
 });
 agentManager.attachDshSupervisor(dshSupervisor);
 jobService.setBrainStore(brainStore);
@@ -939,6 +942,12 @@ export async function initializeApp(options?: {
         "Marked agent messages abandoned by the previous process as not delivered"
       );
     }
+    // dsh children died with the previous process while their agents stayed
+    // "running"; bring them back on their stored session ids.
+    const dshRestore = await dshSupervisor.restoreRunning();
+    if (dshRestore.restored.length + dshRestore.failed.length > 0) {
+      app.log.info(dshRestore, "Restored dsh agents after restart");
+    }
     await agentLifecycleRuntime.restorePendingContinuations(jobService);
     await jobService.reconcileActiveRuns();
     await jobService.startSchedulers();
@@ -1022,6 +1031,13 @@ async function cleanupAppResources(): Promise<void> {
       "Shutting down with chat deliveries still in flight"
     );
   }
+
+  // Stop dsh children through their teardown ladder before the pool goes
+  // away (the exit rows need it); otherwise they outlive the server with
+  // full-access permissions and a stale MCP token.
+  await dshSupervisor.stopAll().catch((err: unknown) => {
+    app.log.warn({ err }, "Stopping dsh agents on shutdown failed");
+  });
 
   await pool.end().catch(() => null);
   await app.close().catch(() => null);

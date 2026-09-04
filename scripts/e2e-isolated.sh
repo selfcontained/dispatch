@@ -93,7 +93,7 @@ cleanup() {
         done || true
   fi
   $COMPOSE -p "$PROJECT" down -v 2>/dev/null || true
-  rm -rf "$MEDIA_ROOT"
+  rm -rf "$MEDIA_ROOT" "$DISPATCH_DSH_HOME"
   rm -f "$DISPATCH_RELEASE_STORE_PATH" "$DISPATCH_RELEASE_CANDIDATE_STORE_PATH"
 }
 trap cleanup EXIT

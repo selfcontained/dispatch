@@ -2,7 +2,7 @@ import type { AgentRecord } from "@dispatch/shared";
 
 import {
   buildLaunchGuidance,
-  normalizeAgentArgsForType,
+  extractAppendedSystemPrompt,
 } from "../tmux/command-builder.js";
 
 /**
@@ -34,10 +34,8 @@ export function buildDshPersona(input: {
     chatSurface: input.chatSurface,
   });
   // A persona launch stores its brief as `--append-system-prompt <text>`
-  // in agentArgs. Normalising "as codex" is the branch that extracts that
-  // pair (the claude branch passes args through untouched).
-  const { appendedSystemPrompt } = normalizeAgentArgsForType(
-    "codex",
+  // in agentArgs.
+  const { appendedSystemPrompt } = extractAppendedSystemPrompt(
     agent.agentArgs ?? []
   );
   const sections = [guidance.trim()];

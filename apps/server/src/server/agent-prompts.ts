@@ -36,29 +36,23 @@ export function createPromptInjector(
     prompt,
     opts = {}
   ) => {
-    const agent = await agentManager.getAgent(agentId);
-    if (agent?.type === "dsh") {
-      // dsh has no pane to paste into: the prompt becomes an ACP turn. The
-      // turn runs in the background; "delivered" means accepted, which is
-      // what pane injection promises for CLI agents too.
-      const supervisor = agentManager.getDshSupervisor();
-      if (!supervisor || !supervisor.isRunning(agentId)) {
-        throw new Error(
-          "dsh is not running for this agent — prompt cannot be delivered."
-        );
-      }
-      supervisor.prompt(agentId, prompt).catch((error) => {
+    const target = await agentManager.getPromptTarget(agentId);
+    if (target.kind === "dsh") {
+      // One turn at a time: a prompt that lands mid-turn is held until the
+      // running turn settles, then delivered as the next turn. "Delivered"
+      // means the turn started, which is what pane injection promises too.
+      const { started, settled } = agentManager.promptDsh(agentId, prompt);
+      settled.catch((error) => {
         appLog.warn({ err: error, agentId }, "dsh turn failed");
       });
-      return { held: false, delivery: Promise.resolve() };
+      return { held: target.busy, delivery: started };
     }
-    const access = await agentManager.getTerminalAccess(agentId);
-    if (access.mode !== "tmux") {
+    if (target.kind !== "tmux") {
       throw new Error(
         "Agent has no active terminal session — prompt cannot be delivered."
       );
     }
-    const terminal = new TmuxTerminal(access.sessionName);
+    const terminal = new TmuxTerminal(target.sessionName);
     const delivery = coordinator.inject(
       agentId,
       () => terminal.sendCommand(prompt),

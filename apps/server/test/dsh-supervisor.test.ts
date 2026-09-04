@@ -4,7 +4,7 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DshDriver } from "../src/agents/dsh/driver.js";
-import { DshSupervisor } from "../src/agents/dsh/supervisor.js";
+import { buildChildEnv, DshSupervisor } from "../src/agents/dsh/supervisor.js";
 import { createFakeAcpAgent, type FakeTurn } from "./helpers/fake-acp-agent.js";
 
 const logger = {
@@ -27,6 +27,7 @@ async function build(opts: { turn?: FakeTurn; cliSessionId?: string } = {}) {
     dshBin: "dsh",
     dshHome: home,
     spawn: () => fake.child,
+    resolveBinary: async (bin) => bin,
     logger,
   });
   vi.mocked(logger.warn).mockClear();
@@ -64,6 +65,7 @@ async function build(opts: { turn?: FakeTurn; cliSessionId?: string } = {}) {
       port: 1,
       tls: null,
       authToken: "secret",
+      mediaRoot: path.join(home, "media"),
     },
     logger,
     driver,
@@ -71,6 +73,7 @@ async function build(opts: { turn?: FakeTurn; cliSessionId?: string } = {}) {
       id,
       type: "dsh",
       cwd: "/tmp/w",
+      mediaDir: null,
       model: "openai/gpt-5.2",
       cliSessionId: opts.cliSessionId ?? null,
     })) as never,
@@ -82,6 +85,8 @@ async function build(opts: { turn?: FakeTurn; cliSessionId?: string } = {}) {
     ),
     publishChat: vi.fn(),
     personaPromptFor: vi.fn(async () => "PERSONA TEXT"),
+    listRunningAgentIds: vi.fn(async () => [] as string[]),
+    markStartFailed: vi.fn(async () => {}),
   };
   const sup = new DshSupervisor(deps);
   return { fake, deps, events, sup, query };
@@ -110,6 +115,9 @@ describe("DshSupervisor", () => {
     });
     expect(sup.isRunning("agt_1")).toBe(true);
     await sup.stop("agt_1");
+    await expect(
+      readFile(path.join(home, "overlays", "agt_1.patch.yml"), "utf8")
+    ).rejects.toThrow();
   });
 
   it("resumes a stored session id", async () => {
@@ -210,5 +218,122 @@ describe("DshSupervisor", () => {
       "dsh event handling failed"
     );
     await sup.stop("agt_1");
+  });
+
+  it("runs overlapping prompts one at a time, in order, and reports idle once", async () => {
+    const { sup, fake, events } = await build({
+      turn: async (p, emit) => {
+        await new Promise((r) => setTimeout(r, 15));
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: { type: "text", text: `echo ${p}` },
+        });
+        return "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", "one");
+    const second = sup.enqueuePrompt("agt_1", "two");
+    expect(sup.isBusy("agt_1")).toBe(true);
+    await first.started;
+    let secondStarted = false;
+    void second.started.then(() => {
+      secondStarted = true;
+    });
+    await new Promise((r) => setTimeout(r, 5));
+    expect(secondStarted).toBe(false);
+    await first.settled;
+    await second.settled;
+    expect(fake.seen.prompts).toEqual(["one", "two"]);
+    expect(events.map((e) => e.type)).toEqual([
+      "idle",
+      "working",
+      "working",
+      "idle",
+    ]);
+    expect(sup.isBusy("agt_1")).toBe(false);
+    await sup.stop("agt_1");
+  });
+
+  it("restores running agents at boot and marks the ones that fail", async () => {
+    const { sup, deps, fake } = await build();
+    deps.listRunningAgentIds.mockResolvedValue(["agt_1", "agt_2"]);
+    deps.getAgent.mockImplementation(async (id: string) =>
+      id === "agt_2"
+        ? {
+            id,
+            type: "claude",
+            cwd: "/tmp",
+            mediaDir: null,
+            model: null,
+            cliSessionId: null,
+          }
+        : {
+            id,
+            type: "dsh",
+            cwd: "/tmp/w",
+            mediaDir: null,
+            model: null,
+            cliSessionId: null,
+          }
+    );
+    const result = await sup.restoreRunning();
+    expect(result).toEqual({ restored: ["agt_1"], failed: ["agt_2"] });
+    expect(deps.markStartFailed).toHaveBeenCalledWith(
+      "agt_2",
+      expect.stringContaining("not a dsh agent")
+    );
+    expect(fake.seen.newSession).toHaveLength(1);
+    await sup.stopAll();
+    expect(sup.isRunning("agt_1")).toBe(false);
+  });
+});
+
+describe("buildChildEnv", () => {
+  const base = {
+    PATH: "/usr/bin",
+    HOME: "/home/u",
+    SSH_AUTH_SOCK: "/tmp/agent.sock",
+    HTTPS_PROXY: "http://proxy:3128",
+    OPENAI_API_KEY: "sk-test",
+    DATABASE_URL: "postgres://secret",
+    PGPASSWORD: "hunter2",
+    DISPATCH_SESSION_PREFIX: "dispatch",
+    TLS_CA: "/etc/ca.pem",
+  };
+
+  it("passes the login-shell environment through and drops Dispatch internals", () => {
+    const env = buildChildEnv({
+      agentId: "agt_1",
+      mediaDir: "/media/agt_1",
+      config: { port: 6767, tls: null },
+      base,
+    });
+    expect(env.SSH_AUTH_SOCK).toBe("/tmp/agent.sock");
+    expect(env.HTTPS_PROXY).toBe("http://proxy:3128");
+    expect(env.OPENAI_API_KEY).toBe("sk-test");
+    expect(env.DATABASE_URL).toBeUndefined();
+    expect(env.PGPASSWORD).toBeUndefined();
+    expect(env.DISPATCH_SESSION_PREFIX).toBeUndefined();
+    expect(env.DISPATCH_AGENT_ID).toBe("agt_1");
+    expect(env.DISPATCH_MEDIA_DIR).toBe("/media/agt_1");
+    expect(env.DISPATCH_PORT).toBe("6767");
+    expect(env.DISPATCH_SCHEME).toBe("http");
+    expect(env.NODE_EXTRA_CA_CERTS).toBeUndefined();
+  });
+
+  it("exports the TLS CA for the loopback https MCP URL", () => {
+    const env = buildChildEnv({
+      agentId: "agt_1",
+      mediaDir: "/m",
+      config: {
+        port: 6767,
+        tls: { cert: Buffer.from(""), key: Buffer.from("") },
+      },
+      base,
+    });
+    expect(env.DISPATCH_SCHEME).toBe("https");
+    expect(env.NODE_EXTRA_CA_CERTS).toBe("/etc/ca.pem");
+    expect(env.TLS_CA).toBeUndefined();
   });
 });

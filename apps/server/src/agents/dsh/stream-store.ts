@@ -2,6 +2,33 @@ import type { Queryable } from "../../chat/store.js";
 
 export type StreamEventKind = "assistant" | "thought" | "tool_call" | "status";
 
+/** Payload shapes by row kind. The recorder writes them; the Chat feed reads them. */
+export type AssistantPayload = {
+  text: string;
+  streaming: boolean;
+  /** Set when the text hit the per-row size bound. */
+  truncated?: boolean;
+};
+export type ThoughtPayload = { text: string; truncated?: boolean };
+export type ToolPayload = {
+  /** Agent Client Protocol tool kind (read, edit, execute, ...) or "other". */
+  toolKind: string;
+  title: string;
+  status: "pending" | "in_progress" | "completed" | "failed";
+  locations: { path: string; line?: number }[];
+  diff: { path: string; oldText: string | null; newText: string } | null;
+  terminalOutput: string | null;
+  /** Set when terminal output or the diff hit the per-row size bound. */
+  truncated?: boolean;
+};
+export type StatusPayload = { message: string };
+export type StreamPayloadByKind = {
+  assistant: AssistantPayload;
+  thought: ThoughtPayload;
+  tool_call: ToolPayload;
+  status: StatusPayload;
+};
+
 export type StreamEventRow = {
   id: number;
   agentId: string;
@@ -104,20 +131,6 @@ export class StreamStore {
       return toRow(updated.rows[0]);
     }
     return this.append(agentId, kind, payload, key);
-  }
-
-  async latest(
-    agentId: string,
-    kind: StreamEventKind
-  ): Promise<StreamEventRow | null> {
-    const result = await this.db.query<Row>(
-      `SELECT * FROM agent_stream_events
-        WHERE agent_id = $1 AND kind = $2
-        ORDER BY seq DESC
-        LIMIT 1`,
-      [agentId, kind]
-    );
-    return result.rows[0] ? toRow(result.rows[0]) : null;
   }
 
   async updatePayload(

@@ -16,11 +16,13 @@ import {
   dayLabel,
   MediaEntryView,
   reviewAuthor,
-  ActivityEntryView,
-  AssistantEntryView,
   ReviewEntryView,
   StatusLine,
 } from "@/components/app/chat/chat-entries";
+import {
+  ActivityEntryView,
+  AssistantEntryView,
+} from "@/components/app/chat/stream-entries";
 
 /**
  * A feed entry ready to render: status lines may stand in for a run of

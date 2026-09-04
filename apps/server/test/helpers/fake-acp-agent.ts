@@ -4,7 +4,10 @@ import * as acp from "@agentclientprotocol/sdk";
 
 export type FakeTurn = (
   prompt: string,
-  emit: (update: acp.SessionUpdate) => Promise<void>
+  emit: (update: acp.SessionUpdate) => Promise<void>,
+  ask: (
+    request: Pick<acp.RequestPermissionRequest, "options">
+  ) => Promise<acp.RequestPermissionResponse>
 ) => Promise<acp.StopReason>;
 
 /**
@@ -12,7 +15,9 @@ export type FakeTurn = (
  * injected `spawn` returns `child`; the fake agent speaks on the other ends
  * of the same pipes, so no real process is involved.
  */
-export function createFakeAcpAgent(opts: { turn?: FakeTurn } = {}) {
+export function createFakeAcpAgent(
+  opts: { turn?: FakeTurn; resumeFails?: boolean } = {}
+) {
   const toAgent = new PassThrough(); // driver stdin  -> agent input
   const fromAgent = new PassThrough(); // agent output -> driver stdout
   const stderr = new PassThrough();
@@ -70,7 +75,8 @@ export function createFakeAcpAgent(opts: { turn?: FakeTurn } = {}) {
     },
     async resumeSession(params) {
       seen.resumeSession.push(params);
-      return { sessionId: params.sessionId, configOptions: [] };
+      if (opts.resumeFails) throw new Error("unknown session");
+      return { configOptions: [] };
     },
     async prompt(params) {
       const text = params.prompt
@@ -79,7 +85,15 @@ export function createFakeAcpAgent(opts: { turn?: FakeTurn } = {}) {
       seen.prompts.push(text);
       const emit = (update: acp.SessionUpdate) =>
         connection.sessionUpdate({ sessionId: params.sessionId, update });
-      const stopReason = opts.turn ? await opts.turn(text, emit) : "end_turn";
+      const ask = (request: Pick<acp.RequestPermissionRequest, "options">) =>
+        connection.requestPermission({
+          sessionId: params.sessionId,
+          toolCall: { toolCallId: "perm_1", title: "permission" },
+          options: request.options,
+        });
+      const stopReason = opts.turn
+        ? await opts.turn(text, emit, ask)
+        : "end_turn";
       return { stopReason };
     },
     async cancel() {

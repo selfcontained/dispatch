@@ -1,19 +1,28 @@
+import path from "node:path";
+
 import type { DriverEvent, DriverUpdate } from "./driver.js";
-import type { StreamEventRow, StreamStore } from "./stream-store.js";
+import type {
+  StreamEventRow,
+  StreamStore,
+  ToolPayload,
+} from "./stream-store.js";
 
 type TextKind = "assistant" | "thought";
 
-type OpenText = { row: StreamEventRow; text: string };
-
-/** Payload shape of a `tool_call` row; the Chat feed reads these fields. */
-export type ToolPayload = {
-  toolKind: string;
-  title: string;
-  status: "pending" | "in_progress" | "completed" | "failed";
-  locations: { path: string; line?: number }[];
-  diff: { path: string; oldText: string | null; newText: string } | null;
-  terminalOutput: string | null;
+type OpenText = {
+  row: StreamEventRow;
+  text: string;
+  truncated: boolean;
+  /** Text as last written; a flush is a no-op when nothing changed. */
+  written: string;
+  flushTimer: NodeJS.Timeout | null;
 };
+
+/** Model output is not trusted input: bound what one row can hold. */
+export const TEXT_MAX_BYTES = 64 * 1024;
+export const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
+/** Chunks arrive per token; rewrite the row at most this often. */
+export const FLUSH_INTERVAL_MS = 100;
 
 function textOf(content: { type: string; text?: string } | undefined): string {
   return content && content.type === "text" && typeof content.text === "string"
@@ -21,20 +30,23 @@ function textOf(content: { type: string; text?: string } | undefined): string {
     : "";
 }
 
-function projectLocations(
-  locations:
-    | readonly { path: string; line?: number | null }[]
-    | null
-    | undefined
-): ToolPayload["locations"] {
-  return (locations ?? []).map((l) =>
-    l.line != null ? { path: l.path, line: l.line } : { path: l.path }
-  );
+/** Keep the head and the tail of over-long output; the middle is the least useful part. */
+export function boundOutput(
+  text: string,
+  maxBytes: number
+): { text: string; truncated: boolean } {
+  const bytes = Buffer.from(text, "utf8");
+  if (bytes.byteLength <= maxBytes) return { text, truncated: false };
+  const half = Math.floor(maxBytes / 2);
+  const head = bytes.subarray(0, half).toString("utf8");
+  const tail = bytes.subarray(-half).toString("utf8");
+  return { text: `${head}\n… [truncated] …\n${tail}`, truncated: true };
 }
 
 function projectToolContent(content: readonly unknown[] | null | undefined): {
   diff: ToolPayload["diff"];
   terminalOutput: string | null;
+  truncated: boolean;
 } {
   let diff: ToolPayload["diff"] = null;
   let terminalOutput: string | null = null;
@@ -52,23 +64,44 @@ function projectToolContent(content: readonly unknown[] | null | undefined): {
       terminalOutput = (terminalOutput ?? "") + (c.content.text ?? "");
     }
   }
-  return { diff, terminalOutput };
+  let truncated = false;
+  if (terminalOutput !== null) {
+    const bounded = boundOutput(terminalOutput, TERMINAL_OUTPUT_MAX_BYTES);
+    terminalOutput = bounded.text;
+    truncated = bounded.truncated;
+  }
+  if (diff) {
+    const bounded = boundOutput(diff.newText, TEXT_MAX_BYTES);
+    if (bounded.truncated) {
+      diff = { ...diff, newText: bounded.text };
+      truncated = true;
+    }
+  }
+  return { diff, terminalOutput, truncated };
 }
 
 /**
  * Folds driver events into `agent_stream_events` rows. Assistant and
  * thought chunks accumulate into one open row each until something else
- * interrupts them (a tool call, a settled turn, a process exit); tool calls
+ * interrupts them (a tool call, a settled turn, a process exit); the row is
+ * rewritten at most every {@link FLUSH_INTERVAL_MS} and on close. Tool calls
  * are keyed by toolCallId and rewritten as they settle. One instance serves
- * every agent; open-row state is per agent.
+ * every agent; open-row state is per agent, and callers serialize events
+ * per agent (see DshSupervisor).
  */
 export class StreamRecorder {
   private readonly open = new Map<
     string,
     Partial<Record<TextKind, OpenText>>
   >();
+  private readonly cwd = new Map<string, string>();
 
   constructor(private readonly store: StreamStore) {}
+
+  /** The agent's working directory, so file paths render relative to it. */
+  setCwd(agentId: string, cwd: string): void {
+    this.cwd.set(agentId, cwd);
+  }
 
   async handle(event: DriverEvent): Promise<void> {
     switch (event.type) {
@@ -86,7 +119,8 @@ export class StreamRecorder {
         return;
       case "exit": {
         await this.closeText(event.agentId);
-        if (event.code === 0) return;
+        this.cwd.delete(event.agentId);
+        if (event.expected || event.code === 0) return;
         const how =
           event.code === null ? `signal ${event.signal}` : `code ${event.code}`;
         const detail = event.stderrTail ? `: ${event.stderrTail}` : "";
@@ -96,6 +130,35 @@ export class StreamRecorder {
         return;
       }
     }
+  }
+
+  /** Write any buffered text for the agent now (tests and shutdown). */
+  async flush(agentId: string): Promise<void> {
+    const state = this.open.get(agentId);
+    if (!state) return;
+    for (const kind of ["assistant", "thought"] as const) {
+      const current = state[kind];
+      if (current) await this.write(kind, current, true);
+    }
+  }
+
+  private projectLocations(
+    agentId: string,
+    locations:
+      | readonly { path: string; line?: number | null }[]
+      | null
+      | undefined
+  ): ToolPayload["locations"] {
+    const cwd = this.cwd.get(agentId);
+    return (locations ?? []).map((l) => {
+      const relative =
+        cwd && (l.path === cwd || l.path.startsWith(`${cwd}${path.sep}`))
+          ? path.relative(cwd, l.path) || "."
+          : l.path;
+      return l.line != null
+        ? { path: relative, line: l.line }
+        : { path: relative };
+    });
   }
 
   private async handleUpdate(
@@ -109,14 +172,17 @@ export class StreamRecorder {
         return this.appendText(agentId, "thought", textOf(update.content));
       case "tool_call": {
         await this.closeText(agentId);
-        const { diff, terminalOutput } = projectToolContent(update.content);
+        const { diff, terminalOutput, truncated } = projectToolContent(
+          update.content
+        );
         const payload: ToolPayload = {
           toolKind: update.kind ?? "other",
           title: update.title,
           status: update.status ?? "pending",
-          locations: projectLocations(update.locations),
+          locations: this.projectLocations(agentId, update.locations),
           diff,
           terminalOutput,
+          ...(truncated ? { truncated: true } : {}),
         };
         await this.store.upsertByKey(
           agentId,
@@ -145,16 +211,19 @@ export class StreamRecorder {
         const projected = update.content
           ? projectToolContent(update.content)
           : null;
+        const truncated =
+          (projected?.truncated ?? false) || prev.truncated === true;
         const next: ToolPayload = {
           toolKind: update.kind ?? prev.toolKind ?? "other",
           title: update.title ?? prev.title ?? "",
           status: update.status ?? prev.status ?? "pending",
           locations: update.locations
-            ? projectLocations(update.locations)
+            ? this.projectLocations(agentId, update.locations)
             : (prev.locations ?? []),
           diff: projected?.diff ?? prev.diff ?? null,
           terminalOutput:
             projected?.terminalOutput ?? prev.terminalOutput ?? null,
+          ...(truncated ? { truncated: true } : {}),
         };
         await this.store.updatePayload(existing.id, next);
         return;
@@ -162,6 +231,30 @@ export class StreamRecorder {
       default:
         return;
     }
+  }
+
+  private payloadFor(kind: TextKind, current: OpenText, streaming: boolean) {
+    const truncated = current.truncated ? { truncated: true } : {};
+    return kind === "assistant"
+      ? { text: current.text, streaming, ...truncated }
+      : { text: current.text, ...truncated };
+  }
+
+  private async write(
+    kind: TextKind,
+    current: OpenText,
+    streaming: boolean
+  ): Promise<void> {
+    if (current.flushTimer) {
+      clearTimeout(current.flushTimer);
+      current.flushTimer = null;
+    }
+    if (current.written === current.text && streaming) return;
+    current.written = current.text;
+    await this.store.updatePayload(
+      current.row.id,
+      this.payloadFor(kind, current, streaming)
+    );
   }
 
   private async appendText(
@@ -182,18 +275,34 @@ export class StreamRecorder {
           ? { text: delta, streaming: true }
           : { text: delta }
       );
-      current = { row, text: delta };
-    } else {
-      current.text += delta;
-      await this.store.updatePayload(
-        current.row.id,
-        kind === "assistant"
-          ? { text: current.text, streaming: true }
-          : { text: current.text }
-      );
+      current = {
+        row,
+        text: delta,
+        truncated: false,
+        written: delta,
+        flushTimer: null,
+      };
+      state[kind] = current;
+      this.open.set(agentId, state);
+      return;
     }
-    state[kind] = current;
-    this.open.set(agentId, state);
+    if (current.truncated) return;
+    current.text += delta;
+    if (Buffer.byteLength(current.text, "utf8") > TEXT_MAX_BYTES) {
+      const bounded = boundOutput(current.text, TEXT_MAX_BYTES);
+      current.text = bounded.text;
+      current.truncated = true;
+      await this.write(kind, current, true);
+      return;
+    }
+    if (!current.flushTimer) {
+      const pending = current;
+      current.flushTimer = setTimeout(() => {
+        pending.flushTimer = null;
+        void this.write(kind, pending, true).catch(() => {});
+      }, FLUSH_INTERVAL_MS);
+      current.flushTimer.unref?.();
+    }
   }
 
   private async closeText(agentId: string, only?: TextKind): Promise<void> {
@@ -203,12 +312,7 @@ export class StreamRecorder {
       if (only && kind !== only) continue;
       const current = state[kind];
       if (!current) continue;
-      await this.store.updatePayload(
-        current.row.id,
-        kind === "assistant"
-          ? { text: current.text, streaming: false }
-          : { text: current.text }
-      );
+      await this.write(kind, current, false);
       delete state[kind];
     }
     if (!state.assistant && !state.thought) this.open.delete(agentId);

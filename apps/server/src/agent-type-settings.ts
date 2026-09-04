@@ -2,7 +2,7 @@ import type { Pool } from "pg";
 
 import { getSetting, setSetting } from "./db/settings.js";
 import {
-  AGENT_TYPES,
+  DEFAULT_ENABLED_AGENT_TYPES,
   sanitizeEnabledAgentTypes,
   type AgentType,
 } from "./shared/agent-types.js";
@@ -10,6 +10,7 @@ import {
 export {
   AGENT_TYPES,
   CLI_AGENT_TYPES,
+  DEFAULT_ENABLED_AGENT_TYPES,
   isCliAgentType,
   sanitizeEnabledAgentTypes,
   type AgentType,
@@ -21,13 +22,13 @@ const ENABLED_AGENT_TYPES_KEY = "enabled_agent_types";
 export async function getEnabledAgentTypes(pool: Pool): Promise<AgentType[]> {
   const raw = await getSetting(pool, ENABLED_AGENT_TYPES_KEY);
   if (!raw) {
-    return [...AGENT_TYPES];
+    return [...DEFAULT_ENABLED_AGENT_TYPES];
   }
 
   try {
     return sanitizeEnabledAgentTypes(JSON.parse(raw));
   } catch {
-    return [...AGENT_TYPES];
+    return [...DEFAULT_ENABLED_AGENT_TYPES];
   }
 }
 

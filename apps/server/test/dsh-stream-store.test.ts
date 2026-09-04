@@ -53,12 +53,12 @@ describe("StreamStore", () => {
     expect(await store.getByKey(A, "tool_call", "missing")).toBeNull();
   });
 
-  it("returns the latest row of a kind and updates a payload in place", async () => {
+  it("updates a payload in place", async () => {
     const row = await store.append(A, "assistant", { text: "a" });
     await store.updatePayload(row.id, { text: "ab" });
-    const latest = await store.latest(A, "assistant");
-    expect(latest?.id).toBe(row.id);
-    expect(latest?.payload).toEqual({ text: "ab" });
+    const rows = await store.list(A, 1);
+    expect(rows[0].id).toBe(row.id);
+    expect(rows[0].payload).toEqual({ text: "ab" });
   });
 
   it("lists newest first, bounded by limit", async () => {

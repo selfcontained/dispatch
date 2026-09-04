@@ -312,12 +312,11 @@ export class ChatService {
       attachments: resolved,
       delivered: null,
     });
-    const { held } = this.deliverDetached(
+    const { held } = await this.deliverDetached(
       agentId,
       sessionName,
       message,
-      attachmentLines,
-      await this.nativeReplies(agentId)
+      attachmentLines
     );
     this.publishChanged(agentId);
     return { message, delivered: null, held };
@@ -426,12 +425,11 @@ export class ChatService {
       client.release();
     }
 
-    this.deliverDetached(
+    await this.deliverDetached(
       agentId,
       sessionName,
       replyMessage,
-      attachmentLines,
-      await this.nativeReplies(agentId)
+      attachmentLines
     );
     this.publishChanged(agentId);
     return { question: answered, reply: replyMessage, delivered: null };
@@ -455,31 +453,30 @@ export class ChatService {
     return this.deps.delivery;
   }
 
-  /**
-   * Enqueue the envelope and return at once. The detached continuation
-   * records true/false on the row and publishes `chat.changed`; graceful
-   * shutdown waits (briefly) for it, and a restart sweeps whatever it could
-   * not wait for to delivered=false.
-   */
   /** Whether the agent's harness streams its replies into Chat itself. */
   private async nativeReplies(agentId: string): Promise<boolean> {
     const agent = await this.deps.getAgent(agentId);
     return agent?.type === "dsh";
   }
 
-  private deliverDetached(
+  /**
+   * Enqueue the envelope and return at once. The detached continuation
+   * records true/false on the row and publishes `chat.changed`; graceful
+   * shutdown waits (briefly) for it, and a restart sweeps whatever it could
+   * not wait for to delivered=false.
+   */
+  private async deliverDetached(
     agentId: string,
     sessionName: string,
     message: ChatMessage,
-    attachmentLines: string[] = [],
-    nativeReplies = false
-  ): { held: boolean } {
+    attachmentLines: string[] = []
+  ): Promise<{ held: boolean }> {
     const delivery = this.delivery();
     const envelope = buildChatEnvelope(
       message.id,
       message.text,
       attachmentLines,
-      { nativeReplies }
+      { nativeReplies: await this.nativeReplies(agentId) }
     );
     const settlement = delivery
       .inject(agentId, sessionName, envelope)

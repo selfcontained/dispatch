@@ -38,6 +38,12 @@ export type AgentTerminalAccess =
   | { mode: "tmux"; sessionName: string }
   | { mode: "inert"; message: string };
 
+/** Where a prompt for an agent is delivered (see AgentManager.getPromptTarget). */
+export type AgentPromptTarget =
+  | { kind: "dsh"; busy: boolean }
+  | { kind: "tmux"; sessionName: string }
+  | { kind: "inert"; message: string };
+
 export type AgentLatestEventInput = {
   type: AgentLatestEventType;
   message: string;

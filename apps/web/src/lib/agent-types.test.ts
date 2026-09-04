@@ -81,11 +81,15 @@ describe("sortAgentTypes", () => {
 });
 
 describe("sanitizeEnabledAgentTypes", () => {
-  it("returns all types for non-array input", () => {
-    expect(sanitizeEnabledAgentTypes(null)).toEqual([...AGENT_TYPES]);
-    expect(sanitizeEnabledAgentTypes(undefined)).toEqual([...AGENT_TYPES]);
-    expect(sanitizeEnabledAgentTypes("claude")).toEqual([...AGENT_TYPES]);
-    expect(sanitizeEnabledAgentTypes(42)).toEqual([...AGENT_TYPES]);
+  // dsh is opt-in: it needs the harness binary and a provider key on the
+  // server, so it stays out of the fallback list.
+  const defaults = AGENT_TYPES.filter((type) => type !== "dsh");
+
+  it("returns the default types for non-array input", () => {
+    expect(sanitizeEnabledAgentTypes(null)).toEqual(defaults);
+    expect(sanitizeEnabledAgentTypes(undefined)).toEqual(defaults);
+    expect(sanitizeEnabledAgentTypes("claude")).toEqual(defaults);
+    expect(sanitizeEnabledAgentTypes(42)).toEqual(defaults);
   });
 
   it("filters valid agent types from mixed input", () => {
@@ -101,14 +105,16 @@ describe("sanitizeEnabledAgentTypes", () => {
     ).toEqual(["claude", "codex"]);
   });
 
-  it("returns all types when array is empty", () => {
-    expect(sanitizeEnabledAgentTypes([])).toEqual([...AGENT_TYPES]);
+  it("returns the default types when array is empty", () => {
+    expect(sanitizeEnabledAgentTypes([])).toEqual(defaults);
   });
 
-  it("returns all types when array has only invalid entries", () => {
-    expect(sanitizeEnabledAgentTypes(["vim", 123, null])).toEqual([
-      ...AGENT_TYPES,
-    ]);
+  it("returns the default types when array has only invalid entries", () => {
+    expect(sanitizeEnabledAgentTypes(["vim", 123, null])).toEqual(defaults);
+  });
+
+  it("keeps dsh when it was chosen explicitly", () => {
+    expect(sanitizeEnabledAgentTypes(["dsh"])).toEqual(["dsh"]);
   });
 
   it("filters out non-string entries", () => {

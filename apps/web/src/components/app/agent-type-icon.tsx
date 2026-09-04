@@ -1,6 +1,7 @@
 import { Bot, Terminal as TerminalIcon } from "lucide-react";
 import { siClaude, siCursor } from "simple-icons";
 
+import { AGENT_TYPE_LABELS } from "@/lib/agent-types";
 import { cn } from "@/lib/utils";
 
 type AgentEventType = "working" | "blocked" | "waiting_user" | "done" | "idle";
@@ -57,19 +58,7 @@ export function AgentTypeIcon({
 }: AgentTypeIconProps): JSX.Element {
   const normalizedType = normalizeAgentType(type);
   const label =
-    normalizedType === "claude"
-      ? "Claude"
-      : normalizedType === "opencode"
-        ? "OpenCode"
-        : normalizedType === "cursor"
-          ? "Cursor"
-          : normalizedType === "terminal"
-            ? "Terminal"
-            : normalizedType === "dsh"
-              ? "DSH"
-              : normalizedType === "codex"
-                ? "Codex"
-                : "Agent";
+    normalizedType === "unknown" ? "Agent" : AGENT_TYPE_LABELS[normalizedType];
   const statusClass = eventType ? eventColorClass[eventType] : "";
   const baseClass = statusClass
     ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"

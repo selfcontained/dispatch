@@ -1,6 +1,5 @@
 import type {
   ChatActivityEntry,
-  ChatActivityStatus,
   ChatAgentMessageEntry,
   ChatAssistantEntry,
   ChatFeedEntry,
@@ -10,6 +9,10 @@ import type {
   ChatStatusEntry,
 } from "@dispatch/shared";
 
+import type {
+  AssistantPayload,
+  ToolPayload,
+} from "../agents/dsh/stream-store.js";
 import {
   type ChatStore,
   isChatMessageId,
@@ -400,17 +403,6 @@ async function listReviewEntries(
   }));
 }
 
-type StreamPayload = {
-  text?: string;
-  streaming?: boolean;
-  toolKind?: string;
-  title?: string;
-  status?: ChatActivityStatus;
-  locations?: { path: string; line?: number }[];
-  diff?: { path: string; oldText: string | null; newText: string } | null;
-  terminalOutput?: string | null;
-};
-
 /**
  * Stream rows from a protocol-driven harness (dsh over ACP): assistant text
  * and tool calls. Thoughts and status rows stay out of the feed.
@@ -424,13 +416,22 @@ async function listStreamEntries(
   const params: unknown[] = [agentId];
   const clause = cursorClause("assistant", "int", cursor, params);
   params.push(limit);
-  const result = await db.query<{
-    id: number;
-    kind: "assistant" | "tool_call";
-    payload: StreamPayload;
-    created_at: Date;
-    at_key: string;
-  }>(
+  const result = await db.query<
+    | {
+        id: number;
+        kind: "assistant";
+        payload: Partial<AssistantPayload>;
+        created_at: Date;
+        at_key: string;
+      }
+    | {
+        id: number;
+        kind: "tool_call";
+        payload: Partial<ToolPayload>;
+        created_at: Date;
+        at_key: string;
+      }
+  >(
     `SELECT id, kind, payload, created_at, ${AT_KEY_SQL} AS at_key
        FROM agent_stream_events
       WHERE agent_id = $1 AND kind IN ('assistant', 'tool_call') ${clause}
@@ -447,6 +448,7 @@ async function listStreamEntries(
             id: `stream:${row.id}`,
             text: row.payload.text ?? "",
             streaming: row.payload.streaming === true,
+            ...(row.payload.truncated ? { truncated: true } : {}),
             at,
           }
         : {
@@ -458,6 +460,7 @@ async function listStreamEntries(
             locations: row.payload.locations ?? [],
             diff: row.payload.diff ?? null,
             terminalOutput: row.payload.terminalOutput ?? null,
+            ...(row.payload.truncated ? { truncated: true } : {}),
             at,
           };
     return {

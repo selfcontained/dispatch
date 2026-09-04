@@ -179,6 +179,8 @@ export type ChatAssistantEntry = {
   text: string;
   /** True while chunks are still arriving for this message. */
   streaming: boolean;
+  /** The text hit the server's per-message size bound and was cut. */
+  truncated?: boolean;
   at: string;
 };
 
@@ -202,6 +204,8 @@ export type ChatActivityEntry = {
   locations: { path: string; line?: number }[];
   diff: { path: string; oldText: string | null; newText: string } | null;
   terminalOutput: string | null;
+  /** Output or diff hit the server's per-row size bound and was cut. */
+  truncated?: boolean;
   at: string;
 };
 

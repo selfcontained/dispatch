@@ -56,7 +56,19 @@ export function normalizeAgentArgsForType(
   if (type === "claude") {
     return { passthroughArgs: args, appendedSystemPrompt: null };
   }
+  return extractAppendedSystemPrompt(args);
+}
 
+/**
+ * Split a `--append-system-prompt <value>` pair out of an arg list. This is
+ * how a persona launch carries its brief; the CLI branches that take the
+ * prompt through their own flag call this, and so does the dsh persona
+ * builder, which folds the brief into the harness's system prompt.
+ */
+export function extractAppendedSystemPrompt(args: string[]): {
+  passthroughArgs: string[];
+  appendedSystemPrompt: string | null;
+} {
   const passthroughArgs: string[] = [];
   let appendedSystemPrompt: string | null = null;
 

@@ -1,4 +1,4 @@
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { stringify } from "yaml";
 
@@ -39,6 +39,8 @@ export function splitModelId(model: string): {
  * The per-agent `--patch` layer. Each entry replaces the config of the row
  * with that id in the composed acp profile: provider routes, the deployment
  * persona, and the default model for both new agents and ACP sessions.
+ * `yaml.stringify` quotes scalars, so persona text or a model id cannot
+ * smuggle a `!!js` tag or extra rows into the patch.
  */
 export function buildOverlayYaml(input: OverlayInput): string {
   const rows: { id: string; config: Record<string, unknown> }[] = [
@@ -56,14 +58,32 @@ export function buildOverlayYaml(input: OverlayInput): string {
   return stringify(rows);
 }
 
-/** Writes `<dir>/<agentId>.patch.yml` and returns its path. */
+function overlayPath(dir: string, agentId: string): string {
+  return path.join(dir, `${agentId}.patch.yml`);
+}
+
+/**
+ * Writes `<dir>/<agentId>.patch.yml` and returns its path. The file holds
+ * the persona text, which for a review launch includes the parent's brief,
+ * so it is private to the user and removed when the agent stops.
+ */
 export async function writeOverlay(
   dir: string,
   agentId: string,
   input: OverlayInput
 ): Promise<string> {
-  await mkdir(dir, { recursive: true });
-  const file = path.join(dir, `${agentId}.patch.yml`);
-  await writeFile(file, buildOverlayYaml(input), "utf8");
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const file = overlayPath(dir, agentId);
+  await writeFile(file, buildOverlayYaml(input), {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   return file;
+}
+
+export async function removeOverlay(
+  dir: string,
+  agentId: string
+): Promise<void> {
+  await unlink(overlayPath(dir, agentId)).catch(() => {});
 }

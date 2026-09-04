@@ -30,6 +30,7 @@ import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { buildDshPersona } from "./dsh/persona.js";
 import type { DshSupervisor } from "./dsh/supervisor.js";
+import type { AgentPromptTarget } from "./types.js";
 import {
   beginArchive as beginArchiveImpl,
   executeArchive as executeArchiveImpl,
@@ -343,12 +344,80 @@ export class AgentManager {
     this.dshSupervisor = supervisor;
   }
 
-  getDshSupervisor(): DshSupervisor | null {
-    return this.dshSupervisor;
+  /**
+   * Where a prompt for this agent goes: the ACP child for a dsh agent, the
+   * tmux pane for a CLI agent, or nowhere in inert mode. One agent read.
+   */
+  async getPromptTarget(id: string): Promise<AgentPromptTarget> {
+    const agent = await this.getRequiredAgent(id);
+    if (agent.type === "dsh") {
+      if (!this.dshSupervisor?.isRunning(id)) {
+        throw new AgentError(
+          "dsh is not running for this agent — prompt cannot be delivered.",
+          409
+        );
+      }
+      return { kind: "dsh", busy: this.dshSupervisor.isBusy(id) };
+    }
+    const access = await this.terminalAccessFor(agent);
+    return access.mode === "tmux"
+      ? { kind: "tmux", sessionName: access.sessionName }
+      : { kind: "inert", message: access.message };
+  }
+
+  /**
+   * Queue one dsh turn. `started` resolves when it begins (after any turn
+   * already running), `settled` when it ends. See DshSupervisor.enqueuePrompt.
+   */
+  promptDsh(
+    id: string,
+    text: string
+  ): { started: Promise<void>; settled: Promise<void> } {
+    if (!this.dshSupervisor) {
+      throw new AgentError("dsh supervisor is not attached.", 500);
+    }
+    return this.dshSupervisor.enqueuePrompt(id, text);
+  }
+
+  /** dsh agents the last process left running; the supervisor restores them at boot. */
+  async listRunningDshAgentIds(): Promise<string[]> {
+    const result = await this.pool.query<{ id: string }>(
+      `SELECT id FROM agents
+        WHERE type = 'dsh' AND status = 'running' AND deleted_at IS NULL
+        ORDER BY created_at`
+    );
+    return result.rows.map((row) => row.id);
+  }
+
+  /** A dsh agent that could not be brought back at boot. */
+  async markDshStartFailed(id: string, message: string): Promise<void> {
+    await this.setAgentStatus(id, "error", message);
+    await this.setSystemLatestEvent(id, {
+      type: "blocked",
+      message: `dsh did not come back after restart: ${message}`.slice(0, 200),
+      metadata: { source: "system", phase: "start" },
+    });
   }
 
   /** The system-prompt persona a dsh agent launches with (see dsh/persona.ts). */
   async buildDshPersonaFor(agent: AgentRecord): Promise<string> {
+    const inputs = await this.launchGuidanceInputsFor(agent);
+    return buildDshPersona({ agent, ...inputs });
+  }
+
+  /**
+   * The per-launch inputs every harness's guidance is built from: the active
+   * personality (never for persona or assisted-update agents), the guidance
+   * flags, and whether to suggest a session rename.
+   */
+  private async launchGuidanceInputsFor(
+    agent: Pick<AgentRecord, "id" | "name" | "persona" | "role">
+  ): Promise<{
+    personalityPrompt: string | null;
+    trimmedGuidance: boolean;
+    chatSurface: boolean;
+    suggestSessionRename: boolean;
+  }> {
     const personality =
       agent.persona || agent.role === "assisted_update"
         ? null
@@ -356,15 +425,14 @@ export class AgentManager {
     const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
       this.pool
     );
-    return buildDshPersona({
-      agent,
+    return {
       personalityPrompt: personality?.prompt ?? null,
       trimmedGuidance,
       chatSurface,
       suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
         persona: agent.persona,
       }),
-    });
+    };
   }
 
   /** Record the harness session id a dsh agent runs under (for resume). */
@@ -1274,13 +1342,12 @@ export class AgentManager {
       // bash script. We do it once here so both runtimes are happy.)
       await mkdir(mediaDir, { recursive: true });
 
-      const personality =
-        agent.persona || agent.role === "assisted_update"
-          ? null
-          : await getActivePersonality(this.pool);
-      const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
-        this.pool
-      );
+      const {
+        personalityPrompt,
+        trimmedGuidance,
+        chatSurface,
+        suggestSessionRename,
+      } = await this.launchGuidanceInputsFor(agent);
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -1293,13 +1360,11 @@ export class AgentManager {
         {
           cliSessionId: cliSessionId ?? undefined,
           resume: shouldResume,
-          suggestSessionRename: shouldSuggestSessionRename(agent.name, id, {
-            persona: agent.persona,
-          }),
+          suggestSessionRename,
           autoReview: !agent.persona && (agent.autoReview ?? false),
           trimmedGuidance,
           chatSurface,
-          personalityPrompt: personality?.prompt ?? null,
+          personalityPrompt,
           model: agent.model ?? undefined,
         }
       );
@@ -1354,7 +1419,13 @@ export class AgentManager {
   }
 
   async getTerminalAccess(id: string): Promise<AgentTerminalAccess> {
-    const agent = await this.getRequiredAgent(id);
+    return this.terminalAccessFor(await this.getRequiredAgent(id));
+  }
+
+  private async terminalAccessFor(
+    agent: AgentRecord
+  ): Promise<AgentTerminalAccess> {
+    const id = agent.id;
     if (agent.status !== "running" && agent.status !== "creating") {
       throw new AgentError("Agent is not running.", 409);
     }

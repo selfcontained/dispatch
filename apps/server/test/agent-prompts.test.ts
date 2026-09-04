@@ -23,13 +23,15 @@ function build(opts: { tmux?: boolean; quietMs?: number } = {}) {
     maxWaitMs: 1_000,
   });
   const agentManager = {
-    getAgent: vi.fn(async (id: string) => ({ id, type: "claude" })),
-    getDshSupervisor: vi.fn(() => null),
-    getTerminalAccess: vi.fn(async () =>
+    getPromptTarget: vi.fn(async () =>
       opts.tmux === false
-        ? { mode: "inert" as const, message: "No pane." }
-        : { mode: "tmux" as const, sessionName: "sess" }
+        ? { kind: "inert" as const, message: "No pane." }
+        : { kind: "tmux" as const, sessionName: "sess" }
     ),
+    promptDsh: vi.fn(() => ({
+      started: Promise.resolve(),
+      settled: Promise.resolve(),
+    })),
   };
   const log = { debug: vi.fn(), warn: vi.fn(), info: vi.fn(), error: vi.fn() };
   const injector = createPromptInjector(
@@ -129,42 +131,66 @@ describe("injectAgentPrompt (wrapper)", () => {
 });
 
 describe("enqueueAgentPrompt for dsh agents", () => {
-  it("routes the prompt to the supervisor instead of the pane", async () => {
-    const prompt = vi.fn(async () => {});
+  it("routes the prompt to the manager's dsh turn instead of the pane", async () => {
     const { enqueueAgentPrompt, agentManager } = build();
-    agentManager.getAgent.mockResolvedValue({ id: "agt_d", type: "dsh" });
-    agentManager.getDshSupervisor.mockReturnValue({
-      isRunning: () => true,
-      prompt,
-    } as never);
+    agentManager.getPromptTarget.mockResolvedValue({
+      kind: "dsh" as const,
+      busy: false,
+    });
     const { held, delivery } = await enqueueAgentPrompt("agt_d", "hello dsh");
     expect(held).toBe(false);
     await delivery;
-    expect(prompt).toHaveBeenCalledWith("agt_d", "hello dsh");
+    expect(agentManager.promptDsh).toHaveBeenCalledWith("agt_d", "hello dsh");
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
-  it("fails loudly when the dsh process is not running", async () => {
+  it("surfaces the manager's refusal when dsh is not running", async () => {
     const { enqueueAgentPrompt, agentManager } = build();
-    agentManager.getAgent.mockResolvedValue({ id: "agt_d", type: "dsh" });
-    agentManager.getDshSupervisor.mockReturnValue({
-      isRunning: () => false,
-      prompt: vi.fn(),
-    } as never);
+    agentManager.getPromptTarget.mockRejectedValue(
+      new Error(
+        "dsh is not running for this agent — prompt cannot be delivered."
+      )
+    );
     await expect(enqueueAgentPrompt("agt_d", "x")).rejects.toThrow(
       /dsh is not running/
     );
   });
 
+  it("reports a prompt as held while a turn is already running", async () => {
+    const { enqueueAgentPrompt, agentManager } = build();
+    agentManager.getPromptTarget.mockResolvedValue({
+      kind: "dsh" as const,
+      busy: true,
+    });
+    let start: () => void = () => {};
+    agentManager.promptDsh.mockReturnValue({
+      started: new Promise<void>((r) => {
+        start = r;
+      }),
+      settled: Promise.resolve(),
+    });
+    const { held, delivery } = await enqueueAgentPrompt("agt_d", "queued");
+    expect(held).toBe(true);
+    let delivered = false;
+    void delivery.then(() => {
+      delivered = true;
+    });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(delivered).toBe(false);
+    start();
+    await delivery;
+  });
+
   it("logs a failed turn without rejecting the enqueue", async () => {
     const { enqueueAgentPrompt, agentManager, log } = build();
-    agentManager.getAgent.mockResolvedValue({ id: "agt_d", type: "dsh" });
-    agentManager.getDshSupervisor.mockReturnValue({
-      isRunning: () => true,
-      prompt: vi.fn(async () => {
-        throw new Error("turn exploded");
-      }),
-    } as never);
+    agentManager.getPromptTarget.mockResolvedValue({
+      kind: "dsh" as const,
+      busy: false,
+    });
+    agentManager.promptDsh.mockReturnValue({
+      started: Promise.resolve(),
+      settled: Promise.reject(new Error("turn exploded")),
+    });
     const { delivery } = await enqueueAgentPrompt("agt_d", "x");
     await delivery;
     await new Promise((r) => setTimeout(r, 0));

@@ -6,7 +6,7 @@ import type { AppConfig } from "../../config.js";
  * dedicated `/api/mcp/jobs/<jobRunId>/<agentId>` route.
  */
 export function dispatchMcpUrl(
-  config: AppConfig,
+  config: Pick<AppConfig, "tls" | "port">,
   agentId: string,
   jobRunId?: string
 ): string {
