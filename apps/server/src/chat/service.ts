@@ -453,6 +453,24 @@ export class ChatService {
     return this.deps.delivery;
   }
 
+  /**
+   * The first turn for a harness that takes no launch argument (dsh): the
+   * launch-context post, wrapped in the same envelope a typed message gets.
+   */
+  async launchPromptFor(agentId: string): Promise<string | null> {
+    const post = await this.store.getLaunchPost(agentId);
+    if (!post) return null;
+    const attachmentLines = post.attachments.length
+      ? this.describeAttachments(
+          await this.requireAgent(agentId),
+          post.attachments
+        )
+      : [];
+    return buildChatEnvelope(post.id, post.text, attachmentLines, {
+      nativeReplies: true,
+    });
+  }
+
   /** Whether the agent's harness streams its replies into Chat itself. */
   private async nativeReplies(agentId: string): Promise<boolean> {
     const agent = await this.deps.getAgent(agentId);

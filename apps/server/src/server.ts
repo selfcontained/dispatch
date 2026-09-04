@@ -463,6 +463,7 @@ const dshSupervisor = new DshSupervisor({
   },
   publishChat: (agentId) => chatService.publishChanged(agentId),
   personaPromptFor: (agent) => agentManager.buildDshPersonaFor(agent),
+  launchPromptFor: (agentId) => chatService.launchPromptFor(agentId),
   listRunningAgentIds: () => agentManager.listRunningDshAgentIds(),
   markStartFailed: (agentId, message) =>
     agentManager.markDshStartFailed(agentId, message),
@@ -920,6 +921,7 @@ export async function initializeApp(options?: {
     await readServiceResourcesCollectionEnabled(pool)
   );
   const shouldReconcileState = options?.reconcileState ?? true;
+  reconcileOnStart = shouldReconcileState;
   if (shouldReconcileState) {
     await agentManager.reconcileAgents();
     // Chat deliveries queued in the previous process died with it; flip their
@@ -941,12 +943,6 @@ export async function initializeApp(options?: {
         { pairs: staleMessages.length },
         "Marked agent messages abandoned by the previous process as not delivered"
       );
-    }
-    // dsh children died with the previous process while their agents stayed
-    // "running"; bring them back on their stored session ids.
-    const dshRestore = await dshSupervisor.restoreRunning();
-    if (dshRestore.restored.length + dshRestore.failed.length > 0) {
-      app.log.info(dshRestore, "Restored dsh agents after restart");
     }
     await agentLifecycleRuntime.restorePendingContinuations(jobService);
     await jobService.reconcileActiveRuns();
@@ -979,6 +975,9 @@ export async function closeApp(): Promise<void> {
   await cleanupAppResources();
 }
 
+/** Whether initializeApp reconciled state; start() finishes that work after listen. */
+let reconcileOnStart = true;
+
 export async function start() {
   await initializeApp();
 
@@ -990,6 +989,16 @@ export async function start() {
   app.log.info(
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
+
+  // dsh children died with the previous process while their agents stayed
+  // "running"; bring them back on their stored session ids. This has to run
+  // after listen: the harness attaches Dispatch's MCP endpoint at resume.
+  if (reconcileOnStart) {
+    const dshRestore = await dshSupervisor.restoreRunning();
+    if (dshRestore.restored.length + dshRestore.failed.length > 0) {
+      app.log.info(dshRestore, "Restored dsh agents after restart");
+    }
+  }
 
   // The process that activated a new binary exits during the service restart,
   // so only this newly healthy process can truthfully promote the candidate.

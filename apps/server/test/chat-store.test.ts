@@ -310,4 +310,18 @@ describe("ChatStore.sweepPendingDeliveries", () => {
     // Idempotent: a second sweep finds nothing.
     expect(await store.sweepPendingDeliveries()).toEqual([]);
   });
+
+  it("finds the launch-context post for an agent", async () => {
+    expect(await store.getLaunchPost(A)).toBeNull();
+    const posted = await store.insert({
+      agentId: A,
+      authorKind: "user",
+      kind: "reply",
+      text: "launch text",
+      attachments: [],
+      delivered: true,
+      origin: "launch",
+    });
+    expect((await store.getLaunchPost(A))?.id).toBe(posted.id);
+  });
 });

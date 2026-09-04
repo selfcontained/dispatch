@@ -226,6 +226,18 @@ export class ChatStore {
     return [...new Set(result.rows.map((row) => row.agent_id))];
   }
 
+  /** The launch-context post recorded when the agent was created, if any. */
+  async getLaunchPost(agentId: string): Promise<ChatMessage | null> {
+    const result = await this.db.query<Row>(
+      `SELECT * FROM agent_chat_messages
+        WHERE agent_id = $1 AND origin = 'launch'
+        ORDER BY created_at ASC
+        LIMIT 1`,
+      [agentId]
+    );
+    return result.rows[0] ? toChatMessage(result.rows[0]) : null;
+  }
+
   async getById(id: string): Promise<ChatMessage | null> {
     if (!isChatMessageId(id)) return null;
     const result = await this.db.query<Row>(

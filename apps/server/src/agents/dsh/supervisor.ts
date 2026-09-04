@@ -31,6 +31,12 @@ export type SupervisorDeps = {
   publishChat: (agentId: string) => void;
   /** Full persona text for the overlay (see persona.ts). */
   personaPromptFor: (agent: AgentRecord) => Promise<string>;
+  /**
+   * The agent's launch prompt, already wrapped as a chat envelope, or null.
+   * dsh takes no launch argument, so the supervisor sends it as the first
+   * turn of a fresh session.
+   */
+  launchPromptFor: (agentId: string) => Promise<string | null>;
   /** dsh agents recorded as running, for {@link DshSupervisor.restoreRunning}. */
   listRunningAgentIds: () => Promise<string[]>;
   /** Record that an agent could not be brought back at boot. */
@@ -86,6 +92,17 @@ export function buildChildEnv(input: {
 
 const MESSAGE_MAX = 200;
 const STOP_ALL_TIMEOUT_MS = 5_000;
+
+/**
+ * When no model was chosen, pick one whose provider key the service has, so
+ * a first agent does not fail on the profile's DeepSeek default with only an
+ * OpenAI key configured. Null keeps the profile default.
+ */
+export function defaultModelFor(env: NodeJS.ProcessEnv): string | null {
+  if (env.DEEPSEEK_API_KEY) return "deepseek-official/deepseek-v4-flash";
+  if (env.OPENAI_API_KEY) return "openai/gpt-5.2";
+  return null;
+}
 
 /**
  * Glue between the agent lifecycle and the ACP driver: starts dsh when an
@@ -154,8 +171,9 @@ export class DshSupervisor {
     if (!agent || agent.type !== "dsh") {
       throw new Error(`${agentId} is not a dsh agent`);
     }
+    const model = agent.model ?? defaultModelFor(process.env);
     const overlayPath = await writeOverlay(this.overlayDir(), agentId, {
-      model: agent.model ?? null,
+      model,
       persona: await this.deps.personaPromptFor(agent),
     });
     const mediaDir = resolveMediaDir(
@@ -175,12 +193,18 @@ export class DshSupervisor {
       sessionId: agent.cliSessionId ?? null,
       env: buildChildEnv({ agentId, mediaDir, config: this.deps.config }),
     });
-    this.context.set(agentId, { sessionId, model: agent.model ?? "default" });
+    this.context.set(agentId, { sessionId, model: model ?? "default" });
     await this.deps.setCliSessionId(agentId, sessionId);
     await this.deps.setLatestEvent(agentId, {
       type: "idle",
       message: resumed ? "dsh session resumed." : "dsh session started.",
     });
+    // A fresh session gets the launch prompt as its first turn; a resumed
+    // one already had it.
+    if (!agent.cliSessionId) {
+      const first = await this.deps.launchPromptFor(agentId);
+      if (first) void this.enqueuePrompt(agentId, first).settled;
+    }
   }
 
   /**

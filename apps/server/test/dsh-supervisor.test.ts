@@ -4,7 +4,11 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { DshDriver } from "../src/agents/dsh/driver.js";
-import { buildChildEnv, DshSupervisor } from "../src/agents/dsh/supervisor.js";
+import {
+  buildChildEnv,
+  defaultModelFor,
+  DshSupervisor,
+} from "../src/agents/dsh/supervisor.js";
 import { createFakeAcpAgent, type FakeTurn } from "./helpers/fake-acp-agent.js";
 
 const logger = {
@@ -20,7 +24,9 @@ afterEach(async () => {
   home = "";
 });
 
-async function build(opts: { turn?: FakeTurn; cliSessionId?: string } = {}) {
+async function build(
+  opts: { turn?: FakeTurn; cliSessionId?: string; launchPrompt?: string } = {}
+) {
   home = await mkdtemp(path.join(os.tmpdir(), "dsh-sup-"));
   const fake = createFakeAcpAgent({ turn: opts.turn });
   const driver = new DshDriver({
@@ -85,6 +91,7 @@ async function build(opts: { turn?: FakeTurn; cliSessionId?: string } = {}) {
     ),
     publishChat: vi.fn(),
     personaPromptFor: vi.fn(async () => "PERSONA TEXT"),
+    launchPromptFor: vi.fn(async () => opts.launchPrompt ?? null),
     listRunningAgentIds: vi.fn(async () => [] as string[]),
     markStartFailed: vi.fn(async () => {}),
   };
@@ -286,6 +293,38 @@ describe("DshSupervisor", () => {
     expect(fake.seen.newSession).toHaveLength(1);
     await sup.stopAll();
     expect(sup.isRunning("agt_1")).toBe(false);
+  });
+});
+
+describe("DshSupervisor launch prompt", () => {
+  it("sends the launch prompt as the first turn of a fresh session", async () => {
+    const { sup, fake, events } = await build({ launchPrompt: "do the thing" });
+    await sup.start("agt_1");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.seen.prompts).toEqual(["do the thing"]);
+    expect(events.map((e) => e.type)).toEqual(["idle", "working", "idle"]);
+    await sup.stop("agt_1");
+  });
+
+  it("does not resend it on resume", async () => {
+    const { sup, fake } = await build({
+      launchPrompt: "do the thing",
+      cliSessionId: "sess_old",
+    });
+    await sup.start("agt_1");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.seen.prompts).toEqual([]);
+    await sup.stop("agt_1");
+  });
+});
+
+describe("defaultModelFor", () => {
+  it("prefers DeepSeek, then OpenAI, else the profile default", () => {
+    expect(
+      defaultModelFor({ DEEPSEEK_API_KEY: "x", OPENAI_API_KEY: "y" })
+    ).toBe("deepseek-official/deepseek-v4-flash");
+    expect(defaultModelFor({ OPENAI_API_KEY: "y" })).toBe("openai/gpt-5.2");
+    expect(defaultModelFor({})).toBeNull();
   });
 });
 
