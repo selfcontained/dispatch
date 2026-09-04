@@ -232,6 +232,9 @@ export function layoutFeed(
   const rows: ChatFeedRow[] = [];
   let lastDay: string | null = null;
   let lastPost: { key: string; at: number } | null = null;
+  // The newest agent row of any kind (post or tool activity): activity rows
+  // group under it, so a run of tool calls carries one header, not one each.
+  let lastAgentRow: { at: number } | null = null;
   for (const item of collapseFeed(entries)) {
     const day = dayKey(item.entry.at);
     if (day !== lastDay) {
@@ -242,26 +245,32 @@ export function layoutFeed(
       });
       lastDay = day;
       lastPost = null;
+      lastAgentRow = null;
     }
     if (item.kind === "status") {
       rows.push(item);
       lastPost = null;
+      lastAgentRow = null;
       continue;
     }
     const key = authorKey(item.entry, ctx);
     const at = new Date(item.entry.at).getTime();
+    const safeAt = Number.isFinite(at) ? at : 0;
+    const within = (since: number) =>
+      Number.isFinite(at) && at - since <= GROUP_WINDOW_MS;
+    // Tool activity rides under the agent's current row without becoming a
+    // post: the assistant text that follows a tool run still opens with the
+    // agent's avatar and name instead of trailing headerless.
     const grouped =
-      lastPost !== null &&
-      lastPost.key === key &&
-      Number.isFinite(at) &&
-      at - lastPost.at <= GROUP_WINDOW_MS;
+      item.entry.type === "activity"
+        ? lastAgentRow !== null && within(lastAgentRow.at)
+        : lastPost !== null && lastPost.key === key && within(lastPost.at);
     const rule = !grouped && rows[rows.length - 1]?.kind === "entry";
     rows.push({ kind: "entry", entry: item.entry, grouped, rule });
-    // Tool activity rides under the agent's current post without becoming
-    // one: the assistant text that follows a tool run still opens with the
-    // agent's avatar and name instead of trailing headerless.
+    if (key === "agent") lastAgentRow = { at: safeAt };
+    else lastAgentRow = null;
     if (item.entry.type === "activity") continue;
-    lastPost = { key, at: Number.isFinite(at) ? at : 0 };
+    lastPost = { key, at: safeAt };
   }
   return rows;
 }

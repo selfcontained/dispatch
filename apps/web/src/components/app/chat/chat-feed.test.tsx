@@ -1482,9 +1482,10 @@ describe("stream entries", () => {
       new Date("2026-09-04T12:00:00.000Z")
     );
     const entries = rows.filter((r) => r.kind === "entry");
+    // One header for the tool run, then the assistant opens its own group.
     expect(entries.map((r) => [r.entry.id, r.grouped])).toEqual([
       ["stream:1", false],
-      ["stream:2", false],
+      ["stream:2", true],
       ["stream:3", false],
     ]);
   });
