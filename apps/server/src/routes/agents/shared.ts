@@ -10,6 +10,7 @@ import type {
 } from "../../terminal/copy-mode-observer.js";
 import type { CopyModeAssistManager } from "../../terminal/copy-mode-assist-manager.js";
 import type { InjectionCoordinator } from "../../terminal/injection-coordinator.js";
+import type { ChatService } from "../../chat/service.js";
 
 export const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
 export const CODEX_FULL_ACCESS_ARG =
@@ -51,6 +52,13 @@ export type AgentRouteDeps = {
   trackArchivePromise: (agentId: string, archivePromise: Promise<void>) => void;
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
   onAgentStarted: (agentId: string) => Promise<void>;
+  /**
+   * Delivers a user-fired prompt (quick phrase, shortcut pin) as a Chat
+   * message when the Chat surface is on — see `chat/user-prompt.ts`.
+   */
+  chat: ChatService;
+  /** Read per click: the flag is a cold path and must not be cached stale. */
+  isChatSurfaceEnabled: () => Promise<boolean>;
 };
 
 export function escapeHtml(s: string): string {

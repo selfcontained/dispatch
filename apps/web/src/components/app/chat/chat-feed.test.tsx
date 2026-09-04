@@ -1211,6 +1211,78 @@ describe("ChatFeed", () => {
     expect(first.textContent).toContain("Sending");
   });
 
+  it("renders a review card and opens the review it links to", () => {
+    const onOpenReview = vi.fn();
+    renderFeed(
+      [
+        {
+          type: "review",
+          id: "review:12",
+          reviewId: 12,
+          reviewerType: "agent",
+          reviewerAgentId: "agt_reviewer",
+          reviewerName: "backend-security",
+          summary: "Two things to fix",
+          status: "partially_resolved",
+          itemCount: 3,
+          resolvedCount: 1,
+          at: "2026-09-02T10:00:00.000Z",
+        },
+      ],
+      {},
+      {
+        onOpenReview,
+        peers: peerDirectory(AGENT_ID, [
+          {
+            id: "agt_reviewer",
+            name: "Reviewer",
+            type: "codex",
+            parentAgentId: AGENT_ID,
+          },
+        ]),
+      }
+    );
+    const card = screen.getByTestId("chat-review");
+    // Header and block name the same actor: the persona it reviewed as.
+    expect(
+      card.querySelector("[data-testid='chat-post-author']")?.textContent
+    ).toBe("backend-security");
+    expect(card.textContent).toContain("Review · backend-security");
+    expect(card.textContent).toContain("1/3 resolved");
+    expect(card.textContent).toContain("Open");
+    // The collapsed block is a status line, not a copy of the review body.
+    expect(card.textContent).not.toContain("Two things to fix");
+    fireEvent.click(
+      screen.getByRole("button", { name: /open review from backend-security/i })
+    );
+    expect(onOpenReview).toHaveBeenCalledWith(12);
+  });
+
+  it("attributes a human review to the user and says when it approved", () => {
+    renderFeed([
+      {
+        type: "review",
+        id: "review:13",
+        reviewId: 13,
+        reviewerType: "human",
+        reviewerAgentId: null,
+        reviewerName: null,
+        summary: null,
+        status: "resolved",
+        itemCount: 0,
+        resolvedCount: 0,
+        at: "2026-09-02T10:00:00.000Z",
+      },
+    ]);
+    const card = screen.getByTestId("chat-review");
+    expect(
+      card.querySelector("[data-testid='chat-post-author']")?.textContent
+    ).toBe("You");
+    expect(card.textContent).toContain("Review · Human reviewer");
+    expect(card.textContent).toContain("Approved · no feedback");
+    expect(card.textContent).toContain("Resolved");
+  });
+
   it("renders media entries and opens them in the lightbox", () => {
     const { onOpenMedia } = renderFeed([
       {

@@ -1,12 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import {
-  Bot,
-  CheckCircle2,
-  ChevronRight,
-  Clock,
-  MessageCircle,
-  User,
-} from "lucide-react";
+import { CheckCircle2 } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
 import {
@@ -16,29 +9,11 @@ import {
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/ui/markdown";
 import { FeedbackItemRow } from "@/components/app/reviews-feedback-item";
-
-const REVIEW_STATUS_STYLES: Record<
-  string,
-  { rail: string; badge: string; label: string }
-> = {
-  open: {
-    rail: "border-l-status-waiting/60",
-    badge: "bg-status-waiting/15 text-status-waiting",
-    label: "Open",
-  },
-  partially_resolved: {
-    rail: "border-l-status-waiting/60",
-    badge: "bg-status-waiting/15 text-status-waiting",
-    label: "Open",
-  },
-  resolved: {
-    rail: "border-l-status-working/60",
-    badge: "bg-status-working/15 text-status-working",
-    label: "Resolved",
-  },
-};
-
-const DEFAULT_REVIEW_STYLE = REVIEW_STATUS_STYLES.open!;
+import {
+  reviewerLabel,
+  reviewStatusStyle,
+  ReviewSummaryBlock,
+} from "@/components/app/review-summary-block";
 
 export function ReviewRow({
   agentId,
@@ -112,20 +87,13 @@ export function ReviewRow({
     };
   }, [expanded]);
 
-  const statusStyle =
-    REVIEW_STATUS_STYLES[review.status] ?? DEFAULT_REVIEW_STYLE;
-
-  const date = new Date(review.createdAt);
-  const timeStr = date.toLocaleDateString(undefined, {
+  const statusStyle = reviewStatusStyle(review.status);
+  const timeStr = new Date(review.createdAt).toLocaleDateString(undefined, {
     month: "short",
     day: "numeric",
     hour: "2-digit",
     minute: "2-digit",
   });
-  const reviewerLabel =
-    review.reviewerType === "agent"
-      ? review.reviewerName || "Review agent"
-      : "Human reviewer";
 
   return (
     <div
@@ -133,69 +101,25 @@ export function ReviewRow({
       data-review-id={review.id}
       className="relative mb-3 rounded-md bg-muted/[0.07]"
     >
-      <div
-        ref={headerRef}
+      <ReviewSummaryBlock
+        review={review}
+        expanded={expanded}
+        onClick={onToggle}
+        headerRef={headerRef}
+        ariaLabel={`${expanded ? "Collapse" : "Expand"} review from ${reviewerLabel(
+          review.reviewerType,
+          review.reviewerName
+        )}`}
         className={cn(
-          "sticky -top-2.5 z-20 rounded-md border-l-2 bg-muted",
+          "sticky -top-2.5 z-20",
           expanded && "rounded-b-none shadow-[0_1px_2px_0_rgb(0_0_0_/_0.08)]",
-          pinned && "rounded-none",
-          statusStyle.rail
+          pinned && "rounded-none"
         )}
-      >
-        <button
-          type="button"
-          aria-expanded={expanded}
-          aria-label={`${expanded ? "Collapse" : "Expand"} review from ${reviewerLabel}`}
-          className={cn(
-            "flex w-full items-center gap-2 rounded-md bg-muted px-3 py-2.5 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-            expanded && "rounded-b-none",
-            pinned && "rounded-none"
-          )}
-          onClick={onToggle}
-        >
-          <ChevronRight
-            className={cn(
-              "h-3 w-3 shrink-0 text-muted-foreground transition-transform",
-              expanded && "rotate-90"
-            )}
-          />
-          {review.reviewerType === "human" ? (
-            <User className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          ) : (
-            <Bot className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-          )}
-          <div className="min-w-0 flex-1">
-            <p className="truncate text-xs font-medium text-foreground/90">
-              Review · {reviewerLabel}
-            </p>
-            <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
-              {review.itemCount === 0 ? (
-                <span className="flex items-center gap-1 text-status-working">
-                  <CheckCircle2 className="h-2.5 w-2.5" />
-                  Approved · no feedback
-                </span>
-              ) : (
-                <span className="flex items-center gap-1">
-                  <MessageCircle className="h-2.5 w-2.5" />
-                  {review.resolvedCount}/{review.itemCount} resolved
-                </span>
-              )}
-              <span className="flex items-center gap-1">
-                <Clock className="h-2.5 w-2.5" />
-                {timeStr}
-              </span>
-              <span
-                className={cn(
-                  "ml-auto shrink-0 rounded-full px-1.5 py-0.5 font-medium",
-                  statusStyle.badge
-                )}
-              >
-                {statusStyle.label}
-              </span>
-            </div>
-          </div>
-        </button>
-      </div>
+        buttonClassName={cn(
+          expanded && "rounded-b-none",
+          pinned && "rounded-none"
+        )}
+      />
       <AnimatePresence initial={false}>
         {expanded && (
           <motion.div

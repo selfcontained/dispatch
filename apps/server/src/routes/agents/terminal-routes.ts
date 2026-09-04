@@ -8,7 +8,27 @@ import { substituteArgs } from "../../templates/arg-parser.js";
 import { TmuxTerminal } from "../../terminal/tmux-terminal.js";
 import { errorMessage } from "../../shared/lib/error-message.js";
 import { resolveShortcutRun } from "../../agents/pin-run.js";
+import { ChatServiceError } from "../../chat/service.js";
+import {
+  deliverUserPrompt,
+  type UserPromptDeps,
+} from "../../chat/user-prompt.js";
 import { decodeClientMessage, type AgentRouteDeps } from "./shared.js";
+
+/**
+ * The routes' deps, narrowed to what a user-fired prompt's delivery needs.
+ * With the Chat surface on it becomes a Chat message — a user post in the
+ * feed, wrapped in the envelope — so the agent's reply threads back to it
+ * exactly as it would for a message typed in the composer.
+ */
+function promptDeps(deps: AgentRouteDeps): UserPromptDeps {
+  return {
+    isChatSurfaceEnabled: deps.isChatSurfaceEnabled,
+    getAgent: (agentId) => deps.agentManager.getAgent(agentId),
+    sendUserMessage: (agentId, text) =>
+      deps.chat.sendUserMessage(agentId, text),
+  };
+}
 
 export async function registerAgentTerminalRoutes(
   app: FastifyInstance,
@@ -184,6 +204,10 @@ export async function registerAgentTerminalRoutes(
       }
 
       try {
+        if (await deliverUserPrompt(promptDeps(deps), agentId, text, submit)) {
+          return reply.code(204).send();
+        }
+
         const access = await deps.agentManager.getTerminalAccess(agentId);
         if (access.mode !== "tmux") {
           return reply.code(409).send({ error: access.message });
@@ -200,6 +224,9 @@ export async function registerAgentTerminalRoutes(
         );
         return reply.code(204).send();
       } catch (error) {
+        if (error instanceof ChatServiceError) {
+          return reply.code(error.statusCode).send({ error: error.message });
+        }
         return deps.handleAgentError(reply, error);
       }
     }
@@ -275,6 +302,17 @@ export async function registerAgentTerminalRoutes(
           return reply.code(target.status).send({ error: target.error });
         }
 
+        if (
+          await deliverUserPrompt(
+            promptDeps(deps),
+            agentId,
+            target.prompt,
+            true
+          )
+        ) {
+          return reply.code(204).send();
+        }
+
         const access = await deps.agentManager.getTerminalAccess(agentId);
         if (access.mode !== "tmux") {
           return reply.code(409).send({ error: access.message });
@@ -288,6 +326,9 @@ export async function registerAgentTerminalRoutes(
         );
         return reply.code(204).send();
       } catch (error) {
+        if (error instanceof ChatServiceError) {
+          return reply.code(error.statusCode).send({ error: error.message });
+        }
         return deps.handleAgentError(reply, error);
       }
     }

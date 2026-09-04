@@ -164,6 +164,8 @@ export type AgentPaneProps = {
    */
   header: boolean;
   openLightbox: (file: MediaFile) => void;
+  /** Opens a review in the Reviews sidebar; from a review card in the feed. */
+  onOpenReview?: (reviewId: number) => void;
   isMobile: boolean;
 };
 
@@ -193,6 +195,7 @@ export function AgentPane({
   terminalSlotRef,
   header,
   openLightbox,
+  onOpenReview,
   isMobile,
 }: AgentPaneProps): JSX.Element {
   const chatShown = chatEnabled && view === "chat";
@@ -237,6 +240,7 @@ export function AgentPane({
             childAgentIds={childAgentIds}
             onShowChildAgentsChange={onShowChildAgentsChange}
             openLightbox={openLightbox}
+            onOpenReview={onOpenReview}
             isMobile={isMobile}
           />
         </div>

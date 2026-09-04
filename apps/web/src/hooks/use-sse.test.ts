@@ -742,6 +742,8 @@ describe("useSSE message handling", () => {
     expectInvalidatedSet(invalidateQueries, [
       ["agent-reviews", "author"],
       ["agent-feedback-items", "author"],
+      // The Chat feed carries a card per review.
+      ["chat", "author"],
     ]);
   });
 
@@ -764,6 +766,8 @@ describe("useSSE message handling", () => {
     expectInvalidatedSet(invalidateQueries, [
       ["agent-reviews", "author"],
       ["agent-feedback-items", "author"],
+      // The Chat feed carries a card per review.
+      ["chat", "author"],
     ]);
   });
 
