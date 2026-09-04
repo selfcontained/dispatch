@@ -1,4 +1,4 @@
-import { Bot, Terminal as TerminalIcon } from "lucide-react";
+import { Bot, Fish, Terminal as TerminalIcon } from "lucide-react";
 import { siClaude, siCursor } from "simple-icons";
 
 import { AGENT_TYPE_LABELS } from "@/lib/agent-types";
@@ -82,18 +82,14 @@ export function AgentTypeIcon({
   }
 
   if (normalizedType === "dsh") {
+    // DeepSeek Harness's own mark is a fish; the icon set has no brand glyph.
     return (
       <span
-        className={cn(
-          baseClass,
-          statusClass,
-          "text-[9px] font-semibold tracking-[0.08em]",
-          className
-        )}
+        className={cn(baseClass, statusClass, className)}
         title={`${label} agent`}
         aria-label={`${label} agent`}
       >
-        DS
+        <Fish className="h-3.5 w-3.5" aria-hidden="true" />
       </span>
     );
   }

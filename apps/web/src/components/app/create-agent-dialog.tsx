@@ -73,7 +73,7 @@ function CreateAgentDialogContent({
   });
 
   useRadixPopoverZFix();
-  const supportsModelSelection = ["codex", "claude", "cursor"].includes(
+  const supportsModelSelection = ["codex", "claude", "cursor", "dsh"].includes(
     form.createType
   );
   const showModelSelect =

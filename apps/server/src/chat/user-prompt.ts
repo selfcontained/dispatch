@@ -37,8 +37,10 @@ export type UserPromptRouting = {
 export function routesUserPromptThroughChat(
   routing: UserPromptRouting
 ): boolean {
-  if (!routing.chatSurfaceEnabled) return false;
   if (!routing.submit) return false;
+  // A dsh agent has no pane to type into: Chat is its only input, flag or not.
+  if (routing.agentType === "dsh") return true;
+  if (!routing.chatSurfaceEnabled) return false;
   return routing.agentType !== "terminal";
 }
 
@@ -64,13 +66,12 @@ export async function deliverUserPrompt(
   text: string,
   submit: boolean
 ): Promise<boolean> {
-  if (!(await deps.isChatSurfaceEnabled())) return false;
   // A missing agent keeps the pane path so the route's own 404 stands.
   const agent = await deps.getAgent(agentId).catch(() => null);
   if (!agent) return false;
   if (
     !routesUserPromptThroughChat({
-      chatSurfaceEnabled: true,
+      chatSurfaceEnabled: await deps.isChatSurfaceEnabled(),
       agentType: agent.type,
       submit,
     })

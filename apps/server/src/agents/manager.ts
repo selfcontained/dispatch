@@ -402,7 +402,8 @@ export class AgentManager {
   /** The system-prompt persona a dsh agent launches with (see dsh/persona.ts). */
   async buildDshPersonaFor(agent: AgentRecord): Promise<string> {
     const inputs = await this.launchGuidanceInputsFor(agent);
-    return buildDshPersona({ agent, ...inputs });
+    // Chat is a dsh agent's only surface, whatever the global flag says.
+    return buildDshPersona({ agent, ...inputs, chatSurface: true });
   }
 
   /**
@@ -615,9 +616,11 @@ export class AgentManager {
           );
     // Terminal sessions have no CLI to chat with, so they get no post at all.
     const recorder = p.type === "terminal" ? null : this.launchContextRecorder;
+    // A dsh agent reads its launch prompt from the Chat post (it takes no
+    // launch argument), so the post is durable for it whatever the flag says.
     const wantsEnvelope =
       recorder !== null &&
-      launchGuidanceFlags.chatSurface &&
+      (launchGuidanceFlags.chatSurface || p.type === "dsh") &&
       !input.jobRunId &&
       !inertRuntime;
     const launchPostId = randomUUID();
