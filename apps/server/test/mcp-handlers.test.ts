@@ -868,6 +868,9 @@ describe("createMcpHandlers", () => {
         expect.objectContaining({
           persona: "security",
           parentAgentId: "agt_test1",
+          // The launch post is attributed from the trusted launcher, never
+          // from parentAgentId.
+          launchedByAgentId: "agt_test1",
           type: "claude",
           role: "review",
         })
@@ -1256,6 +1259,23 @@ describe("createMcpHandlers", () => {
           launchedByAgentId: "agt_test1",
         })
       );
+    });
+
+    it("attributes the launch post to the launching agent with its own prompt", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "Review the diff",
+        child: false,
+      });
+
+      const created = deps.agentManager.createAgent.mock.calls[0]?.[0];
+      // Attribution comes from the authenticated launcher, not parentAgentId
+      // (absent on a child: false launch); the feed shows the unwrapped prompt.
+      expect(created).toMatchObject({
+        launchedByAgentId: "agt_test1",
+        launchContext: { prompt: "Review the diff" },
+      });
+      expect(created.parentAgentId).toBeUndefined();
     });
 
     it("tells a child agent up front that it cannot launch children", async () => {

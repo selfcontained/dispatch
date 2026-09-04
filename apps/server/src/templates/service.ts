@@ -50,6 +50,9 @@ export type LaunchTemplateInput = {
     description?: string | null;
   }>;
   startupPins?: AgentPin[];
+  /** Raw startup links, recorded as link attachments on the launch post
+   * (the url pins the route made from them are `startupPins`). */
+  startupLinks?: string[];
 };
 
 export type LaunchResult = {
@@ -219,6 +222,7 @@ export class TemplateService {
       model: resolvedModel,
       cwd,
       initialPrompt: finalPrompt,
+      launchContext: { links: !isTerminal ? (input.startupLinks ?? []) : [] },
       fullAccess: !isTerminal && template.fullAccess,
       ...(isTerminal
         ? { useWorktree: false }

@@ -640,6 +640,20 @@ describe("atomWithLocalStorage", () => {
     );
   });
 
+  it("leaves storage alone when an update hands back the current value", () => {
+    // Another tab may have written since this tab read; a no-op update
+    // must not echo this tab's stale copy over it.
+    const testAtom = atomWithLocalStorage("dispatch:test:noop", "initial");
+    const store = createStore();
+    store.set(testAtom, "mine");
+    window.localStorage.setItem("dispatch:test:noop", '"theirs"');
+    store.set(testAtom, (prev) => prev);
+    expect(store.get(testAtom)).toBe("mine");
+    expect(window.localStorage.getItem("dispatch:test:noop")).toBe('"theirs"');
+    store.set(testAtom, "changed");
+    expect(window.localStorage.getItem("dispatch:test:noop")).toBe('"changed"');
+  });
+
   it("reads a value that fails validation as the initial one", () => {
     window.localStorage.setItem("dispatch:test:validate", '"nope"');
     const testAtom = atomWithLocalStorage<number>("dispatch:test:validate", 7, {

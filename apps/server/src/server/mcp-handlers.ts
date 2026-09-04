@@ -646,6 +646,8 @@ async function handleLaunchAgent(
     launchedByAgentId: agentId,
     cliSessionId,
     initialPrompt: buildLaunchedAgentInitialPrompt(agentId, prompt, child),
+    // The feed shows the prompt as the launcher wrote it, not the header.
+    launchContext: { prompt },
     templateId: input.templateId,
   });
 

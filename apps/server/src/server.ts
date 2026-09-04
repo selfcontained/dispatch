@@ -448,6 +448,7 @@ const chatService = new ChatService({
   },
   log: app.log,
 });
+agentManager.attachLaunchContextRecorder(chatService);
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,

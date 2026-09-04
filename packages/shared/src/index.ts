@@ -42,6 +42,7 @@ export type {
   ChatMessage,
   ChatMessageEntry,
   ChatMessageKind,
+  ChatMessageOrigin,
   ChatQuestion,
   ChatQuestionOption,
   ChatSendRequest,

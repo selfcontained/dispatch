@@ -9,6 +9,7 @@ import type {
 import {
   AgentMessageView,
   agentMessageAuthor,
+  chatMessageAuthor,
   type FeedContext,
   ChatMessageView,
   DayDivider,
@@ -171,7 +172,7 @@ function authorKey(
 ): string {
   switch (entry.type) {
     case "chat":
-      return entry.message.authorKind === "user" ? "user" : "agent";
+      return chatMessageAuthor(entry.message, ctx).key;
     case "agent_message":
       return agentMessageAuthor(entry, ctx).key;
     case "media":

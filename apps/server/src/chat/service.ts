@@ -109,6 +109,24 @@ export class ChatConflictError extends ChatServiceError {
   readonly statusCode = 409;
 }
 
+/**
+ * What an agent was created with, as `AgentManager.createAgent` hands it to
+ * the recorder once the agent row and its media rows exist. Files are the
+ * seeded media rows; links are the raw startup URLs; pins are the initial
+ * pins (a url pin made from one of `links` is skipped, so the same URL is
+ * not shown twice).
+ */
+export type ChatLaunchContextInput = {
+  agentId: string;
+  /** The initial prompt as the person (or launching agent) wrote it. */
+  text?: string;
+  files?: Array<{ mediaId: number }>;
+  links?: string[];
+  pins?: Array<{ id: string; type: string; value: string }>;
+  /** The agent that created this one via dispatch_launch_agent, if any. */
+  launchedByAgentId?: string | null;
+};
+
 export type ChatAnswerInput = {
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
@@ -401,6 +419,73 @@ export class ChatService {
       });
     this.trackDelivery(settlement);
     return { held: delivery.held(agentId) };
+  }
+
+  /**
+   * Record the context an agent was launched with as one user post at the
+   * top of its feed: the initial prompt as text, plus a file attachment per
+   * startup file, a link per startup link, and a pin per initial pin. The
+   * prompt reaches the CLI through the normal launch path, so the post is
+   * `delivered: true` and nothing is injected. A launch with no context at
+   * all records nothing and returns null.
+   *
+   * When another agent did the launching, `launchedByAgentId` is stored so
+   * the web can attribute the post to it; the row stays a user post so the
+   * unread and question counts (agent posts only) are unaffected.
+   */
+  async recordLaunchContext(
+    input: ChatLaunchContextInput
+  ): Promise<ChatMessage | null> {
+    const text = input.text ?? "";
+    const links = (input.links ?? []).filter((url) => url.trim().length > 0);
+    const linkSet = new Set(links);
+    const files = input.files ?? [];
+    const pins = (input.pins ?? []).filter(
+      (pin) => !(pin.type === "url" && linkSet.has(pin.value))
+    );
+    if (
+      !text.trim() &&
+      files.length === 0 &&
+      links.length === 0 &&
+      pins.length === 0
+    ) {
+      return null;
+    }
+    const inputs: ChatUserAttachmentInput[] = [
+      ...files.map((file) => ({
+        type: "file" as const,
+        mediaId: file.mediaId,
+      })),
+      ...links.map((url) => ({ type: "link" as const, url })),
+      ...pins.map((pin) => ({ type: "pin" as const, pinId: pin.id })),
+    ];
+    if (inputs.length > CHAT_ATTACHMENTS_MAX) {
+      // A launch can seed more pins than a post may carry; keep the post
+      // rather than refuse the launch, and let the sidebar show the rest.
+      inputs.length = CHAT_ATTACHMENTS_MAX;
+    }
+    const attachments =
+      inputs.length > 0
+        ? await this.resolveAttachmentsFor(
+            await this.requireAgent(input.agentId),
+            inputs
+          )
+        : [];
+    const message = await this.store.insert({
+      agentId: input.agentId,
+      authorKind: "user",
+      kind: "reply",
+      text:
+        text.length > CHAT_MESSAGE_MAX_CHARS
+          ? text.slice(0, CHAT_MESSAGE_MAX_CHARS)
+          : text,
+      attachments,
+      delivered: true,
+      origin: "launch",
+      launchedByAgentId: input.launchedByAgentId ?? null,
+    });
+    this.publishChanged(input.agentId);
+    return message;
   }
 
   // -------------------------------------------------------------------------

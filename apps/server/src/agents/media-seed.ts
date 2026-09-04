@@ -12,6 +12,8 @@ export type SeedMediaInput = {
 };
 
 export type SeededMedia = {
+  /** The `media` row id, so callers can reference the file by id. */
+  mediaId: number;
   fileName: string;
   displayName: string;
   source: string;
@@ -69,9 +71,10 @@ export async function seedInitialMedia(
       index
     );
     await writeFile(path.join(mediaDir, timestampedFileName), file.buffer);
-    await pool.query(
+    const inserted = await pool.query<{ id: number }>(
       `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, $2, $3, $4, $5)`,
+       VALUES ($1, $2, $3, $4, $5)
+       RETURNING id`,
       [
         agentId,
         timestampedFileName,
@@ -81,6 +84,7 @@ export async function seedInitialMedia(
       ]
     );
     results.push({
+      mediaId: inserted.rows[0].id,
       fileName: timestampedFileName,
       displayName: file.originalName?.trim() || file.fileName,
       source: file.source,

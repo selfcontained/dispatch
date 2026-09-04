@@ -7,6 +7,9 @@ export type ChatAuthorKind = "agent" | "user";
 
 export type ChatMessageKind = "reply" | "update" | "question" | "summary";
 
+/** Why a message exists beyond someone typing it; see `ChatMessage.origin`. */
+export type ChatMessageOrigin = "launch";
+
 export type ChatQuestionOption = {
   label: string;
   /** Sent back to the agent when chosen. Defaults to the label. */
@@ -93,6 +96,19 @@ export type ChatMessage = {
   delivered: boolean | null;
   /** Agent messages only: when the user saw it. */
   readAt: string | null;
+  /**
+   * `"launch"` on the user post that records the context an agent was
+   * created with (initial prompt, startup files, links, pins). Absent on
+   * every other message. Such a post is always `delivered: true` — the
+   * prompt reached the CLI through the normal launch path, not the pane.
+   */
+  origin?: ChatMessageOrigin;
+  /**
+   * Launch-context posts only: the agent that created this one via
+   * dispatch_launch_agent, when it was not launched by a person. The web
+   * attributes the post to that agent instead of to "You". Absent otherwise.
+   */
+  launchedByAgentId?: string;
   createdAt: string;
   updatedAt: string;
 };

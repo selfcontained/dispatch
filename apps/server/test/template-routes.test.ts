@@ -290,6 +290,37 @@ describe("POST /api/v1/templates/:id/launch", () => {
     expect(body.agent.id).toBeTruthy();
   });
 
+  it("records startup links as link attachments on the launch post, not as duplicate url pins", async () => {
+    const created = await createTemplate("links-tmpl", {
+      prompt: "Read the spec",
+    });
+    const id = (created as { id: string }).id;
+    const res = await authedInject("POST", `/api/v1/templates/${id}/launch`, {
+      startupLinks: ["https://example.com/spec"],
+    });
+    expect(res.statusCode).toBe(200);
+    const agent = res.json().agent;
+    // The route still turns the link into a url pin for the sidebar...
+    expect(agent.pins).toEqual([
+      expect.objectContaining({
+        type: "url",
+        value: "https://example.com/spec",
+      }),
+    ]);
+    // ...but the launch post shows the URL once, as a link attachment.
+    const posts = await ctx.pool.query(
+      `SELECT text, origin, attachments FROM agent_chat_messages
+         WHERE agent_id = $1`,
+      [agent.id]
+    );
+    expect(posts.rows).toHaveLength(1);
+    expect(posts.rows[0]).toMatchObject({
+      text: "Read the spec",
+      origin: "launch",
+      attachments: [{ type: "link", url: "https://example.com/spec" }],
+    });
+  });
+
   it("launches with args and links agent to template", async () => {
     const created = await createTemplate("args-tmpl", {
       prompt: "Deploy {{D:app}} to {{D:env}}",

@@ -132,7 +132,7 @@ export function AgentPane({
       data-view={chatEnabled ? view : undefined}
     >
       {chatEnabled && header ? (
-        <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 pl-3 pr-2 pointer-coarse:py-1">
+        <div className="flex min-h-8 shrink-0 items-center justify-between gap-2 border-b border-border/40 py-1.5 pl-3 pr-2">
           <span className="flex min-w-0 items-center gap-1 text-xs font-medium text-foreground">
             <Hash className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
             <span className="truncate">{agent?.name ?? "Agent"}</span>

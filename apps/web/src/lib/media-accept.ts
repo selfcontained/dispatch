@@ -8,4 +8,7 @@
  * without pulling in browser-only code (e.g. media-upload → api →
  * energy-metrics, which touches `document` at module load).
  */
-export { MEDIA_UPLOAD_ACCEPT as STARTUP_FILE_ACCEPT } from "../../../server/src/shared/media-file-types";
+export {
+  MEDIA_UPLOAD_ACCEPT as STARTUP_FILE_ACCEPT,
+  isImageFile,
+} from "../../../server/src/shared/media-file-types";

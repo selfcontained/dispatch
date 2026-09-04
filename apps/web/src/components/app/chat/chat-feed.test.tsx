@@ -11,6 +11,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   type FeedContext,
+  POST_BODY_MEASURE,
+  SIDE_POST_INDENT,
   peerDirectory,
 } from "@/components/app/chat/chat-entries";
 import {
@@ -59,7 +61,7 @@ function message(overrides: Partial<ChatMessage> = {}): ChatMessage {
 function fileAttachment(
   fields: Pick<
     Extract<ChatAttachment, { type: "file" }>,
-    "mediaId" | "fileName" | "sizeBytes"
+    "mediaId" | "fileName" | "sizeBytes" | "mimeType"
   >
 ): ChatAttachment {
   return { type: "file", ...fields };
@@ -247,7 +249,7 @@ describe("layoutFeed", () => {
     ]);
   });
 
-  it("treats media and outgoing agent messages as the agent's own posts", () => {
+  it("groups media with the agent's posts but keeps a side conversation apart", () => {
     const rows = layoutFeed(
       [
         chat(message({ id: "a1", createdAt: at("10:00") })),
@@ -294,7 +296,10 @@ describe("layoutFeed", () => {
       "divider",
       ["a1", false],
       ["md1", true],
-      ["am1", true],
+      // An agent-to-agent message is a side conversation: never grouped
+      // under the agent's post to the user, and the reply starts a group
+      // of its own.
+      ["am1", false],
       ["am2", false],
     ]);
   });
@@ -443,11 +448,21 @@ describe("ChatFeed", () => {
 
   it("shows a peer's own icon and its relation to this agent", () => {
     const peers = peerDirectory(AGENT_ID, [
-      { id: AGENT_ID, type: "claude", parentAgentId: "agt_root" },
-      { id: "agt_kid", type: "codex", parentAgentId: AGENT_ID },
-      { id: "agt_root", type: "claude", parentAgentId: null },
-      { id: "agt_sib", type: "opencode", parentAgentId: "agt_root" },
-      { id: "agt_far", type: "terminal", parentAgentId: null },
+      {
+        id: AGENT_ID,
+        name: "builder",
+        type: "claude",
+        parentAgentId: "agt_root",
+      },
+      { id: "agt_kid", name: "kid", type: "codex", parentAgentId: AGENT_ID },
+      { id: "agt_root", name: "root", type: "claude", parentAgentId: null },
+      {
+        id: "agt_sib",
+        name: "sib",
+        type: "opencode",
+        parentAgentId: "agt_root",
+      },
+      { id: "agt_far", name: "far", type: "terminal", parentAgentId: null },
     ]);
     expect(peers[AGENT_ID]).toBeUndefined();
     const peerPost = (
@@ -547,7 +562,104 @@ describe("ChatFeed", () => {
       post.querySelector('[data-testid="agent-relation-badge"]')
     ).toBeNull();
     expect(post.querySelector('[aria-label="Claude agent"]')).not.toBeNull();
-    expect(post.textContent).toContain("to Reviewer");
+    expect(
+      post
+        .querySelector("[data-testid='chat-side-header']")
+        ?.getAttribute("aria-label")
+    ).toBe("builder → Reviewer");
+  });
+
+  it('labels a launch-context post "Launch context" and keeps it a You post', () => {
+    const launch = message({
+      id: "launch",
+      authorKind: "user",
+      origin: "launch",
+      text: "Build the widget",
+      attachments: [
+        { type: "link", url: "https://example.com/spec" },
+        fileAttachment({ mediaId: 7, fileName: "brief.md", sizeBytes: 300 }),
+      ],
+      delivered: true,
+      createdAt: "2026-09-02T10:00:00.000Z",
+    });
+    const followUp = message({
+      id: "follow",
+      authorKind: "user",
+      text: "Also add tests",
+      delivered: true,
+      createdAt: "2026-09-02T10:01:00.000Z",
+    });
+    renderFeed([chat(launch), chat(followUp)]);
+    const posts = screen.getAllByTestId("chat-message");
+    expect(posts[0]?.getAttribute("data-origin")).toBe("launch");
+    expect(posts[0]?.getAttribute("data-author-kind")).toBe("user");
+    expect(screen.getByTestId("chat-launch-context").textContent).toContain(
+      "Launch context"
+    );
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("You");
+    expect(screen.getByTestId("chat-avatar-user")).toBeTruthy();
+    expect(screen.getByTestId("chat-attachment-link")).toBeTruthy();
+    expect(screen.getByTestId("chat-attachment-file")).toBeTruthy();
+    expect(screen.getByText("Build the widget")).toBeTruthy();
+    // No delivery marker: the prompt went out with the launch.
+    expect(screen.queryByTestId("chat-delivery-pending")).toBeNull();
+    expect(screen.queryByTestId("chat-delivery-failed")).toBeNull();
+    // Grouping treats it like any You post: the next one collapses under it.
+    expect(posts.map((p) => p.getAttribute("data-grouped"))).toEqual([
+      null,
+      "true",
+    ]);
+  });
+
+  it("attributes a launched-by post to the launching agent, falling back to Agent", () => {
+    const peers = peerDirectory(AGENT_ID, [
+      {
+        id: AGENT_ID,
+        name: "builder",
+        type: "claude",
+        parentAgentId: "agt_root",
+      },
+      {
+        id: "agt_root",
+        name: "orchestrator",
+        type: "codex",
+        parentAgentId: null,
+      },
+    ]);
+    const launch = message({
+      id: "launch",
+      authorKind: "user",
+      origin: "launch",
+      launchedByAgentId: "agt_root",
+      text: "Build the widget",
+      delivered: true,
+      createdAt: "2026-09-02T10:00:00.000Z",
+    });
+    renderFeed([chat(launch)], {}, { peers });
+    let post = screen.getByTestId("chat-message");
+    expect(post.getAttribute("data-author-kind")).toBe("peer");
+    expect(post.getAttribute("data-launched-by")).toBe("agt_root");
+    expect(screen.getByTestId("chat-launch-context")).toBeTruthy();
+    expect(screen.getByTestId("chat-post-author").textContent).toBe(
+      "orchestrator"
+    );
+    expect(screen.getByTestId("agent-relation-badge").textContent).toBe(
+      "parent"
+    );
+    expect(
+      post.querySelector('[aria-label$=" agent"]')?.getAttribute("aria-label")
+    ).toBe("Codex agent");
+    expect(screen.queryByTestId("chat-avatar-user")).toBeNull();
+    cleanup();
+
+    // The launcher is gone from the list: still a peer post, generic name.
+    renderFeed([chat(launch)], {}, { peers: {} });
+    post = screen.getByTestId("chat-message");
+    expect(screen.getByTestId("chat-post-author").textContent).toBe("Agent");
+    expect(screen.getByTestId("agent-relation-badge").textContent).toBe(
+      "agent"
+    );
+    expect(screen.getByTestId("chat-launch-context")).toBeTruthy();
   });
 
   it("tints You and peer posts, leaves the agent's plain, and marks group boundaries", () => {
@@ -789,6 +901,38 @@ describe("ChatFeed", () => {
     expect((option as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it("renders a file attachment as an image by its MIME type when the name has no extension", () => {
+    renderFeed([
+      chat(
+        message({
+          id: "a0",
+          attachments: [
+            fileAttachment({
+              mediaId: 9,
+              fileName: "clipboard-image",
+              sizeBytes: 512,
+              mimeType: "image/png",
+            }),
+            fileAttachment({
+              mediaId: 10,
+              fileName: "archive",
+              sizeBytes: 512,
+              mimeType: "application/zip",
+            }),
+          ],
+        })
+      ),
+    ]);
+    const image = screen.getByTestId("chat-attachment-image");
+    expect(image.querySelector("img")?.getAttribute("src")).toBe(
+      `/api/v1/agents/${AGENT_ID}/media/clipboard-image`
+    );
+    expect(image.querySelector("button")).not.toBeNull();
+    expect(screen.getByTestId("chat-attachment-file").textContent).toContain(
+      "archive"
+    );
+  });
+
   it("renders every attachment type", () => {
     const { onOpenMedia } = renderFeed(
       [
@@ -928,8 +1072,140 @@ describe("ChatFeed", () => {
     expect(
       outgoing!.querySelector("[data-testid='chat-post-author']")?.textContent
     ).toBe("builder");
-    expect(outgoing!.textContent).toContain("to Reviewer");
+    expect(
+      outgoing!
+        .querySelector("[data-testid='chat-side-header']")
+        ?.getAttribute("aria-label")
+    ).toBe("builder → Reviewer");
     expect(outgoing!.textContent).toContain("Not delivered");
+  });
+
+  it("sets agent-to-agent messages apart as a side conversation", () => {
+    const side = (
+      id: string,
+      direction: "in" | "out",
+      second: string,
+      content: string,
+      delivered: boolean | null = true
+    ): ChatFeedEntry => ({
+      type: "agent_message",
+      id,
+      direction,
+      senderAgentId: direction === "in" ? "agt_2" : AGENT_ID,
+      senderName: direction === "in" ? "Reviewer" : "builder",
+      recipientAgentId: direction === "in" ? AGENT_ID : "agt_2",
+      recipientName: direction === "in" ? "builder" : "Reviewer",
+      content,
+      delivered,
+      at: `2026-09-02T10:00:${second}.000Z`,
+    });
+    renderFeed(
+      [
+        chat(
+          message({
+            id: "m1",
+            text: "For you",
+            createdAt: "2026-09-02T10:00:00.000Z",
+          })
+        ),
+        side("s1", "out", "01", "Can you take a look?", null),
+        side("s2", "out", "02", "Second thought"),
+        side("s3", "in", "03", "Looking now"),
+        chat(
+          message({
+            id: "m2",
+            text: "Back to you",
+            createdAt: "2026-09-02T10:00:04.000Z",
+          })
+        ),
+      ],
+      {},
+      {
+        peers: {
+          agt_2: { name: "Reviewer", agentType: "codex", relation: "child" },
+        },
+      }
+    );
+    const posts = screen.getAllByTestId("chat-agent-message");
+    expect(posts).toHaveLength(3);
+    const [first, second, third] = posts as [
+      HTMLElement,
+      HTMLElement,
+      HTMLElement,
+    ];
+
+    // Indented one gutter step, tinted like a peer's post either way, with
+    // a muted body.
+    for (const post of posts) {
+      expect(post.getAttribute("data-side")).toBe("true");
+      expect(post.className).toContain(SIDE_POST_INDENT);
+      expect(post.className).not.toContain("px-4");
+      expect(post.className).toContain("bg-violet-500/[0.06]");
+      const body = Array.from(post.querySelectorAll("div")).find((el) =>
+        el.className.includes(POST_BODY_MEASURE)
+      );
+      expect(body?.className).toContain("text-muted-foreground");
+    }
+
+    // "sender → recipient" header, the relation badge after a peer sender.
+    expect(
+      first
+        .querySelector("[data-testid='chat-side-header']")
+        ?.getAttribute("aria-label")
+    ).toBe("builder → Reviewer");
+    expect(
+      first.querySelector("[data-testid='chat-side-recipient']")?.textContent
+    ).toBe("→ Reviewer");
+    expect(
+      first.querySelector("[data-testid='agent-relation-badge']")
+    ).toBeNull();
+    expect(
+      third
+        .querySelector("[data-testid='chat-side-header']")
+        ?.getAttribute("aria-label")
+    ).toBe("Reviewer → builder");
+    expect(
+      third.querySelector("[data-testid='agent-relation-badge']")?.textContent
+    ).toBe("child agent");
+
+    // Narrow screens: the header wraps and the recipient keeps a minimum
+    // width instead of collapsing to "→ …" beside a long sender name.
+    const header = first.querySelector("[data-testid='chat-side-header']");
+    expect(header?.className).toContain("flex-wrap");
+    expect(
+      first.querySelector("[data-testid='chat-side-recipient']")?.className
+    ).toContain("min-w-[8rem]");
+    expect(
+      first.querySelector("[data-testid='chat-post-author']")?.className
+    ).toContain("max-w-full");
+
+    // The sender's icon with the arrows overlay, on header rows only.
+    expect(first.querySelector("[aria-label='Claude agent']")).not.toBeNull();
+    expect(
+      first.querySelector("[data-testid='chat-avatar-side-badge']")
+    ).not.toBeNull();
+    expect(third.querySelector("[aria-label='Codex agent']")).not.toBeNull();
+    expect(
+      third.querySelector("[data-testid='chat-avatar-side-badge']")
+    ).not.toBeNull();
+
+    // Same sender → same recipient groups; the reply from the other side
+    // starts a new group, and the agent's post to the user right before
+    // never grouped with the side conversation.
+    expect(first.getAttribute("data-grouped")).toBeNull();
+    expect(second.getAttribute("data-grouped")).toBe("true");
+    expect(
+      second.querySelector("[data-testid='chat-avatar-side-badge']")
+    ).toBeNull();
+    expect(third.getAttribute("data-grouped")).toBeNull();
+    const userPosts = screen.getAllByTestId("chat-message");
+    expect(userPosts[1]!.getAttribute("data-grouped")).toBeNull();
+
+    // Delivery markers stay.
+    expect(
+      first.querySelector("[data-testid='chat-agent-message-pending']")
+    ).not.toBeNull();
+    expect(first.textContent).toContain("Sending");
   });
 
   it("renders media entries and opens them in the lightbox", () => {

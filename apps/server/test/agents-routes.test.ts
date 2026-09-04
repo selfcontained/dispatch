@@ -219,6 +219,31 @@ describe("POST /api/v1/agents (create)", () => {
     expect(agent.fullAccess).toBe(true);
   });
 
+  it("does not attribute the launch post to a body-supplied parentAgentId", async () => {
+    const parent = await createAgent({ name: "parent" });
+    const child = await createAgent({
+      name: "child",
+      parentAgentId: parent.id,
+      initialPrompt: "Look like the parent wrote this",
+    });
+    expect(child.parentAgentId).toBe(parent.id);
+    const posts = await ctx.pool.query(
+      `SELECT author_kind, text, origin, launched_by_agent_id
+         FROM agent_chat_messages WHERE agent_id = $1`,
+      [child.id]
+    );
+    // The post is the user's own; only the agent-authenticated launch paths
+    // (which set launchedByAgentId) may attribute it to an agent.
+    expect(posts.rows).toEqual([
+      {
+        author_kind: "user",
+        text: "Look like the parent wrote this",
+        origin: "launch",
+        launched_by_agent_id: null,
+      },
+    ]);
+  });
+
   it("trims whitespace-only initialPrompt to undefined", async () => {
     const agent = await createAgent({
       initialPrompt: "   ",

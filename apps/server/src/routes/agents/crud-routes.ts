@@ -323,6 +323,7 @@ export async function registerAgentCrudRoutes(
           !isTerminalAgent && typeof body.initialPrompt === "string"
             ? body.initialPrompt.trim() || undefined
             : undefined,
+        launchContext: { links: !isTerminalAgent ? (startupLinks ?? []) : [] },
         initialPins: !isTerminalAgent ? startupPins : [],
         initialFiles: !isTerminalAgent ? startupFiles : [],
       });
