@@ -14,6 +14,7 @@ import {
   POST_BODY_MEASURE,
   SIDE_POST_INDENT,
   peerDirectory,
+  POST_TINT,
 } from "@/components/app/chat/chat-entries";
 import {
   ChatFeed,
@@ -512,8 +513,8 @@ describe("ChatFeed", () => {
       // Not in the list any more: the generic agent icon.
       "Agent agent",
     ]);
-    // Still a peer post: violet, with the sender's name.
-    expect(posts[0]!.className).toContain("bg-violet-500/[0.06]");
+    // Still a peer post: muted side-conversation treatment, sender's name.
+    expect(posts[0]!.className).toContain(POST_TINT.peer);
     expect(
       posts[0]!.querySelector('[data-testid="chat-post-author"]')?.textContent
     ).toBe("agt_kid");
@@ -704,18 +705,20 @@ describe("ChatFeed", () => {
     expect(agentPost!.getAttribute("data-rule")).toBeNull();
 
     expect(userOne!.getAttribute("data-author-kind")).toBe("user");
-    expect(userOne!.className).toContain("bg-primary/[0.06]");
+    expect(userOne!.className).toContain(POST_TINT.user);
+    // No accent bar: it competed with the sidebar's connected-agent border.
+    expect(userOne!.className).not.toContain("before:w-0.5");
     expect(userOne!.getAttribute("data-group-start")).toBe("true");
     expect(userOne!.getAttribute("data-rule")).toBe("true");
     expect(userOne!.className).toContain("border-t");
     // A grouped row keeps the tint (one block) but no boundary of its own.
-    expect(userTwo!.className).toContain("bg-primary/[0.06]");
+    expect(userTwo!.className).toContain(POST_TINT.user);
     expect(userTwo!.getAttribute("data-group-start")).toBeNull();
     expect(userTwo!.getAttribute("data-rule")).toBeNull();
     expect(userTwo!.className).not.toContain("border-t");
 
     expect(peer.getAttribute("data-author-kind")).toBe("peer");
-    expect(peer.className).toContain("bg-violet-500/[0.06]");
+    expect(peer.className).toContain(POST_TINT.peer);
     expect(peer.getAttribute("data-rule")).toBe("true");
 
     // Bodies stop at a reading measure; the row itself spans the pane.
@@ -1140,7 +1143,7 @@ describe("ChatFeed", () => {
       expect(post.getAttribute("data-side")).toBe("true");
       expect(post.className).toContain(SIDE_POST_INDENT);
       expect(post.className).not.toContain("px-4");
-      expect(post.className).toContain("bg-violet-500/[0.06]");
+      expect(post.className).toContain(POST_TINT.peer);
       const body = Array.from(post.querySelectorAll("div")).find((el) =>
         el.className.includes(POST_BODY_MEASURE)
       );

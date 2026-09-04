@@ -243,8 +243,15 @@ function Avatar({
  * reads as one block.
  */
 export const POST_TINT: Record<PostAuthor["kind"], string> = {
-  user: "bg-primary/[0.06] hover:bg-primary/[0.09]",
-  peer: "bg-violet-500/[0.06] hover:bg-violet-500/[0.09]",
+  // Only the user's own posts get a fill. At 6% `primary` sat too close to the
+  // page background in several themes to notice; 10% reads everywhere.
+  //
+  // No left accent bar: a rule down the post's left edge competed with the
+  // connected-agent border the sidebar draws on the pane's left edge.
+  user: "bg-primary/[0.10] hover:bg-primary/[0.14]",
+  // Agent-to-agent traffic is a side conversation the user is overhearing, so
+  // it recedes — indent and muted body carry it, with no fill of its own.
+  peer: "hover:bg-muted/30",
   agent: "hover:bg-muted/40",
 };
 

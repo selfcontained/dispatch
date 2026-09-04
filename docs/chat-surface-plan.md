@@ -378,7 +378,7 @@ changes; the flag, routes and tools are unchanged.
   share a parent, otherwise **agent** — also the fallback when the sender is
   no longer in the list (generic bot icon). `agentRelation` in
   `lib/agent-lineage.ts`; the same chip sits on the Messages panel's thread
-  headers so the two agree. The violet tint and the outgoing "to <name>"
+  headers so the two agree. The muted side-conversation treatment and the outgoing "to <name>"
   line stay.
 - Entries that arrive after the feed first rendered — new posts, status
   lines, media, and posts edited in place — fade in (200 ms opacity with a
