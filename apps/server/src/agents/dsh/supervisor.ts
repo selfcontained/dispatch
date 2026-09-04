@@ -61,6 +61,13 @@ export class DshSupervisor {
     string,
     { sessionId: string; model: string }
   >();
+  /**
+   * One writer per agent. Driver events arrive faster than their DB writes
+   * settle; handled concurrently, two appends compute the same seq and one
+   * dies on the unique index, and chunk accumulation sees stale open-row
+   * state. Chaining each agent's events keeps order and the invariant.
+   */
+  private readonly queues = new Map<string, Promise<void>>();
 
   constructor(private readonly deps: SupervisorDeps) {
     this.driver =
@@ -73,7 +80,14 @@ export class DshSupervisor {
     this.streams = new StreamRecorder(new StreamStore(deps.pool));
     this.usage = new UsageRecorder(deps.pool);
     this.driver.onEvent((event) => {
-      void this.onEvent(event);
+      const prior = this.queues.get(event.agentId) ?? Promise.resolve();
+      const next = prior.then(() => this.onEvent(event));
+      this.queues.set(event.agentId, next);
+      void next.finally(() => {
+        if (this.queues.get(event.agentId) === next) {
+          this.queues.delete(event.agentId);
+        }
+      });
     });
   }
 
@@ -128,6 +142,7 @@ export class DshSupervisor {
     });
     try {
       await this.driver.prompt(agentId, text);
+      await this.drained(agentId);
       await this.deps.setLatestEvent(agentId, {
         type: "idle",
         message: "Turn finished.",
@@ -150,6 +165,11 @@ export class DshSupervisor {
   async stop(agentId: string): Promise<void> {
     await this.driver.stop(agentId);
     this.context.delete(agentId);
+  }
+
+  /** Resolves once every event queued so far for the agent has been handled. */
+  private async drained(agentId: string): Promise<void> {
+    await this.queues.get(agentId);
   }
 
   private async onEvent(event: DriverEvent): Promise<void> {

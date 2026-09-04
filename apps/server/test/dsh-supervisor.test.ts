@@ -29,7 +29,32 @@ async function build(opts: { turn?: FakeTurn; cliSessionId?: string } = {}) {
     spawn: () => fake.child,
     logger,
   });
-  const query = vi.fn(async () => ({ rows: [], rowCount: 0 }));
+  vi.mocked(logger.warn).mockClear();
+  // A pool stand-in: every query takes a tick, and INSERTs hand back a row
+  // like Postgres would so the stream recorder's accumulation state works.
+  let nextId = 1;
+  const query = vi.fn(async (sql: string, params?: unknown[]) => {
+    await new Promise((r) => setTimeout(r, 2));
+    if (/INSERT INTO agent_stream_events/.test(sql)) {
+      const id = nextId++;
+      return {
+        rows: [
+          {
+            id,
+            agent_id: params?.[0],
+            seq: id,
+            kind: params?.[1],
+            key: params?.[2],
+            payload: JSON.parse(String(params?.[3])),
+            created_at: new Date(),
+            updated_at: new Date(),
+          },
+        ],
+        rowCount: 1,
+      };
+    }
+    return { rows: [], rowCount: 0 };
+  });
   const events: { type: string; message: string }[] = [];
   const deps = {
     pool: { query } as never,
@@ -139,5 +164,51 @@ describe("DshSupervisor", () => {
       cliSessionId: null,
     } as never);
     await expect(sup.start("agt_c")).rejects.toThrow(/not a dsh agent/);
+  });
+
+  it("handles a burst of stream events in order, one writer per agent", async () => {
+    const { sup, query, deps } = await build({
+      turn: async (_p, emit) => {
+        // Fire without awaiting: the driver sees these back to back.
+        const chunk = (text: string) =>
+          emit({
+            sessionUpdate: "agent_message_chunk",
+            content: { type: "text", text },
+          });
+        void chunk("a");
+        void chunk("b");
+        void emit({
+          sessionUpdate: "tool_call",
+          toolCallId: "t1",
+          title: "Read x",
+          kind: "read",
+          status: "completed",
+        });
+        await chunk("c");
+        return "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    await sup.prompt("agt_1", "go");
+    const writes = query.mock.calls.map(
+      ([sql, params]) => [String(sql).trim().slice(0, 6), params] as const
+    );
+    const inserted = writes
+      .filter(([op]) => op === "INSERT")
+      .map(([, params]) => (params as unknown[])[1]);
+    // "a" opens the assistant row, "b" appends to it, the tool call closes
+    // it, "c" opens a second row: exactly three inserts, in stream order.
+    expect(inserted).toEqual(["assistant", "tool_call", "assistant"]);
+    const finalTexts = writes
+      .filter(([op]) => op === "UPDATE")
+      .map(([, params]) => JSON.parse(String((params as unknown[])[1])).text)
+      .filter((text) => typeof text === "string");
+    expect(finalTexts.at(-1)).toBe("c");
+    expect(finalTexts).toContain("ab");
+    expect(deps.logger.warn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "dsh event handling failed"
+    );
+    await sup.stop("agt_1");
   });
 });
