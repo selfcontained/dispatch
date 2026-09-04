@@ -146,6 +146,50 @@ describe("ChatService.recordLaunchContext", () => {
   });
 });
 
+describe("ChatService.prepareLaunchContext", () => {
+  it("resolves the post's id and envelope lines before anything is written", async () => {
+    const result = await pool.query<{ id: number }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, 'brief-2026.md', 'user', 300) RETURNING id`,
+      [A]
+    );
+    const mediaId = result.rows[0].id;
+    const prepared = await service.prepareLaunchContext({
+      id: "8a4f9e60-1111-4222-8333-444455556666",
+      agentId: A,
+      text: "Build the widget",
+      files: [{ mediaId }],
+      links: ["https://example.com/spec"],
+      pins: [{ id: "pin_1", type: "string", value: "DIS-42" }],
+    });
+    expect(prepared?.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
+    // The same lines sendUserMessage injects, so pane and post agree.
+    expect(prepared?.attachmentLines).toEqual([
+      "- file: /media-root/agt_chat_svc/brief-2026.md (text/markdown, 300 B)",
+      "- link: https://example.com/spec",
+      "- pin: URL — http://x",
+    ]);
+    // Nothing written and nothing announced until record() runs.
+    expect(published).toEqual([]);
+    const rows = await pool.query(
+      "SELECT id FROM agent_chat_messages WHERE agent_id = $1",
+      [A]
+    );
+    expect(rows.rows).toHaveLength(0);
+
+    const message = await prepared!.record();
+    expect(message.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
+    expect(message).toMatchObject({ origin: "launch", delivered: true });
+    expect(published).toEqual([{ type: "chat.changed", agentId: A }]);
+  });
+
+  it("returns null for a launch with no context", async () => {
+    expect(
+      await service.prepareLaunchContext({ agentId: A, text: "  " })
+    ).toBeNull();
+  });
+});
+
 describe("ChatService.post", () => {
   it("persists an agent message and publishes chat.changed", async () => {
     const message = await service.post(A, { text: "hello", kind: "update" });

@@ -5,6 +5,7 @@ import {
   buildAgentCommand,
   buildLaunchGuidance,
   buildStartupPrompt,
+  buildStartupTurn,
   normalizeAgentArgsForType,
 } from "../src/agents/tmux/command-builder.js";
 import { dispatchMcpUrl } from "../src/agents/tmux/mcp-url.js";
@@ -161,6 +162,77 @@ describe("buildStartupPrompt", () => {
     );
     expect(result).toContain("Attached files:");
     expect(result).toContain("- screenshot.png — the bug");
+  });
+});
+
+describe("buildStartupTurn — the Chat launch envelope", () => {
+  const POST_ID = "11111111-2222-3333-4444-555555555555";
+  const startup = {
+    initialPrompt: "Build the widget",
+    initialPins: [
+      { label: "Ticket", value: "DIS-42", type: "string" as const },
+    ],
+    initialMedia: [
+      {
+        fileName: "brief-2026.md",
+        displayName: "brief.md",
+        source: "text",
+        description: null,
+      },
+    ],
+    chatLaunchPost: {
+      messageId: POST_ID,
+      attachmentLines: [
+        "- file: /media/agt_x/brief-2026.md (text/markdown, 300 B)",
+        "- pin: Ticket — DIS-42",
+      ],
+    },
+  };
+
+  it("wraps the prompt with the launch post id and the recorder's attachment lines", () => {
+    expect(buildStartupTurn(startup, { chatSurface: true })).toBe(
+      [
+        `--- DISPATCH CHAT (id: ${POST_ID}) ---`,
+        "Build the widget",
+        "",
+        "Attachments:",
+        "- file: /media/agt_x/brief-2026.md (text/markdown, 300 B)",
+        "- pin: Ticket — DIS-42",
+        "--- END DISPATCH CHAT ---",
+        `The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "${POST_ID}"); terminal output alone will not reach them.`,
+      ].join("\n")
+    );
+  });
+
+  it("falls back to the plain startup prompt with the flag off", () => {
+    const turn = buildStartupTurn(startup, { chatSurface: false });
+    expect(turn).not.toContain("DISPATCH CHAT");
+    expect(turn).toBe(
+      buildStartupPrompt(
+        startup.initialPrompt,
+        startup.initialPins,
+        startup.initialMedia
+      )
+    );
+  });
+
+  it("falls back when nothing was recorded, even with the flag on", () => {
+    const turn = buildStartupTurn(
+      { ...startup, chatLaunchPost: null },
+      { chatSurface: true }
+    );
+    expect(turn).not.toContain("DISPATCH CHAT");
+    expect(turn).toContain("Build the widget");
+  });
+
+  it("never wraps a job run — its prompt is a system-prompt append", () => {
+    expect(
+      buildStartupTurn(startup, { chatSurface: true, jobRunId: "run_abc" })
+    ).not.toContain("DISPATCH CHAT");
+  });
+
+  it("returns undefined for a launch with no context at all", () => {
+    expect(buildStartupTurn({}, { chatSurface: true })).toBeUndefined();
   });
 });
 
@@ -552,6 +624,90 @@ describe("buildAgentCommand", () => {
     );
     const flagCount = (cmd.match(/--append-system-prompt/g) ?? []).length;
     expect(flagCount).toBe(1);
+  });
+
+  it("for claude with the chat surface on, the first turn is the DISPATCH CHAT envelope", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      {
+        chatSurface: true,
+        initialPrompt: "Build the widget",
+        chatLaunchPost: {
+          messageId: "abc-123",
+          attachmentLines: ["- link: https://example.com/spec"],
+        },
+      }
+    );
+    expect(cmd).toContain("-- '--- DISPATCH CHAT (id: abc-123) ---");
+    expect(cmd).toContain("Build the widget");
+    expect(cmd).toContain("- link: https://example.com/spec");
+    expect(cmd).toContain('replyTo: "abc-123"');
+  });
+
+  it("for claude with the chat surface off, the first turn is the plain startup prompt", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "claude",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      {
+        chatSurface: false,
+        initialPrompt: "Build the widget",
+        chatLaunchPost: {
+          messageId: "abc-123",
+          attachmentLines: ["- link: https://example.com/spec"],
+        },
+      }
+    );
+    expect(cmd).not.toContain("DISPATCH CHAT");
+    expect(cmd).toContain("-- 'Build the widget'");
+  });
+
+  it("for codex, the envelope is appended after the guidance as the first turn", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "codex",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      {
+        chatSurface: true,
+        initialPrompt: "Build the widget",
+        chatLaunchPost: { messageId: "abc-123", attachmentLines: [] },
+      }
+    );
+    expect(cmd).toContain("--- DISPATCH CHAT (id: abc-123) ---");
+    expect(cmd).toContain("Dispatch startup rules");
+  });
+
+  it("for terminal type, no prompt is passed at all", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "terminal",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      {
+        chatSurface: true,
+        initialPrompt: "Build the widget",
+        chatLaunchPost: { messageId: "abc-123", attachmentLines: [] },
+      }
+    );
+    expect(cmd).not.toContain("DISPATCH CHAT");
+    expect(cmd).not.toContain("Build the widget");
   });
 
   it("for codex, personalityPrompt is folded into the startup prompt", () => {

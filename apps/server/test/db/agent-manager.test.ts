@@ -38,8 +38,12 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 }));
 
 // We need to dynamically import AgentManager AFTER the mock is in place
-const { AgentManager, AgentError, LAUNCH_CONTEXT_WRITE_TIMEOUT_MS } =
-  await import("../../src/agents/manager.js");
+const {
+  AgentManager,
+  AgentError,
+  LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
+  LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
+} = await import("../../src/agents/manager.js");
 const { ChatService } = await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const execFileAsync = promisify(execFile);
@@ -239,6 +243,7 @@ describe("AgentManager", () => {
           [agentId]
         );
         return result.rows as Array<{
+          id: string;
           author_kind: string;
           kind: string;
           text: string;
@@ -376,7 +381,74 @@ describe("AgentManager", () => {
         });
       });
 
-      it("starts the runtime without waiting on a recorder that never resolves", async () => {
+      it("hands the CLI the same post id and attachment lines when the chat surface is on", async () => {
+        await pool.query(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('chat_surface_enabled', 'true', NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+        );
+        try {
+          const agent = await manager.createAgent({
+            cwd: "/tmp",
+            type: "claude",
+            useWorktree: false,
+            initialPrompt: "Build the widget",
+            launchContext: { links: ["https://example.com/spec"] },
+            initialFiles: [
+              {
+                fileName: "brief.md",
+                originalName: "brief.md",
+                buffer: Buffer.from("# brief"),
+                source: "text",
+              },
+            ],
+          });
+          const posts = await launchPosts(agent.id);
+          expect(posts).toHaveLength(1);
+          const setupScript = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+          // The envelope the CLI receives names the post that was written,
+          // so the agent's reply threads onto the launch post in the feed.
+          expect(setupScript).toContain(
+            `--- DISPATCH CHAT (id: ${posts[0].id}) ---`
+          );
+          expect(setupScript).toContain(`replyTo: "${posts[0].id}"`);
+          expect(setupScript).toContain("Build the widget");
+          // Attachment lines come from the recorder, so pane and post agree.
+          const media = await pool.query<{ file_name: string }>(
+            `SELECT file_name FROM media WHERE agent_id = $1`,
+            [agent.id]
+          );
+          expect(setupScript).toContain(
+            `- file: ${path.join(testConfig.mediaRoot, agent.id, media.rows[0].file_name)} (text/markdown, 7 B)`
+          );
+          expect(setupScript).toContain("- link: https://example.com/spec");
+        } finally {
+          await pool.query(
+            `DELETE FROM settings WHERE key = 'chat_surface_enabled'`
+          );
+        }
+      });
+
+      it("leaves the first turn unwrapped when the chat surface is off", async () => {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          initialPrompt: "Build the widget",
+        });
+        expect(await launchPosts(agent.id)).toHaveLength(1);
+        const setupScript = await readFile(
+          `/tmp/dispatch_setup_${agent.id}.sh`,
+          "utf-8"
+        );
+        expect(setupScript).not.toContain("DISPATCH CHAT");
+        expect(setupScript).toContain("Build the widget");
+      });
+
+      it("starts the runtime without waiting on a write that never resolves", async () => {
         const warn = vi.fn();
         const stuckManager = new AgentManager(
           pool,
@@ -388,9 +460,12 @@ describe("AgentManager", () => {
         // (DB now() vs Date.now() skew made the old created_at filter flaky).
         let recordedAgentId: string | null = null;
         stuckManager.attachLaunchContextRecorder({
-          recordLaunchContext: (input) => {
+          prepareLaunchContext: async (input) => {
             recordedAgentId = input.agentId;
-            return new Promise(() => {});
+            return {
+              attachmentLines: [],
+              record: () => new Promise(() => {}),
+            };
           },
         });
 
@@ -430,6 +505,42 @@ describe("AgentManager", () => {
           expect.stringContaining("launch context write still pending")
         );
         expect(await launchPosts(agent.id)).toEqual([]);
+      }, 15_000);
+
+      it("launches unwrapped when the post never resolves", async () => {
+        // Resolving the post is on the critical path (the first turn needs
+        // its id), so a hung read gives up: no post, no envelope, and the
+        // launch still happens.
+        const warn = vi.fn();
+        const stuckManager = new AgentManager(
+          pool,
+          { ...noopLogger, warn, child: () => noopLogger } as never,
+          testConfig
+        );
+        stuckManager.attachLaunchContextRecorder({
+          prepareLaunchContext: () => new Promise(() => {}),
+        });
+
+        const agent = await stuckManager.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          initialPrompt: "Go",
+        });
+        expect(warn).toHaveBeenCalledWith(
+          expect.objectContaining({
+            agentId: agent.id,
+            timeoutMs: LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
+          }),
+          expect.stringContaining("did not resolve in time")
+        );
+        expect(await launchPosts(agent.id)).toEqual([]);
+        const setupScript = await readFile(
+          `/tmp/dispatch_setup_${agent.id}.sh`,
+          "utf-8"
+        );
+        expect(setupScript).not.toContain("DISPATCH CHAT");
+        expect(setupScript).toContain("Go");
       }, 15_000);
     });
 

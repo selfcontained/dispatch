@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type { Pool } from "pg";
@@ -117,6 +118,11 @@ export class ChatConflictError extends ChatServiceError {
  * not shown twice).
  */
 export type ChatLaunchContextInput = {
+  /**
+   * The post's id, when the caller needs it before the write — the launch
+   * path fixes it so the CLI's first turn can carry it in its envelope.
+   */
+  id?: string;
   agentId: string;
   /** The initial prompt as the person (or launching agent) wrote it. */
   text?: string;
@@ -125,6 +131,16 @@ export type ChatLaunchContextInput = {
   pins?: Array<{ id: string; type: string; value: string }>;
   /** The agent that created this one via dispatch_launch_agent, if any. */
   launchedByAgentId?: string | null;
+};
+
+/** A launch post resolved but not yet written; see `prepareLaunchContext`. */
+export type PreparedLaunchContext = {
+  /** The post's id, known before the write. */
+  id: string;
+  /** One envelope line per resolved attachment, in the post's order. */
+  attachmentLines: string[];
+  /** Write the post and announce the feed change. */
+  record: () => Promise<ChatMessage>;
 };
 
 export type ChatAnswerInput = {
@@ -422,20 +438,17 @@ export class ChatService {
   }
 
   /**
-   * Record the context an agent was launched with as one user post at the
-   * top of its feed: the initial prompt as text, plus a file attachment per
-   * startup file, a link per startup link, and a pin per initial pin. The
-   * prompt reaches the CLI through the normal launch path, so the post is
-   * `delivered: true` and nothing is injected. A launch with no context at
-   * all records nothing and returns null.
-   *
-   * When another agent did the launching, `launchedByAgentId` is stored so
-   * the web can attribute the post to it; the row stays a user post so the
-   * unread and question counts (agent posts only) are unaffected.
+   * Resolve a launch's context without writing it: the attachments (file
+   * by mediaId, pin verified on the agent, link as given) and the envelope
+   * lines that describe them — the same lines `sendUserMessage` injects, so
+   * the pane and the post agree — plus a `record` that performs the write.
+   * The launch path builds the CLI's first turn from `id` and
+   * `attachmentLines` while `record` runs alongside the runtime start.
+   * A launch with no context at all resolves to null and records nothing.
    */
-  async recordLaunchContext(
+  async prepareLaunchContext(
     input: ChatLaunchContextInput
-  ): Promise<ChatMessage | null> {
+  ): Promise<PreparedLaunchContext | null> {
     const text = input.text ?? "";
     const links = (input.links ?? []).filter((url) => url.trim().length > 0);
     const linkSet = new Set(links);
@@ -464,28 +477,56 @@ export class ChatService {
       // rather than refuse the launch, and let the sidebar show the rest.
       inputs.length = CHAT_ATTACHMENTS_MAX;
     }
-    const attachments =
-      inputs.length > 0
-        ? await this.resolveAttachmentsFor(
-            await this.requireAgent(input.agentId),
-            inputs
-          )
-        : [];
-    const message = await this.store.insert({
-      agentId: input.agentId,
-      authorKind: "user",
-      kind: "reply",
-      text:
-        text.length > CHAT_MESSAGE_MAX_CHARS
-          ? text.slice(0, CHAT_MESSAGE_MAX_CHARS)
-          : text,
-      attachments,
-      delivered: true,
-      origin: "launch",
-      launchedByAgentId: input.launchedByAgentId ?? null,
-    });
-    this.publishChanged(input.agentId);
-    return message;
+    let attachments: ChatAttachment[] = [];
+    let attachmentLines: string[] = [];
+    if (inputs.length > 0) {
+      const agent = await this.requireAgent(input.agentId);
+      attachments = await this.resolveAttachmentsFor(agent, inputs);
+      attachmentLines = this.describeAttachments(agent, attachments);
+    }
+    const id = input.id ?? randomUUID();
+    return {
+      id,
+      attachmentLines,
+      record: async () => {
+        const message = await this.store.insert({
+          id,
+          agentId: input.agentId,
+          authorKind: "user",
+          kind: "reply",
+          text:
+            text.length > CHAT_MESSAGE_MAX_CHARS
+              ? text.slice(0, CHAT_MESSAGE_MAX_CHARS)
+              : text,
+          attachments,
+          delivered: true,
+          origin: "launch",
+          launchedByAgentId: input.launchedByAgentId ?? null,
+        });
+        this.publishChanged(input.agentId);
+        return message;
+      },
+    };
+  }
+
+  /**
+   * Record the context an agent was launched with as one user post at the
+   * top of its feed: the initial prompt as text, plus a file attachment per
+   * startup file, a link per startup link, and a pin per initial pin. The
+   * prompt reaches the CLI through the normal launch path (wrapped in the
+   * Chat envelope when the chat surface is on), so the post is
+   * `delivered: true` and nothing is injected. A launch with no context at
+   * all records nothing and returns null.
+   *
+   * When another agent did the launching, `launchedByAgentId` is stored so
+   * the web can attribute the post to it; the row stays a user post so the
+   * unread and question counts (agent posts only) are unaffected.
+   */
+  async recordLaunchContext(
+    input: ChatLaunchContextInput
+  ): Promise<ChatMessage | null> {
+    const prepared = await this.prepareLaunchContext(input);
+    return prepared ? prepared.record() : null;
   }
 
   // -------------------------------------------------------------------------

@@ -59,9 +59,9 @@ import { type SeededMedia, seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
+  type ChatLaunchPost,
   buildAgentCommand,
   buildLaunchGuidance,
-  buildStartupPrompt,
 } from "./tmux/command-builder.js";
 import {
   agentIdFromSessionName,
@@ -226,18 +226,25 @@ export type DiffStatsRefresherHandle = {
 
 /**
  * Records what an agent was launched with as the first post of its Chat
- * feed. Implemented by `ChatService.recordLaunchContext`; narrowed so the
- * manager never imports the chat module.
+ * feed. Implemented by `ChatService.prepareLaunchContext`; narrowed so the
+ * manager never imports the chat module. `prepare` resolves the post (its
+ * attachments and their envelope lines) without writing it, so the CLI's
+ * first turn can be built from the same id and lines; `record` then writes
+ * it. Null means the launch carries no context and nothing is recorded.
  */
 export type LaunchContextRecorder = {
-  recordLaunchContext: (input: {
+  prepareLaunchContext: (input: {
+    id: string;
     agentId: string;
     text?: string;
     files?: Array<{ mediaId: number }>;
     links?: string[];
     pins?: Array<{ id: string; type: string; value: string }>;
     launchedByAgentId?: string | null;
-  }) => Promise<unknown>;
+  }) => Promise<{
+    attachmentLines: string[];
+    record: () => Promise<unknown>;
+  } | null>;
 };
 
 /** The two settings-backed switches the launch guidance is built from. */
@@ -253,6 +260,31 @@ async function readLaunchGuidanceFlags(
 
 /** Upper bound on how long a launch waits for its Chat launch post. */
 export const LAUNCH_CONTEXT_WRITE_TIMEOUT_MS = 5_000;
+
+/**
+ * Upper bound on resolving the launch post before the CLI command is built.
+ * Unlike the write, this one is on the launch's critical path — the first
+ * turn's envelope needs the post's id and attachment lines — so a slow or
+ * hung Chat read gives up and the agent launches with the plain startup
+ * prompt and no post, rather than the two disagreeing.
+ */
+export const LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS = 5_000;
+
+/** Sentinel for a promise that outlived its bound. */
+const TIMED_OUT = Symbol("timed-out");
+
+/** Resolve with the promise's value, or `TIMED_OUT` after `ms`. */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number
+): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 export class AgentManager {
   private readonly pool: Pool;
@@ -440,15 +472,29 @@ export class AgentManager {
         throw error;
       }
     }
-    const startupPrompt = buildStartupPrompt(
-      input.initialPrompt,
-      p.initialPins,
-      initialMedia
+    // The launch post's id is fixed here so the CLI's first turn can carry
+    // it (the Chat envelope, built by the command builder when the chat
+    // surface is on). Resolving the post is a small read and happens before
+    // the command is built; the write itself runs alongside the runtime
+    // launch, never blocks it, and is only waited on (bounded) so the feed
+    // has the post when the caller gets the agent back.
+    const launchPostId = randomUUID();
+    const preparedLaunchContext = await this.prepareLaunchContext(
+      p,
+      input,
+      initialMedia,
+      launchPostId
     );
-    // Best-effort: the write runs alongside the runtime launch, never blocks
-    // it, and is only waited on (bounded) so the feed has the post when the
-    // caller gets the agent back.
-    const launchContextWrite = this.recordLaunchContext(p, input, initialMedia);
+    const chatLaunchPost: ChatLaunchPost | null = preparedLaunchContext
+      ? {
+          messageId: launchPostId,
+          attachmentLines: preparedLaunchContext.attachmentLines,
+        }
+      : null;
+    const launchContextWrite = this.recordLaunchContext(
+      p.id,
+      preparedLaunchContext
+    );
 
     if (this.config.agentRuntime === "inert") {
       await this.launchInertAgent({
@@ -480,7 +526,10 @@ export class AgentManager {
         normalizedBaseBranch: p.normalizedBaseBranch,
         worktreePathOverride: p.worktreePathOverride,
         cliSessionId: p.cliSessionId,
-        startupPrompt,
+        initialPrompt: input.initialPrompt,
+        initialPins: p.initialPins,
+        initialMedia,
+        chatLaunchPost,
         persona: input.persona,
         jobRunId: input.jobRunId,
         templateId: input.templateId,
@@ -493,67 +542,100 @@ export class AgentManager {
   }
 
   /**
-   * Put the launch context at the top of the Chat feed, so the feed opens
-   * with it. Best-effort and detached from the launch: the write is started
-   * alongside the runtime launch, a failure is logged and never fails the
-   * launch (the prompt still reaches the CLI), and the returned promise
-   * settles after at most `LAUNCH_CONTEXT_WRITE_TIMEOUT_MS` so a slow or hung
-   * Chat write cannot hold the agent start. A write that outlives the wait
-   * still lands (and announces itself) whenever it completes.
+   * Resolve the launch context for the Chat feed's launch post: the
+   * attachments and the envelope lines the CLI's first turn lists. A
+   * launch with nothing to record, a terminal agent, or no recorder gives
+   * null. A resolution failure is logged and treated as no context — the
+   * launch continues with the plain startup prompt and no post, so the
+   * pane and the feed never disagree.
    *
    * Only an explicit `launchedByAgentId` attributes the post to an agent —
    * the agent-authenticated launch paths set it. `parentAgentId` is never
    * used for attribution: the create route accepts it from the request body.
    */
-  private recordLaunchContext(
+  private async prepareLaunchContext(
     p: PreparedCreateInputs,
     input: CreateAgentInput,
-    initialMedia: Array<{ mediaId: number }>
-  ): Promise<void> {
+    initialMedia: Array<{ mediaId: number }>,
+    launchPostId: string
+  ): Promise<{
+    attachmentLines: string[];
+    record: () => Promise<unknown>;
+  } | null> {
     const recorder = this.launchContextRecorder;
-    if (!recorder || p.type === "terminal") return Promise.resolve();
+    if (!recorder || p.type === "terminal") return null;
+    const resolve = recorder
+      .prepareLaunchContext({
+        id: launchPostId,
+        agentId: p.id,
+        text: input.launchContext?.prompt ?? input.initialPrompt,
+        files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
+        links: input.launchContext?.links ?? [],
+        pins: p.initialPins.map((pin) => ({
+          id: pin.id ?? "",
+          type: pin.type,
+          value: pin.value,
+        })),
+        launchedByAgentId: input.launchedByAgentId ?? null,
+      })
+      .catch((error: unknown) => {
+        this.logger.warn(
+          { err: error, agentId: p.id },
+          "chat: failed to resolve launch context; launching without it"
+        );
+        return null;
+      });
+    const prepared = await withTimeout(
+      resolve,
+      LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS
+    );
+    if (prepared === TIMED_OUT) {
+      this.logger.warn(
+        { agentId: p.id, timeoutMs: LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS },
+        "chat: launch context did not resolve in time; launching without it"
+      );
+      return null;
+    }
+    return prepared;
+  }
+
+  /**
+   * Put the prepared launch context at the top of the Chat feed, so the
+   * feed opens with it. Best-effort and detached from the launch: the write
+   * is started alongside the runtime launch, a failure is logged and never
+   * fails the launch (the prompt still reaches the CLI), and the returned
+   * promise settles after at most `LAUNCH_CONTEXT_WRITE_TIMEOUT_MS` so a
+   * slow or hung Chat write cannot hold the agent start. A write that
+   * outlives the wait still lands (and announces itself) whenever it
+   * completes.
+   */
+  private recordLaunchContext(
+    agentId: string,
+    prepared: { record: () => Promise<unknown> } | null
+  ): Promise<void> {
+    if (!prepared) return Promise.resolve();
     const write = Promise.resolve()
-      .then(() =>
-        recorder.recordLaunchContext({
-          agentId: p.id,
-          text: input.launchContext?.prompt ?? input.initialPrompt,
-          files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
-          links: input.launchContext?.links ?? [],
-          pins: p.initialPins.map((pin) => ({
-            id: pin.id ?? "",
-            type: pin.type,
-            value: pin.value,
-          })),
-          launchedByAgentId: input.launchedByAgentId ?? null,
-        })
-      )
+      .then(() => prepared.record())
       .then(
         () => "written" as const,
         (error: unknown) => {
           this.logger.warn(
-            { err: error, agentId: p.id },
+            { err: error, agentId },
             "chat: failed to record launch context"
           );
           return "failed" as const;
         }
       );
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(
-        () => resolve("timeout"),
-        LAUNCH_CONTEXT_WRITE_TIMEOUT_MS
-      );
-      timer.unref?.();
-    });
-    return Promise.race([write, timeout]).then((outcome) => {
-      clearTimeout(timer);
-      if (outcome === "timeout") {
-        this.logger.warn(
-          { agentId: p.id, timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS },
-          "chat: launch context write still pending; launch continues without it"
-        );
+    return withTimeout(write, LAUNCH_CONTEXT_WRITE_TIMEOUT_MS).then(
+      (outcome) => {
+        if (outcome === TIMED_OUT) {
+          this.logger.warn(
+            { agentId, timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS },
+            "chat: launch context write still pending; launch continues without it"
+          );
+        }
       }
-    });
+    );
   }
 
   private async prepareCreateInputs(
@@ -783,7 +865,10 @@ export class AgentManager {
     normalizedBaseBranch: string | undefined;
     worktreePathOverride: string | undefined;
     cliSessionId: string | null;
-    startupPrompt: string | undefined;
+    initialPrompt: string | undefined;
+    initialPins: AgentPin[];
+    initialMedia: SeededMedia[];
+    chatLaunchPost: ChatLaunchPost | null;
     persona: string | undefined;
     jobRunId: string | undefined;
     templateId: string | undefined;
@@ -803,7 +888,10 @@ export class AgentManager {
       useWorktree,
       createNewBranch,
       cliSessionId,
-      startupPrompt,
+      initialPrompt,
+      initialPins,
+      initialMedia,
+      chatLaunchPost,
     } = opts;
 
     try {
@@ -837,7 +925,10 @@ export class AgentManager {
           autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
           trimmedGuidance,
           chatSurface,
-          initialPrompt: startupPrompt,
+          initialPrompt,
+          initialPins,
+          initialMedia,
+          chatLaunchPost,
           personalityPrompt: personality?.prompt ?? null,
           model,
         }

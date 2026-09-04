@@ -20,6 +20,12 @@ export type Queryable = {
 };
 
 export type InsertChatMessageInput = {
+  /**
+   * Explicit row id. Launch posts fix it before the write so the pane
+   * envelope built alongside can carry it; everything else lets the store
+   * mint one.
+   */
+  id?: string;
   agentId: string;
   authorKind: ChatAuthorKind;
   kind?: ChatMessageKind;
@@ -107,7 +113,7 @@ export class ChatStore {
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
        RETURNING *`,
       [
-        randomUUID(),
+        input.id ?? randomUUID(),
         input.agentId,
         input.authorKind,
         input.kind ?? "reply",
