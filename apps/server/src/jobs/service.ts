@@ -200,9 +200,9 @@ export class JobService {
         model: agentConfig.model ?? undefined,
         cwd: job.directory,
         agentArgs: buildAgentArgs(agentType, prompt, agentConfig.fullAccess),
-        // The CLI receives the prompt through agentArgs; the Chat feed's
-        // launch post needs it stated separately.
-        launchContext: { prompt },
+        // The CLI receives generated job-run scaffolding through agentArgs;
+        // Chat shows only the user-authored job prompt.
+        launchContext: { prompt: resolvedPrompt },
         fullAccess: agentConfig.fullAccess,
         ...templateWorktreeConfig(agentConfig),
         jobRunId: run.id,
@@ -471,7 +471,7 @@ export class JobService {
         prompt,
         agentConfig.fullAccess
       ),
-      launchContext: { prompt },
+      launchContext: { prompt: resolvedPrompt },
       fullAccess: agentConfig.fullAccess,
       ...templateWorktreeConfig(agentConfig),
       jobRunId: run.id,

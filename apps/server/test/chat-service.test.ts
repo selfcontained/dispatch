@@ -713,7 +713,7 @@ describe("ChatService user workflows", () => {
         "- pin: URL — http://x",
         "- link: https://example.com/spec — Spec",
         "--- END DISPATCH CHAT ---",
-        `The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "${res.message.id}"); terminal output alone will not reach them.`,
+        `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${res.message.id}").`,
       ].join("\n")
     );
   });

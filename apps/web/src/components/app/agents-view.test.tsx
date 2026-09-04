@@ -660,6 +660,37 @@ describe("AgentsView agent pane", () => {
     expect(propsOf("AgentPane").active).toBe(true);
   });
 
+  it("keeps the empty workspace Console-only even when Chat is enabled", () => {
+    Object.assign(H.state, {
+      agents: [],
+      validatedSelectedAgentId: null,
+      connState: "disconnected",
+      connectedAgentId: null,
+      chatEnabled: true,
+    });
+    mount({ path: "/agents" });
+
+    expect(propsOf("AgentsViewHeader").chatEnabled).toBe(false);
+    expect(propsOf("AgentPane").chatEnabled).toBe(false);
+  });
+
+  it("keeps terminal agents Console-only and omits the split view switch", () => {
+    Object.assign(H.state, {
+      agents: [makeAgent({ id: "terminal-1", type: "terminal" })],
+      validatedSelectedAgentId: "terminal-1",
+      connState: "connected",
+      connectedAgentId: "terminal-1",
+      chatEnabled: true,
+      isSplit: true,
+      splitState: { left: "agent", right: "changes" },
+    });
+    mount({ path: "/agents/terminal-1" });
+
+    expect(propsOf("AgentsViewHeader").chatEnabled).toBe(false);
+    expect(propsOf("AgentPane").chatEnabled).toBe(false);
+    expect(propsOf("CenterPaneSplit").agentHeaderAccessory).toBeNull();
+  });
+
   it("keeps the pane mounted but inactive under the Changes tab", () => {
     focusOn("a1");
     H.state.changesMatch = true;

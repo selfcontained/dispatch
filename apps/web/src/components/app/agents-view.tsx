@@ -234,9 +234,12 @@ export function AgentsView({
     : null;
   // The flag as it applies to the agent in focus: a terminal session has no
   // CLI to chat with, so it keeps the plain Terminal tab and Console-only
-  // pane however the flag is set.
+  // pane however the flag is set. An empty workspace likewise has no Chat
+  // target and should not render the Agent-pane view switch.
   const chatEnabled =
-    chatSurfaceEnabled && agentSupportsChat(focusedAgent?.type);
+    chatSurfaceEnabled &&
+    focusedAgent !== null &&
+    agentSupportsChat(focusedAgent.type);
   const activeTab: CenterTab = changesMatch
     ? "changes"
     : whiteboardMatch
@@ -637,7 +640,7 @@ export function AgentsView({
       />
     ) : null;
   const splitAgentHeaderAccessory =
-    isSplit && agentPaneVisible ? (
+    isSplit && agentPaneVisible && chatEnabled ? (
       <AgentViewToggle
         view={agentView}
         onViewChange={setAgentView}

@@ -89,6 +89,7 @@ describe("TemplateService.launchTemplate", () => {
       expect.objectContaining({
         type: "codex",
         initialPrompt: "Review src/app.tsx",
+        launchContext: { links: [] },
       })
     );
   });

@@ -208,6 +208,20 @@ describe("filterChildAgentMessages", () => {
       )
     ).toEqual(["other-agent", "human-chat"]);
   });
+
+  it("uses feed lineage when an archived child is absent from the live list", () => {
+    const archivedChild = {
+      ...childMessage("archived-child", "agt_archived", "agt_1"),
+      involvesChildAgent: true,
+    };
+    expect(
+      filterChildAgentMessages(
+        [...entries, archivedChild],
+        new Set(),
+        false
+      ).map((entry) => entry.id)
+    ).toEqual(["from-child", "to-child", "other-agent", "human-chat"]);
+  });
 });
 
 describe("ChatPane", () => {

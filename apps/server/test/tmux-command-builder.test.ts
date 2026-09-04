@@ -199,7 +199,7 @@ describe("buildStartupTurn — the Chat launch envelope", () => {
         "- file: /media/agt_x/brief-2026.md (text/markdown, 300 B)",
         "- pin: Ticket — DIS-42",
         "--- END DISPATCH CHAT ---",
-        `The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "${POST_ID}"); terminal output alone will not reach them.`,
+        `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${POST_ID}").`,
       ].join("\n")
     );
   });
@@ -1182,7 +1182,7 @@ describe("buildLaunchGuidance — trimmed variant", () => {
 
 describe("buildLaunchGuidance — chat surface rule", () => {
   const RULE =
-    "Send user-facing replies and questions with dispatch_chat_post; use kind: question with options for finite choices. Terminal output remains in Console.";
+    "The user is reading Chat, not Console. Send every user-facing reply and question with dispatch_chat_post; use kind: question with options for finite choices.";
 
   it("is absent by default and when the flag is off", () => {
     expect(

@@ -319,9 +319,9 @@ describe("JobService", () => {
         expect.objectContaining({
           jobRunId: result.runId,
           name: `job-Rename_Test-${result.runId.slice(0, 8)}`,
-          // The Chat launch post gets the job prompt the CLI receives.
+          // The Chat launch post gets only the user-authored job prompt.
           launchContext: {
-            prompt: expect.stringContaining(`Run ID: ${result.runId}`),
+            prompt: "Test prompt",
           },
         })
       );

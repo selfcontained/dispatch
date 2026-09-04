@@ -65,11 +65,12 @@ export function filterChildAgentMessages(
   childAgentIds: ReadonlySet<string>,
   showChildAgents: boolean
 ): ChatFeedEntry[] {
-  if (showChildAgents || childAgentIds.size === 0) return [...entries];
+  if (showChildAgents) return [...entries];
   return entries.filter(
     (entry) =>
       entry.type !== "agent_message" ||
-      (!childAgentIds.has(entry.senderAgentId) &&
+      (!entry.involvesChildAgent &&
+        !childAgentIds.has(entry.senderAgentId) &&
         !childAgentIds.has(entry.recipientAgentId))
   );
 }
@@ -369,7 +370,7 @@ export function ChatPane({
 
   return (
     <div
-      className="flex h-full min-h-0 flex-col bg-background"
+      className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden bg-background"
       data-testid="chat-pane"
     >
       <div className="relative min-h-0 flex-1">
@@ -382,7 +383,7 @@ export function ChatPane({
           onLoadCapture={() => {
             if (following) scrollToBottom();
           }}
-          className="h-full overflow-y-auto overscroll-contain py-2"
+          className="h-full min-w-0 max-w-full overflow-x-hidden overflow-y-auto overscroll-contain py-2"
         >
           {feed.hasOlder ? (
             <div className="mb-1 flex justify-center px-4">
@@ -493,7 +494,7 @@ export function ChatPane({
 
       <div
         className={cn(
-          "shrink-0 border-t border-border/40 px-4 pt-2",
+          "min-w-0 max-w-full shrink-0 overflow-hidden border-t border-border/40 px-4 pt-2",
           isMobile ? "pb-2" : "pb-3"
         )}
       >

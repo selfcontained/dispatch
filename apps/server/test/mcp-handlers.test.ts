@@ -1316,7 +1316,7 @@ describe("createMcpHandlers", () => {
           "--- DISPATCH CHAT (id: post-1) ---",
           created.initialPrompt,
           "--- END DISPATCH CHAT ---",
-          'The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "post-1"); terminal output alone will not reach them.',
+          'The user only sees Chat — reply with dispatch_chat_post (replyTo: "post-1").',
         ].join("\n")
       );
       expect(turn).toContain('You were launched by Dispatch agent "agt_test1"');
@@ -1561,6 +1561,9 @@ describe("createMcpHandlers", () => {
       expect(initialPrompt).toContain("Build this idea:");
       expect(initialPrompt).toContain("fix the launch bug");
       expect(initialPrompt).not.toContain("{{D:");
+      expect(
+        deps.agentManager.createAgent.mock.calls[0][0].launchContext
+      ).toEqual({ prompt: "fix the launch bug" });
     });
 
     it("appends the caller's prompt to the template's prompt", async () => {

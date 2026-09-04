@@ -572,7 +572,7 @@ test.describe("Chat surface", () => {
   }) => {
     await setChatSurface(request, true);
     const agent = await createAgentViaAPI(request, {
-      name: `e2e-chat-touch-${Date.now()}`,
+      name: `e2e-chat-touch-with-a-realistically-long-agent-task-name-${Date.now()}`,
     });
 
     const protocol = process.env.TLS_CERT ? "https" : "http";
@@ -607,6 +607,35 @@ test.describe("Chat surface", () => {
           )
           .toBeGreaterThanOrEqual(44);
       }
+      const track = touchPage.getByTestId("agent-view-track");
+      const filterSurface = touchPage.getByTestId("chat-filters-surface");
+      const filterIcon = touchPage.getByTestId("chat-filters-icon");
+      await expect
+        .poll(async () => {
+          const trackBox = (await track.boundingBox())!;
+          const surfaceBox = (await filterSurface.boundingBox())!;
+          const iconBox = (await filterIcon.boundingBox())!;
+          return {
+            trackHeight: Math.round(trackBox.height),
+            surfaceWidth: Math.round(surfaceBox.width),
+            surfaceHeight: Math.round(surfaceBox.height),
+            centerDelta: Math.round(
+              surfaceBox.y +
+                surfaceBox.height / 2 -
+                (trackBox.y + trackBox.height / 2)
+            ),
+            iconWidth: Math.round(iconBox.width),
+            iconHeight: Math.round(iconBox.height),
+          };
+        })
+        .toEqual({
+          trackHeight: 24,
+          surfaceWidth: 24,
+          surfaceHeight: 24,
+          centerDelta: 0,
+          iconWidth: 14,
+          iconHeight: 14,
+        });
       // The header grew to hold it rather than clipping it.
       const controls = toggle.locator("xpath=..");
       const header = controls.locator("xpath=..");
@@ -617,6 +646,33 @@ test.describe("Chat surface", () => {
         headerBox.y + headerBox.height
       );
       await expect(touchPage.getByTestId("chat-pane")).toBeVisible();
+
+      const indicator = touchPage.getByTestId("agent-view-indicator");
+      const indicatorInsets = async () => {
+        const trackBox = (await track.boundingBox())!;
+        const indicatorBox = (await indicator.boundingBox())!;
+        const segmentStart =
+          (await toggle.getAttribute("data-view")) === "console"
+            ? trackBox.x + trackBox.width / 2
+            : trackBox.x;
+        const segmentEnd = segmentStart + trackBox.width / 2;
+        return {
+          left: Math.round(indicatorBox.x - segmentStart),
+          right: Math.round(segmentEnd - (indicatorBox.x + indicatorBox.width)),
+          top: Math.round(indicatorBox.y - trackBox.y),
+          bottom: Math.round(
+            trackBox.y +
+              trackBox.height -
+              (indicatorBox.y + indicatorBox.height)
+          ),
+        };
+      };
+      await expect.poll(indicatorInsets).toEqual({
+        left: 2,
+        right: 2,
+        top: 2,
+        bottom: 2,
+      });
       await touchPage.screenshot({
         path: test.info().outputPath("chat-surface-touch-390.png"),
       });
@@ -624,8 +680,91 @@ test.describe("Chat surface", () => {
       await touchPage.getByTestId("agent-view-console").tap();
       await expect(toggle).toHaveAttribute("data-view", "console");
       await expect(touchPage.getByTestId("terminal-pane")).toBeVisible();
+      await expect.poll(indicatorInsets).toEqual({
+        left: 2,
+        right: 2,
+        top: 2,
+        bottom: 2,
+      });
+
+      await touchPage.getByTestId("agent-view-chat").tap();
+      await expect(toggle).toHaveAttribute("data-view", "chat");
+      await expect(touchPage.getByTestId("chat-pane")).toBeVisible();
+      await expect.poll(indicatorInsets).toEqual({
+        left: 2,
+        right: 2,
+        top: 2,
+        bottom: 2,
+      });
+
+      await touchPage.setViewportSize({ width: 320, height: 844 });
+      await expect
+        .poll(async () => {
+          const toggleBox = (await toggle.boundingBox())!;
+          const triggerBox = (await touchPage
+            .getByTestId("chat-filters-trigger")
+            .boundingBox())!;
+          return {
+            railWidth: Math.round(
+              (await touchPage.getByTestId("agent-view-track").boundingBox())!
+                .width
+            ),
+            controlsOverlap: Math.max(
+              0,
+              Math.round(toggleBox.x + toggleBox.width - triggerBox.x)
+            ),
+            pageOverflow: await touchPage.evaluate(
+              () => document.documentElement.scrollWidth - innerWidth
+            ),
+          };
+        })
+        .toEqual({ railWidth: 124, controlsOverlap: 0, pageOverflow: 0 });
+      await touchPage.screenshot({
+        path: test.info().outputPath("chat-surface-touch-long-name-320.png"),
+      });
     } finally {
       await context.close();
     }
+  });
+
+  test("keeps wide markdown tables reachable without page overflow", async ({
+    page,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-table-${Date.now()}`,
+    });
+    await callMcpTool(request, agent.id, "dispatch_chat_post", {
+      text: [
+        "| Alpha heading | Bravo heading | Charlie heading | Delta heading | Echo heading |",
+        "| --- | --- | --- | --- | --- |",
+        "| alpha-value-long | bravo-value-long | charlie-value-long | delta-value-long | echo-value-long |",
+      ].join("\n"),
+    });
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(`/agents/${agent.id}`, { waitUntil: "domcontentloaded" });
+    const scroller = page.getByTestId("markdown-table-scroll");
+    await scroller.waitFor({ state: "visible" });
+    await expect
+      .poll(() =>
+        scroller.evaluate((node) => ({
+          overflowX: getComputedStyle(node).overflowX,
+          scrollable: node.scrollWidth > node.clientWidth,
+          pageOverflow: document.documentElement.scrollWidth - innerWidth,
+        }))
+      )
+      .toEqual({ overflowX: "auto", scrollable: true, pageOverflow: 0 });
+
+    await scroller.evaluate((node) => {
+      node.scrollLeft = 120;
+    });
+    await expect
+      .poll(() => scroller.evaluate((node) => node.scrollLeft))
+      .toBeGreaterThan(0);
+    await page.screenshot({
+      path: test.info().outputPath("chat-surface-wide-table-390.png"),
+    });
   });
 });

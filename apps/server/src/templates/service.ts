@@ -222,7 +222,9 @@ export class TemplateService {
       model: resolvedModel,
       cwd,
       initialPrompt: finalPrompt,
-      launchContext: { links: !isTerminal ? (input.startupLinks ?? []) : [] },
+      launchContext: {
+        links: !isTerminal ? (input.startupLinks ?? []) : [],
+      },
       fullAccess: !isTerminal && template.fullAccess,
       ...(isTerminal
         ? { useWorktree: false }

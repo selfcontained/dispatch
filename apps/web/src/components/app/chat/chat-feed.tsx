@@ -319,7 +319,10 @@ export function ChatFeed({
   }, [rows]);
 
   return (
-    <div className="flex flex-col pb-1" data-testid="chat-feed">
+    <div
+      className="flex min-w-0 max-w-full flex-col overflow-x-hidden pb-1"
+      data-testid="chat-feed"
+    >
       {blocks.map((block) => {
         if (block.kind === "statuses") {
           return (
