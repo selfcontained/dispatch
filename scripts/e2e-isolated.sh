@@ -49,6 +49,11 @@ export E2E_PORT="$API_PORT"
 # each run only matches its own prefix; kill stale e2e-* sessions manually.)
 export DISPATCH_AGENT_RUNTIME="${E2E_AGENT_RUNTIME:-inert}"
 export DISPATCH_SESSION_PREFIX="$RUN_ID"
+# dsh agents talk to a harness over ACP stdio. The suite never runs the real
+# DeepSeek Harness: the fake in e2e/fixtures speaks the protocol and scripts
+# one turn, and its home stays out of ~/.dispatch.
+export DISPATCH_DSH_BIN="${DISPATCH_DSH_BIN:-$PWD/e2e/fixtures/fake-dsh.mjs}"
+export DISPATCH_DSH_HOME="/tmp/dispatch-dsh-home-${RUN_ID}"
 
 if [ "$DISPATCH_AGENT_RUNTIME" = "tmux" ] && ! command -v tmux &>/dev/null; then
   echo "Error: E2E_AGENT_RUNTIME=tmux but tmux is not on PATH." >&2
