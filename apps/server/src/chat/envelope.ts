@@ -34,13 +34,21 @@ export const ENVELOPE_MARKER_ESCAPE = "> ";
  */
 export function escapeEnvelopeMarkers(text: string): string {
   if (!text.includes("-")) return text;
+  // Split on every separator a pane, CLI or Markdown renderer may treat as a
+  // line break, not just \n: a lone CR (JSON and MCP strings carry them) or a
+  // Unicode line/paragraph separator would otherwise hide a forged marker
+  // from the match. Separators are normalized to \n on the way out, so the
+  // escaped text has one unambiguous line grammar.
   let changed = false;
-  const lines = text.split("\n").map((line) => {
+  const lines = text.split(/\r\n|[\r\n\u2028\u2029]/).map((line) => {
     if (!ENVELOPE_MARKER_RE.test(line)) return line;
     changed = true;
     return `${ENVELOPE_MARKER_ESCAPE}${line}`;
   });
-  return changed ? lines.join("\n") : text;
+  // Rejoining also normalizes separators, so return the joined form whenever
+  // the split saw anything other than plain \n.
+  const joined = lines.join("\n");
+  return changed || joined !== text ? joined : text;
 }
 
 /**

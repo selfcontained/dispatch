@@ -488,10 +488,15 @@ export class AgentManager {
     // waited on (bounded) only after it. The flags are read once here and
     // handed to the command builder, so the unwrapped paths add no query.
     const inertRuntime = this.config.agentRuntime === "inert";
+    // This read is on the create path ahead of the launch's own try/catch, so
+    // a rejecting settings query would otherwise leave the row stuck in
+    // `creating`. Route it through the same failure handling the launch uses.
     const launchGuidanceFlags =
       input.jobRunId || inertRuntime
         ? { trimmedGuidance: false, chatSurface: false }
-        : await readLaunchGuidanceFlags(this.pool);
+        : await readLaunchGuidanceFlags(this.pool).catch((error: unknown) =>
+            this.failCreate(p.id, error)
+          );
     // Terminal sessions have no CLI to chat with, so they get no post at all.
     const recorder = p.type === "terminal" ? null : this.launchContextRecorder;
     const wantsEnvelope =
@@ -1024,16 +1029,27 @@ export class AgentManager {
         payload: { kind: "setup-script", scriptContent: setupScript },
       });
     } catch (error) {
-      const message = errorMessage(error);
-      await this.setAgentStatus(id, "error", message);
-      await this.setSetupPhase(id, null);
-      await this.setSystemLatestEvent(id, {
-        type: "blocked",
-        message: `Failed to create agent: ${message}`,
-        metadata: { source: "system", phase: "create" },
-      });
-      throw new AgentError(`Failed to create agent: ${message}`, 500);
+      await this.failCreate(id, error);
     }
+  }
+
+  /**
+   * Put a half-created agent into its terminal failure state and rethrow.
+   *
+   * Anything on the create path that can reject has to land here: the row is
+   * already inserted as `creating`, so an escaping error would strand it in
+   * that state with a stale setup phase and no event explaining why.
+   */
+  private async failCreate(id: string, error: unknown): Promise<never> {
+    const message = errorMessage(error);
+    await this.setAgentStatus(id, "error", message);
+    await this.setSetupPhase(id, null);
+    await this.setSystemLatestEvent(id, {
+      type: "blocked",
+      message: `Failed to create agent: ${message}`,
+      metadata: { source: "system", phase: "create" },
+    });
+    throw new AgentError(`Failed to create agent: ${message}`, 500);
   }
 
   /**
