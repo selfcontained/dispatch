@@ -753,7 +753,7 @@ export function ChatComposer({
           <Button
             type="submit"
             size="icon"
-            variant={canSend ? "primary" : "ghost"}
+            variant={canSend ? "success" : "ghost"}
             disabled={!canSend}
             title="Send (Enter)"
             aria-label="Send message"
@@ -761,7 +761,7 @@ export function ChatComposer({
             // Compact icon under a mouse; on touch devices the button grows
             // to a 44px target and drops its inset so it still sits inside
             // the composer box next to the 40px-min field.
-            className="m-1.5 h-7 w-7 shrink-0 pointer-coarse:m-0 pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11"
+            className="m-2 h-7 w-7 shrink-0 rounded-full pointer-coarse:m-0 pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11"
           >
             <SendHorizontal className="h-4 w-4" />
           </Button>

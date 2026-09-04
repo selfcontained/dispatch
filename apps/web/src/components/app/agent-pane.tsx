@@ -54,7 +54,7 @@ export function AgentViewToggle({
         aria-label="Agent pane view"
         data-testid="agent-view-toggle"
         data-view={view}
-        className="relative isolate grid h-6 w-[7.75rem] grid-cols-2 border-0 bg-transparent p-0 shadow-none sm:w-[8.5rem] pointer-coarse:h-11"
+        className="relative isolate grid h-6 w-[9.5rem] grid-cols-2 border-0 bg-transparent p-0 shadow-none sm:w-[10rem] pointer-coarse:h-11"
       >
         <span
           aria-hidden="true"
@@ -65,7 +65,7 @@ export function AgentViewToggle({
           aria-hidden="true"
           data-testid="agent-view-indicator"
           className={cn(
-            "pointer-events-none absolute left-0.5 top-1/2 z-0 h-5 w-[calc(50%-0.25rem)] -translate-y-1/2 rounded-full bg-primary shadow transition-transform duration-200 ease-out motion-reduce:transition-none",
+            "pointer-events-none absolute left-0.5 top-1/2 z-0 h-5 w-[calc(50%-0.25rem)] -translate-y-1/2 rounded-full border border-border bg-background shadow transition-transform duration-200 ease-out motion-reduce:transition-none",
             view === "console" && "translate-x-[calc(100%+0.25rem)]"
           )}
         />
@@ -73,15 +73,15 @@ export function AgentViewToggle({
           value="chat"
           aria-label="Chat"
           data-testid="agent-view-chat"
-          className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
+          className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
         >
-          <MessageSquare className="h-2.5 w-2.5" />
+          <MessageSquare className="h-2.5 w-2.5 shrink-0" />
           Chat
           {showUnread ? (
             <span
               data-testid="agent-view-chat-unread"
               aria-label={`${chatUnreadCount} unread chat messages`}
-              className="ml-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+              className="ml-0.5 min-w-4 shrink-0 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
             >
               {formatBadgeCount(chatUnreadCount)}
             </span>
@@ -91,9 +91,9 @@ export function AgentViewToggle({
           value="console"
           aria-label="Console"
           data-testid="agent-view-console"
-          className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
+          className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
         >
-          <TerminalSquare className="h-2.5 w-2.5" />
+          <TerminalSquare className="h-2.5 w-2.5 shrink-0" />
           Console
         </ToggleGroupItem>
       </ToggleGroup>

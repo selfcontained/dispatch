@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Routes, Route, useNavigate, useParams } from "react-router-dom";
-import { useAtomValue } from "jotai";
+import { useAtom, useAtomValue } from "jotai";
 
 import {
   type AgentPaneView,
   bottomBarCollapsedAtom,
+  chatShowChildAgentsAtom,
   type CenterTab,
   whiteboardAgentDrewAtomFamily,
 } from "@/lib/store";
@@ -112,7 +113,9 @@ export function AgentsView({
   >(null);
   const [sharedConnState, setSharedConnState] =
     useState<ConnState>("disconnected");
-  const [showChildAgents, setShowChildAgents] = useState(true);
+  const [showChildAgents, setShowChildAgents] = useAtom(
+    chatShowChildAgentsAtom
+  );
 
   const {
     agents,

@@ -174,7 +174,7 @@ describe("AgentViewToggle", () => {
     const track = screen.getByTestId("agent-view-track");
     const indicator = screen.getByTestId("agent-view-indicator");
     expect(toggle.className).toContain("h-6");
-    expect(toggle.className).toContain("w-[7.75rem]");
+    expect(toggle.className).toContain("w-[9.5rem]");
     expect(toggle.className).toContain("pointer-coarse:h-11");
     expect(track.className).toContain("h-6");
     expect(indicator.className).toContain("transition-transform");
@@ -184,6 +184,17 @@ describe("AgentViewToggle", () => {
 
     view.rerender(<AgentViewToggle view="console" onViewChange={vi.fn()} />);
     expect(indicator.className).toContain("translate-x-[calc(100%+0.25rem)]");
+  });
+
+  it("keeps the segment icons at full size instead of squeezing them", () => {
+    // The labels and icons share a flex row: without shrink-0 the longer
+    // "Console" label squashes its terminal glyph to a sliver rather than
+    // letting the segment be the thing that gives.
+    render(<AgentViewToggle view="chat" onViewChange={vi.fn()} />);
+    for (const id of ["agent-view-chat", "agent-view-console"]) {
+      const icon = screen.getByTestId(id).querySelector("svg");
+      expect(icon?.getAttribute("class")).toContain("shrink-0");
+    }
   });
 
   it("opens chat filters and reports child-agent visibility changes", () => {

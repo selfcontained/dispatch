@@ -547,6 +547,23 @@ export function isAgentPaneView(value: unknown): value is AgentPaneView {
 }
 
 // ---------------------------------------------------------------------------
+// Chat child-agent filter — whether Chat shows the messages exchanged with an
+// agent's children. One global preference, unlike the Chat|Console toggle
+// beside it: which view a session needs really does differ session to
+// session, but wanting child chatter out of the way is a standing taste, and
+// scoping it per agent would leave every new session starting noisy again.
+// ---------------------------------------------------------------------------
+
+export const CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY =
+  "dispatch:chatShowChildAgents";
+
+export const chatShowChildAgentsAtom = atomWithLocalStorage<boolean>(
+  CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
+  true,
+  { validate: (value): value is boolean => typeof value === "boolean" }
+);
+
+// ---------------------------------------------------------------------------
 // Chat composer drafts — what was typed and attached but not yet sent, per
 // agent. The atom holds the full draft; storage gets `fitChatDraft`'s
 // bounded snapshot of it. See lib/chat-draft.ts for the shape and the cap.
