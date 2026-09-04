@@ -275,5 +275,6 @@ describe("StreamRecorder", () => {
       "other"
     );
     expect(inferToolKind("delete", "bash")).toBe("delete");
+    expect(inferToolKind("other", "bash")).toBe("execute");
   });
 });

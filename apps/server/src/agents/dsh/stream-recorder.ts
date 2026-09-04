@@ -34,7 +34,8 @@ export function inferToolKind(
   kind: string | null | undefined,
   title: string
 ): string {
-  if (kind) return kind;
+  // dsh sends "other" explicitly, which says nothing; treat it as missing.
+  if (kind && kind !== "other") return kind;
   const name = title.toLowerCase();
   if (/^mcp__/.test(name)) return "other";
   if (/bash|shell|pwsh|exec|terminal|command/.test(name)) return "execute";
