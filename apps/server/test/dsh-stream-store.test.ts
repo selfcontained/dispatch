@@ -46,6 +46,13 @@ describe("StreamStore", () => {
     expect(second.payload).toEqual({ status: "completed" });
   });
 
+  it("reads a keyed row without touching it", async () => {
+    await store.upsertByKey(A, "tool_call", "call_2", { status: "pending" });
+    const row = await store.getByKey(A, "tool_call", "call_2");
+    expect(row?.payload).toEqual({ status: "pending" });
+    expect(await store.getByKey(A, "tool_call", "missing")).toBeNull();
+  });
+
   it("returns the latest row of a kind and updates a payload in place", async () => {
     const row = await store.append(A, "assistant", { text: "a" });
     await store.updatePayload(row.id, { text: "ab" });

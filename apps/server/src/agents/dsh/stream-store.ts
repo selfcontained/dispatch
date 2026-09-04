@@ -68,6 +68,19 @@ export class StreamStore {
     return toRow(result.rows[0]);
   }
 
+  async getByKey(
+    agentId: string,
+    kind: StreamEventKind,
+    key: string
+  ): Promise<StreamEventRow | null> {
+    const result = await this.db.query<Row>(
+      `SELECT * FROM agent_stream_events
+        WHERE agent_id = $1 AND kind = $2 AND key = $3`,
+      [agentId, kind, key]
+    );
+    return result.rows[0] ? toRow(result.rows[0]) : null;
+  }
+
   async upsertByKey(
     agentId: string,
     kind: StreamEventKind,
