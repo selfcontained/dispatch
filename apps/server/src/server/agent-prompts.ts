@@ -36,6 +36,22 @@ export function createPromptInjector(
     prompt,
     opts = {}
   ) => {
+    const agent = await agentManager.getAgent(agentId);
+    if (agent?.type === "dsh") {
+      // dsh has no pane to paste into: the prompt becomes an ACP turn. The
+      // turn runs in the background; "delivered" means accepted, which is
+      // what pane injection promises for CLI agents too.
+      const supervisor = agentManager.getDshSupervisor();
+      if (!supervisor || !supervisor.isRunning(agentId)) {
+        throw new Error(
+          "dsh is not running for this agent — prompt cannot be delivered."
+        );
+      }
+      supervisor.prompt(agentId, prompt).catch((error) => {
+        appLog.warn({ err: error, agentId }, "dsh turn failed");
+      });
+      return { held: false, delivery: Promise.resolve() };
+    }
     const access = await agentManager.getTerminalAccess(agentId);
     if (access.mode !== "tmux") {
       throw new Error(

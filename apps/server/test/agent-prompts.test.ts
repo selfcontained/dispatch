@@ -23,6 +23,8 @@ function build(opts: { tmux?: boolean; quietMs?: number } = {}) {
     maxWaitMs: 1_000,
   });
   const agentManager = {
+    getAgent: vi.fn(async (id: string) => ({ id, type: "claude" })),
+    getDshSupervisor: vi.fn(() => null),
     getTerminalAccess: vi.fn(async () =>
       opts.tmux === false
         ? { mode: "inert" as const, message: "No pane." }
@@ -122,6 +124,53 @@ describe("injectAgentPrompt (wrapper)", () => {
     expect(log.warn).toHaveBeenCalledWith(
       expect.objectContaining({ agentId: "agt_1" }),
       expect.stringContaining("Deferred tmux prompt delivery failed")
+    );
+  });
+});
+
+describe("enqueueAgentPrompt for dsh agents", () => {
+  it("routes the prompt to the supervisor instead of the pane", async () => {
+    const prompt = vi.fn(async () => {});
+    const { enqueueAgentPrompt, agentManager } = build();
+    agentManager.getAgent.mockResolvedValue({ id: "agt_d", type: "dsh" });
+    agentManager.getDshSupervisor.mockReturnValue({
+      isRunning: () => true,
+      prompt,
+    } as never);
+    const { held, delivery } = await enqueueAgentPrompt("agt_d", "hello dsh");
+    expect(held).toBe(false);
+    await delivery;
+    expect(prompt).toHaveBeenCalledWith("agt_d", "hello dsh");
+    expect(sendCommand).not.toHaveBeenCalled();
+  });
+
+  it("fails loudly when the dsh process is not running", async () => {
+    const { enqueueAgentPrompt, agentManager } = build();
+    agentManager.getAgent.mockResolvedValue({ id: "agt_d", type: "dsh" });
+    agentManager.getDshSupervisor.mockReturnValue({
+      isRunning: () => false,
+      prompt: vi.fn(),
+    } as never);
+    await expect(enqueueAgentPrompt("agt_d", "x")).rejects.toThrow(
+      /dsh is not running/
+    );
+  });
+
+  it("logs a failed turn without rejecting the enqueue", async () => {
+    const { enqueueAgentPrompt, agentManager, log } = build();
+    agentManager.getAgent.mockResolvedValue({ id: "agt_d", type: "dsh" });
+    agentManager.getDshSupervisor.mockReturnValue({
+      isRunning: () => true,
+      prompt: vi.fn(async () => {
+        throw new Error("turn exploded");
+      }),
+    } as never);
+    const { delivery } = await enqueueAgentPrompt("agt_d", "x");
+    await delivery;
+    await new Promise((r) => setTimeout(r, 0));
+    expect(log.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "agt_d" }),
+      "dsh turn failed"
     );
   });
 });
