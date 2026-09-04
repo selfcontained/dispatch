@@ -18,6 +18,7 @@ const AGENT_TYPE_DESCRIPTIONS: Record<AgentType, string> = {
   codex: "Codex CLI by OpenAI.",
   cursor: "Cursor Agent CLI by Anysphere.",
   opencode: "OpenCode CLI — open-source terminal agent.",
+  dsh: "DeepSeek Harness (dsh) — open-source, model-agnostic, streams into the Chat tab.",
   terminal: "Raw shell session with no AI agent.",
 };
 

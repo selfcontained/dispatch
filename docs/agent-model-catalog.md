@@ -89,3 +89,12 @@ parses this section for `**YYYY-MM-DD**` and fails once a date is behind us.
 
 - None currently tracked. `gpt-5.4` and `gpt-5.4-mini` retired 2026-08-31 and
   were removed; their successors are `gpt-5.6-terra` and `gpt-5.6-luna`.
+
+## dsh (DeepSeek Harness)
+
+Ids are `provider/model`. Evidence bar: the id must appear in the `model`
+config option returned by `session/new` on `dsh --profile acp` for the
+installed version. Procedure: run `dsh --profile acp --dump-config`, then open
+a session over ACP and copy the `value` pairs from the `model` config option
+verbatim. Routes other than `deepseek-official` need their provider declared
+in the per-agent overlay's `llm-pi-ai` row; `openai` is declared by default.

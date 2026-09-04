@@ -21,6 +21,8 @@ const baseConfig: AppConfig = {
   claudeBin: "/opt/claude",
   opencodeBin: "/opt/opencode",
   cursorBin: "/opt/cursor",
+  dshBin: "/opt/dsh",
+  dshHome: "/tmp/dispatch-test-dsh-home",
   agentRuntime: "inert",
   sessionPrefix: "dispatch",
   tls: null,
@@ -1251,5 +1253,22 @@ describe("buildLaunchGuidance — chat surface rule", () => {
       {}
     );
     expect(without).not.toContain("dispatch_chat_post");
+  });
+});
+
+describe("dsh agents", () => {
+  it("launch into a login shell like terminal agents; the ACP driver owns the CLI", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "dsh",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false
+    );
+    expect(cmd).toContain('"${SHELL:-/bin/bash}" -il');
+    expect(cmd).not.toContain("--mcp-config");
+    expect(cmd).not.toContain("--append-system-prompt");
   });
 });

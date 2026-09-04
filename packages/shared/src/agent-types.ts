@@ -13,6 +13,7 @@ export const AGENT_TYPES = [
   "codex",
   "cursor",
   "opencode",
+  "dsh",
   "terminal",
 ] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
@@ -24,5 +25,6 @@ export const CLI_AGENT_TYPES = [
   "codex",
   "cursor",
   "opencode",
+  "dsh",
 ] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];

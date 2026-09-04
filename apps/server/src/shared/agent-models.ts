@@ -41,6 +41,15 @@ export const AGENT_MODEL_OPTIONS: Partial<
     { id: "haiku", label: "Haiku" },
     { id: "fable", label: "Fable" },
   ],
+  // dsh ids are `provider/model`: the provider is a dsh LLM route name and the
+  // model is that route's id. Verified against `dsh --profile acp` session
+  // configOptions on 2026-09-04 (see docs/agent-model-catalog.md).
+  dsh: [
+    { id: "deepseek-official/deepseek-v4-flash", label: "DeepSeek V4 Flash" },
+    { id: "deepseek-official/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
+    { id: "openai/gpt-5.2", label: "GPT-5.2 (OpenAI API key)" },
+    { id: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex (OpenAI API key)" },
+  ],
 };
 
 export function getAgentModelOptions(

@@ -176,3 +176,12 @@ describe("resolveAgentModelForUpdate", () => {
     ).toBe("opus");
   });
 });
+
+describe("dsh catalog", () => {
+  it("lists provider-qualified ids for dsh", () => {
+    const ids = (AGENT_MODEL_OPTIONS.dsh ?? []).map((o) => o.id);
+    expect(ids).toContain("deepseek-official/deepseek-v4-flash");
+    expect(ids).toContain("openai/gpt-5.2");
+    for (const id of ids) expect(id).toMatch(/^[a-z0-9-]+\/[a-z0-9.-]+$/);
+  });
+});

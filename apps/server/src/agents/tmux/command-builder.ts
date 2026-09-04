@@ -19,12 +19,16 @@ import { agentIdFromSessionName } from "./session-name.js";
 // directly) doesn't redeclare the mapping.
 export const CLI_BY_AGENT_TYPE: Record<
   Exclude<AgentType, "terminal">,
-  keyof Pick<AppConfig, "codexBin" | "claudeBin" | "opencodeBin" | "cursorBin">
+  keyof Pick<
+    AppConfig,
+    "codexBin" | "claudeBin" | "opencodeBin" | "cursorBin" | "dshBin"
+  >
 > = {
   codex: "codexBin",
   claude: "claudeBin",
   opencode: "opencodeBin",
   cursor: "cursorBin",
+  dsh: "dshBin",
 };
 
 const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
@@ -537,7 +541,10 @@ export function buildAgentCommand(
   // interactive login shell in the chosen cwd/worktree. `-l` alone starts a
   // non-interactive login shell that exits immediately under `bash -c`,
   // which tears down the tmux session before the browser can attach.
-  if (type === "terminal") {
+  // dsh agents also get a plain shell in the pane: the ACP driver
+  // (agents/dsh) owns the harness process, and the pane is the human's
+  // console into the worktree.
+  if (type === "terminal" || type === "dsh") {
     return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
   }
 

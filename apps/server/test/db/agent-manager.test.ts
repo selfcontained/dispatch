@@ -74,6 +74,8 @@ const testConfig = {
   claudeBin: "echo",
   opencodeBin: "echo",
   cursorBin: "echo",
+  dshBin: "echo",
+  dshHome: "/tmp/dispatch-test-dsh-home",
   agentRuntime: "tmux",
   sessionPrefix: "dispatch",
   tls: null,

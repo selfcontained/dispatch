@@ -25,7 +25,7 @@ const CODEX_LOGO_PATH =
 
 function normalizeAgentType(
   type?: string | null
-): "codex" | "claude" | "opencode" | "cursor" | "terminal" | "unknown" {
+): "codex" | "claude" | "opencode" | "cursor" | "dsh" | "terminal" | "unknown" {
   if (type === "claude") {
     return "claude";
   }
@@ -37,6 +37,9 @@ function normalizeAgentType(
   }
   if (type === "terminal") {
     return "terminal";
+  }
+  if (type === "dsh") {
+    return "dsh";
   }
   if (type === "codex") {
     return "codex";
@@ -62,9 +65,11 @@ export function AgentTypeIcon({
           ? "Cursor"
           : normalizedType === "terminal"
             ? "Terminal"
-            : normalizedType === "codex"
-              ? "Codex"
-              : "Agent";
+            : normalizedType === "dsh"
+              ? "DSH"
+              : normalizedType === "codex"
+                ? "Codex"
+                : "Agent";
   const statusClass = eventType ? eventColorClass[eventType] : "";
   const baseClass = statusClass
     ? "inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border transition-colors duration-300"
@@ -83,6 +88,23 @@ export function AgentTypeIcon({
         aria-label={`${label} agent`}
       >
         OC
+      </span>
+    );
+  }
+
+  if (normalizedType === "dsh") {
+    return (
+      <span
+        className={cn(
+          baseClass,
+          statusClass,
+          "text-[9px] font-semibold tracking-[0.08em]",
+          className
+        )}
+        title={`${label} agent`}
+        aria-label={`${label} agent`}
+      >
+        DS
       </span>
     );
   }

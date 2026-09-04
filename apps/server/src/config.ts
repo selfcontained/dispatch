@@ -24,6 +24,10 @@ export type AppConfig = {
   claudeBin: string;
   opencodeBin: string;
   cursorBin: string;
+  /** Path to the `dsh` launcher (DeepSeek Harness). */
+  dshBin: string;
+  /** DSH_HOME for agents Dispatch launches; never the user's own ~/.dsh. */
+  dshHome: string;
   agentRuntime: "tmux" | "inert";
   sessionPrefix: string;
   tls: TlsConfig | null;
@@ -94,6 +98,11 @@ export function loadConfig(): AppConfig {
       "opencode",
     cursorBin:
       process.env.DISPATCH_CURSOR_BIN ?? process.env.CURSOR_BIN ?? "agent",
+    dshBin: process.env.DISPATCH_DSH_BIN ?? process.env.DSH_BIN ?? "dsh",
+    dshHome: resolveConfiguredPath(
+      process.env.DISPATCH_DSH_HOME ??
+        path.join(os.homedir(), ".dispatch", "dsh")
+    ),
     agentRuntime: resolveAgentRuntime(),
     sessionPrefix: process.env.DISPATCH_SESSION_PREFIX ?? "dispatch",
     tls: loadTls(),

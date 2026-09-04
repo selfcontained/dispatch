@@ -315,6 +315,8 @@ export async function harvestTokenUsage(
   agent: HarvestAgent,
   logger?: HarvestLogger
 ): Promise<void> {
+  // dsh usage arrives on the ACP stream (agents/dsh/usage-recorder.ts).
+  if (agent.type === "dsh") return;
   if (agent.type === "codex") {
     await harvestCodexTokenUsage(pool, agent, logger);
   } else if (agent.type === "claude") {

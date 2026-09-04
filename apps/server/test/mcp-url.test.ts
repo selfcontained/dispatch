@@ -15,6 +15,8 @@ function makeConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     claudeBin: "",
     opencodeBin: "",
     cursorBin: "",
+    dshBin: "",
+    dshHome: "",
     agentRuntime: "tmux",
     sessionPrefix: "dispatch",
     tls: null,
