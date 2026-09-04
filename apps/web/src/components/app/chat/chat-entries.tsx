@@ -243,22 +243,17 @@ function Avatar({
  * reads as one block.
  */
 export const POST_TINT: Record<PostAuthor["kind"], string> = {
-  // A tint alone is unreliable: in several themes `primary` sits close to the
-  // page background, so the block all but disappears. The fill is stronger
-  // now and carries a solid left accent bar, which reads in every theme
-  // regardless of how much the fill contrasts.
-  user: "bg-primary/[0.10] hover:bg-primary/[0.14] before:bg-primary/70",
-  peer: "bg-violet-500/[0.09] hover:bg-violet-500/[0.13] before:bg-violet-500/60",
+  // Only the user's own posts get a fill. At 6% `primary` sat too close to the
+  // page background in several themes to notice; 10% reads everywhere.
+  //
+  // No left accent bar: a rule down the post's left edge competed with the
+  // connected-agent border the sidebar draws on the pane's left edge.
+  user: "bg-primary/[0.10] hover:bg-primary/[0.14]",
+  // Agent-to-agent traffic is a side conversation the user is overhearing, so
+  // it recedes — indent and muted body carry it, with no fill of its own.
+  peer: "hover:bg-muted/30",
   agent: "hover:bg-muted/40",
 };
-
-/**
- * The accent bar itself: a 2px rule down the left edge of a tinted post,
- * drawn as a pseudo-element so it spans the row without shifting the layout.
- * Agent prose has no bar (its tint entry sets no `before:` color).
- */
-const POST_ACCENT =
-  "before:absolute before:inset-y-0 before:left-0 before:w-0.5 before:content-['']";
 
 /**
  * Post bodies stop growing at a comfortable reading measure; on a wide pane
@@ -314,7 +309,6 @@ export function Post({
         "group relative flex gap-3 transition-colors",
         side ? cn(SIDE_POST_INDENT, "pr-4") : "px-4",
         side ? POST_TINT.peer : POST_TINT[author.kind],
-        author.kind !== "agent" || side ? POST_ACCENT : null,
         grouped ? "py-1" : "mt-3 pb-1.5 pt-2",
         rule && "border-t border-border/40"
       )}

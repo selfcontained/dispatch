@@ -513,7 +513,7 @@ describe("ChatFeed", () => {
       // Not in the list any more: the generic agent icon.
       "Agent agent",
     ]);
-    // Still a peer post: violet, with the sender's name.
+    // Still a peer post: muted side-conversation treatment, sender's name.
     expect(posts[0]!.className).toContain(POST_TINT.peer);
     expect(
       posts[0]!.querySelector('[data-testid="chat-post-author"]')?.textContent
@@ -706,10 +706,8 @@ describe("ChatFeed", () => {
 
     expect(userOne!.getAttribute("data-author-kind")).toBe("user");
     expect(userOne!.className).toContain(POST_TINT.user);
-    // The accent bar carries the distinction in themes where the fill is
-    // close to the page background.
-    expect(userOne!.className).toContain("before:w-0.5");
-    expect(agentPost!.className).not.toContain("before:w-0.5");
+    // No accent bar: it competed with the sidebar's connected-agent border.
+    expect(userOne!.className).not.toContain("before:w-0.5");
     expect(userOne!.getAttribute("data-group-start")).toBe("true");
     expect(userOne!.getAttribute("data-rule")).toBe("true");
     expect(userOne!.className).toContain("border-t");
