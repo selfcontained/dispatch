@@ -23,7 +23,7 @@ import {
   latestAgentMessageId,
   latestOpenFreeformQuestion,
   latestUserMessageId,
-  entryVersion,
+  entryGrowthKey,
 } from "@/components/app/chat/chat-feed";
 import {
   type Agent,
@@ -211,7 +211,7 @@ export function ChatPane({
     }
     const last = visibleEntries[visibleEntries.length - 1];
     const lastId = last?.id ?? null;
-    const lastKey = last ? `${last.id}:${entryVersion(last)}` : null;
+    const lastKey = last ? entryGrowthKey(last) : null;
     const filterChanged = lastShowChildAgentsRef.current !== showChildAgents;
     lastShowChildAgentsRef.current = showChildAgents;
     // Changing the filter can expose an older tail or remove the current one.

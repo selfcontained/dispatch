@@ -1,5 +1,5 @@
 import { AlertTriangle } from "lucide-react";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import type { ChatActivityEntry, ChatAssistantEntry } from "@dispatch/shared";
 
 import {
@@ -128,7 +128,8 @@ function DiffBlock({
   oldText: string | null;
   newText: string;
 }): JSX.Element {
-  const lines = diffLines(oldText, newText);
+  // An open diff survives every feed refetch; do not realign it each time.
+  const lines = useMemo(() => diffLines(oldText, newText), [oldText, newText]);
   return (
     <pre
       className="max-h-64 overflow-auto rounded-md bg-muted font-terminal text-[11px] leading-snug"

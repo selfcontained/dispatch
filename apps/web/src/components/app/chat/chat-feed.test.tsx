@@ -5,7 +5,13 @@ import type {
   ChatMessage,
   ChatStatusEntry,
 } from "@dispatch/shared";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  renderHook,
+  screen,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -23,7 +29,9 @@ import {
   latestOpenFreeformQuestion,
   latestUserMessageId,
   layoutFeed,
+  entryGrowthKey,
   entryVersion,
+  useEnteringEntries,
 } from "@/components/app/chat/chat-feed";
 
 // Mermaid + the copy hook touch browser APIs jsdom lacks; neither is under
@@ -1521,19 +1529,49 @@ describe("stream entries", () => {
     ]);
   });
 
-  it("versions a streaming assistant row by its text so growth is visible", () => {
+  it("keys growth by text and streaming state, but not the fade-in version", () => {
     const base = {
       type: "assistant" as const,
       id: "stream:1",
       streaming: true,
       at: "2026-09-04T10:00:00.000Z",
     };
-    expect(entryVersion({ ...base, text: "a" })).not.toBe(
-      entryVersion({ ...base, text: "ab" })
+    expect(entryGrowthKey({ ...base, text: "a" })).not.toBe(
+      entryGrowthKey({ ...base, text: "ab" })
     );
-    expect(entryVersion({ ...base, text: "ab" })).not.toBe(
+    expect(entryGrowthKey({ ...base, text: "ab" })).not.toBe(
+      entryGrowthKey({ ...base, text: "ab", streaming: false })
+    );
+    expect(entryVersion({ ...base, text: "a" })).toBe(
       entryVersion({ ...base, text: "ab", streaming: false })
     );
+  });
+
+  it("does not re-enter a streaming row as it grows", () => {
+    const row = (text: string, streaming = true): ChatFeedEntry => ({
+      type: "assistant",
+      id: "stream:1",
+      text,
+      streaming,
+      at: "2026-09-04T10:00:00.000Z",
+    });
+    const { result, rerender } = renderHook(
+      ({ entries }: { entries: ChatFeedEntry[] }) =>
+        useEnteringEntries(entries),
+      { initialProps: { entries: [row("a")] } }
+    );
+    const later: ChatFeedEntry = {
+      type: "assistant",
+      id: "stream:2",
+      text: "new",
+      streaming: false,
+      at: "2026-09-04T10:00:05.000Z",
+    };
+    rerender({ entries: [row("a"), later] });
+    expect(result.current.has("stream:2")).toBe(true);
+    rerender({ entries: [row("ab"), later] });
+    rerender({ entries: [row("ab", false), later] });
+    expect(result.current.has("stream:1")).toBe(false);
   });
 
   it("expands an activity row to show its diff", () => {

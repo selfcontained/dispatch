@@ -55,19 +55,29 @@ export type ChatFeedRow =
 const GROUP_WINDOW_MS = 5 * 60 * 1000;
 
 /**
- * What "the same entry, changed" means: a post edited in place has a new
- * one, and so does a stream row that grew or settled since the last render.
+ * What "the same entry, changed" means for the fade-in: a post edited in
+ * place has a new one. A stream row growing chunk by chunk is not a new
+ * version here, or every chunk would remount the post and collapse an
+ * expanded activity row; growth is {@link entryGrowthKey}'s business.
  */
 export function entryVersion(entry: ChatFeedEntry): string {
+  return entry.type === "chat" ? entry.message.updatedAt : entry.at;
+}
+
+/**
+ * The tail entry's identity plus everything that makes it taller: text as it
+ * streams in, a tool call's status or output. The pane keys its follow
+ * logic on this so new content below the fold still pins the scroll.
+ */
+export function entryGrowthKey(entry: ChatFeedEntry): string {
+  const base = `${entry.id}:${entryVersion(entry)}`;
   switch (entry.type) {
-    case "chat":
-      return entry.message.updatedAt;
     case "assistant":
-      return `${entry.at}:${entry.text.length}:${entry.streaming ? 1 : 0}`;
+      return `${base}:${entry.text.length}:${entry.streaming ? 1 : 0}`;
     case "activity":
-      return `${entry.at}:${entry.status}:${entry.terminalOutput?.length ?? 0}:${entry.diff ? 1 : 0}`;
+      return `${base}:${entry.status}:${entry.terminalOutput?.length ?? 0}:${entry.diff ? 1 : 0}`;
     default:
-      return entry.at;
+      return base;
   }
 }
 
