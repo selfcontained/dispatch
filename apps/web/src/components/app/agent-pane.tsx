@@ -1,8 +1,15 @@
 import { type RefObject } from "react";
-import { Hash, MessageSquare, TerminalSquare } from "lucide-react";
+import { Hash, ListFilter, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { type Agent, type MediaFile } from "@/components/app/types";
+import { Button } from "@/components/ui/button";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
+import { Switch } from "@/components/ui/switch";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatBadgeCount } from "@/lib/format";
 import { type AgentPaneView, isAgentPaneView } from "@/lib/store";
@@ -13,6 +20,8 @@ export type AgentViewToggleProps = {
   onViewChange: (view: AgentPaneView) => void;
   /** Unread chat replies; shown on the Chat segment while Console is up. */
   chatUnreadCount?: number;
+  showChildAgents?: boolean;
+  onShowChildAgentsChange?: (show: boolean) => void;
 };
 
 /**
@@ -24,49 +33,105 @@ export function AgentViewToggle({
   view,
   onViewChange,
   chatUnreadCount = 0,
+  showChildAgents = true,
+  onShowChildAgentsChange,
 }: AgentViewToggleProps): JSX.Element {
   const showUnread = view === "console" && chatUnreadCount > 0;
+  const filtersLabel = showChildAgents
+    ? "Chat filters"
+    : "Chat filters, child-agent messages hidden";
   return (
-    <ToggleGroup
-      type="single"
-      size="sm"
-      value={view}
-      onValueChange={(next) => {
-        // Radix reports "" when the pressed segment is pressed again; the
-        // pane always shows one of the two, so that is a no-op.
-        if (isAgentPaneView(next) && next !== view) onViewChange(next);
-      }}
-      aria-label="Agent pane view"
-      data-testid="agent-view-toggle"
-      data-view={view}
-    >
-      <ToggleGroupItem
-        value="chat"
-        aria-label="Chat"
-        data-testid="agent-view-chat"
-        className="relative"
+    <div className="flex items-center gap-1">
+      <ToggleGroup
+        type="single"
+        size="sm"
+        value={view}
+        onValueChange={(next) => {
+          // Radix reports "" when the pressed segment is pressed again; the
+          // pane always shows one of the two, so that is a no-op.
+          if (isAgentPaneView(next) && next !== view) onViewChange(next);
+        }}
+        aria-label="Agent pane view"
+        data-testid="agent-view-toggle"
+        data-view={view}
+        className="rounded-full border-border/70 bg-muted p-0.5 shadow-inner"
       >
-        <MessageSquare className="h-3 w-3" />
-        Chat
-        {showUnread ? (
-          <span
-            data-testid="agent-view-chat-unread"
-            aria-label={`${chatUnreadCount} unread chat messages`}
-            className="ml-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+        <ToggleGroupItem
+          value="chat"
+          aria-label="Chat"
+          data-testid="agent-view-chat"
+          className="relative rounded-full px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow"
+        >
+          <MessageSquare className="h-3 w-3" />
+          Chat
+          {showUnread ? (
+            <span
+              data-testid="agent-view-chat-unread"
+              aria-label={`${chatUnreadCount} unread chat messages`}
+              className="ml-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+            >
+              {formatBadgeCount(chatUnreadCount)}
+            </span>
+          ) : null}
+        </ToggleGroupItem>
+        <ToggleGroupItem
+          value="console"
+          aria-label="Console"
+          data-testid="agent-view-console"
+          className="rounded-full px-2.5 data-[state=on]:bg-primary data-[state=on]:text-primary-foreground data-[state=on]:shadow"
+        >
+          <TerminalSquare className="h-3 w-3" />
+          Console
+        </ToggleGroupItem>
+      </ToggleGroup>
+      <Popover>
+        <PopoverTrigger asChild>
+          <Button
+            type="button"
+            size="icon"
+            variant="ghost"
+            aria-label={filtersLabel}
+            title={filtersLabel}
+            data-testid="chat-filters-trigger"
+            className={cn(
+              "h-7 w-7 rounded-full pointer-coarse:h-11 pointer-coarse:w-11",
+              !showChildAgents && "bg-primary/10 text-primary"
+            )}
           >
-            {formatBadgeCount(chatUnreadCount)}
-          </span>
-        ) : null}
-      </ToggleGroupItem>
-      <ToggleGroupItem
-        value="console"
-        aria-label="Console"
-        data-testid="agent-view-console"
-      >
-        <TerminalSquare className="h-3 w-3" />
-        Console
-      </ToggleGroupItem>
-    </ToggleGroup>
+            <ListFilter className="h-3.5 w-3.5" />
+          </Button>
+        </PopoverTrigger>
+        <PopoverContent
+          align="end"
+          className="w-64 p-3"
+          data-testid="chat-filters-popover"
+        >
+          <div className="mb-2 text-xs font-semibold text-foreground">
+            Chat filters
+          </div>
+          <label
+            htmlFor="show-child-agents"
+            className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
+          >
+            <span className="min-w-0">
+              <span className="block text-sm font-medium text-foreground">
+                Show child agents
+              </span>
+              <span className="block text-xs text-muted-foreground">
+                Include messages between this agent and its children.
+              </span>
+            </span>
+            <Switch
+              id="show-child-agents"
+              checked={showChildAgents}
+              onCheckedChange={onShowChildAgentsChange}
+              aria-label="Show child agents"
+              data-testid="show-child-agents-switch"
+            />
+          </label>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
@@ -84,6 +149,9 @@ export type AgentPaneProps = {
   view: AgentPaneView;
   onViewChange: (view: AgentPaneView) => void;
   chatUnreadCount?: number;
+  showChildAgents: boolean;
+  onShowChildAgentsChange: (show: boolean) => void;
+  childAgentIds: readonly string[];
   /**
    * Where the (portaled, long-lived) terminal DOM is parented. Owned by
    * `useCenterPaneLayout`, which moves the terminal between the single-pane
@@ -119,6 +187,9 @@ export function AgentPane({
   view,
   onViewChange,
   chatUnreadCount = 0,
+  showChildAgents,
+  onShowChildAgentsChange,
+  childAgentIds,
   terminalSlotRef,
   header,
   openLightbox,
@@ -141,6 +212,8 @@ export function AgentPane({
             view={view}
             onViewChange={onViewChange}
             chatUnreadCount={chatUnreadCount}
+            showChildAgents={showChildAgents}
+            onShowChildAgentsChange={onShowChildAgentsChange}
           />
         </div>
       ) : null}
@@ -160,6 +233,9 @@ export function AgentPane({
             agent={agent}
             terminalMode={terminalMode}
             active={active && chatShown}
+            showChildAgents={showChildAgents}
+            childAgentIds={childAgentIds}
+            onShowChildAgentsChange={onShowChildAgentsChange}
             openLightbox={openLightbox}
             isMobile={isMobile}
           />

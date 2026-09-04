@@ -112,6 +112,7 @@ export function AgentsView({
   >(null);
   const [sharedConnState, setSharedConnState] =
     useState<ConnState>("disconnected");
+  const [showChildAgents, setShowChildAgents] = useState(true);
 
   const {
     agents,
@@ -280,6 +281,10 @@ export function AgentsView({
             }))
         : [],
     [agents, focusedAgentId]
+  );
+  const focusedSubAgentIds = useMemo(
+    () => focusedSubAgents.map((agent) => agent.id),
+    [focusedSubAgents]
   );
   const focusedSubAgentPins = useMemo(
     () =>
@@ -605,6 +610,9 @@ export function AgentsView({
     view: agentView,
     onViewChange: setAgentView,
     chatUnreadCount,
+    showChildAgents,
+    onShowChildAgentsChange: setShowChildAgents,
+    childAgentIds: focusedSubAgentIds,
     openLightbox,
     isMobile,
   };
@@ -626,6 +634,8 @@ export function AgentsView({
         view={agentView}
         onViewChange={setAgentView}
         chatUnreadCount={chatUnreadCount}
+        showChildAgents={showChildAgents}
+        onShowChildAgentsChange={setShowChildAgents}
       />
     ) : null;
 

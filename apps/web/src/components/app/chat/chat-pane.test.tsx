@@ -14,7 +14,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/components/app/types";
 
-import { ChatPane, questionExcerpt } from "./chat-pane";
+import {
+  ChatPane,
+  filterChildAgentMessages,
+  questionExcerpt,
+} from "./chat-pane";
 
 // The pane's data layer is exercised elsewhere; here it is replaced so the
 // pane's own decisions can be driven directly: what the composer does with a
@@ -125,6 +129,9 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
       agent={agent}
       terminalMode="tmux"
       active={true}
+      showChildAgents={true}
+      childAgentIds={[]}
+      onShowChildAgentsChange={vi.fn()}
       openLightbox={vi.fn()}
       isMobile={false}
       {...props}
@@ -163,7 +170,152 @@ describe("questionExcerpt", () => {
   });
 });
 
+describe("filterChildAgentMessages", () => {
+  const childMessage = (
+    id: string,
+    senderAgentId: string,
+    recipientAgentId: string
+  ): ChatFeedEntry => ({
+    type: "agent_message",
+    id,
+    direction: senderAgentId === "agt_1" ? "out" : "in",
+    senderAgentId,
+    senderName: senderAgentId,
+    recipientAgentId,
+    recipientName: recipientAgentId,
+    content: id,
+    delivered: true,
+    at: "2026-09-02T10:00:00.000Z",
+  });
+
+  const entries = [
+    childMessage("from-child", "agt_child", "agt_1"),
+    childMessage("to-child", "agt_1", "agt_child"),
+    childMessage("other-agent", "agt_other", "agt_1"),
+    chat(message({ id: "human-chat" })),
+  ];
+
+  it("keeps all entries while child agents are shown", () => {
+    expect(
+      filterChildAgentMessages(entries, new Set(["agt_child"]), true)
+    ).toHaveLength(4);
+  });
+
+  it("hides both directions of child-agent messages only", () => {
+    expect(
+      filterChildAgentMessages(entries, new Set(["agt_child"]), false).map(
+        (entry) => entry.id
+      )
+    ).toEqual(["other-agent", "human-chat"]);
+  });
+});
+
 describe("ChatPane", () => {
+  it("removes child-agent messages from the rendered feed when filtered", () => {
+    H.entries = [
+      {
+        type: "agent_message",
+        id: "from-child",
+        direction: "in",
+        senderAgentId: "agt_child",
+        senderName: "child",
+        recipientAgentId: "agt_1",
+        recipientName: "demo",
+        content: "child update",
+        delivered: true,
+        at: "2026-09-02T10:00:00.000Z",
+      },
+      chat(message({ id: "human-chat", text: "visible reply" })),
+    ];
+
+    renderPane({ showChildAgents: false, childAgentIds: ["agt_child"] });
+
+    expect(screen.queryByText("child update")).toBeNull();
+    expect(screen.getByText("visible reply")).toBeTruthy();
+  });
+
+  it("does not treat filtering or hidden child messages as visible appends", () => {
+    const childEntry: ChatFeedEntry = {
+      type: "agent_message",
+      id: "from-child",
+      direction: "in",
+      senderAgentId: "agt_child",
+      senderName: "child",
+      recipientAgentId: "agt_1",
+      recipientName: "demo",
+      content: "child update",
+      delivered: true,
+      at: "2026-09-02T10:01:00.000Z",
+    };
+    H.entries = [
+      chat(message({ id: "human-chat", text: "visible reply" })),
+      childEntry,
+    ];
+    const baseProps = {
+      agentId: "agt_1",
+      agent,
+      terminalMode: "tmux" as const,
+      active: true,
+      childAgentIds: ["agt_child"],
+      onShowChildAgentsChange: vi.fn(),
+      openLightbox: vi.fn(),
+      isMobile: false,
+    };
+    const { rerender } = render(
+      <ChatPane {...baseProps} showChildAgents={true} />,
+      { wrapper }
+    );
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    });
+    fireEvent.scroll(scroll);
+
+    rerender(<ChatPane {...baseProps} showChildAgents={false} />);
+    expect(screen.queryByText("New messages")).toBeNull();
+
+    H.entries = [
+      ...H.entries,
+      { ...childEntry, id: "new-hidden-child", content: "still hidden" },
+    ];
+    rerender(<ChatPane {...baseProps} showChildAgents={false} />);
+    expect(screen.queryByText("New messages")).toBeNull();
+    expect(screen.queryByText("still hidden")).toBeNull();
+  });
+
+  it("explains a filter-only empty feed and can show child messages again", () => {
+    const onShowChildAgentsChange = vi.fn();
+    H.entries = [
+      {
+        type: "agent_message",
+        id: "from-child",
+        direction: "in",
+        senderAgentId: "agt_child",
+        senderName: "child",
+        recipientAgentId: "agt_1",
+        recipientName: "demo",
+        content: "child update",
+        delivered: true,
+        at: "2026-09-02T10:00:00.000Z",
+      },
+    ];
+
+    renderPane({
+      showChildAgents: false,
+      childAgentIds: ["agt_child"],
+      onShowChildAgentsChange,
+    });
+
+    const empty = screen.getByTestId("chat-empty");
+    expect(empty.classList.contains("h-full")).toBe(true);
+    expect(empty.textContent).toContain("Child-agent messages are hidden");
+    expect(empty.textContent).not.toContain("No messages yet");
+    fireEvent.click(screen.getByRole("button", { name: "Show child agents" }));
+    expect(onShowChildAgentsChange).toHaveBeenCalledWith(true);
+  });
+
   it("shows the empty state when there are no chat messages, keeping other entries", () => {
     H.entries = [
       {
@@ -329,6 +481,9 @@ describe("ChatPane", () => {
         agent={agent}
         terminalMode="tmux"
         active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
         openLightbox={vi.fn()}
         isMobile={false}
       />
