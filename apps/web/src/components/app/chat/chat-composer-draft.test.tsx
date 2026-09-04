@@ -151,6 +151,39 @@ describe("ChatComposer draft persistence", () => {
     expect(writes.every((draft) => draft.files.length === 0)).toBe(true);
   });
 
+  it("stays put after sending a file: one write clears it and no chip comes back", async () => {
+    // The regression: with local file state mirrored into the draft by
+    // effects, a send left the two disagreeing for a render and the chip
+    // flickered back (and typing then cleared it). Now the draft is the
+    // only source of what is attached, so the send is one write and the
+    // chips after it are whatever that write says — nothing.
+    const { onSend, input } = renderComposer("agt_stable");
+    pasteFiles(input, [new File(["png"], "shot.png", { type: "image/png" })]);
+    fireEvent.change(input, { target: { value: "look" } });
+    expect(screen.getByTestId("context-file-item")).toBeTruthy();
+
+    const setItem = vi.spyOn(Storage.prototype, "setItem");
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(input.value).toBe(""));
+    const writes = () =>
+      setItem.mock.calls.filter(([key]) => key === storageKey("agt_stable"));
+    expect(writes()).toHaveLength(1);
+    expect(stored("agt_stable")).toEqual(EMPTY_CHAT_DRAFT);
+    expect(chipNames()).toEqual([]);
+    expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
+
+    // Further renders — typing, a tick — change nothing about the chips,
+    // and typing is a write about the text alone.
+    fireEvent.change(input, { target: { value: "next" } });
+    await act(async () => {});
+    expect(chipNames()).toEqual([]);
+    expect(writes()).toHaveLength(2);
+    expect(stored("agt_stable")).toEqual({ ...EMPTY_CHAT_DRAFT, text: "next" });
+    // The image's object URL went with its chip, once.
+    expect(URL.revokeObjectURL).toHaveBeenCalledTimes(1);
+  });
+
   it("does not echo its copy of the draft back to storage when another tab's write only reshapes local chips", () => {
     renderComposer("agt_echo");
     const setItem = vi.spyOn(Storage.prototype, "setItem");
@@ -304,15 +337,16 @@ describe("ChatComposer draft persistence", () => {
     expect(sendButton().disabled).toBe(true);
 
     pasteFiles(input, [new File(["png"], "shot.png", { type: "image/png" })]);
-    // One placeholder consumed, the other still holds the send.
+    // One placeholder consumed — the file takes its slot, in its place — the
+    // other still holds the send.
     expect(
       screen.getAllByTestId("chat-attachment-chip-placeholder")
     ).toHaveLength(1);
     expect(screen.getAllByTestId("context-file-item")).toHaveLength(1);
     expect(sendButton().disabled).toBe(true);
     expect(stored("agt_reattach").files).toEqual([
-      { name: "notes.txt", size: 5, mime: "text/plain" },
       { name: "shot.png", size: 3, mime: "image/png" },
+      { name: "notes.txt", size: 5, mime: "text/plain" },
     ]);
 
     // A different file of the same name is not the one that was attached.
@@ -511,8 +545,8 @@ describe("ChatComposer draft persistence", () => {
       screen.getByTestId("chat-attachment-chip-pasted").textContent
     ).toContain("90 lines");
     expect(sendButton().disabled).toBe(true);
-    // This tab's description of the draft matches what was written, in
-    // its order, so nothing bounces back to storage.
+    // The chips are the other tab's list, in its order; this tab wrote
+    // nothing back.
     expect(stored("agt_tabs").files.map((f) => f.name)).toEqual([
       "notes.pdf",
       "shot.png",

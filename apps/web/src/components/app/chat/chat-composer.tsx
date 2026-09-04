@@ -6,6 +6,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -32,7 +33,6 @@ import {
 import {
   STARTUP_FILE_ACCEPT,
   getClipboardFilesFromEvent,
-  startupFileKey,
 } from "@/components/app/create-agent-dialog-clipboard";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -86,13 +86,22 @@ export type ChatComposerProps = {
 };
 
 /** What is kept of a live file across a reload: its identity, and a paste's text. */
-function describeFile(file: File, pasted: string | undefined): ChatDraftFile {
+function describeFile(file: File, pasted?: string): ChatDraftFile {
   return {
     name: file.name,
     size: file.size,
     mime: file.type,
     ...(pasted !== undefined ? { pasted } : {}),
   };
+}
+
+/**
+ * Identity of a draft file entry, and of the live `File` standing behind it
+ * (`describeFile` of the `File` gives the same key). Keys the in-memory
+ * bookkeeping: live files, previews, media ids, upload state.
+ */
+function draftFileKey(entry: ChatDraftFile): string {
+  return `${entry.name}:${entry.size}:${entry.mime}`;
 }
 
 /**
@@ -103,10 +112,6 @@ function describeFile(file: File, pasted: string | undefined): ChatDraftFile {
  */
 function isImageAttachment(file: File): boolean {
   return isImageFile(file.name) || file.type.startsWith("image/");
-}
-
-function sameFiles(a: ChatDraftFile[], b: ChatDraftFile[]): boolean {
-  return JSON.stringify(a) === JSON.stringify(b);
 }
 
 /**
@@ -122,118 +127,13 @@ function describesFile(entry: ChatDraftFile, file: File): boolean {
   );
 }
 
-function sameDescriptor(a: ChatDraftFile, b: ChatDraftFile): boolean {
-  return (
-    a.name === b.name &&
-    a.size === b.size &&
-    a.mime === b.mime &&
-    (a.pasted ?? null) === (b.pasted ?? null)
-  );
-}
-
-function sameList<T>(a: readonly T[], b: readonly T[]): boolean {
-  return a.length === b.length && a.every((item, i) => item === b[i]);
-}
-
-/**
- * Re-attaching a file that a placeholder stands for (after a reload, say)
- * replaces the placeholder rather than sitting beside it. Returns the
- * placeholders left over and how many the incoming files took.
- */
-function consumePlaceholders(
-  placeholders: ChatDraftFile[],
-  incoming: File[]
-): { remaining: ChatDraftFile[]; consumed: number } {
-  const remaining = [...placeholders];
-  for (const file of incoming) {
-    const index = remaining.findIndex((entry) => describesFile(entry, file));
-    if (index !== -1) remaining.splice(index, 1);
-  }
-  return { remaining, consumed: placeholders.length - remaining.length };
-}
-
-/**
- * Brings this tab's live/placeholder model in line with the draft's file
- * descriptors after they changed under it — another tab attached, removed
- * or pasted something. Descriptors this tab has a `File` for (by name and
- * size) keep that object; a pasted body it lacks becomes a live pasted-text
- * chip; anything else becomes a placeholder; live files no descriptor
- * mentions any more are dropped. Order follows the descriptors, so every
- * tab converges on the same chip order.
- */
-function reconcileDraftFiles(
-  stored: ChatDraftFile[],
-  live: File[],
-  placeholders: ChatDraftFile[]
-): {
-  files: File[];
-  placeholders: ChatDraftFile[];
-  dropped: File[];
-  restoredPasted: Map<string, string>;
-  changed: boolean;
-} {
-  const unusedLive = [...live];
-  const unusedPlaceholders = [...placeholders];
-  const files: File[] = [];
-  const nextPlaceholders: ChatDraftFile[] = [];
-  const restoredPasted = new Map<string, string>();
-  for (const entry of stored) {
-    const liveIndex = unusedLive.findIndex((file) =>
-      describesFile(entry, file)
-    );
-    if (liveIndex !== -1) {
-      files.push(unusedLive.splice(liveIndex, 1)[0]!);
-      continue;
-    }
-    if (typeof entry.pasted === "string") {
-      const file = pastedTextFile(entry.pasted, entry.name);
-      restoredPasted.set(startupFileKey(file), entry.pasted);
-      files.push(file);
-      continue;
-    }
-    const placeholderIndex = unusedPlaceholders.findIndex((candidate) =>
-      sameDescriptor(candidate, entry)
-    );
-    nextPlaceholders.push(
-      placeholderIndex === -1
-        ? entry
-        : unusedPlaceholders.splice(placeholderIndex, 1)[0]!
-    );
-  }
-  return {
-    files,
-    placeholders: nextPlaceholders,
-    dropped: unusedLive,
-    restoredPasted,
-    changed:
-      !sameList(files, live) || !sameList(nextPlaceholders, placeholders),
-  };
-}
-
-/**
- * Splits a stored draft's files into what can come back live (a pasted text
- * chip whose body was kept) and what can only be a placeholder (a picked
- * file, or a paste whose body was dropped for size).
- */
-function restoreDraftFiles(draft: ChatComposerDraft): {
-  files: File[];
-  pasted: Map<string, string>;
-  placeholders: ChatDraftFile[];
-} {
-  const files: File[] = [];
-  const pasted = new Map<string, string>();
-  const placeholders: ChatDraftFile[] = [];
-  for (const entry of draft.files) {
-    if (typeof entry.pasted === "string") {
-      const file = pastedTextFile(entry.pasted, entry.name);
-      pasted.set(startupFileKey(file), entry.pasted);
-      files.push(file);
-    } else {
-      placeholders.push(entry);
-    }
-  }
-  return { files, pasted, placeholders };
-}
+/** One draft file as rendered: its entry, its key, and its live `File` if any. */
+type DraftFileView = {
+  entry: ChatDraftFile;
+  key: string;
+  /** Absent for a placeholder: a file this tab has no bytes for. */
+  file: File | undefined;
+};
 
 /**
  * What went wrong, and whether pressing Enter again can help. A validation
@@ -255,12 +155,15 @@ const SUPPORTED_FILE_HINT =
  * the message is sent, so an unsent draft leaves nothing behind on the
  * server.
  *
- * The draft — text, links, pasted text — is persisted per agent
- * (`chatDraftAtomFamily`) and comes back after a reload. Picked files
- * cannot: they come back as "needs re-attaching" placeholders that hold the
- * send until they are re-attached (which replaces the placeholder) or
- * removed. Another tab editing the same draft shows up here too, files
- * included — see `reconcileDraftFiles`.
+ * The draft — text, links, file descriptors, pasted text — is persisted per
+ * agent (`chatDraftAtomFamily`) and is the one source of truth for what is
+ * attached: chips render straight from `draft.files`. The bytes of a picked
+ * file live only in a ref, keyed by `draftFileKey`, and never round-trip
+ * through the draft. A descriptor this tab has no `File` for — after a
+ * reload, or written by another tab — renders as a "needs re-attaching"
+ * placeholder that holds the send until it is re-attached (which fills the
+ * same slot) or removed. Nothing here writes the draft from an effect: every
+ * change is one explicit write from the handler that caused it.
  */
 export function ChatComposer({
   agentId,
@@ -306,21 +209,13 @@ export function ChatComposer({
   const disabled = disabledReason !== null;
   const trimmed = text.trim();
 
-  // ---- files: live File objects, in memory only -----------------------------
-  // Restored from the draft on mount. From then on the two are kept in step
-  // both ways: the draft's file list mirrors this state (the describe effect
-  // below), and a change to the draft's list from elsewhere — another tab,
-  // via the atom's storage subscription — is reconciled back into it.
-  const [restored] = useState(() => restoreDraftFiles(draft));
-  const [files, setFiles] = useState<File[]>(restored.files);
-  const [placeholders, setPlaceholders] = useState<ChatDraftFile[]>(
-    restored.placeholders
-  );
-  // Per-file bookkeeping keyed by `startupFileKey`: the original text of a
-  // long paste (for "keep inline" and for persistence), the media id once
-  // uploaded (so a retry after a later failure does not upload it twice),
-  // image previews, and the upload state.
-  const pastedTextRef = useRef<Map<string, string>>(restored.pasted);
+  // ---- files: the draft has the descriptors, this ref has the bytes --------
+  // Live `File` objects by `draftFileKey`. A pasted-text entry's file is
+  // rebuilt from the text in the draft on demand, so it is always live.
+  const filesRef = useRef<Map<string, File>>(new Map());
+  // Per-file bookkeeping, same key: the media id once uploaded (so a retry
+  // after a later failure does not upload it twice), image previews, and
+  // the upload state.
   const mediaIdsRef = useRef<Map<string, number>>(new Map());
   const previewsRef = useRef<Map<string, string>>(new Map());
   const [fileStatus, setFileStatus] = useState<
@@ -336,9 +231,17 @@ export function ChatComposer({
     };
   }, []);
 
+  /** Remembers a file's bytes for its entry, with a thumbnail for images. */
+  const holdFile = useCallback((key: string, file: File) => {
+    filesRef.current.set(key, file);
+    if (isImageAttachment(file) && !previewsRef.current.has(key)) {
+      previewsRef.current.set(key, URL.createObjectURL(file));
+    }
+  }, []);
+
   /** Drops everything remembered about a file that is no longer attached. */
   const forgetFile = useCallback((key: string) => {
-    pastedTextRef.current.delete(key);
+    filesRef.current.delete(key);
     mediaIdsRef.current.delete(key);
     const preview = previewsRef.current.get(key);
     if (preview) {
@@ -353,67 +256,38 @@ export function ChatComposer({
     });
   }, []);
 
-  useEffect(() => {
-    const described = [
-      ...placeholders,
-      ...files.map((file) =>
-        describeFile(file, pastedTextRef.current.get(startupFileKey(file)))
-      ),
-    ];
-    updateDraft((current) =>
-      sameFiles(current.files, described)
-        ? current
-        : { ...current, files: described }
-    );
-  }, [files, placeholders, updateDraft]);
-
-  // The other direction. Keyed on the draft's list alone and reading the
-  // local model through refs, so it runs after a change *to the draft* —
-  // never after a local change, whose describe above has not landed yet —
-  // and is a no-op when the two already agree (which is the case right
-  // after every local change, and on mount).
-  const filesRef = useRef(files);
-  filesRef.current = files;
-  const placeholdersRef = useRef(placeholders);
-  placeholdersRef.current = placeholders;
-  useEffect(() => {
-    const next = reconcileDraftFiles(
-      draft.files,
-      filesRef.current,
-      placeholdersRef.current
-    );
-    if (!next.changed) return;
-    for (const file of next.dropped) forgetFile(startupFileKey(file));
-    for (const [key, text] of next.restoredPasted) {
-      pastedTextRef.current.set(key, text);
-    }
-    setFiles(next.files);
-    setPlaceholders(next.placeholders);
-  }, [draft.files, forgetFile]);
-
-  const appendFiles = useCallback((incoming: File[]) => {
-    if (incoming.length === 0) return;
-    setPlaceholders((current) => {
-      const { remaining, consumed } = consumePlaceholders(current, incoming);
-      return consumed === 0 ? current : remaining;
-    });
-    setFiles((current) => {
-      const next = [...current];
-      const seen = new Set(current.map(startupFileKey));
-      for (const file of incoming) {
-        const key = startupFileKey(file);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        next.push(file);
-        if (isImageAttachment(file) && !previewsRef.current.has(key)) {
-          previewsRef.current.set(key, URL.createObjectURL(file));
-        }
-      }
-      return next;
-    });
+  /** The live file behind an entry, if this tab has (or can rebuild) one. */
+  const fileFor = useCallback((entry: ChatDraftFile): File | undefined => {
+    const key = draftFileKey(entry);
+    const held = filesRef.current.get(key);
+    if (held) return held;
+    if (typeof entry.pasted !== "string") return undefined;
+    const file = pastedTextFile(entry.pasted, entry.name);
+    filesRef.current.set(key, file);
+    return file;
   }, []);
 
-  const attachmentCount = files.length + placeholders.length + links.length;
+  const fileViews = useMemo<DraftFileView[]>(
+    () =>
+      draft.files.map((entry) => ({
+        entry,
+        key: draftFileKey(entry),
+        file: fileFor(entry),
+      })),
+    [draft.files, fileFor]
+  );
+  const placeholders = fileViews.filter((view) => view.file === undefined);
+
+  // Bytes for entries the draft no longer lists (removed here, sent, or
+  // taken out by another tab) are let go. Reads the draft, never writes it.
+  useEffect(() => {
+    const listed = new Set(draft.files.map(draftFileKey));
+    for (const key of [...filesRef.current.keys()]) {
+      if (!listed.has(key)) forgetFile(key);
+    }
+  }, [draft.files, forgetFile]);
+
+  const attachmentCount = draft.files.length + links.length;
   const attachmentsFull = attachmentCount >= CHAT_ATTACHMENTS_MAX;
 
   const noteAttachmentLimit = useCallback(() => {
@@ -441,16 +315,44 @@ export function ChatComposer({
       } else {
         setError(null);
       }
-      // A file that re-attaches a placeholder takes its slot, not a new one.
-      const { consumed } = consumePlaceholders(placeholders, accepted);
-      const room = Math.max(
-        0,
-        CHAT_ATTACHMENTS_MAX - attachmentCount + consumed
-      );
-      if (accepted.length > room) noteAttachmentLimit();
-      appendFiles(accepted.slice(0, room));
+      if (accepted.length === 0) return;
+      // One write. A file that re-attaches a placeholder fills that slot —
+      // no new entry, no room needed; a file already attached is skipped; the
+      // rest append while there is room under the cap.
+      let overflowed = false;
+      const held: Array<[string, File]> = [];
+      updateDraft((current) => {
+        const files = [...current.files];
+        let room = CHAT_ATTACHMENTS_MAX - files.length - current.links.length;
+        for (const file of accepted) {
+          const entry = describeFile(file);
+          const key = draftFileKey(entry);
+          if (filesRef.current.has(key)) continue;
+          const slot = files.findIndex(
+            (candidate) =>
+              typeof candidate.pasted !== "string" &&
+              !filesRef.current.has(draftFileKey(candidate)) &&
+              describesFile(candidate, file)
+          );
+          if (slot !== -1) {
+            files[slot] = entry;
+            held.push([key, file]);
+            continue;
+          }
+          if (room <= 0) {
+            overflowed = true;
+            continue;
+          }
+          room -= 1;
+          files.push(entry);
+          held.push([key, file]);
+        }
+        return held.length === 0 ? current : { ...current, files };
+      });
+      for (const [key, file] of held) holdFile(key, file);
+      if (overflowed) noteAttachmentLimit();
     },
-    [appendFiles, attachmentCount, noteAttachmentLimit, placeholders]
+    [holdFile, noteAttachmentLimit, updateDraft]
   );
 
   const addLink = useCallback(
@@ -479,20 +381,20 @@ export function ChatComposer({
     [updateDraft]
   );
 
-  const removeFile = useCallback(
-    (file: File) => {
-      const key = startupFileKey(file);
+  const removeEntry = useCallback(
+    (key: string) => {
+      updateDraft((current) => {
+        const files = current.files.filter(
+          (entry) => draftFileKey(entry) !== key
+        );
+        return files.length === current.files.length
+          ? current
+          : { ...current, files };
+      });
       forgetFile(key);
-      setFiles((current) =>
-        current.filter((candidate) => startupFileKey(candidate) !== key)
-      );
     },
-    [forgetFile]
+    [forgetFile, updateDraft]
   );
-
-  const removePlaceholder = useCallback((index: number) => {
-    setPlaceholders((current) => current.filter((_, i) => i !== index));
-  }, []);
 
   const addPastedText = useCallback(
     (pasted: string) => {
@@ -502,33 +404,40 @@ export function ChatComposer({
       }
       const file = pastedTextFile(
         pasted,
-        nextPastedFileName([
-          ...files.map((f) => f.name),
-          ...placeholders.map((f) => f.name),
-        ])
+        nextPastedFileName(draft.files.map((entry) => entry.name))
       );
-      pastedTextRef.current.set(startupFileKey(file), pasted);
+      const entry = describeFile(file, pasted);
+      filesRef.current.set(draftFileKey(entry), file);
       setError(null);
-      appendFiles([file]);
+      updateDraft((current) => ({
+        ...current,
+        files: [...current.files, entry],
+      }));
       return true;
     },
-    [appendFiles, attachmentsFull, files, noteAttachmentLimit, placeholders]
+    [attachmentsFull, draft.files, noteAttachmentLimit, updateDraft]
   );
 
   /** Undo for a long paste: drop the chip, put the text back in the field. */
   const keepInline = useCallback(
-    (file: File) => {
-      const pasted = pastedTextRef.current.get(startupFileKey(file)) ?? "";
-      removeFile(file);
+    (view: DraftFileView) => {
+      const pasted = view.entry.pasted ?? "";
       const el = textareaRef.current;
-      setText((current) => {
-        const start = el?.selectionStart ?? current.length;
-        const end = el?.selectionEnd ?? current.length;
-        return current.slice(0, start) + pasted + current.slice(end);
+      updateDraft((current) => {
+        const start = el?.selectionStart ?? current.text.length;
+        const end = el?.selectionEnd ?? current.text.length;
+        return {
+          ...current,
+          text: current.text.slice(0, start) + pasted + current.text.slice(end),
+          files: current.files.filter(
+            (entry) => draftFileKey(entry) !== view.key
+          ),
+        };
       });
+      forgetFile(view.key);
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
-    [removeFile, setText]
+    [forgetFile, updateDraft]
   );
 
   const onPaste = useCallback(
@@ -617,13 +526,15 @@ export function ChatComposer({
     // Only what was sent gets cleared: anything typed or attached while the
     // send was pending is a new draft and stays.
     const submittedText = text;
-    const submittedFiles = files;
+    const submittedFiles = fileViews;
     const submittedLinks = links;
 
     const run = async () => {
       const attachments: ChatUserAttachmentInput[] = [];
-      for (const file of submittedFiles) {
-        const key = startupFileKey(file);
+      for (const { entry, key, file } of submittedFiles) {
+        // `canSend` ruled out placeholders; this is the same check for the
+        // type system's sake.
+        if (!file) throw new Error(`Re-attach ${entry.name} to send.`);
         let mediaId = mediaIdsRef.current.get(key);
         if (mediaId === undefined) {
           if (!uploadFile) throw new Error("File uploads are not available.");
@@ -653,18 +564,19 @@ export function ChatComposer({
 
     run()
       .then(() => {
-        // The sent files leave the draft in this same write, not in the
-        // describe effect's follow-up: the draft is what a remounted
-        // composer or another tab restores from, and a draft that still
-        // listed them — even for one render — would bring them back as
-        // "needs re-attaching" placeholders.
+        // What was sent leaves the draft in one write — text, links and
+        // file entries together — so no render, remount or other tab ever
+        // sees a draft that still lists a sent file.
+        const sentKeys = new Set(submittedFiles.map((view) => view.key));
         updateDraft((current) => ({
           ...current,
           text: current.text === submittedText ? "" : current.text,
           links: current.links.filter((url) => !submittedLinks.includes(url)),
-          files: consumePlaceholders(current.files, submittedFiles).remaining,
+          files: current.files.filter(
+            (entry) => !sentKeys.has(draftFileKey(entry))
+          ),
         }));
-        for (const file of submittedFiles) removeFile(file);
+        for (const key of sentKeys) forgetFile(key);
       })
       .catch((err: unknown) => {
         // The draft — text and chips — is still here, so a retry can work.
@@ -679,10 +591,10 @@ export function ChatComposer({
       });
   }, [
     canSend,
-    files,
+    fileViews,
+    forgetFile,
     links,
     onSend,
-    removeFile,
     text,
     updateDraft,
     uploadFile,
@@ -699,9 +611,9 @@ export function ChatComposer({
     [submit]
   );
 
-  const uploadingName = files.find(
-    (file) => fileStatus[startupFileKey(file)] === "uploading"
-  )?.name;
+  const uploadingName = fileViews.find(
+    (view) => fileStatus[view.key] === "uploading"
+  )?.entry.name;
   const hasAttachments = attachmentCount > 0;
 
   return (
@@ -760,35 +672,32 @@ export function ChatComposer({
             className="flex max-h-40 flex-wrap items-start gap-3 overflow-y-auto px-3 pb-1 pt-3"
             data-testid="chat-composer-attachments"
           >
-            {placeholders.map((entry, index) => (
-              <DraftPlaceholderChip
-                key={`placeholder:${entry.name}:${index}`}
-                entry={entry}
-                onRemove={() => removePlaceholder(index)}
-              />
-            ))}
-            {files.map((file) => {
-              const key = startupFileKey(file);
-              const pasted = pastedTextRef.current.get(key);
-              return pasted !== undefined ? (
+            {fileViews.map((view) =>
+              view.file === undefined ? (
+                <DraftPlaceholderChip
+                  key={view.key}
+                  entry={view.entry}
+                  onRemove={() => removeEntry(view.key)}
+                />
+              ) : typeof view.entry.pasted === "string" ? (
                 <PastedTextChip
-                  key={key}
-                  file={file}
-                  lines={countLines(pasted)}
-                  status={fileStatus[key]}
-                  onKeepInline={() => keepInline(file)}
-                  onRemove={() => removeFile(file)}
+                  key={view.key}
+                  file={view.file}
+                  lines={countLines(view.entry.pasted)}
+                  status={fileStatus[view.key]}
+                  onKeepInline={() => keepInline(view)}
+                  onRemove={() => removeEntry(view.key)}
                 />
               ) : (
                 <ContextFileItem
-                  key={key}
-                  file={file}
-                  preview={previewsRef.current.get(key)}
-                  status={fileStatus[key]}
-                  onRemove={() => removeFile(file)}
+                  key={view.key}
+                  file={view.file}
+                  preview={previewsRef.current.get(view.key)}
+                  status={fileStatus[view.key]}
+                  onRemove={() => removeEntry(view.key)}
                 />
-              );
-            })}
+              )
+            )}
             {links.map((link) => (
               <ContextLinkItem
                 key={link}
@@ -877,7 +786,7 @@ export function ChatComposer({
         ) : placeholders.length > 0 ? (
           <span data-testid="chat-composer-reattach-hint">
             {placeholders.length === 1
-              ? `Re-attach or remove ${placeholders[0]!.name} to send.`
+              ? `Re-attach or remove ${placeholders[0]!.entry.name} to send.`
               : `Re-attach or remove ${placeholders.length} files to send.`}
           </span>
         ) : uploadingName ? (
