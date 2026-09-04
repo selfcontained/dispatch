@@ -39,6 +39,7 @@ beforeEach(async () => {
   await pool.query("DELETE FROM agent_events");
   await pool.query("DELETE FROM agent_messages");
   await pool.query("DELETE FROM media");
+  await pool.query("DELETE FROM reviews");
 });
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
@@ -184,10 +185,15 @@ describe("composeChatFeed", () => {
   });
 
   it("never drops or repeats rows that share a timestamp across sources", async () => {
-    // Nine rows at the same instant (three per source kind plus chat) with
+    // Twelve rows at the same instant (three per source kind) with
     // microsecond-identical created_at, paged two at a time.
     const t = at(10);
     for (let i = 0; i < 3; i++) {
+      await pool.query(
+        `INSERT INTO reviews (agent_id, reviewer_type, summary, created_at)
+         VALUES ($1, 'human', $2, $3)`,
+        [A, `review ${i}`, t]
+      );
       await pool.query(
         `INSERT INTO agent_events (agent_id, event_type, message, created_at)
          VALUES ($1, 'working', $2, $3)`,
@@ -227,9 +233,9 @@ describe("composeChatFeed", () => {
       expect(cursor).toBeTruthy();
       expect(pages).toBeLessThan(20);
     }
-    expect(new Set(seen).size).toBe(9);
-    expect(seen).toHaveLength(9);
-    expect(pages).toBe(5);
+    expect(new Set(seen).size).toBe(12);
+    expect(seen).toHaveLength(12);
+    expect(pages).toBe(6);
   });
 
   it("round-trips cursors and rejects foreign ones", () => {
@@ -263,6 +269,10 @@ describe("composeChatFeed", () => {
     expect(forged({ ...cursor, type: "media", id: "7" })).toMatchObject({
       id: "7",
     });
+    expect(forged({ ...cursor, type: "review", id: "7" })).toMatchObject({
+      id: "7",
+    });
+    expect(forged({ ...cursor, type: "review", id: uuid })).toBeNull();
     // Shape-valid but impossible instants.
     expect(forged({ ...cursor, at: "2026-02-30 00:00:00.000000" })).toBeNull();
     expect(forged({ ...cursor, at: "2026-01-01 25:00:00.000000" })).toBeNull();
@@ -322,6 +332,69 @@ describe("composeChatFeed", () => {
       .map((e) => (e.type === "media" ? e.fileName : ""));
     expect(names).toContain("from-agent.png");
     expect(names).not.toContain("from-composer.png");
+  });
+
+  it("surfaces a review with its reviewer and live counts", async () => {
+    const reviewer = "agt_feed_reviewer";
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, persona)
+       VALUES ($1, 'Reviewer', '/tmp', 'stopped', 'backend-security')
+       ON CONFLICT (id) DO NOTHING`,
+      [reviewer]
+    );
+    const review = await pool.query<{ id: number }>(
+      `INSERT INTO reviews
+         (agent_id, reviewer_type, reviewer_agent_id, summary, status, created_at)
+       VALUES ($1, 'agent', $2, 'Two things to fix', 'partially_resolved', $3)
+       RETURNING id`,
+      [A, reviewer, at(3)]
+    );
+    const reviewId = review.rows[0]!.id;
+    await pool.query(
+      `INSERT INTO review_feedback_items (review_id, status)
+       VALUES ($1, 'resolved'), ($1, 'open')`,
+      [reviewId]
+    );
+    // Another agent's review must not reach this feed.
+    await pool.query(
+      `INSERT INTO reviews (agent_id, reviewer_type, summary, created_at)
+       VALUES ($1, 'human', 'not mine', $2)`,
+      [OTHER, at(4)]
+    );
+
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries).toHaveLength(1);
+    expect(feed.entries[0]).toEqual({
+      type: "review",
+      id: `review:${reviewId}`,
+      reviewId,
+      reviewerType: "agent",
+      reviewerAgentId: reviewer,
+      reviewerName: "backend-security",
+      summary: "Two things to fix",
+      status: "partially_resolved",
+      itemCount: 2,
+      resolvedCount: 1,
+      at: at(3).toISOString(),
+    });
+  });
+
+  it("surfaces a human review with no feedback items", async () => {
+    await pool.query(
+      `INSERT INTO reviews (agent_id, reviewer_type, summary, status, created_at)
+       VALUES ($1, 'human', 'Looks good', 'resolved', $2)`,
+      [A, at(2)]
+    );
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries[0]).toMatchObject({
+      type: "review",
+      reviewerType: "human",
+      reviewerAgentId: null,
+      reviewerName: null,
+      itemCount: 0,
+      resolvedCount: 0,
+      status: "resolved",
+    });
   });
 
   it("returns an empty feed for an agent with nothing", async () => {

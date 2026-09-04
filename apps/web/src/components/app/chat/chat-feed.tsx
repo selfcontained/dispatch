@@ -15,6 +15,8 @@ import {
   DayDivider,
   dayLabel,
   MediaEntryView,
+  reviewAuthor,
+  ReviewEntryView,
   StatusLine,
 } from "@/components/app/chat/chat-entries";
 
@@ -177,6 +179,8 @@ function authorKey(
       return agentMessageAuthor(entry, ctx).key;
     case "media":
       return "agent";
+    case "review":
+      return reviewAuthor(entry, ctx).key;
   }
 }
 
@@ -375,6 +379,15 @@ export function ChatFeed({
             case "media":
               return (
                 <MediaEntryView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
+            case "review":
+              return (
+                <ReviewEntryView
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}

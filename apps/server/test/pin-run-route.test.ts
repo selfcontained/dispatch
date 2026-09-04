@@ -41,7 +41,23 @@ async function setPins(
 
 beforeEach(async () => {
   await ctx.pool.query("DELETE FROM agents");
+  await ctx.pool.query(
+    "DELETE FROM settings WHERE key = 'chat_surface_enabled'"
+  );
 });
+
+async function enableChatSurface(): Promise<void> {
+  const res = await ctx.app.inject({
+    method: "POST",
+    url: "/api/v1/app/settings/chat-surface",
+    headers: {
+      cookie: await ctx.sessionCookie(),
+      "content-type": "application/json",
+    },
+    payload: { enabled: true },
+  });
+  expect(res.statusCode).toBe(200);
+}
 
 // The prompt is looked up server-side by pin ID, so this route is the boundary
 // that decides what a click is allowed to inject. Every rejection path matters:
@@ -118,6 +134,55 @@ describe("POST /api/v1/agents/:id/terminal/inject-pin/:pinId", () => {
       `/api/v1/agents/${agent.id}/terminal/inject-pin/p1`
     );
     expect(res.statusCode).toBe(409);
+  });
+
+  it("leaves no Chat post behind when the prompt could not be delivered", async () => {
+    // With the Chat surface on the click becomes a Chat message, but the
+    // agent is inert: the send refuses before writing, so a click that never
+    // reached the agent must not leave a post claiming it did.
+    await enableChatSurface();
+    const agent = await createAgent();
+    await setPins(agent.id, [
+      { id: "p1", label: "Go", value: "do the thing", type: "shortcut" },
+    ]);
+
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/terminal/inject-pin/p1`
+    );
+    expect(res.statusCode).toBe(409);
+    const rows = await ctx.pool.query(
+      "SELECT id FROM agent_chat_messages WHERE agent_id = $1",
+      [agent.id]
+    );
+    expect(rows.rowCount).toBe(0);
+  });
+
+  it("still refuses a disabled pin with the Chat surface on", async () => {
+    // The pin is the trust boundary either way — routing through Chat must
+    // not become a way around it.
+    await enableChatSurface();
+    const agent = await createAgent();
+    await setPins(agent.id, [
+      {
+        id: "p1",
+        label: "Launch",
+        value: "do the thing",
+        type: "shortcut",
+        disabled: true,
+      },
+    ]);
+
+    const res = await authedInject(
+      "POST",
+      `/api/v1/agents/${agent.id}/terminal/inject-pin/p1`
+    );
+    expect(res.statusCode).toBe(400);
+    const rows = await ctx.pool.query(
+      "SELECT id FROM agent_chat_messages WHERE agent_id = $1",
+      [agent.id]
+    );
+    expect(rows.rowCount).toBe(0);
   });
 
   it("rejects an unauthenticated request", async () => {

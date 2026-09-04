@@ -150,6 +150,28 @@ export type ChatMediaEntry = {
   at: string;
 };
 
+/**
+ * A review submitted against this agent's work (`reviews`), surfaced as a
+ * card in the feed. Derived at read time, so the counts and the status are
+ * always the review's current ones — the card is a live link to the review
+ * in the Reviews sidebar, not a snapshot of when it landed.
+ */
+export type ChatReviewEntry = {
+  type: "review";
+  id: string;
+  reviewId: number;
+  /** Who left it: an agent reviewer, or a person using the Changes tab. */
+  reviewerType: "human" | "agent";
+  reviewerAgentId: string | null;
+  /** The reviewer agent's persona or name; null for a human review. */
+  reviewerName: string | null;
+  summary: string | null;
+  status: string;
+  itemCount: number;
+  resolvedCount: number;
+  at: string;
+};
+
 export type ChatMessageEntry = {
   type: "chat";
   id: string;
@@ -161,7 +183,8 @@ export type ChatFeedEntry =
   | ChatMessageEntry
   | ChatStatusEntry
   | ChatAgentMessageEntry
-  | ChatMediaEntry;
+  | ChatMediaEntry
+  | ChatReviewEntry;
 
 export type ChatFeedResponse = {
   entries: ChatFeedEntry[];

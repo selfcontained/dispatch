@@ -110,6 +110,7 @@ import { registerMediaRoutes } from "./routes/media.js";
 import { registerMessagesRoutes } from "./routes/messages.js";
 import { registerChatRoutes } from "./routes/chat.js";
 import { ChatService } from "./chat/service.js";
+import { isChatSurfaceEnabled } from "./chat-surface-settings.js";
 import { registerSurfaceRoutes } from "./routes/surfaces.js";
 import { registerWhiteboardRoutes } from "./routes/whiteboard.js";
 import { registerMcpRoutes } from "./routes/mcp.js";
@@ -837,6 +838,8 @@ async function registerRoutes() {
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
     onAgentStarted: (agentId) =>
       surfaceService.notifyQueuedAfterResume(agentId),
+    chat: chatService,
+    isChatSurfaceEnabled: () => isChatSurfaceEnabled(pool),
   });
 
   // --- Personas ---

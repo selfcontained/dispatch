@@ -3,6 +3,7 @@ import type {
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMediaEntry,
+  ChatReviewEntry,
   ChatStatusEntry,
 } from "@dispatch/shared";
 
@@ -24,7 +25,7 @@ export type ComposeChatFeedOptions = {
 
 /**
  * Feed ordering is (created_at desc, source rank desc, id desc) — a total
- * order across the four tables, so a page boundary that falls on rows with
+ * order across the five tables, so a page boundary that falls on rows with
  * identical timestamps never drops or repeats a row. The cursor names the
  * last entry of the previous page in that order. `at` is Postgres microsecond
  * text (`to_char(..., 'YYYY-MM-DD HH24:MI:SS.US')`), not the millisecond ISO
@@ -37,6 +38,7 @@ export type FeedCursor = {
 };
 
 const SOURCE_RANK: Record<ChatFeedEntry["type"], number> = {
+  review: 4,
   chat: 3,
   status: 2,
   agent_message: 1,
@@ -60,6 +62,7 @@ function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
       return isChatMessageId(id);
     case "status":
     case "media":
+    case "review":
       return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
   }
 }
@@ -121,23 +124,26 @@ type Keyed<E extends ChatFeedEntry> = {
  * "Older than the cursor" for one source. `$1` is the agent id; the clause
  * appends its own parameters. Sources ranked below the cursor's include the
  * cursor timestamp itself; those above it exclude it; the cursor's own
- * source breaks the tie on id.
+ * source breaks the tie on id. `alias` qualifies the columns for a source
+ * whose query joins other tables that have `id`/`created_at` of their own.
  */
 function cursorClause(
   type: ChatFeedEntry["type"],
   idCast: "int" | "uuid",
   cursor: FeedCursor | null,
-  params: unknown[]
+  params: unknown[],
+  alias = ""
 ): string {
   if (!cursor) return "";
+  const col = (name: string) => (alias ? `${alias}.${name}` : name);
   params.push(cursor.at);
   const ts = `($${params.length}::timestamp AT TIME ZONE 'UTC')`;
   const rank = SOURCE_RANK[type];
   const cursorRank = SOURCE_RANK[cursor.type];
-  if (rank > cursorRank) return `AND created_at < ${ts}`;
-  if (rank < cursorRank) return `AND created_at <= ${ts}`;
+  if (rank > cursorRank) return `AND ${col("created_at")} < ${ts}`;
+  if (rank < cursorRank) return `AND ${col("created_at")} <= ${ts}`;
   params.push(idCast === "int" ? Number(cursor.id) : cursor.id);
-  return `AND (created_at < ${ts} OR (created_at = ${ts} AND id < $${params.length}::${idCast}))`;
+  return `AND (${col("created_at")} < ${ts} OR (${col("created_at")} = ${ts} AND ${col("id")} < $${params.length}::${idCast}))`;
 }
 
 const intKey = (id: number) => String(id).padStart(20, "0");
@@ -322,6 +328,69 @@ async function listMediaEntries(
   }));
 }
 
+/**
+ * Reviews left on this agent's work. Counts and status are read live rather
+ * than frozen at submission time, so the card in the feed says the same
+ * thing as the row in the Reviews sidebar it links to.
+ */
+async function listReviewEntries(
+  db: Queryable,
+  agentId: string,
+  cursor: FeedCursor | null,
+  limit: number
+): Promise<Keyed<ChatReviewEntry>[]> {
+  const params: unknown[] = [agentId];
+  const clause = cursorClause("review", "int", cursor, params, "r");
+  params.push(limit);
+  const result = await db.query<{
+    id: number;
+    reviewer_type: string;
+    reviewer_agent_id: string | null;
+    reviewer_name: string | null;
+    summary: string | null;
+    status: string;
+    item_count: number;
+    resolved_count: number;
+    created_at: Date;
+    at_key: string;
+  }>(
+    `SELECT r.id, r.reviewer_type, r.reviewer_agent_id, r.summary, r.status,
+            r.created_at,
+            COALESCE(reviewer.persona, reviewer.name) AS reviewer_name,
+            COUNT(fi.id)::int AS item_count,
+            COUNT(fi.id) FILTER (WHERE fi.status = 'resolved')::int
+              AS resolved_count,
+            to_char(r.created_at AT TIME ZONE 'UTC',
+                    'YYYY-MM-DD HH24:MI:SS.US') AS at_key
+       FROM reviews r
+       LEFT JOIN agents reviewer ON reviewer.id = r.reviewer_agent_id
+       LEFT JOIN review_feedback_items fi ON fi.review_id = r.id
+      WHERE r.agent_id = $1 ${clause}
+      GROUP BY r.id, reviewer.persona, reviewer.name
+      ORDER BY r.created_at DESC, r.id DESC
+      LIMIT $${params.length}`,
+    params
+  );
+  return result.rows.map((row) => ({
+    entry: {
+      type: "review",
+      id: `review:${row.id}`,
+      reviewId: row.id,
+      reviewerType: row.reviewer_type === "agent" ? "agent" : "human",
+      reviewerAgentId: row.reviewer_agent_id,
+      reviewerName: row.reviewer_name,
+      summary: row.summary,
+      status: row.status,
+      itemCount: row.item_count,
+      resolvedCount: row.resolved_count,
+      at: row.created_at.toISOString(),
+    },
+    atKey: row.at_key,
+    rawId: String(row.id),
+    idKey: intKey(row.id),
+  }));
+}
+
 /** Newest first: (atKey, source rank, id) descending. */
 function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
   if (a.atKey !== b.atKey) return a.atKey < b.atKey ? 1 : -1;
@@ -333,8 +402,8 @@ function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
 
 /**
  * Compose one agent's Chat feed at read time from chat messages, status
- * events, cross-agent messages, and shared media. Each source contributes
- * its newest `limit + 1` rows past the cursor; the merge keeps the newest
+ * events, cross-agent messages, shared media, and reviews. Each source
+ * contributes its newest `limit + 1` rows past the cursor; the merge keeps the newest
  * `limit` overall, so any row that belongs on the page is present (a row in
  * the top `limit` overall is in the top `limit` of its source), and anything
  * left over proves an older page exists.
@@ -347,19 +416,22 @@ export async function composeChatFeed(
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
   const { db } = store;
-  const [chat, status, agentMessages, media, unreadCount] = await Promise.all([
-    listChatEntries(db, agentId, cursor, limit + 1),
-    listStatusEntries(db, agentId, cursor, limit + 1),
-    listAgentMessageEntries(db, agentId, cursor, limit + 1),
-    listMediaEntries(db, agentId, cursor, limit + 1),
-    store.countUnread(agentId),
-  ]);
+  const [chat, status, agentMessages, media, reviews, unreadCount] =
+    await Promise.all([
+      listChatEntries(db, agentId, cursor, limit + 1),
+      listStatusEntries(db, agentId, cursor, limit + 1),
+      listAgentMessageEntries(db, agentId, cursor, limit + 1),
+      listMediaEntries(db, agentId, cursor, limit + 1),
+      listReviewEntries(db, agentId, cursor, limit + 1),
+      store.countUnread(agentId),
+    ]);
 
   const merged: Keyed<ChatFeedEntry>[] = [
     ...chat,
     ...status,
     ...agentMessages,
     ...media,
+    ...reviews,
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);

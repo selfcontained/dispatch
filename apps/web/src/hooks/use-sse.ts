@@ -350,6 +350,10 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: ["agent-feedback-items", payload.agentId],
           });
+          // The Chat feed renders reviews as cards, with their live status
+          // and counts — so a new review, and every later change to one,
+          // has to reach the feed too.
+          invalidateChatFeed(queryClient, payload.agentId);
           return;
         }
 

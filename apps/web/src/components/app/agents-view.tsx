@@ -406,7 +406,12 @@ export function AgentsView({
     [focusedAgentId, isMobile, navTo, setMobileMediaOpen]
   );
 
-  const handleReviewSubmitted = useCallback(
+  /**
+   * Show one review: the Reviews sidebar, opened on that review. Reached
+   * from the Changes tab after submitting one, and from a review card in
+   * the Chat feed.
+   */
+  const handleOpenReview = useCallback(
     (reviewId: number) => {
       if (!focusedAgentId) return;
       navTo(`/agents/${focusedAgentId}?expandReview=${reviewId}`, {
@@ -572,7 +577,7 @@ export function AgentsView({
       agentId={focusedAgentId}
       active={true}
       isMobile={isMobile}
-      onReviewSubmitted={handleReviewSubmitted}
+      onReviewSubmitted={handleOpenReview}
     />
   ) : null;
 
@@ -625,6 +630,7 @@ export function AgentsView({
     onShowChildAgentsChange: setShowChildAgents,
     childAgentIds: focusedSubAgentIds,
     openLightbox,
+    onOpenReview: handleOpenReview,
     isMobile,
   };
   // Only in a split: the single-pane Agent pane is always rendered (hidden

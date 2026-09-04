@@ -56,6 +56,8 @@ export type ChatPaneProps = {
   childAgentIds: readonly string[];
   onShowChildAgentsChange: (show: boolean) => void;
   openLightbox: (file: MediaFile) => void;
+  /** Opens a review in the Reviews sidebar, expanded; from a review card. */
+  onOpenReview?: (reviewId: number) => void;
   isMobile: boolean;
 };
 
@@ -119,6 +121,7 @@ export function ChatPane({
   childAgentIds,
   onShowChildAgentsChange,
   openLightbox,
+  onOpenReview,
   isMobile,
 }: ChatPaneProps): JSX.Element {
   const feed = useChatFeed(agentId);
@@ -347,6 +350,7 @@ export function ChatPane({
       pins,
       workspaceRoot: agent?.worktreePath ?? agent?.cwd ?? null,
       onOpenMedia: openLightbox,
+      onOpenReview,
     }),
     [
       agent?.cwd,
@@ -354,6 +358,7 @@ export function ChatPane({
       agent?.type,
       agent?.worktreePath,
       agentId,
+      onOpenReview,
       openLightbox,
       peers,
       pins,

@@ -5,6 +5,7 @@ import type {
   ChatMediaEntry,
   ChatMessage,
   ChatQuestionOption,
+  ChatReviewEntry,
   ChatStatusEntry,
 } from "@dispatch/shared";
 import {
@@ -27,6 +28,10 @@ import {
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { PinItem } from "@/components/app/pin-item";
+import {
+  reviewerLabel,
+  ReviewSummaryBlock,
+} from "@/components/app/review-summary-block";
 import {
   type Agent,
   type AgentPin,
@@ -129,6 +134,8 @@ export type FeedContext = {
   pins: AgentPin[];
   workspaceRoot: string | null;
   onOpenMedia: (file: MediaFile) => void;
+  /** Opens a review in the Reviews sidebar, expanded. */
+  onOpenReview?: (reviewId: number) => void;
 };
 
 export type PostAuthor = {
@@ -1089,6 +1096,85 @@ export function MediaEntryView({
           ) : null}
         </button>
       </AttachmentBlock>
+    </Post>
+  );
+}
+
+/**
+ * Who a review card reads as: the reviewer agent that submitted it, or the
+ * user for a review left by hand in the Changes tab. Its own group key, so
+ * a review card never collapses into an adjacent post's header — the card
+ * carries its own heading.
+ *
+ * The name is the server's `reviewerName` (the persona the agent reviewed
+ * as, falling back to its own name), which is what the block below the
+ * header says too — one actor must not read as two names in one post. The
+ * peer directory is only a fallback for a review whose reviewer the list no
+ * longer knows.
+ */
+export function reviewAuthor(
+  entry: ChatReviewEntry,
+  ctx: FeedContext
+): PostAuthor {
+  if (entry.reviewerType === "agent" && entry.reviewerAgentId) {
+    const peer = ctx.peers?.[entry.reviewerAgentId];
+    const author = peerAuthor(
+      entry.reviewerAgentId,
+      entry.reviewerName ??
+        peer?.name ??
+        reviewerLabel(entry.reviewerType, entry.reviewerName),
+      ctx
+    );
+    return { ...author, key: `review:${entry.reviewerAgentId}` };
+  }
+  return { ...userAuthor(), key: "review:human" };
+}
+
+/**
+ * A review in the channel, as the same block the Reviews sidebar shows for
+ * a collapsed review: who left it, how much is still open, its status.
+ * Clicking opens that review in the sidebar, where the summary and the
+ * feedback items live — the card is the notice, not a second copy of it.
+ */
+export function ReviewEntryView({
+  entry,
+  grouped,
+  rule = false,
+  ctx,
+}: {
+  entry: ChatReviewEntry;
+  grouped: boolean;
+  rule?: boolean;
+  ctx: FeedContext;
+}): JSX.Element {
+  const { onOpenReview } = ctx;
+  return (
+    <Post
+      author={reviewAuthor(entry, ctx)}
+      at={entry.at}
+      grouped={grouped}
+      rule={rule}
+      data-testid="chat-review"
+      data-review-id={String(entry.reviewId)}
+    >
+      <ReviewSummaryBlock
+        review={{
+          reviewerType: entry.reviewerType,
+          reviewerName: entry.reviewerName,
+          status: entry.status,
+          itemCount: entry.itemCount,
+          resolvedCount: entry.resolvedCount,
+          createdAt: entry.at,
+        }}
+        showTime={false}
+        onClick={onOpenReview ? () => onOpenReview(entry.reviewId) : undefined}
+        ariaLabel={`Open review from ${reviewerLabel(
+          entry.reviewerType,
+          entry.reviewerName
+        )}`}
+        className="mt-1 max-w-sm"
+        data-testid="chat-review-block"
+      />
     </Post>
   );
 }
