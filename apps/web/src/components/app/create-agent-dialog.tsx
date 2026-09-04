@@ -164,7 +164,6 @@ function CreateAgentDialogContent({
                 <WorktreeSection
                   cwd={form.createCwd}
                   worktreeAvailable={form.worktreeAvailable}
-                  worktreeChecked={form.worktreeChecked}
                   useWorktree={form.createUseWorktree}
                   onUseWorktreeChange={form.setCreateUseWorktree}
                   baseBranch={form.createBaseBranch}
