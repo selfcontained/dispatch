@@ -29,7 +29,10 @@ export {
   CHAT_QUESTION_OPTIONS_MAX,
 } from "./chat-types.js";
 export type {
+  ChatActivityEntry,
+  ChatActivityStatus,
   ChatAgentMessageEntry,
+  ChatAssistantEntry,
   ChatAnswer,
   ChatAnswerRequest,
   ChatAnswerResponse,

@@ -1,5 +1,8 @@
 import type {
+  ChatActivityEntry,
+  ChatActivityStatus,
   ChatAgentMessageEntry,
+  ChatAssistantEntry,
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMediaEntry,
@@ -38,6 +41,10 @@ export type FeedCursor = {
 };
 
 const SOURCE_RANK: Record<ChatFeedEntry["type"], number> = {
+  // assistant and activity share one source (agent_stream_events), so they
+  // share one rank: the cursor tie-break on id is valid across both.
+  assistant: 5,
+  activity: 5,
   review: 4,
   chat: 3,
   status: 2,
@@ -63,6 +70,8 @@ function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
     case "status":
     case "media":
     case "review":
+    case "assistant":
+    case "activity":
       return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
   }
 }
@@ -391,6 +400,75 @@ async function listReviewEntries(
   }));
 }
 
+type StreamPayload = {
+  text?: string;
+  streaming?: boolean;
+  toolKind?: string;
+  title?: string;
+  status?: ChatActivityStatus;
+  locations?: { path: string; line?: number }[];
+  diff?: { path: string; oldText: string | null; newText: string } | null;
+  terminalOutput?: string | null;
+};
+
+/**
+ * Stream rows from a protocol-driven harness (dsh over ACP): assistant text
+ * and tool calls. Thoughts and status rows stay out of the feed.
+ */
+async function listStreamEntries(
+  db: Queryable,
+  agentId: string,
+  cursor: FeedCursor | null,
+  limit: number
+): Promise<Keyed<ChatAssistantEntry | ChatActivityEntry>[]> {
+  const params: unknown[] = [agentId];
+  const clause = cursorClause("assistant", "int", cursor, params);
+  params.push(limit);
+  const result = await db.query<{
+    id: number;
+    kind: "assistant" | "tool_call";
+    payload: StreamPayload;
+    created_at: Date;
+    at_key: string;
+  }>(
+    `SELECT id, kind, payload, created_at, ${AT_KEY_SQL} AS at_key
+       FROM agent_stream_events
+      WHERE agent_id = $1 AND kind IN ('assistant', 'tool_call') ${clause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT $${params.length}`,
+    params
+  );
+  return result.rows.map((row) => {
+    const at = row.created_at.toISOString();
+    const entry: ChatAssistantEntry | ChatActivityEntry =
+      row.kind === "assistant"
+        ? {
+            type: "assistant",
+            id: `stream:${row.id}`,
+            text: row.payload.text ?? "",
+            streaming: row.payload.streaming === true,
+            at,
+          }
+        : {
+            type: "activity",
+            id: `stream:${row.id}`,
+            toolKind: row.payload.toolKind ?? "other",
+            title: row.payload.title ?? "",
+            status: row.payload.status ?? "pending",
+            locations: row.payload.locations ?? [],
+            diff: row.payload.diff ?? null,
+            terminalOutput: row.payload.terminalOutput ?? null,
+            at,
+          };
+    return {
+      entry,
+      atKey: row.at_key,
+      rawId: String(row.id),
+      idKey: intKey(Number(row.id)),
+    };
+  });
+}
+
 /** Newest first: (atKey, source rank, id) descending. */
 function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
   if (a.atKey !== b.atKey) return a.atKey < b.atKey ? 1 : -1;
@@ -416,13 +494,14 @@ export async function composeChatFeed(
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
   const { db } = store;
-  const [chat, status, agentMessages, media, reviews, unreadCount] =
+  const [chat, status, agentMessages, media, reviews, stream, unreadCount] =
     await Promise.all([
       listChatEntries(db, agentId, cursor, limit + 1),
       listStatusEntries(db, agentId, cursor, limit + 1),
       listAgentMessageEntries(db, agentId, cursor, limit + 1),
       listMediaEntries(db, agentId, cursor, limit + 1),
       listReviewEntries(db, agentId, cursor, limit + 1),
+      listStreamEntries(db, agentId, cursor, limit + 1),
       store.countUnread(agentId),
     ]);
 
@@ -432,6 +511,7 @@ export async function composeChatFeed(
     ...agentMessages,
     ...media,
     ...reviews,
+    ...stream,
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);

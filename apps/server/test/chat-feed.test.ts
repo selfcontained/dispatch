@@ -40,6 +40,7 @@ beforeEach(async () => {
   await pool.query("DELETE FROM agent_messages");
   await pool.query("DELETE FROM media");
   await pool.query("DELETE FROM reviews");
+  await pool.query("DELETE FROM agent_stream_events");
 });
 
 const at = (s: number) => new Date(Date.UTC(2026, 0, 1, 0, 0, s));
@@ -413,5 +414,47 @@ describe("composeChatFeed", () => {
     expect(clampFeedLimit(0)).toBe(1);
     expect(clampFeedLimit(9999)).toBe(500);
     expect(clampFeedLimit(42.7)).toBe(42);
+  });
+});
+
+describe("stream sources", () => {
+  it("surfaces assistant and tool_call rows as assistant and activity entries", async () => {
+    await pool.query(
+      `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload) VALUES
+        ($1, 1, 'assistant', NULL, '{"text":"Reading files","streaming":false}'),
+        ($1, 2, 'tool_call', 'call_1', '{"toolKind":"read","title":"Read README.md","status":"completed","locations":[{"path":"/w/README.md"}],"diff":null,"terminalOutput":null}'),
+        ($1, 3, 'thought', NULL, '{"text":"hmm"}'),
+        ($1, 4, 'status', NULL, '{"message":"turn failed"}')`,
+      [A]
+    );
+    const feed = await composeChatFeed(store, A);
+    expect(feed.entries.map((e) => e.type)).toEqual(["assistant", "activity"]);
+    const activity = feed.entries[1];
+    if (activity.type !== "activity") throw new Error("expected activity");
+    expect(activity.title).toBe("Read README.md");
+    expect(activity.status).toBe("completed");
+    expect(activity.locations).toEqual([{ path: "/w/README.md" }]);
+    expect(activity.id).toMatch(/^stream:\d+$/);
+  });
+
+  it("pages across stream entries with the cursor", async () => {
+    for (let i = 1; i <= 4; i++) {
+      await pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, payload, created_at)
+         VALUES ($1, $2, 'assistant', $3::jsonb, $4)`,
+        [A, i, JSON.stringify({ text: `m${i}`, streaming: false }), at(i)]
+      );
+    }
+    const page1 = await composeChatFeed(store, A, { limit: 2 });
+    expect(page1.hasMore).toBe(true);
+    const page2 = await composeChatFeed(store, A, {
+      limit: 2,
+      cursor: decodeFeedCursor(page1.nextCursor!),
+    });
+    expect(page2.hasMore).toBe(false);
+    const texts = [...page2.entries, ...page1.entries].map((e) =>
+      e.type === "assistant" ? e.text : ""
+    );
+    expect(texts).toEqual(["m1", "m2", "m3", "m4"]);
   });
 });

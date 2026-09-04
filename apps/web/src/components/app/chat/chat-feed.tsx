@@ -181,6 +181,9 @@ function authorKey(
       return "agent";
     case "review":
       return reviewAuthor(entry, ctx).key;
+    case "assistant":
+    case "activity":
+      return "agent";
   }
 }
 
