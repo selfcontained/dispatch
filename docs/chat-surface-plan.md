@@ -249,7 +249,7 @@ Wire contract (`packages/shared/src/chat-types.ts`):
 ```
 ChatUserAttachmentInput =
   | { type: "file"; mediaId: number }        // uploaded first via POST /agents/:id/media
-  | { type: "pin";  pinId: string }
+  | { type: "pin";  pinId: string }          // accepted by the server; the web composer never sends one
   | { type: "link"; url: string; title?: string }
 
 POST /api/v1/agents/:id/chat/messages
@@ -257,6 +257,11 @@ POST /api/v1/agents/:id/chat/messages
   → ChatSendResponse (unchanged)
 ```
 
+- User attachments are **files and links only**. The composer has no pin
+  picker (dropped 2026-09-04: "I don't need to include already pinned things
+  in a message"). Agents can still attach pins via `dispatch_chat_post`, and
+  the feed renders those; the server's schema keeps accepting a user-side
+  `pin` for compatibility, but nothing in the web app sends one.
 - The stored user message carries `ChatAttachment[]` in the same shape agent
   posts use (`file` resolved from the media row, `pin` verified on the agent,
   `link` as given). The feed renderer is unchanged.
@@ -280,8 +285,8 @@ Attachments:
 ```
 
 - Composer UX (mirror the create-agent context input): paperclip button →
-  file picker (accept from `STARTUP_FILE_ACCEPT`); a pin picker popover listing
-  the agent's pins; drag-and-drop onto the composer; paste handling: clipboard
+  file picker (accept from `STARTUP_FILE_ACCEPT`); drag-and-drop onto the
+  composer; paste handling: clipboard
   files → file attachments, a pasted URL alone → link attachment, pasted text
   longer than 4 000 characters or 80 lines → offered as a `pasted.txt` file
   attachment (chip with "keep inline" undo). Attachment chips above the
@@ -394,8 +399,10 @@ changes; the flag, routes and tools are unchanged.
 
 - `chatDraftAtomFamily(agentId)` (`lib/store.ts`, shape in
   `lib/chat-draft.ts`) keeps the unsent draft per agent in localStorage:
-  text, link chips, pin ids, and file chips. Restored on mount; what was sent
-  is cleared on a successful send; a failed send keeps everything.
+  text, link chips, and file chips. Restored on mount; what was sent is
+  cleared on a successful send; a failed send keeps everything. Drafts
+  written before the pin picker was dropped may still carry a `pinIds`
+  list; it is tolerated and ignored, never restored or written back.
 - Files cannot survive a reload (they upload at send time), so only their
   name/size/type is kept and they come back as a disabled "needs
   re-attaching" placeholder chip with a remove button. The send is held

@@ -10,7 +10,6 @@ import {
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatComposer } from "@/components/app/chat/chat-composer";
-import type { AgentPin } from "@/components/app/types";
 
 import {
   isLongPaste,
@@ -37,18 +36,6 @@ beforeEach(() => {
   });
 });
 
-const pins: AgentPin[] = [
-  {
-    id: "pin-1",
-    label: "Dev URL",
-    value: "http://localhost:5173",
-    type: "url",
-  },
-  { id: "pin-2", label: "Branch", value: "feat/x", type: "string" },
-  { label: "No id", value: "x", type: "string" },
-  { id: "pin-3", label: "Run it", value: "go", type: "shortcut" },
-];
-
 function renderComposer(
   props: Partial<Parameters<typeof ChatComposer>[0]> = {}
 ) {
@@ -63,7 +50,6 @@ function renderComposer(
       agentId={null}
       onSend={onSend}
       uploadFile={uploadFile}
-      pins={pins}
       disabledReason={null}
       {...props}
     />
@@ -157,25 +143,19 @@ describe("ChatComposer attachments", () => {
     ]);
     pasteText(input, "https://example.com/x");
     pasteText(input, "line\n".repeat(90));
-    fireEvent.click(screen.getByTestId("chat-composer-pin-button"));
-    fireEvent.click(
-      (await screen.findAllByTestId("chat-composer-pin-option"))[0]!
-    );
     fireEvent.change(input, { target: { value: "everything" } });
     expect(screen.getAllByTestId("context-file-item")).toHaveLength(2);
     expect(screen.getByTestId("chat-attachment-chip-pasted")).toBeTruthy();
     expect(screen.getByTestId("context-link-item")).toBeTruthy();
-    expect(screen.getByTestId("chat-attachment-chip-pin")).toBeTruthy();
 
     fireEvent.keyDown(input, { key: "Enter" });
     await waitFor(() => expect(onSend).toHaveBeenCalledTimes(1));
-    expect(onSend.mock.calls[0]![1]).toHaveLength(5);
+    expect(onSend.mock.calls[0]![1]).toHaveLength(4);
     await waitFor(() => expect(input.value).toBe(""));
     expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
     expect(screen.queryAllByTestId("context-file-item")).toHaveLength(0);
     expect(screen.queryByTestId("chat-attachment-chip-pasted")).toBeNull();
     expect(screen.queryByTestId("context-link-item")).toBeNull();
-    expect(screen.queryByTestId("chat-attachment-chip-pin")).toBeNull();
     expect(screen.queryByTestId("chat-attachment-chip-placeholder")).toBeNull();
     expect(screen.queryByTestId("chat-composer-error")).toBeNull();
     // The image's object URL went with its chip.
@@ -276,28 +256,16 @@ describe("ChatComposer attachments", () => {
     ).toBe(true);
   });
 
-  it("attaches a pin from the picker, skipping pins without ids and shortcuts", async () => {
+  it("offers no way to attach a pin: files and links are the user's kinds", () => {
     renderComposer();
-    fireEvent.click(screen.getByTestId("chat-composer-pin-button"));
-    const options = await screen.findAllByTestId("chat-composer-pin-option");
-    expect(options.map((o) => o.getAttribute("data-pin-id"))).toEqual([
-      "pin-1",
-      "pin-2",
-    ]);
-    fireEvent.click(options[0]!);
-    const chip = screen.getByTestId("chat-attachment-chip-pin");
-    expect(chip.textContent).toContain("Dev URL");
-    expect(chip.textContent).toContain("http://localhost:5173");
+    expect(screen.queryByTestId("chat-composer-pin-button")).toBeNull();
+    expect(screen.queryByLabelText("Attach a pin")).toBeNull();
   });
 
   it("uploads files on send and sends every attachment kind", async () => {
     const { onSend, uploadFile, input } = renderComposer();
     pasteFiles(input, [new File(["png"], "shot.png", { type: "image/png" })]);
     pasteText(input, "https://example.com/x");
-    fireEvent.click(screen.getByTestId("chat-composer-pin-button"));
-    fireEvent.click(
-      (await screen.findAllByTestId("chat-composer-pin-option"))[1]!
-    );
     fireEvent.change(input, { target: { value: "look at these" } });
     fireEvent.keyDown(input, { key: "Enter" });
 
@@ -307,7 +275,6 @@ describe("ChatComposer attachments", () => {
     expect(onSend).toHaveBeenCalledWith("look at these", [
       { type: "file", mediaId: "shot.png".length },
       { type: "link", url: "https://example.com/x" },
-      { type: "pin", pinId: "pin-2" },
     ]);
     await waitFor(() => expect(input.value).toBe(""));
     expect(screen.queryByTestId("chat-composer-attachments")).toBeNull();
@@ -419,14 +386,10 @@ describe("ChatComposer attachments", () => {
     ).toBe("drop.md");
   });
 
-  it("disables the attach buttons with the composer", () => {
+  it("disables the attach button with the composer", () => {
     renderComposer({ disabledReason: "The agent is not running." });
     expect(
       (screen.getByTestId("chat-composer-attach-button") as HTMLButtonElement)
-        .disabled
-    ).toBe(true);
-    expect(
-      (screen.getByTestId("chat-composer-pin-button") as HTMLButtonElement)
         .disabled
     ).toBe(true);
   });

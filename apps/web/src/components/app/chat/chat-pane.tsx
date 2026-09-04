@@ -512,7 +512,6 @@ export function ChatPane({
           agentId={agentId}
           onSend={onSend}
           uploadFile={uploadFile}
-          pins={pins}
           disabledReason={disabledReason}
           sending={send.isPending || answer.isPending}
           autoFocus={active && !isMobile}

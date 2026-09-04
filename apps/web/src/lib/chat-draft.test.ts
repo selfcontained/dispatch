@@ -9,6 +9,7 @@ import {
   fitChatDraft,
   isChatComposerDraft,
   isEmptyChatDraft,
+  readChatComposerDraft,
 } from "./chat-draft";
 
 describe("chat draft", () => {
@@ -18,7 +19,6 @@ describe("chat draft", () => {
       isChatComposerDraft({
         text: "hi",
         links: ["https://a"],
-        pinIds: ["p1"],
         files: [
           { name: "a.png", size: 3, mime: "image/png" },
           { name: "pasted.txt", size: 9, mime: "text/plain", pasted: "x" },
@@ -28,20 +28,44 @@ describe("chat draft", () => {
     ).toBe(true);
     expect(isChatComposerDraft(null)).toBe(false);
     expect(isChatComposerDraft("hi")).toBe(false);
-    expect(
-      isChatComposerDraft({ text: 1, links: [], pinIds: [], files: [] })
-    ).toBe(false);
-    expect(
-      isChatComposerDraft({ text: "", links: [1], pinIds: [], files: [] })
-    ).toBe(false);
+    expect(isChatComposerDraft({ text: 1, links: [], files: [] })).toBe(false);
+    expect(isChatComposerDraft({ text: "", links: [1], files: [] })).toBe(
+      false
+    );
     expect(
       isChatComposerDraft({
         text: "",
         links: [],
-        pinIds: [],
         files: [{ name: "a" }],
       })
     ).toBe(false);
+  });
+
+  it("tolerates a legacy draft's pinIds and reads it without them", () => {
+    // Drafts stored before the composer lost its pin picker carry a
+    // `pinIds` list. It must neither fail validation nor come back.
+    const legacy = {
+      text: "old draft",
+      links: ["https://a"],
+      files: [{ name: "a.png", size: 3, mime: "image/png" }],
+    };
+    expect(isChatComposerDraft(legacy)).toBe(true);
+    const read = readChatComposerDraft(legacy);
+    expect(read).toEqual({
+      text: "old draft",
+      links: ["https://a"],
+      files: [{ name: "a.png", size: 3, mime: "image/png" }],
+    });
+    expect("pinIds" in read).toBe(false);
+    // A draft already in shape is handed back as-is, so identity still says
+    // "unchanged" to callers that skip a write on it.
+    const inShape = { text: "t", links: [], files: [] };
+    expect(readChatComposerDraft(inShape)).toBe(inShape);
+    // A malformed pinIds is just as ignorable as a well-formed one.
+    expect(isChatComposerDraft({ ...legacy, pinIds: "nope" })).toBe(true);
+    // Anything off-shape still reads as empty.
+    expect(readChatComposerDraft({ text: 1 })).toBe(EMPTY_CHAT_DRAFT);
+    expect(readChatComposerDraft(null)).toBe(EMPTY_CHAT_DRAFT);
   });
 
   it("knows an empty draft", () => {
@@ -59,7 +83,6 @@ describe("chat draft", () => {
     const draft: ChatComposerDraft = {
       text: "hello",
       links: [],
-      pinIds: [],
       files: [
         { name: "pasted.txt", size: 5, mime: "text/plain", pasted: "12345" },
       ],
@@ -73,7 +96,6 @@ describe("chat draft", () => {
     const draft: ChatComposerDraft = {
       text: "keep me",
       links: ["https://example.com"],
-      pinIds: ["pin"],
       files: [
         { name: "a.png", size: 1, mime: "image/png" },
         {
@@ -94,7 +116,6 @@ describe("chat draft", () => {
     expect(chatDraftBytes(fitted)).toBeLessThanOrEqual(CHAT_DRAFT_MAX_BYTES);
     expect(fitted.text).toBe("keep me");
     expect(fitted.links).toEqual(["https://example.com"]);
-    expect(fitted.pinIds).toEqual(["pin"]);
     expect(fitted.files.map((f) => f.name)).toEqual([
       "a.png",
       "pasted.txt",
@@ -113,7 +134,6 @@ describe("chat draft", () => {
     const draft: ChatComposerDraft = {
       text: "",
       links: [],
-      pinIds: [],
       files: [
         {
           name: "pasted.txt",
@@ -147,14 +167,12 @@ describe("chat draft", () => {
     const draft: ChatComposerDraft = {
       text,
       links,
-      pinIds: ["pin"],
       files: [{ name: "a.png", size: 1, mime: "image/png" }],
     };
     expect(chatDraftBytes(draft)).toBeGreaterThan(CHAT_DRAFT_MAX_BYTES);
     const fitted = fitChatDraft(draft);
     expect(chatDraftBytes(fitted)).toBeLessThanOrEqual(CHAT_DRAFT_MAX_BYTES);
     expect(fitted.text).toBe(text);
-    expect(fitted.pinIds).toEqual(["pin"]);
     expect(fitted.files).toEqual(draft.files);
     // The one link that was a character longer went first; the survivors
     // keep their order.
@@ -174,7 +192,6 @@ describe("chat draft", () => {
     const draft: ChatComposerDraft = {
       text,
       links: ["https://example.com"],
-      pinIds: [],
       files: [],
     };
     const fitted = fitChatDraft(draft);
@@ -200,7 +217,6 @@ describe("chat draft", () => {
     const draft: ChatComposerDraft = {
       text: "x".repeat(CHAT_DRAFT_MAX_BYTES),
       links: ["https://example.com/" + "y".repeat(CHAT_DRAFT_MAX_BYTES)],
-      pinIds: ["p".repeat(CHAT_DRAFT_MAX_BYTES)],
       files: [
         { name: "n".repeat(CHAT_DRAFT_MAX_BYTES), size: 1, mime: "" },
         {
@@ -215,7 +231,6 @@ describe("chat draft", () => {
     expect(chatDraftBytes(fitted)).toBeLessThanOrEqual(CHAT_DRAFT_MAX_BYTES);
     expect(fitted.links).toEqual([]);
     expect(fitted.files).toEqual([]);
-    expect(fitted.pinIds).toEqual([]);
     expect(fitted.text).toBe("");
   });
 });

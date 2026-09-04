@@ -6,7 +6,6 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -25,8 +24,6 @@ import {
 import {
   DraftPlaceholderChip,
   PastedTextChip,
-  PinChip,
-  PinPickerButton,
 } from "@/components/app/chat/chat-composer-attachments";
 import {
   ContextFileItem,
@@ -37,14 +34,13 @@ import {
   getClipboardFilesFromEvent,
   startupFileKey,
 } from "@/components/app/create-agent-dialog-clipboard";
-import { type AgentPin } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import {
   type ChatComposerDraft,
   type ChatDraftFile,
   EMPTY_CHAT_DRAFT,
-  isChatComposerDraft,
+  readChatComposerDraft,
 } from "@/lib/chat-draft";
 import { isImageFile } from "@/lib/media-accept";
 import { isAcceptedUploadFile } from "@/lib/media-upload";
@@ -71,8 +67,6 @@ export type ChatComposerProps = {
    * time, once per file; a rejection keeps the draft and marks the chip.
    */
   uploadFile?: (file: File) => Promise<{ id: number }>;
-  /** The agent's pins, for the pin picker. */
-  pins?: AgentPin[];
   /** When set, the composer is disabled and this explains why. */
   disabledReason: string | null;
   /** An external send is in flight; the input stays usable, the button waits. */
@@ -90,8 +84,6 @@ export type ChatComposerProps = {
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
 };
-
-const NO_PINS: AgentPin[] = [];
 
 /** What is kept of a live file across a reload: its identity, and a paste's text. */
 function describeFile(file: File, pasted: string | undefined): ChatDraftFile {
@@ -259,11 +251,11 @@ const SUPPORTED_FILE_HINT =
  * is left alone: the Enter that commits a CJK candidate must not send.
  *
  * Attachments ride along as chips above the field: files from the
- * paperclip, a drop or a paste; links from a pasted URL; pins from the pin
- * picker. Files upload when the message is sent, so an unsent draft leaves
- * nothing behind on the server.
+ * paperclip, a drop or a paste; links from a pasted URL. Files upload when
+ * the message is sent, so an unsent draft leaves nothing behind on the
+ * server.
  *
- * The draft — text, links, pins, pasted text — is persisted per agent
+ * The draft — text, links, pasted text — is persisted per agent
  * (`chatDraftAtomFamily`) and comes back after a reload. Picked files
  * cannot: they come back as "needs re-attaching" placeholders that hold the
  * send until they are re-attached (which replaces the placeholder) or
@@ -274,7 +266,6 @@ export function ChatComposer({
   agentId,
   onSend,
   uploadFile,
-  pins = NO_PINS,
   disabledReason,
   sending = false,
   placeholder = "Message the agent…",
@@ -288,20 +279,16 @@ export function ChatComposer({
   const [storedDraft, setStoredDraft] = useAtom(
     agentId ? chatDraftAtomFamily(agentId) : localDraftAtom
   );
-  const draft = isChatComposerDraft(storedDraft)
-    ? storedDraft
-    : EMPTY_CHAT_DRAFT;
+  const draft = readChatComposerDraft(storedDraft);
   // The atom holds the draft in full; the size cap applies to what the atom
   // writes to storage (`chatDraftAtomFamily`), not to what is typed.
   const updateDraft = useCallback(
     (patch: (current: ChatComposerDraft) => ChatComposerDraft) => {
-      setStoredDraft((prev) =>
-        patch(isChatComposerDraft(prev) ? prev : EMPTY_CHAT_DRAFT)
-      );
+      setStoredDraft((prev) => patch(readChatComposerDraft(prev)));
     },
     [setStoredDraft]
   );
-  const { text, links, pinIds } = draft;
+  const { text, links } = draft;
   const setText = useCallback(
     (next: string | ((current: string) => string)) => {
       updateDraft((current) => ({
@@ -426,15 +413,7 @@ export function ChatComposer({
     });
   }, []);
 
-  const attachedPins = useMemo(
-    () =>
-      pinIds
-        .map((id) => pins.find((pin) => pin.id === id))
-        .filter((pin): pin is AgentPin => pin !== undefined),
-    [pinIds, pins]
-  );
-  const attachmentCount =
-    files.length + placeholders.length + links.length + attachedPins.length;
+  const attachmentCount = files.length + placeholders.length + links.length;
   const attachmentsFull = attachmentCount >= CHAT_ATTACHMENTS_MAX;
 
   const noteAttachmentLimit = useCallback(() => {
@@ -495,33 +474,6 @@ export function ChatComposer({
       updateDraft((current) => ({
         ...current,
         links: current.links.filter((link) => link !== url),
-      }));
-    },
-    [updateDraft]
-  );
-
-  const addPin = useCallback(
-    (pin: AgentPin) => {
-      if (!pin.id) return;
-      if (pinIds.includes(pin.id)) return;
-      if (attachmentsFull) {
-        noteAttachmentLimit();
-        return;
-      }
-      updateDraft((current) =>
-        current.pinIds.includes(pin.id!)
-          ? current
-          : { ...current, pinIds: [...current.pinIds, pin.id!] }
-      );
-    },
-    [attachmentsFull, noteAttachmentLimit, pinIds, updateDraft]
-  );
-
-  const removePin = useCallback(
-    (pin: AgentPin) => {
-      updateDraft((current) => ({
-        ...current,
-        pinIds: current.pinIds.filter((id) => id !== pin.id),
       }));
     },
     [updateDraft]
@@ -639,11 +591,6 @@ export function ChatComposer({
     [addFiles, disabled]
   );
 
-  const attachedPinIds = useMemo(
-    () => new Set(attachedPins.map((pin) => pin.id!)),
-    [attachedPins]
-  );
-
   const canSend =
     !disabled &&
     !sending &&
@@ -672,7 +619,6 @@ export function ChatComposer({
     const submittedText = text;
     const submittedFiles = files;
     const submittedLinks = links;
-    const submittedPins = attachedPins;
 
     const run = async () => {
       const attachments: ChatUserAttachmentInput[] = [];
@@ -702,15 +648,11 @@ export function ChatComposer({
         attachments.push({ type: "file", mediaId });
       }
       for (const url of submittedLinks) attachments.push({ type: "link", url });
-      for (const pin of submittedPins) {
-        attachments.push({ type: "pin", pinId: pin.id! });
-      }
       await onSend(submittedText.trim(), attachments);
     };
 
     run()
       .then(() => {
-        const sentPinIds = new Set(submittedPins.map((pin) => pin.id));
         // The sent files leave the draft in this same write, not in the
         // describe effect's follow-up: the draft is what a remounted
         // composer or another tab restores from, and a draft that still
@@ -720,7 +662,6 @@ export function ChatComposer({
           ...current,
           text: current.text === submittedText ? "" : current.text,
           links: current.links.filter((url) => !submittedLinks.includes(url)),
-          pinIds: current.pinIds.filter((id) => !sentPinIds.has(id)),
           files: consumePlaceholders(current.files, submittedFiles).remaining,
         }));
         for (const file of submittedFiles) removeFile(file);
@@ -737,7 +678,6 @@ export function ChatComposer({
         textareaRef.current?.focus();
       });
   }, [
-    attachedPins,
     canSend,
     files,
     links,
@@ -856,9 +796,6 @@ export function ChatComposer({
                 onRemove={() => removeLink(link)}
               />
             ))}
-            {attachedPins.map((pin) => (
-              <PinChip key={pin.id} pin={pin} onRemove={() => removePin(pin)} />
-            ))}
           </div>
         ) : null}
         <div className="flex items-end">
@@ -885,12 +822,6 @@ export function ChatComposer({
             >
               <Paperclip className="h-4 w-4" />
             </Button>
-            <PinPickerButton
-              pins={pins}
-              attachedIds={attachedPinIds}
-              disabled={disabled || attachmentsFull}
-              onPick={addPin}
-            />
           </div>
           <Textarea
             ref={textareaRef}
