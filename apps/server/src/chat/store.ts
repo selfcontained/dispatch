@@ -130,6 +130,41 @@ export class ChatStore {
   }
 
   /**
+   * Insert a row whose id the caller fixed in advance, tolerating a
+   * collision. Returns null when a row with that id already exists — the
+   * launch path needs to know that its post was *not* written by this call,
+   * because an envelope naming a row someone else owns is exactly the
+   * confusion the id was meant to prevent.
+   */
+  async insertIfAbsent(
+    input: InsertChatMessageInput & { id: string }
+  ): Promise<ChatMessage | null> {
+    const result = await this.db.query<Row>(
+      `INSERT INTO agent_chat_messages
+         (id, agent_id, author_kind, kind, text, reply_to, question,
+          attachments, delivered, origin, launched_by_agent_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING *`,
+      [
+        input.id,
+        input.agentId,
+        input.authorKind,
+        input.kind ?? "reply",
+        input.text,
+        input.replyTo ?? null,
+        input.question ? JSON.stringify(input.question) : null,
+        JSON.stringify(input.attachments ?? []),
+        input.delivered ?? null,
+        input.origin ?? null,
+        input.launchedByAgentId ?? null,
+      ]
+    );
+    const row = result.rows[0];
+    return row ? toChatMessage(row) : null;
+  }
+
+  /**
    * Apply a partial update. Only the supplied keys change; `question: null`
    * clears the question. Returns null when no row matches.
    */

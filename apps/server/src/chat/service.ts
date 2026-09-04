@@ -137,11 +137,66 @@ export type ChatLaunchContextInput = {
 export type PreparedLaunchContext = {
   /** The post's id, known before the write. */
   id: string;
-  /** One envelope line per resolved attachment, in the post's order. */
+  /**
+   * One envelope line per resolved startup attachment — *every* one, not
+   * the capped set the row stores. The CLI's first turn must still describe
+   * all the startup files, links and pins it used to get from
+   * `buildStartupPrompt`; only the post is capped.
+   */
   attachmentLines: string[];
+  /**
+   * Exactly what the row will store: the prompt, truncated to the chat
+   * limit and marked as truncated when it did not fit, plus a line naming
+   * the attachments the cap left off. Exposed so a caller can see what the
+   * feed will say without waiting for the write.
+   */
+  postText: string;
   /** Write the post and announce the feed change. */
   record: () => Promise<ChatMessage>;
 };
+
+/**
+ * Appended to a launch post whose prompt did not fit in
+ * `CHAT_MESSAGE_MAX_CHARS`. The CLI's first turn always carries the full
+ * prompt, so the post must say plainly that it is showing less rather than
+ * quietly disagreeing with what the agent was told.
+ */
+export const LAUNCH_POST_TRUNCATED_NOTE =
+  "[Truncated for Chat — the agent's first turn received the full prompt.]";
+
+/** Appended when the attachment cap left startup context off the post. */
+function launchPostAttachmentNote(hidden: number): string {
+  return `[${hidden} more startup attachment${hidden === 1 ? "" : "s"} not listed here — all of them were delivered to the agent.]`;
+}
+
+/**
+ * The launch post's stored text, normalized once so the row and the first
+ * turn cannot disagree without saying so. The prompt is trimmed to fit
+ * `CHAT_MESSAGE_MAX_CHARS` (a launched agent's prompt may be five times
+ * that), and each thing the row is showing less of gets its own note.
+ */
+export function buildLaunchPostText(
+  text: string,
+  hiddenAttachments = 0
+): string {
+  const notes: string[] = [];
+  if (hiddenAttachments > 0) {
+    notes.push(launchPostAttachmentNote(hiddenAttachments));
+  }
+  // Reserve room for the notes before deciding how much prompt fits, so a
+  // note is never itself truncated away.
+  const reserved = notes.reduce((sum, note) => sum + note.length + 2, 0);
+  let body = text;
+  if (body.length + reserved > CHAT_MESSAGE_MAX_CHARS) {
+    const budget =
+      CHAT_MESSAGE_MAX_CHARS -
+      reserved -
+      (LAUNCH_POST_TRUNCATED_NOTE.length + 2);
+    body = body.slice(0, Math.max(0, budget));
+    notes.unshift(LAUNCH_POST_TRUNCATED_NOTE);
+  }
+  return [body, ...notes].filter((part) => part.length > 0).join("\n\n");
+}
 
 export type ChatAnswerInput = {
   value: string;
@@ -472,11 +527,10 @@ export class ChatService {
       ...links.map((url) => ({ type: "link" as const, url })),
       ...pins.map((pin) => ({ type: "pin" as const, pinId: pin.id })),
     ];
-    if (inputs.length > CHAT_ATTACHMENTS_MAX) {
-      // A launch can seed more pins than a post may carry; keep the post
-      // rather than refuse the launch, and let the sidebar show the rest.
-      inputs.length = CHAT_ATTACHMENTS_MAX;
-    }
+    // Everything is resolved and described, because the CLI's first turn has
+    // to list all of it. Only the row is capped: a launch can seed more pins
+    // than a post may carry, and refusing the launch over that would be
+    // worse than a post that says how much it left off.
     let attachments: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
     if (inputs.length > 0) {
@@ -484,25 +538,38 @@ export class ChatService {
       attachments = await this.resolveAttachmentsFor(agent, inputs);
       attachmentLines = this.describeAttachments(agent, attachments);
     }
+    const storedAttachments =
+      attachments.length > CHAT_ATTACHMENTS_MAX
+        ? attachments.slice(0, CHAT_ATTACHMENTS_MAX)
+        : attachments;
+    const postText = buildLaunchPostText(
+      text,
+      attachments.length - storedAttachments.length
+    );
     const id = input.id ?? randomUUID();
     return {
       id,
       attachmentLines,
+      postText,
       record: async () => {
-        const message = await this.store.insert({
+        // Collision-safe: an id that is already taken means this call did not
+        // write the post, and the caller must not name it in an envelope.
+        const message = await this.store.insertIfAbsent({
           id,
           agentId: input.agentId,
           authorKind: "user",
           kind: "reply",
-          text:
-            text.length > CHAT_MESSAGE_MAX_CHARS
-              ? text.slice(0, CHAT_MESSAGE_MAX_CHARS)
-              : text,
-          attachments,
+          text: postText,
+          attachments: storedAttachments,
           delivered: true,
           origin: "launch",
           launchedByAgentId: input.launchedByAgentId ?? null,
         });
+        if (!message) {
+          throw new ChatConflictError(
+            `A chat message with id ${id} already exists; the launch post was not written.`
+          );
+        }
         this.publishChanged(input.agentId);
         return message;
       },
@@ -597,10 +664,22 @@ export class ChatService {
   /** Agent-authored message from dispatch_chat_post. */
   async post(agentId: string, input: ChatPostInput): Promise<ChatMessage> {
     validateChatContent(input);
-    if (input.replyTo != null && !isChatMessageId(input.replyTo)) {
-      throw new ChatValidationError(
-        "replyTo must be the message id from a DISPATCH CHAT envelope."
-      );
+    if (input.replyTo != null) {
+      if (!isChatMessageId(input.replyTo)) {
+        throw new ChatValidationError(
+          "replyTo must be the message id from a DISPATCH CHAT envelope."
+        );
+      }
+      // A syntactically valid id is not enough: the envelope's id is the only
+      // thing that entitles an agent to thread onto a message, and a launching
+      // agent knows real ids from other feeds. Anything that is not a message
+      // on this agent's own feed is refused rather than silently threaded.
+      const target = await this.store.getById(input.replyTo);
+      if (!target || target.agentId !== agentId) {
+        throw new ChatValidationError(
+          "replyTo must name a message on this agent's own Chat feed — use the id from a DISPATCH CHAT envelope."
+        );
+      }
     }
     const kind = input.kind ?? "reply";
     const attachments = await this.resolveAttachments(
