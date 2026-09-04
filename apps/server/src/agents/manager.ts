@@ -59,9 +59,9 @@ import { type SeededMedia, seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
 import {
+  type ChatLaunchPost,
   buildAgentCommand,
   buildLaunchGuidance,
-  buildStartupPrompt,
 } from "./tmux/command-builder.js";
 import {
   agentIdFromSessionName,
@@ -226,18 +226,33 @@ export type DiffStatsRefresherHandle = {
 
 /**
  * Records what an agent was launched with as the first post of its Chat
- * feed. Implemented by `ChatService.recordLaunchContext`; narrowed so the
- * manager never imports the chat module.
+ * feed. Implemented by `ChatService.prepareLaunchContext`; narrowed so the
+ * manager never imports the chat module. `prepare` resolves the post (its
+ * attachments and their envelope lines) without writing it, so the CLI's
+ * first turn can be built from the same id and lines; `record` then writes
+ * it. Null means the launch carries no context and nothing is recorded.
  */
+export type LaunchContextInput = {
+  id: string;
+  agentId: string;
+  text?: string;
+  files?: Array<{ mediaId: number }>;
+  links?: string[];
+  pins?: Array<{ id: string; type: string; value: string }>;
+  launchedByAgentId?: string | null;
+};
+
 export type LaunchContextRecorder = {
-  recordLaunchContext: (input: {
-    agentId: string;
-    text?: string;
-    files?: Array<{ mediaId: number }>;
-    links?: string[];
-    pins?: Array<{ id: string; type: string; value: string }>;
-    launchedByAgentId?: string | null;
-  }) => Promise<unknown>;
+  prepareLaunchContext: (input: LaunchContextInput) => Promise<{
+    /**
+     * Every startup file, link and pin, described the way the pane lists
+     * them. Not capped: the post may show fewer, but the CLI's first turn
+     * has to name all of the context the agent was launched with.
+     */
+    attachmentLines: string[];
+    /** Rejects when the post was not written, including an id collision. */
+    record: () => Promise<unknown>;
+  } | null>;
 };
 
 /** The two settings-backed switches the launch guidance is built from. */
@@ -253,6 +268,31 @@ async function readLaunchGuidanceFlags(
 
 /** Upper bound on how long a launch waits for its Chat launch post. */
 export const LAUNCH_CONTEXT_WRITE_TIMEOUT_MS = 5_000;
+
+/**
+ * Upper bound on resolving the launch post before the CLI command is built.
+ * Unlike the write, this one is on the launch's critical path — the first
+ * turn's envelope needs the post's id and attachment lines — so a slow or
+ * hung Chat read gives up and the agent launches with the plain startup
+ * prompt and no post, rather than the two disagreeing.
+ */
+export const LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS = 5_000;
+
+/** Sentinel for a promise that outlived its bound. */
+const TIMED_OUT = Symbol("timed-out");
+
+/** Resolve with the promise's value, or `TIMED_OUT` after `ms`. */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number
+): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+    timer.unref?.();
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 
 export class AgentManager {
   private readonly pool: Pool;
@@ -440,17 +480,54 @@ export class AgentManager {
         throw error;
       }
     }
-    const startupPrompt = buildStartupPrompt(
-      input.initialPrompt,
-      p.initialPins,
-      initialMedia
-    );
-    // Best-effort: the write runs alongside the runtime launch, never blocks
-    // it, and is only waited on (bounded) so the feed has the post when the
-    // caller gets the agent back.
-    const launchContextWrite = this.recordLaunchContext(p, input, initialMedia);
+    // Whether the CLI's first turn will be wrapped decides how much of the
+    // Chat work is on the launch's critical path. Only a launch that will
+    // actually carry an envelope waits for the post — a launch with the flag
+    // off, a job run, a terminal agent or an inert runtime keeps the round-4
+    // shape, where the whole thing runs alongside the runtime start and is
+    // waited on (bounded) only after it. The flags are read once here and
+    // handed to the command builder, so the unwrapped paths add no query.
+    const inertRuntime = this.config.agentRuntime === "inert";
+    // This read is on the create path ahead of the launch's own try/catch, so
+    // a rejecting settings query would otherwise leave the row stuck in
+    // `creating`. Route it through the same failure handling the launch uses.
+    const launchGuidanceFlags =
+      input.jobRunId || inertRuntime
+        ? { trimmedGuidance: false, chatSurface: false }
+        : await readLaunchGuidanceFlags(this.pool).catch((error: unknown) =>
+            this.failCreate(p.id, error)
+          );
+    // Terminal sessions have no CLI to chat with, so they get no post at all.
+    const recorder = p.type === "terminal" ? null : this.launchContextRecorder;
+    const wantsEnvelope =
+      recorder !== null &&
+      launchGuidanceFlags.chatSurface &&
+      !input.jobRunId &&
+      !inertRuntime;
+    const launchPostId = randomUUID();
+    const launchContextInput = recorder
+      ? this.launchContextInput(p, input, initialMedia, launchPostId)
+      : null;
+    let chatLaunchPost: ChatLaunchPost | null = null;
+    let launchContextWrite: Promise<void> = Promise.resolve();
+    if (recorder && launchContextInput) {
+      if (wantsEnvelope) {
+        chatLaunchPost = await this.resolveDurableLaunchPost(
+          recorder,
+          p.id,
+          launchPostId,
+          launchContextInput
+        );
+      } else {
+        launchContextWrite = this.recordLaunchContextDetached(
+          recorder,
+          p.id,
+          launchContextInput
+        );
+      }
+    }
 
-    if (this.config.agentRuntime === "inert") {
+    if (inertRuntime) {
       await this.launchInertAgent({
         id: p.id,
         type: p.type,
@@ -480,7 +557,11 @@ export class AgentManager {
         normalizedBaseBranch: p.normalizedBaseBranch,
         worktreePathOverride: p.worktreePathOverride,
         cliSessionId: p.cliSessionId,
-        startupPrompt,
+        initialPrompt: input.initialPrompt,
+        initialPins: p.initialPins,
+        initialMedia,
+        chatLaunchPost,
+        launchGuidanceFlags,
         persona: input.persona,
         jobRunId: input.jobRunId,
         templateId: input.templateId,
@@ -493,67 +574,140 @@ export class AgentManager {
   }
 
   /**
-   * Put the launch context at the top of the Chat feed, so the feed opens
-   * with it. Best-effort and detached from the launch: the write is started
-   * alongside the runtime launch, a failure is logged and never fails the
-   * launch (the prompt still reaches the CLI), and the returned promise
-   * settles after at most `LAUNCH_CONTEXT_WRITE_TIMEOUT_MS` so a slow or hung
-   * Chat write cannot hold the agent start. A write that outlives the wait
-   * still lands (and announces itself) whenever it completes.
+   * The launch context as the recorder wants it, built once so the critical
+   * path and the detached path cannot describe the same launch differently.
    *
    * Only an explicit `launchedByAgentId` attributes the post to an agent —
    * the agent-authenticated launch paths set it. `parentAgentId` is never
    * used for attribution: the create route accepts it from the request body.
    */
-  private recordLaunchContext(
+  private launchContextInput(
     p: PreparedCreateInputs,
     input: CreateAgentInput,
-    initialMedia: Array<{ mediaId: number }>
-  ): Promise<void> {
-    const recorder = this.launchContextRecorder;
-    if (!recorder || p.type === "terminal") return Promise.resolve();
+    initialMedia: Array<{ mediaId: number }>,
+    launchPostId: string
+  ): LaunchContextInput {
+    return {
+      id: launchPostId,
+      agentId: p.id,
+      text: input.launchContext?.prompt ?? input.initialPrompt,
+      files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
+      links: input.launchContext?.links ?? [],
+      pins: p.initialPins.map((pin) => ({
+        id: pin.id ?? "",
+        type: pin.type,
+        value: pin.value,
+      })),
+      launchedByAgentId: input.launchedByAgentId ?? null,
+    };
+  }
+
+  /**
+   * Resolve *and* write the launch post before the CLI command is built,
+   * for the one case where the first turn will name it.
+   *
+   * An envelope naming a row that does not exist points the agent's replies
+   * at nothing, so a durable insert is the precondition for using one: the
+   * resolve and the write are each awaited under their own bound, and
+   * anything short of a written row — a rejection, a timeout, an id already
+   * taken — returns null and the agent launches with the plain startup
+   * prompt and no post. That pair can never disagree. A write that lands
+   * after its bound still lands; it is simply not named in the first turn.
+   */
+  private async resolveDurableLaunchPost(
+    recorder: LaunchContextRecorder,
+    agentId: string,
+    launchPostId: string,
+    context: LaunchContextInput
+  ): Promise<ChatLaunchPost | null> {
+    const resolve = recorder
+      .prepareLaunchContext(context)
+      .catch((error: unknown) => {
+        this.logger.warn(
+          { err: error, agentId },
+          "chat: failed to resolve launch context; launching without it"
+        );
+        return null;
+      });
+    const prepared = await withTimeout(
+      resolve,
+      LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS
+    );
+    if (prepared === TIMED_OUT) {
+      this.logger.warn(
+        { agentId, timeoutMs: LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS },
+        "chat: launch context did not resolve in time; launching without it"
+      );
+      return null;
+    }
+    if (!prepared) return null;
     const write = Promise.resolve()
-      .then(() =>
-        recorder.recordLaunchContext({
-          agentId: p.id,
-          text: input.launchContext?.prompt ?? input.initialPrompt,
-          files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
-          links: input.launchContext?.links ?? [],
-          pins: p.initialPins.map((pin) => ({
-            id: pin.id ?? "",
-            type: pin.type,
-            value: pin.value,
-          })),
-          launchedByAgentId: input.launchedByAgentId ?? null,
-        })
-      )
+      .then(() => prepared.record())
+      .then(
+        () => true,
+        (error: unknown) => {
+          this.logger.warn(
+            { err: error, agentId },
+            "chat: failed to record launch context; launching without the Chat envelope"
+          );
+          return false;
+        }
+      );
+    const written = await withTimeout(write, LAUNCH_CONTEXT_WRITE_TIMEOUT_MS);
+    if (written === TIMED_OUT) {
+      this.logger.warn(
+        { agentId, timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS },
+        "chat: launch post was not written in time; launching without the Chat envelope"
+      );
+      return null;
+    }
+    if (!written) return null;
+    return {
+      messageId: launchPostId,
+      attachmentLines: prepared.attachmentLines,
+    };
+  }
+
+  /**
+   * Put the launch context at the top of the Chat feed without holding the
+   * launch, for every launch whose first turn will not name it: the flag
+   * off, a job run, or an inert runtime. Resolving and writing both run
+   * alongside the runtime start, a failure is logged and never fails the
+   * launch (the prompt still reaches the CLI), and the returned promise
+   * settles after at most `LAUNCH_CONTEXT_WRITE_TIMEOUT_MS` so a slow or
+   * hung Chat write cannot hold the agent start. A write that outlives the
+   * wait still lands (and announces itself) whenever it completes.
+   */
+  private recordLaunchContextDetached(
+    recorder: LaunchContextRecorder,
+    agentId: string,
+    context: LaunchContextInput
+  ): Promise<void> {
+    const write = Promise.resolve()
+      .then(async () => {
+        const prepared = await recorder.prepareLaunchContext(context);
+        if (prepared) await prepared.record();
+      })
       .then(
         () => "written" as const,
         (error: unknown) => {
           this.logger.warn(
-            { err: error, agentId: p.id },
+            { err: error, agentId },
             "chat: failed to record launch context"
           );
           return "failed" as const;
         }
       );
-    let timer: ReturnType<typeof setTimeout> | undefined;
-    const timeout = new Promise<"timeout">((resolve) => {
-      timer = setTimeout(
-        () => resolve("timeout"),
-        LAUNCH_CONTEXT_WRITE_TIMEOUT_MS
-      );
-      timer.unref?.();
-    });
-    return Promise.race([write, timeout]).then((outcome) => {
-      clearTimeout(timer);
-      if (outcome === "timeout") {
-        this.logger.warn(
-          { agentId: p.id, timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS },
-          "chat: launch context write still pending; launch continues without it"
-        );
+    return withTimeout(write, LAUNCH_CONTEXT_WRITE_TIMEOUT_MS).then(
+      (outcome) => {
+        if (outcome === TIMED_OUT) {
+          this.logger.warn(
+            { agentId, timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS },
+            "chat: launch context write still pending; launch continues without it"
+          );
+        }
       }
-    });
+    );
   }
 
   private async prepareCreateInputs(
@@ -783,7 +937,16 @@ export class AgentManager {
     normalizedBaseBranch: string | undefined;
     worktreePathOverride: string | undefined;
     cliSessionId: string | null;
-    startupPrompt: string | undefined;
+    initialPrompt: string | undefined;
+    initialPins: AgentPin[];
+    initialMedia: SeededMedia[];
+    chatLaunchPost: ChatLaunchPost | null;
+    /**
+     * Read once in `createAgent` — the same read that decided whether this
+     * launch waits for its Chat post — so the settings are not queried twice
+     * per launch and the two decisions can never disagree.
+     */
+    launchGuidanceFlags: { trimmedGuidance: boolean; chatSurface: boolean };
     persona: string | undefined;
     jobRunId: string | undefined;
     templateId: string | undefined;
@@ -803,7 +966,10 @@ export class AgentManager {
       useWorktree,
       createNewBranch,
       cliSessionId,
-      startupPrompt,
+      initialPrompt,
+      initialPins,
+      initialMedia,
+      chatLaunchPost,
     } = opts;
 
     try {
@@ -813,11 +979,7 @@ export class AgentManager {
         opts.persona || opts.jobRunId || role === "assisted_update"
           ? null
           : await getActivePersonality(this.pool);
-      // Job runs get their own ruleset, which the trim never touches — so
-      // don't make an unchanged launch path depend on this settings read.
-      const { trimmedGuidance, chatSurface } = opts.jobRunId
-        ? { trimmedGuidance: false, chatSurface: false }
-        : await readLaunchGuidanceFlags(this.pool);
+      const { trimmedGuidance, chatSurface } = opts.launchGuidanceFlags;
 
       const agentCommand = buildAgentCommand(
         this.config,
@@ -837,7 +999,10 @@ export class AgentManager {
           autoReview: !opts.persona && !opts.jobRunId && opts.autoReview,
           trimmedGuidance,
           chatSurface,
-          initialPrompt: startupPrompt,
+          initialPrompt,
+          initialPins,
+          initialMedia,
+          chatLaunchPost,
           personalityPrompt: personality?.prompt ?? null,
           model,
         }
@@ -864,16 +1029,27 @@ export class AgentManager {
         payload: { kind: "setup-script", scriptContent: setupScript },
       });
     } catch (error) {
-      const message = errorMessage(error);
-      await this.setAgentStatus(id, "error", message);
-      await this.setSetupPhase(id, null);
-      await this.setSystemLatestEvent(id, {
-        type: "blocked",
-        message: `Failed to create agent: ${message}`,
-        metadata: { source: "system", phase: "create" },
-      });
-      throw new AgentError(`Failed to create agent: ${message}`, 500);
+      await this.failCreate(id, error);
     }
+  }
+
+  /**
+   * Put a half-created agent into its terminal failure state and rethrow.
+   *
+   * Anything on the create path that can reject has to land here: the row is
+   * already inserted as `creating`, so an escaping error would strand it in
+   * that state with a stale setup phase and no event explaining why.
+   */
+  private async failCreate(id: string, error: unknown): Promise<never> {
+    const message = errorMessage(error);
+    await this.setAgentStatus(id, "error", message);
+    await this.setSetupPhase(id, null);
+    await this.setSystemLatestEvent(id, {
+      type: "blocked",
+      message: `Failed to create agent: ${message}`,
+      metadata: { source: "system", phase: "create" },
+    });
+    throw new AgentError(`Failed to create agent: ${message}`, 500);
   }
 
   /**

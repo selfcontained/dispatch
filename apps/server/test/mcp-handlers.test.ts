@@ -1,5 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { buildStartupTurn } from "../src/agents/tmux/command-builder.js";
+
 vi.mock("../src/shared/git/worktree.js", () => ({
   resolveHeadSha: vi.fn(async () => "abc123def456"),
 }));
@@ -1289,6 +1291,39 @@ describe("createMcpHandlers", () => {
           initialPrompt: expect.stringContaining("You are a child agent"),
         })
       );
+    });
+
+    it("wraps the child's whole prompt, launch header included, in the Chat envelope", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "Investigate the flaky test.",
+      });
+
+      // The child's first turn is built from what createAgent was handed:
+      // with the chat surface on it is wrapped whole, so the launch header
+      // the CLI needs stays inside the envelope, while the feed post keeps
+      // the prompt as the launcher wrote it.
+      const created = deps.agentManager.createAgent.mock.calls[0][0];
+      const turn = buildStartupTurn(
+        {
+          initialPrompt: created.initialPrompt,
+          chatLaunchPost: { messageId: "post-1", attachmentLines: [] },
+        },
+        { chatSurface: true }
+      );
+      expect(turn).toBe(
+        [
+          "--- DISPATCH CHAT (id: post-1) ---",
+          created.initialPrompt,
+          "--- END DISPATCH CHAT ---",
+          'The user is reading the Chat tab, not this terminal — they only see what you post with dispatch_chat_post. Reply there (replyTo: "post-1"); terminal output alone will not reach them.',
+        ].join("\n")
+      );
+      expect(turn).toContain('You were launched by Dispatch agent "agt_test1"');
+      expect(turn).toContain("Investigate the flaky test.");
+      expect(created.launchContext).toEqual({
+        prompt: "Investigate the flaky test.",
+      });
     });
 
     it("includes the launching agent id in the child initial prompt", async () => {

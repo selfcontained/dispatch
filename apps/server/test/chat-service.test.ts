@@ -6,10 +6,12 @@ import {
   ChatNotFoundError,
   ChatService,
   ChatValidationError,
+  LAUNCH_POST_TRUNCATED_NOTE,
   type ChatDeliveryAdapter,
   validateChatContent,
 } from "../src/chat/service.js";
 import type { ChatMessage } from "@dispatch/shared";
+import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -143,6 +145,119 @@ describe("ChatService.recordLaunchContext", () => {
         pins: [{ id: "pin_nope", type: "string", value: "v" }],
       })
     ).rejects.toBeInstanceOf(ChatValidationError);
+  });
+});
+
+describe("ChatService.prepareLaunchContext", () => {
+  it("resolves the post's id and envelope lines before anything is written", async () => {
+    const result = await pool.query<{ id: number }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes)
+       VALUES ($1, 'brief-2026.md', 'user', 300) RETURNING id`,
+      [A]
+    );
+    const mediaId = result.rows[0].id;
+    const prepared = await service.prepareLaunchContext({
+      id: "8a4f9e60-1111-4222-8333-444455556666",
+      agentId: A,
+      text: "Build the widget",
+      files: [{ mediaId }],
+      links: ["https://example.com/spec"],
+      pins: [{ id: "pin_1", type: "string", value: "DIS-42" }],
+    });
+    expect(prepared?.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
+    // The same lines sendUserMessage injects, so pane and post agree.
+    expect(prepared?.attachmentLines).toEqual([
+      "- file: /media-root/agt_chat_svc/brief-2026.md (text/markdown, 300 B)",
+      "- link: https://example.com/spec",
+      "- pin: URL — http://x",
+    ]);
+    // Nothing written and nothing announced until record() runs.
+    expect(published).toEqual([]);
+    const rows = await pool.query(
+      "SELECT id FROM agent_chat_messages WHERE agent_id = $1",
+      [A]
+    );
+    expect(rows.rows).toHaveLength(0);
+
+    const message = await prepared!.record();
+    expect(message.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
+    expect(message).toMatchObject({ origin: "launch", delivered: true });
+    expect(published).toEqual([{ type: "chat.changed", agentId: A }]);
+  });
+
+  it("returns null for a launch with no context", async () => {
+    expect(
+      await service.prepareLaunchContext({ agentId: A, text: "  " })
+    ).toBeNull();
+  });
+
+  it("says so in the post when the prompt is longer than a Chat message", async () => {
+    // dispatch_launch_agent accepts 100 000 chars; a Chat row holds 20 000.
+    // The CLI still gets the whole prompt, so the row has to admit it is
+    // showing less rather than quietly disagreeing with it.
+    const prompt = "x".repeat(CHAT_MESSAGE_MAX_CHARS + 5_000);
+    const prepared = await service.prepareLaunchContext({
+      agentId: A,
+      text: prompt,
+    });
+    expect(prepared?.postText.length).toBeLessThanOrEqual(
+      CHAT_MESSAGE_MAX_CHARS
+    );
+    expect(prepared?.postText).toContain(LAUNCH_POST_TRUNCATED_NOTE);
+    const message = await prepared!.record();
+    expect(message.text).toBe(prepared?.postText);
+    expect(message.text.length).toBeLessThanOrEqual(CHAT_MESSAGE_MAX_CHARS);
+    expect(message.text.startsWith("x".repeat(1_000))).toBe(true);
+  });
+
+  it("leaves a prompt that fits exactly as written", async () => {
+    const prompt = "y".repeat(CHAT_MESSAGE_MAX_CHARS);
+    const prepared = await service.prepareLaunchContext({
+      agentId: A,
+      text: prompt,
+    });
+    expect(prepared?.postText).toBe(prompt);
+  });
+
+  it("describes every attachment for the turn while capping the row", async () => {
+    const links = Array.from(
+      { length: CHAT_ATTACHMENTS_MAX + 6 },
+      (_, i) => `https://example.com/${i}`
+    );
+    const prepared = await service.prepareLaunchContext({
+      agentId: A,
+      text: "Build it",
+      links,
+    });
+    expect(prepared?.attachmentLines).toHaveLength(links.length);
+    expect(prepared?.attachmentLines?.at(-1)).toBe(
+      `- link: ${links[links.length - 1]}`
+    );
+    expect(prepared?.postText).toContain("6 more startup attachments");
+    const message = await prepared!.record();
+    expect(message.attachments).toHaveLength(CHAT_ATTACHMENTS_MAX);
+  });
+
+  it("refuses to write a post whose id is already taken", async () => {
+    const id = "7c1f0a10-2222-4333-8444-555566667777";
+    const first = await service.prepareLaunchContext({
+      agentId: A,
+      id,
+      text: "First",
+    });
+    await first!.record();
+    const second = await service.prepareLaunchContext({
+      agentId: A,
+      id,
+      text: "Second",
+    });
+    await expect(second!.record()).rejects.toBeInstanceOf(ChatConflictError);
+    const rows = await pool.query<{ text: string }>(
+      "SELECT text FROM agent_chat_messages WHERE id = $1",
+      [id]
+    );
+    expect(rows.rows).toHaveLength(1);
+    expect(rows.rows[0].text).toBe("First");
   });
 });
 
@@ -294,6 +409,47 @@ describe("ChatService.post", () => {
       })
     ).rejects.toThrow(/Unknown pin/);
     expect(published).toEqual([]);
+  });
+
+  it("rejects a replyTo that names no message", async () => {
+    // A well-formed UUID is not a claim on a thread; only a message on this
+    // agent's own feed is.
+    await expect(
+      service.post(A, {
+        text: "x",
+        replyTo: "00000000-0000-4000-8000-000000000000",
+      })
+    ).rejects.toBeInstanceOf(ChatValidationError);
+  });
+
+  it("rejects a replyTo that belongs to another agent's feed", async () => {
+    // The launcher of an agent knows real message ids from other feeds; a
+    // forged envelope could hand one to the child.
+    const theirs = await service.store.insert({
+      agentId: "agt_someone_else",
+      authorKind: "user",
+      kind: "reply",
+      text: "not yours",
+    });
+    await expect(
+      service.post(A, { text: "x", replyTo: theirs.id })
+    ).rejects.toThrow(/this agent's own Chat feed/);
+    const rows = await pool.query(
+      "SELECT id FROM agent_chat_messages WHERE agent_id = $1",
+      [A]
+    );
+    expect(rows.rows).toHaveLength(0);
+  });
+
+  it("accepts a replyTo that is a message on this agent's feed", async () => {
+    const mine = await service.store.insert({
+      agentId: A,
+      authorKind: "user",
+      kind: "reply",
+      text: "ping",
+    });
+    const reply = await service.post(A, { text: "pong", replyTo: mine.id });
+    expect(reply.replyTo).toBe(mine.id);
   });
 
   it("rejects a malformed replyTo before touching the database", async () => {

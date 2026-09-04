@@ -38,8 +38,12 @@ vi.mock("../../src/shared/lib/run-command.js", () => ({
 }));
 
 // We need to dynamically import AgentManager AFTER the mock is in place
-const { AgentManager, AgentError, LAUNCH_CONTEXT_WRITE_TIMEOUT_MS } =
-  await import("../../src/agents/manager.js");
+const {
+  AgentManager,
+  AgentError,
+  LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
+  LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
+} = await import("../../src/agents/manager.js");
 const { ChatService } = await import("../../src/chat/service.js");
 const { createAgentMcpToken } = await import("../../src/auth.js");
 const execFileAsync = promisify(execFile);
@@ -239,6 +243,7 @@ describe("AgentManager", () => {
           [agentId]
         );
         return result.rows as Array<{
+          id: string;
           author_kind: string;
           kind: string;
           text: string;
@@ -376,7 +381,137 @@ describe("AgentManager", () => {
         });
       });
 
-      it("starts the runtime without waiting on a recorder that never resolves", async () => {
+      /** A manager whose warnings this test can read. */
+      function chatEnabledManager(warn: ReturnType<typeof vi.fn>) {
+        return new AgentManager(
+          pool,
+          { ...noopLogger, warn, child: () => noopLogger } as never,
+          testConfig
+        );
+      }
+
+      /** Run `fn` with the chat surface flag on, then clear it. */
+      async function withChatSurface(fn: () => Promise<void>): Promise<void> {
+        await pool.query(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('chat_surface_enabled', 'true', NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+        );
+        try {
+          await fn();
+        } finally {
+          await pool.query(
+            `DELETE FROM settings WHERE key = 'chat_surface_enabled'`
+          );
+        }
+      }
+
+      /**
+       * Launch with a recorder that never settles and report how long the
+       * runtime took to start. The setup script is written by the launch
+       * itself, so its appearance is the launch, not the Chat write.
+       */
+      async function hungRecorderLaunch(
+        input: Record<string, unknown>
+      ): Promise<{ setupScript: string; elapsedMs: number }> {
+        const stuck = new AgentManager(pool, noopLogger, testConfig);
+        let recordedAgentId: string | null = null;
+        stuck.attachLaunchContextRecorder({
+          prepareLaunchContext: (recorded) => {
+            recordedAgentId = recorded.agentId;
+            return new Promise(() => {});
+          },
+        });
+        const startedAt = Date.now();
+        const pending = stuck.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          ...input,
+        });
+        const setupScript = await vi.waitFor(
+          async () => {
+            expect(recordedAgentId).not.toBeNull();
+            return await readFile(
+              `/tmp/dispatch_setup_${recordedAgentId}.sh`,
+              "utf-8"
+            );
+          },
+          { timeout: 4000, interval: 50 }
+        );
+        const elapsedMs = Date.now() - startedAt;
+        await pending;
+        return { setupScript, elapsedMs };
+      }
+
+      it("hands the CLI the same post id and attachment lines when the chat surface is on", async () => {
+        await pool.query(
+          `INSERT INTO settings (key, value, updated_at)
+           VALUES ('chat_surface_enabled', 'true', NOW())
+           ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`
+        );
+        try {
+          const agent = await manager.createAgent({
+            cwd: "/tmp",
+            type: "claude",
+            useWorktree: false,
+            initialPrompt: "Build the widget",
+            launchContext: { links: ["https://example.com/spec"] },
+            initialFiles: [
+              {
+                fileName: "brief.md",
+                originalName: "brief.md",
+                buffer: Buffer.from("# brief"),
+                source: "text",
+              },
+            ],
+          });
+          const posts = await launchPosts(agent.id);
+          expect(posts).toHaveLength(1);
+          const setupScript = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+          // The envelope the CLI receives names the post that was written,
+          // so the agent's reply threads onto the launch post in the feed.
+          expect(setupScript).toContain(
+            `--- DISPATCH CHAT (id: ${posts[0].id}) ---`
+          );
+          expect(setupScript).toContain(`replyTo: "${posts[0].id}"`);
+          expect(setupScript).toContain("Build the widget");
+          // Attachment lines come from the recorder, so pane and post agree.
+          const media = await pool.query<{ file_name: string }>(
+            `SELECT file_name FROM media WHERE agent_id = $1`,
+            [agent.id]
+          );
+          expect(setupScript).toContain(
+            `- file: ${path.join(testConfig.mediaRoot, agent.id, media.rows[0].file_name)} (text/markdown, 7 B)`
+          );
+          expect(setupScript).toContain("- link: https://example.com/spec");
+        } finally {
+          await pool.query(
+            `DELETE FROM settings WHERE key = 'chat_surface_enabled'`
+          );
+        }
+      });
+
+      it("leaves the first turn unwrapped when the chat surface is off", async () => {
+        const agent = await manager.createAgent({
+          cwd: "/tmp",
+          type: "claude",
+          useWorktree: false,
+          initialPrompt: "Build the widget",
+        });
+        expect(await launchPosts(agent.id)).toHaveLength(1);
+        const setupScript = await readFile(
+          `/tmp/dispatch_setup_${agent.id}.sh`,
+          "utf-8"
+        );
+        expect(setupScript).not.toContain("DISPATCH CHAT");
+        expect(setupScript).toContain("Build the widget");
+      });
+
+      it("starts the runtime without waiting on a write that never resolves", async () => {
         const warn = vi.fn();
         const stuckManager = new AgentManager(
           pool,
@@ -388,9 +523,12 @@ describe("AgentManager", () => {
         // (DB now() vs Date.now() skew made the old created_at filter flaky).
         let recordedAgentId: string | null = null;
         stuckManager.attachLaunchContextRecorder({
-          recordLaunchContext: (input) => {
+          prepareLaunchContext: async (input) => {
             recordedAgentId = input.agentId;
-            return new Promise(() => {});
+            return {
+              attachmentLines: [],
+              record: () => new Promise(() => {}),
+            };
           },
         });
 
@@ -431,6 +569,180 @@ describe("AgentManager", () => {
         );
         expect(await launchPosts(agent.id)).toEqual([]);
       }, 15_000);
+
+      it("launches unwrapped when the post never resolves", async () => {
+        // Resolving the post is on the critical path (the first turn needs
+        // its id), so a hung read gives up: no post, no envelope, and the
+        // launch still happens.
+        const warn = vi.fn();
+        const stuckManager = chatEnabledManager(warn);
+        stuckManager.attachLaunchContextRecorder({
+          prepareLaunchContext: () => new Promise(() => {}),
+        });
+
+        await withChatSurface(async () => {
+          const agent = await stuckManager.createAgent({
+            cwd: "/tmp",
+            type: "claude",
+            useWorktree: false,
+            initialPrompt: "Go",
+          });
+          expect(warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+              agentId: agent.id,
+              timeoutMs: LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS,
+            }),
+            expect.stringContaining("did not resolve in time")
+          );
+          expect(await launchPosts(agent.id)).toEqual([]);
+          const setupScript = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+          expect(setupScript).not.toContain("DISPATCH CHAT");
+          expect(setupScript).toContain("Go");
+        });
+      }, 15_000);
+
+      it("launches unwrapped when the post's write is rejected", async () => {
+        // The envelope names a row; a rejected write means there is no row,
+        // so naming it would point the agent's replies at nothing.
+        const warn = vi.fn();
+        const failing = chatEnabledManager(warn);
+        failing.attachLaunchContextRecorder({
+          prepareLaunchContext: async () => ({
+            attachmentLines: [],
+            record: async () => {
+              throw new Error("db down");
+            },
+          }),
+        });
+
+        await withChatSurface(async () => {
+          const agent = await failing.createAgent({
+            cwd: "/tmp",
+            type: "claude",
+            useWorktree: false,
+            initialPrompt: "Go",
+          });
+          expect(warn).toHaveBeenCalledWith(
+            expect.objectContaining({ agentId: agent.id }),
+            expect.stringContaining("launching without the Chat envelope")
+          );
+          const setupScript = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+          expect(setupScript).not.toContain("DISPATCH CHAT");
+          expect(setupScript).toContain("Go");
+        });
+      }, 15_000);
+
+      it("launches unwrapped when the post's write never settles", async () => {
+        const warn = vi.fn();
+        const hung = chatEnabledManager(warn);
+        hung.attachLaunchContextRecorder({
+          prepareLaunchContext: async () => ({
+            attachmentLines: [],
+            record: () => new Promise(() => {}),
+          }),
+        });
+
+        await withChatSurface(async () => {
+          const agent = await hung.createAgent({
+            cwd: "/tmp",
+            type: "claude",
+            useWorktree: false,
+            initialPrompt: "Go",
+          });
+          expect(warn).toHaveBeenCalledWith(
+            expect.objectContaining({
+              agentId: agent.id,
+              timeoutMs: LAUNCH_CONTEXT_WRITE_TIMEOUT_MS,
+            }),
+            expect.stringContaining("was not written in time")
+          );
+          expect(await launchPosts(agent.id)).toEqual([]);
+          const setupScript = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+          expect(setupScript).not.toContain("DISPATCH CHAT");
+          expect(setupScript).toContain("Go");
+        });
+      }, 15_000);
+
+      it("launches unwrapped when the post's id is already taken", async () => {
+        // Between resolving the id and writing it, something else claims the
+        // row. The insert is ON CONFLICT DO NOTHING, so the write reports
+        // failure and the envelope is dropped rather than naming a row this
+        // launch does not own.
+        const warn = vi.fn();
+        const racing = chatEnabledManager(warn);
+        const chat = new ChatService({
+          pool,
+          publishUiEvent: (event) => chatEvents.push(event),
+          getAgent: (id) => racing.getAgent(id),
+          mediaRoot: testConfig.mediaRoot,
+        });
+        racing.attachLaunchContextRecorder({
+          prepareLaunchContext: async (input) => {
+            const prepared = await chat.prepareLaunchContext(input);
+            await pool.query(
+              `INSERT INTO agent_chat_messages (id, agent_id, author_kind, kind, text)
+               VALUES ($1, $2, 'user', 'reply', 'squatter')`,
+              [input.id, input.agentId]
+            );
+            return prepared;
+          },
+        });
+
+        await withChatSurface(async () => {
+          const agent = await racing.createAgent({
+            cwd: "/tmp",
+            type: "claude",
+            useWorktree: false,
+            initialPrompt: "Go",
+          });
+          expect(warn).toHaveBeenCalledWith(
+            expect.objectContaining({ agentId: agent.id }),
+            expect.stringContaining("launching without the Chat envelope")
+          );
+          const setupScript = await readFile(
+            `/tmp/dispatch_setup_${agent.id}.sh`,
+            "utf-8"
+          );
+          expect(setupScript).not.toContain("DISPATCH CHAT");
+          // The squatter row is untouched: the launch wrote nothing.
+          const rows = await pool.query<{ text: string }>(
+            `SELECT text FROM agent_chat_messages WHERE agent_id = $1`,
+            [agent.id]
+          );
+          expect(rows.rows).toEqual([{ text: "squatter" }]);
+        });
+      }, 15_000);
+
+      it("does not hold a flag-off launch on a recorder that never settles", async () => {
+        // With no envelope to build, nothing about the Chat write belongs on
+        // the launch's critical path — the round-4 shape.
+        const idle = await hungRecorderLaunch({ initialPrompt: "Go" });
+        expect(idle.setupScript).toContain("Go");
+        expect(idle.setupScript).not.toContain("DISPATCH CHAT");
+        expect(idle.elapsedMs).toBeLessThan(LAUNCH_CONTEXT_WRITE_TIMEOUT_MS);
+      }, 20_000);
+
+      it("does not hold a job launch on a recorder that never settles", async () => {
+        // A job run never wraps its prompt (it is a system-prompt append), so
+        // it must not pay for the Chat write either — even with the flag on.
+        await withChatSurface(async () => {
+          const job = await hungRecorderLaunch({
+            initialPrompt: "Go",
+            jobRunId: "run_latency",
+          });
+          expect(job.setupScript).not.toContain("DISPATCH CHAT");
+          expect(job.elapsedMs).toBeLessThan(LAUNCH_CONTEXT_WRITE_TIMEOUT_MS);
+        });
+      }, 20_000);
     });
 
     it("de-duplicates initialPins by case-insensitive label (last write wins)", async () => {

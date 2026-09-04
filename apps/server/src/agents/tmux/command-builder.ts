@@ -5,6 +5,7 @@ import {
   createJobMcpToken,
   createReleaseUpdateToken,
 } from "../../auth.js";
+import { buildChatEnvelope } from "../../chat/envelope.js";
 import type { AppConfig } from "../../config.js";
 import { PLUGIN_AGENT_TYPES } from "../../shared/agent-types.js";
 import { buildCursorDispatchToolGuidance } from "../../shared/mcp/cursor-dispatch-guidance.js";
@@ -87,6 +88,60 @@ function stripModelArgs(args: string[]): string[] {
   return filtered;
 }
 
+/** A startup file as `seedInitialMedia` reports it, for the first turn. */
+export type StartupMedia = {
+  fileName: string;
+  displayName: string;
+  source: string;
+  description: string | null;
+};
+
+/**
+ * The Chat feed's launch post, fixed before the CLI command is built so the
+ * first turn can carry its id. `attachmentLines` are the recorder's own
+ * envelope lines for the startup files, links and pins — one source, so the
+ * pane and the post agree.
+ */
+export type ChatLaunchPost = {
+  messageId: string;
+  attachmentLines: string[];
+};
+
+export type StartupTurnInput = {
+  initialPrompt?: string;
+  initialPins?: AgentPin[];
+  initialMedia?: StartupMedia[];
+  chatLaunchPost?: ChatLaunchPost | null;
+};
+
+/**
+ * The agent's first user turn. With the chat surface on and a launch post
+ * recorded, the prompt is wrapped in the same `--- DISPATCH CHAT ---`
+ * envelope a Chat message is injected with (id = the launch post, the
+ * attachments listed the same way, the trailer pointing the agent at
+ * dispatch_chat_post), so an agent started from the Chat tab knows to answer
+ * there. Job runs never wrap (their prompt is a system-prompt append), and
+ * with the flag off — or nothing recorded — the plain startup prompt is used.
+ */
+export function buildStartupTurn(
+  startup: StartupTurnInput,
+  opts: { chatSurface?: boolean; jobRunId?: string }
+): string | undefined {
+  const post = startup.chatLaunchPost;
+  if (opts.chatSurface && !opts.jobRunId && post) {
+    return buildChatEnvelope(
+      post.messageId,
+      startup.initialPrompt?.trim() ?? "",
+      post.attachmentLines
+    );
+  }
+  return buildStartupPrompt(
+    startup.initialPrompt,
+    startup.initialPins ?? [],
+    startup.initialMedia ?? []
+  );
+}
+
 /**
  * Compose the first user-message-style prompt handed to the agent on
  * launch — formats `initialPrompt`, `initialPins`, and `initialMedia` into
@@ -98,12 +153,7 @@ function stripModelArgs(args: string[]): string[] {
 export function buildStartupPrompt(
   initialPrompt: string | undefined,
   initialPins: AgentPin[],
-  initialMedia: Array<{
-    fileName: string;
-    displayName: string;
-    source: string;
-    description: string | null;
-  }>
+  initialMedia: StartupMedia[]
 ): string | undefined {
   const trimmedPrompt = initialPrompt?.trim() || "";
   if (initialPins.length === 0 && initialMedia.length === 0) {
@@ -341,7 +391,14 @@ type BuildAgentCommandOptions = {
   autoReview?: boolean;
   trimmedGuidance?: boolean;
   chatSurface?: boolean;
+  /**
+   * Raw first-turn inputs; `buildStartupTurn` composes them (envelope or
+   * plain startup prompt) using `chatSurface` and `jobRunId`.
+   */
   initialPrompt?: string;
+  initialPins?: AgentPin[];
+  initialMedia?: StartupMedia[];
+  chatLaunchPost?: ChatLaunchPost | null;
   personalityPrompt?: string | null;
   model?: string;
 };
@@ -362,12 +419,24 @@ export function buildAgentCommand(
     autoReview,
     trimmedGuidance,
     chatSurface,
-    initialPrompt,
+    initialPrompt: rawInitialPrompt,
+    initialPins,
+    initialMedia,
+    chatLaunchPost,
     personalityPrompt,
     model,
   }: BuildAgentCommandOptions = {}
 ): string {
   const agentId = agentIdFromSessionName(sessionName);
+  const initialPrompt = buildStartupTurn(
+    {
+      initialPrompt: rawInitialPrompt,
+      initialPins,
+      initialMedia,
+      chatLaunchPost,
+    },
+    { chatSurface, jobRunId }
+  );
   const launchGuidance = buildLaunchGuidance(agentId, {
     agentType: type,
     jobRunId,

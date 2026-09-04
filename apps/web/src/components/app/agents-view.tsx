@@ -43,7 +43,7 @@ import {
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType } from "@/lib/agent-types";
-import { terminalHostTab } from "@/lib/center-tabs";
+import { agentSupportsChat, terminalHostTab } from "@/lib/center-tabs";
 import { type IdeType } from "@/lib/ide-types";
 import { type ThemeId } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
@@ -136,8 +136,9 @@ export function AgentsView({
       routeAgentId,
       agentsLoaded,
       validatedSelectedAgentId,
+      routeAgentType: selectedAgent?.type ?? null,
     });
-  const { enabled: chatEnabled } = useChatSurfaceEnabled();
+  const { enabled: chatSurfaceEnabled } = useChatSurfaceEnabled();
   // The terminal DOM stays mounted (hidden) across tab switches so tmux
   // output keeps flowing into it, but it must not mount at all until the
   // route has settled on a tab: on a fresh navigation the Console would
@@ -145,12 +146,6 @@ export function AgentsView({
   // it stays armed — a later agent switch must not tear xterm down.
   const [terminalArmed, setTerminalArmed] = useState(false);
   if (centerTabResolved && !terminalArmed) setTerminalArmed(true);
-  const activeTab: CenterTab = changesMatch
-    ? "changes"
-    : whiteboardMatch
-      ? "whiteboard"
-      : terminalHostTab(chatEnabled);
-
   const [createOpen, setCreateOpen] = useState(false);
   const [requestedCreateType, setRequestedCreateType] =
     useState<AgentType | null>(null);
@@ -237,6 +232,16 @@ export function AgentsView({
   const focusedAgent = focusedAgentId
     ? (agents.find((agent) => agent.id === focusedAgentId) ?? null)
     : null;
+  // The flag as it applies to the agent in focus: a terminal session has no
+  // CLI to chat with, so it keeps the plain Terminal tab and Console-only
+  // pane however the flag is set.
+  const chatEnabled =
+    chatSurfaceEnabled && agentSupportsChat(focusedAgent?.type);
+  const activeTab: CenterTab = changesMatch
+    ? "changes"
+    : whiteboardMatch
+      ? "whiteboard"
+      : terminalHostTab(chatEnabled);
 
   const whiteboardAgentDrew = useAtomValue(
     whiteboardAgentDrewAtomFamily(focusedAgentId ?? "")
@@ -262,6 +267,7 @@ export function AgentsView({
     focusedAgentId,
     isMobile,
     activeTab,
+    chatEnabled,
   });
 
   // The focused agent's direct children, whose pins and media the sidebar
@@ -313,7 +319,9 @@ export function AgentsView({
   } = useMedia(focusedAgentId, mediaPanelOpen, focusedSubAgents);
 
   const unreadMessageCount = useAgentUnreadCount(focusedAgentId);
-  const chatUnreadCount = useAgentChatUnread(focusedAgentId).unread;
+  // No Chat view, no unread badge: a terminal session's feed is never read.
+  const chatUnreadCountRaw = useAgentChatUnread(focusedAgentId).unread;
+  const chatUnreadCount = chatEnabled ? chatUnreadCountRaw : 0;
   const markMessagesRead = useMarkMessagesRead(focusedAgentId);
 
   // Closed-sidebar external signal for #2019: reuses the same surfaces query
@@ -734,6 +742,7 @@ export function AgentsView({
                 focusedDiffStats={focusedDiffStats}
                 activeTab={activeTab}
                 centerTabResolved={centerTabResolved}
+                chatEnabled={chatEnabled}
                 chatUnreadCount={chatUnreadCount}
                 isSplit={isSplit}
                 splitState={splitState}

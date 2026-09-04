@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   CENTER_TABS,
+  agentSupportsChat,
   centerTabLabel,
   centerTabRoute,
   centerTabs,
@@ -56,5 +57,26 @@ describe("center tabs registry", () => {
     expect(isCenterTab("console")).toBe(false);
     expect(isCenterTab(null)).toBe(false);
     expect(isCenterTab(3)).toBe(false);
+  });
+});
+
+describe("agentSupportsChat", () => {
+  it("is false only for a terminal session", () => {
+    // A terminal session is a shell: nothing posts to its feed and nobody
+    // reads one, so it keeps the plain Terminal tab whatever the flag says.
+    expect(agentSupportsChat("claude")).toBe(true);
+    expect(agentSupportsChat("codex")).toBe(true);
+    expect(agentSupportsChat(null)).toBe(true);
+    expect(agentSupportsChat(undefined)).toBe(true);
+    expect(agentSupportsChat("terminal")).toBe(false);
+  });
+
+  it("folds a terminal session's split back onto the Console", () => {
+    // The caller ANDs the flag with this, so the split-pane normaliser sees
+    // the flag as off for a terminal session.
+    const narrowed = (flagOn: boolean, agentType: string) =>
+      flagOn && agentSupportsChat(agentType);
+    expect(terminalHostTab(narrowed(true, "terminal"))).toBe("terminal");
+    expect(terminalHostTab(narrowed(true, "claude"))).toBe("agent");
   });
 });

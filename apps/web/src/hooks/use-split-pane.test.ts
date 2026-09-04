@@ -124,7 +124,7 @@ describe("useSplitPane persistence", () => {
   function renderPane(agentId: string, chatEnabled = true) {
     H.chatEnabled = chatEnabled;
     const store = createStore();
-    return renderHook(() => useSplitPane(agentId, false), {
+    return renderHook(() => useSplitPane(agentId, false, chatEnabled), {
       wrapper: ({ children }: { children: ReactNode }) =>
         createElement(Provider, { store }, children),
     });

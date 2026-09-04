@@ -461,3 +461,98 @@ when the agent starts — otherwise it is only visible in the Console.
   carries the peer's `name`. Feed grouping treats the post like any other
   from that author (`chatMessageAuthor` in `chat-entries.tsx` is the one
   place that decides who a chat message reads as).
+
+## Round 5: the launch prompt as a Chat message
+
+Decided 2026-09-03. Brad's ask: a session started with an initial prompt
+should arrive in the CLI the same way a Chat message does, so an agent
+launched from the Chat tab knows to answer there.
+
+- **The first turn is the envelope.** With the flag on and a launch post
+  recorded, the CLI's first user turn is `buildChatEnvelope(postId, prompt,
+attachmentLines)` — the `--- DISPATCH CHAT (id: …) ---` block, the
+  `Attachments:` lines for the startup files (absolute media path, mime,
+  size), links and pins, and the trailer telling the agent the user reads
+  the Chat tab and to reply with `dispatch_chat_post` (`replyTo` the launch
+  post). The reply therefore threads onto the launch post. Composed by
+  `buildStartupTurn` (`agents/tmux/command-builder.ts`) and delivered
+  through each CLI's existing first-turn channel: a positional arg for
+  Claude and Codex, `--prompt` for opencode, the trailing prompt for cursor.
+- **Unwrapped otherwise.** Flag off, no launch context, a job run (its
+  prompt is a system-prompt append), or a terminal agent: the plain
+  `buildStartupPrompt` as before, with its pins and attached-files sections.
+- **One id, one set of attachment lines.** `createAgent` mints the post id
+  before the command is built and hands it to
+  `ChatService.prepareLaunchContext`, which resolves the attachments and
+  returns both the envelope lines it will store and a `record()` that writes
+  the row (`ChatStore.insert` now accepts an explicit id). The recorder and
+  the pane therefore describe the same attachments, and the id in the
+  envelope is the id of the post in the feed. `recordLaunchContext` is kept
+  as `prepare` + `record` for callers that do not need the id up front.
+- **A written row is the precondition for the envelope.** The envelope names
+  a message id, so the message has to exist first: on the wrapped path
+  `createAgent` awaits both the resolve (bounded by
+  `LAUNCH_CONTEXT_RESOLVE_TIMEOUT_MS`) and the write (bounded by
+  `LAUNCH_CONTEXT_WRITE_TIMEOUT_MS`) before the CLI command is built.
+  Anything short of a durable insert — a rejection, either timeout, or an id
+  already taken (`ChatStore.insertIfAbsent` is `ON CONFLICT DO NOTHING`, and
+  a non-insert rejects) — drops the envelope, and the agent launches with the
+  plain startup prompt and no post. That pair can never disagree; an envelope
+  naming a row that was never written would point every reply at nothing.
+- **Only a wrapped launch pays for the post.** The chat-surface and
+  trimmed-guidance flags are read once in `createAgent`, before any Chat
+  work, and handed down to the command builder. A launch that will not carry
+  an envelope — flag off, a job run, a terminal agent, an inert runtime —
+  keeps the round-4 shape: resolve and write both run alongside the runtime
+  start and are waited on (bounded) only after it, so a slow or hung recorder
+  cannot delay a launch that was never going to name the post anyway.
+- **Agent-launched agents.** `dispatch_launch_agent` wraps the launcher's
+  prompt in a "You were launched by…" header for the CLI; the envelope wraps
+  that whole thing, header included, while the feed post keeps the prompt as
+  the launcher wrote it.
+
+### The envelope is a frame around text Dispatch does not control
+
+`buildChatEnvelope` is the one place any text is wrapped — the composer path
+and the launch path both go through it — and it escapes its own markers
+before wrapping. Every line of the body that matches the marker grammar
+(`---` or longer, optional `END`, `DISPATCH CHAT`, leading whitespace
+allowed) is prefixed with `> `. Without that, a prompt or an attachment could
+carry `--- END DISPATCH CHAT ---` followed by a forged
+`--- DISPATCH CHAT (id: …) ---` and make the agent thread its replies onto a
+message id of the author's choosing — newly reachable through
+`dispatch_launch_agent`, whose launcher knows real message ids. `> ` was
+chosen over a look-alike code point so the line stays readable, survives
+copy/paste, and needs nothing zero-width. The second half of that fix is on
+the write side: `ChatService.post` rejects a `replyTo` that is not an
+existing message on the posting agent's own feed, so a syntactically valid
+UUID from another feed is a 400 rather than a silent cross-feed thread.
+
+### The post may show less than the turn, and says so
+
+`prepareLaunchContext` normalizes the post's text once, so the row and the
+first turn cannot quietly diverge. Two caps apply to the row and to neither
+the CLI turn nor the launch itself:
+
+- A prompt longer than `CHAT_MESSAGE_MAX_CHARS` (20 000) is trimmed for the
+  row and gets an explicit "truncated for Chat" line;
+  `dispatch_launch_agent` accepts five times that, and the CLI's first turn
+  still carries all of it.
+- More than `CHAT_ATTACHMENTS_MAX` (20) startup files, links and pins are
+  resolved and described in full for the turn, stored capped on the row, and
+  the row gets a line naming how many it left off. A launch may legitimately
+  seed 10 files and 50 pins, and before round 5 `buildStartupPrompt`
+  delivered all of them — the envelope must not lose that context.
+
+### Terminal sessions never offer Chat (web)
+
+A terminal-type session is a shell with no CLI to chat with, so the chat
+surface does not apply to it however the flag is set: `agentSupportsChat`
+(`lib/center-tabs.ts`) is ANDed with the flag once, in `agents-view.tsx`,
+and the narrowed value is what the tab bar, the Agent pane, the split-pane
+normaliser and the center-pane layout receive. The tab is labelled
+**Terminal**, the pane is Console-only with no Chat | Console toggle, the
+remembered view is ignored, no unread badge is shown, a persisted `chat` or
+`agent` split value folds onto the Console, `/agents/:id/chat` redirects to
+the bare route without touching the view, and the mobile terminal toolbar
+shows as it always did.

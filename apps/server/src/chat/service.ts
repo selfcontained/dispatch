@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 
 import type { Pool } from "pg";
@@ -117,6 +118,11 @@ export class ChatConflictError extends ChatServiceError {
  * not shown twice).
  */
 export type ChatLaunchContextInput = {
+  /**
+   * The post's id, when the caller needs it before the write — the launch
+   * path fixes it so the CLI's first turn can carry it in its envelope.
+   */
+  id?: string;
   agentId: string;
   /** The initial prompt as the person (or launching agent) wrote it. */
   text?: string;
@@ -126,6 +132,71 @@ export type ChatLaunchContextInput = {
   /** The agent that created this one via dispatch_launch_agent, if any. */
   launchedByAgentId?: string | null;
 };
+
+/** A launch post resolved but not yet written; see `prepareLaunchContext`. */
+export type PreparedLaunchContext = {
+  /** The post's id, known before the write. */
+  id: string;
+  /**
+   * One envelope line per resolved startup attachment — *every* one, not
+   * the capped set the row stores. The CLI's first turn must still describe
+   * all the startup files, links and pins it used to get from
+   * `buildStartupPrompt`; only the post is capped.
+   */
+  attachmentLines: string[];
+  /**
+   * Exactly what the row will store: the prompt, truncated to the chat
+   * limit and marked as truncated when it did not fit, plus a line naming
+   * the attachments the cap left off. Exposed so a caller can see what the
+   * feed will say without waiting for the write.
+   */
+  postText: string;
+  /** Write the post and announce the feed change. */
+  record: () => Promise<ChatMessage>;
+};
+
+/**
+ * Appended to a launch post whose prompt did not fit in
+ * `CHAT_MESSAGE_MAX_CHARS`. The CLI's first turn always carries the full
+ * prompt, so the post must say plainly that it is showing less rather than
+ * quietly disagreeing with what the agent was told.
+ */
+export const LAUNCH_POST_TRUNCATED_NOTE =
+  "[Truncated for Chat — the agent's first turn received the full prompt.]";
+
+/** Appended when the attachment cap left startup context off the post. */
+function launchPostAttachmentNote(hidden: number): string {
+  return `[${hidden} more startup attachment${hidden === 1 ? "" : "s"} not listed here — all of them were delivered to the agent.]`;
+}
+
+/**
+ * The launch post's stored text, normalized once so the row and the first
+ * turn cannot disagree without saying so. The prompt is trimmed to fit
+ * `CHAT_MESSAGE_MAX_CHARS` (a launched agent's prompt may be five times
+ * that), and each thing the row is showing less of gets its own note.
+ */
+export function buildLaunchPostText(
+  text: string,
+  hiddenAttachments = 0
+): string {
+  const notes: string[] = [];
+  if (hiddenAttachments > 0) {
+    notes.push(launchPostAttachmentNote(hiddenAttachments));
+  }
+  // Reserve room for the notes before deciding how much prompt fits, so a
+  // note is never itself truncated away.
+  const reserved = notes.reduce((sum, note) => sum + note.length + 2, 0);
+  let body = text;
+  if (body.length + reserved > CHAT_MESSAGE_MAX_CHARS) {
+    const budget =
+      CHAT_MESSAGE_MAX_CHARS -
+      reserved -
+      (LAUNCH_POST_TRUNCATED_NOTE.length + 2);
+    body = body.slice(0, Math.max(0, budget));
+    notes.unshift(LAUNCH_POST_TRUNCATED_NOTE);
+  }
+  return [body, ...notes].filter((part) => part.length > 0).join("\n\n");
+}
 
 export type ChatAnswerInput = {
   value: string;
@@ -422,20 +493,17 @@ export class ChatService {
   }
 
   /**
-   * Record the context an agent was launched with as one user post at the
-   * top of its feed: the initial prompt as text, plus a file attachment per
-   * startup file, a link per startup link, and a pin per initial pin. The
-   * prompt reaches the CLI through the normal launch path, so the post is
-   * `delivered: true` and nothing is injected. A launch with no context at
-   * all records nothing and returns null.
-   *
-   * When another agent did the launching, `launchedByAgentId` is stored so
-   * the web can attribute the post to it; the row stays a user post so the
-   * unread and question counts (agent posts only) are unaffected.
+   * Resolve a launch's context without writing it: the attachments (file
+   * by mediaId, pin verified on the agent, link as given) and the envelope
+   * lines that describe them — the same lines `sendUserMessage` injects, so
+   * the pane and the post agree — plus a `record` that performs the write.
+   * The launch path builds the CLI's first turn from `id` and
+   * `attachmentLines` while `record` runs alongside the runtime start.
+   * A launch with no context at all resolves to null and records nothing.
    */
-  async recordLaunchContext(
+  async prepareLaunchContext(
     input: ChatLaunchContextInput
-  ): Promise<ChatMessage | null> {
+  ): Promise<PreparedLaunchContext | null> {
     const text = input.text ?? "";
     const links = (input.links ?? []).filter((url) => url.trim().length > 0);
     const linkSet = new Set(links);
@@ -459,33 +527,73 @@ export class ChatService {
       ...links.map((url) => ({ type: "link" as const, url })),
       ...pins.map((pin) => ({ type: "pin" as const, pinId: pin.id })),
     ];
-    if (inputs.length > CHAT_ATTACHMENTS_MAX) {
-      // A launch can seed more pins than a post may carry; keep the post
-      // rather than refuse the launch, and let the sidebar show the rest.
-      inputs.length = CHAT_ATTACHMENTS_MAX;
+    // Everything is resolved and described, because the CLI's first turn has
+    // to list all of it. Only the row is capped: a launch can seed more pins
+    // than a post may carry, and refusing the launch over that would be
+    // worse than a post that says how much it left off.
+    let attachments: ChatAttachment[] = [];
+    let attachmentLines: string[] = [];
+    if (inputs.length > 0) {
+      const agent = await this.requireAgent(input.agentId);
+      attachments = await this.resolveAttachmentsFor(agent, inputs);
+      attachmentLines = this.describeAttachments(agent, attachments);
     }
-    const attachments =
-      inputs.length > 0
-        ? await this.resolveAttachmentsFor(
-            await this.requireAgent(input.agentId),
-            inputs
-          )
-        : [];
-    const message = await this.store.insert({
-      agentId: input.agentId,
-      authorKind: "user",
-      kind: "reply",
-      text:
-        text.length > CHAT_MESSAGE_MAX_CHARS
-          ? text.slice(0, CHAT_MESSAGE_MAX_CHARS)
-          : text,
-      attachments,
-      delivered: true,
-      origin: "launch",
-      launchedByAgentId: input.launchedByAgentId ?? null,
-    });
-    this.publishChanged(input.agentId);
-    return message;
+    const storedAttachments =
+      attachments.length > CHAT_ATTACHMENTS_MAX
+        ? attachments.slice(0, CHAT_ATTACHMENTS_MAX)
+        : attachments;
+    const postText = buildLaunchPostText(
+      text,
+      attachments.length - storedAttachments.length
+    );
+    const id = input.id ?? randomUUID();
+    return {
+      id,
+      attachmentLines,
+      postText,
+      record: async () => {
+        // Collision-safe: an id that is already taken means this call did not
+        // write the post, and the caller must not name it in an envelope.
+        const message = await this.store.insertIfAbsent({
+          id,
+          agentId: input.agentId,
+          authorKind: "user",
+          kind: "reply",
+          text: postText,
+          attachments: storedAttachments,
+          delivered: true,
+          origin: "launch",
+          launchedByAgentId: input.launchedByAgentId ?? null,
+        });
+        if (!message) {
+          throw new ChatConflictError(
+            `A chat message with id ${id} already exists; the launch post was not written.`
+          );
+        }
+        this.publishChanged(input.agentId);
+        return message;
+      },
+    };
+  }
+
+  /**
+   * Record the context an agent was launched with as one user post at the
+   * top of its feed: the initial prompt as text, plus a file attachment per
+   * startup file, a link per startup link, and a pin per initial pin. The
+   * prompt reaches the CLI through the normal launch path (wrapped in the
+   * Chat envelope when the chat surface is on), so the post is
+   * `delivered: true` and nothing is injected. A launch with no context at
+   * all records nothing and returns null.
+   *
+   * When another agent did the launching, `launchedByAgentId` is stored so
+   * the web can attribute the post to it; the row stays a user post so the
+   * unread and question counts (agent posts only) are unaffected.
+   */
+  async recordLaunchContext(
+    input: ChatLaunchContextInput
+  ): Promise<ChatMessage | null> {
+    const prepared = await this.prepareLaunchContext(input);
+    return prepared ? prepared.record() : null;
   }
 
   // -------------------------------------------------------------------------
@@ -556,10 +664,22 @@ export class ChatService {
   /** Agent-authored message from dispatch_chat_post. */
   async post(agentId: string, input: ChatPostInput): Promise<ChatMessage> {
     validateChatContent(input);
-    if (input.replyTo != null && !isChatMessageId(input.replyTo)) {
-      throw new ChatValidationError(
-        "replyTo must be the message id from a DISPATCH CHAT envelope."
-      );
+    if (input.replyTo != null) {
+      if (!isChatMessageId(input.replyTo)) {
+        throw new ChatValidationError(
+          "replyTo must be the message id from a DISPATCH CHAT envelope."
+        );
+      }
+      // A syntactically valid id is not enough: the envelope's id is the only
+      // thing that entitles an agent to thread onto a message, and a launching
+      // agent knows real ids from other feeds. Anything that is not a message
+      // on this agent's own feed is refused rather than silently threaded.
+      const target = await this.store.getById(input.replyTo);
+      if (!target || target.agentId !== agentId) {
+        throw new ChatValidationError(
+          "replyTo must name a message on this agent's own Chat feed — use the id from a DISPATCH CHAT envelope."
+        );
+      }
     }
     const kind = input.kind ?? "reply";
     const attachments = await this.resolveAttachments(

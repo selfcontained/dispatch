@@ -21,6 +21,7 @@ type RoutingProps = {
   routeAgentId: string | undefined;
   agentsLoaded: boolean;
   validatedSelectedAgentId: string | null;
+  routeAgentType?: string | null;
 };
 
 // The hook is exercised against a real MemoryRouter so the useMatch patterns
@@ -234,6 +235,19 @@ describe("useAgentsViewRouting", () => {
       expect(pathname()).toBe("/agents/agt_1");
       expect(viewOf("agt_1")).toBe("console");
       expect(result.current.centerTabResolved).toBe(true);
+    });
+
+    it("sends an old /chat link for a terminal session to its Console", () => {
+      // A terminal session has no CLI to chat with: the route still
+      // collapses onto the agent, but the view is left as it was.
+      chatFlag.enabled = true;
+      getDefaultStore().set(agentPaneViewAtomFamily("agt_1"), "console");
+      const { pathname } = renderRouting("/agents/agt_1/chat", {
+        ...loaded,
+        routeAgentType: "terminal",
+      });
+      expect(pathname()).toBe("/agents/agt_1");
+      expect(viewOf("agt_1")).toBe("console");
     });
 
     it("waits for the flag to load before redirecting", () => {

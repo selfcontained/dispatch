@@ -20,6 +20,12 @@ export type Queryable = {
 };
 
 export type InsertChatMessageInput = {
+  /**
+   * Explicit row id. Launch posts fix it before the write so the pane
+   * envelope built alongside can carry it; everything else lets the store
+   * mint one.
+   */
+  id?: string;
   agentId: string;
   authorKind: ChatAuthorKind;
   kind?: ChatMessageKind;
@@ -107,7 +113,7 @@ export class ChatStore {
        VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
        RETURNING *`,
       [
-        randomUUID(),
+        input.id ?? randomUUID(),
         input.agentId,
         input.authorKind,
         input.kind ?? "reply",
@@ -121,6 +127,41 @@ export class ChatStore {
       ]
     );
     return toChatMessage(result.rows[0]);
+  }
+
+  /**
+   * Insert a row whose id the caller fixed in advance, tolerating a
+   * collision. Returns null when a row with that id already exists — the
+   * launch path needs to know that its post was *not* written by this call,
+   * because an envelope naming a row someone else owns is exactly the
+   * confusion the id was meant to prevent.
+   */
+  async insertIfAbsent(
+    input: InsertChatMessageInput & { id: string }
+  ): Promise<ChatMessage | null> {
+    const result = await this.db.query<Row>(
+      `INSERT INTO agent_chat_messages
+         (id, agent_id, author_kind, kind, text, reply_to, question,
+          attachments, delivered, origin, launched_by_agent_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
+       ON CONFLICT (id) DO NOTHING
+       RETURNING *`,
+      [
+        input.id,
+        input.agentId,
+        input.authorKind,
+        input.kind ?? "reply",
+        input.text,
+        input.replyTo ?? null,
+        input.question ? JSON.stringify(input.question) : null,
+        JSON.stringify(input.attachments ?? []),
+        input.delivered ?? null,
+        input.origin ?? null,
+        input.launchedByAgentId ?? null,
+      ]
+    );
+    const row = result.rows[0];
+    return row ? toChatMessage(row) : null;
   }
 
   /**

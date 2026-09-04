@@ -83,6 +83,17 @@ export function centerTabRoute(agentId: string, tab: CenterTab): string {
   return centerTabDef(tab).route(agentId);
 }
 
+/**
+ * Whether an agent can be chatted with at all. A terminal session is a
+ * shell, not a CLI agent: there is nothing to post to the feed and nothing
+ * to read it, so it keeps the plain Terminal tab whatever the flag says.
+ */
+export function agentSupportsChat(
+  agentType: string | null | undefined
+): boolean {
+  return agentType !== "terminal";
+}
+
 /** The id the terminal-hosting tab goes by under this flag value. */
 export function terminalHostTab(chatEnabled: boolean): CenterTab {
   return chatEnabled ? "agent" : "terminal";

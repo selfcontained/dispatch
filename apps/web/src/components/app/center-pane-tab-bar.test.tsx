@@ -30,6 +30,7 @@ describe("CenterPaneTabBar", () => {
     render(
       <MemoryRouter>
         <CenterPaneTabBar
+          chatEnabled={H.chatEnabled}
           activeTab="terminal"
           onTabChange={vi.fn()}
           isSplit={false}
@@ -51,6 +52,7 @@ describe("CenterPaneTabBar", () => {
     render(
       <MemoryRouter>
         <CenterPaneTabBar
+          chatEnabled={H.chatEnabled}
           activeTab="changes"
           onTabChange={vi.fn()}
           isSplit={false}
@@ -80,6 +82,7 @@ describe("CenterPaneTabBar", () => {
     render(
       <MemoryRouter>
         <CenterPaneTabBar
+          chatEnabled={H.chatEnabled}
           activeTab="agent"
           onTabChange={vi.fn()}
           isSplit={false}
@@ -109,6 +112,7 @@ describe("CenterPaneTabBar", () => {
     render(
       <MemoryRouter>
         <CenterPaneTabBar
+          chatEnabled={H.chatEnabled}
           activeTab="terminal"
           onTabChange={vi.fn()}
           isSplit={false}

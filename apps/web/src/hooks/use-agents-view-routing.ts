@@ -4,19 +4,29 @@ import { useLocation, useMatch, useNavigate } from "react-router-dom";
 
 import { useChatSurfaceEnabled } from "@/hooks/use-chat-surface-enabled";
 import { agentRoute } from "@/lib/agent-routes";
-import { type CenterTab, centerTabRoute } from "@/lib/center-tabs";
+import {
+  type CenterTab,
+  agentSupportsChat,
+  centerTabRoute,
+} from "@/lib/center-tabs";
 import { agentPaneViewAtomFamily } from "@/lib/store";
 
 type UseAgentsViewRoutingOptions = {
   routeAgentId: string | undefined;
   agentsLoaded: boolean;
   validatedSelectedAgentId: string | null;
+  /**
+   * The type of the agent the route names, once known. A terminal session
+   * has no Chat view, so an old /chat link lands on its Console.
+   */
+  routeAgentType?: string | null;
 };
 
 export function useAgentsViewRouting({
   routeAgentId,
   agentsLoaded,
   validatedSelectedAgentId,
+  routeAgentType,
 }: UseAgentsViewRoutingOptions) {
   const navigate = useNavigate();
   const location = useLocation();
@@ -49,7 +59,8 @@ export function useAgentsViewRouting({
   // `/agents/:id/chat` was the Chat tab's own route in round 1. The Chat
   // view now lives inside the Agent tab at the bare agent route, so an old
   // link (or bookmark) lands there with the view set to Chat. With the flag
-  // off the route has nothing to render and falls back to the terminal.
+  // off — or for a terminal session, which has no Chat view — the route has
+  // nothing to render and falls back to the terminal.
   //
   // The redirect is decided during render (`pendingTabRedirect`) and only
   // performed in the effect below, so the view can hold the center pane on
@@ -62,7 +73,7 @@ export function useAgentsViewRouting({
     if (!agentsLoaded || !validatedSelectedAgentId) return;
     if (!chatFlagLoaded) return;
     if (!chatMatch) return;
-    if (chatEnabled) {
+    if (chatEnabled && agentSupportsChat(routeAgentType)) {
       store.set(agentPaneViewAtomFamily(routeAgentId), "chat");
     }
     navigate(
@@ -77,6 +88,7 @@ export function useAgentsViewRouting({
     location.search,
     navigate,
     routeAgentId,
+    routeAgentType,
     store,
     validatedSelectedAgentId,
   ]);
