@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDshPersona } from "../src/agents/dsh/persona.js";
+import { buildDshPersona, DSH_CHAT_RULE } from "../src/agents/dsh/persona.js";
 
 const base = {
   id: "agt_p",
@@ -20,6 +20,8 @@ describe("buildDshPersona", () => {
       suggestSessionRename: false,
     });
     expect(text).toContain("dispatch_event");
+    expect(text).toContain(DSH_CHAT_RULE);
+    expect(text).not.toContain("Send every user-facing reply");
   });
 
   it("appends the active personality for a standard agent", () => {

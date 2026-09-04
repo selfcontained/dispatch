@@ -243,6 +243,11 @@ A Dispatch settings page for keys is a follow-up.
 
 Named so they are chosen later, not forgotten.
 
+- Token counts. dsh's ACP server sends no `usage` on the prompt response
+  and its `usage_update` carries only context pressure, so
+  `agent_token_usage` stays empty for dsh agents. The counts exist in dsh's
+  session JSONL under `DSH_HOME/sessions`; a harvester over that log is the
+  fix (observed in the first live turn, 2026-09-04).
 - Unread and read receipts for stream entries. The sidebar badge and
   `markRead` key on `agent_chat_messages`; a dsh agent's assistant posts do
   not light the badge or advance the read marker. Needs a per-agent read

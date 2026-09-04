@@ -26,6 +26,26 @@ export const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
 /** Chunks arrive per token; rewrite the row at most this often. */
 export const FLUSH_INTERVAL_MS = 100;
 
+/**
+ * dsh's ACP server sends tool calls without a `kind`; the title is the tool
+ * name, which is enough to pick the icon and colour the Chat row gets.
+ */
+export function inferToolKind(
+  kind: string | null | undefined,
+  title: string
+): string {
+  if (kind) return kind;
+  const name = title.toLowerCase();
+  if (/^mcp__/.test(name)) return "other";
+  if (/bash|shell|pwsh|exec|terminal|command/.test(name)) return "execute";
+  if (/edit|write|str_replace|patch|create_file/.test(name)) return "edit";
+  if (/^read|read_file|cat\b|view/.test(name)) return "read";
+  if (/grep|glob|search|find|list|^ls\b/.test(name)) return "search";
+  if (/fetch|web|http|browse/.test(name)) return "fetch";
+  if (/think|plan|todo/.test(name)) return "think";
+  return "other";
+}
+
 function textOf(content: { type: string; text?: string } | undefined): string {
   return content && content.type === "text" && typeof content.text === "string"
     ? content.text
@@ -178,7 +198,7 @@ export class StreamRecorder {
           update.content
         );
         const payload: ToolPayload = {
-          toolKind: update.kind ?? "other",
+          toolKind: inferToolKind(update.kind, update.title),
           title: update.title,
           status: update.status ?? "pending",
           locations: this.projectLocations(agentId, update.locations),
@@ -215,9 +235,10 @@ export class StreamRecorder {
           : null;
         const truncated =
           (projected?.truncated ?? false) || prev.truncated === true;
+        const title = update.title ?? prev.title ?? "";
         const next: ToolPayload = {
-          toolKind: update.kind ?? prev.toolKind ?? "other",
-          title: update.title ?? prev.title ?? "",
+          toolKind: inferToolKind(update.kind ?? prev.toolKind, title),
+          title,
           status: update.status ?? prev.status ?? "pending",
           locations: update.locations
             ? this.projectLocations(agentId, update.locations)

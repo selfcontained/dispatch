@@ -4,6 +4,7 @@ import type { Pool } from "pg";
 import type { DriverEvent } from "../src/agents/dsh/driver.js";
 import {
   boundOutput,
+  inferToolKind,
   StreamRecorder,
   TEXT_MAX_BYTES,
 } from "../src/agents/dsh/stream-recorder.js";
@@ -262,5 +263,17 @@ describe("StreamRecorder", () => {
       text: "short",
       truncated: false,
     });
+  });
+
+  it("infers a tool kind from the tool name when dsh sends none", () => {
+    expect(inferToolKind(undefined, "bash")).toBe("execute");
+    expect(inferToolKind(undefined, "read")).toBe("read");
+    expect(inferToolKind(undefined, "str_replace_editor")).toBe("edit");
+    expect(inferToolKind(undefined, "grep")).toBe("search");
+    expect(inferToolKind(undefined, "web_fetch")).toBe("fetch");
+    expect(inferToolKind(undefined, "mcp__dispatch__dispatch_event")).toBe(
+      "other"
+    );
+    expect(inferToolKind("delete", "bash")).toBe("delete");
   });
 });

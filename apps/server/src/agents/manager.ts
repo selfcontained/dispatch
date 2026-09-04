@@ -402,8 +402,7 @@ export class AgentManager {
   /** The system-prompt persona a dsh agent launches with (see dsh/persona.ts). */
   async buildDshPersonaFor(agent: AgentRecord): Promise<string> {
     const inputs = await this.launchGuidanceInputsFor(agent);
-    // Chat is a dsh agent's only surface, whatever the global flag says.
-    return buildDshPersona({ agent, ...inputs, chatSurface: true });
+    return buildDshPersona({ agent, ...inputs });
   }
 
   /**
