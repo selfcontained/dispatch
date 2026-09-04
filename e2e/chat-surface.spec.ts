@@ -594,7 +594,11 @@ test.describe("Chat surface", () => {
         await touchPage.evaluate(() => matchMedia("(pointer: coarse)").matches)
       ).toBe(true);
 
-      for (const id of ["agent-view-chat", "agent-view-console"]) {
+      for (const id of [
+        "agent-view-chat",
+        "agent-view-console",
+        "chat-filters-trigger",
+      ]) {
         await expect
           .poll(() =>
             touchPage
@@ -604,7 +608,8 @@ test.describe("Chat surface", () => {
           .toBeGreaterThanOrEqual(44);
       }
       // The header grew to hold it rather than clipping it.
-      const header = toggle.locator("xpath=..");
+      const controls = toggle.locator("xpath=..");
+      const header = controls.locator("xpath=..");
       const headerBox = (await header.boundingBox())!;
       const toggleBox = (await toggle.boundingBox())!;
       expect(toggleBox.y).toBeGreaterThanOrEqual(headerBox.y);

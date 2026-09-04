@@ -89,6 +89,9 @@ function paneProps(overrides: Partial<PaneProps> = {}): PaneProps {
     view: "chat",
     onViewChange: vi.fn(),
     chatUnreadCount: 0,
+    showChildAgents: true,
+    onShowChildAgentsChange: vi.fn(),
+    childAgentIds: [],
     terminalSlotRef: createRef<HTMLDivElement>(),
     header: true,
     openLightbox: vi.fn(),
@@ -163,6 +166,37 @@ describe("AgentViewToggle", () => {
       <AgentViewToggle view="chat" onViewChange={vi.fn()} chatUnreadCount={4} />
     );
     expect(screen.queryByTestId("agent-view-chat-unread")).toBeNull();
+  });
+
+  it("opens chat filters and reports child-agent visibility changes", () => {
+    const onShowChildAgentsChange = vi.fn();
+    const view = render(
+      <AgentViewToggle
+        view="chat"
+        onViewChange={vi.fn()}
+        showChildAgents={true}
+        onShowChildAgentsChange={onShowChildAgentsChange}
+      />
+    );
+
+    fireEvent.click(screen.getByTestId("chat-filters-trigger"));
+    expect(screen.getByTestId("chat-filters-popover")).toBeTruthy();
+    const toggle = screen.getByTestId("show-child-agents-switch");
+    expect(toggle.getAttribute("data-state")).toBe("checked");
+    fireEvent.click(toggle);
+    expect(onShowChildAgentsChange).toHaveBeenCalledWith(false);
+
+    view.rerender(
+      <AgentViewToggle
+        view="chat"
+        onViewChange={vi.fn()}
+        showChildAgents={false}
+        onShowChildAgentsChange={onShowChildAgentsChange}
+      />
+    );
+    expect(
+      screen.getByTestId("chat-filters-trigger").getAttribute("aria-label")
+    ).toBe("Chat filters, child-agent messages hidden");
   });
 });
 

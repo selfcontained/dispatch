@@ -6,7 +6,7 @@ import {
   useRef,
   useState,
 } from "react";
-import type { ChatQuestionOption } from "@dispatch/shared";
+import type { ChatFeedEntry, ChatQuestionOption } from "@dispatch/shared";
 import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
@@ -52,9 +52,27 @@ export type ChatPaneProps = {
    * not mark anything read or take focus.
    */
   active: boolean;
+  showChildAgents: boolean;
+  childAgentIds: readonly string[];
+  onShowChildAgentsChange: (show: boolean) => void;
   openLightbox: (file: MediaFile) => void;
   isMobile: boolean;
 };
+
+/** Remove both directions of the selected agent's child conversations. */
+export function filterChildAgentMessages(
+  entries: readonly ChatFeedEntry[],
+  childAgentIds: ReadonlySet<string>,
+  showChildAgents: boolean
+): ChatFeedEntry[] {
+  if (showChildAgents || childAgentIds.size === 0) return [...entries];
+  return entries.filter(
+    (entry) =>
+      entry.type !== "agent_message" ||
+      (!childAgentIds.has(entry.senderAgentId) &&
+        !childAgentIds.has(entry.recipientAgentId))
+  );
+}
 
 /** How close to the bottom (px) still counts as "following" the feed. */
 const FOLLOW_THRESHOLD_PX = 48;
@@ -96,6 +114,9 @@ export function ChatPane({
   agent,
   terminalMode,
   active,
+  showChildAgents,
+  childAgentIds,
+  onShowChildAgentsChange,
   openLightbox,
   isMobile,
 }: ChatPaneProps): JSX.Element {
@@ -106,6 +127,14 @@ export function ChatPane({
   const holdState = useInjectionHoldState(agentId);
 
   const entries = feed.entries;
+  const childAgentIdSet = useMemo(
+    () => new Set(childAgentIds),
+    [childAgentIds]
+  );
+  const visibleEntries = useMemo(
+    () => filterChildAgentMessages(entries, childAgentIdSet, showChildAgents),
+    [childAgentIdSet, entries, showChildAgents]
+  );
   const heldMessageId = useMemo(
     () => (holdState?.held ? latestUserMessageId(entries) : null),
     [entries, holdState?.held]
@@ -113,9 +142,10 @@ export function ChatPane({
   // Status events alone are not a conversation: real agents always have
   // some, so the empty state must key off the entries a person wrote.
   const hasConversation = useMemo(
-    () => entries.some((entry) => entry.type !== "status"),
-    [entries]
+    () => visibleEntries.some((entry) => entry.type !== "status"),
+    [visibleEntries]
   );
+  const hasHiddenChildMessages = visibleEntries.length < entries.length;
 
   // A typed reply answers the newest open free-text question unless the
   // user has opted out of that question with the chip's ×.
@@ -136,6 +166,7 @@ export function ChatPane({
   const [following, setFollowing] = useState(true);
   const [pendingBelow, setPendingBelow] = useState(false);
   const lastEntryIdRef = useRef<string | null>(null);
+  const lastShowChildAgentsRef = useRef(showChildAgents);
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
@@ -171,7 +202,17 @@ export function ChatPane({
       olderLoadRef.current = null;
       return;
     }
-    const lastId = entries[entries.length - 1]?.id ?? null;
+    const lastId = visibleEntries[visibleEntries.length - 1]?.id ?? null;
+    const filterChanged = lastShowChildAgentsRef.current !== showChildAgents;
+    lastShowChildAgentsRef.current = showChildAgents;
+    // Changing the filter can expose an older tail or remove the current one.
+    // Adopt it before append detection so the filter itself does not
+    // manufacture a “New messages” prompt or move the scroll position.
+    if (filterChanged) {
+      lastEntryIdRef.current = lastId;
+      setPendingBelow(false);
+      return;
+    }
     const appended = lastId !== lastEntryIdRef.current;
     lastEntryIdRef.current = lastId;
     if (!appended) return;
@@ -180,7 +221,7 @@ export function ChatPane({
     } else {
       setPendingBelow(true);
     }
-  }, [entries, following, scrollToBottom]);
+  }, [following, scrollToBottom, showChildAgents, visibleEntries]);
 
   // Agent switch: start at the bottom again.
   useEffect(() => {
@@ -334,6 +375,7 @@ export function ChatPane({
       <div className="relative min-h-0 flex-1">
         <div
           ref={scrollRef}
+          data-testid="chat-scroll"
           onScroll={onScroll}
           // Images in the feed size themselves after they load; keep the
           // bottom pinned when that happens while following.
@@ -381,12 +423,27 @@ export function ChatPane({
             <div
               className={cn(
                 "flex flex-col items-center justify-center gap-2 px-6 text-center text-sm text-muted-foreground",
-                entries.length === 0 ? "h-full" : "mb-4 py-6"
+                visibleEntries.length === 0 ? "h-full" : "mb-4 py-6"
               )}
               data-testid="chat-empty"
             >
               <MessageSquare className="h-8 w-8" />
-              {agent ? (
+              {hasHiddenChildMessages ? (
+                <>
+                  <div className="text-foreground">
+                    Child-agent messages are hidden.
+                  </div>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="default"
+                    className="h-7 text-xs"
+                    onClick={() => onShowChildAgentsChange(true)}
+                  >
+                    Show child agents
+                  </Button>
+                </>
+              ) : agent ? (
                 <>
                   <div className="text-foreground">
                     No messages yet. Send the first one below and the agent
@@ -403,9 +460,9 @@ export function ChatPane({
               )}
             </div>
           ) : null}
-          {entries.length > 0 ? (
+          {visibleEntries.length > 0 ? (
             <ChatFeed
-              entries={entries}
+              entries={visibleEntries}
               ctx={ctx}
               heldMessageId={heldMessageId}
               answeringMessageId={answeringMessageId}
