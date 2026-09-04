@@ -53,6 +53,9 @@ importers:
 
   apps/server:
     dependencies:
+      "@agentclientprotocol/sdk":
+        specifier: 1.4.0
+        version: 1.4.0(zod@4.3.6)
       "@dispatch/shared":
         specifier: workspace:*
         version: link:../../packages/shared
@@ -326,6 +329,14 @@ importers:
   packages/shared: {}
 
 packages:
+  "@agentclientprotocol/sdk@1.4.0":
+    resolution:
+      {
+        integrity: sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg==,
+      }
+    peerDependencies:
+      zod: ^3.25.0 || ^4.0.0
+
   "@alloc/quick-lru@5.2.0":
     resolution:
       {
@@ -12832,6 +12843,10 @@ packages:
       }
 
 snapshots:
+  "@agentclientprotocol/sdk@1.4.0(zod@4.3.6)":
+    dependencies:
+      zod: 4.3.6
+
   "@alloc/quick-lru@5.2.0": {}
 
   "@ampproject/remapping@2.3.0":
