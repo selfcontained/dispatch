@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/shared",
-  "version": "0.38.7-dsh.16",
+  "version": "0.38.7-dsh.17",
   "private": true,
   "type": "module",
   "exports": {
