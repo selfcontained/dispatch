@@ -5,8 +5,30 @@ import { Bell } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
-import { PlainBlock } from "./code-block";
+import { ExpandableBlock } from "./code-block";
 import type { Attachment, Turn } from "./contracts";
+
+const KEY_VALUE = /^([A-Za-z][A-Za-z ]{0,30}):\s*(.*)$/;
+
+/** "Review ID: 293" → key and value, for coloured rendering. */
+export function splitKeyValue(
+  line: string
+): { key: string; value: string } | null {
+  const m = KEY_VALUE.exec(line.trim());
+  return m ? { key: m[1], value: m[2] } : null;
+}
+
+/** A line with its key in the accent colour and its value in the foreground. */
+function KeyValueText({ line }: { line: string }): JSX.Element {
+  const kv = splitKeyValue(line);
+  if (!kv) return <span className="text-foreground/75">{line}</span>;
+  return (
+    <>
+      <span className="text-status-working">{kv.key}:</span>{" "}
+      <span className="text-foreground">{kv.value}</span>
+    </>
+  );
+}
 
 const CHIP_CLASS =
   "inline-flex max-w-[240px] items-center truncate rounded-[2px] border border-border bg-background px-1.5 py-0.5 text-[10.5px] text-foreground/80";
@@ -139,10 +161,17 @@ function NoticeLine({ notice }: { notice: DispatchNotice }): JSX.Element {
           <Bell className="h-3 w-3" />
         </span>
         <span className="min-w-0 flex-1 text-[11.5px] leading-[1.55]">
-          <span className="mr-1.5 rounded-[2px] border border-border/60 bg-muted px-1.5 py-px text-[10px] uppercase tracking-wide text-muted-foreground">
+          <span className="mr-1.5 rounded-[2px] border border-status-working/30 bg-status-working/10 px-1.5 py-px text-[10px] uppercase tracking-wide text-status-working">
             Dispatch · {notice.label}
           </span>
-          <span className="text-foreground/75">{notice.summary}</span>
+          {notice.summary.split(" · ").map((part, i) => (
+            <span key={`${part}:${i}`}>
+              {i > 0 ? (
+                <span className="text-muted-foreground/60"> · </span>
+              ) : null}
+              <KeyValueText line={part} />
+            </span>
+          ))}
         </span>
         {expandable ? (
           <span
@@ -154,11 +183,20 @@ function NoticeLine({ notice }: { notice: DispatchNotice }): JSX.Element {
         ) : null}
       </button>
       {open ? (
-        <div className="ml-[21px] mt-1.5 text-foreground/80">
-          <PlainBlock
-            text={notice.body}
+        <div className="ml-[21px] mt-1.5">
+          <ExpandableBlock
+            lineCount={notice.body.split("\n").length}
             className="border border-border/40 !bg-muted/40"
-          />
+            testId="harness-notice-body"
+          >
+            <div className="whitespace-pre-wrap break-words p-2 font-terminal text-[11px] leading-[1.5] [overflow-wrap:anywhere]">
+              {notice.body.split("\n").map((line, i) => (
+                <div key={i}>
+                  <KeyValueText line={line} />
+                </div>
+              ))}
+            </div>
+          </ExpandableBlock>
         </div>
       ) : null}
     </div>

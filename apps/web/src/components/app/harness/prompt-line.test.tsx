@@ -3,7 +3,7 @@ import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { Turn } from "./contracts";
-import { parseDispatchNotice, PromptLine } from "./prompt-line";
+import { parseDispatchNotice, PromptLine, splitKeyValue } from "./prompt-line";
 
 afterEach(cleanup);
 
@@ -60,5 +60,15 @@ describe("PromptLine", () => {
     expect(screen.getByTestId("harness-prompt").textContent).toContain(
       "ls apps"
     );
+  });
+});
+
+describe("splitKeyValue", () => {
+  it("splits a label from its value and leaves prose alone", () => {
+    expect(splitKeyValue("Review ID: 293")).toEqual({
+      key: "Review ID",
+      value: "293",
+    });
+    expect(splitKeyValue("Call dispatch_event with type 'working'")).toBeNull();
   });
 });
