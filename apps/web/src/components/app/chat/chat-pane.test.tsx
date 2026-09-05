@@ -20,6 +20,7 @@ import {
   filterChildAgentMessages,
   questionExcerpt,
   readChatScrollPosition,
+  REMEMBER_THROTTLE_MS,
   rememberChatScrollPosition,
 } from "./chat-pane";
 
@@ -583,7 +584,7 @@ describe("ChatPane scroll memory", () => {
     return scroll;
   }
 
-  it("records the row the reader is parked on when they leave", () => {
+  it("records the rows on screen when the reader leaves", () => {
     H.entries = [
       chat(message({ id: "m1", text: "one" })),
       chat(message({ id: "m2", text: "two" })),
@@ -592,16 +593,42 @@ describe("ChatPane scroll memory", () => {
     const { unmount } = renderPane();
     const scroll = stubLayout(250);
     fireEvent.scroll(scroll);
-    // Unmounting before the debounce fires still records the position.
     unmount();
 
     // 250px down: the first two rows are above the fold, so the reader is
     // parked on the third, 50px of it scrolled past.
     expect(readChatScrollPosition("agt_1")).toEqual({
       following: false,
-      entryId: "m3",
-      offset: -50,
+      anchors: [{ entryId: "m3", offset: -50 }],
     });
+  });
+
+  it("keeps recording through a long scroll, not only at its ends", () => {
+    vi.useFakeTimers();
+    try {
+      H.entries = [
+        chat(message({ id: "m1", text: "one" })),
+        chat(message({ id: "m2", text: "two" })),
+        chat(message({ id: "m3", text: "three" })),
+      ];
+      const { unmount } = renderPane();
+      // One unbroken fling: every event resets the trailing timer, so it
+      // never fires, and the reader switches away mid-gesture. What is
+      // recorded must not be the position from the start of the gesture.
+      fireEvent.scroll(stubLayout(50));
+      vi.advanceTimersByTime(REMEMBER_THROTTLE_MS);
+      fireEvent.scroll(stubLayout(150));
+      vi.advanceTimersByTime(REMEMBER_THROTTLE_MS);
+      fireEvent.scroll(stubLayout(250));
+      unmount();
+
+      expect(readChatScrollPosition("agt_1")?.anchors[0]).toEqual({
+        entryId: "m3",
+        offset: -50,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("stays following when the reader leaves from the bottom", () => {
@@ -617,8 +644,7 @@ describe("ChatPane scroll memory", () => {
   it("reopens on the remembered row instead of the newest message", () => {
     rememberChatScrollPosition("agt_1", {
       following: false,
-      entryId: "m2",
-      offset: -50,
+      anchors: [{ entryId: "m2", offset: -50 }],
     });
     H.entries = [
       chat(message({ id: "m1", text: "one" })),
@@ -632,11 +658,31 @@ describe("ChatPane scroll memory", () => {
     expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
   });
 
-  it("opens at the newest message when the remembered row is gone", () => {
+  it("falls back to a lower row when the top one no longer exists", () => {
+    // What a collapsed run of `working` events does: the status row the
+    // reader was on now carries a newer event's id.
     rememberChatScrollPosition("agt_1", {
       following: false,
-      entryId: "rolled-off",
-      offset: -50,
+      anchors: [
+        { entryId: "status-that-moved-on", offset: -20 },
+        { entryId: "m2", offset: -50 },
+      ],
+    });
+    H.entries = [
+      chat(message({ id: "m1", text: "one" })),
+      chat(message({ id: "m2", text: "two" })),
+    ];
+
+    renderPane();
+
+    expect(screen.getByTestId("chat-scroll").scrollTop).toBe(50);
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("opens at the newest message when every remembered row is gone", () => {
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [{ entryId: "rolled-off", offset: -50 }],
     });
     H.entries = [chat(message({ id: "m1", text: "one" }))];
 
@@ -649,14 +695,13 @@ describe("ChatPane scroll memory", () => {
     for (let i = 0; i < 60; i += 1) {
       rememberChatScrollPosition(`agt_${i}`, {
         following: false,
-        entryId: `m${i}`,
-        offset: 0,
+        anchors: [{ entryId: `m${i}`, offset: 0 }],
       });
     }
 
     expect(readChatScrollPosition("agt_0")).toBeNull();
     expect(readChatScrollPosition("agt_9")).toBeNull();
-    expect(readChatScrollPosition("agt_10")?.entryId).toBe("m10");
-    expect(readChatScrollPosition("agt_59")?.entryId).toBe("m59");
+    expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
+    expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
   });
 });

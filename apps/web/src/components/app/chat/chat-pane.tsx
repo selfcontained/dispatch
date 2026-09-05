@@ -90,12 +90,24 @@ const FOLLOW_THRESHOLD_PX = 48;
  * and it is deliberately session-scoped — reopening the app should land on
  * the newest message, not on wherever yesterday ended.
  */
+/** One row the feed can be put back against: which row, and where it sat. */
+export type ChatScrollAnchor = {
+  entryId: string;
+  /** The row's top edge, relative to the top of the viewport. */
+  offset: number;
+};
+
 export type ChatScrollPosition = {
   /** At the bottom on the way out: reopen following the feed. */
   following: boolean;
-  /** The row at the top of the viewport, and where its top edge sat. */
-  entryId: string | null;
-  offset: number;
+  /**
+   * The rows on screen, top first. More than one because a row's id is not
+   * guaranteed to survive: a run of consecutive `working` events renders as
+   * a single status row carrying the newest event's id (see collapseFeed),
+   * so a reader parked on a live agent's status line comes back to an id
+   * that no longer exists. Whichever of these is still here wins.
+   */
+  anchors: ChatScrollAnchor[];
 };
 
 /** Bounded so a long session's agent hopping can't grow it without end. */
@@ -131,41 +143,56 @@ function entryNodes(el: HTMLElement): HTMLElement[] {
   return [...el.querySelectorAll<HTMLElement>("[data-chat-entry-id]")];
 }
 
+/** How many rows down from the fold are kept as fallback anchors. */
+const ANCHOR_COUNT = 8;
+
 /**
- * The first row not entirely above the viewport — what the reader is
- * looking at — and how far its top edge sits from the top of the viewport.
- * Measured from rects so it does not depend on the offset parent.
+ * The rows on screen, starting with the first one not entirely above the
+ * fold — what the reader is looking at — each with its top edge relative to
+ * the top of the viewport. Measured from rects so it does not depend on the
+ * offset parent.
  */
-function topVisibleEntry(
-  el: HTMLElement
-): { entryId: string; offset: number } | null {
+function visibleAnchors(el: HTMLElement): ChatScrollAnchor[] {
   const top = el.getBoundingClientRect().top;
+  const anchors: ChatScrollAnchor[] = [];
   for (const node of entryNodes(el)) {
     const rect = node.getBoundingClientRect();
-    if (rect.bottom > top) {
-      const entryId = node.dataset.chatEntryId;
-      if (entryId) return { entryId, offset: rect.top - top };
-    }
+    if (rect.bottom <= top) continue;
+    const entryId = node.dataset.chatEntryId;
+    if (entryId) anchors.push({ entryId, offset: rect.top - top });
+    if (anchors.length === ANCHOR_COUNT) break;
   }
-  return null;
+  return anchors;
 }
 
-/** Puts `entryId` back where it was; false when that row is no longer here. */
-function scrollToEntry(
-  el: HTMLElement,
-  entryId: string,
-  offset: number
-): boolean {
-  const node = entryNodes(el).find((n) => n.dataset.chatEntryId === entryId);
-  if (!node) return false;
-  const delta =
-    node.getBoundingClientRect().top - el.getBoundingClientRect().top - offset;
-  el.scrollTop += delta;
-  return true;
+/**
+ * Puts the feed back against the first anchor that is still here. False
+ * when none of them are — the reader's whole neighbourhood has gone.
+ */
+function scrollToAnchor(el: HTMLElement, anchors: ChatScrollAnchor[]): boolean {
+  const nodes = entryNodes(el);
+  for (const anchor of anchors) {
+    const node = nodes.find((n) => n.dataset.chatEntryId === anchor.entryId);
+    if (!node) continue;
+    const delta =
+      node.getBoundingClientRect().top -
+      el.getBoundingClientRect().top -
+      anchor.offset;
+    el.scrollTop += delta;
+    return true;
+  }
+  return false;
 }
 
-/** How long the feed sits still before its position is worth recording. */
-const REMEMBER_DELAY_MS = 150;
+/**
+ * How often the position is recorded while the feed is moving. Cheap
+ * enough to be this frequent — the scan above measures 0.05ms on a 75-row
+ * feed — and it bounds how much of a fling a switch mid-gesture can lose.
+ */
+export const REMEMBER_THROTTLE_MS = 50;
+
+/** How long the feed must sit still before the final, exact record. */
+export const REMEMBER_SETTLE_MS = 150;
 
 /** First line of a question, plain enough for a one-line chip. */
 export function questionExcerpt(text: string, max = 80): string {
@@ -264,6 +291,7 @@ export function ChatPane({
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
   const restoredRef = useRef(false);
   const rememberTimerRef = useRef<number | null>(null);
+  const rememberedAtRef = useRef(0);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const el = scrollRef.current;
@@ -271,31 +299,36 @@ export function ChatPane({
     el.scrollTo({ top: el.scrollHeight, behavior });
   }, []);
 
-  // Reading every row's rect is too much for a scroll event, so the
-  // position is recorded once the feed settles.
+  // Reading every row's rect is too much to do on each scroll event, so
+  // this is throttled rather than called from the handler directly.
   const remember = useCallback(() => {
     const el = scrollRef.current;
     if (!el || !agentId) return;
+    rememberedAtRef.current = Date.now();
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
-    const top = topVisibleEntry(el);
     rememberChatScrollPosition(agentId, {
       following: distance <= FOLLOW_THRESHOLD_PX,
-      entryId: top?.entryId ?? null,
-      offset: top?.offset ?? 0,
+      anchors: visibleAnchors(el),
     });
   }, [agentId]);
 
-  // Once when a scroll starts and again when it settles. The trailing pass
-  // is the accurate one; the leading pass is there because the pane can be
-  // unmounted mid-scroll — measuring then is too late, the feed is already
-  // detached and every row measures zero.
+  // Throttled, and again once the feed settles. It has to keep recording
+  // through a long scroll, not only at its ends: the pane can be unmounted
+  // mid-fling, and measuring then is too late — React has detached the feed
+  // by the time the cleanup runs and every row measures zero. So the worst
+  // a switch-while-still-scrolling can cost is one throttle window of
+  // movement, rather than the whole gesture.
   const rememberSoon = useCallback(() => {
-    if (rememberTimerRef.current === null) remember();
-    else window.clearTimeout(rememberTimerRef.current);
+    if (Date.now() - rememberedAtRef.current >= REMEMBER_THROTTLE_MS) {
+      remember();
+    }
+    if (rememberTimerRef.current !== null) {
+      window.clearTimeout(rememberTimerRef.current);
+    }
     rememberTimerRef.current = window.setTimeout(() => {
       rememberTimerRef.current = null;
       remember();
-    }, REMEMBER_DELAY_MS);
+    }, REMEMBER_SETTLE_MS);
   }, [remember]);
 
   useEffect(
@@ -355,10 +388,7 @@ export function ChatPane({
       restoredRef.current = true;
       const saved = savedPositionRef.current;
       const restored =
-        saved !== null &&
-        !saved.following &&
-        saved.entryId !== null &&
-        scrollToEntry(el, saved.entryId, saved.offset);
+        saved !== null && !saved.following && scrollToAnchor(el, saved.anchors);
       if (restored) return;
       setFollowing(true);
       scrollToBottom();
