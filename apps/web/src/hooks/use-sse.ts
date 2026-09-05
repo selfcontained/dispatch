@@ -15,6 +15,7 @@ import { CHAT_QUERY_PREFIX, chatFeedQueryKey } from "@/hooks/use-chat";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
+import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import {
@@ -284,6 +285,9 @@ export function useSSE(authState: AuthState): void {
           void queryClient.invalidateQueries({
             queryKey: ["media", payload.agentId],
             exact: true,
+          });
+          void queryClient.invalidateQueries({
+            queryKey: MEDIA_ITEM_QUERY_PREFIX,
           });
           invalidateChatFeed(queryClient, payload.agentId);
           return;

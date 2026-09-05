@@ -51,6 +51,7 @@ export type HistoryTokenUsage = HistoryTokenTotals & {
 };
 
 export type HistoryMedia = {
+  id: number;
   file_name: string;
   source: string;
   size_bytes: number;

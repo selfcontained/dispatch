@@ -1,5 +1,3 @@
-import { type ComponentProps } from "react";
-
 import { LaunchTemplateDialog } from "@/components/app/automations-launch-dialog";
 import {
   CommandPalette,
@@ -38,10 +36,9 @@ type AgentsViewDialogsProps = {
   setStopConfirmOpen: (open: boolean) => void;
   setStopTarget: (agent: Agent | null) => void;
   onStop: (agent: Agent) => Promise<void>;
-  lightboxItem: ComponentProps<typeof MediaLightbox>["item"];
-  lightboxIndex: number;
-  mediaFileCount: number;
-  setLightboxIndex: (nextIndex: number | null) => void;
+  lightboxMediaId: number | null;
+  lightboxMediaIds: number[];
+  setLightboxMediaId: (mediaId: number | null) => void;
 };
 
 /**
@@ -73,10 +70,9 @@ export function AgentsViewDialogs({
   setStopConfirmOpen,
   setStopTarget,
   onStop,
-  lightboxItem,
-  lightboxIndex,
-  mediaFileCount,
-  setLightboxIndex,
+  lightboxMediaId,
+  lightboxMediaIds,
+  setLightboxMediaId,
 }: AgentsViewDialogsProps): JSX.Element {
   return (
     <>
@@ -125,10 +121,9 @@ export function AgentsViewDialogs({
       />
 
       <MediaLightbox
-        item={lightboxItem}
-        currentIndex={lightboxIndex}
-        totalItems={mediaFileCount}
-        setLightboxIndex={setLightboxIndex}
+        mediaId={lightboxMediaId}
+        mediaIds={lightboxMediaIds}
+        setMediaId={setLightboxMediaId}
       />
     </>
   );

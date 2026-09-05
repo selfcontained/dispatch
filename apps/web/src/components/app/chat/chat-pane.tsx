@@ -24,11 +24,7 @@ import {
   latestOpenFreeformQuestion,
   latestUserMessageId,
 } from "@/components/app/chat/chat-feed";
-import {
-  type Agent,
-  type AgentPin,
-  type MediaFile,
-} from "@/components/app/types";
+import { type Agent, type AgentPin } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   useAnswerChatQuestion,
@@ -55,7 +51,7 @@ export type ChatPaneProps = {
   showChildAgents: boolean;
   childAgentIds: readonly string[];
   onShowChildAgentsChange: (show: boolean) => void;
-  openLightbox: (file: MediaFile) => void;
+  openLightbox: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded; from a review card. */
   onOpenReview?: (reviewId: number) => void;
   isMobile: boolean;

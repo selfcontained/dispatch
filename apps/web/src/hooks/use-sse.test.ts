@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
+import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import {
   agentToolBlipAtomFamily,
@@ -679,6 +680,7 @@ describe("useSSE message handling", () => {
   it("marks seen only the media files named in the event", () => {
     const { queryClient, emit } = renderMessages();
     const file = (name: string, updatedAt: string): MediaFile => ({
+      id: name.length,
       name,
       updatedAt,
       size: 1,
@@ -708,7 +710,7 @@ describe("useSSE message handling", () => {
     ).toEqual([true, false, false]);
   });
 
-  it("invalidates one agent's media list on media.changed", () => {
+  it("invalidates one agent's list and open media items on media.changed", () => {
     const { emit, invalidateQueries } = renderMessages();
 
     emit({ type: "media.changed", agentId: "a1" });
@@ -717,6 +719,9 @@ describe("useSSE message handling", () => {
     expect(invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["media", "a1"],
       exact: true,
+    });
+    expect(invalidateQueries).toHaveBeenCalledWith({
+      queryKey: MEDIA_ITEM_QUERY_PREFIX,
     });
   });
 

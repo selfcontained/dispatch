@@ -1,6 +1,7 @@
 import type { Pool } from "pg";
 
 export type MediaListItem = {
+  id: number;
   fileName: string;
   source: string;
   sizeBytes: number;
@@ -8,32 +9,59 @@ export type MediaListItem = {
   description: string | null;
 };
 
-export async function listMediaFiles(
-  pool: Pool,
-  agentId: string
-): Promise<MediaListItem[]> {
-  const result = await pool.query<{
-    file_name: string;
-    source: string;
-    size_bytes: number;
-    effective_updated_at: Date;
-    description: string | null;
-  }>(
-    `SELECT file_name, source, size_bytes,
-            COALESCE(updated_at, created_at) AS effective_updated_at,
-            description
-     FROM media WHERE agent_id = $1
-     ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 50`,
-    [agentId]
-  );
+export type OwnedMediaItem = MediaListItem & {
+  agentId: string;
+};
 
-  return result.rows.map((row) => ({
+type MediaRow = {
+  id: number;
+  file_name: string;
+  source: string;
+  size_bytes: number;
+  effective_updated_at: Date;
+  description: string | null;
+};
+
+const MEDIA_PROJECTION = `id, file_name, source, size_bytes,
+  COALESCE(updated_at, created_at) AS effective_updated_at, description`;
+
+function mapMediaRow(row: MediaRow): MediaListItem {
+  return {
+    id: row.id,
     fileName: row.file_name,
     source: row.source,
     sizeBytes: row.size_bytes,
     updatedAt: row.effective_updated_at.toISOString(),
     description: row.description ?? null,
-  }));
+  };
+}
+
+export async function listMediaFiles(
+  pool: Pool,
+  agentId: string
+): Promise<MediaListItem[]> {
+  const result = await pool.query<MediaRow>(
+    `SELECT ${MEDIA_PROJECTION}
+     FROM media WHERE agent_id = $1
+     ORDER BY COALESCE(updated_at, created_at) DESC LIMIT 50`,
+    [agentId]
+  );
+
+  return result.rows.map(mapMediaRow);
+}
+
+export async function getMediaById(
+  pool: Pool,
+  mediaId: number
+): Promise<OwnedMediaItem | null> {
+  const result = await pool.query<MediaRow & { agent_id: string }>(
+    `SELECT agent_id, ${MEDIA_PROJECTION}
+     FROM media
+     WHERE id = $1`,
+    [mediaId]
+  );
+  const row = result.rows[0];
+  return row ? { ...mapMediaRow(row), agentId: row.agent_id } : null;
 }
 
 export async function loadSeenMediaKeys(

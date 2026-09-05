@@ -6,6 +6,7 @@ import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
 import {
+  getMediaById,
   listMediaFiles,
   loadSeenMediaKeys,
   markSeenMediaKeys,
@@ -33,6 +34,10 @@ function nextFileSeq(agentId: string): number {
   const seq = (fileSeqByAgent.get(agentId) ?? 0) + 1;
   fileSeqByAgent.set(agentId, seq);
   return seq;
+}
+
+function mediaContentUrl(agentId: string, fileName: string): string {
+  return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
 }
 
 type MediaRouteDeps = {
@@ -69,16 +74,46 @@ export async function registerMediaRoutes(
     );
     return {
       files: files.map((file) => ({
+        id: file.id,
         name: file.fileName,
         source: file.source,
         size: file.sizeBytes,
         updatedAt: file.updatedAt,
-        url: `/api/v1/agents/${id}/media/${encodeURIComponent(file.fileName)}`,
+        url: mediaContentUrl(id, file.fileName),
         description: file.description,
         seen: seenKeys.has(
           toMediaKey({ name: file.fileName, updatedAt: file.updatedAt })
         ),
       })),
+    };
+  });
+
+  // Stable, owner-independent lookup for consumers such as the lightbox.
+  // Callers need only the media row ID; the server resolves the owning agent
+  // and canonical content URL.
+  app.get("/api/v1/media/:mediaId", async (request, reply) => {
+    const params = request.params as { mediaId?: string };
+    const mediaId = Number(params.mediaId);
+    if (!Number.isInteger(mediaId) || mediaId <= 0) {
+      return reply.code(400).send({ error: "Invalid media ID." });
+    }
+
+    const media = await getMediaById(deps.pool, mediaId);
+    if (!media) {
+      return reply.code(404).send({ error: "Media item not found." });
+    }
+
+    return {
+      media: {
+        id: media.id,
+        ownerAgentId: media.agentId,
+        name: media.fileName,
+        source: media.source,
+        size: media.sizeBytes,
+        updatedAt: media.updatedAt,
+        url: mediaContentUrl(media.agentId, media.fileName),
+        description: media.description,
+      },
     };
   });
 

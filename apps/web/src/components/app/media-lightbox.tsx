@@ -1,5 +1,6 @@
-import { useEffect } from "react";
-import { ChevronLeft, ChevronRight, X } from "lucide-react";
+import { useEffect, useRef } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronLeft, ChevronRight, Loader2, X } from "lucide-react";
 
 import { MediaActions } from "@/components/app/media-lightbox-actions";
 import { ZoomableImage } from "@/components/app/media-lightbox-image";
@@ -13,25 +14,21 @@ import {
   stripTimestamp,
 } from "@/components/app/media-file-utils";
 import { Button } from "@/components/ui/button";
+import { type MediaFile } from "@/components/app/types";
+import { mediaItemQueryKey } from "@/hooks/use-media";
+import { api } from "@/lib/api";
 import { cn } from "@/lib/utils";
 
-type MediaLightboxItem = {
-  src: string;
-  caption: string;
-  file: {
-    name: string;
-    size: number;
-    updatedAt: string;
-    source?: "screenshot" | "stream" | "simulator" | "text" | "user";
-  };
+type MediaLightboxProps = {
+  mediaId: number | null;
+  mediaIds: number[];
+  setMediaId: (mediaId: number | null) => void;
 };
 
-type MediaLightboxProps = {
-  item: MediaLightboxItem | null;
-  currentIndex: number;
-  totalItems: number;
-  setLightboxIndex: (nextIndex: number | null) => void;
-};
+async function fetchMediaItem(mediaId: number): Promise<MediaFile> {
+  const payload = await api<{ media: MediaFile }>(`/api/v1/media/${mediaId}`);
+  return payload.media;
+}
 
 function isMarkdownFile(name: string): boolean {
   return fileExtension(name) === ".md";
@@ -41,70 +38,106 @@ function isHtmlFile(name: string): boolean {
   return fileExtension(name) === ".html";
 }
 
+function isNotFoundError(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "status" in error &&
+    (error as Error & { status?: unknown }).status === 404
+  );
+}
+
 export { MediaActions } from "@/components/app/media-lightbox-actions";
 
 export function MediaLightbox({
-  item,
-  currentIndex,
-  totalItems,
-  setLightboxIndex,
+  mediaId,
+  mediaIds,
+  setMediaId,
 }: MediaLightboxProps): JSX.Element | null {
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const {
+    data: file,
+    error,
+    isFetching,
+    refetch,
+  } = useQuery({
+    queryKey: mediaItemQueryKey(mediaId ?? 0),
+    queryFn: () => fetchMediaItem(mediaId as number),
+    enabled: mediaId !== null,
+    staleTime: 0,
+  });
+  const currentIndex = mediaId === null ? -1 : mediaIds.indexOf(mediaId);
+  const totalItems = mediaIds.length;
   const canGoPrev = currentIndex > 0;
   const canGoNext = currentIndex >= 0 && currentIndex < totalItems - 1;
+  const mediaNotFound = isNotFoundError(error);
 
   // Keep the page fixed behind the viewer. Image gestures are handled locally,
   // so the browser viewport never needs to zoom or scroll.
   useEffect(() => {
-    if (!item) return;
+    if (mediaId === null) return;
     const originalOverflow = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
       document.body.style.overflow = originalOverflow;
     };
-  }, [item]);
+  }, [mediaId]);
 
   useEffect(() => {
-    if (!item) return;
+    if (mediaId === null) return;
 
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
-        setLightboxIndex(null);
+        setMediaId(null);
         return;
       }
 
       if (event.key === "ArrowLeft" && canGoPrev) {
         event.preventDefault();
         event.stopPropagation();
-        setLightboxIndex(currentIndex - 1);
+        setMediaId(mediaIds[currentIndex - 1] ?? null);
         return;
       }
 
       if (event.key === "ArrowRight" && canGoNext) {
         event.preventDefault();
         event.stopPropagation();
-        setLightboxIndex(currentIndex + 1);
+        setMediaId(mediaIds[currentIndex + 1] ?? null);
       }
     };
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [canGoNext, canGoPrev, currentIndex, item, setLightboxIndex]);
+  }, [canGoNext, canGoPrev, currentIndex, mediaId, mediaIds, setMediaId]);
 
-  if (!item) return null;
+  useEffect(() => {
+    if (mediaId !== null && mediaNotFound) setMediaId(null);
+  }, [mediaId, mediaNotFound, setMediaId]);
 
-  const isText = item.file.source === "text" || isTextFile(item.file.name);
-  const isMarkdown = isMarkdownFile(item.file.name);
-  const isHtml = isHtmlFile(item.file.name);
-  const isDocument = /\.pdf$/i.test(item.file.name);
-  const isVideo = /\.mp4/i.test(item.src);
-  const isImage = !isDocument && !isText && !isVideo;
-  const displayName = stripTimestamp(item.file.name);
-  const sizeLabel =
-    item.file.size >= 1024 * 1024
-      ? `${(item.file.size / (1024 * 1024)).toFixed(1)} MB`
-      : `${Math.max(1, Math.round(item.file.size / 1024))} KB`;
+  useEffect(() => {
+    if (mediaId !== null && !file && !mediaNotFound) {
+      closeButtonRef.current?.focus();
+    }
+  }, [file, mediaId, mediaNotFound]);
+
+  if (mediaId === null || mediaNotFound) return null;
+
+  const src = file ? `${file.url}?t=${encodeURIComponent(file.updatedAt)}` : "";
+  const displayName = file ? stripTimestamp(file.name) : "";
+  const caption = file ? file.description || displayName : "";
+  const isText = file ? file.source === "text" || isTextFile(file.name) : false;
+  const isMarkdown = file ? isMarkdownFile(file.name) : false;
+  const isHtml = file ? isHtmlFile(file.name) : false;
+  const isDocument = file ? /\.pdf$/i.test(file.name) : false;
+  const isVideo = file ? /\.mp4/i.test(src) : false;
+  const isImage = file ? !isDocument && !isText && !isVideo : true;
+  const sizeLabel = file
+    ? file.size >= 1024 * 1024
+      ? `${(file.size / (1024 * 1024)).toFixed(1)} MB`
+      : `${Math.max(1, Math.round(file.size / 1024))} KB`
+    : "";
+  const showLoadError = !file && !!error && !isFetching;
 
   return (
     <div
@@ -115,6 +148,9 @@ export function MediaLightbox({
           : "grid grid-cols-[minmax(0,1fr)] grid-rows-[auto_1fr_auto] p-2 sm:p-6"
       )}
       data-testid="media-lightbox"
+      role="dialog"
+      aria-modal="true"
+      aria-label={file ? caption : "Media viewer"}
     >
       <div
         className={cn(
@@ -129,19 +165,23 @@ export function MediaLightbox({
             "min-w-0 shrink truncate text-xs font-medium sm:text-sm",
             isImage ? "text-white" : "text-foreground"
           )}
-          title={isImage && item.caption ? displayName : undefined}
+          title={isImage && file?.description ? displayName : undefined}
         >
-          {isImage && item.caption ? item.caption : displayName}
+          {file ? (isImage ? caption : displayName) : "Media"}
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-2 sm:gap-3">
-          <MediaActions
-            src={item.src}
-            fileName={item.file.name}
-            isText={isText}
-            isMarkdown={isMarkdown}
-            isHtml={isHtml}
-          />
-          <div className="mx-0.5 h-5 w-px bg-border" />
+          {file ? (
+            <>
+              <MediaActions
+                src={src}
+                fileName={file.name}
+                isText={isText}
+                isMarkdown={isMarkdown}
+                isHtml={isHtml}
+              />
+              <div className="mx-0.5 h-5 w-px bg-border" />
+            </>
+          ) : null}
           <Button
             aria-label="Previous media item"
             data-testid="media-lightbox-prev"
@@ -152,7 +192,7 @@ export function MediaLightbox({
               "h-11 w-11 sm:h-9 sm:w-9",
               isImage && "text-white hover:bg-white/15 hover:text-white"
             )}
-            onClick={() => setLightboxIndex(currentIndex - 1)}
+            onClick={() => setMediaId(mediaIds[currentIndex - 1] ?? null)}
           >
             <ChevronLeft className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
@@ -174,12 +214,13 @@ export function MediaLightbox({
               "h-11 w-11 sm:h-9 sm:w-9",
               isImage && "text-white hover:bg-white/15 hover:text-white"
             )}
-            onClick={() => setLightboxIndex(currentIndex + 1)}
+            onClick={() => setMediaId(mediaIds[currentIndex + 1] ?? null)}
           >
             <ChevronRight className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
           <div className="mx-0.5 h-5 w-px bg-border" />
           <Button
+            ref={closeButtonRef}
             aria-label="Close"
             size="icon"
             variant="ghost"
@@ -187,7 +228,7 @@ export function MediaLightbox({
               "h-11 w-11 sm:h-9 sm:w-9",
               isImage && "text-white hover:bg-white/15 hover:text-white"
             )}
-            onClick={() => setLightboxIndex(null)}
+            onClick={() => setMediaId(null)}
           >
             <X className="h-6 w-6 sm:h-5 sm:w-5" />
           </Button>
@@ -207,15 +248,37 @@ export function MediaLightbox({
                 : "bg-black"
         )}
       >
-        {isDocument ? (
-          <iframe
-            src={item.src}
-            title={displayName}
-            className="h-full w-full"
-          />
+        {!file ? (
+          <div className="flex h-full min-h-screen items-center justify-center px-4 text-white">
+            {showLoadError ? (
+              <div className="flex flex-col items-center gap-3 text-center">
+                <p role="alert" className="text-sm text-white/70">
+                  Unable to load this media item.
+                </p>
+                <Button
+                  variant="ghost"
+                  className="border-white/30 bg-transparent text-white hover:bg-white/15 hover:text-white"
+                  onClick={() => void refetch()}
+                >
+                  Try again
+                </Button>
+              </div>
+            ) : (
+              <div
+                role="status"
+                aria-live="polite"
+                className="flex items-center gap-2 text-sm text-white/70"
+              >
+                <Loader2 className="h-4 w-4 animate-spin" />
+                Loading media…
+              </div>
+            )}
+          </div>
+        ) : isDocument ? (
+          <iframe src={src} title={displayName} className="h-full w-full" />
         ) : isHtml ? (
           <iframe
-            src={item.src}
+            src={src}
             title={displayName}
             // No allow-same-origin: the document gets an opaque origin and
             // cannot reach the Dispatch API or storage.
@@ -225,43 +288,45 @@ export function MediaLightbox({
           />
         ) : isText ? (
           isMarkdown ? (
-            <MarkdownViewer src={item.src} fileName={item.file.name} />
+            <MarkdownViewer src={src} fileName={file.name} />
           ) : (
-            <TextFileViewer src={item.src} fileName={item.file.name} />
+            <TextFileViewer src={src} fileName={file.name} />
           )
         ) : isVideo ? (
           <video
-            src={item.src}
+            src={src}
             controls
             playsInline
             className="max-h-[calc(100vh-12rem)] w-full object-contain"
           />
         ) : (
           <ZoomableImage
-            src={item.src}
-            alt={item.caption || displayName}
+            src={src}
+            alt={caption}
             onPrevious={
-              canGoPrev ? () => setLightboxIndex(currentIndex - 1) : undefined
+              canGoPrev
+                ? () => setMediaId(mediaIds[currentIndex - 1] ?? null)
+                : undefined
             }
             onNext={
-              canGoNext ? () => setLightboxIndex(currentIndex + 1) : undefined
+              canGoNext
+                ? () => setMediaId(mediaIds[currentIndex + 1] ?? null)
+                : undefined
             }
           />
         )}
       </div>
-      {!isImage && (
+      {file && !isImage && (
         <div className="mx-auto flex w-full max-w-4xl items-center gap-2 rounded-b-lg border border-t-0 border-border bg-surface px-2 py-1.5 text-xs text-muted-foreground sm:gap-3 sm:px-4 sm:py-2">
-          {item.caption ? (
-            <span className="min-w-0 truncate">{item.caption}</span>
-          ) : null}
-          {item.file.source ? (
+          <span className="min-w-0 truncate">{caption}</span>
+          {file.source ? (
             <span className="flex-none rounded bg-muted px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide">
-              {item.file.source === "user" ? "your upload" : item.file.source}
+              {file.source === "user" ? "your upload" : file.source}
             </span>
           ) : null}
           <span className="ml-auto flex-none">{sizeLabel}</span>
           <span className="hidden flex-none sm:inline">
-            {new Date(item.file.updatedAt).toLocaleString()}
+            {new Date(file.updatedAt).toLocaleString()}
           </span>
         </div>
       )}

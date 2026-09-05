@@ -315,10 +315,9 @@ export function AgentsView({
     setMediaOwnerId,
     animatingMediaKeys,
     unseenMediaCount,
-    lightboxIndex,
-    lightboxTotalItems,
-    lightboxItem,
-    setLightboxIndex,
+    lightboxMediaId,
+    lightboxMediaIds,
+    setLightboxMediaId,
     openLightbox,
     mediaViewportRef,
     refreshMedia,
@@ -957,10 +956,9 @@ export function AgentsView({
         setStopConfirmOpen={setStopConfirmOpen}
         setStopTarget={setStopTarget}
         onStop={stopAgent}
-        lightboxItem={lightboxItem}
-        lightboxIndex={lightboxIndex}
-        mediaFileCount={lightboxTotalItems}
-        setLightboxIndex={setLightboxIndex}
+        lightboxMediaId={lightboxMediaId}
+        lightboxMediaIds={lightboxMediaIds}
+        setLightboxMediaId={setLightboxMediaId}
       />
 
       <div className="sr-only" aria-live="polite">

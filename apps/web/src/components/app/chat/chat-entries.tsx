@@ -32,11 +32,7 @@ import {
   reviewerLabel,
   ReviewSummaryBlock,
 } from "@/components/app/review-summary-block";
-import {
-  type Agent,
-  type AgentPin,
-  type MediaFile,
-} from "@/components/app/types";
+import { type Agent, type AgentPin } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { formatBytes } from "@/components/app/service-resources-format";
@@ -133,7 +129,7 @@ export type FeedContext = {
   peers?: PeerDirectory;
   pins: AgentPin[];
   workspaceRoot: string | null;
-  onOpenMedia: (file: MediaFile) => void;
+  onOpenMedia: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded. */
   onOpenReview?: (reviewId: number) => void;
 };
@@ -493,24 +489,13 @@ function LinkAttachment({
 
 function FileAttachment({
   attachment,
-  at,
   ctx,
 }: {
   attachment: Extract<ChatAttachment, { type: "file" }>;
-  at: string;
   ctx: FeedContext;
 }): JSX.Element {
   const url = mediaFileUrl(ctx.agentId, attachment.fileName);
-  const open = () =>
-    ctx.onOpenMedia({
-      // ownerAgentId is part of the lightbox identity; without it the
-      // synthesized file never matches the media list and nothing opens.
-      ownerAgentId: ctx.agentId,
-      name: attachment.fileName,
-      size: attachment.sizeBytes,
-      updatedAt: at,
-      url,
-    });
+  const open = () => ctx.onOpenMedia(attachment.mediaId);
   // By stored name or by the media row's type: a file shared without an
   // extension still renders as the image it is.
   const isImage =
@@ -606,16 +591,14 @@ function PinAttachment({
 
 function AttachmentView({
   attachment,
-  at,
   ctx,
 }: {
   attachment: ChatAttachment;
-  at: string;
   ctx: FeedContext;
 }): JSX.Element {
   switch (attachment.type) {
     case "file":
-      return <FileAttachment attachment={attachment} at={at} ctx={ctx} />;
+      return <FileAttachment attachment={attachment} ctx={ctx} />;
     case "link":
       return (
         <LinkAttachment
@@ -643,18 +626,16 @@ function AttachmentView({
 
 function AttachmentList({
   attachments,
-  at,
   ctx,
 }: {
   attachments: ChatAttachment[];
-  at: string;
   ctx: FeedContext;
 }): JSX.Element | null {
   if (attachments.length === 0) return null;
   return (
     <div className="mt-2 flex flex-col gap-2">
       {attachments.map((attachment, index) => (
-        <AttachmentView key={index} attachment={attachment} at={at} ctx={ctx} />
+        <AttachmentView key={index} attachment={attachment} ctx={ctx} />
       ))}
     </div>
   );
@@ -846,11 +827,7 @@ export const ChatMessageView = memo(function ChatMessageView({
             {message.text}
           </div>
         ) : null}
-        <AttachmentList
-          attachments={message.attachments}
-          at={message.createdAt}
-          ctx={ctx}
-        />
+        <AttachmentList attachments={message.attachments} ctx={ctx} />
         <DeliveryMeta message={message} held={held} />
       </Post>
     );
@@ -874,11 +851,7 @@ export const ChatMessageView = memo(function ChatMessageView({
         <Markdown className="text-muted-foreground prose-p:my-0.5">
           {message.text}
         </Markdown>
-        <AttachmentList
-          attachments={message.attachments}
-          at={message.createdAt}
-          ctx={ctx}
-        />
+        <AttachmentList attachments={message.attachments} ctx={ctx} />
       </Post>
     );
   }
@@ -886,11 +859,7 @@ export const ChatMessageView = memo(function ChatMessageView({
   const body = (
     <>
       <Markdown>{message.text}</Markdown>
-      <AttachmentList
-        attachments={message.attachments}
-        at={message.createdAt}
-        ctx={ctx}
-      />
+      <AttachmentList attachments={message.attachments} ctx={ctx} />
     </>
   );
 
@@ -1055,15 +1024,7 @@ export function MediaEntryView({
   ctx: FeedContext;
 }): JSX.Element {
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
-  const open = () =>
-    ctx.onOpenMedia({
-      ownerAgentId: ctx.agentId,
-      name: entry.fileName,
-      size: entry.sizeBytes,
-      updatedAt: entry.at,
-      url,
-      description: entry.description,
-    });
+  const open = () => ctx.onOpenMedia(entry.mediaId);
   const isImage = isImageFile(entry.fileName);
   return (
     <Post
