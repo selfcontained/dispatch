@@ -809,6 +809,7 @@ describe("useSSE message handling", () => {
     expectInvalidatedSet(invalidateQueries, [
       ["chat", "agt_1"],
       ["chat-unread"],
+      ["harness-turns", "agt_1"],
     ]);
   });
 

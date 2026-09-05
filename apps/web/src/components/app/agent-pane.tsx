@@ -1,7 +1,14 @@
 import { type RefObject } from "react";
-import { Hash, ListFilter, MessageSquare, TerminalSquare } from "lucide-react";
+import {
+  Activity,
+  Hash,
+  ListFilter,
+  MessageSquare,
+  TerminalSquare,
+} from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
+import { HarnessPane } from "@/components/app/harness/harness-pane";
 import { type Agent, type MediaFile } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -18,6 +25,8 @@ import { cn } from "@/lib/utils";
 export type AgentViewToggleProps = {
   view: AgentPaneView;
   onViewChange: (view: AgentPaneView) => void;
+  /** Adds the Harness segment (Dispatch Harness agents only). */
+  harnessEnabled?: boolean;
   /** Unread chat replies; shown on the Chat segment while Console is up. */
   chatUnreadCount?: number;
   showChildAgents?: boolean;
@@ -32,11 +41,20 @@ export type AgentViewToggleProps = {
 export function AgentViewToggle({
   view,
   onViewChange,
+  harnessEnabled = false,
   chatUnreadCount = 0,
   showChildAgents = true,
   onShowChildAgentsChange,
 }: AgentViewToggleProps): JSX.Element {
-  const showUnread = view === "console" && chatUnreadCount > 0;
+  const showUnread = view !== "chat" && chatUnreadCount > 0;
+  // Segment index the indicator sits under.
+  const segments = harnessEnabled ? 3 : 2;
+  const position =
+    view === "console"
+      ? segments - 1
+      : view === "chat" && harnessEnabled
+        ? 1
+        : 0;
   const filtersLabel = showChildAgents
     ? "Chat filters"
     : "Chat filters, child-agent messages hidden";
@@ -54,7 +72,12 @@ export function AgentViewToggle({
         aria-label="Agent pane view"
         data-testid="agent-view-toggle"
         data-view={view}
-        className="relative isolate grid h-6 w-[7.75rem] grid-cols-2 border-0 bg-transparent p-0 shadow-none sm:w-[8.5rem] pointer-coarse:h-11"
+        className={cn(
+          "relative isolate grid h-6 border-0 bg-transparent p-0 shadow-none pointer-coarse:h-11",
+          harnessEnabled
+            ? "w-[12rem] grid-cols-3 sm:w-[13rem]"
+            : "w-[7.75rem] grid-cols-2 sm:w-[8.5rem]"
+        )}
       >
         <span
           aria-hidden="true"
@@ -65,10 +88,25 @@ export function AgentViewToggle({
           aria-hidden="true"
           data-testid="agent-view-indicator"
           className={cn(
-            "pointer-events-none absolute left-0.5 top-1/2 z-0 h-5 w-[calc(50%-0.25rem)] -translate-y-1/2 rounded-full bg-primary shadow transition-transform duration-200 ease-out motion-reduce:transition-none",
-            view === "console" && "translate-x-[calc(100%+0.25rem)]"
+            "pointer-events-none absolute left-0.5 top-1/2 z-0 h-5 -translate-y-1/2 rounded-full bg-primary shadow transition-transform duration-200 ease-out motion-reduce:transition-none",
+            harnessEnabled
+              ? "w-[calc(33.333%-0.25rem)]"
+              : "w-[calc(50%-0.25rem)]",
+            position === 1 && "translate-x-[calc(100%+0.25rem)]",
+            position === 2 && "translate-x-[calc(200%+0.5rem)]"
           )}
         />
+        {harnessEnabled ? (
+          <ToggleGroupItem
+            value="harness"
+            aria-label="Harness"
+            data-testid="agent-view-harness"
+            className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
+          >
+            <Activity className="h-2.5 w-2.5" />
+            Harness
+          </ToggleGroupItem>
+        ) : null}
         <ToggleGroupItem
           value="chat"
           aria-label="Chat"
@@ -170,6 +208,8 @@ export type AgentPaneProps = {
    * header, no Chat, no toggle — exactly the Terminal tab of before.
    */
   chatEnabled: boolean;
+  /** Mount the Harness view and its toggle segment (Dispatch Harness only). */
+  harnessEnabled?: boolean;
   view: AgentPaneView;
   onViewChange: (view: AgentPaneView) => void;
   chatUnreadCount?: number;
@@ -210,6 +250,7 @@ export function AgentPane({
   terminalMode,
   active,
   chatEnabled,
+  harnessEnabled = false,
   view,
   onViewChange,
   chatUnreadCount = 0,
@@ -222,7 +263,9 @@ export function AgentPane({
   onOpenReview,
   isMobile,
 }: AgentPaneProps): JSX.Element {
+  const harnessShown = chatEnabled && harnessEnabled && view === "harness";
   const chatShown = chatEnabled && view === "chat";
+  const consoleShown = !harnessShown && !chatShown;
   return (
     <div
       className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden"
@@ -238,9 +281,27 @@ export function AgentPane({
           <AgentViewToggle
             view={view}
             onViewChange={onViewChange}
+            harnessEnabled={harnessEnabled}
             chatUnreadCount={chatUnreadCount}
             showChildAgents={showChildAgents}
             onShowChildAgentsChange={onShowChildAgentsChange}
+          />
+        </div>
+      ) : null}
+      {chatEnabled && harnessEnabled ? (
+        <div
+          className={cn(
+            "min-h-0 min-w-0 max-w-full flex-1 overflow-hidden",
+            !harnessShown && "hidden"
+          )}
+          data-testid="agent-pane-harness"
+        >
+          <HarnessPane
+            key={agentId ?? "none"}
+            agentId={agentId}
+            agent={agent}
+            active={active && harnessShown}
+            isMobile={isMobile}
           />
         </div>
       ) : null}
@@ -274,7 +335,7 @@ export function AgentPane({
       ) : null}
       <div
         ref={terminalSlotRef}
-        className={cn("min-h-0 flex-1", chatShown && "hidden")}
+        className={cn("min-h-0 flex-1", !consoleShown && "hidden")}
         data-testid="agent-pane-console"
       />
     </div>

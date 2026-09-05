@@ -7,6 +7,7 @@ import { agentRoute } from "@/lib/agent-routes";
 import {
   type CenterTab,
   agentSupportsChat,
+  agentSupportsHarness,
   centerTabRoute,
 } from "@/lib/center-tabs";
 import { agentPaneViewAtomFamily } from "@/lib/store";
@@ -74,7 +75,10 @@ export function useAgentsViewRouting({
     if (!chatFlagLoaded) return;
     if (!chatMatch) return;
     if (chatEnabled && agentSupportsChat(routeAgentType)) {
-      store.set(agentPaneViewAtomFamily(routeAgentId), "chat");
+      store.set(
+        agentPaneViewAtomFamily(routeAgentId),
+        agentSupportsHarness(routeAgentType) ? "harness" : "chat"
+      );
     }
     navigate(
       { pathname: agentRoute(routeAgentId), search: location.search },

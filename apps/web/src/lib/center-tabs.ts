@@ -88,6 +88,13 @@ export function centerTabRoute(agentId: string, tab: CenterTab): string {
  * shell, not a CLI agent: there is nothing to post to the feed and nothing
  * to read it, so it keeps the plain Terminal tab whatever the flag says.
  */
+/** Only the Dispatch Harness streams turns the Harness view can render. */
+export function agentSupportsHarness(
+  agentType: string | null | undefined
+): boolean {
+  return agentType === "dsh";
+}
+
 export function agentSupportsChat(
   agentType: string | null | undefined
 ): boolean {

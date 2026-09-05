@@ -43,7 +43,11 @@ import {
 import { GlassSidebar } from "@/components/ui/glass-sidebar";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { type AgentType } from "@/lib/agent-types";
-import { agentSupportsChat, terminalHostTab } from "@/lib/center-tabs";
+import {
+  agentSupportsChat,
+  agentSupportsHarness,
+  terminalHostTab,
+} from "@/lib/center-tabs";
 import { type IdeType } from "@/lib/ide-types";
 import { type ThemeId } from "@/hooks/use-theme";
 import { cn } from "@/lib/utils";
@@ -596,7 +600,12 @@ export function AgentsView({
   // to the Console hands it focus once it has been unhidden: the focus is
   // deferred a tick, and a flip back (or an unmount) before it lands drops
   // it, so the Chat composer's own focus is never stolen.
-  const [agentView, setAgentViewRaw] = useAgentPaneView(focusedAgentId);
+  const [agentView, setAgentViewRaw] = useAgentPaneView(
+    focusedAgentId,
+    focusedAgent?.type
+  );
+  const harnessEnabled =
+    chatEnabled && agentSupportsHarness(focusedAgent?.type);
   const consoleFocusTimerRef = useRef<number | null>(null);
   const cancelConsoleFocus = useCallback(() => {
     if (consoleFocusTimerRef.current === null) return;
@@ -625,6 +634,7 @@ export function AgentsView({
     agent: focusedAgent,
     terminalMode,
     chatEnabled,
+    harnessEnabled,
     view: agentView,
     onViewChange: setAgentView,
     chatUnreadCount,
@@ -652,6 +662,7 @@ export function AgentsView({
       <AgentViewToggle
         view={agentView}
         onViewChange={setAgentView}
+        harnessEnabled={harnessEnabled}
         chatUnreadCount={chatUnreadCount}
         showChildAgents={showChildAgents}
         onShowChildAgentsChange={setShowChildAgents}

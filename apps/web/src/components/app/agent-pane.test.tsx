@@ -38,6 +38,17 @@ vi.mock("@/hooks/use-chat", () => ({
   }),
   useMarkChatRead: () => vi.fn(),
 }));
+vi.mock("@/components/app/harness/use-harness-turns", () => ({
+  harnessTurnsQueryKey: (agentId: string | null) => ["harness-turns", agentId],
+  useHarnessTurns: () => ({
+    turns: [],
+    liveTrace: null,
+    liveText: "",
+    streaming: false,
+    loading: false,
+    error: null,
+  }),
+}));
 vi.mock("@/hooks/use-injection-hold-state", () => ({
   useInjectionHoldState: () => null,
 }));
@@ -342,5 +353,41 @@ describe("AgentPane", () => {
     expect(document.activeElement).not.toBe(
       screen.getByTestId("chat-composer-input")
     );
+  });
+});
+
+describe("AgentViewToggle with the Harness segment", () => {
+  it("renders three segments and reports a pick of Harness", () => {
+    const onViewChange = vi.fn();
+    render(
+      <AgentViewToggle view="chat" onViewChange={onViewChange} harnessEnabled />
+    );
+    const harness = screen.getByTestId("agent-view-harness");
+    expect(harness.getAttribute("data-state")).toBe("off");
+    expect(
+      screen.getByTestId("agent-view-chat").getAttribute("data-state")
+    ).toBe("on");
+    fireEvent.click(harness);
+    expect(onViewChange).toHaveBeenCalledWith("harness");
+  });
+
+  it("has no Harness segment for other agents", () => {
+    render(<AgentViewToggle view="chat" onViewChange={vi.fn()} />);
+    expect(screen.queryByTestId("agent-view-harness")).toBeNull();
+  });
+});
+
+describe("AgentPane with the Harness view", () => {
+  it("shows the Harness pane and hides Chat and Console under it", () => {
+    renderPane({ harnessEnabled: true, view: "harness" });
+    expect(isHidden(screen.getByTestId("agent-pane-harness"))).toBe(false);
+    expect(screen.getByTestId("harness-pane")).toBeTruthy();
+    expect(isHidden(screen.getByTestId("agent-pane-chat"))).toBe(true);
+    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(true);
+  });
+
+  it("does not mount the Harness pane for agents without it", () => {
+    renderPane({ view: "chat" });
+    expect(screen.queryByTestId("agent-pane-harness")).toBeNull();
   });
 });
