@@ -10,9 +10,16 @@ import {
 import Fastify, { type FastifyInstance } from "fastify";
 
 import { registerMcpRoutes } from "../src/routes/mcp.js";
+import { handleMcpRequest } from "../src/shared/mcp/server.js";
 
+// The routes hijack the reply and hand the raw socket to the MCP transport,
+// so the stub has to end the response itself or `inject` never settles.
 vi.mock("../src/shared/mcp/server.js", () => ({
-  handleMcpRequest: vi.fn(),
+  handleMcpRequest: vi.fn(
+    async (_req: unknown, res: { end: (body?: string) => void }) => {
+      res.end("{}");
+    }
+  ),
 }));
 
 vi.mock("../src/shared/git/git-context.js", () => ({
@@ -28,7 +35,8 @@ vi.mock("../src/agents/telemetry.js", () => ({
 function createMockDeps() {
   return {
     config: { authToken: "test-auth-token" },
-    pool: {} as never,
+    // Only the chat-surface flag reads it from these routes.
+    pool: { query: vi.fn(async () => ({ rows: [] })) } as never,
     agentManager: {
       getAgent: vi.fn(async () => ({
         id: "agt_test1",
@@ -283,5 +291,60 @@ describe("POST /api/mcp/:agentId", () => {
     });
     expect(deps.validateAgentMcpToken).not.toHaveBeenCalled();
     expect(res.statusCode).toBe(404);
+  });
+
+  it("passes the chat-surface flag through so the chat tool can describe itself", async () => {
+    deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
+
+    await app.inject({
+      method: "POST",
+      url: "/api/mcp/agt_test1",
+      payload: {},
+    });
+    expect(vi.mocked(handleMcpRequest).mock.calls[0]?.[3]).toMatchObject({
+      chatSurface: true,
+    });
+
+    deps.pool.query.mockResolvedValue({ rows: [{ value: "false" }] });
+    await app.inject({
+      method: "POST",
+      url: "/api/mcp/agt_test1",
+      payload: {},
+    });
+    expect(vi.mocked(handleMcpRequest).mock.calls[1]?.[3]).toMatchObject({
+      chatSurface: false,
+    });
+  });
+
+  it("falls back to the neutral description when the settings read fails", async () => {
+    deps.pool.query.mockRejectedValue(new Error("db down"));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/mcp/agt_test1",
+      payload: {},
+    });
+    // The request still reaches the MCP handler — a wording lookup must never
+    // be able to fail a tool call.
+    expect(res.statusCode).not.toBe(500);
+    expect(vi.mocked(handleMcpRequest).mock.calls[0]?.[3]).toMatchObject({
+      chatSurface: false,
+    });
+  });
+
+  it("leaves the flag unset on the job route", async () => {
+    deps.pool.query.mockResolvedValue({ rows: [{ value: "true" }] });
+
+    await app.inject({
+      method: "POST",
+      url: "/api/mcp/jobs/run_1/agt_test1",
+      payload: {},
+    });
+    const context = vi.mocked(handleMcpRequest).mock.calls[0]?.[3] as Record<
+      string,
+      unknown
+    >;
+    expect(context).not.toHaveProperty("chatSurface");
+    expect(deps.pool.query).not.toHaveBeenCalled();
   });
 });

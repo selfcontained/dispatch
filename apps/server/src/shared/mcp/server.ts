@@ -340,6 +340,13 @@ export type McpRequestContext = {
   surfaces?: SurfaceService;
   /** Chat tab posting (dispatch_chat_post / dispatch_chat_update). */
   chat?: Pick<ChatService, "post" | "update">;
+  /**
+   * The chat-surface flag (`chat_surface_enabled`) as of this request. Only
+   * `dispatch_chat_post`'s description reads it — see `chat-tools.ts`. Left
+   * unset by the job route, whose launch turn never carries a Chat envelope,
+   * and by the token-less `/api/mcp` route, which has no agent at all.
+   */
+  chatSurface?: boolean;
   sendNotify?: (agentId: string, input: NotifyInput) => Promise<NotifyResult>;
   issueLoginLink?: () => string | Promise<string>;
   upsertEvent?: (
@@ -828,11 +835,13 @@ export async function createDispatchMcpServer(
     });
   }
 
-  // ── Chat tab tools (every agent, regardless of the chat-surface flag) ──
+  // ── Chat tab tools (every agent, regardless of the chat-surface flag; the
+  //    flag only decides how dispatch_chat_post describes itself) ──
   if (context.agent) {
     registerChatTools(server, allowed, {
       agentId: context.agent.id,
       chat: context.chat,
+      chatSurface: context.chatSurface,
     });
   }
 

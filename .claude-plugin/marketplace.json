@@ -9,7 +9,7 @@
     {
       "name": "dispatch",
       "source": "./plugins/dispatch",
-      "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, sharing artifacts, interactive surfaces, review workflow, UI validation, personas, whiteboard, jobs, templates, and personalities.",
+      "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, reaching the user, sharing artifacts, interactive surfaces, review workflow, UI validation, personas, whiteboard, jobs, templates, and personalities.",
       "category": "workflow",
       "keywords": ["dispatch", "agents", "orchestration", "mcp", "review"]
     }
