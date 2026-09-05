@@ -157,7 +157,7 @@ export function ServiceResourcesDashboard({
           icon={Database}
           label="Database"
           value={formatMs(current.database.latencyMs)}
-          detail={`${current.database.pool.total - current.database.pool.idle}/${current.database.pool.max} connections active`}
+          detail={`${formatBytes(current.database.sizeBytes)} on disk`}
           scope="Dependency"
         />
         <SummaryCard
@@ -239,8 +239,15 @@ export function ServiceResourcesDashboard({
             <div className="flex items-center justify-between border-b border-border pb-3">
               <span className="text-muted-foreground">Database pool</span>
               <span className="font-medium">
-                {current.database.pool.total} total ·{" "}
-                {current.database.pool.idle} idle
+                {current.database.pool.total - current.database.pool.idle}/
+                {current.database.pool.max} active ·{" "}
+                {current.database.pool.total} open
+              </span>
+            </div>
+            <div className="flex items-center justify-between border-b border-border pb-3">
+              <span className="text-muted-foreground">Database on disk</span>
+              <span className="font-medium">
+                {formatBytes(current.database.sizeBytes)}
               </span>
             </div>
             <div className="flex items-center justify-between border-b border-border pb-3">
