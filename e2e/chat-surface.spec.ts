@@ -194,23 +194,36 @@ test.describe("Chat surface", () => {
     await expect(messages.nth(2)).toContainText("Summary");
     await expect(messages.nth(2)).toContainText("All checks pass.");
 
+    // A post exposes a compact copy action and copies its raw Markdown text.
+    await page
+      .context()
+      .grantPermissions(["clipboard-read", "clipboard-write"]);
+    await messages.nth(0).hover();
+    const copyMessage = messages.nth(0).getByTestId("chat-copy-message");
+    await expect(copyMessage).toBeVisible();
+    await copyMessage.click();
+    await expect(copyMessage).toHaveAttribute("aria-label", "Message copied");
+    await expect
+      .poll(() => page.evaluate(() => navigator.clipboard.readText()))
+      .toBe("Tests are **green**. Two files changed.");
+
     // The presence line reflects the latest event.
     await expect(pane.getByTestId("chat-presence")).toContainText(
       "Running tests"
     );
 
     if (!IS_LIVE) {
-      // Agents run inert in E2E, so the composer explains it cannot deliver.
-      await expect(pane.getByTestId("chat-composer-input")).toBeDisabled();
+      // Inert agents still accept posts for UI/demo inspection; the stream
+      // marks them not delivered instead of pretending a pane received them.
+      await expect(pane.getByTestId("chat-composer-input")).toBeEnabled();
       await expect(
         pane.getByTestId("chat-composer-disabled-reason")
-      ).toBeVisible();
+      ).toHaveCount(0);
 
-      // Answers are injected like typed messages, so they lock with the
-      // composer: the server would 409 on an inert agent.
+      // Answers use the same stream-only behavior in inert mode.
       const options = pane.getByTestId("chat-question-option");
-      await expect(options.nth(0)).toBeDisabled();
-      await expect(options.nth(1)).toBeDisabled();
+      await expect(options.nth(0)).toBeEnabled();
+      await expect(options.nth(1)).toBeEnabled();
     }
 
     await page.screenshot({
@@ -387,14 +400,10 @@ test.describe("Chat surface", () => {
     page,
     request,
   }) => {
-    test.skip(
-      !IS_LIVE,
-      "Sending needs a live pane — run via E2E_AGENT_RUNTIME=tmux"
-    );
     await setChatSurface(request, true);
     const agent = await createAgentViaAPI(request, {
       name: `e2e-chat-send-${Date.now()}`,
-      type: "terminal",
+      type: IS_LIVE ? "terminal" : "codex",
     });
     await expect
       .poll(async () => {
@@ -449,6 +458,9 @@ test.describe("Chat surface", () => {
     await expect(
       post.getByRole("link", { name: "https://example.com/design" })
     ).toHaveAttribute("href", "https://example.com/design");
+    if (!IS_LIVE) {
+      await expect(post.getByTestId("chat-delivery-failed")).toBeVisible();
+    }
 
     // The server stored the attachment on the message.
     await expect

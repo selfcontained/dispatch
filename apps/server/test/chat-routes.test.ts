@@ -233,19 +233,23 @@ describe("POST /api/v1/agents/:id/chat/messages (inert runtime)", () => {
     expect(rows.rows).toHaveLength(0);
   });
 
-  it("409s when the agent has no tmux session, and persists nothing", async () => {
-    // Same boundary as terminal inject-text: agents run inert in tests.
+  it("stores an undelivered stream post when the agent is inert", async () => {
     const res = await authedInject(
       "POST",
       `/api/v1/agents/${agentId}/chat/messages`,
       { text: "hello?" }
     );
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      delivered: false,
+      held: false,
+      message: { text: "hello?", delivered: false },
+    });
     const rows = await ctx.pool.query(
-      "SELECT 1 FROM agent_chat_messages WHERE agent_id = $1",
+      "SELECT text, delivered FROM agent_chat_messages WHERE agent_id = $1",
       [agentId]
     );
-    expect(rows.rows).toHaveLength(0);
+    expect(rows.rows).toEqual([{ text: "hello?", delivered: false }]);
   });
 
   it("404s for an unknown agent", async () => {
@@ -323,7 +327,7 @@ describe("POST /api/v1/agents/:id/chat/messages/:messageId/answer (inert runtime
     expect(res.json().error).toMatch(/already answered/i);
   });
 
-  it("409s for an unanswered question when there is no session", async () => {
+  it("records an undelivered answer when there is no session", async () => {
     const q = await store.insert({
       agentId,
       authorKind: "agent",
@@ -336,9 +340,12 @@ describe("POST /api/v1/agents/:id/chat/messages/:messageId/answer (inert runtime
       `/api/v1/agents/${agentId}/chat/messages/${q.id}/answer`,
       { value: "a" }
     );
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error).not.toMatch(/already answered/i);
-    expect((await store.getById(q.id))?.answer).toBeNull();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      delivered: false,
+      reply: { text: "a", delivered: false },
+    });
+    expect((await store.getById(q.id))?.answer).toMatchObject({ value: "a" });
   });
 });
 

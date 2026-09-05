@@ -98,9 +98,6 @@ function composerDisabledReason(
   if (!agent) return "Select an agent to chat with.";
   if (feed.error) return "Chat couldn't load — retry above before sending.";
   if (feed.isLoading) return "Loading the chat…";
-  if (terminalMode === "inert") {
-    return "This agent runs in inert mode, so there is no terminal to deliver messages to.";
-  }
   if (agent.status === "creating") return "The agent is still starting up.";
   if (agent.status !== "running") {
     return "The agent is not running. Start it to send messages.";

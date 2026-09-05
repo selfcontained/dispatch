@@ -543,14 +543,12 @@ describe("ChatPane", () => {
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
   });
 
-  it("disables the composer with a reason when the terminal is inert", () => {
+  it("lets an inert agent collect messages in its stream", () => {
     renderPane({ terminalMode: "inert" });
     expect(
       (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
         .disabled
-    ).toBe(true);
-    expect(
-      screen.getByTestId("chat-composer-disabled-reason").textContent
-    ).toContain("inert mode");
+    ).toBe(false);
+    expect(screen.queryByTestId("chat-composer-disabled-reason")).toBeNull();
   });
 });
