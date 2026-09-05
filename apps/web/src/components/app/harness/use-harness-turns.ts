@@ -10,6 +10,7 @@ import type {
 import { api } from "@/lib/api";
 
 import type { Attachment, Step, Trace, Turn } from "./contracts";
+import { turnLabelFromSteps } from "./registry";
 
 export const HARNESS_TURNS_LIMIT = 50;
 
@@ -121,18 +122,20 @@ export function toPromptKitTurns(
       streaming = true;
       return;
     }
+    const trace = toTrace(turn);
     out.push({
       id: `${turn.id}:assistant`,
       role: "assistant",
       content: turn.result?.text ?? "",
       timestamp: Date.parse(turn.trace.endedAt ?? turn.trace.startedAt),
-      trace: toTrace(turn),
+      trace,
       ...(turn.error
         ? { error: { code: "turn_failed", message: turn.error } }
         : {}),
-      ...(turn.questions?.length
-        ? { extra: { questions: turn.questions } }
-        : {}),
+      extra: {
+        ...(turn.questions?.length ? { questions: turn.questions } : {}),
+        label: turn.label ?? turnLabelFromSteps(trace.steps),
+      },
     });
   });
   return { turns: out, liveTrace, liveText, liveQuestions, streaming };

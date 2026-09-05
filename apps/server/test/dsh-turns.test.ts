@@ -269,3 +269,106 @@ describe("assembleTurns with agent questions", () => {
     expect(turns[1].questions).toBeUndefined();
   });
 });
+
+describe("assembleTurns labels", () => {
+  it("labels a turn with the agent's last terminal dispatch_event message", () => {
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          endedAt: at(9).toISOString(),
+        },
+        0,
+        9
+      ),
+      row(
+        "tool_call",
+        {
+          title: "mcp__dispatch__dispatch_event",
+          toolKind: "other",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: "ok",
+          input: { type: "working", message: "Reading README.md" },
+        },
+        1
+      ),
+      row(
+        "tool_call",
+        {
+          title: "read",
+          toolKind: "read",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: "x",
+        },
+        2
+      ),
+      row(
+        "tool_call",
+        {
+          title: "mcp__dispatch__dispatch_event",
+          toolKind: "other",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: "ok",
+          input: { type: "idle", message: "Answered README question" },
+        },
+        3
+      ),
+    ];
+    const turns = assembleTurns(rows, new Map());
+    expect(turns[0].label).toBe("Answered README question");
+    // The status calls themselves stay out of the steps.
+    expect(turns[0].trace.steps.map((s) => s.kind)).toEqual(["read"]);
+  });
+
+  it("falls back to the last working message, and to nothing", () => {
+    const working = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          endedAt: at(2).toISOString(),
+        },
+        0,
+        2
+      ),
+      row(
+        "tool_call",
+        {
+          title: "mcp__dispatch__dispatch_event",
+          toolKind: "other",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: "ok",
+          input: { type: "working", message: "Checking the tree" },
+        },
+        1
+      ),
+    ];
+    expect(assembleTurns(working, new Map())[0].label).toBe(
+      "Checking the tree"
+    );
+    const none = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          endedAt: at(1).toISOString(),
+        },
+        0,
+        1
+      ),
+    ];
+    expect(assembleTurns(none, new Map())[0].label).toBeUndefined();
+  });
+});

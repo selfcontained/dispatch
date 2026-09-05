@@ -138,6 +138,58 @@ export function unwrapReadOutput(output: string): string {
   return m ? m[1] : output;
 }
 
+/**
+ * A short account of a turn from its steps, for a turn the agent did not
+ * describe itself: the most consequential kind wins, with a count or the
+ * one file or command it touched.
+ */
+export function turnLabelFromSteps(steps: Step[]): string | undefined {
+  const of = (kind: string) => steps.filter((s) => s.kind === kind);
+  const files = (list: Step[]) => {
+    const names = new Set<string>();
+    for (const s of list) {
+      const d = stepDetailData(s);
+      const path = d.diff?.path ?? d.locations?.[0]?.path;
+      if (path) names.add(basename(path));
+    }
+    return [...names];
+  };
+  const edits = of("edit");
+  if (edits.length) {
+    const names = files(edits);
+    return names.length === 1
+      ? `edited ${names[0]}`
+      : `edited ${names.length || edits.length} files`;
+  }
+  const runs = of("execute");
+  if (runs.length) {
+    if (runs.length === 1) {
+      const input = inputRecord(stepDetailData(runs[0]).input);
+      const command = input?.command ?? input?.cmd;
+      if (typeof command === "string") return `ran ${clip(command, 40)}`;
+    }
+    return `ran ${runs.length} command${runs.length === 1 ? "" : "s"}`;
+  }
+  const reads = of("read");
+  const searches = of("search");
+  if (reads.length || searches.length) {
+    const names = files(reads);
+    if (reads.length === 1 && names.length === 1) return `read ${names[0]}`;
+    if (reads.length) return `read ${names.length || reads.length} files`;
+    return `searched ${searches.length === 1 ? "once" : `${searches.length} times`}`;
+  }
+  const fetches = of("fetch");
+  if (fetches.length)
+    return `fetched ${fetches.length} page${fetches.length === 1 ? "" : "s"}`;
+  const tools = steps.filter(
+    (s) => !["think", "note"].includes(s.kind) && s.label
+  );
+  if (tools.length === 1) return toolName(tools[0].label ?? "").name;
+  if (tools.length > 1) return `${tools.length} tool calls`;
+  if (steps.some((s) => s.kind === "think")) return "thought it over";
+  return undefined;
+}
+
 /** Whether expanding the step would show anything at all. */
 export function hasDetail(step: Step): boolean {
   const d = stepDetailData(step);

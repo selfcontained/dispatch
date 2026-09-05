@@ -71,6 +71,8 @@ describe("toPromptKitTurns", () => {
       durMs: 2000,
     });
     expect(out.turns[1].trace?.finalResult).toBe("ok");
+    // No agent label: the fallback describes the steps.
+    expect(out.turns[1].extra?.label).toBe("ran 1 command");
     expect(out.liveTrace).toBeNull();
     expect(out.streaming).toBe(false);
   });

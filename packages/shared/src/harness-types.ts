@@ -67,6 +67,12 @@ export type HarnessTurn = {
   error?: string;
   /** Questions the agent asked during this turn, oldest first. */
   questions?: HarnessQuestion[];
+  /**
+   * What the turn did, in the agent's own words: the message of the last
+   * dispatch_event it sent during the turn ("Answered README question").
+   * Absent when the agent sent none.
+   */
+  label?: string;
 };
 
 export type HarnessTurnsResponse = { turns: HarnessTurn[] };

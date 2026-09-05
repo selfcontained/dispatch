@@ -239,8 +239,13 @@ function CollapsedSummary({
           <span className="font-bold text-status-done">✓</span>
         )}
       </span>
-      <span className="text-[12px] text-foreground">{verb}</span>
-      <span className="text-[11px] text-muted-foreground">
+      <span
+        className="min-w-0 max-w-[60%] truncate text-[12px] text-foreground"
+        title={verb}
+      >
+        {verb}
+      </span>
+      <span className="shrink-0 text-[11px] text-muted-foreground">
         {steps} · {formatStepDuration(dur)}
       </span>
       <span

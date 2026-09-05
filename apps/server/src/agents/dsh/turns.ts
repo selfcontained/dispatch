@@ -86,6 +86,29 @@ export function locationsFromInput(
   return tagged ? [{ path: tagged[1] }] : [];
 }
 
+const LABEL_MAX = 80;
+
+/** A dispatch_event call's type and message, when the row is one. */
+function statusEventOf(
+  row: TurnSourceRow
+): { type: string; message: string } | null {
+  const p = row.payload as Partial<ToolPayload>;
+  if (p.title !== "mcp__dispatch__dispatch_event") return null;
+  const input = p.input;
+  if (typeof input !== "object" || input === null) return null;
+  const { type, message } = input as { type?: unknown; message?: unknown };
+  if (typeof type !== "string" || typeof message !== "string") return null;
+  const trimmed = message.replace(/\s+/g, " ").trim();
+  if (!trimmed) return null;
+  return {
+    type,
+    message:
+      trimmed.length > LABEL_MAX
+        ? `${trimmed.slice(0, LABEL_MAX - 1)}…`
+        : trimmed,
+  };
+}
+
 function toolStep(row: TurnSourceRow): HarnessStep | null {
   const p = row.payload as Partial<ToolPayload>;
   const title = p.title ?? "";
@@ -200,8 +223,21 @@ export function assembleTurns(
     let result: HarnessTurn["result"] = null;
     const assistants = group.rows.filter((r) => r.kind === "assistant");
     const last = assistants[assistants.length - 1];
+    // The agent's own account of the turn: dispatch_event messages are
+    // dropped as steps but the last one names what happened. A terminal
+    // event (done, idle, …) wins over the last "working".
+    let label: string | undefined;
+    let labelTerminal = false;
     for (const row of group.rows) {
       if (row.kind === "tool_call") {
+        const status = statusEventOf(row);
+        if (status) {
+          const terminal = status.type !== "working";
+          if (terminal || !labelTerminal) {
+            label = status.message;
+            labelTerminal = terminal;
+          }
+        }
         const step = toolStep(row);
         if (step) steps.push(step);
       } else if (row.kind === "thought") {
@@ -238,6 +274,7 @@ export function assembleTurns(
       trace,
       result,
       ...(turnQuestions ? { questions: turnQuestions } : {}),
+      ...(label ? { label } : {}),
       ...(error ? { error } : {}),
     };
   });

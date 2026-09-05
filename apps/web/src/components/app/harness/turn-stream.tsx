@@ -124,7 +124,14 @@ export function TurnStream({
           <div key={turn.id} className="mb-3.5">
             {showsActivity(turn.trace) ? (
               <div className="mb-2">
-                <ActivityBlock trace={turn.trace} />
+                <ActivityBlock
+                  trace={turn.trace}
+                  label={
+                    typeof turn.extra?.label === "string"
+                      ? turn.extra.label
+                      : undefined
+                  }
+                />
               </div>
             ) : null}
             <ResultTurn turn={turn} />

@@ -7,6 +7,7 @@ import {
   stepLabel,
   stepSummary,
   toolName,
+  turnLabelFromSteps,
   unwrapReadOutput,
 } from "./registry";
 
@@ -111,5 +112,55 @@ describe("unwrapReadOutput", () => {
       "<path>/r/README.md</path>\n<type>file</type>\n<content>\n1: # Dispatch\n2: hi\n</content>";
     expect(unwrapReadOutput(wrapped)).toBe("1: # Dispatch\n2: hi\n");
     expect(unwrapReadOutput("plain")).toBe("plain");
+  });
+});
+
+describe("turnLabelFromSteps", () => {
+  it("names the most consequential thing the turn did", () => {
+    expect(
+      turnLabelFromSteps([
+        step({
+          kind: "read",
+          label: "read",
+          detail: { locations: [{ path: "/r/README.md" }] },
+        }),
+        step({
+          kind: "edit",
+          label: "edit",
+          detail: { diff: { path: "/r/a.ts", oldText: "", newText: "x" } },
+        }),
+      ])
+    ).toBe("edited a.ts");
+    expect(
+      turnLabelFromSteps([
+        step({
+          kind: "execute",
+          label: "bash",
+          detail: { input: { command: "git status --short" } },
+        }),
+      ])
+    ).toBe("ran git status --short");
+    expect(
+      turnLabelFromSteps([
+        step({
+          kind: "read",
+          label: "read",
+          detail: { locations: [{ path: "/r/README.md" }] },
+        }),
+      ])
+    ).toBe("read README.md");
+    expect(
+      turnLabelFromSteps([
+        step({
+          kind: "other",
+          label: "mcp__dispatch__brain_list_objects",
+          detail: {},
+        }),
+      ])
+    ).toBe("brain_list_objects");
+    expect(turnLabelFromSteps([step({ kind: "think", label: "" })])).toBe(
+      "thought it over"
+    );
+    expect(turnLabelFromSteps([])).toBeUndefined();
   });
 });
