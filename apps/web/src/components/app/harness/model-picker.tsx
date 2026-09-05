@@ -21,6 +21,19 @@ import {
 
 import { configChoices, isConfigGroup } from "./use-harness-config";
 
+/**
+ * dsh's effort list carries a "Provider default" choice whose value is "",
+ * which the Select cannot hold (an empty value means "nothing selected").
+ * Values travel through the Select under this stand-in.
+ */
+const EMPTY_VALUE = "__empty__";
+export function encodeValue(value: string): string {
+  return value === "" ? EMPTY_VALUE : value;
+}
+export function decodeValue(value: string): string {
+  return value === EMPTY_VALUE ? "" : value;
+}
+
 export type ModelPickerProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
@@ -50,32 +63,39 @@ export function ModelPicker({
   error,
   onApply,
 }: ModelPickerProps): JSX.Element {
-  const [modelValue, setModelValue] = useState(model?.currentValue ?? "");
-  const [effortValue, setEffortValue] = useState(effort?.currentValue ?? "");
+  // Held encoded (see EMPTY_VALUE); decoded at the edges.
+  const [modelValue, setModelValue] = useState(
+    model ? encodeValue(model.currentValue) : ""
+  );
+  const [effortValue, setEffortValue] = useState(
+    effort ? encodeValue(effort.currentValue) : ""
+  );
   // Re-seed from the session each time the dialog opens.
   useEffect(() => {
     if (!open) return;
-    setModelValue(model?.currentValue ?? "");
-    setEffortValue(effort?.currentValue ?? "");
-  }, [open, model?.currentValue, effort?.currentValue]);
+    setModelValue(model ? encodeValue(model.currentValue) : "");
+    setEffortValue(effort ? encodeValue(effort.currentValue) : "");
+  }, [open, model, effort]);
 
-  const modelChanged = !!model && modelValue !== model.currentValue;
-  const effortChanged = !!effort && effortValue !== effort.currentValue;
+  const modelChanged =
+    !!model && decodeValue(modelValue) !== model.currentValue;
+  const effortChanged =
+    !!effort && decodeValue(effortValue) !== effort.currentValue;
   const canApply = running && !saving && (modelChanged || effortChanged);
   const selectedModel = configChoices(model).find(
-    (c) => c.value === modelValue
+    (c) => c.value === decodeValue(modelValue)
   );
   const selectedEffort = configChoices(effort).find(
-    (c) => c.value === effortValue
+    (c) => c.value === decodeValue(effortValue)
   );
 
   const apply = async () => {
     const changes: { configId: string; value: string }[] = [];
     if (model && modelChanged) {
-      changes.push({ configId: model.id, value: modelValue });
+      changes.push({ configId: model.id, value: decodeValue(modelValue) });
     }
     if (effort && effortChanged) {
-      changes.push({ configId: effort.id, value: effortValue });
+      changes.push({ configId: effort.id, value: decodeValue(effortValue) });
     }
     await onApply(changes);
   };
@@ -118,13 +138,16 @@ export function ModelPicker({
                     >
                       <SelectLabel>{entry.name}</SelectLabel>
                       {entry.options.map((c) => (
-                        <SelectItem key={c.value} value={c.value}>
+                        <SelectItem key={c.value} value={encodeValue(c.value)}>
                           {c.name}
                         </SelectItem>
                       ))}
                     </SelectGroup>
                   ) : (
-                    <SelectItem key={entry.value} value={entry.value}>
+                    <SelectItem
+                      key={entry.value}
+                      value={encodeValue(entry.value)}
+                    >
                       {entry.name}
                     </SelectItem>
                   )
@@ -158,7 +181,7 @@ export function ModelPicker({
                 </SelectTrigger>
                 <SelectContent>
                   {configChoices(effort).map((c) => (
-                    <SelectItem key={c.value} value={c.value}>
+                    <SelectItem key={c.value} value={encodeValue(c.value)}>
                       {c.name}
                     </SelectItem>
                   ))}
