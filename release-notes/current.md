@@ -5,7 +5,8 @@
 * Model and reasoning effort: a `model · effort` chip above the Harness composer (or `/model`) opens a picker fed by the live session's own options, so switching applies to the next turn and survives restarts. The create dialog lists every model dsh serves for the providers whose API keys are set (DeepSeek, OpenAI incl. gpt-5.6-sol/terra). The Harness view no longer snaps to the bottom while you are scrolled up.
 * Persona reviews and MCP launches on Dispatch Harness agents now start: the kickoff prompt becomes the agent's first turn (it used to be dropped, leaving the reviewer idle).
 * Harness view polish: highlighted, line-numbered file reads; path lists; pretty JSON for tool arguments and output; Dispatch-injected prompts (review updates, kickoffs) shown as compact notices. The segment is labelled Chat. Model menus are grouped by provider; OpenAI offers the gpt-5.6 models.
+* Review fixes: an agent's own done/blocked/waiting status survives its turn ending; Start relaunches a dead harness behind a live shell; interrupted turns settle instead of spinning; dsh job runs and MCP/template launches deliver their prompts; default OpenAI model is gpt-5.6-sol. Adds `agent_chat_messages.delivery_text` (additive).
 * Adds the `agent_stream_events` table (additive), the `@agentclientprotocol/sdk` dependency, and an update-migrations manifest. Running dsh agents are resumed after a service restart on their stored session ids.
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.11
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.12
