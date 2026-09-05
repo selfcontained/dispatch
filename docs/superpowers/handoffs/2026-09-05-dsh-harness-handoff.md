@@ -129,3 +129,43 @@ caret and keeps focus; Escape dismisses for that token only. Command items
 - Memory notes for this work live at
   `~/.claude/projects/-Users-daemon-ai-src-dispatch/memory/project-dsh-harness-evaluation.md`
   and `project-dispatch-local-env-quirks.md`.
+
+## Update, later on 2026-09-05: both tasks shipped as v0.38.7-dsh.18
+
+Done by the successor session (commit `eca9e00`, release `9ab737c`, tag
+`v0.38.7-dsh.18`, deployed 23:22Z; rollback binary
+`~/.dispatch/server/dispatch.dsh17`).
+
+- The queue is the explicit FIFO described above: `DshSupervisor` keeps
+  `pending` and `running` per agent with a `pump()`. `listQueued`,
+  `removeQueued` (rejects `started`, so the chat row settles
+  `delivered=false`), `promoteQueued`, `interrupt`, and `sendQueuedNow`
+  (promote + interrupt). `stop()` flushes the queue the same way. A chat
+  prompt queues under its chat message id; anything else gets `q_<uuid>`.
+  `enqueuePrompt` publishes `chat.changed` when the prompt has to wait, so
+  the view lists it without a stream write.
+- `GET /harness/turns` carries `queued: HarnessQueuedPrompt[]`;
+  `POST /harness/queue/:id/send-now` and `DELETE /harness/queue/:id` (204,
+  or 404 "no longer queued"). `loadQueued` in `turns.ts` joins chat text.
+- Web: `queued-prompt.tsx` rows after the live turn, `use-harness-queue.ts`
+  mutations, `ChatComposer` takes a `hint` prop; the pane sets it while a
+  turn runs or anything is queued.
+- `DshDriver.prompt` races the ACP call against the child's exit. Before
+  this a crash mid-turn left the promise pending for ever, which with the
+  explicit running slot would have wedged the agent's queue.
+- Slash menu: `slashTokenAt(text, caret)` in `chat-composer.tsx`; the caret
+  is tracked on change, keyup, click, and select. A pick replaces the token
+  in place and reuses an existing following space. Command items are
+  offered only when the slash is at index 0.
+- E2E: `fake-dsh.mjs` sleeps on `sleep:<ms>` and honours cancel;
+  `dsh-agent.spec.ts` has a second scenario covering queue, Remove, and
+  Send now. Run it the same way as before.
+
+Browser gotcha found while verifying: the PWA service worker serves the
+previous bundle after a deploy. The "Server updated" toast's Reload fixes
+it; from the MCP tab, unregister the service worker and delete the workbox
+cache, then navigate again.
+
+Next up, from Nii: a usage popup for the provider API keys the harness
+uses (tokens or dollars left, one bar per key). Recorded in the brain
+(`dsh-harness` collection).
