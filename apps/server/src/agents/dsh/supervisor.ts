@@ -6,7 +6,7 @@ import type {
   HarnessConfigOption,
 } from "@dispatch/shared";
 
-import { createAgentMcpToken } from "../../auth.js";
+import { createAgentMcpToken, createJobMcpToken } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
 import { resolveMediaDir } from "../../shared/media.js";
 import { dispatchMcpUrl } from "../tmux/mcp-url.js";
@@ -35,7 +35,16 @@ export type SupervisorDeps = {
   /** ChatService.publishChanged: the feed re-reads after each stream write. */
   publishChat: (agentId: string) => void;
   /** Full persona text for the overlay (see persona.ts). */
-  personaPromptFor: (agent: AgentRecord) => Promise<string>;
+  personaPromptFor: (
+    agent: AgentRecord,
+    jobRunId: string | null
+  ) => Promise<string>;
+  /**
+   * The job run this agent is executing, if any: the harness then attaches
+   * the job MCP route (job_complete, job_failed, …) with the job token,
+   * exactly as the pane launch does.
+   */
+  activeJobRunIdFor?: (agentId: string) => Promise<string | null>;
   /**
    * The agent's launch prompt, already wrapped as a chat envelope, or null.
    * dsh takes no launch argument, so the supervisor sends it as the first
@@ -411,9 +420,10 @@ export class DshSupervisor {
     // Rows a previous process left open (restart mid-turn) settle first,
     // so the view never shows a turn that can no longer finish.
     await this.streams.reconcile(agentId);
+    const jobRunId = (await this.deps.activeJobRunIdFor?.(agentId)) ?? null;
     const overlayPath = await writeOverlay(this.overlayDir(), agentId, {
       model,
-      persona: await this.deps.personaPromptFor(agent),
+      persona: await this.deps.personaPromptFor(agent, jobRunId),
     });
     const mediaDir = resolveMediaDir(
       agentId,
@@ -428,8 +438,10 @@ export class DshSupervisor {
         cwd: agent.cwd,
         overlayPath,
         mcp: {
-          url: dispatchMcpUrl(this.deps.config, agentId),
-          token: createAgentMcpToken(this.deps.config.authToken, agentId),
+          url: dispatchMcpUrl(this.deps.config, agentId, jobRunId ?? undefined),
+          token: jobRunId
+            ? createJobMcpToken(this.deps.config.authToken, jobRunId, agentId)
+            : createAgentMcpToken(this.deps.config.authToken, agentId),
         },
         sessionId: agent.cliSessionId ?? null,
         env: buildChildEnv({ agentId, mediaDir, config: this.deps.config }),

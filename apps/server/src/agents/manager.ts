@@ -410,9 +410,12 @@ export class AgentManager {
   }
 
   /** The system-prompt persona a dsh agent launches with (see dsh/persona.ts). */
-  async buildDshPersonaFor(agent: AgentRecord): Promise<string> {
-    const inputs = await this.launchGuidanceInputsFor(agent);
-    return buildDshPersona({ agent, ...inputs });
+  async buildDshPersonaFor(
+    agent: AgentRecord,
+    jobRunId?: string
+  ): Promise<string> {
+    const inputs = await this.launchGuidanceInputsFor(agent, jobRunId);
+    return buildDshPersona({ agent, ...inputs, jobRunId: jobRunId ?? null });
   }
 
   /**
@@ -421,15 +424,18 @@ export class AgentManager {
    * flags, and whether to suggest a session rename.
    */
   private async launchGuidanceInputsFor(
-    agent: Pick<AgentRecord, "id" | "name" | "persona" | "role">
+    agent: Pick<AgentRecord, "id" | "name" | "persona" | "role">,
+    jobRunId?: string
   ): Promise<{
     personalityPrompt: string | null;
     trimmedGuidance: boolean;
     chatSurface: boolean;
     suggestSessionRename: boolean;
   }> {
+    // Same rule as the pane launch: a persona, a job run, or an assisted
+    // update gets no personality.
     const personality =
-      agent.persona || agent.role === "assisted_update"
+      agent.persona || jobRunId || agent.role === "assisted_update"
         ? null
         : await getActivePersonality(this.pool);
     const { trimmedGuidance, chatSurface } = await readLaunchGuidanceFlags(
@@ -441,6 +447,7 @@ export class AgentManager {
       chatSurface,
       suggestSessionRename: shouldSuggestSessionRename(agent.name, agent.id, {
         persona: agent.persona,
+        jobRunId,
       }),
     };
   }

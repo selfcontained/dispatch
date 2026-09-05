@@ -3,6 +3,7 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createJobMcpToken } from "../src/auth.js";
 import { DshDriver } from "../src/agents/dsh/driver.js";
 import {
   buildChildEnv,
@@ -462,6 +463,29 @@ describe("DshSupervisor lifecycle edges", () => {
       /payload->>'state' = 'started'/.test(String(sql))
     );
     expect(settle?.[1]?.[0]).toBe("agt_1");
+    await sup.stopAll();
+  });
+});
+
+describe("DshSupervisor job runs", () => {
+  it("attaches the job MCP route and token for an agent running a job", async () => {
+    const { sup, deps, fake } = await build();
+    (
+      deps as { activeJobRunIdFor?: (id: string) => Promise<string | null> }
+    ).activeJobRunIdFor = vi.fn(async () => "run_42");
+    await sup.start("agt_1");
+    const server = fake.seen.newSession[0]?.mcpServers?.[0] as {
+      url: string;
+      headers: { name: string; value: string }[];
+    };
+    expect(server.url).toMatch(/\/api\/mcp\/jobs\/run_42\/agt_1$/);
+    expect(server.headers[0].value).toBe(
+      `Bearer ${createJobMcpToken("secret", "run_42", "agt_1")}`
+    );
+    expect(deps.personaPromptFor).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agt_1" }),
+      "run_42"
+    );
     await sup.stopAll();
   });
 });

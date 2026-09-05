@@ -467,7 +467,10 @@ const dshSupervisor = new DshSupervisor({
     await agentManager.upsertLatestEvent(agentId, input);
   },
   publishChat: (agentId) => chatService.publishChanged(agentId),
-  personaPromptFor: (agent) => agentManager.buildDshPersonaFor(agent),
+  personaPromptFor: (agent, jobRunId) =>
+    agentManager.buildDshPersonaFor(agent, jobRunId ?? undefined),
+  activeJobRunIdFor: async (agentId) =>
+    (await jobService.getActiveRunForAgent(agentId))?.id ?? null,
   launchPromptFor: (agentId): Promise<string | null> =>
     chatService.launchPromptFor(agentId),
   listRunningAgentIds: () => agentManager.listRunningDshAgentIds(),

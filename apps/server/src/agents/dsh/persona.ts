@@ -33,6 +33,8 @@ export function buildDshPersona(input: {
   /** Accepted for parity with the CLI inputs; dsh always assumes Chat. */
   chatSurface?: boolean;
   suggestSessionRename: boolean;
+  /** A job run: the guidance names the job tools (job_complete, …). */
+  jobRunId?: string | null;
 }): string {
   const { agent } = input;
   // The pane-driven chat rule sends replies through dispatch_chat_post; a
@@ -40,6 +42,7 @@ export function buildDshPersona(input: {
   // answer twice. It gets its own rule below instead.
   const guidance = buildLaunchGuidance(agent.id, {
     agentType: agent.type,
+    ...(input.jobRunId ? { jobRunId: input.jobRunId } : {}),
     suggestSessionRename: input.suggestSessionRename,
     autoReview: !agent.persona && agent.autoReview,
     trimmedGuidance: input.trimmedGuidance,

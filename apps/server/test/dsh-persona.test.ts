@@ -51,3 +51,16 @@ describe("buildDshPersona", () => {
     expect(text).not.toContain("Be terse.");
   });
 });
+
+describe("buildDshPersona for a job run", () => {
+  it("names the job tools in the guidance", () => {
+    const text = buildDshPersona({
+      agent: base,
+      personalityPrompt: null,
+      trimmedGuidance: false,
+      suggestSessionRename: false,
+      jobRunId: "run_42",
+    });
+    expect(text).toContain("Dispatch job startup");
+  });
+});
