@@ -405,3 +405,54 @@ describe("StreamRecorder interrupted turns", () => {
     expect(rows[1].payload).toMatchObject({ streaming: false });
   });
 });
+
+describe("StreamRecorder command log", () => {
+  it("logs a shell command once, when it settles", async () => {
+    const entries: unknown[] = [];
+    const rec = new StreamRecorder(store, {
+      commandLog: async (_id, entry) => {
+        entries.push(entry);
+      },
+    });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "c1",
+        title: "bash",
+        kind: "other",
+        status: "in_progress",
+        rawInput: { command: "ls apps" },
+      },
+    });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "c1",
+        status: "completed",
+        content: [
+          { type: "content", content: { type: "text", text: "web\n" } },
+        ],
+      },
+    });
+    // A second update after settling does not log again.
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call_update",
+        toolCallId: "c1",
+        status: "completed",
+      },
+    });
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toMatchObject({
+      command: "ls apps",
+      output: "web\n",
+      status: "completed",
+    });
+  });
+});

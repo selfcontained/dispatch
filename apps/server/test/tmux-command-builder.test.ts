@@ -1271,4 +1271,20 @@ describe("dsh agents", () => {
     expect(cmd).not.toContain("--mcp-config");
     expect(cmd).not.toContain("--append-system-prompt");
   });
+
+  it("tails the agent's command log in a split above the shell", () => {
+    const cmd = buildAgentCommand(
+      baseConfig,
+      "dsh",
+      "standard",
+      [],
+      "/tmp/media",
+      SESSION,
+      false,
+      { agentId: "agt_1" } as never
+    );
+    expect(cmd).toContain("tmux split-window -d -v -l 60% -b");
+    expect(cmd).toContain("tail -n 300 -F");
+    expect(cmd).toContain("/tmp/dispatch-test-dsh-home/logs/");
+  });
 });

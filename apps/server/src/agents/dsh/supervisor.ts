@@ -11,6 +11,7 @@ import type { AppConfig } from "../../config.js";
 import { resolveMediaDir } from "../../shared/media.js";
 import { dispatchMcpUrl } from "../tmux/mcp-url.js";
 import { DshDriver, type DriverEvent, type DriverLogger } from "./driver.js";
+import { appendCommandLog, commandLogPath } from "./command-log.js";
 import { removeOverlay, writeOverlay } from "./overlay.js";
 import type { AgentModelOption } from "../../shared/agent-models.js";
 import { StreamRecorder } from "./stream-recorder.js";
@@ -296,7 +297,10 @@ export class DshSupervisor {
         dshHome: deps.config.dshHome,
         logger: deps.logger,
       });
-    this.streams = new StreamRecorder(new StreamStore(deps.pool));
+    this.streams = new StreamRecorder(new StreamStore(deps.pool), {
+      commandLog: (agentId, entry) =>
+        appendCommandLog(commandLogPath(deps.config.dshHome, agentId), entry),
+    });
     this.usage = new UsageRecorder(deps.pool);
     this.driver.onEvent((event) => {
       const prior = this.queues.get(event.agentId) ?? Promise.resolve();

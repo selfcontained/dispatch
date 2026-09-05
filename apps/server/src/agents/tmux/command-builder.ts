@@ -10,6 +10,7 @@ import type { AppConfig } from "../../config.js";
 import { PLUGIN_AGENT_TYPES } from "../../shared/agent-types.js";
 import { buildCursorDispatchToolGuidance } from "../../shared/mcp/cursor-dispatch-guidance.js";
 import type { AgentPin, AgentRole, AgentType } from "../types.js";
+import { commandLogPath } from "../dsh/command-log.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape } from "./quoting.js";
 import { agentIdFromSessionName } from "./session-name.js";
@@ -556,8 +557,22 @@ export function buildAgentCommand(
   // dsh agents also get a plain shell in the pane: the ACP driver
   // (agents/dsh) owns the harness process, and the pane is the human's
   // console into the worktree.
-  if (type === "terminal" || type === "dsh") {
+  if (type === "terminal") {
     return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
+  }
+  if (type === "dsh") {
+    // The harness runs its commands in its own process; the pane shows
+    // their log (agents/dsh/command-log.ts) in a split above an
+    // interactive shell, so the Console reads as the agent's terminal.
+    const log = shellEscape(commandLogPath(config.dshHome, agentId));
+    const logDir = shellEscape(
+      path.dirname(commandLogPath(config.dshHome, agentId))
+    );
+    return [
+      `${envPrefix} mkdir -p ${logDir} && touch ${log} &&`,
+      `tmux split-window -d -v -l 60% -b -t "$TMUX_PANE" -c "$PWD" "tail -n 300 -F ${log}";`,
+      `exec "\${SHELL:-/bin/bash}" -il`,
+    ].join(" ");
   }
 
   const cliBin = config[CLI_BY_AGENT_TYPE[type]];

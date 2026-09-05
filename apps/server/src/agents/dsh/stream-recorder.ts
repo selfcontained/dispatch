@@ -1,5 +1,6 @@
 import path from "node:path";
 
+import type { CommandLogEntry } from "./command-log.js";
 import type { DriverEvent, DriverUpdate } from "./driver.js";
 import { parsePromptSource } from "./prompt-source.js";
 import type {
@@ -90,6 +91,14 @@ export function boundInput(input: unknown): unknown {
   };
 }
 
+/** The shell command from a tool's raw input, when it is one. */
+function commandOf(input: unknown): string | null {
+  if (typeof input !== "object" || input === null) return null;
+  const record = input as Record<string, unknown>;
+  const command = record.command ?? record.cmd;
+  return typeof command === "string" && command.trim() ? command : null;
+}
+
 function projectToolContent(content: readonly unknown[] | null | undefined): {
   diff: ToolPayload["diff"];
   terminalOutput: string | null;
@@ -145,7 +154,13 @@ export class StreamRecorder {
   /** The turn row awaiting its settle, per agent. */
   private readonly openTurn = new Map<string, StreamEventRow>();
 
-  constructor(private readonly store: StreamStore) {}
+  constructor(
+    private readonly store: StreamStore,
+    private readonly deps: {
+      /** Receives every shell command as it settles (see command-log.ts). */
+      commandLog?: (agentId: string, entry: CommandLogEntry) => Promise<void>;
+    } = {}
+  ) {}
 
   /** The agent's working directory, so file paths render relative to it. */
   setCwd(agentId: string, cwd: string): void {
@@ -326,6 +341,24 @@ export class StreamRecorder {
               : {}),
         };
         await this.store.updatePayload(existing.id, next);
+        // A shell command that just settled goes to the agent's command log.
+        const settledNow =
+          (next.status === "completed" || next.status === "failed") &&
+          prev.status !== "completed" &&
+          prev.status !== "failed";
+        const command = commandOf(next.input);
+        if (settledNow && next.toolKind === "execute" && command) {
+          const started = existing.createdAt ?? new Date();
+          await this.deps
+            .commandLog?.(agentId, {
+              command,
+              output: next.terminalOutput,
+              status: next.status === "failed" ? "failed" : "completed",
+              durationMs: Date.now() - new Date(started).getTime(),
+              at: new Date(),
+            })
+            .catch(() => {});
+        }
         return;
       }
       default:
