@@ -7,7 +7,8 @@
 * Harness view polish: highlighted, line-numbered file reads; path lists; pretty JSON for tool arguments and output; Dispatch-injected prompts (review updates, kickoffs) shown as compact notices. The segment is labelled Chat. Model menus are grouped by provider; OpenAI offers the gpt-5.6 models.
 * Review fixes: an agent's own done/blocked/waiting status survives its turn ending; Start relaunches a dead harness behind a live shell; interrupted turns settle instead of spinning; dsh job runs and MCP/template launches deliver their prompts; default OpenAI model is gpt-5.6-sol. Adds `agent_chat_messages.delivery_text` (additive).
 * Harness view: a starting screen (Dispatch loading bars + setup status) with the composer closed until the harness is up; the bars mark running turns; the model chip refreshes when the session comes up.
+* Harness view: drop files anywhere on the pane to attach them; image attachments preview and open the lightbox; the agent's option questions (dispatch_chat_post) show as answerable cards in the Harness.
 * Adds the `agent_stream_events` table (additive), the `@agentclientprotocol/sdk` dependency, and an update-migrations manifest. Running dsh agents are resumed after a service restart on their stored session ids.
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.14
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.15
