@@ -6,4 +6,4 @@
 * Adds the `agent_stream_events` table (additive), the `@agentclientprotocol/sdk` dependency, and an update-migrations manifest. Running dsh agents are resumed after a service restart on their stored session ids.
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.5
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.6
