@@ -22,6 +22,14 @@ import {
 
 import { createMcpHandlers } from "../src/server/mcp-handlers.js";
 
+// Everything real except copyFile, which individual tests make fail so the
+// recovery path can be exercised without an actually-full disk.
+vi.mock("node:fs/promises", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs/promises")>();
+  return { ...actual, copyFile: vi.fn(actual.copyFile) };
+});
+const { copyFile } = await import("node:fs/promises");
+
 /**
  * Replacing a media file has to be one serialized unit: the row lock taken to
  * claim the file must still be held when the bytes land and when the row is
@@ -153,10 +161,22 @@ afterAll(async () => {
 });
 
 beforeEach(async () => {
+  vi.mocked(copyFile).mockClear();
   statements = [];
   released = 0;
   await writeFile(path.join(mediaRoot, AGENT, FILE), Buffer.from("old bytes"));
+  // A retained backup is a real outcome of one of these tests, so clear the
+  // directory between them rather than letting it leak into the next.
+  for (const leftover of await backupsLeft()) {
+    await unlink(path.join(mediaRoot, AGENT, leftover));
+  }
 });
+
+/** Recovery copies still sitting in the agent's media directory. */
+async function backupsLeft(): Promise<string[]> {
+  const entries = await readdir(path.join(mediaRoot, AGENT));
+  return entries.filter((f) => f.startsWith(".replacing-"));
+}
 
 describe("dispatch_share_file replacement", () => {
   async function replace() {
@@ -247,10 +267,7 @@ describe("dispatch_share_file replacement", () => {
     expect(onDisk.toString()).toBe("old bytes");
 
     // And no backup left lying about in the media directory.
-    const leftovers = (await readdir(path.join(mediaRoot, AGENT))).filter((f) =>
-      f.startsWith(".replacing-")
-    );
-    expect(leftovers).toEqual([]);
+    expect(await backupsLeft()).toEqual([]);
   });
 
   it("leaves the new bytes in place when the commit itself fails", async () => {
@@ -286,6 +303,66 @@ describe("dispatch_share_file replacement", () => {
     const onDisk = await readFile(path.join(mediaRoot, AGENT, FILE));
     expect(onDisk.equals(PNG_160x120)).toBe(true);
     expect(released).toBe(1);
+
+    // The backup is deliberately kept here: if the commit did not land, this
+    // is the only remaining copy of the bytes that were replaced.
+    const kept = await backupsLeft();
+    expect(kept).toHaveLength(1);
+    const keptBytes = await readFile(path.join(mediaRoot, AGENT, kept[0]!));
+    expect(keptBytes.toString()).toBe("old bytes");
+  });
+
+  it.each([
+    ["ENOSPC", "ENOSPC"],
+    ["EACCES", "EACCES"],
+  ])(
+    "gives up before touching the file when the backup fails with %s",
+    async (_label, code) => {
+      // Only ENOENT means there was nothing to back up. Treating a full disk
+      // or a permissions failure the same way would send the recovery path
+      // down its "this file is one we created" branch and delete the
+      // original — the one outcome worse than a failed replacement.
+      const source = path.join(mediaRoot, "incoming.png");
+      await writeFile(source, PNG_160x120);
+      const failure = Object.assign(new Error("copy failed"), { code });
+      vi.mocked(copyFile).mockRejectedValueOnce(failure);
+
+      const pool = recordingPool();
+      await expect(
+        makeHandlers(pool).shareMedia(AGENT, {
+          filePath: source,
+          description: "replaced",
+          update: FILE,
+        })
+      ).rejects.toThrow("copy failed");
+
+      const onDisk = await readFile(path.join(mediaRoot, AGENT, FILE));
+      expect(onDisk.toString()).toBe("old bytes");
+      expect(statements.some((s) => s.sql === "ROLLBACK")).toBe(true);
+      expect(statements.some((s) => s.sql.startsWith("UPDATE"))).toBe(false);
+      expect(released).toBe(1);
+
+      // A failed copy can leave a partial destination; it must not survive.
+      expect(await backupsLeft()).toEqual([]);
+    }
+  );
+
+  it("proceeds when the backup fails because there is no file yet", async () => {
+    // ENOENT is the one code that really does mean "nothing to preserve".
+    await unlink(path.join(mediaRoot, AGENT, FILE));
+    const source = path.join(mediaRoot, "incoming.png");
+    await writeFile(source, PNG_160x120);
+
+    const pool = recordingPool();
+    const result = await makeHandlers(pool).shareMedia(AGENT, {
+      filePath: source,
+      description: "replaced",
+      update: FILE,
+    });
+
+    expect(result.fileName).toBe(FILE);
+    const onDisk = await readFile(path.join(mediaRoot, AGENT, FILE));
+    expect(onDisk.equals(PNG_160x120)).toBe(true);
   });
 
   it("removes a file it created when the update fails", async () => {

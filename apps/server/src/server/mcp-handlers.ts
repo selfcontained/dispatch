@@ -830,16 +830,28 @@ async function handleShareMedia(
       // into memory: a media file can be a video, and the replacement buffer
       // is already resident.
       const backupPath = path.join(mediaDir, `.replacing-${randomUUID()}.bak`);
-      const backedUp = await copyFile(filePath, backupPath).then(
-        () => true,
-        // Nothing to restore if the file was already missing; the write below
-        // is then a create, and undoing it means removing it.
-        () => false
-      );
+      let backedUp = false;
+      try {
+        await copyFile(filePath, backupPath);
+        backedUp = true;
+      } catch (err) {
+        // A failed copy can still leave a partial destination behind.
+        await unlink(backupPath).catch(() => {});
+        // ENOENT is the only failure that means "there was nothing to back
+        // up" — the write below is then a create, and undoing it means
+        // removing the file. Every other failure (a full disk, a permissions
+        // problem) leaves us with no recovery copy, and carrying on would
+        // reach the `unlink` in the catch below and delete the very file we
+        // failed to protect. Give up before touching it.
+        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      }
       // Set before the COMMIT is awaited, not after it returns: a COMMIT that
       // throws is precisely the ambiguous case, and a flag that only rises on
       // success cannot tell it apart from a failure that never got that far.
       let commitAttempted = false;
+      // Cleared only when the backup is still the sole record of the old
+      // bytes and something might yet need it.
+      let keepBackup = false;
 
       try {
         await writeFile(filePath, buffer);
@@ -868,8 +880,17 @@ async function handleShareMedia(
         // old bytes back would then create the very mismatch we are avoiding.
         // Leave the file as written and say so loudly instead.
         if (commitAttempted) {
+          // Keep the backup rather than deleting the only copy of the bytes
+          // this replaced: if the commit did not in fact land, that file is
+          // what a repair would need.
+          keepBackup = backedUp;
           deps.appLog.error(
-            { err: error, agentId, fileName },
+            {
+              err: error,
+              agentId,
+              fileName,
+              backupPath: keepBackup ? backupPath : null,
+            },
             "Media replacement commit failed after the bytes were written; " +
               "the row may or may not describe the file on disk"
           );
@@ -887,7 +908,7 @@ async function handleShareMedia(
         }
         throw error;
       } finally {
-        if (backedUp) await unlink(backupPath).catch(() => {});
+        if (backedUp && !keepBackup) await unlink(backupPath).catch(() => {});
       }
 
       deps.publishUiEvent({ type: "media.changed", agentId });
