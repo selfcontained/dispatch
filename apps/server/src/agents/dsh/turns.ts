@@ -219,7 +219,7 @@ export async function loadTurns(
   const chat = new Map<string, ChatMessage>();
   if (chatIds.length) {
     const messages = await db.query(
-      `SELECT * FROM agent_chat_messages WHERE id = ANY($1::text[])`,
+      `SELECT * FROM agent_chat_messages WHERE id = ANY($1::uuid[])`,
       [chatIds]
     );
     for (const row of messages.rows) {
