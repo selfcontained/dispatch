@@ -163,6 +163,37 @@ export class StreamStore {
     );
   }
 
+  /**
+   * Settle whatever a dead child left open: a turn still `started` gets
+   * `settled` with the given error, and an assistant row still streaming
+   * stops. Run before a session (re)starts, so a turn cut off by a crash,
+   * a Stop, or a server restart never spins in the view forever.
+   */
+  async settleInterrupted(agentId: string, error: string): Promise<number> {
+    const turns = await this.db.query(
+      `UPDATE agent_stream_events
+          SET payload = payload || $2::jsonb, updated_at = NOW()
+        WHERE agent_id = $1 AND kind = 'turn'
+          AND payload->>'state' = 'started'`,
+      [
+        agentId,
+        JSON.stringify({
+          state: "settled",
+          error,
+          endedAt: new Date().toISOString(),
+        }),
+      ]
+    );
+    await this.db.query(
+      `UPDATE agent_stream_events
+          SET payload = payload || '{"streaming":false}'::jsonb, updated_at = NOW()
+        WHERE agent_id = $1 AND kind = 'assistant'
+          AND payload->>'streaming' = 'true'`,
+      [agentId]
+    );
+    return turns.rowCount ?? 0;
+  }
+
   /** Newest first. */
   async list(agentId: string, limit: number): Promise<StreamEventRow[]> {
     const result = await this.db.query<Row>(

@@ -329,3 +329,79 @@ describe("StreamRecorder", () => {
     expect(rows[1].kind).toBe("status");
   });
 });
+
+describe("StreamRecorder interrupted turns", () => {
+  it("settles the open turn with an error when the child dies mid-turn", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle(chunk("partial"));
+    await rec.handle({
+      type: "exit",
+      agentId: A,
+      code: 1,
+      signal: null,
+      stderrTail: "boom",
+      expected: false,
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows[0].kind).toBe("turn");
+    expect(rows[0].payload).toMatchObject({
+      state: "settled",
+      error: "dsh exited before the turn settled",
+    });
+    expect(typeof rows[0].payload.endedAt).toBe("string");
+    expect(rows[1].payload).toMatchObject({
+      text: "partial",
+      streaming: false,
+    });
+  });
+
+  it("settles a turn cut off by Stop as cancelled", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle({
+      type: "exit",
+      agentId: A,
+      code: 0,
+      signal: null,
+      stderrTail: "",
+      expected: true,
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows[0].payload).toMatchObject({
+      state: "settled",
+      stopReason: "cancelled",
+    });
+    expect(rows).toHaveLength(1);
+  });
+
+  it("reconcile settles what a previous process left open", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    await rec.handle(chunk("half"));
+    // A fresh recorder, as after a server restart: no in-memory turn.
+    const fresh = new StreamRecorder(store);
+    expect(await fresh.reconcile(A)).toBe(1);
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows[0].payload).toMatchObject({
+      state: "settled",
+      error: "interrupted by restart",
+    });
+    expect(rows[1].payload).toMatchObject({ streaming: false });
+  });
+});

@@ -131,6 +131,12 @@ export type ChatLaunchContextInput = {
   pins?: Array<{ id: string; type: string; value: string }>;
   /** The agent that created this one via dispatch_launch_agent, if any. */
   launchedByAgentId?: string | null;
+  /**
+   * What the first turn must carry when it is more than the display text:
+   * an MCP launch header, a rendered template. Only dsh reads its first
+   * turn from the post; CLI agents get this typed into the pane instead.
+   */
+  deliveryText?: string;
 };
 
 /** A launch post resolved but not yet written; see `prepareLaunchContext`. */
@@ -466,9 +472,12 @@ export class ChatService {
           post.attachments
         )
       : [];
-    return buildChatEnvelope(post.id, post.text, attachmentLines, {
-      nativeReplies: true,
-    });
+    return buildChatEnvelope(
+      post.id,
+      post.deliveryText ?? post.text,
+      attachmentLines,
+      { nativeReplies: true }
+    );
   }
 
   /** Whether the agent's harness streams its replies into Chat itself. */
@@ -594,6 +603,7 @@ export class ChatService {
           delivered: true,
           origin: "launch",
           launchedByAgentId: input.launchedByAgentId ?? null,
+          deliveryText: input.deliveryText ?? null,
         });
         if (!message) {
           throw new ChatConflictError(

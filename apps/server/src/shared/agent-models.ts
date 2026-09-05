@@ -49,11 +49,22 @@ export const AGENT_MODEL_OPTIONS: Partial<
   // dsh ids are `provider/model`: the provider is a dsh LLM route name and the
   // model is that route's id. Verified against `dsh --profile acp` session
   // configOptions on 2026-09-04 (see docs/agent-model-catalog.md).
+  // Fallback only: the live list comes from dsh (DshSupervisor.modelCatalog)
+  // and is filtered to providers with keys and, for OpenAI, the 5.6 line.
   dsh: [
-    { id: "deepseek-official/deepseek-v4-flash", label: "DeepSeek V4 Flash" },
-    { id: "deepseek-official/deepseek-v4-pro", label: "DeepSeek V4 Pro" },
-    { id: "openai/gpt-5.2", label: "GPT-5.2 (OpenAI API key)" },
-    { id: "openai/gpt-5.3-codex", label: "GPT-5.3 Codex (OpenAI API key)" },
+    {
+      id: "deepseek-official/deepseek-v4-flash",
+      label: "DeepSeek-V4-Flash",
+      group: "DeepSeek",
+    },
+    {
+      id: "deepseek-official/deepseek-v4-pro",
+      label: "DeepSeek-V4-Pro",
+      group: "DeepSeek",
+    },
+    { id: "openai/gpt-5.6-luna", label: "GPT-5.6 Luna", group: "OpenAI" },
+    { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", group: "OpenAI" },
+    { id: "openai/gpt-5.6-terra", label: "GPT-5.6 Terra", group: "OpenAI" },
   ],
 };
 

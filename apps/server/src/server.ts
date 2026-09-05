@@ -446,7 +446,12 @@ const chatService = new ChatService({
     // failed delivery rather than a stale session name.
     inject: async (agentId, _sessionName, text) =>
       (await enqueueAgentPrompt(agentId, text)).delivery,
-    held: (agentId) => injectionCoordinator.holdState(agentId).held,
+    // A dsh prompt waits in the supervisor's turn queue, not the injection
+    // gate; report that so Chat and MCP messages agree on "held".
+    held: (agentId): boolean =>
+      dshSupervisor.isRunning(agentId)
+        ? dshSupervisor.isBusy(agentId)
+        : injectionCoordinator.holdState(agentId).held,
   },
   log: app.log,
 });
@@ -463,10 +468,13 @@ const dshSupervisor = new DshSupervisor({
   },
   publishChat: (agentId) => chatService.publishChanged(agentId),
   personaPromptFor: (agent) => agentManager.buildDshPersonaFor(agent),
-  launchPromptFor: (agentId) => chatService.launchPromptFor(agentId),
+  launchPromptFor: (agentId): Promise<string | null> =>
+    chatService.launchPromptFor(agentId),
   listRunningAgentIds: () => agentManager.listRunningDshAgentIds(),
   markStartFailed: (agentId, message) =>
     agentManager.markDshStartFailed(agentId, message),
+  markExited: (agentId, message) =>
+    agentManager.markDshExited(agentId, message),
   setAgentModel: async (agentId, model) => {
     await pool.query("UPDATE agents SET model = $2 WHERE id = $1", [
       agentId,

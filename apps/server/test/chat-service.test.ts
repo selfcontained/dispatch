@@ -998,3 +998,35 @@ describe("ChatService user workflows", () => {
     expect(svc.inFlightDeliveryCount).toBe(1);
   });
 });
+
+describe("ChatService.launchPromptFor", () => {
+  it("delivers the launch post's delivery text when one was stored", async () => {
+    const prepared = await service.prepareLaunchContext({
+      id: "8a4f9e60-aaaa-4222-8333-444455556666",
+      agentId: A,
+      text: "Summarise the README",
+      deliveryText:
+        "You were launched by agent agt_parent.\n\nSummarise the README",
+    });
+    await prepared!.record();
+    const first = await service.launchPromptFor(A);
+    expect(first).toContain("You were launched by agent agt_parent.");
+    expect(first).toContain("8a4f9e60-aaaa-4222-8333-444455556666");
+    // Chat shows the prompt as written.
+    const rows = await pool.query<{ text: string; delivery_text: string }>(
+      "SELECT text, delivery_text FROM agent_chat_messages WHERE agent_id = $1",
+      [A]
+    );
+    expect(rows.rows[0].text).toBe("Summarise the README");
+    expect(rows.rows[0].delivery_text).toContain("You were launched");
+  });
+
+  it("falls back to the post text", async () => {
+    const prepared = await service.prepareLaunchContext({
+      agentId: A,
+      text: "Just this",
+    });
+    await prepared!.record();
+    expect(await service.launchPromptFor(A)).toContain("Just this");
+  });
+});

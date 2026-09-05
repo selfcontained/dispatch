@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -25,7 +25,13 @@ afterEach(async () => {
 });
 
 async function build(
-  opts: { turn?: FakeTurn; cliSessionId?: string; launchPrompt?: string } = {}
+  opts: {
+    turn?: FakeTurn;
+    cliSessionId?: string;
+    launchPrompt?: string;
+    /** The binary cannot be resolved: driver.start rejects. */
+    startFails?: boolean;
+  } = {}
 ) {
   home = await mkdtemp(path.join(os.tmpdir(), "dsh-sup-"));
   const fake = createFakeAcpAgent({ turn: opts.turn });
@@ -33,7 +39,10 @@ async function build(
     dshBin: "dsh",
     dshHome: home,
     spawn: () => fake.child,
-    resolveBinary: async (bin) => bin,
+    resolveBinary: async (bin) => {
+      if (opts.startFails) throw new Error("dsh not found on PATH");
+      return bin;
+    },
     logger,
   });
   vi.mocked(logger.warn).mockClear();
@@ -217,6 +226,8 @@ describe("DshSupervisor", () => {
     expect(inserted).toEqual(["assistant", "tool_call", "assistant"]);
     const finalTexts = writes
       .filter(([op]) => op === "UPDATE")
+      // Row updates carry the payload as $2; the reconcile sweep does not.
+      .filter(([, params]) => typeof (params as unknown[])[1] === "string")
       .map(([, params]) => JSON.parse(String((params as unknown[])[1])).text)
       .filter((text) => typeof text === "string");
     expect(finalTexts.at(-1)).toBe("c");
@@ -324,7 +335,7 @@ describe("defaultModelFor", () => {
     expect(
       defaultModelFor({ DEEPSEEK_API_KEY: "x", OPENAI_API_KEY: "y" })
     ).toBe("deepseek-official/deepseek-v4-flash");
-    expect(defaultModelFor({ OPENAI_API_KEY: "y" })).toBe("openai/gpt-5.2");
+    expect(defaultModelFor({ OPENAI_API_KEY: "y" })).toBe("openai/gpt-5.6-sol");
     expect(defaultModelFor({})).toBeNull();
   });
 });
@@ -375,5 +386,82 @@ describe("buildChildEnv", () => {
     expect(env.DISPATCH_SCHEME).toBe("https");
     expect(env.NODE_EXTRA_CA_CERTS).toBe("/etc/ca.pem");
     expect(env.TLS_CA).toBeUndefined();
+  });
+});
+
+describe("DshSupervisor lifecycle edges", () => {
+  it("keeps a terminal status the agent set during the turn", async () => {
+    let depsRef: {
+      setLatestEvent: (
+        id: string,
+        e: { type: string; message: string }
+      ) => Promise<void>;
+    } | null = null;
+    const { sup, deps, events, fake } = await build({
+      turn: async () => {
+        // The agent's own dispatch_event done, from inside the turn.
+        await depsRef!.setLatestEvent("agt_1", {
+          type: "done",
+          message: "Review submitted",
+        });
+        return "end_turn";
+      },
+    });
+    depsRef = deps;
+    const stamp = (n: number) =>
+      new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString();
+    deps.getAgent.mockImplementation(async (id: string) => ({
+      id,
+      type: "dsh",
+      cwd: "/tmp/w",
+      mediaDir: null,
+      model: null,
+      cliSessionId: null,
+      latestEvent: events.length
+        ? {
+            ...events[events.length - 1],
+            updatedAt: stamp(events.length),
+            metadata: null,
+          }
+        : null,
+    }));
+    await sup.start("agt_1");
+    events.length = 0;
+    await sup.prompt("agt_1", "review this");
+    expect(events.map((e) => e.type)).toEqual(["working", "done"]);
+    await sup.stopAll();
+    expect(fake.seen.prompts).toHaveLength(1);
+  });
+
+  it("marks an unexpected exit, code 0 included, through markExited", async () => {
+    const { sup, deps, fake } = await build();
+    const markExited = vi.fn(async () => {});
+    (deps as { markExited?: typeof markExited }).markExited = markExited;
+    await sup.start("agt_1");
+    // dsh quits on its own: the child exits without Dispatch asking.
+    fake.child.kill("SIGTERM");
+    await vi.waitFor(() => expect(markExited).toHaveBeenCalled());
+    expect(markExited).toHaveBeenCalledWith(
+      "agt_1",
+      expect.stringContaining("dsh exited")
+    );
+    expect(sup.isRunning("agt_1")).toBe(false);
+  });
+
+  it("removes the overlay when the driver fails to start", async () => {
+    const { sup } = await build({ startFails: true });
+    await expect(sup.start("agt_1")).rejects.toThrow(/dsh not found/);
+    const overlays = await readdir(path.join(home, "overlays")).catch(() => []);
+    expect(overlays).toEqual([]);
+  });
+
+  it("settles rows a previous process left open before starting", async () => {
+    const { sup, query } = await build();
+    await sup.start("agt_1");
+    const settle = query.mock.calls.find(([sql]) =>
+      /payload->>'state' = 'started'/.test(String(sql))
+    );
+    expect(settle?.[1]?.[0]).toBe("agt_1");
+    await sup.stopAll();
   });
 });

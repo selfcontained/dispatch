@@ -39,6 +39,8 @@ export type InsertChatMessageInput = {
   origin?: ChatMessageOrigin | null;
   /** Launch-context posts only: the agent that created this one. */
   launchedByAgentId?: string | null;
+  /** Launch posts: the text a dsh first turn delivers, when it differs. */
+  deliveryText?: string | null;
 };
 
 export type UpdateChatMessageInput = {
@@ -70,9 +72,13 @@ type Row = {
   read_at: Date | null;
   origin: ChatMessageOrigin | null;
   launched_by_agent_id: string | null;
+  delivery_text?: string | null;
   created_at: Date;
   updated_at: Date;
 };
+
+/** A launch post plus the text its first turn delivers (dsh agents). */
+export type LaunchPost = ChatMessage & { deliveryText: string | null };
 
 export function toChatMessage(row: Row): ChatMessage {
   return {
@@ -142,8 +148,8 @@ export class ChatStore {
     const result = await this.db.query<Row>(
       `INSERT INTO agent_chat_messages
          (id, agent_id, author_kind, kind, text, reply_to, question,
-          attachments, delivered, origin, launched_by_agent_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11)
+          attachments, delivered, origin, launched_by_agent_id, delivery_text)
+       VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8::jsonb, $9, $10, $11, $12)
        ON CONFLICT (id) DO NOTHING
        RETURNING *`,
       [
@@ -158,6 +164,7 @@ export class ChatStore {
         input.delivered ?? null,
         input.origin ?? null,
         input.launchedByAgentId ?? null,
+        input.deliveryText ?? null,
       ]
     );
     const row = result.rows[0];
@@ -227,7 +234,7 @@ export class ChatStore {
   }
 
   /** The launch-context post recorded when the agent was created, if any. */
-  async getLaunchPost(agentId: string): Promise<ChatMessage | null> {
+  async getLaunchPost(agentId: string): Promise<LaunchPost | null> {
     const result = await this.db.query<Row>(
       `SELECT * FROM agent_chat_messages
         WHERE agent_id = $1 AND origin = 'launch'
@@ -235,7 +242,10 @@ export class ChatStore {
         LIMIT 1`,
       [agentId]
     );
-    return result.rows[0] ? toChatMessage(result.rows[0]) : null;
+    const row = result.rows[0];
+    return row
+      ? { ...toChatMessage(row), deliveryText: row.delivery_text ?? null }
+      : null;
   }
 
   async getById(id: string): Promise<ChatMessage | null> {

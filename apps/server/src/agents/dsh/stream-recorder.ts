@@ -188,7 +188,21 @@ export class StreamRecorder {
       case "exit": {
         await this.closeText(event.agentId);
         this.cwd.delete(event.agentId);
-        this.openTurn.delete(event.agentId);
+        // The child is gone, so the turn it was running can never settle
+        // through the prompt path; settle it here or the view spins forever.
+        const open = this.openTurn.get(event.agentId);
+        if (open) {
+          const prev = open.payload as TurnPayload;
+          await this.store.updatePayload(open.id, {
+            ...prev,
+            state: "settled",
+            ...(event.expected
+              ? { stopReason: "cancelled" }
+              : { error: "dsh exited before the turn settled" }),
+            endedAt: new Date().toISOString(),
+          } satisfies TurnPayload);
+          this.openTurn.delete(event.agentId);
+        }
         if (event.expected || event.code === 0) return;
         const how =
           event.code === null ? `signal ${event.signal}` : `code ${event.code}`;
@@ -199,6 +213,15 @@ export class StreamRecorder {
         return;
       }
     }
+  }
+
+  /**
+   * Before a session starts: settle rows a previous process left open (a
+   * turn interrupted by a server restart has no in-memory state here).
+   */
+  async reconcile(agentId: string): Promise<number> {
+    this.openTurn.delete(agentId);
+    return this.store.settleInterrupted(agentId, "interrupted by restart");
   }
 
   /** Write any buffered text for the agent now (tests and shutdown). */

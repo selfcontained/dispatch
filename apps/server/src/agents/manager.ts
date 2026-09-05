@@ -390,6 +390,16 @@ export class AgentManager {
   }
 
   /** A dsh agent that could not be brought back at boot. */
+  /** The dsh child died on its own: the agent cannot stay "running" over it. */
+  async markDshExited(id: string, message: string): Promise<void> {
+    await this.setAgentStatus(id, "error", message);
+    await this.setSystemLatestEvent(id, {
+      type: "blocked",
+      message: message.slice(0, 200),
+      metadata: { source: "system", phase: "exit" },
+    });
+  }
+
   async markDshStartFailed(id: string, message: string): Promise<void> {
     await this.setAgentStatus(id, "error", message);
     await this.setSystemLatestEvent(id, {
@@ -617,10 +627,13 @@ export class AgentManager {
     const recorder = p.type === "terminal" ? null : this.launchContextRecorder;
     // A dsh agent reads its launch prompt from the Chat post (it takes no
     // launch argument), so the post is durable for it whatever the flag says.
+    // A job run keeps Chat quiet for CLI agents (the pane carries the job
+    // scaffolding), but a dsh job still needs the post: it is the only way
+    // the job prompt becomes the agent's first turn.
     const wantsEnvelope =
       recorder !== null &&
       (launchGuidanceFlags.chatSurface || p.type === "dsh") &&
-      !input.jobRunId &&
+      (!input.jobRunId || p.type === "dsh") &&
       !inertRuntime;
     const launchPostId = randomUUID();
     const launchContextInput = recorder
@@ -714,6 +727,15 @@ export class AgentManager {
       text:
         input.launchContext?.prompt ??
         (p.type === "dsh" ? input.initialPrompt : undefined),
+      // The MCP launch header and a rendered template ride initialPrompt;
+      // a dsh first turn must carry them even though Chat shows the raw
+      // prompt the launcher wrote.
+      ...(p.type === "dsh" &&
+      input.initialPrompt &&
+      input.launchContext?.prompt &&
+      input.initialPrompt !== input.launchContext.prompt
+        ? { deliveryText: input.initialPrompt }
+        : {}),
       files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
       links: input.launchContext?.links ?? [],
       pins: p.initialPins.map((pin) => ({
@@ -1305,6 +1327,27 @@ export class AgentManager {
     const hasSession = await this.runtime.hasSession(tmuxSession);
 
     if (hasSession) {
+      // A dsh agent's pane is only a shell and outlives the harness child;
+      // an attached shell is not a running harness. Start (or restart) it.
+      if (agent.type === "dsh" && !this.dshSupervisor?.isRunning(id)) {
+        if (!this.dshSupervisor) {
+          throw new AgentError("dsh supervisor is not attached.", 500);
+        }
+        try {
+          await this.setAgentStatus(id, "running", null, tmuxSession);
+          await this.dshSupervisor.start(id);
+        } catch (error) {
+          const message = errorMessage(error);
+          await this.setAgentStatus(id, "error", message);
+          await this.setSystemLatestEvent(id, {
+            type: "blocked",
+            message: `dsh failed to start: ${message}`.slice(0, 200),
+            metadata: { source: "system", phase: "start" },
+          });
+          throw new AgentError(`dsh failed to start: ${message}`, 500);
+        }
+        return (await this.getAgent(id)) as AgentRecord;
+      }
       await this.setAgentStatus(id, "running", null, tmuxSession);
       await this.setSystemLatestEvent(id, {
         type: "idle",

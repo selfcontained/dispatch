@@ -48,6 +48,11 @@ export type SupervisorDeps = {
   markStartFailed: (id: string, message: string) => Promise<void>;
   /** Persist a model switched mid-session, so a restart resumes on it. */
   setAgentModel?: (id: string, model: string | null) => Promise<void>;
+  /**
+   * The child exited without Dispatch asking it to: the agent must not stay
+   * "running" over a dead harness. Falls back to a blocked event.
+   */
+  markExited?: (id: string, message: string) => Promise<void>;
 };
 
 /**
@@ -241,7 +246,7 @@ const CATALOG_TTL_MS = 10 * 60_000;
 
 export function defaultModelFor(env: NodeJS.ProcessEnv): string | null {
   if (env.DEEPSEEK_API_KEY) return "deepseek-official/deepseek-v4-flash";
-  if (env.OPENAI_API_KEY) return "openai/gpt-5.2";
+  if (env.OPENAI_API_KEY) return "openai/gpt-5.6-sol";
   return null;
 }
 
@@ -403,6 +408,9 @@ export class DshSupervisor {
       throw new Error(`${agentId} is not a dsh agent`);
     }
     const model = agent.model ?? defaultModelFor(process.env);
+    // Rows a previous process left open (restart mid-turn) settle first,
+    // so the view never shows a turn that can no longer finish.
+    await this.streams.reconcile(agentId);
     const overlayPath = await writeOverlay(this.overlayDir(), agentId, {
       model,
       persona: await this.deps.personaPromptFor(agent),
@@ -413,17 +421,25 @@ export class DshSupervisor {
       this.deps.config.mediaRoot
     );
     this.streams.setCwd(agentId, agent.cwd);
-    const { sessionId, resumed } = await this.driver.start({
-      agentId,
-      cwd: agent.cwd,
-      overlayPath,
-      mcp: {
-        url: dispatchMcpUrl(this.deps.config, agentId),
-        token: createAgentMcpToken(this.deps.config.authToken, agentId),
-      },
-      sessionId: agent.cliSessionId ?? null,
-      env: buildChildEnv({ agentId, mediaDir, config: this.deps.config }),
-    });
+    let session: { sessionId: string; resumed: boolean };
+    try {
+      session = await this.driver.start({
+        agentId,
+        cwd: agent.cwd,
+        overlayPath,
+        mcp: {
+          url: dispatchMcpUrl(this.deps.config, agentId),
+          token: createAgentMcpToken(this.deps.config.authToken, agentId),
+        },
+        sessionId: agent.cliSessionId ?? null,
+        env: buildChildEnv({ agentId, mediaDir, config: this.deps.config }),
+      });
+    } catch (err) {
+      // The overlay holds the persona text; nothing is running to use it.
+      await removeOverlay(this.overlayDir(), agentId);
+      throw err;
+    }
+    const { sessionId, resumed } = session;
     this.context.set(agentId, { sessionId, model: model ?? "default" });
     await this.deps.setCliSessionId(agentId, sessionId);
     await this.deps.setLatestEvent(agentId, {
@@ -434,7 +450,11 @@ export class DshSupervisor {
     // one already had it.
     if (!agent.cliSessionId) {
       const first = await this.deps.launchPromptFor(agentId);
-      if (first) void this.enqueuePrompt(agentId, first).settled;
+      if (first) {
+        this.enqueuePrompt(agentId, first).settled.catch((err: unknown) => {
+          this.deps.logger.warn({ err, agentId }, "dsh first turn failed");
+        });
+      }
     }
   }
 
@@ -510,15 +530,18 @@ export class DshSupervisor {
     isLastQueued: () => boolean
   ): Promise<void> {
     markStarted();
-    await this.deps.setLatestEvent(agentId, {
-      type: "working",
-      message: "Working on the latest message.",
-    });
+    let startedAt: string | null = null;
     try {
+      await this.deps.setLatestEvent(agentId, {
+        type: "working",
+        message: "Working on the latest message.",
+      });
+      startedAt =
+        (await this.deps.getAgent(agentId))?.latestEvent?.updatedAt ?? null;
       await this.driver.prompt(agentId, text);
       await this.drained(agentId);
       if (isLastQueued()) {
-        await this.deps.setLatestEvent(agentId, {
+        await this.settle(agentId, startedAt, {
           type: "idle",
           message: "Turn finished.",
         });
@@ -527,12 +550,35 @@ export class DshSupervisor {
       const message = (err as Error).message;
       this.deps.logger.warn({ err, agentId }, "dsh prompt failed");
       if (isLastQueued()) {
-        await this.deps.setLatestEvent(agentId, {
+        await this.settle(agentId, startedAt, {
           type: "idle",
           message: `Turn failed: ${message}`.slice(0, MESSAGE_MAX),
-        });
+        }).catch(() => {});
       }
     }
+  }
+
+  /**
+   * The settle-time status yields to a terminal status the agent set during
+   * the turn: a reviewer's `done`, a question's `waiting_user`, a `blocked`.
+   * Those come from dispatch_event inside the turn and would otherwise be
+   * overwritten milliseconds later.
+   */
+  private async settle(
+    agentId: string,
+    startedAt: string | null,
+    input: { type: AgentLatestEventType; message: string }
+  ): Promise<void> {
+    const current = (await this.deps.getAgent(agentId))?.latestEvent;
+    const terminal =
+      current &&
+      (current.type === "done" ||
+        current.type === "blocked" ||
+        current.type === "waiting_user");
+    if (terminal && (startedAt === null || current.updatedAt > startedAt)) {
+      return;
+    }
+    await this.deps.setLatestEvent(agentId, input);
   }
 
   async cancel(agentId: string): Promise<void> {
@@ -569,10 +615,15 @@ export class DshSupervisor {
       this.deps.publishChat(event.agentId);
       if (event.type === "exit" && !event.expected) {
         this.context.delete(event.agentId);
-        if (event.code !== 0) {
+        // Any unexpected exit, code 0 included: a "running" agent over a
+        // dead child takes every prompt to a 409.
+        const message = `dsh exited (${event.code ?? event.signal ?? "unknown"}); press Start to relaunch.`;
+        if (this.deps.markExited) {
+          await this.deps.markExited(event.agentId, message);
+        } else {
           await this.deps.setLatestEvent(event.agentId, {
             type: "blocked",
-            message: `dsh exited (${event.code ?? event.signal ?? "unknown"}).`,
+            message,
           });
         }
       }
