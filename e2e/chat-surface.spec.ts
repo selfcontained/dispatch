@@ -739,6 +739,142 @@ test.describe("Chat surface", () => {
     }
   });
 
+  test("cross-fades Chat and Console on a phone without moving anything", async ({
+    browser,
+    request,
+  }) => {
+    await setChatSurface(request, true);
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-chat-crossfade-${Date.now()}`,
+    });
+
+    const protocol = process.env.TLS_CERT ? "https" : "http";
+    const baseURL = `${protocol}://127.0.0.1:${process.env.E2E_PORT ?? "8788"}`;
+    const context = await browser.newContext({
+      baseURL,
+      hasTouch: true,
+      ignoreHTTPSErrors: true,
+      viewport: { width: 390, height: 844 },
+    });
+    const phone = await context.newPage();
+    try {
+      await phone.goto(`/agents/${agent.id}`, {
+        waitUntil: "domcontentloaded",
+      });
+      const toggle = phone.getByTestId("agent-view-toggle");
+      await toggle.waitFor({ state: "visible" });
+
+      const layers = () =>
+        phone.evaluate(() => {
+          const box = (sel: string) => {
+            const el = document.querySelector(sel);
+            if (!el) return null;
+            const r = el.getBoundingClientRect();
+            const cs = getComputedStyle(el);
+            return {
+              x: Math.round(r.x),
+              y: Math.round(r.y),
+              w: Math.round(r.width),
+              h: Math.round(r.height),
+              opacity: Math.round(Number(cs.opacity) * 100) / 100,
+              visibility: cs.visibility,
+            };
+          };
+          return {
+            chat: box('[data-testid="agent-pane-chat"]'),
+            console: box('[data-testid="agent-pane-console"]'),
+            slot: box('[data-testid="agent-pane-terminal-slot"]'),
+            viewport: innerWidth,
+          };
+        });
+
+      // The chat-surface flag resolves after the first paint. Whichever view
+      // the toggle lands on must be the one actually painted — the Console
+      // layer sits on top and is opaque, so an unmanaged one hides the Chat
+      // while the toggle still reads Chat.
+      await expect(toggle).toHaveAttribute("data-view", "chat");
+      await expect
+        .poll(async () => (await layers()).console?.visibility)
+        .toBe("hidden");
+
+      // Nothing in the Console layer may be wider than the layer itself. The
+      // terminal is portaled in and its rows are routinely wider than a phone
+      // — an unconstrained grid track sizes to that content and drags the
+      // layer, and the toolbar under it, off the side of the screen. A stand
+      // -in for those rows, since a headless agent has no output of its own:
+      const overflowWidths = await phone.evaluate(() => {
+        const slot = document.querySelector(
+          '[data-testid="agent-pane-terminal-slot"]'
+        ) as HTMLElement;
+        const probe = document.createElement("div");
+        probe.style.cssText = "width:2000px;height:1px";
+        slot.appendChild(probe);
+        const layer = document.querySelector(
+          '[data-testid="agent-pane-console"]'
+        ) as HTMLElement;
+        // The toolbar shares the layer's column, so a stretched track takes
+        // it off-screen too — that is what clipped the Enter key.
+        const toolbar = layer.lastElementChild as HTMLElement;
+        const widths = {
+          slot: Math.round(slot.getBoundingClientRect().width),
+          layer: Math.round(layer.getBoundingClientRect().width),
+          toolbar: Math.round(toolbar.getBoundingClientRect().width),
+          viewport: innerWidth,
+        };
+        probe.remove();
+        return widths;
+      });
+      expect(overflowWidths.slot).toBeLessThanOrEqual(overflowWidths.viewport);
+      expect(overflowWidths.layer).toBe(overflowWidths.viewport);
+      expect(overflowWidths.toolbar).toBeLessThanOrEqual(
+        overflowWidths.viewport
+      );
+
+      const settled = await layers();
+      expect(settled.console!.w).toBe(settled.viewport);
+      expect(settled.slot!.w).toBeLessThanOrEqual(settled.console!.w);
+
+      // The flip is opacity only: every box keeps its geometry, so the header
+      // above and the surfaces themselves never resize mid-transition.
+      const geometry = (l: Awaited<ReturnType<typeof layers>>) => ({
+        chat: [l.chat!.x, l.chat!.y, l.chat!.w, l.chat!.h],
+        console: [l.console!.x, l.console!.y, l.console!.w, l.console!.h],
+        slot: [l.slot!.x, l.slot!.y, l.slot!.w, l.slot!.h],
+      });
+      const before = geometry(settled);
+
+      // The views hand over rather than dissolve into each other, so "settled"
+      // is the end of both halves: the outgoing layer down and unpainted, the
+      // incoming one all the way up.
+      const settledOn = async (view: "chat" | "console") => {
+        const l = await layers();
+        const up = view === "chat" ? l.chat! : l.console!;
+        const down = view === "chat" ? l.console! : l.chat!;
+        return { upOpacity: up.opacity, downVisibility: down.visibility };
+      };
+
+      await phone.getByTestId("agent-view-console").tap();
+      await expect(toggle).toHaveAttribute("data-view", "console");
+      await expect
+        .poll(() => settledOn("console"))
+        .toEqual({ upOpacity: 1, downVisibility: "hidden" });
+      expect(geometry(await layers())).toEqual(before);
+
+      await phone.getByTestId("agent-view-chat").tap();
+      await expect(toggle).toHaveAttribute("data-view", "chat");
+      await expect
+        .poll(() => settledOn("chat"))
+        .toEqual({ upOpacity: 1, downVisibility: "hidden" });
+      expect(geometry(await layers())).toEqual(before);
+
+      await phone.screenshot({
+        path: test.info().outputPath("chat-surface-crossfade-390.png"),
+      });
+    } finally {
+      await context.close();
+    }
+  });
+
   test("keeps wide markdown tables reachable without page overflow", async ({
     page,
     request,

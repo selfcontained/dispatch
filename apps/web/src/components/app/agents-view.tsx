@@ -592,10 +592,14 @@ export function AgentsView({
     <WhiteboardPane agentId={focusedAgentId} active={true} />
   ) : null;
 
-  // The Agent pane's Chat | Console choice, remembered per agent. Flipping
-  // to the Console hands it focus once it has been unhidden: the focus is
-  // deferred a tick, and a flip back (or an unmount) before it lands drops
-  // it, so the Chat composer's own focus is never stolen.
+  // The Agent pane's Chat | Console choice, remembered per agent. On desktop,
+  // flipping to the Console hands it focus once it has been unhidden: the
+  // focus is deferred a tick, and a flip back (or an unmount) before it lands
+  // drops it, so the Chat composer's own focus is never stolen. Mobile opts
+  // out — focusing xterm there raises the software keyboard, which resizes the
+  // viewport out from under the cross-fade; the toolbar's keyboard button is
+  // how a phone asks for input. Same reasoning as the foreground-focus guard
+  // in useTerminal.
   const [agentView, setAgentViewRaw] = useAgentPaneView(focusedAgentId);
   const consoleFocusTimerRef = useRef<number | null>(null);
   const cancelConsoleFocus = useCallback(() => {
@@ -608,14 +612,14 @@ export function AgentsView({
     (view: AgentPaneView) => {
       setAgentViewRaw(view);
       cancelConsoleFocus();
-      if (view === "console") {
+      if (view === "console" && !isMobile) {
         consoleFocusTimerRef.current = window.setTimeout(() => {
           consoleFocusTimerRef.current = null;
           focusTerminal();
         }, 0);
       }
     },
-    [cancelConsoleFocus, focusTerminal, setAgentViewRaw]
+    [cancelConsoleFocus, focusTerminal, isMobile, setAgentViewRaw]
   );
   const agentPaneVisible = !isSplit
     ? centerTabResolved && !changesMatch && !whiteboardMatch
@@ -631,6 +635,22 @@ export function AgentsView({
     showChildAgents,
     onShowChildAgentsChange: setShowChildAgents,
     childAgentIds: focusedSubAgentIds,
+    // Console-only chrome, hosted inside the Console layer so the flip does
+    // not resize the pane. Mobile only; a split pane is desktop-only, so both
+    // AgentPane call sites can be handed the same node.
+    consoleFooter:
+      isMobile && chatEnabled ? (
+        <MobileTerminalToolbar
+          agentId={connectedAgentId}
+          onSendInput={sendTerminalInput}
+          onExitCopyMode={() => {
+            void exitCopyMode();
+          }}
+          ctrlPendingRef={ctrlPendingRef}
+          isConnected={connState === "connected" && Boolean(connectedAgentId)}
+          copyMode={copyMode}
+        />
+      ) : null,
     openLightbox,
     onOpenReview: handleOpenReview,
     isMobile,
@@ -835,9 +855,15 @@ export function AgentsView({
               ) : null}
             </div>
 
-            {isMobile &&
-            (!chatEnabled ||
-              (activeTab === "agent" && agentView === "console")) ? (
+            {/*
+              With the chat surface off there is no Chat to cross-fade to, so
+              the toolbar can stay a plain grid row of its own — and it keeps
+              following the terminal onto the Changes and Whiteboard tabs, as
+              it always has in that mode. With the surface on it moves inside
+              the pane instead (`consoleFooter`), where its height belongs to
+              the Console layer alone.
+            */}
+            {isMobile && !chatEnabled ? (
               <MobileTerminalToolbar
                 agentId={connectedAgentId}
                 onSendInput={sendTerminalInput}

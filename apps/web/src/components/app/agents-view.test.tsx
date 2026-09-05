@@ -71,11 +71,22 @@ const { H, stubModule, stubWrapper } = vi.hoisted(() => {
   return { H, stubModule, stubWrapper };
 });
 
+// The mobile toolbar row animates in and out; without this the exiting child
+// would linger in the tree and the mount/unmount assertions would read the
+// animation rather than the view's decision.
+vi.mock("framer-motion", async (importOriginal) => {
+  const { createFramerMotionMock } =
+    await import("@/test-utils/framer-motion-mock");
+  return createFramerMotionMock(importOriginal);
+});
+
 vi.mock("@/components/app/changes-tab", stubModule("ChangesTab"));
-vi.mock(
-  "@/components/app/agent-pane",
-  stubModule("AgentPane", "AgentViewToggle")
-);
+// Components stubbed, but the fade duration is a real value AgentsView hands
+// to framer — the stub has to carry it or the toolbar row cannot animate.
+vi.mock("@/components/app/agent-pane", async () => ({
+  ...(await stubModule("AgentPane", "AgentViewToggle")()),
+  PANE_FADE_SECONDS: 0.2,
+}));
 vi.mock("@/components/app/whiteboard-pane", stubModule("WhiteboardPane"));
 vi.mock("@/components/app/split-drop-zones", stubModule("SplitDropZones"));
 // The real split renders whichever panes it is handed into its two slots, so
@@ -1378,7 +1389,7 @@ describe("AgentsView mobile chrome", () => {
     expect(renderedChildren()).not.toContain("BottomBar");
   });
 
-  it("shows the mobile terminal toolbar only for the Console view with the chat surface on", () => {
+  it("hands the mobile terminal toolbar to the pane as Console chrome with the chat surface on", () => {
     Object.assign(H.state, {
       agents: [makeAgent({ id: "a1" })],
       validatedSelectedAgentId: "a1",
@@ -1387,15 +1398,19 @@ describe("AgentsView mobile chrome", () => {
       chatEnabled: true,
     });
     const view = mount({ path: "/agents/a1", isMobile: true });
-    // Default view is Chat: no terminal toolbar.
+    // Not a sibling row any more: the pane hosts it inside the Console layer,
+    // so its height never lands on the Chat view or the header.
     expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
+    expect(propsOf("AgentPane").consoleFooter).toBeTruthy();
 
+    // It stays handed over across the flip — mounting it on the view change
+    // is what used to resize the pane mid-transition.
     act(() => {
       (propsOf("AgentPane").onViewChange as (v: string) => void)("console");
     });
-    expect(renderedChildren()).toContain("MobileTerminalToolbar");
+    expect(propsOf("AgentPane").consoleFooter).toBeTruthy();
 
-    // Other tabs are not the Console either.
+    // Other tabs hide the pane, and the toolbar with it.
     H.state.changesMatch = true;
     view.rerender(tree("/agents/a1/changes", view.props));
     expect(renderedChildren()).not.toContain("MobileTerminalToolbar");
