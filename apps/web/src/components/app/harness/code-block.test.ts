@@ -1,6 +1,17 @@
 import { describe, expect, it } from "vitest";
 
-import { looksLikePathList, parseReadOutput, tryParseJson } from "./code-block";
+import {
+  COLLAPSED_LINES,
+  looksLikePathList,
+  parseReadOutput,
+  tryParseJson,
+} from "./code-block";
+
+describe("COLLAPSED_LINES", () => {
+  it("is a screenful", () => {
+    expect(COLLAPSED_LINES).toBeGreaterThan(10);
+  });
+});
 
 describe("parseReadOutput", () => {
   it("strips dsh's wrapper and the line-number prefixes into a start line", () => {

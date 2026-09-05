@@ -5,6 +5,7 @@ import { Bell } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
+import { PlainBlock } from "./code-block";
 import type { Attachment, Turn } from "./contracts";
 
 const CHIP_CLASS =
@@ -153,9 +154,12 @@ function NoticeLine({ notice }: { notice: DispatchNotice }): JSX.Element {
         ) : null}
       </button>
       {open ? (
-        <pre className="ml-[21px] mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border/40 bg-muted/40 p-2 font-terminal text-[11px] leading-[1.5] text-foreground/80">
-          {notice.body}
-        </pre>
+        <div className="ml-[21px] mt-1.5 text-foreground/80">
+          <PlainBlock
+            text={notice.body}
+            className="border border-border/40 !bg-muted/40"
+          />
+        </div>
       ) : null}
     </div>
   );

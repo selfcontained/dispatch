@@ -155,6 +155,27 @@ export function highlightCodeLanguage(
   }
 }
 
+/**
+ * The registered highlight.js language for a file name or fence language,
+ * or null when highlighting would fall back to auto-detection — callers
+ * that colour line by line want a definite language or none at all.
+ */
+export function resolveHighlightLanguage(input: {
+  fileName?: string;
+  language?: string;
+}): string | null {
+  const fromFile = input.fileName
+    ? EXT_TO_LANG[fileExtension(input.fileName)]
+    : undefined;
+  const requested = (fromFile ?? input.language)
+    ?.replace(/^language-/, "")
+    .trim()
+    .toLowerCase();
+  if (!requested) return null;
+  const normalized = FENCE_LANGUAGE_ALIASES[requested] ?? requested;
+  return hljs.getLanguage(normalized) ? normalized : null;
+}
+
 export function highlightCode(
   content: string,
   fileName: string

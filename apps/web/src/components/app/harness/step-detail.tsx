@@ -12,6 +12,7 @@ import {
   OutputBlock,
   parseReadOutput,
   PathList,
+  PlainBlock,
 } from "./code-block";
 import type { Step } from "./contracts";
 import { inputRecord, stepDetailData } from "./registry";
@@ -141,13 +142,13 @@ function Args({ input }: { input: unknown }): JSX.Element | null {
     rows.push([
       key,
       typeof value === "object" ? (
-        <JsonBlock value={value} maxHeight="max-h-40" />
+        <JsonBlock value={value} />
       ) : typeof value === "string" && value.includes("\n") ? (
-        <pre className="whitespace-pre-wrap rounded-md bg-background/60 p-2 font-terminal text-[11px] leading-[1.5]">
-          {value}
-        </pre>
+        <PlainBlock text={value} />
       ) : (
-        String(value)
+        <span className="break-words [overflow-wrap:anywhere]">
+          {String(value)}
+        </span>
       ),
     ]);
   }

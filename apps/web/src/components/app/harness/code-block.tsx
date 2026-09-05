@@ -1,8 +1,8 @@
-import { useMemo } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 
 import {
-  highlightCode,
   highlightCodeLanguage,
+  resolveHighlightLanguage,
 } from "@/components/app/media-lightbox-syntax";
 import { cn } from "@/lib/utils";
 
@@ -80,10 +80,70 @@ function escapeHtml(text: string): string {
     .replace(/>/g, "&gt;");
 }
 
+/** Lines beyond this are hidden until the block is expanded. */
+export const COLLAPSED_LINES = 24;
+
 /**
- * Highlighted code with an optional line-number gutter. The gutter is its
- * own column and the code never wraps, so highlight spans that cross lines
- * stay intact and the numbers stay aligned.
+ * Clips a long block to {@link COLLAPSED_LINES} rows with a "Show all"
+ * control, so the conversation keeps the only vertical scrollbar. The
+ * block never scrolls sideways: rows wrap.
+ */
+export function ExpandableBlock({
+  lineCount,
+  children,
+  className,
+  testId,
+}: {
+  lineCount: number;
+  children: ReactNode;
+  className?: string;
+  testId?: string;
+}): JSX.Element {
+  const [expanded, setExpanded] = useState(false);
+  const collapsible = lineCount > COLLAPSED_LINES;
+  const clipped = collapsible && !expanded;
+  return (
+    <div
+      className={cn("rounded-md bg-background/60", className)}
+      data-testid={testId}
+      data-expanded={collapsible ? String(expanded) : undefined}
+    >
+      <div
+        className={cn("relative", clipped && "max-h-80 overflow-hidden")}
+        style={
+          clipped
+            ? { maxHeight: `calc(${COLLAPSED_LINES} * 1.5 * 11px + 1rem)` }
+            : undefined
+        }
+      >
+        {children}
+        {clipped ? (
+          <div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-background/90 to-transparent"
+          />
+        ) : null}
+      </div>
+      {collapsible ? (
+        <button
+          type="button"
+          onClick={() => setExpanded((v) => !v)}
+          aria-expanded={expanded}
+          data-testid="harness-block-toggle"
+          className="w-full border-t border-border/40 px-2 py-1 text-left text-[10.5px] text-muted-foreground hover:text-foreground"
+        >
+          {expanded ? "Collapse" : `Show all ${lineCount} lines`}
+        </button>
+      ) : null}
+    </div>
+  );
+}
+
+/**
+ * Highlighted code with an optional line-number gutter. Each line is a
+ * grid row — number cell, code cell — so long lines wrap under their own
+ * number and nothing scrolls sideways. Lines are highlighted one at a
+ * time; a construct that spans lines loses its colour past the first.
  */
 export function CodeBlock({
   code,
@@ -91,7 +151,6 @@ export function CodeBlock({
   language,
   startLine,
   lineNumbers = startLine !== undefined,
-  maxHeight = "max-h-80",
 }: {
   code: string;
   /** Picks the language by extension. */
@@ -100,74 +159,91 @@ export function CodeBlock({
   language?: string;
   startLine?: number;
   lineNumbers?: boolean;
-  maxHeight?: string;
 }): JSX.Element {
-  const html = useMemo(() => {
-    const highlighted = fileName
-      ? highlightCode(code, fileName)
-      : language
-        ? highlightCodeLanguage(code, language)
-        : null;
-    return highlighted ?? escapeHtml(code);
+  const lines = useMemo(() => {
+    const raw = code === "" ? [] : code.split("\n");
+    const lang = resolveHighlightLanguage({ fileName, language });
+    return raw.map((line) =>
+      lang
+        ? (highlightCodeLanguage(line, lang) ?? escapeHtml(line))
+        : escapeHtml(line)
+    );
   }, [code, fileName, language]);
-  const count = code === "" ? 0 : code.split("\n").length;
   const first = startLine ?? 1;
   return (
-    <div
-      className={cn(
-        "flex overflow-auto rounded-md bg-background/60 font-terminal text-[11px] leading-[1.5]",
-        maxHeight
-      )}
-      data-testid="harness-code"
-    >
-      {lineNumbers && count > 0 ? (
-        <pre
+    <ExpandableBlock lineCount={lines.length} testId="harness-code">
+      <div
+        className={cn(
+          "hljs grid !bg-transparent py-2 font-terminal text-[11px] leading-[1.5]",
+          lineNumbers ? "grid-cols-[auto_1fr]" : "grid-cols-1"
+        )}
+      >
+        {lines.map((html, i) => (
+          <LineRow
+            key={i}
+            number={lineNumbers ? first + i : null}
+            html={html}
+          />
+        ))}
+      </div>
+    </ExpandableBlock>
+  );
+}
+
+function LineRow({
+  number,
+  html,
+}: {
+  number: number | null;
+  html: string;
+}): JSX.Element {
+  return (
+    <>
+      {number !== null ? (
+        <span
           aria-hidden="true"
-          className="sticky left-0 shrink-0 select-none border-r border-border/40 bg-background/60 py-2 pl-2 pr-2 text-right text-muted-foreground/60"
+          className="select-none pl-2 pr-3 text-right text-muted-foreground/60"
         >
-          {Array.from({ length: count }, (_, i) => first + i).join("\n")}
-        </pre>
+          {number}
+        </span>
       ) : null}
-      <pre className="hljs min-w-0 flex-1 !bg-transparent p-2">
-        <code dangerouslySetInnerHTML={{ __html: html }} />
-      </pre>
-    </div>
+      <code
+        className="min-w-0 whitespace-pre-wrap break-words pl-2 pr-2 [overflow-wrap:anywhere]"
+        dangerouslySetInnerHTML={{ __html: html || " " }}
+      />
+    </>
   );
 }
 
 /** Pretty-printed, highlighted JSON. */
-export function JsonBlock({
-  value,
-  maxHeight,
-}: {
-  value: unknown;
-  maxHeight?: string;
-}): JSX.Element {
+export function JsonBlock({ value }: { value: unknown }): JSX.Element {
   const text = useMemo(() => JSON.stringify(value, null, 2), [value]);
-  return <CodeBlock code={text} language="json" maxHeight={maxHeight} />;
+  return <CodeBlock code={text} language="json" />;
 }
 
 /** A list of paths: directory muted, file name bright. */
 export function PathList({ text }: { text: string }): JSX.Element {
   const paths = text.split("\n").filter((l) => l.trim() !== "");
   return (
-    <ul
-      className="max-h-80 overflow-auto rounded-md bg-background/60 p-2 font-terminal text-[11px] leading-[1.5]"
-      data-testid="harness-paths"
-    >
-      {paths.map((raw, i) => {
-        const p = raw.trim();
-        const idx = p.lastIndexOf("/");
-        const dir = idx >= 0 ? p.slice(0, idx + 1) : "";
-        const base = idx >= 0 ? p.slice(idx + 1) : p;
-        return (
-          <li key={`${p}:${i}`} className="whitespace-nowrap">
-            <span className="text-muted-foreground">{dir}</span>
-            <span className="text-foreground">{base}</span>
-          </li>
-        );
-      })}
-    </ul>
+    <ExpandableBlock lineCount={paths.length} testId="harness-paths">
+      <ul className="p-2 font-terminal text-[11px] leading-[1.5]">
+        {paths.map((raw, i) => {
+          const p = raw.trim();
+          const idx = p.lastIndexOf("/");
+          const dir = idx >= 0 ? p.slice(0, idx + 1) : "";
+          const base = idx >= 0 ? p.slice(idx + 1) : p;
+          return (
+            <li
+              key={`${p}:${i}`}
+              className="break-all [overflow-wrap:anywhere]"
+            >
+              <span className="text-muted-foreground">{dir}</span>
+              <span className="text-foreground">{base}</span>
+            </li>
+          );
+        })}
+      </ul>
+    </ExpandableBlock>
   );
 }
 
@@ -180,9 +256,26 @@ export function OutputBlock({
   if (!text?.trim()) return null;
   const json = tryParseJson(text);
   if (json !== null) return <JsonBlock value={json} />;
+  return <PlainBlock text={text} />;
+}
+
+/** Wrapped plain text, clipped past a screenful. */
+export function PlainBlock({
+  text,
+  className,
+}: {
+  text: string;
+  className?: string;
+}): JSX.Element {
   return (
-    <pre className="max-h-80 overflow-auto whitespace-pre-wrap rounded-md bg-background/60 p-2 font-terminal text-[11px] leading-[1.5]">
-      {text}
-    </pre>
+    <ExpandableBlock
+      lineCount={text.split("\n").length}
+      className={className}
+      testId="harness-plain"
+    >
+      <pre className="whitespace-pre-wrap break-words p-2 font-terminal text-[11px] leading-[1.5] [overflow-wrap:anywhere]">
+        {text}
+      </pre>
+    </ExpandableBlock>
   );
 }
