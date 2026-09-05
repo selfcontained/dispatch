@@ -19,7 +19,8 @@ import path from "node:path";
 import type { Pool } from "pg";
 
 import { getSetting, setSetting } from "../db/settings.js";
-import { isImageFile, resolveMediaDir } from "../shared/media.js";
+import { isImageFile } from "../shared/media-file-types.js";
+import { resolveMediaDir } from "../shared/media.js";
 
 import { probeImageFile } from "./image-dimensions.js";
 

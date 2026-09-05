@@ -1,4 +1,4 @@
-import { memo, type ReactNode } from "react";
+import { type CSSProperties, memo, type ReactNode } from "react";
 import type {
   ChatAgentMessageEntry,
   ChatAttachment,
@@ -62,6 +62,43 @@ function asEventType(type: string): EventType {
 
 function mediaFileUrl(agentId: string, fileName: string): string {
   return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
+}
+
+/**
+ * The box a feed image gets to occupy, given the natural size the server read
+ * off the file.
+ *
+ * Two constraints, both resolvable from the stored numbers alone — which is
+ * the whole point, since the box has to be the right height *before* the image
+ * loads or the feed moves under whoever is reading it:
+ *
+ *  - `aspect-ratio` makes the height follow from the width, so there is no
+ *    letterboxing and no dead space around a short or narrow image.
+ *  - `max-width` caps the width at whichever comes first: the image's own
+ *    natural width (never upscale a small thumbnail into a blurry banner) or
+ *    the width at which the ratio would push the height past `maxHeightPx`
+ *    (never let one tall screenshot take over the feed). Capping the *width*
+ *    rather than the height is what keeps the box flush around a tall image —
+ *    a `max-height` would clamp the frame and leave the image floating in it.
+ *
+ * `containerMax` is any CSS length the caller's own layout imposes; it is
+ * folded in here because an inline `max-width` would otherwise override the
+ * class that sets it. Returns undefined when dimensions are unknown, and the
+ * caller falls back to a fixed-height box.
+ */
+function imageBoxStyle(
+  width: number | undefined,
+  height: number | undefined,
+  maxHeightPx: number,
+  containerMax?: string
+): CSSProperties | undefined {
+  if (!width || !height) return undefined;
+  const widthAtMaxHeight = Math.round(maxHeightPx * (width / height));
+  const cap = `${Math.min(width, widthAtMaxHeight)}px`;
+  return {
+    aspectRatio: `${width} / ${height}`,
+    maxWidth: containerMax ? `min(${containerMax}, ${cap})` : cap,
+  };
 }
 
 /** "10:04 AM" — the wall-clock time a channel shows next to a post. */
@@ -562,6 +599,7 @@ function FileAttachment({
     isImageFile(attachment.fileName) ||
     (attachment.mimeType?.startsWith("image/") ?? false);
   if (isImage) {
+    const box = imageBoxStyle(attachment.width, attachment.height, 224);
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
         <div className="mb-1 truncate text-[11px] text-muted-foreground">
@@ -574,16 +612,27 @@ function FileAttachment({
           title={attachment.fileName}
         >
           {/*
-           * A fixed height, not a max: the image is lazy, so a box that
-           * sized itself to the file would be 0px until the image arrives
-           * and then shove everything below it down — which is what pushes
-           * a reader off the message they were on. Letterboxing a short
-           * image is the cheaper cost.
+           * The box is sized before the image loads, from the dimensions
+           * stored on the media row: the image is lazy, so a box that sized
+           * itself to the file would be 0px until the image arrives and then
+           * shove everything below it down — which is what pushes a reader
+           * off the message they were on. Rows with no stored dimensions keep
+           * the fixed height that shipped before them; it letterboxes, but it
+           * does not move.
            */}
           <img
             src={url}
             alt={attachment.fileName}
-            className="h-56 w-full bg-muted/30 object-scale-down"
+            className={cn(
+              // overflow-hidden matters only when the file is missing: a
+              // broken <img> lays out its alt text as content, and an
+              // aspect-ratio height is a preferred size that content can push
+              // past — which would move the feed. Clipping keeps the box the
+              // size that was reserved for it.
+              "w-full overflow-hidden bg-muted/30 object-scale-down",
+              !box && "h-56"
+            )}
+            style={box}
             loading="lazy"
           />
         </button>
@@ -1152,6 +1201,8 @@ export function MediaEntryView({
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
   const open = () => ctx.onOpenMedia(entry.mediaId);
   const isImage = isImageFile(entry.fileName);
+  // 20rem matches the max-w-xs this image carried before it had a ratio.
+  const box = imageBoxStyle(entry.width, entry.height, 256, "20rem");
   return (
     <Post
       author={agentAuthor(ctx, "Agent")}
@@ -1174,11 +1225,15 @@ export function MediaEntryView({
             {entry.fileName} · {formatBytes(entry.sizeBytes)}
           </span>
           {isImage ? (
-            /* Fixed height for the same reason as FileAttachment's. */
+            /* Sized ahead of load for the same reason as FileAttachment's. */
             <img
               src={url}
               alt={entry.description ?? entry.fileName}
-              className="mt-1.5 block h-64 w-full max-w-xs rounded-md border border-border bg-muted/30 object-scale-down transition-colors hover:border-foreground/30"
+              className={cn(
+                "mt-1.5 block w-full overflow-hidden rounded-md border border-border bg-muted/30 object-scale-down transition-colors hover:border-foreground/30",
+                box ? "max-w-full" : "h-64 max-w-xs"
+              )}
+              style={box}
               loading="lazy"
             />
           ) : null}
