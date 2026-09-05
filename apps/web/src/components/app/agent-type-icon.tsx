@@ -1,4 +1,6 @@
-import { Bot, Fish, Terminal as TerminalIcon } from "lucide-react";
+import { Bot, Terminal as TerminalIcon } from "lucide-react";
+
+import { useIconColor } from "@/hooks/use-icon-color";
 import { siClaude, siCursor } from "simple-icons";
 
 import { AGENT_TYPE_LABELS } from "@/lib/agent-types";
@@ -82,15 +84,11 @@ export function AgentTypeIcon({
   }
 
   if (normalizedType === "dsh") {
-    // DeepSeek Harness's own mark is a fish; the icon set has no brand glyph.
     return (
-      <span
+      <DispatchHarnessMark
         className={cn(baseClass, statusClass, className)}
-        title={`${label} agent`}
-        aria-label={`${label} agent`}
-      >
-        <Fish className="h-3.5 w-3.5" aria-hidden="true" />
-      </span>
+        label={label}
+      />
     );
   }
 
@@ -141,6 +139,34 @@ export function AgentTypeIcon({
         fill="currentColor"
         aria-hidden="true"
         dangerouslySetInnerHTML={{ __html: `<path d="${logoPath}" />` }}
+      />
+    </span>
+  );
+}
+
+/**
+ * The Dispatch Harness wears Dispatch's own brand mark, in the icon colour
+ * the user picked for the sidebar.
+ */
+function DispatchHarnessMark({
+  className,
+  label,
+}: {
+  className: string;
+  label: string;
+}): JSX.Element {
+  const { iconColor } = useIconColor();
+  return (
+    <span
+      className={className}
+      title={`${label} agent`}
+      aria-label={`${label} agent`}
+    >
+      <img
+        src={`/icons/${iconColor}/brand-icon.svg`}
+        alt=""
+        className="h-3.5 w-3.5 object-contain"
+        aria-hidden="true"
       />
     </span>
   );

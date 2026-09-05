@@ -121,7 +121,7 @@ const DIFF_SIGN: Record<DiffLine["kind"], string> = {
   del: "-",
 };
 
-function DiffBlock({
+export function DiffBlock({
   oldText,
   newText,
 }: {

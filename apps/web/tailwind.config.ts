@@ -70,6 +70,22 @@ export default {
           from: { opacity: "0", transform: "translateY(3px)" },
           to: { opacity: "1", transform: "translateY(0)" },
         },
+        // Harness view (PromptKit port): a step row sliding into the rail.
+        "harness-row": {
+          from: { opacity: "0", transform: "translateY(-2px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        // A settled result turn fading in.
+        "harness-msg": {
+          from: { opacity: "0", transform: "translateY(2px)" },
+          to: { opacity: "1", transform: "translateY(0)" },
+        },
+        // The ✓ glyph landing on a completed step.
+        "harness-pop": {
+          "0%": { transform: "scale(0.6)", opacity: "0" },
+          "60%": { transform: "scale(1.15)", opacity: "1" },
+          "100%": { transform: "scale(1)", opacity: "1" },
+        },
         "mobile-toolbar-flash": {
           "0%": {
             backgroundColor: "rgba(255,255,255,0.06)",
@@ -92,6 +108,9 @@ export default {
         "mobile-toolbar-flash": "mobile-toolbar-flash 420ms ease-out forwards",
         // A feed entry arriving after the initial render (see ChatFeed).
         "chat-enter": "chat-enter 200ms ease-out both",
+        "harness-row": "harness-row 180ms ease-out both",
+        "harness-msg": "harness-msg 220ms ease-out both",
+        "harness-pop": "harness-pop 260ms cubic-bezier(0.2, 0.7, 0.2, 1) both",
       },
     },
   },

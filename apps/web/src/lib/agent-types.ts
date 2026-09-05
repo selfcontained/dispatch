@@ -21,7 +21,7 @@ export const AGENT_TYPE_LABELS: Record<AgentType, string> = {
   codex: "Codex",
   cursor: "Cursor",
   opencode: "OpenCode",
-  dsh: "DSH",
+  dsh: "Dispatch",
   terminal: "Terminal",
 };
 
