@@ -76,6 +76,97 @@ export function filterChildAgentMessages(
 /** How close to the bottom (px) still counts as "following" the feed. */
 const FOLLOW_THRESHOLD_PX = 48;
 
+/**
+ * Where a reader was in one agent's feed.
+ *
+ * ChatPane is keyed by agent id (see AgentPane), so switching agents
+ * unmounts it and its scroll position goes with it: the feed always
+ * reopened pinned to the newest message, and anyone reading back through
+ * history had to walk down to their place again. This remembers the row
+ * they were parked on instead.
+ *
+ * A module-level map rather than state or an atom: nothing re-renders when
+ * it changes. It is read once at mount and written from a scroll handler,
+ * and it is deliberately session-scoped — reopening the app should land on
+ * the newest message, not on wherever yesterday ended.
+ */
+export type ChatScrollPosition = {
+  /** At the bottom on the way out: reopen following the feed. */
+  following: boolean;
+  /** The row at the top of the viewport, and where its top edge sat. */
+  entryId: string | null;
+  offset: number;
+};
+
+/** Bounded so a long session's agent hopping can't grow it without end. */
+const SCROLL_MEMORY_LIMIT = 50;
+const scrollPositions = new Map<string, ChatScrollPosition>();
+
+export function rememberChatScrollPosition(
+  agentId: string,
+  position: ChatScrollPosition
+): void {
+  // Re-inserting makes this the newest key, so the eviction below drops the
+  // agent nobody has looked at in longest.
+  scrollPositions.delete(agentId);
+  scrollPositions.set(agentId, position);
+  if (scrollPositions.size > SCROLL_MEMORY_LIMIT) {
+    const oldest = scrollPositions.keys().next();
+    if (!oldest.done) scrollPositions.delete(oldest.value);
+  }
+}
+
+export function readChatScrollPosition(
+  agentId: string | null
+): ChatScrollPosition | null {
+  return agentId ? (scrollPositions.get(agentId) ?? null) : null;
+}
+
+/** Tests share the module with each other; let them start clean. */
+export function clearChatScrollMemory(): void {
+  scrollPositions.clear();
+}
+
+function entryNodes(el: HTMLElement): HTMLElement[] {
+  return [...el.querySelectorAll<HTMLElement>("[data-chat-entry-id]")];
+}
+
+/**
+ * The first row not entirely above the viewport — what the reader is
+ * looking at — and how far its top edge sits from the top of the viewport.
+ * Measured from rects so it does not depend on the offset parent.
+ */
+function topVisibleEntry(
+  el: HTMLElement
+): { entryId: string; offset: number } | null {
+  const top = el.getBoundingClientRect().top;
+  for (const node of entryNodes(el)) {
+    const rect = node.getBoundingClientRect();
+    if (rect.bottom > top) {
+      const entryId = node.dataset.chatEntryId;
+      if (entryId) return { entryId, offset: rect.top - top };
+    }
+  }
+  return null;
+}
+
+/** Puts `entryId` back where it was; false when that row is no longer here. */
+function scrollToEntry(
+  el: HTMLElement,
+  entryId: string,
+  offset: number
+): boolean {
+  const node = entryNodes(el).find((n) => n.dataset.chatEntryId === entryId);
+  if (!node) return false;
+  const delta =
+    node.getBoundingClientRect().top - el.getBoundingClientRect().top - offset;
+  el.scrollTop += delta;
+  return true;
+}
+
+/** How long the feed sits still before its position is worth recording. */
+const REMEMBER_DELAY_MS = 150;
+
 /** First line of a question, plain enough for a one-line chip. */
 export function questionExcerpt(text: string, max = 80): string {
   const line =
@@ -163,17 +254,58 @@ export function ChatPane({
 
   // ---- scroll: follow the bottom unless the user scrolled up ---------------
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [following, setFollowing] = useState(true);
+  const savedPositionRef = useRef(readChatScrollPosition(agentId));
+  const [following, setFollowing] = useState(
+    () => savedPositionRef.current?.following ?? true
+  );
   const [pendingBelow, setPendingBelow] = useState(false);
   const lastEntryIdRef = useRef<string | null>(null);
   const lastShowChildAgentsRef = useRef(showChildAgents);
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
+  const restoredRef = useRef(false);
+  const rememberTimerRef = useRef<number | null>(null);
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const el = scrollRef.current;
     if (!el) return;
     el.scrollTo({ top: el.scrollHeight, behavior });
   }, []);
+
+  // Reading every row's rect is too much for a scroll event, so the
+  // position is recorded once the feed settles.
+  const remember = useCallback(() => {
+    const el = scrollRef.current;
+    if (!el || !agentId) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    const top = topVisibleEntry(el);
+    rememberChatScrollPosition(agentId, {
+      following: distance <= FOLLOW_THRESHOLD_PX,
+      entryId: top?.entryId ?? null,
+      offset: top?.offset ?? 0,
+    });
+  }, [agentId]);
+
+  // Once when a scroll starts and again when it settles. The trailing pass
+  // is the accurate one; the leading pass is there because the pane can be
+  // unmounted mid-scroll — measuring then is too late, the feed is already
+  // detached and every row measures zero.
+  const rememberSoon = useCallback(() => {
+    if (rememberTimerRef.current === null) remember();
+    else window.clearTimeout(rememberTimerRef.current);
+    rememberTimerRef.current = window.setTimeout(() => {
+      rememberTimerRef.current = null;
+      remember();
+    }, REMEMBER_DELAY_MS);
+  }, [remember]);
+
+  useEffect(
+    () => () => {
+      if (rememberTimerRef.current !== null) {
+        window.clearTimeout(rememberTimerRef.current);
+      }
+    },
+    []
+  );
 
   const onScroll = useCallback(() => {
     const el = scrollRef.current;
@@ -182,7 +314,8 @@ export function ChatPane({
     const atBottom = distance <= FOLLOW_THRESHOLD_PX;
     setFollowing(atBottom);
     if (atBottom) setPendingBelow(false);
-  }, []);
+    rememberSoon();
+  }, [rememberSoon]);
 
   const { loadOlder: fetchOlder } = feed;
   const loadOlder = useCallback(() => {
@@ -216,6 +349,21 @@ export function ChatPane({
     const appended = lastId !== lastEntryIdRef.current;
     lastEntryIdRef.current = lastId;
     if (!appended) return;
+    // The feed's first rows: put the reader back where they left this
+    // agent, or open at the newest when there is nowhere to go back to.
+    if (!restoredRef.current) {
+      restoredRef.current = true;
+      const saved = savedPositionRef.current;
+      const restored =
+        saved !== null &&
+        !saved.following &&
+        saved.entryId !== null &&
+        scrollToEntry(el, saved.entryId, saved.offset);
+      if (restored) return;
+      setFollowing(true);
+      scrollToBottom();
+      return;
+    }
     if (following) {
       scrollToBottom();
     } else {
@@ -223,9 +371,16 @@ export function ChatPane({
     }
   }, [following, scrollToBottom, showChildAgents, visibleEntries]);
 
-  // Agent switch: start at the bottom again.
+  // Agent switch. AgentPane keys this pane by agent id, so in practice a
+  // switch remounts it and the state above is already fresh; this covers
+  // the same instance being handed a different agent.
+  const shownAgentRef = useRef(agentId);
   useEffect(() => {
-    setFollowing(true);
+    if (shownAgentRef.current === agentId) return;
+    shownAgentRef.current = agentId;
+    savedPositionRef.current = readChatScrollPosition(agentId);
+    restoredRef.current = false;
+    setFollowing(savedPositionRef.current?.following ?? true);
     setPendingBelow(false);
     lastEntryIdRef.current = null;
     olderLoadRef.current = null;
