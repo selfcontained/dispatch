@@ -32,6 +32,8 @@ export type HarnessStep = {
     diff?: { path: string; oldText: string | null; newText: string } | null;
     terminalOutput?: string | null;
     truncated?: boolean;
+    /** The tool call's raw input (dsh sends the model's arguments). */
+    input?: unknown;
     /** note and think steps: the full text. */
     text?: string;
   };
@@ -51,3 +53,13 @@ export type HarnessTurn = {
 };
 
 export type HarnessTurnsResponse = { turns: HarnessTurn[] };
+
+/** A skill the harness can load; the composer's slash menu lists them. */
+export type HarnessSkill = {
+  name: string;
+  description: string;
+  /** project: under the working tree; home: the harness home directory. */
+  source: "project" | "home";
+};
+
+export type HarnessSkillsResponse = { skills: HarnessSkill[] };

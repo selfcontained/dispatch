@@ -26,6 +26,13 @@ const state: {
   error: null,
 };
 
+vi.mock("./use-harness-skills", () => ({
+  harnessSkillsQueryKey: (agentId: string | null) => [
+    "harness-skills",
+    agentId,
+  ],
+  useHarnessSkills: () => [],
+}));
 vi.mock("./use-harness-turns", () => ({
   harnessTurnsQueryKey: (agentId: string | null) => ["harness-turns", agentId],
   useHarnessTurns: () => state,

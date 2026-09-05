@@ -211,3 +211,46 @@ describe("ChatComposer", () => {
     expect(send.className).toContain("pointer-coarse:m-0");
   });
 });
+
+describe("ChatComposer slash menu", () => {
+  const items = [
+    { name: "brain", description: "Shared memory" },
+    { name: "jobs", description: "Recurring jobs" },
+    { name: "review-workflow", description: "Persona reviews" },
+  ];
+
+  it("opens on a leading slash, filters, and fills the pick", () => {
+    const { onSend, input } = renderComposer({ slashItems: items });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(3);
+    fireEvent.change(input, { target: { value: "/re" } });
+    const options = screen.getAllByTestId("chat-composer-slash-item");
+    expect(options.map((o) => o.textContent)).toEqual([
+      "/review-workflowPersona reviews",
+    ]);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("/review-workflow ");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("moves with the arrow keys and closes on Escape", () => {
+    const { input } = renderComposer({ slashItems: items });
+    fireEvent.change(input, { target: { value: "/" } });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    const options = screen.getAllByTestId("chat-composer-slash-item");
+    expect(options[1].getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+    // A plain Enter now sends the text as typed.
+    fireEvent.change(input, { target: { value: "/jobs list" } });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("stays closed without items or once a space follows the name", () => {
+    const { input } = renderComposer();
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+});

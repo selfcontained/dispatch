@@ -38,6 +38,13 @@ vi.mock("@/hooks/use-chat", () => ({
   }),
   useMarkChatRead: () => vi.fn(),
 }));
+vi.mock("@/components/app/harness/use-harness-skills", () => ({
+  harnessSkillsQueryKey: (agentId: string | null) => [
+    "harness-skills",
+    agentId,
+  ],
+  useHarnessSkills: () => [],
+}));
 vi.mock("@/components/app/harness/use-harness-turns", () => ({
   harnessTurnsQueryKey: (agentId: string | null) => ["harness-turns", agentId],
   useHarnessTurns: () => ({
@@ -357,18 +364,22 @@ describe("AgentPane", () => {
 });
 
 describe("AgentViewToggle with the Harness segment", () => {
-  it("renders three segments and reports a pick of Harness", () => {
+  it("replaces Chat with Harness and reports a pick of Console", () => {
     const onViewChange = vi.fn();
     render(
-      <AgentViewToggle view="chat" onViewChange={onViewChange} harnessEnabled />
+      <AgentViewToggle
+        view="harness"
+        onViewChange={onViewChange}
+        harnessEnabled
+      />
     );
     const harness = screen.getByTestId("agent-view-harness");
-    expect(harness.getAttribute("data-state")).toBe("off");
-    expect(
-      screen.getByTestId("agent-view-chat").getAttribute("data-state")
-    ).toBe("on");
-    fireEvent.click(harness);
-    expect(onViewChange).toHaveBeenCalledWith("harness");
+    expect(harness.getAttribute("data-state")).toBe("on");
+    expect(screen.queryByTestId("agent-view-chat")).toBeNull();
+    const consoleSeg = screen.getByTestId("agent-view-console");
+    expect(consoleSeg.getAttribute("data-state")).toBe("off");
+    fireEvent.click(consoleSeg);
+    expect(onViewChange).toHaveBeenCalledWith("console");
   });
 
   it("has no Harness segment for other agents", () => {
@@ -378,11 +389,17 @@ describe("AgentViewToggle with the Harness segment", () => {
 });
 
 describe("AgentPane with the Harness view", () => {
-  it("shows the Harness pane and hides Chat and Console under it", () => {
+  it("shows the Harness pane over a hidden Console, with no Chat mounted", () => {
     renderPane({ harnessEnabled: true, view: "harness" });
     expect(isHidden(screen.getByTestId("agent-pane-harness"))).toBe(false);
     expect(screen.getByTestId("harness-pane")).toBeTruthy();
-    expect(isHidden(screen.getByTestId("agent-pane-chat"))).toBe(true);
+    expect(screen.queryByTestId("agent-pane-chat")).toBeNull();
+    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(true);
+  });
+
+  it("treats a stored Chat preference as Harness for a harness agent", () => {
+    renderPane({ harnessEnabled: true, view: "chat" });
+    expect(isHidden(screen.getByTestId("agent-pane-harness"))).toBe(false);
     expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(true);
   });
 

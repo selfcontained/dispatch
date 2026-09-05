@@ -59,7 +59,7 @@ test.describe("dsh agent", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("opens on the Harness view, runs a turn there, and mirrors it in Chat", async ({
+  test("opens on the Harness view and runs a turn there", async ({
     page,
     request,
   }) => {
@@ -102,17 +102,9 @@ test.describe("dsh agent", () => {
     await expect(result).toContainText("You said:", { timeout: 30_000 });
     await expect(result).toContainText("hello harness");
 
-    // The same turn is in the Chat tab.
-    await page.getByTestId("agent-view-chat").click();
-    const pane = page.getByTestId("chat-pane");
-    await expect(pane).toBeVisible();
-    await expect(pane.getByTestId("chat-activity").last()).toContainText(
-      "Read README.md",
-      { timeout: 30_000 }
-    );
-    const assistant = pane.getByTestId("chat-assistant").last();
-    await expect(assistant).toContainText("You said:", { timeout: 30_000 });
-    await expect(assistant).toContainText("hello harness");
+    // Harness stands in for Chat: the toggle is Harness | Console.
+    await expect(page.getByTestId("agent-view-chat")).toHaveCount(0);
+    await expect(page.getByTestId("agent-view-console")).toBeVisible();
 
     await expect
       .poll(

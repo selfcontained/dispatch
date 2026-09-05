@@ -26,6 +26,8 @@ export type ToolPayload = {
   terminalOutput: string | null;
   /** Set when terminal output or the diff hit the per-row size bound. */
   truncated?: boolean;
+  /** Raw tool input from the stream (`rawInput`), bounded; see boundInput. */
+  input?: unknown;
 };
 export type StatusPayload = { message: string };
 /** One harness turn: written at start, settled in place. */

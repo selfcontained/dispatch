@@ -822,6 +822,7 @@ async function registerRoutes() {
 
   await registerAgentRoutes(app, {
     pool,
+    dshHome: config.dshHome,
     appLog: app.log,
     agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),

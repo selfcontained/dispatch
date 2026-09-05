@@ -4,17 +4,21 @@ import { cn } from "@/lib/utils";
 
 import type { Step, StepStatus } from "./contracts";
 import { formatStepDuration } from "./format";
-import { kindLabel, stepSummary } from "./registry";
+import { hasDetail, stepLabel, stepSummary, toolName } from "./registry";
 import { StepDetail } from "./step-detail";
 import { useStreamTicker } from "./use-stream-ticker";
 
-const STATUS_ARIA: Record<StepStatus, string> = {
+const STATUS_ARIA: Record<StatusStatusKey, string> = {
   running: "running",
   ok: "completed",
   retry: "retrying",
   error: "failed",
   skipped: "skipped",
 };
+type StatusStatusKey = StepStatus;
+
+const ROW_CLASS =
+  "flex w-full items-center gap-[9px] py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50";
 
 /** One step in the activity rail: glyph, label, summary, duration, toggle. */
 export function StepRow({
@@ -30,69 +34,95 @@ export function StepRow({
   maskClass: string;
 }): JSX.Element {
   const running = step.status === "running";
-  // Done steps show their one-line summary; running steps animate dots instead.
+  // Only a step with something underneath gets a toggle.
+  const expandable = hasDetail(step);
+  const expanded = expandable && open;
+  const label = stepLabel(step);
+  const server = step.label ? toolName(step.label).server : undefined;
   const summary = running ? undefined : stepSummary(step);
-  // An explicit step.label wins over the registry's kind label.
-  const label = (step.label || kindLabel(step.kind)).toLowerCase();
+  const inner = (
+    <>
+      <StatusGlyph status={step.status} maskClass={maskClass} />
+      <span
+        className={cn(
+          "shrink-0 truncate text-[12px]",
+          running
+            ? "font-medium text-status-working"
+            : "font-normal text-foreground"
+        )}
+      >
+        {label}
+        {server ? (
+          <span className="ml-1 text-[10px] text-muted-foreground">
+            {server}
+          </span>
+        ) : null}
+        {step.attempt && step.attempt > 0 ? (
+          <span className="ml-1 text-muted-foreground">·{step.attempt}</span>
+        ) : null}
+      </span>
+      {running ? (
+        <RunningDots />
+      ) : summary ? (
+        <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
+          — {summary}
+        </span>
+      ) : (
+        <span className="flex-1" />
+      )}
+      {step.durMs ? (
+        <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
+          {formatStepDuration(step.durMs)}
+        </span>
+      ) : running ? (
+        <LiveDuration startedAt={step.startedAt} />
+      ) : null}
+      <span
+        aria-hidden="true"
+        className={cn(
+          "w-2 shrink-0 text-[9px] text-muted-foreground/70",
+          !expandable && "invisible"
+        )}
+      >
+        {expanded ? "⏷" : "⏵"}
+      </span>
+    </>
+  );
   return (
     <div
       className="animate-harness-row motion-reduce:animate-none"
       role="listitem"
       aria-live={running ? "polite" : undefined}
+      data-testid="harness-step"
+      data-expandable={expandable ? "true" : "false"}
     >
-      <button
-        type="button"
-        onClick={onToggle}
-        aria-expanded={open}
-        aria-label={`${label}, ${STATUS_ARIA[step.status]}`}
-        className="flex w-full items-center gap-[9px] py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50"
-      >
-        <StatusGlyph status={step.status} maskClass={maskClass} />
-        <span
-          className={cn(
-            "shrink-0 truncate text-[12px]",
-            running
-              ? "font-medium text-status-working"
-              : "font-normal text-foreground"
-          )}
+      {expandable ? (
+        <button
+          type="button"
+          onClick={onToggle}
+          aria-expanded={expanded}
+          aria-label={`${label}, ${STATUS_ARIA[step.status]}`}
+          className={ROW_CLASS}
         >
-          {label}
-          {step.attempt && step.attempt > 0 ? (
-            <span className="ml-1 text-muted-foreground">·{step.attempt}</span>
-          ) : null}
-        </span>
-        {running ? (
-          <RunningDots />
-        ) : summary ? (
-          <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-            — {summary}
-          </span>
-        ) : (
-          <span className="flex-1" />
-        )}
-        {step.durMs ? (
-          <span className="shrink-0 text-[10.5px] tabular-nums text-muted-foreground">
-            {formatStepDuration(step.durMs)}
-          </span>
-        ) : running ? (
-          <LiveDuration startedAt={step.startedAt} />
-        ) : null}
-        <span
-          aria-hidden="true"
-          className="shrink-0 text-[9px] text-muted-foreground/70"
+          {inner}
+        </button>
+      ) : (
+        <div
+          className={cn(ROW_CLASS, "cursor-default")}
+          aria-label={`${label}, ${STATUS_ARIA[step.status]}`}
         >
-          {open ? "⏷" : "⏵"}
-        </span>
-      </button>
+          {inner}
+        </div>
+      )}
       {/* grid-rows 0fr->1fr height animation */}
       <div
         className={cn(
           "grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] motion-reduce:transition-none",
-          open ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
+          expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
         )}
       >
         <div className="overflow-hidden">
-          {open ? <StepDetail step={step} /> : null}
+          {expanded ? <StepDetail step={step} /> : null}
         </div>
       </div>
     </div>

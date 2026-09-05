@@ -8,6 +8,7 @@ import { useSendChatMessage } from "@/hooks/use-chat";
 import { uploadAgentMedia } from "@/lib/media-upload";
 
 import { TurnStream } from "./turn-stream";
+import { useHarnessSkills } from "./use-harness-skills";
 import { harnessTurnsQueryKey, useHarnessTurns } from "./use-harness-turns";
 
 export type HarnessPaneProps = {
@@ -33,6 +34,7 @@ export function HarnessPane({
   const { turns, liveTrace, liveText, streaming, loading, error } =
     useHarnessTurns(agentId);
   const send = useSendChatMessage(agentId);
+  const skills = useHarnessSkills(agentId);
   const { mutateAsync: sendAsync } = send;
   const [sendError, setSendError] = useState<string | null>(null);
 
@@ -110,6 +112,7 @@ export function HarnessPane({
           disabledReason={disabledReason}
           sending={send.isPending}
           autoFocus={active && !isMobile}
+          slashItems={skills}
         />
       </div>
     </div>

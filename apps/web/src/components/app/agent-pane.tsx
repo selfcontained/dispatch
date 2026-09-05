@@ -46,15 +46,10 @@ export function AgentViewToggle({
   showChildAgents = true,
   onShowChildAgentsChange,
 }: AgentViewToggleProps): JSX.Element {
-  const showUnread = view !== "chat" && chatUnreadCount > 0;
-  // Segment index the indicator sits under.
-  const segments = harnessEnabled ? 3 : 2;
-  const position =
-    view === "console"
-      ? segments - 1
-      : view === "chat" && harnessEnabled
-        ? 1
-        : 0;
+  const showUnread =
+    !harnessEnabled && view === "console" && chatUnreadCount > 0;
+  // Two segments either way: Harness | Console, or Chat | Console.
+  const position = view === "console" ? 1 : 0;
   const filtersLabel = showChildAgents
     ? "Chat filters"
     : "Chat filters, child-agent messages hidden";
@@ -73,10 +68,10 @@ export function AgentViewToggle({
         data-testid="agent-view-toggle"
         data-view={view}
         className={cn(
-          "relative isolate grid h-6 border-0 bg-transparent p-0 shadow-none pointer-coarse:h-11",
+          "relative isolate grid h-6 grid-cols-2 border-0 bg-transparent p-0 shadow-none pointer-coarse:h-11",
           harnessEnabled
-            ? "w-[12rem] grid-cols-3 sm:w-[13rem]"
-            : "w-[7.75rem] grid-cols-2 sm:w-[8.5rem]"
+            ? "w-[8.75rem] sm:w-[9.5rem]"
+            : "w-[7.75rem] sm:w-[8.5rem]"
         )}
       >
         <span
@@ -89,11 +84,8 @@ export function AgentViewToggle({
           data-testid="agent-view-indicator"
           className={cn(
             "pointer-events-none absolute left-0.5 top-1/2 z-0 h-5 -translate-y-1/2 rounded-full bg-primary shadow transition-transform duration-200 ease-out motion-reduce:transition-none",
-            harnessEnabled
-              ? "w-[calc(33.333%-0.25rem)]"
-              : "w-[calc(50%-0.25rem)]",
-            position === 1 && "translate-x-[calc(100%+0.25rem)]",
-            position === 2 && "translate-x-[calc(200%+0.5rem)]"
+            "w-[calc(50%-0.25rem)]",
+            position === 1 && "translate-x-[calc(100%+0.25rem)]"
           )}
         />
         {harnessEnabled ? (
@@ -106,25 +98,26 @@ export function AgentViewToggle({
             <Activity className="h-2.5 w-2.5" />
             Harness
           </ToggleGroupItem>
-        ) : null}
-        <ToggleGroupItem
-          value="chat"
-          aria-label="Chat"
-          data-testid="agent-view-chat"
-          className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
-        >
-          <MessageSquare className="h-2.5 w-2.5" />
-          Chat
-          {showUnread ? (
-            <span
-              data-testid="agent-view-chat-unread"
-              aria-label={`${chatUnreadCount} unread chat messages`}
-              className="ml-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
-            >
-              {formatBadgeCount(chatUnreadCount)}
-            </span>
-          ) : null}
-        </ToggleGroupItem>
+        ) : (
+          <ToggleGroupItem
+            value="chat"
+            aria-label="Chat"
+            data-testid="agent-view-chat"
+            className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
+          >
+            <MessageSquare className="h-2.5 w-2.5" />
+            Chat
+            {showUnread ? (
+              <span
+                data-testid="agent-view-chat-unread"
+                aria-label={`${chatUnreadCount} unread chat messages`}
+                className="ml-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+              >
+                {formatBadgeCount(chatUnreadCount)}
+              </span>
+            ) : null}
+          </ToggleGroupItem>
+        )}
         <ToggleGroupItem
           value="console"
           aria-label="Console"
@@ -263,8 +256,10 @@ export function AgentPane({
   onOpenReview,
   isMobile,
 }: AgentPaneProps): JSX.Element {
-  const harnessShown = chatEnabled && harnessEnabled && view === "harness";
-  const chatShown = chatEnabled && view === "chat";
+  // For a harness agent the Harness view stands in for Chat: a stored
+  // "chat" preference (or the default) lands on Harness.
+  const harnessShown = chatEnabled && harnessEnabled && view !== "console";
+  const chatShown = chatEnabled && !harnessEnabled && view === "chat";
   const consoleShown = !harnessShown && !chatShown;
   return (
     <div
@@ -305,7 +300,7 @@ export function AgentPane({
           />
         </div>
       ) : null}
-      {chatEnabled ? (
+      {chatEnabled && !harnessEnabled ? (
         <div
           className={cn(
             "min-h-0 min-w-0 max-w-full flex-1 overflow-hidden",

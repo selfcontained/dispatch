@@ -27,9 +27,12 @@ export function useAgentPaneView(
   // the default rather than as a view nothing renders.
   // "harness" stored for an agent that cannot render it (a type change is
   // impossible, but storage is user-editable) falls back the same way.
+  const harness = agentSupportsHarness(agentType);
   const view: AgentPaneView =
     isAgentPaneView(stored) &&
-    (stored !== "harness" || agentSupportsHarness(agentType))
+    (stored !== "harness" || harness) &&
+    // A harness agent has no Chat view; its stored "chat" reads as Harness.
+    (stored !== "chat" || !harness)
       ? stored
       : defaultAgentPaneView(agentType);
   const setView = useCallback(

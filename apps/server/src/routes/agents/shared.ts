@@ -19,6 +19,8 @@ export const CLAUDE_FULL_ACCESS_ARG = "--dangerously-skip-permissions";
 
 export type AgentRouteDeps = {
   pool: Pool;
+  /** The harness home (DSH_HOME); its skills dir feeds the slash menu. */
+  dshHome: string;
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;
   publishUiEvent: (event: unknown) => void;

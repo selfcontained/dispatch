@@ -83,7 +83,36 @@ export type ChatComposerProps = {
    * plain message. The × lets the user opt out and send a plain message.
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
+  /**
+   * Slash-menu entries. Typing "/" as the first character opens a picker
+   * over them; picking one puts "/<name> " in the field. Nothing is sent
+   * on its own — the host decides what a "/name" message means.
+   */
+  slashItems?: SlashItem[];
 };
+
+export type SlashItem = { name: string; description?: string };
+
+const SLASH_MENU_MAX = 8;
+
+/** The "/query" the field holds while the menu should be open, else null. */
+export function slashQuery(text: string): string | null {
+  const m = /^\/([^\s/]*)$/.exec(text);
+  return m ? m[1] : null;
+}
+
+export function filterSlashItems(
+  items: SlashItem[],
+  query: string
+): SlashItem[] {
+  const q = query.toLowerCase();
+  const names = items.map((i) => [i, i.name.toLowerCase()] as const);
+  const starts = names.filter(([, n]) => n.startsWith(q)).map(([i]) => i);
+  const contains = names
+    .filter(([, n]) => !n.startsWith(q) && n.includes(q))
+    .map(([i]) => i);
+  return [...starts, ...contains].slice(0, SLASH_MENU_MAX);
+}
 
 /** What is kept of a live file across a reload: its identity, and a paste's text. */
 function describeFile(file: File, pasted?: string): ChatDraftFile {
@@ -174,6 +203,7 @@ export function ChatComposer({
   placeholder = "Message the agent…",
   autoFocus = false,
   replyContext = null,
+  slashItems,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -205,6 +235,26 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Slash menu: open while the field is exactly "/<partial>", closed by
+  // Escape until the text changes again.
+  const [slashDismissed, setSlashDismissed] = useState<string | null>(null);
+  const [slashIndex, setSlashIndex] = useState(0);
+  const query = slashItems?.length ? slashQuery(text) : null;
+  const slashOpen = query !== null && slashDismissed !== text;
+  const slashMatches = useMemo(
+    () => (slashOpen ? filterSlashItems(slashItems ?? [], query) : []),
+    [slashOpen, slashItems, query]
+  );
+  const slashActive =
+    slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
+  const pickSlash = useCallback(
+    (item: SlashItem) => {
+      setText(`/${item.name} `);
+      setSlashIndex(0);
+      requestAnimationFrame(() => textareaRef.current?.focus());
+    },
+    [setText]
+  );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledReason !== null;
   const trimmed = text.trim();
@@ -602,13 +652,37 @@ export function ChatComposer({
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      if (slashMatches.length > 0) {
+        if (event.key === "ArrowDown") {
+          event.preventDefault();
+          setSlashIndex((i) => (i + 1) % slashMatches.length);
+          return;
+        }
+        if (event.key === "ArrowUp") {
+          event.preventDefault();
+          setSlashIndex(
+            (i) => (i - 1 + slashMatches.length) % slashMatches.length
+          );
+          return;
+        }
+        if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
+          event.preventDefault();
+          pickSlash(slashMatches[slashActive]);
+          return;
+        }
+        if (event.key === "Escape") {
+          event.preventDefault();
+          setSlashDismissed(text);
+          return;
+        }
+      }
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
       if (event.nativeEvent.isComposing) return;
       event.preventDefault();
       submit();
     },
-    [submit]
+    [pickSlash, slashActive, slashMatches, submit, text]
   );
 
   const uploadingName = fileViews.find(
@@ -631,7 +705,7 @@ export function ChatComposer({
     >
       <div
         className={cn(
-          "rounded-lg border bg-card/70 transition-colors",
+          "relative rounded-lg border bg-card/70 transition-colors",
           disabled
             ? "border-border opacity-70"
             : draggingFiles
@@ -639,6 +713,41 @@ export function ChatComposer({
               : "border-border focus-within:border-foreground/30 hover:border-foreground/20"
         )}
       >
+        {slashMatches.length > 0 ? (
+          <div
+            role="listbox"
+            aria-label="Slash commands"
+            data-testid="chat-composer-slash-menu"
+            className="absolute bottom-full left-0 z-20 mb-1 w-full max-w-md overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+          >
+            {slashMatches.map((item, i) => (
+              <button
+                key={item.name}
+                type="button"
+                role="option"
+                aria-selected={i === slashActive}
+                data-testid="chat-composer-slash-item"
+                onMouseDown={(event) => {
+                  // Keep the field's focus; a click picks like Enter does.
+                  event.preventDefault();
+                  pickSlash(item);
+                }}
+                onMouseEnter={() => setSlashIndex(i)}
+                className={cn(
+                  "flex w-full items-baseline gap-2 px-2.5 py-1.5 text-left text-xs",
+                  i === slashActive ? "bg-accent text-accent-foreground" : ""
+                )}
+              >
+                <span className="shrink-0 font-terminal">/{item.name}</span>
+                {item.description ? (
+                  <span className="min-w-0 truncate text-[11px] text-muted-foreground">
+                    {item.description}
+                  </span>
+                ) : null}
+              </button>
+            ))}
+          </div>
+        ) : null}
         {replyContext && !disabled ? (
           <div className="px-2 pt-2">
             <div

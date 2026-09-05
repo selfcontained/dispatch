@@ -6,17 +6,13 @@ import { DiffBlock } from "@/components/app/chat/stream-entries";
 import { Markdown } from "@/components/ui/markdown";
 
 import type { Step } from "./contracts";
-import { stepDetailData, stepSummary } from "./registry";
+import { inputRecord, stepDetailData, unwrapReadOutput } from "./registry";
 
 /** The body under an expanded step, chosen by the step's kind. */
 export function StepDetail({ step }: { step: Step }): JSX.Element {
-  const summary = stepSummary(step);
   const d = stepDetailData(step);
   return (
     <div className="space-y-2.5 pl-[21px] pt-1 text-foreground/80">
-      {summary ? (
-        <p className="text-[11px] leading-relaxed">{summary}</p>
-      ) : null}
       <DetailBody step={step} />
       {d.truncated ? (
         <p className="text-[11px] text-muted-foreground">
@@ -29,13 +25,19 @@ export function StepDetail({ step }: { step: Step }): JSX.Element {
 
 function DetailBody({ step }: { step: Step }): JSX.Element | null {
   const d = stepDetailData(step);
+  const input = inputRecord(d.input);
   switch (step.kind) {
-    case "execute":
-      return d.terminalOutput ? (
-        <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-background/60 p-2 font-terminal text-[11px] leading-snug">
-          {d.terminalOutput}
-        </pre>
-      ) : null;
+    case "execute": {
+      const command = input?.command ?? input?.cmd;
+      return (
+        <>
+          {typeof command === "string" ? (
+            <CommandLine command={command} />
+          ) : null}
+          <Output text={d.terminalOutput} />
+        </>
+      );
+    }
     case "edit":
       return d.diff ? (
         <DiffBlock oldText={d.diff.oldText} newText={d.diff.newText} />
@@ -43,16 +45,57 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
         <Locations locations={d.locations} />
       );
     case "read":
+      return (
+        <>
+          <Locations locations={d.locations} />
+          <Output
+            text={d.terminalOutput ? unwrapReadOutput(d.terminalOutput) : null}
+          />
+        </>
+      );
     case "search":
-      return <Locations locations={d.locations} />;
+    case "fetch":
+      return (
+        <>
+          <Locations locations={d.locations} />
+          <Output text={d.terminalOutput} />
+        </>
+      );
     case "think":
     case "note":
       return d.text ? (
         <Markdown className="text-[12px]">{d.text}</Markdown>
       ) : null;
     default:
-      return <GenericDetail detail={step.detail} />;
+      return (
+        <>
+          <Args input={d.input} />
+          <Output text={d.terminalOutput} />
+        </>
+      );
   }
+}
+
+function CommandLine({ command }: { command: string }): JSX.Element {
+  return (
+    <p className="whitespace-pre-wrap font-terminal text-[11px] text-foreground">
+      <span className="select-none text-muted-foreground">$ </span>
+      {command}
+    </p>
+  );
+}
+
+function Output({
+  text,
+}: {
+  text: string | null | undefined;
+}): JSX.Element | null {
+  if (!text?.trim()) return null;
+  return (
+    <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-background/60 p-2 font-terminal text-[11px] leading-snug">
+      {text}
+    </pre>
+  );
 }
 
 function Locations({
@@ -73,17 +116,23 @@ function Locations({
   );
 }
 
-function GenericDetail({ detail }: { detail: unknown }): JSX.Element | null {
-  if (typeof detail !== "object" || detail === null || Array.isArray(detail)) {
-    return null;
-  }
+/** A tool's arguments: primitives as a grid, nested values as JSON. */
+function Args({ input }: { input: unknown }): JSX.Element | null {
+  const record = inputRecord(input);
+  if (!record) return null;
   const rows: [string, ReactNode][] = [];
-  for (const [key, value] of Object.entries(
-    detail as Record<string, unknown>
-  )) {
+  for (const [key, value] of Object.entries(record)) {
     if (value === undefined || value === null) continue;
-    if (typeof value === "object") continue;
-    rows.push([key, String(value)]);
+    rows.push([
+      key,
+      typeof value === "object" ? (
+        <code className="whitespace-pre-wrap break-all font-terminal text-[11px]">
+          {JSON.stringify(value)}
+        </code>
+      ) : (
+        String(value)
+      ),
+    ]);
   }
   if (rows.length === 0) return null;
   return <KvGrid rows={rows} />;
@@ -97,7 +146,9 @@ function KvGrid({ rows }: { rows: [string, ReactNode][] }): JSX.Element {
           <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
             {k}
           </dt>
-          <dd className="text-[11px] text-foreground">{v}</dd>
+          <dd className="min-w-0 break-words text-[11px] text-foreground">
+            {v}
+          </dd>
         </div>
       ))}
     </dl>

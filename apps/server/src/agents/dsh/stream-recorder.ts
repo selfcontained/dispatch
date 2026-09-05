@@ -68,6 +68,28 @@ export function boundOutput(
   return { text: `${head}\n… [truncated] …\n${tail}`, truncated: true };
 }
 
+const INPUT_MAX_BYTES = 8 * 1024;
+
+/**
+ * Keep a tool call's raw input as sent, unless serialising it is large —
+ * then a bounded string preview stands in, marked so the view can say so.
+ */
+export function boundInput(input: unknown): unknown {
+  if (input === undefined || input === null) return undefined;
+  let json: string;
+  try {
+    json = JSON.stringify(input);
+  } catch {
+    return undefined;
+  }
+  if (json === undefined) return undefined;
+  if (Buffer.byteLength(json, "utf8") <= INPUT_MAX_BYTES) return input;
+  return {
+    truncated: true,
+    preview: boundOutput(json, INPUT_MAX_BYTES).text,
+  };
+}
+
 function projectToolContent(content: readonly unknown[] | null | undefined): {
   diff: ToolPayload["diff"];
   terminalOutput: string | null;
@@ -222,6 +244,7 @@ export class StreamRecorder {
         const { diff, terminalOutput, truncated } = projectToolContent(
           update.content
         );
+        const input = boundInput(update.rawInput);
         const payload: ToolPayload = {
           toolKind: inferToolKind(update.kind, update.title),
           title: update.title,
@@ -230,6 +253,7 @@ export class StreamRecorder {
           diff,
           terminalOutput,
           ...(truncated ? { truncated: true } : {}),
+          ...(input !== undefined ? { input } : {}),
         };
         await this.store.upsertByKey(
           agentId,
@@ -272,6 +296,11 @@ export class StreamRecorder {
           terminalOutput:
             projected?.terminalOutput ?? prev.terminalOutput ?? null,
           ...(truncated ? { truncated: true } : {}),
+          ...(update.rawInput !== undefined
+            ? { input: boundInput(update.rawInput) }
+            : prev.input !== undefined
+              ? { input: prev.input }
+              : {}),
         };
         await this.store.updatePayload(existing.id, next);
         return;

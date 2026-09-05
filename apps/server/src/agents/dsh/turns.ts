@@ -52,6 +52,39 @@ function promptFor(
   return { source: "system", text: source.text, attachments: [] };
 }
 
+/** dsh's read tool wraps its result as <path>…</path><type>…</type><content>…. */
+const READ_PATH_TAG = /^<path>([^<]+)<\/path>/;
+
+/**
+ * dsh sends no ACP `locations`; the paths live in the tool's raw input
+ * (file_path, path, pattern) or, for read, in the output wrapper.
+ */
+export function locationsFromInput(
+  input: unknown,
+  terminalOutput: string | null | undefined
+): { path: string; line?: number }[] {
+  const obj =
+    typeof input === "object" && input !== null && !Array.isArray(input)
+      ? (input as Record<string, unknown>)
+      : null;
+  const path = obj
+    ? [obj.file_path, obj.path, obj.filePath, obj.file].find(
+        (v): v is string => typeof v === "string" && v.length > 0
+      )
+    : undefined;
+  if (path) {
+    const line =
+      typeof obj?.offset === "number" && obj.offset > 1
+        ? obj.offset
+        : typeof obj?.line === "number"
+          ? obj.line
+          : undefined;
+    return [line !== undefined ? { path, line } : { path }];
+  }
+  const tagged = terminalOutput ? READ_PATH_TAG.exec(terminalOutput) : null;
+  return tagged ? [{ path: tagged[1] }] : [];
+}
+
 function toolStep(row: TurnSourceRow): HarnessStep | null {
   const p = row.payload as Partial<ToolPayload>;
   const title = p.title ?? "";
@@ -76,10 +109,13 @@ function toolStep(row: TurnSourceRow): HarnessStep | null {
       : {}),
     detail: {
       toolKind: p.toolKind,
-      locations: p.locations ?? [],
+      locations: p.locations?.length
+        ? p.locations
+        : locationsFromInput(p.input, p.terminalOutput),
       diff: p.diff ?? null,
       terminalOutput: p.terminalOutput ?? null,
       ...(p.truncated ? { truncated: true } : {}),
+      ...(p.input !== undefined ? { input: p.input } : {}),
     },
   };
 }
