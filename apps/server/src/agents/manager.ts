@@ -708,7 +708,12 @@ export class AgentManager {
     return {
       id: launchPostId,
       agentId: p.id,
-      text: input.launchContext?.prompt,
+      // A dsh agent takes no launch argument: its first turn is the Chat
+      // post, so a launch that only carries `initialPrompt` (a persona
+      // kickoff, an MCP launch) still gets one. CLI agents type it in.
+      text:
+        input.launchContext?.prompt ??
+        (p.type === "dsh" ? input.initialPrompt : undefined),
       files: initialMedia.map((media) => ({ mediaId: media.mediaId })),
       links: input.launchContext?.links ?? [],
       pins: p.initialPins.map((pin) => ({

@@ -71,6 +71,9 @@ test.describe("dsh agent", () => {
       type: "dsh",
       cwd: repo,
       useWorktree: true,
+      // A persona launch hands its kickoff over this way; dsh takes no
+      // launch argument, so it must arrive as the first turn.
+      initialPrompt: "kickoff: begin",
     });
     expect(agent.status).toBe("running");
 
@@ -85,6 +88,16 @@ test.describe("dsh agent", () => {
     );
     const harness = page.getByTestId("harness-pane");
     await expect(harness).toBeVisible();
+
+    // The initial prompt ran as the first turn before anything was typed.
+    await expect(harness.getByTestId("harness-prompt").first()).toContainText(
+      "kickoff: begin",
+      { timeout: 30_000 }
+    );
+    await expect(harness.getByTestId("harness-result").first()).toContainText(
+      "You said:",
+      { timeout: 30_000 }
+    );
 
     const input = harness.getByTestId("chat-composer-input");
     await input.fill("hello harness");
