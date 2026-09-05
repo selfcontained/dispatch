@@ -557,10 +557,17 @@ function FileAttachment({
           className="block max-w-xs overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30"
           title={attachment.fileName}
         >
+          {/*
+           * A fixed height, not a max: the image is lazy, so a box that
+           * sized itself to the file would be 0px until the image arrives
+           * and then shove everything below it down — which is what pushes
+           * a reader off the message they were on. Letterboxing a short
+           * image is the cheaper cost.
+           */}
           <img
             src={url}
             alt={attachment.fileName}
-            className="max-h-56 w-full object-contain"
+            className="h-56 w-full bg-muted/30 object-scale-down"
             loading="lazy"
           />
         </button>
@@ -1100,10 +1107,11 @@ export function MediaEntryView({
             {entry.fileName} · {formatBytes(entry.sizeBytes)}
           </span>
           {isImage ? (
+            /* Fixed height for the same reason as FileAttachment's. */
             <img
               src={url}
               alt={entry.description ?? entry.fileName}
-              className="mt-1.5 block max-h-64 max-w-xs rounded-md border border-border object-contain transition-colors hover:border-foreground/30"
+              className="mt-1.5 block h-64 w-full max-w-xs rounded-md border border-border bg-muted/30 object-scale-down transition-colors hover:border-foreground/30"
               loading="lazy"
             />
           ) : null}

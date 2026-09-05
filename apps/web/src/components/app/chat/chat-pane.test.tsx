@@ -16,8 +16,12 @@ import type { Agent } from "@/components/app/types";
 
 import {
   ChatPane,
+  clearChatScrollMemory,
   filterChildAgentMessages,
   questionExcerpt,
+  readChatScrollPosition,
+  REMEMBER_THROTTLE_MS,
+  rememberChatScrollPosition,
 } from "./chat-pane";
 
 // The pane's data layer is exercised elsewhere; here it is replaced so the
@@ -156,6 +160,7 @@ beforeEach(() => {
   H.answer.mockReset();
   H.markRead.mockReset();
   Element.prototype.scrollTo = vi.fn();
+  clearChatScrollMemory();
 });
 
 afterEach(() => {
@@ -550,5 +555,151 @@ describe("ChatPane", () => {
         .disabled
     ).toBe(false);
     expect(screen.queryByTestId("chat-composer-disabled-reason")).toBeNull();
+  });
+});
+
+describe("ChatPane scroll memory", () => {
+  /** jsdom has no layout; hand the pane the geometry it reads. */
+  function stubLayout(scrollTop: number) {
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: scrollTop, writable: true },
+    });
+    scroll.getBoundingClientRect = () => ({ top: 0, bottom: 200 }) as DOMRect;
+    const rows = [
+      ...scroll.querySelectorAll<HTMLElement>("[data-chat-entry-id]"),
+    ];
+    rows.forEach((row, i) => {
+      // Rows 100px tall, stacked, shifted by however far the feed is scrolled.
+      row.getBoundingClientRect = () =>
+        ({
+          top: i * 100 - scrollTop,
+          bottom: i * 100 + 100 - scrollTop,
+        }) as DOMRect;
+    });
+    return scroll;
+  }
+
+  it("records the rows on screen when the reader leaves", () => {
+    H.entries = [
+      chat(message({ id: "m1", text: "one" })),
+      chat(message({ id: "m2", text: "two" })),
+      chat(message({ id: "m3", text: "three" })),
+    ];
+    const { unmount } = renderPane();
+    const scroll = stubLayout(250);
+    fireEvent.scroll(scroll);
+    unmount();
+
+    // 250px down: the first two rows are above the fold, so the reader is
+    // parked on the third, 50px of it scrolled past.
+    expect(readChatScrollPosition("agt_1")).toEqual({
+      following: false,
+      anchors: [{ entryId: "m3", offset: -50 }],
+    });
+  });
+
+  it("keeps recording through a long scroll, not only at its ends", () => {
+    vi.useFakeTimers();
+    try {
+      H.entries = [
+        chat(message({ id: "m1", text: "one" })),
+        chat(message({ id: "m2", text: "two" })),
+        chat(message({ id: "m3", text: "three" })),
+      ];
+      const { unmount } = renderPane();
+      // One unbroken fling: every event resets the trailing timer, so it
+      // never fires, and the reader switches away mid-gesture. What is
+      // recorded must not be the position from the start of the gesture.
+      fireEvent.scroll(stubLayout(50));
+      vi.advanceTimersByTime(REMEMBER_THROTTLE_MS);
+      fireEvent.scroll(stubLayout(150));
+      vi.advanceTimersByTime(REMEMBER_THROTTLE_MS);
+      fireEvent.scroll(stubLayout(250));
+      unmount();
+
+      expect(readChatScrollPosition("agt_1")?.anchors[0]).toEqual({
+        entryId: "m3",
+        offset: -50,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays following when the reader leaves from the bottom", () => {
+    H.entries = [chat(message({ id: "m1", text: "one" }))];
+    const { unmount } = renderPane();
+    const scroll = stubLayout(800);
+    fireEvent.scroll(scroll);
+    unmount();
+
+    expect(readChatScrollPosition("agt_1")?.following).toBe(true);
+  });
+
+  it("reopens on the remembered row instead of the newest message", () => {
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [{ entryId: "m2", offset: -50 }],
+    });
+    H.entries = [
+      chat(message({ id: "m1", text: "one" })),
+      chat(message({ id: "m2", text: "two" })),
+    ];
+
+    renderPane();
+
+    // Rects are all zero here, so the row sits 50px above where it was left.
+    expect(screen.getByTestId("chat-scroll").scrollTop).toBe(50);
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a lower row when the top one no longer exists", () => {
+    // What a collapsed run of `working` events does: the status row the
+    // reader was on now carries a newer event's id.
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [
+        { entryId: "status-that-moved-on", offset: -20 },
+        { entryId: "m2", offset: -50 },
+      ],
+    });
+    H.entries = [
+      chat(message({ id: "m1", text: "one" })),
+      chat(message({ id: "m2", text: "two" })),
+    ];
+
+    renderPane();
+
+    expect(screen.getByTestId("chat-scroll").scrollTop).toBe(50);
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("opens at the newest message when every remembered row is gone", () => {
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [{ entryId: "rolled-off", offset: -50 }],
+    });
+    H.entries = [chat(message({ id: "m1", text: "one" }))];
+
+    renderPane();
+
+    expect(Element.prototype.scrollTo).toHaveBeenCalled();
+  });
+
+  it("forgets the agents nobody has looked at in longest", () => {
+    for (let i = 0; i < 60; i += 1) {
+      rememberChatScrollPosition(`agt_${i}`, {
+        following: false,
+        anchors: [{ entryId: `m${i}`, offset: 0 }],
+      });
+    }
+
+    expect(readChatScrollPosition("agt_0")).toBeNull();
+    expect(readChatScrollPosition("agt_9")).toBeNull();
+    expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
+    expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
   });
 });

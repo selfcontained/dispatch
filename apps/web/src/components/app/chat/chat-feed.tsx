@@ -125,12 +125,19 @@ function Enter({
   children: ReactNode;
 }): JSX.Element {
   const version = entering.get(id);
-  if (version === undefined) return <>{children}</>;
+  // Always a real element, animating or not: `data-chat-entry-id` is how
+  // ChatPane names the row a reader was parked on so it can put them back
+  // there when the feed reopens.
   return (
     <div
       key={version}
-      className="animate-chat-enter motion-reduce:animate-none"
-      data-testid="chat-entry-enter"
+      data-chat-entry-id={id}
+      className={
+        version === undefined
+          ? undefined
+          : "animate-chat-enter motion-reduce:animate-none"
+      }
+      data-testid={version === undefined ? undefined : "chat-entry-enter"}
     >
       {children}
     </div>
