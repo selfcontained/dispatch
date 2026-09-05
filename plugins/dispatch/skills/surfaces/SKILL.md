@@ -8,15 +8,12 @@ description: Present structured or interactive work in an agent-authored Dispatc
 Use surfaces for compact, task-specific UI that stays beside the agent session.
 The owning agent authors the document and handles every submitted interaction.
 
-## Choose the right surface
+## When a surface is the right channel
 
-- Use a **pin** for one small fact the user may need to copy or revisit: a URL,
-  port, branch, file, decision, or one shortcut.
-- Use a **surface** when several related values need hierarchy, repeated updates,
-  or user input.
-- Use `dispatch_share_file` for a file, screenshot, report, or other artifact.
-- Keep chat for explanation and conversation; do not mirror the transcript into
-  a surface.
+A surface earns its place when several related values need hierarchy, repeated
+updates, or user input. One small fact belongs in a pin, an artifact belongs in
+`dispatch_share_file`, and explanation belongs in your reply — do not mirror the
+transcript into a surface. The full channel comparison lives in `communicate`.
 
 Prefer one useful tab over several narrow tabs. A surface is a fixed 400px
 vertical pane. There is no kanban or drag-and-drop primitive; express

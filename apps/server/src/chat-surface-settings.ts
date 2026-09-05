@@ -8,8 +8,11 @@ import { getSetting, setSetting } from "./db/settings.js";
  * default: with the flag off nothing in the app changes.
  *
  * The routes and the dispatch_chat_* MCP tools work regardless of the flag —
- * it is purely a UI switch plus a launch-guidance switch. Read per launch and
- * per settings request (both cold paths), so no in-memory cache.
+ * it is purely a UI switch, a launch-guidance switch, and the choice of which
+ * description dispatch_chat_post announces itself with. Read per launch, per
+ * settings request, and per agent MCP request; the last of those is not a
+ * cold path, but the lookup is small beside the two git resolutions that
+ * route already runs, so there is still no in-memory cache.
  */
 const CHAT_SURFACE_KEY = "chat_surface_enabled";
 
