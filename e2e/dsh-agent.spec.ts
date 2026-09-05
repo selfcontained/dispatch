@@ -59,7 +59,7 @@ test.describe("dsh agent", () => {
     await cleanupE2EAgents(request);
   });
 
-  test("shows up as a type, streams into the Chat tab, and takes a chat message", async ({
+  test("opens on the Harness view, runs a turn there, and mirrors it in Chat", async ({
     page,
     request,
   }) => {
@@ -77,19 +77,40 @@ test.describe("dsh agent", () => {
     await loadApp(page);
     await clickAgentRow(page, agent.id);
     await page.getByTestId("center-tab-agent").click();
-    const pane = page.getByTestId("chat-pane");
-    await expect(pane).toBeVisible();
 
-    const input = pane.getByTestId("chat-composer-input");
+    // A Dispatch Harness agent opens on the Harness view.
+    await expect(page.getByTestId("agent-view-toggle")).toHaveAttribute(
+      "data-view",
+      "harness"
+    );
+    const harness = page.getByTestId("harness-pane");
+    await expect(harness).toBeVisible();
+
+    const input = harness.getByTestId("chat-composer-input");
     await input.fill("hello harness");
     await input.press("Enter");
 
-    await expect(pane.getByTestId("chat-activity")).toContainText(
+    // Prompt line, then the turn's activity settles to a collapsed summary
+    // (one tool call in the fake), then the echoed result.
+    await expect(harness.getByTestId("harness-prompt").last()).toContainText(
+      "hello harness"
+    );
+    await expect(
+      harness.getByTestId("harness-activity-summary").last()
+    ).toContainText("1 step", { timeout: 30_000 });
+    const result = harness.getByTestId("harness-result").last();
+    await expect(result).toContainText("You said:", { timeout: 30_000 });
+    await expect(result).toContainText("hello harness");
+
+    // The same turn is in the Chat tab.
+    await page.getByTestId("agent-view-chat").click();
+    const pane = page.getByTestId("chat-pane");
+    await expect(pane).toBeVisible();
+    await expect(pane.getByTestId("chat-activity").last()).toContainText(
       "Read README.md",
       { timeout: 30_000 }
     );
-    // The fake echoes its prompt, so the assistant post carries the text.
-    const assistant = pane.getByTestId("chat-assistant");
+    const assistant = pane.getByTestId("chat-assistant").last();
     await expect(assistant).toContainText("You said:", { timeout: 30_000 });
     await expect(assistant).toContainText("hello harness");
 

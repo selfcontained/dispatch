@@ -533,14 +533,18 @@ export type AgentPaneView = "harness" | "chat" | "console";
 
 export const AGENT_PANE_VIEW_STORAGE_PREFIX = "dispatch:agentPaneView:";
 
+/**
+ * `null` until the user picks a view: the pane then opens on the type's
+ * default (`defaultAgentPaneView`), which a stored "chat" could not express.
+ */
 export const agentPaneViewAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<AgentPaneView>(
+  atomWithLocalStorage<AgentPaneView | null>(
     `${AGENT_PANE_VIEW_STORAGE_PREFIX}${agentId}`,
-    "chat"
+    null
   )
 );
 
-export const inactiveAgentPaneViewAtom = atom<AgentPaneView>("chat");
+export const inactiveAgentPaneViewAtom = atom<AgentPaneView | null>(null);
 
 export function isAgentPaneView(value: unknown): value is AgentPaneView {
   return value === "harness" || value === "chat" || value === "console";
