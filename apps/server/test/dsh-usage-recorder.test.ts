@@ -66,7 +66,10 @@ describe("UsageRecorder", () => {
   it("ignores turns without usage and non-turn events", async () => {
     const rec = new UsageRecorder(pool);
     const ctx = { sessionId: "s", model: "m" };
-    await rec.handle({ type: "turn", agentId: A, state: "started" }, ctx);
+    await rec.handle(
+      { type: "turn", agentId: A, state: "started", text: "x" },
+      ctx
+    );
     await rec.handle(
       { type: "turn", agentId: A, state: "settled", stopReason: "end_turn" },
       ctx

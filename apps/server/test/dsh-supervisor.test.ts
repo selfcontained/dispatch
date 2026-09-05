@@ -210,7 +210,8 @@ describe("DshSupervisor", () => {
     );
     const inserted = writes
       .filter(([op]) => op === "INSERT")
-      .map(([, params]) => (params as unknown[])[1]);
+      .map(([, params]) => (params as unknown[])[1])
+      .filter((kind) => kind !== "turn");
     // "a" opens the assistant row, "b" appends to it, the tool call closes
     // it, "c" opens a second row: exactly three inserts, in stream order.
     expect(inserted).toEqual(["assistant", "tool_call", "assistant"]);

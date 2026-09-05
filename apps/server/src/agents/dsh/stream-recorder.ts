@@ -1,10 +1,12 @@
 import path from "node:path";
 
 import type { DriverEvent, DriverUpdate } from "./driver.js";
+import { parsePromptSource } from "./prompt-source.js";
 import type {
   StreamEventRow,
   StreamStore,
   ToolPayload,
+  TurnPayload,
 } from "./stream-store.js";
 
 type TextKind = "assistant" | "thought";
@@ -118,6 +120,8 @@ export class StreamRecorder {
     Partial<Record<TextKind, OpenText>>
   >();
   private readonly cwd = new Map<string, string>();
+  /** The turn row awaiting its settle, per agent. */
+  private readonly openTurn = new Map<string, StreamEventRow>();
 
   constructor(private readonly store: StreamStore) {}
 
@@ -130,19 +134,39 @@ export class StreamRecorder {
     switch (event.type) {
       case "update":
         return this.handleUpdate(event.agentId, event.update);
-      case "turn":
-        if (event.state === "settled") {
-          await this.closeText(event.agentId);
-          if (event.error) {
-            await this.store.append(event.agentId, "status", {
-              message: event.error,
-            });
-          }
+      case "turn": {
+        if (event.state === "started") {
+          const row = await this.store.append(event.agentId, "turn", {
+            state: "started",
+            prompt: parsePromptSource(event.text),
+          } satisfies TurnPayload);
+          this.openTurn.set(event.agentId, row);
+          return;
+        }
+        await this.closeText(event.agentId);
+        const open = this.openTurn.get(event.agentId);
+        if (open) {
+          const prev = open.payload as TurnPayload;
+          await this.store.updatePayload(open.id, {
+            ...prev,
+            state: "settled",
+            ...(event.stopReason ? { stopReason: event.stopReason } : {}),
+            ...(event.error ? { error: event.error } : {}),
+            endedAt: new Date().toISOString(),
+          } satisfies TurnPayload);
+          this.openTurn.delete(event.agentId);
+        }
+        if (event.error) {
+          await this.store.append(event.agentId, "status", {
+            message: event.error,
+          });
         }
         return;
+      }
       case "exit": {
         await this.closeText(event.agentId);
         this.cwd.delete(event.agentId);
+        this.openTurn.delete(event.agentId);
         if (event.expected || event.code === 0) return;
         const how =
           event.code === null ? `signal ${event.signal}` : `code ${event.code}`;

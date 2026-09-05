@@ -27,7 +27,7 @@ export type DriverLaunch = {
 
 export type DriverEvent =
   | { type: "update"; agentId: string; update: DriverUpdate }
-  | { type: "turn"; agentId: string; state: "started" }
+  | { type: "turn"; agentId: string; state: "started"; text: string }
   | {
       type: "turn";
       agentId: string;
@@ -384,7 +384,7 @@ export class DshDriver {
   /** Runs one turn; resolves when the agent settles it. */
   async prompt(agentId: string, text: string): Promise<void> {
     const entry = this.require(agentId);
-    this.emit({ type: "turn", agentId, state: "started" });
+    this.emit({ type: "turn", agentId, state: "started", text });
     try {
       const res = await entry.conn.prompt({
         sessionId: entry.sessionId,

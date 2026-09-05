@@ -1,6 +1,12 @@
 import type { Queryable } from "../../chat/store.js";
+import type { PromptSource } from "./prompt-source.js";
 
-export type StreamEventKind = "assistant" | "thought" | "tool_call" | "status";
+export type StreamEventKind =
+  | "assistant"
+  | "thought"
+  | "tool_call"
+  | "status"
+  | "turn";
 
 /** Payload shapes by row kind. The recorder writes them; the Chat feed reads them. */
 export type AssistantPayload = {
@@ -22,11 +28,21 @@ export type ToolPayload = {
   truncated?: boolean;
 };
 export type StatusPayload = { message: string };
+/** One harness turn: written at start, settled in place. */
+export type TurnPayload = {
+  state: "started" | "settled";
+  prompt: PromptSource;
+  stopReason?: string;
+  error?: string;
+  /** ISO time of settle. */
+  endedAt?: string;
+};
 export type StreamPayloadByKind = {
   assistant: AssistantPayload;
   thought: ThoughtPayload;
   tool_call: ToolPayload;
   status: StatusPayload;
+  turn: TurnPayload;
 };
 
 export type StreamEventRow = {

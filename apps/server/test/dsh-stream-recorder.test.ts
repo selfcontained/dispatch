@@ -54,7 +54,7 @@ const thought = (text: string): DriverEvent => ({
 describe("StreamRecorder", () => {
   it("accumulates chunks into one assistant row and settles it at turn end", async () => {
     const rec = new StreamRecorder(store);
-    await rec.handle({ type: "turn", agentId: A, state: "started" });
+    await rec.handle({ type: "turn", agentId: A, state: "started", text: "x" });
     await rec.handle(chunk("Hel"));
     await rec.handle(chunk("lo"));
     await rec.flush(A);
@@ -66,7 +66,7 @@ describe("StreamRecorder", () => {
       state: "settled",
       stopReason: "end_turn",
     });
-    const rows = await store.list(A, 10);
+    const rows = (await store.list(A, 10)).filter((r) => r.kind !== "turn");
     expect(rows).toHaveLength(1);
     expect(rows[0].payload).toEqual({ text: "Hello", streaming: false });
   });
@@ -276,5 +276,56 @@ describe("StreamRecorder", () => {
     );
     expect(inferToolKind("delete", "bash")).toBe("delete");
     expect(inferToolKind("other", "bash")).toBe("execute");
+  });
+
+  it("records a turn row at start and settles it in place", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "--- DISPATCH CHAT (id: 11111111-2222-4333-8444-555555555555) ---\nhi\n--- END DISPATCH CHAT ---",
+    });
+    await rec.handle(chunk("reply"));
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows.map((r) => r.kind)).toEqual(["turn", "assistant"]);
+    expect(rows[0].payload).toMatchObject({
+      state: "settled",
+      stopReason: "end_turn",
+      prompt: {
+        source: "chat",
+        chatMessageId: "11111111-2222-4333-8444-555555555555",
+      },
+    });
+    expect(typeof rows[0].payload.endedAt).toBe("string");
+  });
+
+  it("records the error on a failed turn's row", async () => {
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "plain",
+    });
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "settled",
+      error: "no API key",
+    });
+    const rows = (await store.list(A, 10)).reverse();
+    expect(rows[0].payload).toMatchObject({
+      state: "settled",
+      error: "no API key",
+      prompt: { source: "system", text: "plain" },
+    });
+    expect(rows[1].kind).toBe("status");
   });
 });
