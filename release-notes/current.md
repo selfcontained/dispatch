@@ -3,7 +3,8 @@
 * Renamed in the UI to **Dispatch Harness** ("Dispatch" in the agent-type menu, with the Dispatch brand mark). Dispatch Harness agents open on a new **Harness** view — a port of PromptKit's turn stream onto Dispatch's design: prompt line, a collapsible activity rail per turn (tool calls with output, diffs, locations, live timers), and the result. Chat and Console sit behind the same toggle; prompts still go through Chat, so cross-agent messaging is unchanged. Served by `GET /api/v1/agents/:id/harness/turns`.
 * Harness view refinements: steps carry the tool's input (command, file, arguments) in their labels and details, empty steps are not expandable, and Dispatch Harness agents show Harness | Console (Chat folded into Harness). Typing `/` in the Harness composer lists the skills the agent can load (`.agents/skills`, `.dsh/skills`, `<DSH_HOME>/skills`).
 * Model and reasoning effort: a `model · effort` chip above the Harness composer (or `/model`) opens a picker fed by the live session's own options, so switching applies to the next turn and survives restarts. The create dialog lists every model dsh serves for the providers whose API keys are set (DeepSeek, OpenAI incl. gpt-5.6-sol/terra). The Harness view no longer snaps to the bottom while you are scrolled up.
+* Persona reviews and MCP launches on Dispatch Harness agents now start: the kickoff prompt becomes the agent's first turn (it used to be dropped, leaving the reviewer idle).
 * Adds the `agent_stream_events` table (additive), the `@agentclientprotocol/sdk` dependency, and an update-migrations manifest. Running dsh agents are resumed after a service restart on their stored session ids.
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.6
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.7
