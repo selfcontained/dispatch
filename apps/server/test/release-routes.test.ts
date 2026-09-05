@@ -57,7 +57,11 @@ const rootPackageVersion = (
     )
   ) as { version: string }
 ).version;
-const packagedCurrentTag = `v${rootPackageVersion}`;
+// A custom patch release (e.g. 0.38.7-dsh.2) is not plain semver, and the
+// route's fallback yields no current tag for it.
+const packagedCurrentTag = /^\d+\.\d+\.\d+$/.test(rootPackageVersion)
+  ? `v${rootPackageVersion}`
+  : null;
 
 beforeAll(async () => {
   await mkdir(path.join(os.homedir(), ".dispatch", "server"), {
@@ -370,7 +374,9 @@ describe("release metadata route handling", () => {
     expect(response.json()).toMatchObject({
       currentTag: packagedCurrentTag,
       latestTag: "v0.18.36",
-      updateAvailable: compareSemverForTest("v0.18.36", packagedCurrentTag) > 0,
+      updateAvailable:
+        packagedCurrentTag !== null &&
+        compareSemverForTest("v0.18.36", packagedCurrentTag) > 0,
     });
   });
 
