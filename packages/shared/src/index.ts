@@ -61,6 +61,7 @@ export type {
 } from "./chat-types.js";
 export type {
   HarnessPrompt,
+  HarnessQuestion,
   HarnessStep,
   HarnessStepStatus,
   HarnessTurn,

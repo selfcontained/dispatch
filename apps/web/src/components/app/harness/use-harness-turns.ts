@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type {
   ChatAttachment,
+  HarnessQuestion,
   HarnessStep,
   HarnessTurn,
   HarnessTurnsResponse,
@@ -38,13 +39,29 @@ function toTrace(turn: HarnessTurn): Trace {
   };
 }
 
-function toAttachment(a: ChatAttachment): Attachment {
+/** Where a shared file is served: the same route the Chat feed uses. */
+export function mediaFileUrl(agentId: string, fileName: string): string {
+  return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
+}
+
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|svg|bmp|avif)$/i;
+
+function toAttachment(
+  a: ChatAttachment,
+  agentId: string,
+  at: string
+): Attachment {
   switch (a.type) {
     case "file":
       return {
-        kind: a.mimeType?.startsWith("image/") ? "image" : "file",
-        url: `/api/v1/media/${a.mediaId}`,
+        kind:
+          a.mimeType?.startsWith("image/") || IMAGE_EXT.test(a.fileName)
+            ? "image"
+            : "file",
+        url: mediaFileUrl(agentId, a.fileName),
         name: a.fileName,
+        size: a.sizeBytes,
+        at,
         ...(a.mimeType ? { mimeType: a.mimeType } : {}),
       };
     case "link":
@@ -62,15 +79,20 @@ function toAttachment(a: ChatAttachment): Attachment {
  * one assistant turn per settled HarnessTurn; the last turn, while still
  * open, becomes the live trace and live text instead.
  */
-export function toPromptKitTurns(turns: HarnessTurn[]): {
+export function toPromptKitTurns(
+  turns: HarnessTurn[],
+  agentId: string
+): {
   turns: Turn[];
   liveTrace: Trace | null;
   liveText: string;
+  liveQuestions: HarnessQuestion[];
   streaming: boolean;
 } {
   const out: Turn[] = [];
   let liveTrace: Trace | null = null;
   let liveText = "";
+  let liveQuestions: HarnessQuestion[] = [];
   let streaming = false;
   turns.forEach((turn, index) => {
     const isLast = index === turns.length - 1;
@@ -82,7 +104,11 @@ export function toPromptKitTurns(turns: HarnessTurn[]): {
       timestamp: Date.parse(turn.trace.startedAt),
       extra: { source: turn.prompt.source },
       ...(turn.prompt.attachments.length
-        ? { attachments: turn.prompt.attachments.map(toAttachment) }
+        ? {
+            attachments: turn.prompt.attachments.map((a) =>
+              toAttachment(a, agentId, turn.trace.startedAt)
+            ),
+          }
         : {}),
       ...(turn.prompt.senderName
         ? { contextChips: [{ label: `from ${turn.prompt.senderName}` }] }
@@ -91,6 +117,7 @@ export function toPromptKitTurns(turns: HarnessTurn[]): {
     if (isLast && open) {
       liveTrace = toTrace(turn);
       liveText = turn.result?.text ?? "";
+      liveQuestions = turn.questions ?? [];
       streaming = true;
       return;
     }
@@ -103,15 +130,19 @@ export function toPromptKitTurns(turns: HarnessTurn[]): {
       ...(turn.error
         ? { error: { code: "turn_failed", message: turn.error } }
         : {}),
+      ...(turn.questions?.length
+        ? { extra: { questions: turn.questions } }
+        : {}),
     });
   });
-  return { turns: out, liveTrace, liveText, streaming };
+  return { turns: out, liveTrace, liveText, liveQuestions, streaming };
 }
 
 export function useHarnessTurns(agentId: string | null): {
   turns: Turn[];
   liveTrace: Trace | null;
   liveText: string;
+  liveQuestions: HarnessQuestion[];
   streaming: boolean;
   loading: boolean;
   error: Error | null;
@@ -125,6 +156,6 @@ export function useHarnessTurns(agentId: string | null): {
     enabled: agentId !== null,
     staleTime: 5_000,
   });
-  const mapped = toPromptKitTurns(query.data?.turns ?? []);
+  const mapped = toPromptKitTurns(query.data?.turns ?? [], agentId ?? "");
   return { ...mapped, loading: query.isLoading, error: query.error };
 }

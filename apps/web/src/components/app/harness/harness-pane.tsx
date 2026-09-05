@@ -1,17 +1,23 @@
-import { useCallback, useMemo, useState } from "react";
-import type { ChatUserAttachmentInput } from "@dispatch/shared";
+import { useCallback, useMemo, useRef, useState } from "react";
+import type {
+  ChatQuestionOption,
+  ChatUserAttachmentInput,
+  HarnessQuestion,
+} from "@dispatch/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { Cpu } from "lucide-react";
+import { Cpu, Upload } from "lucide-react";
 
 import {
   ChatComposer,
   type SlashItem,
 } from "@/components/app/chat/chat-composer";
+import { questionExcerpt } from "@/components/app/chat/chat-pane";
+import type { Agent, MediaFile } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
-import type { Agent } from "@/components/app/types";
-import { useSendChatMessage } from "@/hooks/use-chat";
+import { useAnswerChatQuestion, useSendChatMessage } from "@/hooks/use-chat";
 import { uploadAgentMedia } from "@/lib/media-upload";
 
+import type { Attachment } from "./contracts";
 import { ModelPicker } from "./model-picker";
 import { TurnStream } from "./turn-stream";
 import {
@@ -28,6 +34,8 @@ export type HarnessPaneProps = {
   /** The pane is on screen (its tab is active, or it sits in a split). */
   active: boolean;
   isMobile: boolean;
+  /** Opens a shared file in the media lightbox. */
+  openLightbox?: (file: MediaFile) => void;
 };
 
 /**
@@ -40,16 +48,63 @@ export function HarnessPane({
   agent,
   active,
   isMobile,
+  openLightbox,
 }: HarnessPaneProps): JSX.Element {
   const queryClient = useQueryClient();
-  const { turns, liveTrace, liveText, streaming, loading, error } =
-    useHarnessTurns(agentId);
+  const {
+    turns,
+    liveTrace,
+    liveText,
+    liveQuestions,
+    streaming,
+    loading,
+    error,
+  } = useHarnessTurns(agentId);
   const send = useSendChatMessage(agentId);
+  const answer = useAnswerChatQuestion(agentId);
+  const { mutateAsync: sendAsync } = send;
+  const { mutateAsync: answerAsync } = answer;
   const skills = useHarnessSkills(agentId);
   const config = useHarnessConfig(agentId);
   const setConfig = useSetHarnessConfig(agentId);
   const [pickerOpen, setPickerOpen] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+  // A file dropped anywhere on the pane attaches to the composer.
+  const dropRef = useRef<HTMLDivElement>(null);
+  const [draggingFiles, setDraggingFiles] = useState(false);
+
+  const invalidateTurns = useCallback(() => {
+    void queryClient.invalidateQueries({
+      queryKey: harnessTurnsQueryKey(agentId),
+      exact: true,
+    });
+  }, [agentId, queryClient]);
+
+  // The newest open question that takes a typed reply: what gets typed
+  // answers it, unless the user opted out with the chip's ×.
+  const openFreeform = useMemo<HarnessQuestion | null>(() => {
+    const all: HarnessQuestion[] = [];
+    for (const turn of turns) {
+      const list = turn.extra?.questions;
+      if (Array.isArray(list)) all.push(...(list as HarnessQuestion[]));
+    }
+    all.push(...liveQuestions);
+    for (let i = all.length - 1; i >= 0; i -= 1) {
+      const q = all[i];
+      if (q.answer !== null) continue;
+      return q.allowFreeform ? q : null;
+    }
+    return null;
+  }, [turns, liveQuestions]);
+  const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
+    null
+  );
+  const replyTarget =
+    openFreeform && openFreeform.id !== dismissedQuestionId
+      ? openFreeform
+      : null;
+
   const slashItems = useMemo<SlashItem[]>(
     () => [
       {
@@ -66,6 +121,7 @@ export function HarnessPane({
     setPickerOpen(true);
     return true;
   }, []);
+
   const applyConfig = useCallback(
     async (changes: { configId: string; value: string }[]) => {
       setConfigError(null);
@@ -78,10 +134,6 @@ export function HarnessPane({
     },
     [setConfig]
   );
-  const modelName = currentChoiceName(config.model);
-  const effortName = currentChoiceName(config.effort);
-  const { mutateAsync: sendAsync } = send;
-  const [sendError, setSendError] = useState<string | null>(null);
 
   const onSend = useCallback(
     async (
@@ -90,17 +142,38 @@ export function HarnessPane({
     ): Promise<void> => {
       setSendError(null);
       try {
-        await sendAsync({ text, attachments });
+        if (replyTarget) {
+          await answerAsync({
+            messageId: replyTarget.id,
+            value: text,
+            attachments,
+          });
+        } else {
+          await sendAsync({ text, attachments });
+        }
       } catch (err) {
         setSendError(err instanceof Error ? err.message : "Send failed.");
         throw err;
       }
-      void queryClient.invalidateQueries({
-        queryKey: harnessTurnsQueryKey(agentId),
-        exact: true,
-      });
+      invalidateTurns();
     },
-    [agentId, queryClient, sendAsync]
+    [answerAsync, invalidateTurns, replyTarget, sendAsync]
+  );
+
+  const onAnswer = useCallback(
+    (questionId: string, option: ChatQuestionOption) => {
+      setSendError(null);
+      answerAsync({
+        messageId: questionId,
+        value: option.value ?? option.label,
+        label: option.label,
+      })
+        .then(invalidateTurns)
+        .catch((err: unknown) => {
+          setSendError(err instanceof Error ? err.message : "Answer failed.");
+        });
+    },
+    [answerAsync, invalidateTurns]
   );
 
   const uploadFile = useCallback(
@@ -109,6 +182,22 @@ export function HarnessPane({
       return uploadAgentMedia(agentId, file, { source: "user", inject: false });
     },
     [agentId]
+  );
+
+  const onAttachmentClick = useCallback(
+    (a: Attachment) => {
+      if (!agentId || !openLightbox || !a.name) return;
+      openLightbox({
+        // ownerAgentId is part of the lightbox identity; without it the
+        // synthesized file never matches the media list and nothing opens.
+        ownerAgentId: agentId,
+        name: a.name,
+        size: a.size ?? 0,
+        updatedAt: a.at ?? new Date().toISOString(),
+        url: a.url,
+      });
+    },
+    [agentId, openLightbox]
   );
 
   // The pane is up before the harness is: setup (worktree, dependencies)
@@ -123,18 +212,47 @@ export function HarnessPane({
         : agent.status === "error"
           ? "The harness is not running. Press Start to relaunch it."
           : null;
+  const modelName = currentChoiceName(config.model);
+  const effortName = currentChoiceName(config.effort);
+  const answeringId = answer.isPending
+    ? (answer.variables?.messageId ?? null)
+    : null;
 
   return (
     <div
-      className="flex h-full min-h-0 min-w-0 flex-col"
+      ref={dropRef}
+      className="relative flex h-full min-h-0 min-w-0 flex-col"
       data-testid="harness-pane"
+      data-dragging={draggingFiles ? "true" : undefined}
     >
+      {draggingFiles ? (
+        <div
+          data-testid="harness-drop-overlay"
+          className="pointer-events-none absolute inset-0 z-40 m-2 overflow-hidden rounded-xl bg-[linear-gradient(to_right,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)))] p-[2px] saturate-[1.35] brightness-[1.05]"
+        >
+          <div className="relative grid h-full w-full place-items-center overflow-hidden rounded-[10px] bg-background/85 backdrop-blur-sm">
+            <div className="dispatch-reconnect-scan pointer-events-none absolute inset-y-0 left-0 w-1/3 animate-[reconnect-scan_1350ms_ease-in-out_infinite] bg-[linear-gradient(to_right,transparent,hsl(var(--status-working)),transparent)] opacity-25 will-change-transform motion-reduce:hidden" />
+            <div className="relative flex flex-col items-center gap-2 px-6 text-center text-foreground">
+              <Upload className="h-8 w-8" />
+              <p className="text-sm font-medium">Drop files to attach</p>
+              <p className="text-xs text-muted-foreground">
+                They go with your next message.
+              </p>
+            </div>
+          </div>
+        </div>
+      ) : null}
       <TurnStream
         turns={turns}
         liveTrace={liveTrace}
         liveText={liveText}
+        liveQuestions={liveQuestions}
         streaming={streaming}
         ariaLabel={`${agent?.name ?? "Agent"} harness conversation`}
+        onAttachmentClick={onAttachmentClick}
+        onAnswer={onAnswer}
+        answeringId={answeringId}
+        answersDisabled={disabledReason !== null}
         emptyState={
           starting ? (
             <div
@@ -209,10 +327,20 @@ export function HarnessPane({
           onSend={onSend}
           uploadFile={uploadFile}
           disabledReason={disabledReason}
-          sending={send.isPending}
+          sending={send.isPending || answer.isPending}
           autoFocus={active && !isMobile}
           slashItems={slashItems}
           onSlashCommand={onSlashCommand}
+          dropTargetRef={dropRef}
+          onDropZoneDragging={setDraggingFiles}
+          replyContext={
+            replyTarget
+              ? {
+                  excerpt: questionExcerpt(replyTarget.text),
+                  onDismiss: () => setDismissedQuestionId(replyTarget.id),
+                }
+              : null
+          }
         />
       </div>
     </div>

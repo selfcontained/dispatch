@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   HarnessPrompt,
+  HarnessQuestion,
   HarnessStep,
   HarnessTurn,
 } from "@dispatch/shared";
@@ -137,9 +138,27 @@ function noteStep(row: TurnSourceRow, kind: "note" | "think"): HarnessStep {
 type Group = { turn: TurnSourceRow | null; rows: TurnSourceRow[] };
 
 /** Cut ascending stream rows into turns and shape each for the view. */
+/** An agent question as the view carries it. */
+function toQuestion(message: ChatMessage): HarnessQuestion {
+  return {
+    id: message.id,
+    text: message.text,
+    options: message.question?.options ?? [],
+    allowFreeform: message.question?.allowFreeform === true,
+    answer: message.answer
+      ? {
+          value: message.answer.value,
+          ...(message.answer.label ? { label: message.answer.label } : {}),
+        }
+      : null,
+    createdAt: message.createdAt,
+  };
+}
+
 export function assembleTurns(
   rows: TurnSourceRow[],
-  chat: Map<string, ChatMessage>
+  chat: Map<string, ChatMessage>,
+  questions: ChatMessage[] = []
 ): HarnessTurn[] {
   const groups: Group[] = [];
   let current: Group | null = null;
@@ -155,10 +174,27 @@ export function assembleTurns(
     }
     current.rows.push(row);
   }
+  // Each question belongs to the latest turn that had started when it was
+  // posted; one posted before any turn goes with the first.
+  const starts = groups.map((g) => (g.turn ?? g.rows[0]).createdAt.getTime());
+  const byGroup = new Map<number, HarnessQuestion[]>();
+  for (const message of [...questions].sort(
+    (a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt)
+  )) {
+    const at = Date.parse(message.createdAt);
+    let index = 0;
+    for (let i = 0; i < starts.length; i += 1) {
+      if (starts[i] <= at) index = i;
+    }
+    const list = byGroup.get(index) ?? [];
+    list.push(toQuestion(message));
+    byGroup.set(index, list);
+  }
   return groups.map((group, index) => {
     const turnPayload = group.turn ? (group.turn.payload as TurnPayload) : null;
     const anchor = group.turn ?? group.rows[0];
     const startedAt = anchor.createdAt.toISOString();
+    const turnQuestions = byGroup.get(index);
     const settled = turnPayload?.state === "settled";
     const steps: HarnessStep[] = [];
     let result: HarnessTurn["result"] = null;
@@ -201,6 +237,7 @@ export function assembleTurns(
         : { source: "system", text: "Earlier activity", attachments: [] },
       trace,
       result,
+      ...(turnQuestions ? { questions: turnQuestions } : {}),
       ...(error ? { error } : {}),
     };
   });
@@ -263,5 +300,16 @@ export async function loadTurns(
       chat.set(message.id, message);
     }
   }
-  return assembleTurns(source, chat);
+  // Agent questions posted since the window opened (Chat shows them; a
+  // harness agent's pane does not).
+  const since = source.length ? source[0].createdAt : new Date(0);
+  const asked = await db.query(
+    `SELECT * FROM agent_chat_messages
+      WHERE agent_id = $1 AND author_kind = 'agent' AND kind = 'question'
+        AND created_at >= $2
+      ORDER BY created_at ASC`,
+    [agentId, since]
+  );
+  const questions = asked.rows.map((row) => toChatMessage(row as never));
+  return assembleTurns(source, chat, questions);
 }

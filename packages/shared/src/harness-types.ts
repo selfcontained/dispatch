@@ -1,4 +1,4 @@
-import type { ChatAttachment } from "./chat-types.js";
+import type { ChatAttachment, ChatQuestionOption } from "./chat-types.js";
 
 /**
  * The Harness view's wire types: a stream-driven agent's activity cut into
@@ -39,6 +39,21 @@ export type HarnessStep = {
   };
 };
 
+/**
+ * A question the agent posted through dispatch_chat_post during the turn:
+ * it lives in the Chat feed, which a harness agent's pane does not show,
+ * so the Harness view carries it on the turn with its answer state.
+ */
+export type HarnessQuestion = {
+  /** The chat message id; answers post against it. */
+  id: string;
+  text: string;
+  options: ChatQuestionOption[];
+  allowFreeform: boolean;
+  answer: { value: string; label?: string } | null;
+  createdAt: string;
+};
+
 export type HarnessTurn = {
   id: string;
   prompt: HarnessPrompt;
@@ -50,6 +65,8 @@ export type HarnessTurn = {
   };
   result: { text: string; streaming: boolean; truncated?: boolean } | null;
   error?: string;
+  /** Questions the agent asked during this turn, oldest first. */
+  questions?: HarnessQuestion[];
 };
 
 export type HarnessTurnsResponse = { turns: HarnessTurn[] };

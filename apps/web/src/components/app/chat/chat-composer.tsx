@@ -3,6 +3,7 @@ import {
   type ClipboardEvent,
   type DragEvent,
   type KeyboardEvent,
+  type RefObject,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -94,6 +95,13 @@ export type ChatComposerProps = {
    * Return true to consume it — the field is cleared instead of filled.
    */
   onSlashCommand?: (name: string) => boolean;
+  /**
+   * An element beyond the composer that also takes file drops — the whole
+   * pane, so a file dropped anywhere on the conversation attaches here.
+   */
+  dropTargetRef?: RefObject<HTMLElement | null>;
+  /** Reports drag-over state of `dropTargetRef` for the host's overlay. */
+  onDropZoneDragging?: (dragging: boolean) => void;
 };
 
 export type SlashItem = {
@@ -215,6 +223,8 @@ export function ChatComposer({
   replyContext = null,
   slashItems,
   onSlashCommand,
+  dropTargetRef,
+  onDropZoneDragging,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -564,6 +574,42 @@ export function ChatComposer({
     },
     [addFiles, disabled]
   );
+
+  // The host's drop zone: native listeners on an element the composer does
+  // not render, feeding the same addFiles as a drop on the field itself.
+  useEffect(() => {
+    const el = dropTargetRef?.current;
+    if (!el) return;
+    const hasFiles = (event: globalThis.DragEvent) =>
+      !!event.dataTransfer?.types.includes("Files");
+    const over = (event: globalThis.DragEvent) => {
+      if (disabled || !hasFiles(event)) return;
+      event.preventDefault();
+      event.stopPropagation();
+      onDropZoneDragging?.(true);
+    };
+    const leave = (event: globalThis.DragEvent) => {
+      if (el.contains(event.relatedTarget as Node | null)) return;
+      onDropZoneDragging?.(false);
+    };
+    const drop = (event: globalThis.DragEvent) => {
+      onDropZoneDragging?.(false);
+      if (disabled) return;
+      const dropped = Array.from(event.dataTransfer?.files ?? []);
+      if (dropped.length === 0) return;
+      event.preventDefault();
+      event.stopPropagation();
+      addFiles(dropped);
+    };
+    el.addEventListener("dragover", over);
+    el.addEventListener("dragleave", leave);
+    el.addEventListener("drop", drop);
+    return () => {
+      el.removeEventListener("dragover", over);
+      el.removeEventListener("dragleave", leave);
+      el.removeEventListener("drop", drop);
+    };
+  }, [addFiles, disabled, dropTargetRef, onDropZoneDragging]);
 
   const canSend =
     !disabled &&

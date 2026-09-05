@@ -205,3 +205,67 @@ describe("assembleTurns", () => {
     expect(turns[1].trace.finalResult).toBe("error");
   });
 });
+
+describe("assembleTurns with agent questions", () => {
+  it("carries a question on the turn it was asked in, with its answer state", () => {
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "first" },
+          endedAt: at(5).toISOString(),
+        },
+        0,
+        5
+      ),
+      row("assistant", { text: "Which one?", streaming: false }, 2),
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "second" },
+          endedAt: at(12).toISOString(),
+        },
+        10,
+        12
+      ),
+    ];
+    const question = {
+      id: "q1",
+      agentId: "agt_1",
+      authorKind: "agent" as const,
+      kind: "question" as const,
+      text: "Scope choice: fix the preview alone, or bundle it?",
+      replyTo: null,
+      question: {
+        options: [
+          { label: "Preview only" },
+          { label: "Bundle", value: "bundle" },
+        ],
+        allowFreeform: true,
+      },
+      answer: null,
+      attachments: [],
+      delivered: null,
+      readAt: null,
+      createdAt: at(3).toISOString(),
+      updatedAt: at(3).toISOString(),
+    };
+    const turns = assembleTurns(rows, new Map(), [question as never]);
+    expect(turns[0].questions).toEqual([
+      {
+        id: "q1",
+        text: "Scope choice: fix the preview alone, or bundle it?",
+        options: [
+          { label: "Preview only" },
+          { label: "Bundle", value: "bundle" },
+        ],
+        allowFreeform: true,
+        answer: null,
+        createdAt: at(3).toISOString(),
+      },
+    ]);
+    expect(turns[1].questions).toBeUndefined();
+  });
+});

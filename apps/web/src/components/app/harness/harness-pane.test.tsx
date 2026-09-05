@@ -1,9 +1,11 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
+import type { HarnessQuestion } from "@dispatch/shared";
 
 import type { Agent } from "@/components/app/types";
 
@@ -14,6 +16,7 @@ const state: {
   turns: Turn[];
   liveTrace: Trace | null;
   liveText: string;
+  liveQuestions: HarnessQuestion[];
   streaming: boolean;
   loading: boolean;
   error: Error | null;
@@ -21,6 +24,7 @@ const state: {
   turns: [],
   liveTrace: null,
   liveText: "",
+  liveQuestions: [],
   streaming: false,
   loading: false,
   error: null,
@@ -48,10 +52,16 @@ vi.mock("./use-harness-turns", () => ({
   harnessTurnsQueryKey: (agentId: string | null) => ["harness-turns", agentId],
   useHarnessTurns: () => state,
 }));
+const answerMutate = vi.fn(async () => ({}));
 vi.mock("@/hooks/use-chat", () => ({
   useSendChatMessage: () => ({
     mutateAsync: vi.fn(),
     isPending: false,
+  }),
+  useAnswerChatQuestion: () => ({
+    mutateAsync: answerMutate,
+    isPending: false,
+    variables: undefined,
   }),
 }));
 vi.mock("@/components/ui/markdown-mermaid", () => ({
@@ -82,7 +92,9 @@ afterEach(() => {
   state.turns = [];
   state.liveTrace = null;
   state.liveText = "";
+  state.liveQuestions = [];
   state.streaming = false;
+  answerMutate.mockClear();
 });
 
 const T0 = Date.parse("2026-09-04T10:00:00.000Z");
@@ -195,5 +207,70 @@ describe("HarnessPane while the agent is starting", () => {
     expect(screen.getByTestId("harness-model-chip").textContent).toContain(
       "starting"
     );
+  });
+});
+
+describe("HarnessPane questions and drops", () => {
+  it("renders an agent question with its options and answers on click", async () => {
+    state.turns = [
+      { id: "t1:user", role: "user", content: "pick", timestamp: T0 },
+      {
+        id: "t1:assistant",
+        role: "assistant",
+        content: "Which?",
+        timestamp: T0 + 1000,
+        trace: {
+          startedAt: T0,
+          endedAt: T0 + 1000,
+          finalResult: "ok",
+          steps: [],
+        },
+        extra: {
+          questions: [
+            {
+              id: "q1",
+              text: "Fix the preview alone, or bundle it?",
+              options: [
+                { label: "Preview only" },
+                { label: "Bundle", value: "bundle" },
+              ],
+              allowFreeform: false,
+              answer: null,
+              createdAt: "2026-09-04T10:00:00.500Z",
+            },
+          ],
+        },
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const card = screen.getByTestId("harness-question");
+    expect(card.textContent).toContain("Needs your reply");
+    const options = screen.getAllByTestId("harness-question-option");
+    expect(options.map((o) => o.textContent)).toEqual([
+      "Preview only",
+      "Bundle",
+    ]);
+    fireEvent.click(options[1]);
+    expect(answerMutate).toHaveBeenCalledWith({
+      messageId: "q1",
+      value: "bundle",
+      label: "Bundle",
+    });
+  });
+
+  it("shows the drop overlay while files are dragged over the pane", () => {
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const pane = screen.getByTestId("harness-pane");
+    expect(screen.queryByTestId("harness-drop-overlay")).toBeNull();
+    fireEvent.dragOver(pane, { dataTransfer: { types: ["Files"], files: [] } });
+    expect(screen.getByTestId("harness-drop-overlay")).toBeTruthy();
+    fireEvent.drop(pane, { dataTransfer: { types: ["Files"], files: [] } });
+    expect(screen.queryByTestId("harness-drop-overlay")).toBeNull();
   });
 });

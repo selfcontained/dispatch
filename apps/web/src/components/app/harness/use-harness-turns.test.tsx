@@ -61,7 +61,7 @@ const live: HarnessTurn = {
 
 describe("toPromptKitTurns", () => {
   it("emits a user and an assistant turn per settled HarnessTurn", () => {
-    const out = toPromptKitTurns([settled]);
+    const out = toPromptKitTurns([settled], "agt_1");
     expect(out.turns.map((t) => t.role)).toEqual(["user", "assistant"]);
     expect(out.turns[0].content).toBe("look");
     expect(out.turns[0].extra).toEqual({ source: "chat" });
@@ -76,13 +76,15 @@ describe("toPromptKitTurns", () => {
   });
 
   it("routes a streaming turn through the live path with the sender as a chip", () => {
-    const out = toPromptKitTurns([settled, live]);
+    const out = toPromptKitTurns([settled, live], "agt_1");
     expect(out.turns.map((t) => t.role)).toEqual(["user", "assistant", "user"]);
     expect(out.turns[2].contextChips).toEqual([{ label: "from Reviewer" }]);
     expect(out.turns[2].attachments).toEqual([
       {
         kind: "image",
-        url: "/api/v1/media/7",
+        url: "/api/v1/agents/agt_1/media/shot.png",
+        size: 10,
+        at: "2026-09-04T10:00:10.000Z",
         name: "shot.png",
         mimeType: "image/png",
       },
@@ -101,7 +103,7 @@ describe("toPromptKitTurns", () => {
       result: null,
       error: "model exploded",
     };
-    const out = toPromptKitTurns([failed]);
+    const out = toPromptKitTurns([failed], "agt_1");
     expect(out.turns[1].error).toEqual({
       code: "turn_failed",
       message: "model exploded",

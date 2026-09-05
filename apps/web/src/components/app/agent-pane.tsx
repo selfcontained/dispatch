@@ -292,6 +292,7 @@ export function AgentPane({
             agent={agent}
             active={active && harnessShown}
             isMobile={isMobile}
+            openLightbox={openLightbox}
           />
         </div>
       ) : null}

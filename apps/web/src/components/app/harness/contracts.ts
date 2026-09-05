@@ -52,6 +52,10 @@ export interface Attachment {
   url: string;
   name?: string;
   mimeType?: string;
+  /** Bytes, when known (feeds the media lightbox). */
+  size?: number;
+  /** When the message carrying it was sent (ISO). */
+  at?: string;
 }
 
 export interface ContextChip {
