@@ -12,24 +12,41 @@ export function parseReadOutput(output: string): {
   type?: string;
   startLine?: number;
   code: string;
+  /** Trailing unnumbered text, e.g. "(Showing lines 1-120 of 281 …)". */
+  note?: string;
 } {
   const path = /^<path>([^<]*)<\/path>/.exec(output)?.[1];
   const type = /<type>([^<]*)<\/type>/.exec(output)?.[1];
   const content = /<content>\n?([\s\S]*?)(?:<\/content>\s*)?$/.exec(output);
   const body = content ? content[1] : output;
   const lines = body.replace(/\n$/, "").split("\n");
-  // "12: text" prefixes on every non-empty line: strip them into a gutter.
+  // "12: text" prefixes: strip them into a gutter. Lines after the last
+  // numbered one (dsh's paging note) become a footnote.
   const numbered = lines.map((line) => /^(\d+): ?(.*)$/.exec(line));
-  const allNumbered =
-    lines.length > 0 &&
-    numbered.every((m, i) => m !== null || lines[i].trim() === "");
-  if (allNumbered) {
+  let last = -1;
+  numbered.forEach((m, i) => {
+    if (m) last = i;
+  });
+  const consistent =
+    last >= 0 &&
+    numbered
+      .slice(0, last + 1)
+      .every((m, i) => m !== null || lines[i].trim() === "");
+  if (consistent) {
     const first = numbered.find((m) => m !== null);
+    const note = lines
+      .slice(last + 1)
+      .join("\n")
+      .trim();
     return {
       ...(path ? { path } : {}),
       ...(type ? { type } : {}),
       startLine: first ? Number(first[1]) : 1,
-      code: numbered.map((m, i) => (m ? m[2] : lines[i])).join("\n"),
+      code: numbered
+        .slice(0, last + 1)
+        .map((m, i) => (m ? m[2] : lines[i]))
+        .join("\n"),
+      ...(note ? { note } : {}),
     };
   }
   return { ...(path ? { path } : {}), ...(type ? { type } : {}), code: body };

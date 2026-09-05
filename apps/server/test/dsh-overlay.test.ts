@@ -36,7 +36,9 @@ describe("buildOverlayYaml", () => {
     ) as Row[];
     const byId = Object.fromEntries(rows.map((r) => [r.id, r.config]));
     expect(byId["llm-pi-ai"]).toEqual({
-      providers: { openai: { apiKeyEnv: "OPENAI_API_KEY" } },
+      providers: {
+        openai: { apiKeyEnv: "OPENAI_API_KEY", displayName: "OpenAI" },
+      },
     });
     expect(byId["system-prompt"]).toEqual({
       persona: "You are {{model}} in {{cwd}}.",

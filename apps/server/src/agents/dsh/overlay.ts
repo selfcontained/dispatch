@@ -21,7 +21,8 @@ export type OverlayInput = {
 };
 
 const DEFAULT_PROVIDERS: Record<string, ProviderRoute> = {
-  openai: { apiKeyEnv: "OPENAI_API_KEY" },
+  // displayName is the group header in model menus.
+  openai: { apiKeyEnv: "OPENAI_API_KEY", displayName: "OpenAI" },
 };
 
 export function splitModelId(model: string): {

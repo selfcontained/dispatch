@@ -15,6 +15,17 @@ describe("parseReadOutput", () => {
     });
   });
 
+  it("keeps dsh's paging note out of the code, as a footnote", () => {
+    const out = parseReadOutput(
+      "<path>/r/a.ts</path>\n<type>file</type>\n<content>\n1: a\n2: b\n\n(Showing lines 1-2 of 9. Use offset=3 to continue.)\n</content>"
+    );
+    expect(out.code).toBe("a\nb");
+    expect(out.startLine).toBe(1);
+    expect(out.note).toBe(
+      "(Showing lines 1-2 of 9. Use offset=3 to continue.)"
+    );
+  });
+
   it("leaves unnumbered output alone", () => {
     expect(parseReadOutput("plain\ntext")).toEqual({ code: "plain\ntext" });
   });

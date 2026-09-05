@@ -71,6 +71,9 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
               lineNumbers={parsed.startLine !== undefined}
             />
           )}
+          {parsed.note ? (
+            <p className="text-[10.5px] text-muted-foreground">{parsed.note}</p>
+          ) : null}
         </>
       );
     }
