@@ -656,7 +656,7 @@ describe("ChatService user workflows", () => {
     expect((await settled(svc, res.message.id)).delivered).toBe(false);
   });
 
-  it("sendUserMessage rejects empty/oversized text and an undeliverable agent", async () => {
+  it("sendUserMessage rejects invalid text but records inert posts", async () => {
     const { svc } = build({
       access: async () => ({ mode: "inert", message: "No pane." }),
     });
@@ -666,12 +666,18 @@ describe("ChatService user workflows", () => {
     await expect(
       svc.sendUserMessage(A, "x".repeat(20_001))
     ).rejects.toBeInstanceOf(ChatValidationError);
-    await expect(svc.sendUserMessage(A, "hi")).rejects.toThrow(
-      new ChatConflictError("No pane.")
+    const inert = await svc.sendUserMessage(A, "hi", [], {
+      allowInert: true,
+    });
+    expect(inert).toMatchObject({
+      delivered: false,
+      held: false,
+      message: { text: "hi", delivered: false },
+    });
+    const rows = await pool.query(
+      "SELECT text, delivered FROM agent_chat_messages"
     );
-    // Nothing was written for any of them.
-    const rows = await pool.query("SELECT 1 FROM agent_chat_messages");
-    expect(rows.rowCount).toBe(0);
+    expect(rows.rows).toEqual([{ text: "hi", delivered: false }]);
   });
 
   it("sendUserMessage resolves user attachments and lists them in the envelope", async () => {

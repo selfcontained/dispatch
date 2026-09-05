@@ -143,7 +143,8 @@ export async function registerChatRoutes(
       return await chat.sendUserMessage(
         id,
         parsed.data.text,
-        parsed.data.attachments ?? []
+        parsed.data.attachments ?? [],
+        { allowInert: true }
       );
     } catch (error) {
       return sendError(reply, error);

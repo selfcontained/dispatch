@@ -758,12 +758,24 @@ export function ChatComposer({
             title="Send (Enter)"
             aria-label="Send message"
             data-testid="chat-composer-send"
-            // Compact icon under a mouse; on touch devices the button grows
-            // to a 44px target and drops its inset so it still sits inside
-            // the composer box next to the 40px-min field.
-            className="m-2 h-7 w-7 shrink-0 rounded-full pointer-coarse:m-0 pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11"
+            // Keep a 44px touch target without stretching the visible disc to
+            // the full height of a one-line composer.
+            className={cn(
+              "group m-2 h-7 w-7 shrink-0 rounded-full pointer-coarse:m-0 pointer-coarse:h-11 pointer-coarse:min-h-11 pointer-coarse:w-11 pointer-coarse:min-w-11",
+              canSend &&
+                "pointer-coarse:border-transparent pointer-coarse:bg-transparent pointer-coarse:shadow-none pointer-coarse:hover:bg-transparent"
+            )}
           >
-            <SendHorizontal className="h-4 w-4" />
+            <span
+              className={cn(
+                "flex h-full w-full items-center justify-center rounded-full pointer-coarse:h-7 pointer-coarse:w-7",
+                canSend &&
+                  "pointer-coarse:border pointer-coarse:border-status-working/40 pointer-coarse:bg-status-working/80 pointer-coarse:text-background pointer-coarse:shadow-sm pointer-coarse:group-hover:bg-status-working/90"
+              )}
+              data-testid="chat-composer-send-disc"
+            >
+              <SendHorizontal className="h-4 w-4" />
+            </span>
           </Button>
         </div>
       </div>

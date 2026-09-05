@@ -12,6 +12,7 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Check,
+  Copy,
   ExternalLink,
   FileText,
   GitPullRequest,
@@ -39,6 +40,7 @@ import {
 } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
+import { useCopyText } from "@/hooks/use-copy";
 import { formatBytes } from "@/components/app/service-resources-format";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { formatDateTime } from "@/lib/format";
@@ -276,6 +278,37 @@ export const POST_BODY_MEASURE = "max-w-[90ch]";
  */
 export const SIDE_POST_INDENT = "pl-[3.75rem]";
 
+/** A post-local clipboard action with the same confirmation used elsewhere. */
+function MessageCopyButton({ text }: { text: string }): JSX.Element {
+  const [copied, copyText] = useCopyText();
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={cn(
+        "h-7 w-7 p-0 hover:bg-transparent",
+        "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
+        "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
+        "max-sm:opacity-100 [@media(pointer:coarse)]:opacity-100",
+        copied && "opacity-100 text-status-working"
+      )}
+      onClick={() => copyText(text)}
+      title={copied ? "Copied" : "Copy message"}
+      aria-label={copied ? "Message copied" : "Copy message"}
+      data-testid="chat-copy-message"
+    >
+      <span className="flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background/90 shadow-sm">
+        {copied ? (
+          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
+      </span>
+    </Button>
+  );
+}
+
 /**
  * One full-width row of the channel. A header row carries the avatar, the
  * author and the time; a grouped row (same author, shortly after) keeps only
@@ -297,6 +330,7 @@ export function Post({
   grouped,
   rule = false,
   side,
+  action,
   children,
   ...rest
 }: {
@@ -307,6 +341,8 @@ export function Post({
   rule?: boolean;
   /** Who the post is addressed to, when that is another agent. */
   side?: { recipientName: string };
+  /** A compact post action, shown in the top-right on hover or touch. */
+  action?: ReactNode;
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
@@ -339,7 +375,15 @@ export function Post({
           <Avatar author={author} side={side !== undefined} />
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 after:block after:clear-both after:content-['']">
+        {action ? (
+          <div
+            className="float-right ml-2 max-sm:-mr-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:-mt-2"
+            data-testid="chat-post-action"
+          >
+            {action}
+          </div>
+        ) : null}
         {grouped ? null : (
           <div
             // Wrapping keeps the recipient readable on narrow screens: rather
@@ -818,6 +862,10 @@ export const ChatMessageView = memo(function ChatMessageView({
   answersDisabled?: boolean;
   onAnswer: (messageId: string, option: ChatQuestionOption) => void;
 }): JSX.Element {
+  const copyAction = message.text ? (
+    <MessageCopyButton text={message.text} />
+  ) : undefined;
+
   if (message.authorKind === "user") {
     return (
       <Post
@@ -830,6 +878,7 @@ export const ChatMessageView = memo(function ChatMessageView({
         data-origin={message.origin}
         data-launched-by={message.launchedByAgentId}
         data-message-id={message.id}
+        action={copyAction}
       >
         {message.origin === "launch" ? (
           <div
@@ -870,6 +919,7 @@ export const ChatMessageView = memo(function ChatMessageView({
         data-author="agent"
         data-kind="update"
         data-message-id={message.id}
+        action={copyAction}
       >
         <Markdown className="text-muted-foreground prose-p:my-0.5">
           {message.text}
@@ -904,6 +954,7 @@ export const ChatMessageView = memo(function ChatMessageView({
       data-author="agent"
       data-kind={message.kind}
       data-message-id={message.id}
+      action={copyAction}
     >
       {message.kind === "summary" ? (
         <AttachmentBlock
@@ -1019,6 +1070,7 @@ export function AgentMessageView({
       side={{ recipientName: entry.recipientName }}
       data-testid="chat-agent-message"
       data-direction={entry.direction}
+      action={<MessageCopyButton text={entry.content} />}
     >
       <div className="whitespace-pre-wrap break-words">{entry.content}</div>
       {delivered === null ? (

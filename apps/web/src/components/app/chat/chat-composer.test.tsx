@@ -209,5 +209,8 @@ describe("ChatComposer", () => {
     expect(send.className).toContain("pointer-coarse:min-h-11");
     expect(send.className).toContain("pointer-coarse:min-w-11");
     expect(send.className).toContain("pointer-coarse:m-0");
+    const disc = screen.getByTestId("chat-composer-send-disc");
+    expect(disc.className).toContain("pointer-coarse:h-7");
+    expect(disc.className).toContain("pointer-coarse:w-7");
   });
 });

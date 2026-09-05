@@ -269,10 +269,12 @@ export class ChatService {
   // -------------------------------------------------------------------------
 
   /**
-   * A user message typed in the Chat tab: persist it as pending, enqueue the
-   * pane delivery, and return at once. The quiet gate can hold a delivery far
-   * longer than a request should wait, so `delivered` stays null until the
-   * injection settles; `held` reports whether the gate is holding right now.
+   * A user message typed in the Chat tab: persist it, enqueue pane delivery
+   * when a terminal exists, and return at once. In inert mode the post still
+   * belongs in the feed, but starts at `delivered: false` because there is no
+   * pane to receive it. The quiet gate can hold a real delivery far longer
+   * than a request should wait, so those rows stay null until injection
+   * settles; `held` reports whether the gate is holding right now.
    *
    * `text` may be blank when at least one attachment is present. Attachments
    * are resolved (file by mediaId, pin verified on the agent, link as given)
@@ -281,7 +283,8 @@ export class ChatService {
   async sendUserMessage(
     agentId: string,
     text: string,
-    attachments: ChatUserAttachmentInput[] = []
+    attachments: ChatUserAttachmentInput[] = [],
+    options: { allowInert?: boolean } = {}
   ): Promise<ChatSendResponse> {
     if (!text.trim() && attachments.length === 0) {
       throw new ChatValidationError("text is required.");
@@ -303,15 +306,23 @@ export class ChatService {
       resolved = await this.resolveAttachmentsFor(agent, attachments);
       attachmentLines = this.describeAttachments(agent, resolved);
     }
-    const sessionName = await this.requireDeliverable(agentId);
+    const sessionName = await this.deliverySession(
+      agentId,
+      options.allowInert ?? false
+    );
+    const delivered = sessionName === null ? false : null;
     const message = await this.store.insert({
       agentId,
       authorKind: "user",
       kind: "reply",
       text,
       attachments: resolved,
-      delivered: null,
+      delivered,
     });
+    if (sessionName === null) {
+      this.publishChanged(agentId);
+      return { message, delivered: false, held: false };
+    }
     const { held } = this.deliverDetached(
       agentId,
       sessionName,
@@ -387,7 +398,8 @@ export class ChatService {
       attachmentLines = this.describeAttachments(agent, resolved);
     }
 
-    const sessionName = await this.requireDeliverable(agentId);
+    const sessionName = await this.deliverySession(agentId, true);
+    const delivered = sessionName === null ? false : null;
 
     // Reply row and answer land together or not at all: a concurrent answer
     // makes recordAnswer match nothing, and the rollback takes the orphan
@@ -405,7 +417,7 @@ export class ChatService {
         text,
         replyTo: question.id,
         attachments: resolved,
-        delivered: null,
+        delivered,
       });
       answered = await tx.recordAnswer(question.id, {
         value,
@@ -425,20 +437,22 @@ export class ChatService {
       client.release();
     }
 
-    this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
+    if (sessionName !== null) {
+      this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
+    }
     this.publishChanged(agentId);
-    return { question: answered, reply: replyMessage, delivered: null };
+    return { question: answered, reply: replyMessage, delivered };
   }
 
-  /**
-   * Same rule as terminal inject-text: no pane to deliver into is a 409.
-   * `AgentError` from the access check (missing/stopped agent) propagates as
-   * is — it already carries its status.
-   */
-  private async requireDeliverable(agentId: string): Promise<string> {
+  /** A real pane's session name, or null when this Chat flow permits inert. */
+  private async deliverySession(
+    agentId: string,
+    allowInert: boolean
+  ): Promise<string | null> {
     const access = await this.delivery().access(agentId);
-    if (access.mode !== "tmux") throw new ChatConflictError(access.message);
-    return access.sessionName;
+    if (access.mode === "tmux") return access.sessionName;
+    if (!allowInert) throw new ChatConflictError(access.message);
+    return null;
   }
 
   private delivery(): ChatDeliveryAdapter {

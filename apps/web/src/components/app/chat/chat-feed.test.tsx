@@ -5,7 +5,13 @@ import type {
   ChatMessage,
   ChatStatusEntry,
 } from "@dispatch/shared";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -36,6 +42,7 @@ vi.mock("@/components/ui/markdown-mermaid-theme", () => ({
 
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(navigator, "clipboard");
 });
 
 const AGENT_ID = "agt_1";
@@ -397,6 +404,66 @@ describe("latestOpenFreeformQuestion", () => {
 });
 
 describe("ChatFeed", () => {
+  it("copies the raw text of chat and agent-to-agent messages", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderFeed([
+      chat(
+        message({
+          id: "u1",
+          authorKind: "user",
+          text: "User message",
+          delivered: true,
+        })
+      ),
+      chat(message({ id: "a1", text: "Hello **there**" })),
+      {
+        type: "agent_message",
+        id: "p1",
+        direction: "in",
+        senderAgentId: "agt_2",
+        senderName: "Reviewer",
+        recipientAgentId: AGENT_ID,
+        recipientName: "builder",
+        content: "Peer message",
+        delivered: true,
+        at: "2026-09-02T10:01:00.000Z",
+      },
+    ]);
+
+    const copyButtons = screen.getAllByTestId("chat-copy-message");
+    expect(copyButtons).toHaveLength(3);
+    fireEvent.click(copyButtons[0]!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("User message"));
+
+    fireEvent.click(copyButtons[1]!);
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("Hello **there**")
+    );
+    expect(screen.getAllByLabelText("Message copied")).toHaveLength(2);
+
+    fireEvent.click(copyButtons[2]!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("Peer message"));
+  });
+
+  it("does not show a copy action for an attachment-only post", () => {
+    renderFeed([
+      chat(
+        message({
+          id: "a1",
+          text: "",
+          attachments: [
+            { type: "link", url: "https://example.com", title: "Example" },
+          ],
+        })
+      ),
+    ]);
+    expect(screen.queryByTestId("chat-copy-message")).toBeNull();
+  });
+
   it('renders a user post under a "You" header with delivery failure marker', () => {
     renderFeed([
       chat(
@@ -724,6 +791,13 @@ describe("ChatFeed", () => {
     // Bodies stop at a reading measure; the row itself spans the pane.
     const body = agentPost!.querySelector(".max-w-\\[90ch\\]");
     expect(body?.textContent).toContain("agent one");
+    // The copy action floats over the corner; it must not reserve a strip down
+    // the full height of the message body.
+    expect(body?.parentElement?.className).not.toContain("pr-7");
+    const action = agentPost!.querySelector("[data-testid='chat-post-action']");
+    expect(action?.className).toContain("float-right");
+    expect(action?.className).toContain("max-sm:-mr-2");
+    expect(action?.className).toContain("max-sm:-mt-2");
   });
 
   it("uses the agent's type for its avatar", () => {
