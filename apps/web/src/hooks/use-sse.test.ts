@@ -534,6 +534,7 @@ describe("useSSE message handling", () => {
       CACHED_RELEASE_INFO_QUERY_KEY,
       ["chat-unread"],
       ["chat"],
+      ["harness-turns"],
     ]);
     expect(removeQueries).toHaveBeenCalledWith({
       queryKey: ["injection-hold"],
@@ -744,6 +745,7 @@ describe("useSSE message handling", () => {
       ["agent-feedback-items", "author"],
       // The Chat feed carries a card per review.
       ["chat", "author"],
+      ["harness-turns", "author"],
     ]);
   });
 
@@ -768,6 +770,7 @@ describe("useSSE message handling", () => {
       ["agent-feedback-items", "author"],
       // The Chat feed carries a card per review.
       ["chat", "author"],
+      ["harness-turns", "author"],
     ]);
   });
 
@@ -827,6 +830,8 @@ describe("useSSE message handling", () => {
       ["messages", "recipient"],
       ["chat", "sender"],
       ["chat", "recipient"],
+      ["harness-turns", "sender"],
+      ["harness-turns", "recipient"],
     ]);
 
     invalidateQueries.mockClear();

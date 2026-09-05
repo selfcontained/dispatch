@@ -134,6 +134,12 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
     queryKey: chatFeedQueryKey(agentId),
     exact: true,
   });
+  // The Harness view reads the same stream rows the feed does, and settles
+  // on the same signals (agent events, chat changes), so it refetches with it.
+  void queryClient.invalidateQueries({
+    queryKey: harnessTurnsQueryKey(agentId),
+    exact: true,
+  });
 }
 
 export function applyReviewCreated(
@@ -203,6 +209,7 @@ export function useSSE(authState: AuthState): void {
           // missing whatever landed while the stream was down. Prefix match:
           // one key per agent.
           void queryClient.invalidateQueries({ queryKey: CHAT_QUERY_PREFIX });
+          void queryClient.invalidateQueries({ queryKey: ["harness-turns"] });
           // Injection-hold state is event-sourced with no fetch endpoint; a
           // release event missed during an SSE gap would leave the hold badge
           // stuck. Reset on every (re)connect snapshot — fails safe to hidden.
@@ -242,11 +249,6 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "chat.changed") {
           invalidateChatFeed(queryClient, payload.agentId);
-          // The Harness view reads the same stream rows the feed does.
-          void queryClient.invalidateQueries({
-            queryKey: harnessTurnsQueryKey(payload.agentId),
-            exact: true,
-          });
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
