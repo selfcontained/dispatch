@@ -909,7 +909,17 @@ async function handleShareMedia(
             );
           });
         } else {
-          await unlink(filePath).catch(() => {});
+          // Nothing to restore here — the row's file was already missing, so
+          // this write created it and undoing means removing it. If that also
+          // fails there is no recovery left, only the obligation to say so:
+          // the row keeps its old dimensions while these bytes sit on disk.
+          await unlink(filePath).catch((err) => {
+            deps.appLog.error(
+              { err, agentId, fileName },
+              "Failed to remove a media file written by a replacement that " +
+                "then failed; the row may not describe the file on disk"
+            );
+          });
         }
         throw error;
       } finally {

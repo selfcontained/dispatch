@@ -30,9 +30,12 @@ vi.mock("node:fs/promises", async (importOriginal) => {
     ...actual,
     copyFile: vi.fn(actual.copyFile),
     rename: vi.fn(actual.rename),
+    unlink: vi.fn(actual.unlink),
   };
 });
-const { copyFile, rename } = await import("node:fs/promises");
+const { copyFile, rename, unlink } = await import("node:fs/promises");
+// The unmocked implementation, for tests that replace it and hand it back.
+const realUnlink = vi.mocked(unlink).getMockImplementation()!;
 
 /**
  * Replacing a media file has to be one serialized unit: the row lock taken to
@@ -175,6 +178,8 @@ afterAll(async () => {
 beforeEach(async () => {
   vi.mocked(copyFile).mockClear();
   vi.mocked(rename).mockClear();
+  vi.mocked(unlink).mockClear();
+  vi.mocked(unlink).mockImplementation(realUnlink);
   statements = [];
   released = 0;
   lastLog = null;
@@ -427,6 +432,52 @@ describe("dispatch_share_file replacement", () => {
       fileName: FILE,
       backupPath: path.join(mediaRoot, AGENT, kept[0]!),
     });
+    expect(statements.some((s) => s.sql === "ROLLBACK")).toBe(true);
+    expect(released).toBe(1);
+  });
+
+  it("says so when it cannot remove a file it created", async () => {
+    // No old bytes exist in this branch, so the mismatch cannot be repaired.
+    // Logging is the whole remedy, and swallowing the error removes it.
+    await unlink(path.join(mediaRoot, AGENT, FILE));
+    const source = path.join(mediaRoot, "incoming.png");
+    await writeFile(source, PNG_160x120);
+    // Target the media file specifically: the backup cleanup also calls
+    // unlink, and a bare `once` would be spent on that instead.
+    vi.mocked(unlink).mockImplementation(async (target) => {
+      if (String(target).endsWith(FILE)) {
+        throw Object.assign(new Error("unlink failed"), { code: "EACCES" });
+      }
+      return realUnlink(target);
+    });
+
+    const pool = recordingPool();
+    const original = pool.connect;
+    pool.connect = vi.fn(async () => {
+      const client = (await original()) as {
+        query: (sql: string) => Promise<unknown>;
+        release: () => void;
+      };
+      const inner = client.query;
+      client.query = async (sql: string) => {
+        if (sql.trim().startsWith("UPDATE")) throw new Error("update failed");
+        return inner(sql);
+      };
+      return client;
+    }) as typeof pool.connect;
+
+    await expect(
+      makeHandlers(pool).shareMedia(AGENT, {
+        filePath: source,
+        description: "replaced",
+        update: FILE,
+      })
+    ).rejects.toThrow("update failed");
+
+    // The bytes are still there, and the row still describes what was before.
+    const onDisk = await readFile(path.join(mediaRoot, AGENT, FILE));
+    expect(onDisk.equals(PNG_160x120)).toBe(true);
+    expect(lastLog).toMatchObject({ agentId: AGENT, fileName: FILE });
     expect(statements.some((s) => s.sql === "ROLLBACK")).toBe(true);
     expect(released).toBe(1);
   });
