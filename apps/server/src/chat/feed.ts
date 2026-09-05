@@ -288,10 +288,12 @@ async function listMediaEntries(
     file_name: string;
     size_bytes: number;
     description: string | null;
+    width: number | null;
+    height: number | null;
     created_at: Date;
     at_key: string;
   }>(
-    `SELECT id, file_name, size_bytes, description, created_at,
+    `SELECT id, file_name, size_bytes, description, width, height, created_at,
             ${AT_KEY_SQL} AS at_key
        FROM media m
       WHERE m.agent_id = $1
@@ -323,6 +325,7 @@ async function listMediaEntries(
       fileName: row.file_name,
       sizeBytes: row.size_bytes,
       description: row.description ?? null,
+      ...dimensionFields(row.width, row.height),
       at: row.created_at.toISOString(),
     },
     atKey: row.at_key,
@@ -456,6 +459,63 @@ function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
 }
 
 /**
+ * Width and height as the wire shape wants them: present only when both are
+ * known, so a consumer can test one field and trust the pair.
+ */
+function dimensionFields(
+  width: number | null,
+  height: number | null
+): { width?: number; height?: number } {
+  return width !== null && height !== null ? { width, height } : {};
+}
+
+/**
+ * Fill in `width`/`height` on the file attachments of a page of entries.
+ *
+ * Attachments are frozen into the message row as JSONB when the message is
+ * written, so every post made before those columns existed carries a snapshot
+ * without them — and rewriting history to add them would be a migration over
+ * unbounded JSON. Reading them back off the media row instead costs one
+ * batched query per page and covers old and new posts identically.
+ *
+ * An attachment that already carries dimensions is left alone: its snapshot is
+ * the truth for that message even if the media row was replaced since. So is
+ * one whose media row is gone — a deleted file has no shape left to reserve.
+ */
+async function hydrateAttachmentDimensions(
+  db: Queryable,
+  entries: Keyed<ChatFeedEntry>[]
+): Promise<void> {
+  const pending = new Map<number, Array<{ width?: number; height?: number }>>();
+  for (const item of entries) {
+    if (item.entry.type !== "chat") continue;
+    for (const attachment of item.entry.message.attachments) {
+      if (attachment.type !== "file") continue;
+      if (attachment.width !== undefined) continue;
+      const targets = pending.get(attachment.mediaId);
+      if (targets) targets.push(attachment);
+      else pending.set(attachment.mediaId, [attachment]);
+    }
+  }
+  if (pending.size === 0) return;
+
+  const result = await db.query<{
+    id: number;
+    width: number | null;
+    height: number | null;
+  }>(
+    `SELECT id, width, height FROM media
+      WHERE id = ANY($1::int[]) AND width IS NOT NULL`,
+    [[...pending.keys()]]
+  );
+  for (const row of result.rows) {
+    for (const attachment of pending.get(row.id) ?? []) {
+      Object.assign(attachment, dimensionFields(row.width, row.height));
+    }
+  }
+}
+
+/**
  * Compose one agent's Chat feed at read time from chat messages, status
  * events, cross-agent messages, shared media, reviews, and pin activity.
  * Each source contributes its newest `limit + 1` rows past the cursor; the
@@ -492,6 +552,7 @@ export async function composeChatFeed(
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
+  await hydrateAttachmentDimensions(db, page);
   const oldest = page[page.length - 1];
   const nextCursor =
     hasMore && oldest

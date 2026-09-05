@@ -904,8 +904,10 @@ export class ChatService {
       id: number;
       file_name: string;
       size_bytes: number;
+      width: number | null;
+      height: number | null;
     }>(
-      `SELECT id, file_name, size_bytes FROM media
+      `SELECT id, file_name, size_bytes, width, height FROM media
         WHERE agent_id = $1
           AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text
                    ELSE id = $3::int END`,
@@ -924,6 +926,13 @@ export class ChatService {
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
       mimeType: mimeType(match.file_name),
+      // Snapshotted alongside the size so the feed can reserve the image's
+      // shape even after the media row is deleted. The feed also fills this
+      // in from the media row on read, for posts written before the column
+      // existed.
+      ...(match.width !== null && match.height !== null
+        ? { width: match.width, height: match.height }
+        : {}),
     };
   }
 }

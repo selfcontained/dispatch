@@ -7,6 +7,13 @@ export type MediaListItem = {
   sizeBytes: number;
   updatedAt: string;
   description: string | null;
+  /**
+   * Natural pixel size, when the file's header could be read. Null for
+   * non-images and for anything unparseable — a consumer reserving space for
+   * the image falls back to a fixed box in that case.
+   */
+  width: number | null;
+  height: number | null;
 };
 
 export type OwnedMediaItem = MediaListItem & {
@@ -20,10 +27,13 @@ type MediaRow = {
   size_bytes: number;
   effective_updated_at: Date;
   description: string | null;
+  width: number | null;
+  height: number | null;
 };
 
 const MEDIA_PROJECTION = `id, file_name, source, size_bytes,
-  COALESCE(updated_at, created_at) AS effective_updated_at, description`;
+  COALESCE(updated_at, created_at) AS effective_updated_at, description,
+  width, height`;
 
 function mapMediaRow(row: MediaRow): MediaListItem {
   return {
@@ -33,6 +43,8 @@ function mapMediaRow(row: MediaRow): MediaListItem {
     sizeBytes: row.size_bytes,
     updatedAt: row.effective_updated_at.toISOString(),
     description: row.description ?? null,
+    width: row.width ?? null,
+    height: row.height ?? null,
   };
 }
 

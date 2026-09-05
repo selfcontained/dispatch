@@ -8,6 +8,7 @@ import * as z from "zod/v4";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { tokensEqual } from "../auth.js";
+import { imageDimensionsFromBuffer } from "../media/image-dimensions.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveMediaDir } from "../shared/media.js";
 
@@ -393,15 +394,19 @@ async function storeSubmissionScreenshot(
     const filePath = path.join(mediaDir, fileName);
     await writeFile(filePath, buffer);
     writtenPath = filePath;
+    const dimensions = imageDimensionsFromBuffer(buffer);
     await deps.pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+                          width, height)
+       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
       [
         agent.id,
         fileName,
         "screenshot",
         buffer.length,
         "Browser feedback: selected element",
+        dimensions?.width ?? null,
+        dimensions?.height ?? null,
       ]
     );
   } catch (error) {

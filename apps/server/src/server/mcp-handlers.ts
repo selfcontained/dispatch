@@ -8,6 +8,7 @@ import type { Pool } from "pg";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { PinSpec } from "../agents/pin-write.js";
 import { AgentError } from "../agents/errors.js";
+import { imageDimensionsFromBuffer } from "../media/image-dimensions.js";
 import type { AgentPin, WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
@@ -806,10 +807,22 @@ async function handleShareMedia(
     }
 
     await writeFile(filePath, buffer);
+    // Replacing the bytes can change the shape, so the stored dimensions move
+    // with them — including back to null when the new file is one we cannot
+    // read.
+    const dimensions = imageDimensionsFromBuffer(buffer);
     await deps.pool.query(
-      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW()
+      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
+              width = $5, height = $6
        WHERE agent_id = $3 AND file_name = $4`,
-      [buffer.length, opts.description, agentId, fileName]
+      [
+        buffer.length,
+        opts.description,
+        agentId,
+        fileName,
+        dimensions?.width ?? null,
+        dimensions?.height ?? null,
+      ]
     );
 
     deps.publishUiEvent({ type: "media.changed", agentId });
@@ -839,10 +852,20 @@ async function handleShareMedia(
   const fileName = `${base}-${timestamp}${ext}`;
 
   await writeFile(path.join(mediaDir, fileName), buffer);
+  const dimensions = imageDimensionsFromBuffer(buffer);
   await deps.pool.query(
-    `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [agentId, fileName, source, buffer.length, opts.description]
+    `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+                        width, height)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+    [
+      agentId,
+      fileName,
+      source,
+      buffer.length,
+      opts.description,
+      dimensions?.width ?? null,
+      dimensions?.height ?? null,
+    ]
   );
 
   deps.publishUiEvent({ type: "media.changed", agentId });

@@ -43,6 +43,16 @@ export type ChatAttachment =
       fileName: string;
       sizeBytes: number;
       mimeType?: string;
+      /**
+       * Natural pixel size of an image, when the server could read it off the
+       * file. The feed reserves a box of this aspect ratio before the image
+       * loads, so an arriving image never pushes the reader's place down the
+       * page. Absent for non-images, for a file whose header could not be
+       * parsed, and for a media row that has since been deleted — each of
+       * which falls back to a fixed-height box.
+       */
+      width?: number;
+      height?: number;
     }
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
@@ -147,6 +157,9 @@ export type ChatMediaEntry = {
   fileName: string;
   sizeBytes: number;
   description: string | null;
+  /** See `ChatAttachment`'s file variant — same meaning, same fallback. */
+  width?: number;
+  height?: number;
   at: string;
 };
 
