@@ -172,3 +172,28 @@ describe("HarnessPane", () => {
     );
   });
 });
+
+describe("HarnessPane while the agent is starting", () => {
+  it("shows the loading bars and keeps the composer closed", () => {
+    const creating = {
+      ...agent,
+      status: "creating",
+      latestEvent: { type: "working", message: "Installing dependencies…" },
+    } as unknown as Agent;
+    render(
+      <HarnessPane agentId="agt_1" agent={creating} active isMobile={false} />,
+      { wrapper }
+    );
+    const starting = screen.getByTestId("harness-starting");
+    expect(starting.querySelector('[role="status"]')).not.toBeNull();
+    expect(starting.textContent).toContain("Installing dependencies…");
+    expect(screen.queryByTestId("harness-empty")).toBeNull();
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    expect(input.disabled).toBe(true);
+    expect(screen.getByTestId("harness-model-chip").textContent).toContain(
+      "starting"
+    );
+  });
+});

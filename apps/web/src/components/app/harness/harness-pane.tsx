@@ -7,6 +7,7 @@ import {
   ChatComposer,
   type SlashItem,
 } from "@/components/app/chat/chat-composer";
+import { ActivityBars } from "@/components/ui/activity-bars";
 import type { Agent } from "@/components/app/types";
 import { useSendChatMessage } from "@/hooks/use-chat";
 import { uploadAgentMedia } from "@/lib/media-upload";
@@ -110,11 +111,18 @@ export function HarnessPane({
     [agentId]
   );
 
+  // The pane is up before the harness is: setup (worktree, dependencies)
+  // runs first, and a prompt sent then has nowhere to go.
+  const starting = agent?.status === "creating";
   const disabledReason = !agent
     ? "No agent selected."
-    : agent.status === "stopped"
-      ? "This agent has stopped."
-      : null;
+    : starting
+      ? "The agent is still starting up."
+      : agent.status === "stopped" || agent.status === "stopping"
+        ? "This agent has stopped."
+        : agent.status === "error"
+          ? "The harness is not running. Press Start to relaunch it."
+          : null;
 
   return (
     <div
@@ -128,16 +136,31 @@ export function HarnessPane({
         streaming={streaming}
         ariaLabel={`${agent?.name ?? "Agent"} harness conversation`}
         emptyState={
-          <p
-            className="pt-6 text-center text-xs text-muted-foreground"
-            data-testid="harness-empty"
-          >
-            {loading
-              ? "Loading…"
-              : error
-                ? `Could not load turns: ${error.message}`
-                : "Send the first prompt."}
-          </p>
+          starting ? (
+            <div
+              className="flex flex-col items-center gap-3 pt-10 text-center"
+              data-testid="harness-starting"
+            >
+              <ActivityBars size={28} />
+              <p className="text-xs text-foreground">Starting the harness…</p>
+              {agent?.latestEvent?.message ? (
+                <p className="text-[11px] text-muted-foreground">
+                  {agent.latestEvent.message}
+                </p>
+              ) : null}
+            </div>
+          ) : (
+            <p
+              className="pt-6 text-center text-xs text-muted-foreground"
+              data-testid="harness-empty"
+            >
+              {loading
+                ? "Loading…"
+                : error
+                  ? `Could not load turns: ${error.message}`
+                  : "Send the first prompt."}
+            </p>
+          )
         }
       />
       <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
@@ -149,11 +172,17 @@ export function HarnessPane({
             data-testid="harness-model-chip"
             className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground"
           >
-            <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
+            {starting || (!config.running && agent?.status === "running") ? (
+              <ActivityBars size={10} className="shrink-0" />
+            ) : (
+              <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
+            )}
             <span className="truncate">
               {config.running
                 ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
-                : "model · not running"}
+                : starting || agent?.status === "running"
+                  ? "starting…"
+                  : "model · not running"}
             </span>
           </button>
         </div>

@@ -12,6 +12,7 @@ import {
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { CHAT_QUERY_PREFIX, chatFeedQueryKey } from "@/hooks/use-chat";
+import { harnessConfigQueryKey } from "@/components/app/harness/use-harness-config";
 import { harnessTurnsQueryKey } from "@/components/app/harness/use-harness-turns";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
@@ -140,6 +141,12 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
     queryKey: harnessTurnsQueryKey(agentId),
     exact: true,
   });
+  // The session config (model, effort, running) changes on the same
+  // events: a start, a settle, a switch.
+  void queryClient.invalidateQueries({
+    queryKey: harnessConfigQueryKey(agentId),
+    exact: true,
+  });
 }
 
 export function applyReviewCreated(
@@ -210,6 +217,7 @@ export function useSSE(authState: AuthState): void {
           // one key per agent.
           void queryClient.invalidateQueries({ queryKey: CHAT_QUERY_PREFIX });
           void queryClient.invalidateQueries({ queryKey: ["harness-turns"] });
+          void queryClient.invalidateQueries({ queryKey: ["harness-config"] });
           // Injection-hold state is event-sourced with no fetch endpoint; a
           // release event missed during an SSE gap would leave the hold badge
           // stuck. Reset on every (re)connect snapshot — fails safe to hidden.

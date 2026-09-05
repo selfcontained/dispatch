@@ -54,6 +54,10 @@ export function useHarnessConfig(agentId: string | null): {
       api<HarnessConfigResponse>(`/api/v1/agents/${agentId}/harness/config`),
     enabled: agentId !== null,
     staleTime: 30_000,
+    // The session comes up seconds after the agent does; until it has,
+    // keep asking so the chip and picker do not sit on a stale "not
+    // running" (SSE invalidation covers the usual path, this the rest).
+    refetchInterval: (q) => (q.state.data?.running === false ? 5_000 : false),
   });
   const options = query.data?.options ?? [];
   return {

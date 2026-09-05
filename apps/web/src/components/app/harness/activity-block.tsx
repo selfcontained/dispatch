@@ -2,6 +2,7 @@
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, useEffect, useRef, useState, type RefObject } from "react";
 
+import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
 
 import type { Step, Trace } from "./contracts";
@@ -121,7 +122,7 @@ function BlockHeader({
 }): JSX.Element {
   const done = trace.endedAt != null;
   const thinking = !done && trace.steps.length === 0;
-  const { braille, dots } = useStreamTicker(!done);
+  const { dots } = useStreamTicker(!done);
   const label = done
     ? trace.finalResult === "error"
       ? "failed"
@@ -130,9 +131,8 @@ function BlockHeader({
       ? "thinking"
       : "working";
   const glyph = !done ? (
-    <span className="text-status-working" aria-hidden="true">
-      {braille}
-    </span>
+    // Dispatch's own loading bars, at glyph size.
+    <ActivityBars size={11} className="justify-center" />
   ) : trace.finalResult === "error" ? (
     <span className="font-bold text-status-blocked" aria-hidden="true">
       ✗
