@@ -898,9 +898,14 @@ async function handleShareMedia(
         }
         if (backedUp) {
           await rename(backupPath, filePath).catch((err) => {
+            // The restore is what makes the backup disposable. Without it the
+            // copy is the only intact record of the replaced bytes, so it has
+            // to outlive this function rather than be swept up below.
+            keepBackup = true;
             deps.appLog.error(
-              { err, agentId, fileName },
-              "Failed to restore media file after a failed replacement"
+              { err, agentId, fileName, backupPath },
+              "Failed to restore media file after a failed replacement; " +
+                "the replaced bytes are kept at backupPath"
             );
           });
         } else {

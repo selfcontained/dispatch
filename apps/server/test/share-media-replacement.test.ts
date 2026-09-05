@@ -26,9 +26,13 @@ import { createMcpHandlers } from "../src/server/mcp-handlers.js";
 // recovery path can be exercised without an actually-full disk.
 vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
-  return { ...actual, copyFile: vi.fn(actual.copyFile) };
+  return {
+    ...actual,
+    copyFile: vi.fn(actual.copyFile),
+    rename: vi.fn(actual.rename),
+  };
 });
-const { copyFile } = await import("node:fs/promises");
+const { copyFile, rename } = await import("node:fs/promises");
 
 /**
  * Replacing a media file has to be one serialized unit: the row lock taken to
@@ -102,6 +106,8 @@ let mediaRoot: string;
 /** Every statement seen, tagged with the connection that issued it. */
 let statements: Array<{ client: number; sql: string }>;
 let released: number;
+/** Fields of the most recent error log, for asserting what it carried. */
+let lastLog: Record<string, unknown> | null;
 
 function recordingPool() {
   let clients = 0;
@@ -144,7 +150,13 @@ function makeHandlers(pool: ReturnType<typeof recordingPool>) {
       })),
     },
     publishUiEvent: vi.fn(),
-    appLog: { info: vi.fn(), warn: vi.fn(), error: vi.fn() },
+    appLog: {
+      info: vi.fn(),
+      warn: vi.fn(),
+      error: vi.fn((fields: Record<string, unknown>) => {
+        lastLog = fields;
+      }),
+    },
   };
   return createMcpHandlers(
     deps as unknown as Parameters<typeof createMcpHandlers>[0]
@@ -162,8 +174,10 @@ afterAll(async () => {
 
 beforeEach(async () => {
   vi.mocked(copyFile).mockClear();
+  vi.mocked(rename).mockClear();
   statements = [];
   released = 0;
+  lastLog = null;
   await writeFile(path.join(mediaRoot, AGENT, FILE), Buffer.from("old bytes"));
   // A retained backup is a real outcome of one of these tests, so clear the
   // directory between them rather than letting it leak into the next.
@@ -363,6 +377,58 @@ describe("dispatch_share_file replacement", () => {
     expect(result.fileName).toBe(FILE);
     const onDisk = await readFile(path.join(mediaRoot, AGENT, FILE));
     expect(onDisk.equals(PNG_160x120)).toBe(true);
+  });
+
+  it("keeps the backup when the restore itself fails", async () => {
+    // Logging that the restore failed and then deleting the backup in the
+    // same breath would destroy the only intact copy of the replaced bytes.
+    const source = path.join(mediaRoot, "incoming.png");
+    await writeFile(source, PNG_160x120);
+    vi.mocked(rename).mockRejectedValueOnce(
+      Object.assign(new Error("rename failed"), { code: "EACCES" })
+    );
+
+    const pool = recordingPool();
+    const original = pool.connect;
+    pool.connect = vi.fn(async () => {
+      const client = (await original()) as {
+        query: (sql: string) => Promise<unknown>;
+        release: () => void;
+      };
+      const inner = client.query;
+      client.query = async (sql: string) => {
+        if (sql.trim().startsWith("UPDATE")) throw new Error("update failed");
+        return inner(sql);
+      };
+      return client;
+    }) as typeof pool.connect;
+
+    const handlers = makeHandlers(pool);
+    await expect(
+      handlers.shareMedia(AGENT, {
+        filePath: source,
+        description: "replaced",
+        update: FILE,
+      })
+    ).rejects.toThrow("update failed");
+
+    // The restore did not happen, so the new bytes are still in place...
+    const onDisk = await readFile(path.join(mediaRoot, AGENT, FILE));
+    expect(onDisk.equals(PNG_160x120)).toBe(true);
+    // ...which makes the backup the only copy of what was there before.
+    const kept = await backupsLeft();
+    expect(kept).toHaveLength(1);
+    const keptBytes = await readFile(path.join(mediaRoot, AGENT, kept[0]!));
+    expect(keptBytes.toString()).toBe("old bytes");
+
+    // And its location has to reach the logs, or it is unfindable.
+    expect(lastLog).toMatchObject({
+      agentId: AGENT,
+      fileName: FILE,
+      backupPath: path.join(mediaRoot, AGENT, kept[0]!),
+    });
+    expect(statements.some((s) => s.sql === "ROLLBACK")).toBe(true);
+    expect(released).toBe(1);
   });
 
   it("removes a file it created when the update fails", async () => {
