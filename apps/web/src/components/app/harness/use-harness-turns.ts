@@ -80,6 +80,7 @@ export function toPromptKitTurns(turns: HarnessTurn[]): {
       role: "user",
       content: turn.prompt.text,
       timestamp: Date.parse(turn.trace.startedAt),
+      extra: { source: turn.prompt.source },
       ...(turn.prompt.attachments.length
         ? { attachments: turn.prompt.attachments.map(toAttachment) }
         : {}),

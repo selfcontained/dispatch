@@ -1,12 +1,31 @@
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
+  SelectLabel,
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
 
-type AgentModelOption = { id: string; label: string };
+type AgentModelOption = { id: string; label: string; group?: string };
+
+/** Options in first-seen group order; ungrouped ones under no header. */
+export function groupModelOptions(
+  options: readonly AgentModelOption[]
+): { group: string | null; options: AgentModelOption[] }[] {
+  const out: { group: string | null; options: AgentModelOption[] }[] = [];
+  for (const option of options) {
+    const group = option.group ?? null;
+    let bucket = out.find((b) => b.group === group);
+    if (!bucket) {
+      bucket = { group, options: [] };
+      out.push(bucket);
+    }
+    bucket.options.push(option);
+  }
+  return out;
+}
 
 type AgentModelSelectProps = {
   value: string | null;
@@ -59,11 +78,24 @@ export function AgentModelSelect({
             Default{" "}
             <span className="text-xs text-muted-foreground">(CLI setting)</span>
           </SelectItem>
-          {options.map((option) => (
-            <SelectItem key={option.id} value={option.id}>
-              {option.label}
-            </SelectItem>
-          ))}
+          {groupModelOptions(options).map((bucket) =>
+            bucket.group ? (
+              <SelectGroup key={bucket.group}>
+                <SelectLabel>{bucket.group}</SelectLabel>
+                {bucket.options.map((option) => (
+                  <SelectItem key={option.id} value={option.id}>
+                    {option.label}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            ) : (
+              bucket.options.map((option) => (
+                <SelectItem key={option.id} value={option.id}>
+                  {option.label}
+                </SelectItem>
+              ))
+            )
+          )}
         </SelectContent>
       </Select>
     </div>

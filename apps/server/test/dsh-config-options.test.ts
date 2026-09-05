@@ -61,6 +61,12 @@ describe("filterConfigOptionsByKeys", () => {
       "OpenAI",
       "Mystery",
     ]);
+    // OpenAI offers only the current generation, plus whatever is running.
+    const openai = model?.options[0] as { options: { name: string }[] };
+    expect(openai.options.map((c) => c.name)).toEqual([
+      "GPT-5.2",
+      "GPT-5.6 Sol",
+    ]);
     // Effort passes through untouched.
     expect(out.find((o) => o.id === "reasoning_effort")).toBe(options[1]);
   });
@@ -73,9 +79,9 @@ describe("catalogFromConfigOptions", () => {
         filterConfigOptionsByKeys(options, { OPENAI_API_KEY: "x" })
       )
     ).toEqual([
-      { id: "openai/gpt-5.2", label: "GPT-5.2 (OpenAI)" },
-      { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol (OpenAI)" },
-      { id: "mystery/m1", label: "M1 (Mystery)" },
+      { id: "openai/gpt-5.2", label: "GPT-5.2", group: "OpenAI" },
+      { id: "openai/gpt-5.6-sol", label: "GPT-5.6 Sol", group: "OpenAI" },
+      { id: "mystery/m1", label: "M1", group: "Mystery" },
     ]);
     expect(catalogFromConfigOptions([options[1]])).toEqual([]);
   });

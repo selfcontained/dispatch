@@ -44,3 +44,30 @@ describe("AgentModelSelect", () => {
     expect(trigger).toHaveProperty("disabled", true);
   });
 });
+
+describe("groupModelOptions", () => {
+  it("buckets by group in first-seen order, ungrouped under none", async () => {
+    const { groupModelOptions } = await import("./agent-model-select");
+    expect(
+      groupModelOptions([
+        { id: "a", label: "A", group: "OpenAI" },
+        { id: "b", label: "B" },
+        { id: "c", label: "C", group: "DeepSeek" },
+        { id: "d", label: "D", group: "OpenAI" },
+      ])
+    ).toEqual([
+      {
+        group: "OpenAI",
+        options: [
+          { id: "a", label: "A", group: "OpenAI" },
+          { id: "d", label: "D", group: "OpenAI" },
+        ],
+      },
+      { group: null, options: [{ id: "b", label: "B" }] },
+      {
+        group: "DeepSeek",
+        options: [{ id: "c", label: "C", group: "DeepSeek" }],
+      },
+    ]);
+  });
+});

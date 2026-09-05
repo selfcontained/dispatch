@@ -64,6 +64,7 @@ describe("toPromptKitTurns", () => {
     const out = toPromptKitTurns([settled]);
     expect(out.turns.map((t) => t.role)).toEqual(["user", "assistant"]);
     expect(out.turns[0].content).toBe("look");
+    expect(out.turns[0].extra).toEqual({ source: "chat" });
     expect(out.turns[1].trace?.steps[0]).toMatchObject({
       kind: "execute",
       status: "ok",

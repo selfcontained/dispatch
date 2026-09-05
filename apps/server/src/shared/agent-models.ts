@@ -1,6 +1,11 @@
 import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
-export type AgentModelOption = { id: string; label: string };
+export type AgentModelOption = {
+  id: string;
+  label: string;
+  /** Section header in grouped pickers (the provider), when known. */
+  group?: string;
+};
 
 /**
  * Source-controlled model catalog for the launchers Dispatch supports.

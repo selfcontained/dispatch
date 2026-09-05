@@ -131,6 +131,21 @@ type SelectGroup = {
   options: SelectOption[];
 };
 
+/**
+ * Which of a route's models are offered. dsh serves OpenAI's whole
+ * back-catalog; only the current generation is worth a menu entry. A
+ * route without an entry offers everything. The session's current value
+ * always stays listed so a picker can show what is running.
+ */
+export const CATALOG_MODEL_ALLOW: Record<string, RegExp> = {
+  openai: /^gpt-5\.6/,
+};
+
+function modelNameOf(value: string): string {
+  const id = modelIdFromValue(value);
+  return id ? id.slice(id.indexOf("/") + 1) : value;
+}
+
 function groupIdOf(group: SelectGroup): string {
   return group.groupId ?? group.group ?? "";
 }
@@ -154,11 +169,26 @@ export function filterConfigOptionsByKeys(
   return options.map((option) => {
     if (option.id !== "model" || option.type !== "select") return option;
     const entries = option.options as unknown[];
-    const kept = entries.filter((entry) => {
-      if (!isGroup(entry)) return true;
-      const key = PROVIDER_KEY_ENV[groupIdOf(entry)];
-      return key === undefined || !!env[key];
-    });
+    const kept = entries
+      .filter((entry) => {
+        if (!isGroup(entry)) return true;
+        const key = PROVIDER_KEY_ENV[groupIdOf(entry)];
+        return key === undefined || !!env[key];
+      })
+      .map((entry) => {
+        if (!isGroup(entry)) return entry;
+        const allow = CATALOG_MODEL_ALLOW[groupIdOf(entry)];
+        if (!allow) return entry;
+        return {
+          ...entry,
+          options: entry.options.filter(
+            (c) =>
+              c.value === option.currentValue ||
+              allow.test(modelNameOf(c.value))
+          ),
+        };
+      })
+      .filter((entry) => !isGroup(entry) || entry.options.length > 0);
     return { ...option, options: kept as HarnessConfigOption["options"] };
   });
 }
@@ -175,7 +205,8 @@ export function catalogFromConfigOptions(
     if (!id) return;
     rows.push({
       id,
-      label: groupName ? `${entry.name} (${groupName})` : entry.name,
+      label: entry.name,
+      ...(groupName ? { group: groupName } : {}),
     });
   };
   for (const entry of model.options as unknown[]) {

@@ -1,11 +1,5 @@
 import { type RefObject } from "react";
-import {
-  Activity,
-  Hash,
-  ListFilter,
-  MessageSquare,
-  TerminalSquare,
-} from "lucide-react";
+import { Hash, ListFilter, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { HarnessPane } from "@/components/app/harness/harness-pane";
@@ -91,12 +85,13 @@ export function AgentViewToggle({
         {harnessEnabled ? (
           <ToggleGroupItem
             value="harness"
-            aria-label="Harness"
+            aria-label="Chat"
             data-testid="agent-view-harness"
             className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
           >
-            <Activity className="h-2.5 w-2.5" />
-            Harness
+            {/* The Harness view is this agent's chat; it reads as Chat. */}
+            <MessageSquare className="h-2.5 w-2.5" />
+            Chat
           </ToggleGroupItem>
         ) : (
           <ToggleGroupItem

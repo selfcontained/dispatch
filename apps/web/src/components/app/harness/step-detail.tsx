@@ -5,8 +5,16 @@ import type { ReactNode } from "react";
 import { DiffBlock } from "@/components/app/chat/stream-entries";
 import { Markdown } from "@/components/ui/markdown";
 
+import {
+  CodeBlock,
+  JsonBlock,
+  looksLikePathList,
+  OutputBlock,
+  parseReadOutput,
+  PathList,
+} from "./code-block";
 import type { Step } from "./contracts";
-import { inputRecord, stepDetailData, unwrapReadOutput } from "./registry";
+import { inputRecord, stepDetailData } from "./registry";
 
 /** The body under an expanded step, chosen by the step's kind. */
 export function StepDetail({ step }: { step: Step }): JSX.Element {
@@ -34,7 +42,7 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
           {typeof command === "string" ? (
             <CommandLine command={command} />
           ) : null}
-          <Output text={d.terminalOutput} />
+          <OutputBlock text={d.terminalOutput} />
         </>
       );
     }
@@ -44,21 +52,38 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
       ) : (
         <Locations locations={d.locations} />
       );
-    case "read":
+    case "read": {
+      if (!d.terminalOutput?.trim()) {
+        return <Locations locations={d.locations} />;
+      }
+      const parsed = parseReadOutput(d.terminalOutput);
+      const fileName = parsed.path ?? d.locations?.[0]?.path;
       return (
         <>
           <Locations locations={d.locations} />
-          <Output
-            text={d.terminalOutput ? unwrapReadOutput(d.terminalOutput) : null}
-          />
+          {parsed.type === "directory" || looksLikePathList(parsed.code) ? (
+            <PathList text={parsed.code} />
+          ) : (
+            <CodeBlock
+              code={parsed.code}
+              fileName={fileName}
+              startLine={parsed.startLine}
+              lineNumbers={parsed.startLine !== undefined}
+            />
+          )}
         </>
       );
+    }
     case "search":
     case "fetch":
       return (
         <>
           <Locations locations={d.locations} />
-          <Output text={d.terminalOutput} />
+          {d.terminalOutput && looksLikePathList(d.terminalOutput) ? (
+            <PathList text={d.terminalOutput} />
+          ) : (
+            <OutputBlock text={d.terminalOutput} />
+          )}
         </>
       );
     case "think":
@@ -70,7 +95,7 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
       return (
         <>
           <Args input={d.input} />
-          <Output text={d.terminalOutput} />
+          <OutputBlock text={d.terminalOutput} />
         </>
       );
   }
@@ -82,19 +107,6 @@ function CommandLine({ command }: { command: string }): JSX.Element {
       <span className="select-none text-muted-foreground">$ </span>
       {command}
     </p>
-  );
-}
-
-function Output({
-  text,
-}: {
-  text: string | null | undefined;
-}): JSX.Element | null {
-  if (!text?.trim()) return null;
-  return (
-    <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded-md bg-background/60 p-2 font-terminal text-[11px] leading-snug">
-      {text}
-    </pre>
   );
 }
 
@@ -126,9 +138,11 @@ function Args({ input }: { input: unknown }): JSX.Element | null {
     rows.push([
       key,
       typeof value === "object" ? (
-        <code className="whitespace-pre-wrap break-all font-terminal text-[11px]">
-          {JSON.stringify(value)}
-        </code>
+        <JsonBlock value={value} maxHeight="max-h-40" />
+      ) : typeof value === "string" && value.includes("\n") ? (
+        <pre className="whitespace-pre-wrap rounded-md bg-background/60 p-2 font-terminal text-[11px] leading-[1.5]">
+          {value}
+        </pre>
       ) : (
         String(value)
       ),
@@ -140,10 +154,10 @@ function Args({ input }: { input: unknown }): JSX.Element | null {
 
 function KvGrid({ rows }: { rows: [string, ReactNode][] }): JSX.Element {
   return (
-    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5">
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1">
       {rows.map(([k, v]) => (
         <div key={k} className="contents">
-          <dt className="text-[10px] uppercase tracking-wide text-muted-foreground">
+          <dt className="pt-0.5 font-terminal text-[10px] text-muted-foreground">
             {k}
           </dt>
           <dd className="min-w-0 break-words text-[11px] text-foreground">

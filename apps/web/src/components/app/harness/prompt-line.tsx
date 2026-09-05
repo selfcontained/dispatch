@@ -1,11 +1,60 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit) —
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { memo } from "react";
+import { memo, useState } from "react";
+import { Bell } from "lucide-react";
+
+import { cn } from "@/lib/utils";
 
 import type { Attachment, Turn } from "./contracts";
 
 const CHIP_CLASS =
   "inline-flex max-w-[240px] items-center truncate rounded-[2px] border border-border bg-background px-1.5 py-0.5 text-[10.5px] text-foreground/80";
+
+const BLOCK_HEADER = /^---\s*DISPATCH:\s*([^-\n][^\n]*?)\s*---\s*\n?/i;
+const BLOCK_FOOTER = /\n?---\s*END\s+DISPATCH:[^\n]*---\s*$/i;
+
+export type DispatchNotice = {
+  /** "Review item resolved", "System", … */
+  label: string;
+  /** "Review ID: 293 · Feedback item ID: 1422 · State: resolved" */
+  summary: string;
+  body: string;
+};
+
+function titleCase(kind: string): string {
+  const lower = kind.trim().toLowerCase();
+  return lower.charAt(0).toUpperCase() + lower.slice(1);
+}
+
+/**
+ * Prompts Dispatch itself injects — review thread updates, persona
+ * kickoffs, the rename nudge — read as a notice, not as something the
+ * user typed. A `--- DISPATCH: KIND ---` block names its kind; any other
+ * system-sourced prompt is a plain "System" notice.
+ */
+export function parseDispatchNotice(
+  text: string,
+  source: string | undefined
+): DispatchNotice | null {
+  const header = BLOCK_HEADER.exec(text);
+  if (!header && source !== "system") return null;
+  const body = (header ? text.slice(header[0].length) : text)
+    .replace(BLOCK_FOOTER, "")
+    .trim();
+  const lines = body.split("\n").map((l) => l.trim());
+  const kv = lines
+    .filter((l) => /^[A-Za-z][A-Za-z ]{0,30}:\s*\S/.test(l))
+    .slice(0, 3);
+  const summary =
+    kv.length > 0
+      ? kv.map((l) => l.replace(/\s+/g, " ")).join(" · ")
+      : (lines.find((l) => l.length > 0) ?? "").slice(0, 120);
+  return {
+    label: header ? titleCase(header[1]) : "System",
+    summary,
+    body,
+  };
+}
 
 function PromptLineImpl({
   turn,
@@ -14,6 +63,10 @@ function PromptLineImpl({
   turn: Turn;
   onAttachmentClick?: (a: Attachment) => void;
 }): JSX.Element {
+  const source =
+    typeof turn.extra?.source === "string" ? turn.extra.source : undefined;
+  const notice = parseDispatchNotice(turn.content, source);
+  if (notice) return <NoticeLine notice={notice} />;
   const attachments = turn.attachments ?? [];
   const contextChips = turn.contextChips ?? [];
   return (
@@ -62,3 +115,48 @@ function PromptLineImpl({
 }
 
 export const PromptLine = memo(PromptLineImpl);
+
+/** A Dispatch-injected prompt: one muted line, the full text on demand. */
+function NoticeLine({ notice }: { notice: DispatchNotice }): JSX.Element {
+  const [open, setOpen] = useState(false);
+  const expandable = notice.body.length > notice.summary.length;
+  return (
+    <div className="mb-3.5" data-testid="harness-notice">
+      <button
+        type="button"
+        onClick={() => expandable && setOpen((v) => !v)}
+        aria-expanded={expandable ? open : undefined}
+        className={cn(
+          "flex w-full items-start gap-[9px] rounded-md text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50",
+          !expandable && "cursor-default"
+        )}
+      >
+        <span
+          aria-hidden="true"
+          className="flex h-[19px] w-[13px] shrink-0 items-center justify-center text-muted-foreground"
+        >
+          <Bell className="h-3 w-3" />
+        </span>
+        <span className="min-w-0 flex-1 text-[11.5px] leading-[1.55]">
+          <span className="mr-1.5 rounded-[2px] border border-border/60 bg-muted px-1.5 py-px text-[10px] uppercase tracking-wide text-muted-foreground">
+            Dispatch · {notice.label}
+          </span>
+          <span className="text-foreground/75">{notice.summary}</span>
+        </span>
+        {expandable ? (
+          <span
+            aria-hidden="true"
+            className="shrink-0 pt-1 text-[9px] text-muted-foreground/70"
+          >
+            {open ? "⏷" : "⏵"}
+          </span>
+        ) : null}
+      </button>
+      {open ? (
+        <pre className="ml-[21px] mt-1.5 max-h-64 overflow-auto whitespace-pre-wrap rounded-md border border-border/40 bg-muted/40 p-2 font-terminal text-[11px] leading-[1.5] text-foreground/80">
+          {notice.body}
+        </pre>
+      ) : null}
+    </div>
+  );
+}
