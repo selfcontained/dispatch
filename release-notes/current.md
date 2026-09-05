@@ -10,7 +10,8 @@
 * Harness view: drop files anywhere on the pane to attach them; image attachments preview and open the lightbox; the agent's option questions (dispatch_chat_post) show as answerable cards in the Harness.
 * Console for Dispatch Harness agents: the pane tails the agent's command log (every shell command it ran, with output and status) in a split above an interactive shell.
 * Harness view: collapsed turns are labelled with what happened (the agent's own status message, or a phrase from the steps) instead of a bare "done".
+* Harness view: messages sent while the agent is mid-turn now show under the live turn as queued, with **Send now** (interrupts the running turn and runs it next) and **Remove**; the composer says "Enter queues your message" while a turn runs. The slash menu opens for a `/` typed anywhere at a word boundary, not only as the first character, and fills the pick at the caret.
 * Adds the `agent_stream_events` table (additive), the `@agentclientprotocol/sdk` dependency, and an update-migrations manifest. Running dsh agents are resumed after a service restart on their stored session ids.
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.17
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.18
