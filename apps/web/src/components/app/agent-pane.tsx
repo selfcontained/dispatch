@@ -1,4 +1,5 @@
-import { type RefObject } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Hash, ListFilter, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
@@ -14,6 +15,47 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatBadgeCount } from "@/lib/format";
 import { type AgentPaneView, isAgentPaneView } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+const PANE_FADE_OUT_SECONDS = 0.32;
+const PANE_FADE_IN_SECONDS = 0.26;
+
+/**
+ * The Chat ⇄ Console fade. Framer drives opacity through the Web Animations
+ * API, so the fade keeps running on the compositor even when the flip itself
+ * janks the main thread — a plain CSS class swap starts late (or visibly
+ * restarts) on a phone, where the same commit also wakes the terminal.
+ *
+ * `visibility` rides along via `transitionEnd`: it flips at the *end* of the
+ * fade-out and the *start* of the fade-in, so the outgoing view stays painted
+ * while it fades yet is fully unpainted — and out of the tab and
+ * accessibility order — once down. That is what keeps the terminal canvas
+ * from bleeding through the chat feed; `opacity: 0` alone would not.
+ */
+function paneFade(shown: boolean) {
+  return shown
+    ? { opacity: 1, visibility: "visible" as const }
+    : { opacity: 0, transitionEnd: { visibility: "hidden" as const } };
+}
+
+/**
+ * The two views hand over rather than cross-dissolve: the outgoing one fades
+ * all the way out, and only then does the incoming one fade in. Sequencing it
+ * is a single delay on whichever layer is arriving — they animate against the
+ * same clock, so the hand-off needs no coordination beyond this.
+ *
+ * `instant` collapses both to zero for reduced motion and for the chat-surface
+ * flag resolving, neither of which is a view change the user asked for.
+ */
+function paneTransition(shown: boolean, instant: boolean) {
+  if (instant) return { duration: 0, delay: 0 };
+  return shown
+    ? {
+        duration: PANE_FADE_IN_SECONDS,
+        delay: PANE_FADE_OUT_SECONDS,
+        ease: "easeInOut" as const,
+      }
+    : { duration: PANE_FADE_OUT_SECONDS, delay: 0, ease: "easeInOut" as const };
+}
 
 export type AgentViewToggleProps = {
   view: AgentPaneView;
@@ -183,6 +225,14 @@ export type AgentPaneProps = {
    */
   terminalSlotRef: RefObject<HTMLDivElement>;
   /**
+   * Chrome that belongs to the Console and nothing else — on mobile, the
+   * terminal keyboard toolbar. It sits *inside* the Console layer so its
+   * height is charged to that layer alone: the pane's content region, the
+   * header above it and the Chat layer beside it all keep the same geometry
+   * whichever view is up, which is what lets the flip be a pure cross-fade.
+   */
+  consoleFooter?: ReactNode;
+  /**
    * Render the pane's own header row (agent name + toggle). A split pane
    * has a header of its own and puts `AgentViewToggle` there instead.
    */
@@ -217,12 +267,25 @@ export function AgentPane({
   onShowChildAgentsChange,
   childAgentIds,
   terminalSlotRef,
+  consoleFooter = null,
   header,
   openLightbox,
   onOpenReview,
   isMobile,
 }: AgentPaneProps): JSX.Element {
   const chatShown = chatEnabled && view === "chat";
+  const reduceMotion = useReducedMotion();
+  // The chat-surface flag resolves after the first paint, so the pane can go
+  // from "bare terminal" to "Chat over Console" a tick in. That is hydration
+  // catching up, not a view change, and it must settle in the same frame —
+  // otherwise the Console layer sits there fading out under a toggle that
+  // already reads Chat. Only a real Chat ⇄ Console flip is animated.
+  const settledChatEnabled = useRef(chatEnabled);
+  const hydrating = settledChatEnabled.current !== chatEnabled;
+  useEffect(() => {
+    settledChatEnabled.current = chatEnabled;
+  }, [chatEnabled]);
+  const instant = Boolean(reduceMotion) || hydrating;
   return (
     <div
       className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden"
@@ -244,39 +307,77 @@ export function AgentPane({
           />
         </div>
       ) : null}
-      {chatEnabled ? (
-        <div
+      {/*
+       * Chat and Console are stacked, not stitched into the column: both
+       * fill the same box so the flip can cross-fade instead of swapping
+       * `display`. Console sits on top (later in the DOM) and paints an
+       * opaque background, so either direction reads as one fade.
+       */}
+      <div className="relative min-h-0 min-w-0 max-w-full flex-1 overflow-hidden">
+        {chatEnabled ? (
+          <motion.div
+            className={cn(
+              "absolute inset-0 overflow-hidden",
+              !chatShown && "pointer-events-none"
+            )}
+            initial={false}
+            animate={paneFade(chatShown)}
+            transition={paneTransition(chatShown, instant)}
+            data-testid="agent-pane-chat"
+            data-state={chatShown ? "shown" : "hidden"}
+          >
+            {/*
+             * Keyed per agent: the pane's dismissed question, send error and
+             * scroll position are agent-local, and a direct /agents/a →
+             * /agents/b transition must not carry them across.
+             */}
+            <ChatPane
+              key={agentId ?? "none"}
+              agentId={agentId}
+              agent={agent}
+              terminalMode={terminalMode}
+              active={active && chatShown}
+              showChildAgents={showChildAgents}
+              childAgentIds={childAgentIds}
+              onShowChildAgentsChange={onShowChildAgentsChange}
+              openLightbox={openLightbox}
+              onOpenReview={onOpenReview}
+              isMobile={isMobile}
+            />
+          </motion.div>
+        ) : null}
+        <motion.div
           className={cn(
-            "min-h-0 min-w-0 max-w-full flex-1 overflow-hidden",
-            !chatShown && "hidden"
+            "absolute inset-0 grid grid-rows-[minmax(0,1fr)_auto]",
+            chatShown && "pointer-events-none"
           )}
-          data-testid="agent-pane-chat"
+          initial={false}
+          // Always a defined target, chat surface or not: handing framer
+          // `undefined` leaves it with no baseline to animate from, and the
+          // first flip after the flag resolves snaps instead of fading.
+          // With the surface off `chatShown` is always false, which is the
+          // bare-terminal mode's "fully shown" anyway.
+          animate={paneFade(!chatShown)}
+          transition={paneTransition(!chatShown, instant)}
+          data-testid="agent-pane-console"
+          data-state={chatShown ? "hidden" : "shown"}
         >
           {/*
-           * Keyed per agent: the pane's dismissed question, send error and
-           * scroll position are agent-local, and a direct /agents/a →
-           * /agents/b transition must not carry them across.
+           * `min-w-0 overflow-hidden` is load-bearing, not tidiness: the slot
+           * is a grid item now, and a grid track sizes to its content. The
+           * terminal's rows are routinely wider than a phone — carrying a
+           * stale width from a wider fit, or simply long output — so without
+           * this the track grows to them and drags the layer, the toolbar
+           * included, off the side of the screen.
            */}
-          <ChatPane
-            key={agentId ?? "none"}
-            agentId={agentId}
-            agent={agent}
-            terminalMode={terminalMode}
-            active={active && chatShown}
-            showChildAgents={showChildAgents}
-            childAgentIds={childAgentIds}
-            onShowChildAgentsChange={onShowChildAgentsChange}
-            openLightbox={openLightbox}
-            onOpenReview={onOpenReview}
-            isMobile={isMobile}
+          <div
+            ref={terminalSlotRef}
+            className="min-h-0 min-w-0 overflow-hidden"
+            data-testid="agent-pane-terminal-slot"
           />
-        </div>
-      ) : null}
-      <div
-        ref={terminalSlotRef}
-        className={cn("min-h-0 flex-1", chatShown && "hidden")}
-        data-testid="agent-pane-console"
-      />
+          {consoleFooter}
+        </motion.div>
+      </div>
     </div>
   );
 }

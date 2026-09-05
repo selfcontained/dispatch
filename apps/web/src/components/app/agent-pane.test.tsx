@@ -10,6 +10,14 @@ import { chatDraftAtomFamily } from "@/lib/store";
 
 import { AgentPane, AgentViewToggle } from "./agent-pane";
 
+// The cross-fade is framer-driven; strip the animation layer so the pane's
+// own hosting decisions are what the DOM shows.
+vi.mock("framer-motion", async (importOriginal) => {
+  const { createFramerMotionMock } =
+    await import("@/test-utils/framer-motion-mock");
+  return createFramerMotionMock(importOriginal);
+});
+
 // The chat pane's data layer is covered in chat-pane.test; here it is inert
 // so the pane's hosting decisions — what is mounted, hidden, active — can
 // be read straight off the DOM.
@@ -106,8 +114,12 @@ function renderPane(overrides: Partial<PaneProps> = {}) {
   return { ...view, props };
 }
 
+// The Chat/Console flip cross-fades: the pane that is down stays in the tree,
+// faded to opacity 0 and `visibility: hidden` rather than `display: none`.
+// `data-state` is the pane's own declaration of which one is up, independent
+// of where the animation happens to be.
 function isHidden(el: HTMLElement): boolean {
-  return el.classList.contains("hidden");
+  return el.getAttribute("data-state") === "hidden";
 }
 
 beforeEach(() => {
@@ -262,7 +274,11 @@ describe("AgentPane", () => {
     const console = screen.getByTestId("agent-pane-console");
     expect(isHidden(console)).toBe(true);
     // The slot is handed to the layout hook so the terminal can be parented.
-    expect(props.terminalSlotRef.current).toBe(console);
+    // It sits inside the Console layer, alongside that layer's own footer.
+    expect(props.terminalSlotRef.current).toBe(
+      screen.getByTestId("agent-pane-terminal-slot")
+    );
+    expect(console.contains(props.terminalSlotRef.current)).toBe(true);
     // Header: agent name and the toggle.
     expect(screen.getByText("agent agt_a")).toBeTruthy();
     expect(screen.getByTestId("agent-view-toggle")).toBeTruthy();
@@ -285,7 +301,26 @@ describe("AgentPane", () => {
     ).toBeNull();
     const console = screen.getByTestId("agent-pane-console");
     expect(isHidden(console)).toBe(false);
-    expect(props.terminalSlotRef.current).toBe(console);
+    expect(props.terminalSlotRef.current).toBe(
+      screen.getByTestId("agent-pane-terminal-slot")
+    );
+  });
+
+  it("charges the console footer's height to the Console layer alone", () => {
+    const { rerender, props } = renderPane({
+      consoleFooter: <div data-testid="console-footer" />,
+    });
+    // The footer rides with the Console, so it is present — and stays
+    // present — whichever view is up: nothing outside that layer resizes
+    // when the flip runs.
+    const footer = screen.getByTestId("console-footer");
+    expect(screen.getByTestId("agent-pane-console").contains(footer)).toBe(
+      true
+    );
+    expect(screen.getByTestId("agent-pane-chat").contains(footer)).toBe(false);
+
+    rerender(<AgentPane {...props} view="console" />);
+    expect(screen.getByTestId("console-footer")).toBe(footer);
   });
 
   it("leaves the header to the split pane when asked", () => {
