@@ -68,23 +68,35 @@ function mediaFileUrl(agentId: string, fileName: string): string {
  * The box a feed image gets to occupy, given the natural size the server read
  * off the file.
  *
- * Two constraints, both resolvable from the stored numbers alone — which is
- * the whole point, since the box has to be the right height *before* the image
- * loads or the feed moves under whoever is reading it:
+ * Every value here is resolvable from the stored numbers alone, which is the
+ * whole point: the box has to be the right size *before* the image loads, or
+ * the feed moves under whoever is reading it.
  *
- *  - `aspect-ratio` makes the height follow from the width, so there is no
- *    letterboxing and no dead space around a short or narrow image.
- *  - `max-width` caps the width at whichever comes first: the image's own
- *    natural width (never upscale a small thumbnail into a blurry banner) or
- *    the width at which the ratio would push the height past `maxHeightPx`
- *    (never let one tall screenshot take over the feed). Capping the *width*
- *    rather than the height is what keeps the box flush around a tall image —
- *    a `max-height` would clamp the frame and leave the image floating in it.
+ *  - `width` is definite, in pixels. A percentage width would not be: inside
+ *    the shrink-to-fit button that wraps these images, `width: 100%` has no
+ *    basis until the image has intrinsic dimensions, so the button sizes
+ *    itself to the alt text and everything jumps when the bytes arrive. That
+ *    is the bug this whole change exists to prevent, so the width cannot be
+ *    left to resolve later.
+ *  - `maxWidth: 100%` lets the surrounding column shrink the box on a narrow
+ *    viewport, without ever being what establishes its size.
+ *  - `aspectRatio` makes the height follow, so there is no letterboxing and no
+ *    dead space around a short or narrow image.
  *
- * `containerMax` is any CSS length the caller's own layout imposes; it is
- * folded in here because an inline `max-width` would otherwise override the
- * class that sets it. Returns undefined when dimensions are unknown, and the
- * caller falls back to a fixed-height box.
+ * The width itself is capped at whichever comes first: the image's own natural
+ * width (never upscale a small thumbnail into a blurry banner) or the width at
+ * which the ratio would push the height past `maxHeightPx` (never let one tall
+ * screenshot take over the feed). Capping the *width* rather than the height
+ * is what keeps the box flush around a tall image — a `max-height` would clamp
+ * the frame and leave the image floating inside it.
+ *
+ * `containerMax` is any CSS length the caller's own layout imposes. It is
+ * folded in here because an inline width would otherwise ignore the class that
+ * sets it; both operands are absolute, so the `min()` still resolves without
+ * knowing anything about the parent.
+ *
+ * Returns undefined when dimensions are unknown, and the caller falls back to
+ * a fixed-height box.
  */
 function imageBoxStyle(
   width: number | undefined,
@@ -93,11 +105,14 @@ function imageBoxStyle(
   containerMax?: string
 ): CSSProperties | undefined {
   if (!width || !height) return undefined;
-  const widthAtMaxHeight = Math.round(maxHeightPx * (width / height));
+  // Deliberately unrounded: an image tall enough that its width at the maximum
+  // height lands under half a pixel would round to a 0px box and vanish.
+  const widthAtMaxHeight = maxHeightPx * (width / height);
   const cap = `${Math.min(width, widthAtMaxHeight)}px`;
   return {
+    width: containerMax ? `min(${containerMax}, ${cap})` : cap,
+    maxWidth: "100%",
     aspectRatio: `${width} / ${height}`,
-    maxWidth: containerMax ? `min(${containerMax}, ${cap})` : cap,
   };
 }
 

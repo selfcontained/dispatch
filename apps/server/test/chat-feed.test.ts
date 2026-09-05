@@ -334,6 +334,91 @@ describe("composeChatFeed", () => {
     expect(names).not.toContain("from-composer.png");
   });
 
+  describe("attachment dimensions", () => {
+    async function postWithAttachment(
+      fileName: string,
+      snapshot: { width?: number; height?: number }
+    ): Promise<number> {
+      const media = await pool.query<{ id: number }>(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at,
+                            width, height)
+         VALUES ($1, $2, 'screenshot', 9, $3, 120, 90)
+         RETURNING id`,
+        [A, fileName, at(60)]
+      );
+      const mediaId = media.rows[0]!.id;
+      await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        kind: "reply",
+        text: "Here it is.",
+        attachments: [
+          { type: "file", mediaId, fileName, sizeBytes: 9, ...snapshot },
+        ],
+      });
+      return mediaId;
+    }
+
+    const attachmentOf = (feed: { entries: unknown[] }) => {
+      const entry = (feed.entries as Array<{ type: string; message?: unknown }>)
+        .filter((e) => e.type === "chat")
+        .pop() as { message: { attachments: Array<Record<string, unknown>> } };
+      return entry.message.attachments[0]!;
+    };
+
+    it("fills in dimensions a pre-column post never stored", async () => {
+      await postWithAttachment("old-post.png", {});
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      expect(attachmentOf(feed)).toMatchObject({ width: 120, height: 90 });
+    });
+
+    it("replaces a snapshot the media row has since moved past", async () => {
+      // dispatch_share_file can swap a file's bytes in place, and the post
+      // serves the new ones from an unchanged URL. Rendering them against the
+      // old ratio would reserve a box the image does not fit.
+      const mediaId = await postWithAttachment("replaced.png", {
+        width: 120,
+        height: 90,
+      });
+      await pool.query(
+        `UPDATE media SET width = 90, height = 120 WHERE id = $1`,
+        [mediaId]
+      );
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      expect(attachmentOf(feed)).toMatchObject({ width: 90, height: 120 });
+    });
+
+    it("drops a snapshot when the media row no longer has dimensions", async () => {
+      const mediaId = await postWithAttachment("unreadable-now.png", {
+        width: 120,
+        height: 90,
+      });
+      await pool.query(
+        `UPDATE media SET width = NULL, height = NULL WHERE id = $1`,
+        [mediaId]
+      );
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      const attachment = attachmentOf(feed);
+      // Absent, not stale: the fixed-height fallback is the honest render.
+      expect(attachment.width).toBeUndefined();
+      expect(attachment.height).toBeUndefined();
+    });
+
+    it("keeps the snapshot when the media row is gone", async () => {
+      const mediaId = await postWithAttachment("deleted.png", {
+        width: 120,
+        height: 90,
+      });
+      await pool.query(`DELETE FROM media WHERE id = $1`, [mediaId]);
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      // Nothing left to look up, so the snapshot is all there is.
+      expect(attachmentOf(feed)).toMatchObject({ width: 120, height: 90 });
+    });
+  });
+
   it("surfaces a review with its reviewer and live counts", async () => {
     const reviewer = "agt_feed_reviewer";
     await pool.query(

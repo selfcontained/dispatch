@@ -30,6 +30,18 @@ const BACKFILL_SETTING_KEY = "media_dimensions_backfilled";
 /** Rows per query. Keeps the working set small on a large media library. */
 const BATCH_SIZE = 200;
 
+/**
+ * Seams the tests need to reach the two behaviours that only appear at scale
+ * or under a race: paging past the first batch, and a live writer committing
+ * between this sweep's probe and its write. Both are the kind of thing that is
+ * either exercised deliberately or not at all.
+ */
+export type BackfillOptions = {
+  batchSize?: number;
+  /** Awaited after each probe, before the row is written. */
+  afterProbe?: (mediaId: number) => Promise<void>;
+};
+
 type Logger = {
   info: (obj: unknown, msg?: string) => void;
   warn: (obj: unknown, msg?: string) => void;
@@ -57,8 +69,10 @@ export type BackfillResult = {
  */
 export async function backfillMediaDimensions(
   pool: Pool,
-  mediaRoot: string
+  mediaRoot: string,
+  options: BackfillOptions = {}
 ): Promise<BackfillResult> {
+  const batchSize = options.batchSize ?? BATCH_SIZE;
   let scanned = 0;
   let measured = 0;
   // Page by id, not by OFFSET: rows keep their nulls when the probe fails, so
@@ -75,7 +89,7 @@ export async function backfillMediaDimensions(
           AND m.id > $1
         ORDER BY m.id
         LIMIT $2`,
-      [afterId, BATCH_SIZE]
+      [afterId, batchSize]
     );
     if (result.rows.length === 0) break;
 
@@ -86,13 +100,21 @@ export async function backfillMediaDimensions(
 
       const dir = resolveMediaDir(row.agent_id, row.media_dir, mediaRoot);
       const dimensions = await probeImageFile(path.join(dir, row.file_name));
+      await options.afterProbe?.(row.id);
       if (!dimensions) continue;
 
-      await pool.query(
-        `UPDATE media SET width = $2, height = $3 WHERE id = $1`,
+      // Still-null guard: probing is not instant, and dispatch_share_file can
+      // replace this file's bytes and commit their dimensions while we are
+      // reading the old ones. Writing unconditionally would let this sweep
+      // land last and leave the row disagreeing with the file forever, since
+      // the one-shot flag means nothing comes back to repair it. A live writer
+      // that has already filled the row wins.
+      const written = await pool.query(
+        `UPDATE media SET width = $2, height = $3
+          WHERE id = $1 AND width IS NULL AND height IS NULL`,
         [row.id, dimensions.width, dimensions.height]
       );
-      measured += 1;
+      if (written.rowCount === 1) measured += 1;
     }
   }
 

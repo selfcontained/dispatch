@@ -470,17 +470,24 @@ function dimensionFields(
 }
 
 /**
- * Fill in `width`/`height` on the file attachments of a page of entries.
+ * Bring the `width`/`height` on a page's file attachments into line with the
+ * media rows they point at.
  *
  * Attachments are frozen into the message row as JSONB when the message is
- * written, so every post made before those columns existed carries a snapshot
- * without them — and rewriting history to add them would be a migration over
- * unbounded JSON. Reading them back off the media row instead costs one
- * batched query per page and covers old and new posts identically.
+ * written, but the URL they render is not frozen with them:
+ * `dispatch_share_file` can replace a file in place, and the historical post
+ * then serves the *new* bytes. So the snapshot is not the truth for the
+ * message — the live row is. A post whose image was swapped for one of a
+ * different shape would otherwise render new bytes against an old ratio, which
+ * is the wrong box rather than merely a plain one.
  *
- * An attachment that already carries dimensions is left alone: its snapshot is
- * the truth for that message even if the media row was replaced since. So is
- * one whose media row is gone — a deleted file has no shape left to reserve.
+ * Reading the live row also covers the posts written before these columns
+ * existed, which carry no dimensions at all.
+ *
+ * Two cases keep the snapshot: a media row that no longer exists (a deleted
+ * file has no shape to look up), and nothing else. When the live row exists
+ * but has null dimensions the snapshot is *removed*, so the attachment falls
+ * back to a fixed box rather than claiming a ratio the file no longer has.
  */
 async function hydrateAttachmentDimensions(
   db: Queryable,
@@ -491,7 +498,6 @@ async function hydrateAttachmentDimensions(
     if (item.entry.type !== "chat") continue;
     for (const attachment of item.entry.message.attachments) {
       if (attachment.type !== "file") continue;
-      if (attachment.width !== undefined) continue;
       const targets = pending.get(attachment.mediaId);
       if (targets) targets.push(attachment);
       else pending.set(attachment.mediaId, [attachment]);
@@ -503,13 +509,13 @@ async function hydrateAttachmentDimensions(
     id: number;
     width: number | null;
     height: number | null;
-  }>(
-    `SELECT id, width, height FROM media
-      WHERE id = ANY($1::int[]) AND width IS NOT NULL`,
-    [[...pending.keys()]]
-  );
+  }>(`SELECT id, width, height FROM media WHERE id = ANY($1::int[])`, [
+    [...pending.keys()],
+  ]);
   for (const row of result.rows) {
     for (const attachment of pending.get(row.id) ?? []) {
+      delete attachment.width;
+      delete attachment.height;
       Object.assign(attachment, dimensionFields(row.width, row.height));
     }
   }
