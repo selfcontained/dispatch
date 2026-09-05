@@ -1,4 +1,12 @@
-import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  mkdtemp,
+  mkdir,
+  readdir,
+  readFile,
+  rm,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 
@@ -231,6 +239,85 @@ describe("dispatch_share_file replacement", () => {
     expect(statements.some((s) => s.sql === "COMMIT")).toBe(false);
     // A leaked connection would drain the pool after enough failures.
     expect(released).toBe(1);
+
+    // The half a ROLLBACK cannot undo. Leaving the new bytes here would mean
+    // a file the row does not describe — new image, old dimensions — which is
+    // exactly the mismatch this feature exists to rule out.
+    const onDisk = await readFile(path.join(mediaRoot, AGENT, FILE));
+    expect(onDisk.toString()).toBe("old bytes");
+
+    // And no backup left lying about in the media directory.
+    const leftovers = (await readdir(path.join(mediaRoot, AGENT))).filter((f) =>
+      f.startsWith(".replacing-")
+    );
+    expect(leftovers).toEqual([]);
+  });
+
+  it("leaves the new bytes in place when the commit itself fails", async () => {
+    // A COMMIT that throws is ambiguous — it may well have landed. Putting the
+    // old bytes back could then create the mismatch instead of preventing it,
+    // so the file stays as written.
+    const source = path.join(mediaRoot, "incoming.png");
+    await writeFile(source, PNG_160x120);
+    const pool = recordingPool();
+    const original = pool.connect;
+    pool.connect = vi.fn(async () => {
+      const client = (await original()) as {
+        query: (sql: string) => Promise<unknown>;
+        release: () => void;
+      };
+      const inner = client.query;
+      client.query = async (sql: string) => {
+        const result = await inner(sql);
+        if (sql.trim() === "COMMIT") throw new Error("commit failed");
+        return result;
+      };
+      return client;
+    }) as typeof pool.connect;
+
+    await expect(
+      makeHandlers(pool).shareMedia(AGENT, {
+        filePath: source,
+        description: "replaced",
+        update: FILE,
+      })
+    ).rejects.toThrow("commit failed");
+
+    const onDisk = await readFile(path.join(mediaRoot, AGENT, FILE));
+    expect(onDisk.equals(PNG_160x120)).toBe(true);
+    expect(released).toBe(1);
+  });
+
+  it("removes a file it created when the update fails", async () => {
+    // No prior bytes to restore: undoing the write means the file should not
+    // be left behind at all.
+    await unlink(path.join(mediaRoot, AGENT, FILE));
+    const source = path.join(mediaRoot, "incoming.png");
+    await writeFile(source, PNG_160x120);
+    const pool = recordingPool();
+    const original = pool.connect;
+    pool.connect = vi.fn(async () => {
+      const client = (await original()) as {
+        query: (sql: string) => Promise<unknown>;
+        release: () => void;
+      };
+      const inner = client.query;
+      client.query = async (sql: string) => {
+        if (sql.trim().startsWith("UPDATE")) throw new Error("write failed");
+        return inner(sql);
+      };
+      return client;
+    }) as typeof pool.connect;
+
+    await expect(
+      makeHandlers(pool).shareMedia(AGENT, {
+        filePath: source,
+        description: "replaced",
+        update: FILE,
+      })
+    ).rejects.toThrow("write failed");
+
+    await expect(readFile(path.join(mediaRoot, AGENT, FILE))).rejects.toThrow();
   });
 
   it("releases the connection when the file is not this agent's", async () => {

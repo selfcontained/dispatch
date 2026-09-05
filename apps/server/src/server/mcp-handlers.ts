@@ -1,6 +1,13 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
+import {
+  copyFile,
+  mkdir,
+  readFile,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -816,25 +823,72 @@ async function handleShareMedia(
         throw new Error("Invalid media file path.");
       }
 
-      await writeFile(filePath, buffer);
-      // Replacing the bytes can change the shape, so the stored dimensions
-      // move with them — including back to null when the new file is one we
-      // cannot read.
-      const dimensions = imageDimensionsFromBuffer(buffer);
-      await client.query(
-        `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
-                width = $5, height = $6
-         WHERE agent_id = $3 AND file_name = $4`,
-        [
-          buffer.length,
-          opts.description,
-          agentId,
-          fileName,
-          dimensions?.width ?? null,
-          dimensions?.height ?? null,
-        ]
+      // The file write is the half of this that a ROLLBACK cannot undo. Keep
+      // the bytes it replaces so a failure between here and the commit can put
+      // them back, rather than leaving new bytes described by old dimensions —
+      // the mismatch this feature has to rule out. Copied rather than read
+      // into memory: a media file can be a video, and the replacement buffer
+      // is already resident.
+      const backupPath = path.join(mediaDir, `.replacing-${randomUUID()}.bak`);
+      const backedUp = await copyFile(filePath, backupPath).then(
+        () => true,
+        // Nothing to restore if the file was already missing; the write below
+        // is then a create, and undoing it means removing it.
+        () => false
       );
-      await client.query("COMMIT");
+      // Set before the COMMIT is awaited, not after it returns: a COMMIT that
+      // throws is precisely the ambiguous case, and a flag that only rises on
+      // success cannot tell it apart from a failure that never got that far.
+      let commitAttempted = false;
+
+      try {
+        await writeFile(filePath, buffer);
+        // Replacing the bytes can change the shape, so the stored dimensions
+        // move with them — including back to null when the new file is one we
+        // cannot read.
+        const dimensions = imageDimensionsFromBuffer(buffer);
+        await client.query(
+          `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
+                  width = $5, height = $6
+           WHERE agent_id = $3 AND file_name = $4`,
+          [
+            buffer.length,
+            opts.description,
+            agentId,
+            fileName,
+            dimensions?.width ?? null,
+            dimensions?.height ?? null,
+          ]
+        );
+        commitAttempted = true;
+        await client.query("COMMIT");
+      } catch (error) {
+        // A COMMIT that threw is the one case where restoring could be the
+        // wrong move: the transaction may well have landed, and putting the
+        // old bytes back would then create the very mismatch we are avoiding.
+        // Leave the file as written and say so loudly instead.
+        if (commitAttempted) {
+          deps.appLog.error(
+            { err: error, agentId, fileName },
+            "Media replacement commit failed after the bytes were written; " +
+              "the row may or may not describe the file on disk"
+          );
+          throw error;
+        }
+        if (backedUp) {
+          await rename(backupPath, filePath).catch((err) => {
+            deps.appLog.error(
+              { err, agentId, fileName },
+              "Failed to restore media file after a failed replacement"
+            );
+          });
+        } else {
+          await unlink(filePath).catch(() => {});
+        }
+        throw error;
+      } finally {
+        if (backedUp) await unlink(backupPath).catch(() => {});
+      }
 
       deps.publishUiEvent({ type: "media.changed", agentId });
       return {

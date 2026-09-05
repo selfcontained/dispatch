@@ -125,6 +125,10 @@ vi.mock("node:fs/promises", () => ({
   writeFile: vi.fn(async () => {}),
   mkdir: vi.fn(async () => {}),
   unlink: vi.fn(async () => {}),
+  // The media-replacement path keeps a copy of the bytes it is about to
+  // overwrite so a failure before the commit can put them back.
+  copyFile: vi.fn(async () => {}),
+  rename: vi.fn(async () => {}),
 }));
 
 import {
