@@ -63,3 +63,39 @@ export type HarnessSkill = {
 };
 
 export type HarnessSkillsResponse = { skills: HarnessSkill[] };
+
+/** One selectable value of a session config option. */
+export type HarnessConfigChoice = {
+  value: string;
+  name: string;
+  description?: string | null;
+};
+
+/** dsh groups model choices by provider route. */
+export type HarnessConfigGroup = {
+  groupId?: string;
+  group?: string;
+  name: string;
+  options: HarnessConfigChoice[];
+};
+
+/**
+ * A session config option as the Agent Client Protocol advertises it:
+ * dsh serves "model" (grouped by provider) and "reasoning_effort".
+ */
+export type HarnessConfigOption = {
+  id: string;
+  name: string;
+  category?: string | null;
+  type: "select" | (string & {});
+  currentValue: string;
+  options: (HarnessConfigChoice | HarnessConfigGroup)[];
+};
+
+export type HarnessConfigResponse = {
+  /** False when the agent has no live session; options are then empty. */
+  running: boolean;
+  options: HarnessConfigOption[];
+};
+
+export type HarnessConfigUpdateRequest = { configId: string; value: string };

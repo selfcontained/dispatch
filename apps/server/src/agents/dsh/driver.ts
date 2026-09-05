@@ -77,7 +77,11 @@ type Live = {
   exited: Promise<ExitInfo>;
   /** Set at the top of stop(): the exit that follows is expected. */
   stopping: boolean;
+  /** Session config options (model, reasoning effort) as dsh last reported. */
+  config: { options: acp.SessionConfigOption[] };
 };
+
+const PROBE_TIMEOUT_MS = 30_000;
 
 const STDERR_TAIL_LINES = 20;
 const TEARDOWN_STEP_MS = 1_500;
@@ -236,8 +240,12 @@ export class DshDriver {
       }
     });
 
+    const config = { options: [] as acp.SessionConfigOption[] };
     const client: acp.Client = {
       sessionUpdate: async (params) => {
+        if (params.update.sessionUpdate === "config_option_update") {
+          config.options = params.update.configOptions ?? [];
+        }
         this.emit({
           type: "update",
           agentId: launch.agentId,
@@ -293,11 +301,12 @@ export class DshDriver {
       ];
       if (launch.sessionId) {
         try {
-          await conn.resumeSession({
+          const resumed = await conn.resumeSession({
             sessionId: launch.sessionId,
             cwd: launch.cwd,
             mcpServers,
           });
+          config.options = resumed.configOptions ?? config.options;
           return { sessionId: launch.sessionId, resumed: true };
         } catch (err) {
           // dsh no longer has the session (home cleared, store pruned, or an
@@ -310,6 +319,7 @@ export class DshDriver {
         }
       }
       const res = await conn.newSession({ cwd: launch.cwd, mcpServers });
+      config.options = res.configOptions ?? config.options;
       return { sessionId: res.sessionId, resumed: false };
     })();
 
@@ -355,6 +365,7 @@ export class DshDriver {
       stderrTail,
       exited,
       stopping: false,
+      config,
     };
     this.live.set(launch.agentId, entry);
     void exited.then((exit) => {
@@ -379,6 +390,112 @@ export class DshDriver {
       "dsh session ready"
     );
     return outcome.session;
+  }
+
+  /** The session's config options as last reported; null when not running. */
+  getConfigOptions(agentId: string): acp.SessionConfigOption[] | null {
+    return this.live.get(agentId)?.config.options ?? null;
+  }
+
+  /** Apply one session config option (model, reasoning effort) to later turns. */
+  async setConfigOption(
+    agentId: string,
+    configId: string,
+    value: string
+  ): Promise<acp.SessionConfigOption[]> {
+    const entry = this.require(agentId);
+    try {
+      const res = await entry.conn.setSessionConfigOption({
+        sessionId: entry.sessionId,
+        configId,
+        value,
+      });
+      entry.config.options = res.configOptions ?? entry.config.options;
+      return entry.config.options;
+    } catch (err) {
+      throw new Error(describeRpcError(err), { cause: err });
+    }
+  }
+
+  /**
+   * Open a throwaway session just to read the config options dsh serves
+   * under an overlay: the model catalog for the create dialog, before any
+   * agent runs. The session is closed and the child killed right after.
+   */
+  async probeConfigOptions(input: {
+    overlayPath: string;
+    cwd: string;
+    env: NodeJS.ProcessEnv;
+  }): Promise<acp.SessionConfigOption[]> {
+    const env: NodeJS.ProcessEnv = {
+      ...input.env,
+      DSH_HOME: this.opts.dshHome,
+      DSH_PERMISSION_MODE: "danger-full-access",
+    };
+    const bin = await this.resolveBinary(this.opts.dshBin, env);
+    const child = this.spawnFn(
+      bin,
+      ["--profile", "acp", "--patch", input.overlayPath],
+      { cwd: input.cwd, env }
+    );
+    const exited = new Promise<ExitInfo>((resolve) => {
+      child.on("exit", (code, signal) =>
+        resolve({ code, signal: signal ?? null })
+      );
+      child.on("error", (error: Error) =>
+        resolve({ code: null, signal: null, error })
+      );
+    });
+    child.stderr?.on("data", () => {});
+    if (!child.stdin || !child.stdout) {
+      child.kill("SIGKILL");
+      throw new Error("dsh probe: the child has no stdio pipes");
+    }
+    const stream = acp.ndJsonStream(
+      Writable.toWeb(child.stdin),
+      Readable.toWeb(child.stdout)
+    );
+    const conn = new acp.ClientSideConnection(
+      () => ({
+        sessionUpdate: async () => {},
+        requestPermission: async () => ({
+          outcome: { outcome: "cancelled" },
+        }),
+      }),
+      stream
+    );
+    const work = (async () => {
+      await conn.initialize({
+        protocolVersion: acp.PROTOCOL_VERSION,
+        clientCapabilities: {
+          fs: { readTextFile: false, writeTextFile: false },
+        },
+      });
+      const res = await conn.newSession({ cwd: input.cwd, mcpServers: [] });
+      const options = res.configOptions ?? [];
+      await Promise.race([
+        conn.closeSession({ sessionId: res.sessionId }).catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, TEARDOWN_STEP_MS)),
+      ]);
+      return options;
+    })();
+    try {
+      return await Promise.race([
+        work,
+        exited.then((exit) => {
+          throw new Error(`${describeExit(exit)} during probe`);
+        }),
+        new Promise<never>((_, reject) =>
+          setTimeout(
+            () => reject(new Error("dsh config probe timed out")),
+            PROBE_TIMEOUT_MS
+          ).unref?.()
+        ),
+      ]);
+    } finally {
+      work.catch(() => {});
+      child.kill("SIGKILL");
+    }
   }
 
   /** Runs one turn; resolves when the agent settles it. */

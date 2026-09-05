@@ -67,6 +67,11 @@ export type {
   HarnessTurnsResponse,
   HarnessSkill,
   HarnessSkillsResponse,
+  HarnessConfigChoice,
+  HarnessConfigGroup,
+  HarnessConfigOption,
+  HarnessConfigResponse,
+  HarnessConfigUpdateRequest,
 } from "./harness-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {

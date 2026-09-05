@@ -467,6 +467,12 @@ const dshSupervisor = new DshSupervisor({
   listRunningAgentIds: () => agentManager.listRunningDshAgentIds(),
   markStartFailed: (agentId, message) =>
     agentManager.markDshStartFailed(agentId, message),
+  setAgentModel: async (agentId, model) => {
+    await pool.query("UPDATE agents SET model = $2 WHERE id = $1", [
+      agentId,
+      model,
+    ]);
+  },
 });
 agentManager.attachDshSupervisor(dshSupervisor);
 jobService.setBrainStore(brainStore);
@@ -726,6 +732,7 @@ async function registerRoutes() {
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    dshModels: () => dshSupervisor.modelCatalog(),
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
@@ -823,6 +830,11 @@ async function registerRoutes() {
   await registerAgentRoutes(app, {
     pool,
     dshHome: config.dshHome,
+    harness: {
+      getConfigOptions: (agentId) => dshSupervisor.getConfigOptions(agentId),
+      setConfigOption: (agentId, configId, value) =>
+        dshSupervisor.setConfigOption(agentId, configId, value),
+    },
     appLog: app.log,
     agentManager,
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),

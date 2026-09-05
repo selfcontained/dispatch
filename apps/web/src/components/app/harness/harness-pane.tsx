@@ -1,13 +1,23 @@
-import { useCallback, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import type { ChatUserAttachmentInput } from "@dispatch/shared";
 import { useQueryClient } from "@tanstack/react-query";
+import { Cpu } from "lucide-react";
 
-import { ChatComposer } from "@/components/app/chat/chat-composer";
+import {
+  ChatComposer,
+  type SlashItem,
+} from "@/components/app/chat/chat-composer";
 import type { Agent } from "@/components/app/types";
 import { useSendChatMessage } from "@/hooks/use-chat";
 import { uploadAgentMedia } from "@/lib/media-upload";
 
+import { ModelPicker } from "./model-picker";
 import { TurnStream } from "./turn-stream";
+import {
+  currentChoiceName,
+  useHarnessConfig,
+  useSetHarnessConfig,
+} from "./use-harness-config";
 import { useHarnessSkills } from "./use-harness-skills";
 import { harnessTurnsQueryKey, useHarnessTurns } from "./use-harness-turns";
 
@@ -35,6 +45,40 @@ export function HarnessPane({
     useHarnessTurns(agentId);
   const send = useSendChatMessage(agentId);
   const skills = useHarnessSkills(agentId);
+  const config = useHarnessConfig(agentId);
+  const setConfig = useSetHarnessConfig(agentId);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const slashItems = useMemo<SlashItem[]>(
+    () => [
+      {
+        name: "model",
+        description: "Choose the model and reasoning effort",
+        command: true,
+      },
+      ...skills,
+    ],
+    [skills]
+  );
+  const onSlashCommand = useCallback((name: string) => {
+    if (name !== "model") return false;
+    setPickerOpen(true);
+    return true;
+  }, []);
+  const applyConfig = useCallback(
+    async (changes: { configId: string; value: string }[]) => {
+      setConfigError(null);
+      try {
+        for (const change of changes) await setConfig.mutateAsync(change);
+        setPickerOpen(false);
+      } catch (err) {
+        setConfigError(err instanceof Error ? err.message : "Could not apply.");
+      }
+    },
+    [setConfig]
+  );
+  const modelName = currentChoiceName(config.model);
+  const effortName = currentChoiceName(config.effort);
   const { mutateAsync: sendAsync } = send;
   const [sendError, setSendError] = useState<string | null>(null);
 
@@ -97,6 +141,32 @@ export function HarnessPane({
         }
       />
       <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <button
+            type="button"
+            onClick={() => setPickerOpen(true)}
+            title="Model and reasoning effort (or type /model)"
+            data-testid="harness-model-chip"
+            className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground"
+          >
+            <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
+            <span className="truncate">
+              {config.running
+                ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
+                : "model · not running"}
+            </span>
+          </button>
+        </div>
+        <ModelPicker
+          open={pickerOpen}
+          onOpenChange={setPickerOpen}
+          model={config.model}
+          effort={config.effort}
+          running={config.running}
+          saving={setConfig.isPending}
+          error={configError}
+          onApply={applyConfig}
+        />
         {sendError ? (
           <div
             role="alert"
@@ -112,7 +182,8 @@ export function HarnessPane({
           disabledReason={disabledReason}
           sending={send.isPending}
           autoFocus={active && !isMobile}
-          slashItems={skills}
+          slashItems={slashItems}
+          onSlashCommand={onSlashCommand}
         />
       </div>
     </div>

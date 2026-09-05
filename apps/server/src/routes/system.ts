@@ -36,7 +36,10 @@ import {
 import { runCommand } from "../shared/lib/run-command.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
 import { shouldSkipAutomaticMacPathProbe } from "../shared/mac-path-privacy.js";
-import { AGENT_MODEL_OPTIONS } from "../shared/agent-models.js";
+import {
+  AGENT_MODEL_OPTIONS,
+  type AgentModelOption,
+} from "../shared/agent-models.js";
 import {
   getWorktreeLocation,
   isWorktreeLocation,
@@ -54,6 +57,8 @@ type SystemRouteDeps = {
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
   publishUiEvent: (event: unknown) => void;
+  /** Dispatch Harness models as dsh serves them; the static list is the fallback. */
+  dshModels?: () => Promise<AgentModelOption[]>;
 };
 
 export async function registerSystemRoutes(
@@ -83,8 +88,17 @@ export async function registerSystemRoutes(
     };
   });
 
-  app.get("/api/v1/agent-models", async () => {
-    return { models: AGENT_MODEL_OPTIONS };
+  app.get("/api/v1/agent-models", async (request) => {
+    if (!deps.dshModels) return { models: AGENT_MODEL_OPTIONS };
+    try {
+      const dsh = await deps.dshModels();
+      return {
+        models: { ...AGENT_MODEL_OPTIONS, ...(dsh.length ? { dsh } : {}) },
+      };
+    } catch (err) {
+      request.log.warn({ err }, "dsh model catalog unavailable; static list");
+      return { models: AGENT_MODEL_OPTIONS };
+    }
   });
 
   app.get("/api/v1/system/path-info", async (request, reply) => {

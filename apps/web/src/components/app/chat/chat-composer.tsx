@@ -89,9 +89,19 @@ export type ChatComposerProps = {
    * on its own — the host decides what a "/name" message means.
    */
   slashItems?: SlashItem[];
+  /**
+   * Called when a command item (`command: true`) is picked, with its name.
+   * Return true to consume it — the field is cleared instead of filled.
+   */
+  onSlashCommand?: (name: string) => boolean;
 };
 
-export type SlashItem = { name: string; description?: string };
+export type SlashItem = {
+  name: string;
+  description?: string;
+  /** Picking it runs `onSlashCommand` rather than filling "/name ". */
+  command?: boolean;
+};
 
 const SLASH_MENU_MAX = 8;
 
@@ -204,6 +214,7 @@ export function ChatComposer({
   autoFocus = false,
   replyContext = null,
   slashItems,
+  onSlashCommand,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -249,11 +260,15 @@ export function ChatComposer({
     slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
   const pickSlash = useCallback(
     (item: SlashItem) => {
-      setText(`/${item.name} `);
+      if (item.command && onSlashCommand?.(item.name)) {
+        setText("");
+      } else {
+        setText(`/${item.name} `);
+      }
       setSlashIndex(0);
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
-    [setText]
+    [onSlashCommand, setText]
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledReason !== null;

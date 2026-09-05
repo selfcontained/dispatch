@@ -26,6 +26,17 @@ const state: {
   error: null,
 };
 
+vi.mock("./use-harness-config", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./use-harness-config")>()),
+  useHarnessConfig: () => ({
+    running: false,
+    options: [],
+    model: undefined,
+    effort: undefined,
+    loading: false,
+  }),
+  useSetHarnessConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
+}));
 vi.mock("./use-harness-skills", () => ({
   harnessSkillsQueryKey: (agentId: string | null) => [
     "harness-skills",

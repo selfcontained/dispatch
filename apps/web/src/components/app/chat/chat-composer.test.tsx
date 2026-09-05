@@ -248,6 +248,20 @@ describe("ChatComposer slash menu", () => {
     expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
   });
 
+  it("runs a command item instead of filling the field", () => {
+    const onSlashCommand = vi.fn(() => true);
+    const { input } = renderComposer({
+      slashItems: [
+        { name: "model", description: "Pick a model", command: true },
+      ],
+      onSlashCommand,
+    });
+    fireEvent.change(input, { target: { value: "/mo" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSlashCommand).toHaveBeenCalledWith("model");
+    expect(input.value).toBe("");
+  });
+
   it("stays closed without items or once a space follows the name", () => {
     const { input } = renderComposer();
     fireEvent.change(input, { target: { value: "/" } });

@@ -38,6 +38,22 @@ vi.mock("@/hooks/use-chat", () => ({
   }),
   useMarkChatRead: () => vi.fn(),
 }));
+vi.mock(
+  "@/components/app/harness/use-harness-config",
+  async (importOriginal) => ({
+    ...(await importOriginal<
+      typeof import("@/components/app/harness/use-harness-config")
+    >()),
+    useHarnessConfig: () => ({
+      running: false,
+      options: [],
+      model: undefined,
+      effort: undefined,
+      loading: false,
+    }),
+    useSetHarnessConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
+  })
+);
 vi.mock("@/components/app/harness/use-harness-skills", () => ({
   harnessSkillsQueryKey: (agentId: string | null) => [
     "harness-skills",

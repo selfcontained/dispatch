@@ -112,12 +112,22 @@ export function describeAgentModelCatalog(
   return sentences.join(" ");
 }
 
+/** dsh model ids are `provider/model`; dsh serves the catalog, so only the shape is checked here. */
+export const DSH_MODEL_ID =
+  /^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+
 export function validateAgentModel(
   agentType: AgentType,
   model: string | undefined
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
+  if (agentType === "dsh") {
+    if (DSH_MODEL_ID.test(normalizedModel)) return normalizedModel;
+    throw new Error(
+      `Model "${normalizedModel}" is not a dsh model id; use provider/model, e.g. openai/gpt-5.6-sol.`
+    );
+  }
   if (
     getAgentModelOptions(agentType).some(
       (option) => option.id === normalizedModel

@@ -1,3 +1,4 @@
+import type { HarnessConfigOption } from "@dispatch/shared";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import type WebSocket from "ws";
@@ -21,6 +22,15 @@ export type AgentRouteDeps = {
   pool: Pool;
   /** The harness home (DSH_HOME); its skills dir feeds the slash menu. */
   dshHome: string;
+  /** Session config (model, effort) for Dispatch Harness agents. */
+  harness: {
+    getConfigOptions: (agentId: string) => HarnessConfigOption[] | null;
+    setConfigOption: (
+      agentId: string,
+      configId: string,
+      value: string
+    ) => Promise<HarnessConfigOption[]>;
+  };
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;
   publishUiEvent: (event: unknown) => void;

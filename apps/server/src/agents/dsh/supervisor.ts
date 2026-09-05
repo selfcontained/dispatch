@@ -1,6 +1,10 @@
 import path from "node:path";
 import type { Pool } from "pg";
-import type { AgentLatestEventType, AgentRecord } from "@dispatch/shared";
+import type {
+  AgentLatestEventType,
+  AgentRecord,
+  HarnessConfigOption,
+} from "@dispatch/shared";
 
 import { createAgentMcpToken } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
@@ -8,6 +12,7 @@ import { resolveMediaDir } from "../../shared/media.js";
 import { dispatchMcpUrl } from "../tmux/mcp-url.js";
 import { DshDriver, type DriverEvent, type DriverLogger } from "./driver.js";
 import { removeOverlay, writeOverlay } from "./overlay.js";
+import type { AgentModelOption } from "../../shared/agent-models.js";
 import { StreamRecorder } from "./stream-recorder.js";
 import { StreamStore } from "./stream-store.js";
 import { UsageRecorder } from "./usage-recorder.js";
@@ -41,6 +46,8 @@ export type SupervisorDeps = {
   listRunningAgentIds: () => Promise<string[]>;
   /** Record that an agent could not be brought back at boot. */
   markStartFailed: (id: string, message: string) => Promise<void>;
+  /** Persist a model switched mid-session, so a restart resumes on it. */
+  setAgentModel?: (id: string, model: string | null) => Promise<void>;
 };
 
 /**
@@ -98,6 +105,109 @@ const STOP_ALL_TIMEOUT_MS = 5_000;
  * a first agent does not fail on the profile's DeepSeek default with only an
  * OpenAI key configured. Null keeps the profile default.
  */
+/**
+ * Which env key each dsh provider route needs. A route without its key
+ * still shows in dsh's options, but every call on it would fail, so the
+ * catalog and the picker drop it. Unknown routes are kept.
+ */
+export const PROVIDER_KEY_ENV: Record<string, string> = {
+  "deepseek-official": "DEEPSEEK_API_KEY",
+  deepseek: "DEEPSEEK_API_KEY",
+  openai: "OPENAI_API_KEY",
+  anthropic: "ANTHROPIC_API_KEY",
+  google: "GEMINI_API_KEY",
+  gemini: "GEMINI_API_KEY",
+};
+
+type SelectOption = {
+  value: string;
+  name: string;
+  description?: string | null;
+};
+type SelectGroup = {
+  groupId?: string;
+  group?: string;
+  name: string;
+  options: SelectOption[];
+};
+
+function groupIdOf(group: SelectGroup): string {
+  return group.groupId ?? group.group ?? "";
+}
+
+function isGroup(entry: unknown): entry is SelectGroup {
+  return (
+    typeof entry === "object" &&
+    entry !== null &&
+    Array.isArray((entry as SelectGroup).options)
+  );
+}
+
+/**
+ * dsh's "model" option lists every route it serves; keep only the routes
+ * whose API key the service has. Other options pass through untouched.
+ */
+export function filterConfigOptionsByKeys(
+  options: HarnessConfigOption[],
+  env: NodeJS.ProcessEnv
+): HarnessConfigOption[] {
+  return options.map((option) => {
+    if (option.id !== "model" || option.type !== "select") return option;
+    const entries = option.options as unknown[];
+    const kept = entries.filter((entry) => {
+      if (!isGroup(entry)) return true;
+      const key = PROVIDER_KEY_ENV[groupIdOf(entry)];
+      return key === undefined || !!env[key];
+    });
+    return { ...option, options: kept as HarnessConfigOption["options"] };
+  });
+}
+
+/** Flatten the "model" option into catalog rows: id `provider/model`. */
+export function catalogFromConfigOptions(
+  options: HarnessConfigOption[]
+): AgentModelOption[] {
+  const model = options.find((o) => o.id === "model" && o.type === "select");
+  if (!model) return [];
+  const rows: AgentModelOption[] = [];
+  const push = (entry: SelectOption, groupName?: string) => {
+    const id = modelIdFromValue(entry.value);
+    if (!id) return;
+    rows.push({
+      id,
+      label: groupName ? `${entry.name} (${groupName})` : entry.name,
+    });
+  };
+  for (const entry of model.options as unknown[]) {
+    if (isGroup(entry)) {
+      for (const option of entry.options) push(option, entry.name);
+    } else if (typeof entry === "object" && entry !== null) {
+      push(entry as SelectOption);
+    }
+  }
+  return rows;
+}
+
+/** dsh encodes a model value as the JSON pair ["provider","model"]. */
+export function modelIdFromValue(value: string): string | null {
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (
+      Array.isArray(parsed) &&
+      parsed.length === 2 &&
+      typeof parsed[0] === "string" &&
+      typeof parsed[1] === "string"
+    ) {
+      return `${parsed[0]}/${parsed[1]}`;
+    }
+  } catch {
+    // not JSON: fall through
+  }
+  return value.includes("/") ? value : null;
+}
+
+const CATALOG_TTL_MS = 10 * 60_000;
+
 export function defaultModelFor(env: NodeJS.ProcessEnv): string | null {
   if (env.DEEPSEEK_API_KEY) return "deepseek-official/deepseek-v4-flash";
   if (env.OPENAI_API_KEY) return "openai/gpt-5.2";
@@ -130,6 +240,8 @@ export class DshSupervisor {
    * a prompt that arrives mid-turn waits and runs as the next turn.
    */
   private readonly turns = new Map<string, Promise<void>>();
+  private catalog: { at: number; rows: AgentModelOption[] } | null = null;
+  private catalogInFlight: Promise<AgentModelOption[]> | null = null;
 
   constructor(private readonly deps: SupervisorDeps) {
     this.driver =
@@ -160,6 +272,94 @@ export class DshSupervisor {
   /** A turn is running or queued for this agent. */
   isBusy(agentId: string): boolean {
     return this.turns.has(agentId);
+  }
+
+  /** The running session's options (model, effort), keyed providers only. */
+  getConfigOptions(agentId: string): HarnessConfigOption[] | null {
+    const options = this.driver.getConfigOptions(agentId);
+    return options
+      ? filterConfigOptionsByKeys(options as HarnessConfigOption[], process.env)
+      : null;
+  }
+
+  /** Switch a session option; a model switch is also stored on the agent. */
+  async setConfigOption(
+    agentId: string,
+    configId: string,
+    value: string
+  ): Promise<HarnessConfigOption[]> {
+    const options = await this.driver.setConfigOption(agentId, configId, value);
+    if (configId === "model") {
+      const model = modelIdFromValue(value);
+      if (model) {
+        const ctx = this.context.get(agentId);
+        if (ctx) ctx.model = model;
+        await this.deps.setAgentModel?.(agentId, model);
+      }
+    }
+    return filterConfigOptionsByKeys(
+      options as HarnessConfigOption[],
+      process.env
+    );
+  }
+
+  /**
+   * The models dsh serves, for the create dialog: read off a running agent
+   * when one exists, otherwise from a throwaway probe session; cached.
+   */
+  async modelCatalog(): Promise<AgentModelOption[]> {
+    const now = Date.now();
+    if (this.catalog && now - this.catalog.at < CATALOG_TTL_MS) {
+      return this.catalog.rows;
+    }
+    for (const agentId of this.driver.liveAgentIds()) {
+      const options = this.getConfigOptions(agentId);
+      const rows = options ? catalogFromConfigOptions(options) : [];
+      if (rows.length) {
+        this.catalog = { at: now, rows };
+        return rows;
+      }
+    }
+    if (this.catalogInFlight) return this.catalogInFlight;
+    this.catalogInFlight = (async () => {
+      const overlayPath = await writeOverlay(
+        this.overlayDir(),
+        "catalog-probe",
+        {
+          model: null,
+          persona: "",
+        }
+      );
+      try {
+        const options = await this.driver.probeConfigOptions({
+          overlayPath,
+          cwd: this.deps.config.dshHome,
+          env: buildChildEnv({
+            agentId: "catalog-probe",
+            mediaDir: this.deps.config.mediaRoot,
+            config: this.deps.config,
+          }),
+        });
+        const rows = catalogFromConfigOptions(
+          filterConfigOptionsByKeys(
+            options as HarnessConfigOption[],
+            process.env
+          )
+        );
+        this.catalog = { at: Date.now(), rows };
+        return rows;
+      } catch (err) {
+        // No dsh here (or a broken one): remember briefly so a dialog that
+        // reopens does not spawn a failing child each time.
+        this.deps.logger.warn({ err }, "dsh model catalog probe failed");
+        this.catalog = { at: Date.now() - CATALOG_TTL_MS + 60_000, rows: [] };
+        return [];
+      } finally {
+        this.catalogInFlight = null;
+        await removeOverlay(this.overlayDir(), "catalog-probe");
+      }
+    })();
+    return this.catalogInFlight;
   }
 
   private overlayDir(): string {

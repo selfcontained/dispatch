@@ -1,5 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import type {
+  HarnessConfigResponse,
+  HarnessConfigUpdateRequest,
   HarnessSkillsResponse,
   HarnessTurnsResponse,
 } from "@dispatch/shared";
@@ -14,8 +16,62 @@ const MAX_LIMIT = 200;
 /** Turns for the Harness view: read-only, assembled from the stream rows. */
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
-  deps: Pick<AgentRouteDeps, "pool" | "dshHome">
+  deps: Pick<AgentRouteDeps, "pool" | "dshHome" | "harness">
 ): Promise<void> {
+  const exists = async (id: string): Promise<boolean> => {
+    const row = await deps.pool.query(
+      "SELECT 1 FROM agents WHERE id = $1 AND deleted_at IS NULL",
+      [id]
+    );
+    return row.rows.length > 0;
+  };
+
+  // Session config: the model and reasoning effort dsh serves, live.
+  app.get("/api/v1/agents/:id/harness/config", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    if (!(await exists(id))) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    const options = deps.harness.getConfigOptions(id);
+    const response: HarnessConfigResponse = {
+      running: options !== null,
+      options: options ?? [],
+    };
+    return response;
+  });
+
+  app.put("/api/v1/agents/:id/harness/config", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    const body = (request.body ?? {}) as Partial<HarnessConfigUpdateRequest>;
+    if (
+      typeof body.configId !== "string" ||
+      !body.configId ||
+      typeof body.value !== "string"
+    ) {
+      return reply
+        .code(400)
+        .send({ error: "configId and value are required." });
+    }
+    if (!(await exists(id))) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    if (deps.harness.getConfigOptions(id) === null) {
+      return reply.code(409).send({ error: "The agent is not running." });
+    }
+    try {
+      const options = await deps.harness.setConfigOption(
+        id,
+        body.configId,
+        body.value
+      );
+      const response: HarnessConfigResponse = { running: true, options };
+      return response;
+    } catch (err) {
+      return reply
+        .code(400)
+        .send({ error: err instanceof Error ? err.message : String(err) });
+    }
+  });
   app.get("/api/v1/agents/:id/harness/turns", async (request, reply) => {
     const id = (request.params as { id?: string }).id ?? "";
     const raw = (request.query as { limit?: string }).limit;
