@@ -1,7 +1,7 @@
 import type { PoolClient } from "pg";
 
 import { seedNow } from "./constants.js";
-import { PLACEHOLDER_MEDIA } from "./index.js";
+import { PLACEHOLDER_MEDIA } from "./placeholder-media.js";
 
 type MediaRow = {
   agentId: string;
