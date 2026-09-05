@@ -789,50 +789,67 @@ async function handleShareMedia(
   await mkdir(mediaDir, { recursive: true });
 
   if (opts.update) {
-    const existing = await deps.pool.query<{ file_name: string }>(
-      `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2 FOR UPDATE`,
-      [agentId, opts.update]
-    );
-    if (existing.rows.length === 0) {
-      throw new Error(
-        "No media file found with the given fileName for this agent."
+    // One transaction around the whole replacement, on one client. The row
+    // lock below only lasts as long as the transaction holding it, so issuing
+    // the SELECT through the pool would take a lock and drop it before the
+    // file was even written — two concurrent replacements of the same file
+    // could then interleave as write A, write B, update B, update A, leaving
+    // the row describing bytes that are no longer there. Recording an image's
+    // shape is only worth doing if it cannot come to disagree with the file.
+    const client = await deps.pool.connect();
+    try {
+      await client.query("BEGIN");
+      const existing = await client.query<{ file_name: string }>(
+        `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2 FOR UPDATE`,
+        [agentId, opts.update]
       );
-    }
+      if (existing.rows.length === 0) {
+        throw new Error(
+          "No media file found with the given fileName for this agent."
+        );
+      }
 
-    const fileName = existing.rows[0].file_name;
-    const filePath = path.join(mediaDir, fileName);
-    const resolvedMediaDir = path.resolve(mediaDir);
-    if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
-      throw new Error("Invalid media file path.");
-    }
+      const fileName = existing.rows[0].file_name;
+      const filePath = path.join(mediaDir, fileName);
+      const resolvedMediaDir = path.resolve(mediaDir);
+      if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
+        throw new Error("Invalid media file path.");
+      }
 
-    await writeFile(filePath, buffer);
-    // Replacing the bytes can change the shape, so the stored dimensions move
-    // with them — including back to null when the new file is one we cannot
-    // read.
-    const dimensions = imageDimensionsFromBuffer(buffer);
-    await deps.pool.query(
-      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
-              width = $5, height = $6
-       WHERE agent_id = $3 AND file_name = $4`,
-      [
-        buffer.length,
-        opts.description,
-        agentId,
+      await writeFile(filePath, buffer);
+      // Replacing the bytes can change the shape, so the stored dimensions
+      // move with them — including back to null when the new file is one we
+      // cannot read.
+      const dimensions = imageDimensionsFromBuffer(buffer);
+      await client.query(
+        `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
+                width = $5, height = $6
+         WHERE agent_id = $3 AND file_name = $4`,
+        [
+          buffer.length,
+          opts.description,
+          agentId,
+          fileName,
+          dimensions?.width ?? null,
+          dimensions?.height ?? null,
+        ]
+      );
+      await client.query("COMMIT");
+
+      deps.publishUiEvent({ type: "media.changed", agentId });
+      return {
         fileName,
-        dimensions?.width ?? null,
-        dimensions?.height ?? null,
-      ]
-    );
-
-    deps.publishUiEvent({ type: "media.changed", agentId });
-    return {
-      fileName,
-      url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
-      sizeBytes: buffer.length,
-      source,
-      description: opts.description,
-    };
+        url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+        sizeBytes: buffer.length,
+        source,
+        description: opts.description,
+      };
+    } catch (error) {
+      await client.query("ROLLBACK").catch(() => {});
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   const timestamp = new Date()

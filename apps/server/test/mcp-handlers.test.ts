@@ -171,7 +171,16 @@ function templateRecord(overrides: Record<string, unknown> = {}) {
 
 function createMockDeps() {
   return {
-    pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
+    // `connect` backs the media-replacement transaction; its statements are
+    // recorded on the same mock as `query` so assertions can stay on one
+    // call list.
+    pool: (() => {
+      const query = vi.fn(async () => ({ rows: [] }));
+      return {
+        query,
+        connect: vi.fn(async () => ({ query, release: vi.fn() })),
+      };
+    })() as any,
     mediaRoot: "/tmp/media",
     agentManager: {
       getAgent: vi.fn(async () => ({
@@ -2975,6 +2984,8 @@ describe("createMcpHandlers", () => {
 
     it("updates existing media when update option is provided", async () => {
       vi.mocked(isMediaFile).mockReturnValue(true);
+      // BEGIN, then the locking SELECT.
+      deps.pool.query.mockResolvedValueOnce({ rows: [] });
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "existing.png" }],
       });
@@ -2984,11 +2995,14 @@ describe("createMcpHandlers", () => {
         update: "existing.png",
       });
       expect(result.fileName).toBe("existing.png");
-      expect(deps.pool.query).toHaveBeenCalledTimes(2);
+      // BEGIN, SELECT ... FOR UPDATE, UPDATE, COMMIT — one transaction.
+      expect(deps.pool.query).toHaveBeenCalledTimes(4);
+      expect(deps.pool.connect).toHaveBeenCalledTimes(1);
     });
 
     it("throws when update target not found", async () => {
       vi.mocked(isMediaFile).mockReturnValue(true);
+      deps.pool.query.mockResolvedValueOnce({ rows: [] });
       deps.pool.query.mockResolvedValueOnce({ rows: [] });
       await expect(
         handlers.shareMedia("agt_test1", {
