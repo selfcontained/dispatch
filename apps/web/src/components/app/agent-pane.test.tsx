@@ -69,6 +69,7 @@ vi.mock("@/components/app/harness/use-harness-turns", () => ({
     liveText: "",
     liveQuestions: [],
     streaming: false,
+    queued: [],
     loading: false,
     error: null,
   }),

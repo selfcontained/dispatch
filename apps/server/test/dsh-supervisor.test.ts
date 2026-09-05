@@ -489,3 +489,117 @@ describe("DshSupervisor job runs", () => {
     await sup.stopAll();
   });
 });
+
+describe("DshSupervisor message queue", () => {
+  const CHAT_ID = "0f3d2a8e-6c4b-4c1e-9b7a-1d2e3f4a5b6c";
+  const envelope = (text: string) =>
+    `--- DISPATCH CHAT (id: ${CHAT_ID}) ---\n${text}\n--- END DISPATCH CHAT ---`;
+
+  it("lists what waits behind the running turn, in order, and drains it", async () => {
+    const { sup, fake, deps } = await build({
+      turn: async () => {
+        await new Promise((r) => setTimeout(r, 15));
+        return "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", "one");
+    sup.enqueuePrompt("agt_1", envelope("two"));
+    const third = sup.enqueuePrompt("agt_1", "three");
+    await first.started;
+    const queued = sup.listQueued("agt_1");
+    expect(queued.map((q) => q.source)).toEqual([
+      { source: "chat", chatMessageId: CHAT_ID },
+      { source: "system", text: "three" },
+    ]);
+    // A chat message queues under its own id, so the view can act on it.
+    expect(queued[0].id).toBe(CHAT_ID);
+    expect(queued[1].id).toMatch(/^q_/);
+    expect(queued[0].createdAt <= queued[1].createdAt).toBe(true);
+    // The feed is told, so the view lists the wait without a stream write.
+    expect(deps.publishChat).toHaveBeenCalledWith("agt_1");
+    await third.settled;
+    expect(sup.listQueued("agt_1")).toEqual([]);
+    expect(fake.seen.prompts).toEqual(["one", envelope("two"), "three"]);
+    expect(sup.isBusy("agt_1")).toBe(false);
+    await sup.stop("agt_1");
+  });
+
+  it("removes a queued prompt: it never runs and its start rejects", async () => {
+    const { sup, fake, events } = await build({
+      turn: async () => {
+        await new Promise((r) => setTimeout(r, 15));
+        return "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", "one");
+    const second = sup.enqueuePrompt("agt_1", envelope("two"));
+    await first.started;
+    expect(sup.removeQueued("agt_1", CHAT_ID)).toBe(true);
+    expect(sup.removeQueued("agt_1", CHAT_ID)).toBe(false);
+    await expect(second.started).rejects.toThrow(/removed/i);
+    await second.settled;
+    await first.settled;
+    expect(fake.seen.prompts).toEqual(["one"]);
+    // With nothing left behind it, the first turn settles the agent idle.
+    expect(events.map((e) => e.type)).toEqual(["idle", "working", "idle"]);
+    expect(sup.isBusy("agt_1")).toBe(false);
+    await sup.stop("agt_1");
+  });
+
+  it("send-now moves a prompt to the front and interrupts the running turn", async () => {
+    const { sup, fake } = await build({
+      turn: async (_p, _emit, _ask, signal) => {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 400);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+        return signal.aborted ? "cancelled" : "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", "one");
+    const second = sup.enqueuePrompt("agt_1", "two");
+    const third = sup.enqueuePrompt("agt_1", envelope("three"));
+    await first.started;
+    expect(await sup.sendQueuedNow("agt_1", CHAT_ID)).toBe(true);
+    expect(await sup.sendQueuedNow("agt_1", "nope")).toBe(false);
+    await third.started;
+    expect(sup.listQueued("agt_1").map((q) => q.source)).toEqual([
+      { source: "system", text: "two" },
+    ]);
+    await second.settled;
+    expect(fake.seen.cancels).toBe(1);
+    expect(fake.seen.prompts).toEqual(["one", envelope("three"), "two"]);
+    await sup.stop("agt_1");
+  });
+
+  it("stop drops what is queued and fails their starts", async () => {
+    const { sup, fake } = await build({
+      turn: async (_p, _emit, _ask, signal) => {
+        await new Promise<void>((resolve) => {
+          const timer = setTimeout(resolve, 400);
+          signal.addEventListener("abort", () => {
+            clearTimeout(timer);
+            resolve();
+          });
+        });
+        return "end_turn";
+      },
+    });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", "one");
+    const second = sup.enqueuePrompt("agt_1", "two");
+    await first.started;
+    await sup.stop("agt_1");
+    await expect(second.started).rejects.toThrow(/stopped/i);
+    await first.settled;
+    expect(fake.seen.prompts).toEqual(["one"]);
+    expect(sup.listQueued("agt_1")).toEqual([]);
+    expect(sup.isBusy("agt_1")).toBe(false);
+  });
+});

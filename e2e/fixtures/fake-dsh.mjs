@@ -16,6 +16,10 @@ const acp = require("@agentclientprotocol/sdk");
 
 let conn;
 let cwdBySession = new Map();
+// A prompt containing "sleep:<ms>" holds its turn that long (or until the
+// client cancels it), so a spec can watch what queues behind a running turn.
+const SLEEP = /sleep:(\d+)/;
+let sleeping = null;
 
 const agent = {
   async initialize() {
@@ -53,6 +57,18 @@ const agent = {
     const cwd = cwdBySession.get(params.sessionId) ?? process.cwd();
     const emit = (update) =>
       conn.sessionUpdate({ sessionId: params.sessionId, update });
+    const sleep = SLEEP.exec(text);
+    if (sleep) {
+      const cancelled = await new Promise((resolve) => {
+        const timer = setTimeout(() => resolve(false), Number(sleep[1]));
+        sleeping = () => {
+          clearTimeout(timer);
+          resolve(true);
+        };
+      });
+      sleeping = null;
+      if (cancelled) return { stopReason: "cancelled" };
+    }
     await emit({
       sessionUpdate: "tool_call",
       toolCallId: "c1",
@@ -85,7 +101,9 @@ const agent = {
       },
     };
   },
-  async cancel() {},
+  async cancel() {
+    sleeping?.();
+  },
   async closeSession() {
     return {};
   },

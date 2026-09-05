@@ -81,5 +81,33 @@ describe("GET /api/v1/agents/:id/harness/turns", () => {
     expect(body.turns[0].trace.finalResult).toBe("ok");
     expect(body.turns[0].trace.steps.map((s) => s.kind)).toEqual(["execute"]);
     expect(body.turns[0].result).toEqual({ text: "hi", streaming: false });
+    // No harness runs in this app: the queue is empty, and present.
+    expect((res.json() as { queued: unknown[] }).queued).toEqual([]);
+  });
+});
+
+describe("harness queue routes", () => {
+  it("404 when the message is not queued, and for an unknown agent", async () => {
+    const cookie = await ctx.sessionCookie();
+    const sendNow = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/harness/queue/not-queued/send-now`,
+      headers: { cookie },
+    });
+    expect(sendNow.statusCode).toBe(404);
+    expect(sendNow.json().error).toMatch(/no longer queued/);
+    const remove = await ctx.app.inject({
+      method: "DELETE",
+      url: `/api/v1/agents/${agentId}/harness/queue/not-queued`,
+      headers: { cookie },
+    });
+    expect(remove.statusCode).toBe(404);
+    const missing = await ctx.app.inject({
+      method: "DELETE",
+      url: `/api/v1/agents/agt_nope/harness/queue/x`,
+      headers: { cookie },
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(missing.json().error).toBe("Agent not found.");
   });
 });

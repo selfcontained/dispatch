@@ -502,11 +502,21 @@ export class DshDriver {
   async prompt(agentId: string, text: string): Promise<void> {
     const entry = this.require(agentId);
     this.emit({ type: "turn", agentId, state: "started", text });
+    // A child that exits mid-turn never answers the request; the pending
+    // call would hang and hold the agent's turn slot for ever.
+    let exited = false;
+    const gone = entry.exited.then(() => {
+      exited = true;
+      throw new Error("dsh exited before the turn settled");
+    });
     try {
-      const res = await entry.conn.prompt({
-        sessionId: entry.sessionId,
-        prompt: [{ type: "text", text }],
-      });
+      const res = await Promise.race([
+        entry.conn.prompt({
+          sessionId: entry.sessionId,
+          prompt: [{ type: "text", text }],
+        }),
+        gone,
+      ]);
       this.emit({
         type: "turn",
         agentId,
@@ -516,7 +526,11 @@ export class DshDriver {
       });
     } catch (err) {
       const message = describeRpcError(err);
-      this.emit({ type: "turn", agentId, state: "settled", error: message });
+      // The exit event already settled the turn row; a second settle would
+      // only add a duplicate status line.
+      if (!exited) {
+        this.emit({ type: "turn", agentId, state: "settled", error: message });
+      }
       throw new Error(message, { cause: err });
     }
   }

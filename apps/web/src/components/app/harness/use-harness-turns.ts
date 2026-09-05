@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import type {
   ChatAttachment,
+  HarnessQueuedPrompt,
   HarnessQuestion,
   HarnessStep,
   HarnessTurn,
@@ -147,6 +148,8 @@ export function useHarnessTurns(agentId: string | null): {
   liveText: string;
   liveQuestions: HarnessQuestion[];
   streaming: boolean;
+  /** Prompts waiting behind the live turn, first to run first. */
+  queued: HarnessQueuedPrompt[];
   loading: boolean;
   error: Error | null;
 } {
@@ -160,5 +163,10 @@ export function useHarnessTurns(agentId: string | null): {
     staleTime: 5_000,
   });
   const mapped = toPromptKitTurns(query.data?.turns ?? [], agentId ?? "");
-  return { ...mapped, loading: query.isLoading, error: query.error };
+  return {
+    ...mapped,
+    queued: query.data?.queued ?? [],
+    loading: query.isLoading,
+    error: query.error,
+  };
 }

@@ -267,4 +267,85 @@ describe("ChatComposer slash menu", () => {
     fireEvent.change(input, { target: { value: "/" } });
     expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
   });
+
+  it("opens for a slash typed mid-message and fills the pick at the caret", () => {
+    const { onSend, input } = renderComposer({ slashItems: items });
+    fireEvent.change(input, { target: { value: "lets do this /" } });
+    expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(3);
+    fireEvent.change(input, { target: { value: "lets do this /jo" } });
+    expect(
+      screen
+        .getAllByTestId("chat-composer-slash-item")
+        .map((o) => o.textContent)
+    ).toEqual(["/jobsRecurring jobs"]);
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(input.value).toBe("lets do this /jobs ");
+    expect(onSend).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("replaces only the token at the caret, keeping what follows it", () => {
+    const { input } = renderComposer({ slashItems: items });
+    // The caret sits right after "/br", before " and then more".
+    fireEvent.change(input, { target: { value: "use /br and then more" } });
+    input.setSelectionRange(7, 7);
+    fireEvent.select(input);
+    expect(
+      screen
+        .getAllByTestId("chat-composer-slash-item")
+        .map((o) => o.textContent)
+    ).toEqual(["/brainShared memory"]);
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(input.value).toBe("use /brain and then more");
+  });
+
+  it("needs a word boundary before the slash and nothing glued after the caret", () => {
+    const { input } = renderComposer({ slashItems: items });
+    // A path segment is not a command.
+    fireEvent.change(input, { target: { value: "see apps/web/" } });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+    // A slash on a new line is.
+    fireEvent.change(input, { target: { value: "first line\n/" } });
+    expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(3);
+    // The caret inside a longer token does not open it.
+    fireEvent.change(input, { target: { value: "go /jobs" } });
+    input.setSelectionRange(5, 5);
+    fireEvent.select(input);
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("offers command items only at the start of the message", () => {
+    const onSlashCommand = vi.fn(() => true);
+    const { input } = renderComposer({
+      slashItems: [
+        { name: "model", description: "Pick a model", command: true },
+        ...items,
+      ],
+      onSlashCommand,
+    });
+    fireEvent.change(input, { target: { value: "/" } });
+    expect(
+      screen
+        .getAllByTestId("chat-composer-slash-item")
+        .map((o) => o.textContent)
+    ).toContain("/modelPick a model");
+    fireEvent.change(input, { target: { value: "then /" } });
+    expect(
+      screen
+        .getAllByTestId("chat-composer-slash-item")
+        .map((o) => o.textContent)
+    ).not.toContain("/modelPick a model");
+    fireEvent.change(input, { target: { value: "then /mo" } });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+  });
+
+  it("Escape dismisses the menu for that token only", () => {
+    const { input } = renderComposer({ slashItems: items });
+    fireEvent.change(input, { target: { value: "lets /" } });
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("chat-composer-slash-menu")).toBeNull();
+    // Typing on reopens it; Enter now picks rather than sends.
+    fireEvent.change(input, { target: { value: "lets /re" } });
+    expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(1);
+  });
 });

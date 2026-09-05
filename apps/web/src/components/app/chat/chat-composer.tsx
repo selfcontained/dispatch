@@ -10,6 +10,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type SyntheticEvent,
 } from "react";
 import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
@@ -85,9 +86,10 @@ export type ChatComposerProps = {
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
   /**
-   * Slash-menu entries. Typing "/" as the first character opens a picker
-   * over them; picking one puts "/<name> " in the field. Nothing is sent
-   * on its own — the host decides what a "/name" message means.
+   * Slash-menu entries. A "/" typed at a word boundary — the start of the
+   * message or after whitespace — opens a picker over them at the caret;
+   * picking one puts "/<name> " there. Nothing is sent on its own — the
+   * host decides what a "/name" message means.
    */
   slashItems?: SlashItem[];
   /**
@@ -102,21 +104,53 @@ export type ChatComposerProps = {
   dropTargetRef?: RefObject<HTMLElement | null>;
   /** Reports drag-over state of `dropTargetRef` for the host's overlay. */
   onDropZoneDragging?: (dragging: boolean) => void;
+  /**
+   * Replaces the idle helper line ("Enter to send · …") — the host's word
+   * on what Enter does right now, such as queueing behind a running turn.
+   */
+  hint?: string;
 };
 
 export type SlashItem = {
   name: string;
   description?: string;
-  /** Picking it runs `onSlashCommand` rather than filling "/name ". */
+  /**
+   * Picking it runs `onSlashCommand` rather than filling "/name ". Only
+   * offered when the slash opens the message.
+   */
   command?: boolean;
 };
 
 const SLASH_MENU_MAX = 8;
 
+/** The "/partial" token the caret sits at the end of. */
+export type SlashToken = {
+  query: string;
+  /** Index of the "/" in the text. */
+  start: number;
+  /** Index just past the token: the caret. */
+  end: number;
+};
+
+/**
+ * The slash token under the caret, if the menu should be open: a "/" at
+ * the start of the text or after whitespace, then no whitespace or "/" up
+ * to the caret, and nothing glued on after the caret. A path segment
+ * ("apps/web/") or a caret inside a longer word does not count.
+ */
+export function slashTokenAt(text: string, caret: number): SlashToken | null {
+  const end = Math.max(0, Math.min(caret, text.length));
+  if (end < text.length && !/\s/.test(text[end])) return null;
+  let start = end - 1;
+  while (start >= 0 && !/[\s/]/.test(text[start])) start -= 1;
+  if (start < 0 || text[start] !== "/") return null;
+  if (start > 0 && !/\s/.test(text[start - 1])) return null;
+  return { query: text.slice(start + 1, end), start, end };
+}
+
 /** The "/query" the field holds while the menu should be open, else null. */
 export function slashQuery(text: string): string | null {
-  const m = /^\/([^\s/]*)$/.exec(text);
-  return m ? m[1] : null;
+  return slashTokenAt(text, text.length)?.query ?? null;
 }
 
 export function filterSlashItems(
@@ -225,6 +259,7 @@ export function ChatComposer({
   onSlashCommand,
   dropTargetRef,
   onDropZoneDragging,
+  hint,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -256,29 +291,55 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Slash menu: open while the field is exactly "/<partial>", closed by
-  // Escape until the text changes again.
+  // Slash menu: open while the caret sits at the end of a "/<partial>"
+  // token, closed by Escape until the text changes again. The caret is
+  // tracked from the field on every change, key, click, and selection.
   const [slashDismissed, setSlashDismissed] = useState<string | null>(null);
   const [slashIndex, setSlashIndex] = useState(0);
-  const query = slashItems?.length ? slashQuery(text) : null;
-  const slashOpen = query !== null && slashDismissed !== text;
-  const slashMatches = useMemo(
-    () => (slashOpen ? filterSlashItems(slashItems ?? [], query) : []),
-    [slashOpen, slashItems, query]
+  const [caret, setCaret] = useState<number | null>(null);
+  const syncCaret = useCallback(
+    (event: SyntheticEvent<HTMLTextAreaElement>) => {
+      setCaret(event.currentTarget.selectionStart);
+    },
+    []
   );
+  const slashToken = slashItems?.length
+    ? slashTokenAt(text, caret ?? text.length)
+    : null;
+  const slashOpen = slashToken !== null && slashDismissed !== text;
+  const slashMatches = useMemo(() => {
+    if (!slashOpen || !slashToken) return [];
+    // Commands (/model) act on the whole message: start-of-message only.
+    const pool =
+      slashToken.start === 0
+        ? (slashItems ?? [])
+        : (slashItems ?? []).filter((item) => !item.command);
+    return filterSlashItems(pool, slashToken.query);
+  }, [slashOpen, slashItems, slashToken]);
   const slashActive =
     slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
   const pickSlash = useCallback(
     (item: SlashItem) => {
       if (item.command && onSlashCommand?.(item.name)) {
         setText("");
+        setCaret(0);
       } else {
-        setText(`/${item.name} `);
+        const token = slashToken ?? { start: 0, end: text.length };
+        const after = text.slice(token.end);
+        // One space after the name; reuse the one already there mid-message.
+        const spaced = after.startsWith(" ");
+        const insert = `/${item.name}${spaced ? "" : " "}`;
+        const next = token.start + insert.length + (spaced ? 1 : 0);
+        setText(text.slice(0, token.start) + insert + after);
+        setCaret(next);
+        requestAnimationFrame(() => {
+          textareaRef.current?.setSelectionRange(next, next);
+        });
       }
       setSlashIndex(0);
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
-    [onSlashCommand, setText]
+    [onSlashCommand, setText, slashToken, text]
   );
   const fileInputRef = useRef<HTMLInputElement>(null);
   const disabled = disabledReason !== null;
@@ -905,8 +966,14 @@ export function ChatComposer({
           <Textarea
             ref={textareaRef}
             value={text}
-            onChange={(event) => setText(event.target.value)}
+            onChange={(event) => {
+              setText(event.target.value);
+              setCaret(event.target.selectionStart);
+            }}
             onKeyDown={onKeyDown}
+            onKeyUp={syncCaret}
+            onClick={syncCaret}
+            onSelect={syncCaret}
             onPaste={onPaste}
             disabled={disabled}
             rows={1}
@@ -965,6 +1032,8 @@ export function ChatComposer({
           </span>
         ) : draggingFiles ? (
           <span>Drop files to attach them</span>
+        ) : hint ? (
+          <span data-testid="chat-composer-hint">{hint}</span>
         ) : (
           <span>
             Enter to send · Shift+Enter for a new line · paste or drop files

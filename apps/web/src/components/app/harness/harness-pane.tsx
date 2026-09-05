@@ -25,6 +25,7 @@ import {
   useHarnessConfig,
   useSetHarnessConfig,
 } from "./use-harness-config";
+import { useHarnessQueue } from "./use-harness-queue";
 import { useHarnessSkills } from "./use-harness-skills";
 import { harnessTurnsQueryKey, useHarnessTurns } from "./use-harness-turns";
 
@@ -57,9 +58,15 @@ export function HarnessPane({
     liveText,
     liveQuestions,
     streaming,
+    queued,
     loading,
     error,
   } = useHarnessTurns(agentId);
+  const {
+    sendNow: sendQueuedNow,
+    remove: removeQueued,
+    busyId: queueBusyId,
+  } = useHarnessQueue(agentId);
   const send = useSendChatMessage(agentId);
   const answer = useAnswerChatQuestion(agentId);
   const { mutateAsync: sendAsync } = send;
@@ -176,6 +183,25 @@ export function HarnessPane({
     [answerAsync, invalidateTurns]
   );
 
+  const onSendNow = useCallback(
+    (id: string) => {
+      setSendError(null);
+      sendQueuedNow(id).catch((err: unknown) => {
+        setSendError(err instanceof Error ? err.message : "Could not send.");
+      });
+    },
+    [sendQueuedNow]
+  );
+  const onRemoveQueued = useCallback(
+    (id: string) => {
+      setSendError(null);
+      removeQueued(id).catch((err: unknown) => {
+        setSendError(err instanceof Error ? err.message : "Could not remove.");
+      });
+    },
+    [removeQueued]
+  );
+
   const uploadFile = useCallback(
     (file: File) => {
       if (!agentId) return Promise.reject(new Error("No agent selected."));
@@ -248,6 +274,10 @@ export function HarnessPane({
         liveText={liveText}
         liveQuestions={liveQuestions}
         streaming={streaming}
+        queued={queued}
+        queueBusyId={queueBusyId}
+        onSendNow={onSendNow}
+        onRemoveQueued={onRemoveQueued}
         ariaLabel={`${agent?.name ?? "Agent"} harness conversation`}
         onAttachmentClick={onAttachmentClick}
         onAnswer={onAnswer}
@@ -331,6 +361,11 @@ export function HarnessPane({
           autoFocus={active && !isMobile}
           slashItems={slashItems}
           onSlashCommand={onSlashCommand}
+          hint={
+            streaming || queued.length > 0
+              ? "Agent is working · Enter queues your message"
+              : undefined
+          }
           dropTargetRef={dropRef}
           onDropZoneDragging={setDraggingFiles}
           replyContext={

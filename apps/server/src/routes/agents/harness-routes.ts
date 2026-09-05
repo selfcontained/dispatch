@@ -7,7 +7,7 @@ import type {
 } from "@dispatch/shared";
 
 import { listDshSkills } from "../../agents/dsh/skills.js";
-import { loadTurns } from "../../agents/dsh/turns.js";
+import { loadQueued, loadTurns } from "../../agents/dsh/turns.js";
 import type { AgentRouteDeps } from "./shared.js";
 
 const DEFAULT_LIMIT = 50;
@@ -83,18 +83,54 @@ export async function registerAgentHarnessRoutes(
       }
       limit = Math.min(MAX_LIMIT, Math.max(1, Math.floor(parsed)));
     }
-    const exists = await deps.pool.query(
-      "SELECT 1 FROM agents WHERE id = $1 AND deleted_at IS NULL",
-      [id]
-    );
-    if (exists.rows.length === 0) {
+    if (!(await exists(id))) {
       return reply.code(404).send({ error: "Agent not found." });
     }
     const response: HarnessTurnsResponse = {
       turns: await loadTurns(deps.pool, id, limit),
+      queued: await loadQueued(deps.pool, deps.harness.listQueued(id)),
     };
     return response;
   });
+
+  // The queue: a prompt that has not started can jump the line or leave it.
+  app.post(
+    "/api/v1/agents/:id/harness/queue/:queuedId/send-now",
+    async (request, reply) => {
+      const { id = "", queuedId = "" } = request.params as {
+        id?: string;
+        queuedId?: string;
+      };
+      if (!(await exists(id))) {
+        return reply.code(404).send({ error: "Agent not found." });
+      }
+      if (!(await deps.harness.sendQueuedNow(id, queuedId))) {
+        return reply
+          .code(404)
+          .send({ error: "That message is no longer queued." });
+      }
+      return reply.code(204).send();
+    }
+  );
+
+  app.delete(
+    "/api/v1/agents/:id/harness/queue/:queuedId",
+    async (request, reply) => {
+      const { id = "", queuedId = "" } = request.params as {
+        id?: string;
+        queuedId?: string;
+      };
+      if (!(await exists(id))) {
+        return reply.code(404).send({ error: "Agent not found." });
+      }
+      if (!deps.harness.removeQueued(id, queuedId)) {
+        return reply
+          .code(404)
+          .send({ error: "That message is no longer queued." });
+      }
+      return reply.code(204).send();
+    }
+  );
 
   // Skills the agent can load, for the composer's slash menu.
   app.get("/api/v1/agents/:id/harness/skills", async (request, reply) => {

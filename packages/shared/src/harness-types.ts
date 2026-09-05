@@ -75,7 +75,20 @@ export type HarnessTurn = {
   label?: string;
 };
 
-export type HarnessTurnsResponse = { turns: HarnessTurn[] };
+/**
+ * A prompt waiting behind the running turn. `id` addresses it on the queue
+ * routes (the chat message id for a chat prompt).
+ */
+export type HarnessQueuedPrompt = HarnessPrompt & {
+  id: string;
+  createdAt: string;
+};
+
+export type HarnessTurnsResponse = {
+  turns: HarnessTurn[];
+  /** What waits behind the live turn, first to run first. */
+  queued: HarnessQueuedPrompt[];
+};
 
 /** A skill the harness can load; the composer's slash menu lists them. */
 export type HarnessSkill = {

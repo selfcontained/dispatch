@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Pool } from "pg";
 import type {
@@ -13,6 +14,7 @@ import { dispatchMcpUrl } from "../tmux/mcp-url.js";
 import { DshDriver, type DriverEvent, type DriverLogger } from "./driver.js";
 import { appendCommandLog, commandLogPath } from "./command-log.js";
 import { removeOverlay, writeOverlay } from "./overlay.js";
+import { parsePromptSource, type PromptSource } from "./prompt-source.js";
 import type { AgentModelOption } from "../../shared/agent-models.js";
 import { StreamRecorder } from "./stream-recorder.js";
 import { StreamStore } from "./stream-store.js";
@@ -114,6 +116,23 @@ export function buildChildEnv(input: {
 
 const MESSAGE_MAX = 200;
 const STOP_ALL_TIMEOUT_MS = 5_000;
+
+/** A prompt waiting its turn, as the Harness view lists it. */
+export type QueuedPrompt = {
+  /** The chat message id for a chat prompt; otherwise a queue-local id. */
+  id: string;
+  source: PromptSource;
+  createdAt: string;
+};
+
+type Pending = QueuedPrompt & {
+  text: string;
+  started: Promise<void>;
+  markStarted: () => void;
+  failStarted: (err: Error) => void;
+  settled: Promise<void>;
+  markSettled: () => void;
+};
 
 /**
  * When no model was chosen, pick one whose provider key the service has, so
@@ -283,9 +302,12 @@ export class DshSupervisor {
   private readonly queues = new Map<string, Promise<void>>();
   /**
    * One turn at a time per agent. ACP allows one active prompt per session;
-   * a prompt that arrives mid-turn waits and runs as the next turn.
+   * a prompt that arrives mid-turn waits in `pending` and runs as the next
+   * turn once `running` clears. The list is explicit so the view can show
+   * it and the user can reorder or drop what has not started.
    */
-  private readonly turns = new Map<string, Promise<void>>();
+  private readonly pending = new Map<string, Pending[]>();
+  private readonly running = new Map<string, Pending>();
   private catalog: { at: number; rows: AgentModelOption[] } | null = null;
   private catalogInFlight: Promise<AgentModelOption[]> | null = null;
 
@@ -320,7 +342,68 @@ export class DshSupervisor {
 
   /** A turn is running or queued for this agent. */
   isBusy(agentId: string): boolean {
-    return this.turns.has(agentId);
+    return this.running.has(agentId) || this.pendingOf(agentId).length > 0;
+  }
+
+  private pendingOf(agentId: string): Pending[] {
+    return this.pending.get(agentId) ?? [];
+  }
+
+  /** What waits behind the running turn, first to run first. */
+  listQueued(agentId: string): QueuedPrompt[] {
+    return this.pendingOf(agentId).map(({ id, source, createdAt }) => ({
+      id,
+      source,
+      createdAt,
+    }));
+  }
+
+  /**
+   * Drop a prompt that has not started. Its `started` rejects, so a chat
+   * message settles as not delivered rather than pending forever.
+   */
+  removeQueued(agentId: string, id: string): boolean {
+    const list = this.pendingOf(agentId);
+    const index = list.findIndex((item) => item.id === id);
+    if (index === -1) return false;
+    const [item] = list.splice(index, 1);
+    if (list.length === 0) this.pending.delete(agentId);
+    item.failStarted(new Error("Removed from the queue before it started."));
+    item.markSettled();
+    this.deps.publishChat(agentId);
+    return true;
+  }
+
+  /** Move a queued prompt to the front; it runs as the next turn. */
+  promoteQueued(agentId: string, id: string): boolean {
+    const list = this.pendingOf(agentId);
+    const index = list.findIndex((item) => item.id === id);
+    if (index === -1) return false;
+    if (index > 0) {
+      const [item] = list.splice(index, 1);
+      list.unshift(item);
+      this.deps.publishChat(agentId);
+    }
+    return true;
+  }
+
+  /**
+   * Cancel the running turn. It settles as cancelled and the next queued
+   * prompt starts. Nothing running: nothing happens.
+   */
+  async interrupt(agentId: string): Promise<boolean> {
+    if (!this.running.has(agentId) || !this.driver.isRunning(agentId)) {
+      return false;
+    }
+    await this.driver.cancel(agentId);
+    return true;
+  }
+
+  /** "Send now": the prompt goes first, and the running turn is cut short. */
+  async sendQueuedNow(agentId: string, id: string): Promise<boolean> {
+    if (!this.promoteQueued(agentId, id)) return false;
+    await this.interrupt(agentId);
+    return true;
   }
 
   /** The running session's options (model, effort), keyed providers only. */
@@ -503,35 +586,79 @@ export class DshSupervisor {
 
   /**
    * Queue one turn. `started` resolves when the turn begins (earlier turns
-   * for the agent have settled); `settled` resolves when it ends and never
-   * rejects.
+   * for the agent have settled) and rejects if the prompt is removed or the
+   * agent stops first; `settled` resolves when it ends and never rejects.
    */
   enqueuePrompt(
     agentId: string,
     text: string
   ): { started: Promise<void>; settled: Promise<void> } {
+    const source = parsePromptSource(text);
     let markStarted: () => void = () => {};
-    const started = new Promise<void>((resolve) => {
+    let failStarted: (err: Error) => void = () => {};
+    const started = new Promise<void>((resolve, reject) => {
       markStarted = resolve;
+      failStarted = reject;
     });
-    const prior = this.turns.get(agentId) ?? Promise.resolve();
-    // runTurn only rejects if the pre-try status write throws; never let
-    // that skip the next turn and strand its `started`.
-    const run: Promise<void> = prior
+    // A caller that only waits on `settled` must not turn a removal into
+    // an unhandled rejection.
+    started.catch(() => {});
+    let markSettled: () => void = () => {};
+    const settled = new Promise<void>((resolve) => {
+      markSettled = resolve;
+    });
+    const item: Pending = {
+      id: source.source === "chat" ? source.chatMessageId : `q_${randomUUID()}`,
+      source,
+      createdAt: new Date().toISOString(),
+      text,
+      started,
+      markStarted,
+      failStarted,
+      settled,
+      markSettled,
+    };
+    const list = this.pendingOf(agentId);
+    list.push(item);
+    this.pending.set(agentId, list);
+    this.pump(agentId);
+    // Still waiting: no stream write announces it, so tell the feed here
+    // and the view lists it at once.
+    if (this.pendingOf(agentId).includes(item)) this.deps.publishChat(agentId);
+    return { started, settled };
+  }
+
+  /** Start the next queued prompt when nothing runs; runs itself again after. */
+  private pump(agentId: string): void {
+    if (this.running.has(agentId)) return;
+    const list = this.pendingOf(agentId);
+    const next = list.shift();
+    if (list.length === 0) this.pending.delete(agentId);
+    if (!next) return;
+    this.running.set(agentId, next);
+    next.markStarted();
+    void this.runTurn(
+      agentId,
+      next.text,
+      () => this.pendingOf(agentId).length === 0
+    )
       .catch(() => {})
-      .then(() =>
-        this.runTurn(
-          agentId,
-          text,
-          markStarted,
-          () => this.turns.get(agentId) === run
-        )
-      );
-    this.turns.set(agentId, run);
-    void run.finally(() => {
-      if (this.turns.get(agentId) === run) this.turns.delete(agentId);
-    });
-    return { started, settled: run };
+      .finally(() => {
+        if (this.running.get(agentId) === next) this.running.delete(agentId);
+        next.markSettled();
+        this.pump(agentId);
+      });
+  }
+
+  /** Drop everything queued for the agent, failing each prompt's start. */
+  private flushQueued(agentId: string, reason: string): void {
+    const list = this.pendingOf(agentId);
+    this.pending.delete(agentId);
+    for (const item of list) {
+      item.failStarted(new Error(reason));
+      item.markSettled();
+    }
+    if (list.length > 0) this.deps.publishChat(agentId);
   }
 
   /** Runs one turn after any queued before it; resolves when it settles. */
@@ -542,10 +669,8 @@ export class DshSupervisor {
   private async runTurn(
     agentId: string,
     text: string,
-    markStarted: () => void,
     isLastQueued: () => boolean
   ): Promise<void> {
-    markStarted();
     let startedAt: string | null = null;
     try {
       await this.deps.setLatestEvent(agentId, {
@@ -603,6 +728,7 @@ export class DshSupervisor {
   }
 
   async stop(agentId: string): Promise<void> {
+    this.flushQueued(agentId, "The agent stopped before the message was sent.");
     await this.driver.stop(agentId);
     this.context.delete(agentId);
     await removeOverlay(this.overlayDir(), agentId);

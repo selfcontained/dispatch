@@ -134,4 +134,70 @@ test.describe("dsh agent", () => {
       )
       .toBe("idle");
   });
+
+  test("shows messages queued behind a running turn, with Send now and Remove", async ({
+    page,
+    request,
+  }) => {
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dsh"]);
+    await setChatSurface(request, true);
+    const repo = makeRepo();
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dsh-queue-${Date.now()}`,
+      type: "dsh",
+      cwd: repo,
+      useWorktree: true,
+    });
+    expect(agent.status).toBe("running");
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const harness = page.getByTestId("harness-pane");
+    await expect(harness).toBeVisible();
+    const input = harness.getByTestId("chat-composer-input");
+    await expect(input).toBeEnabled({ timeout: 30_000 });
+
+    // A long turn: the fake holds it until cancelled.
+    await input.fill("sleep:60000 first");
+    await input.press("Enter");
+    await expect(harness.getByTestId("harness-live-activity")).toBeVisible({
+      timeout: 30_000,
+    });
+    await expect(harness.getByTestId("chat-composer-hint")).toHaveText(
+      "Agent is working · Enter queues your message"
+    );
+
+    // Two more land in the queue, in order, under the live turn.
+    await input.fill("second");
+    await input.press("Enter");
+    await input.fill("third");
+    await input.press("Enter");
+    const queued = harness.getByTestId("harness-queued");
+    await expect(queued).toHaveCount(2, { timeout: 30_000 });
+    await expect(queued.nth(0)).toContainText("second");
+    await expect(queued.nth(0)).toContainText("Queued");
+    await expect(queued.nth(1)).toContainText("third");
+
+    // Remove drops one without it ever running.
+    await queued.nth(0).getByTestId("harness-queued-remove").click();
+    await expect(queued).toHaveCount(1, { timeout: 30_000 });
+    await expect(queued.first()).toContainText("third");
+
+    // Send now interrupts the sleeping turn and runs "third" next.
+    await queued.first().getByTestId("harness-queued-send-now").click();
+    await expect(queued).toHaveCount(0, { timeout: 30_000 });
+    await expect(harness.getByTestId("harness-prompt").last()).toContainText(
+      "third",
+      { timeout: 30_000 }
+    );
+    const result = harness.getByTestId("harness-result").last();
+    await expect(result).toContainText("You said:", { timeout: 30_000 });
+    await expect(result).toContainText("third");
+    // "second" never ran: no prompt line carries it.
+    await expect(harness.getByTestId("harness-prompt")).toHaveCount(2);
+    await expect(harness.getByTestId("harness-prompt").first()).toContainText(
+      "first"
+    );
+  });
 });

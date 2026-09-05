@@ -1,12 +1,17 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit) —
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
-import type { ChatQuestionOption, HarnessQuestion } from "@dispatch/shared";
+import type {
+  ChatQuestionOption,
+  HarnessQueuedPrompt,
+  HarnessQuestion,
+} from "@dispatch/shared";
 
 import { ActivityBlock } from "./activity-block";
 import type { Attachment, Trace, Turn } from "./contracts";
 import { PromptLine } from "./prompt-line";
 import { QuestionCard } from "./question-card";
+import { QueuedPrompt } from "./queued-prompt";
 import { ResultText, ResultTurn } from "./result-turn";
 
 function questionsOf(turn: Turn): HarnessQuestion[] {
@@ -30,6 +35,10 @@ export function TurnStream({
   liveText,
   liveQuestions,
   streaming = false,
+  queued,
+  queueBusyId,
+  onSendNow,
+  onRemoveQueued,
   emptyState,
   onAttachmentClick,
   onAnswer,
@@ -42,6 +51,12 @@ export function TurnStream({
   liveText?: string;
   liveQuestions?: HarnessQuestion[];
   streaming?: boolean;
+  /** Prompts waiting behind the live turn, shown after it. */
+  queued?: HarnessQueuedPrompt[];
+  /** The queued prompt whose action is in flight. */
+  queueBusyId?: string | null;
+  onSendNow?: (id: string) => void;
+  onRemoveQueued?: (id: string) => void;
   emptyState?: ReactNode;
   onAttachmentClick?: (a: Attachment) => void;
   /** Answer one of an agent question's options. */
@@ -95,11 +110,12 @@ export function TurnStream({
   const liveStepCount = liveTrace?.steps.length ?? 0;
   const liveEnded = liveTrace?.endedAt ?? null;
   const liveTextLength = liveText?.length ?? 0;
+  const queuedCount = queued?.length ?? 0;
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     if (followingRef.current) el.scrollTop = el.scrollHeight;
-  }, [liveStepCount, liveEnded, liveTextLength, streaming]);
+  }, [liveStepCount, liveEnded, liveTextLength, streaming, queuedCount]);
 
   return (
     <div
@@ -152,6 +168,15 @@ export function TurnStream({
       {streaming && liveQuestions?.length
         ? renderQuestions(liveQuestions)
         : null}
+      {queued?.map((prompt) => (
+        <QueuedPrompt
+          key={prompt.id}
+          prompt={prompt}
+          busy={queueBusyId === prompt.id}
+          onSendNow={onSendNow}
+          onRemove={onRemoveQueued}
+        />
+      ))}
     </div>
   );
 }

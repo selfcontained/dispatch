@@ -5,7 +5,7 @@ import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import type { HarnessQuestion } from "@dispatch/shared";
+import type { HarnessQueuedPrompt, HarnessQuestion } from "@dispatch/shared";
 
 import type { Agent } from "@/components/app/types";
 
@@ -18,6 +18,7 @@ const state: {
   liveText: string;
   liveQuestions: HarnessQuestion[];
   streaming: boolean;
+  queued: HarnessQueuedPrompt[];
   loading: boolean;
   error: Error | null;
 } = {
@@ -26,6 +27,7 @@ const state: {
   liveText: "",
   liveQuestions: [],
   streaming: false,
+  queued: [],
   loading: false,
   error: null,
 };
@@ -51,6 +53,15 @@ vi.mock("./use-harness-skills", () => ({
 vi.mock("./use-harness-turns", () => ({
   harnessTurnsQueryKey: (agentId: string | null) => ["harness-turns", agentId],
   useHarnessTurns: () => state,
+}));
+const queueSendNow = vi.fn(async (_id: string) => {});
+const queueRemove = vi.fn(async (_id: string) => {});
+vi.mock("./use-harness-queue", () => ({
+  useHarnessQueue: () => ({
+    sendNow: queueSendNow,
+    remove: queueRemove,
+    busyId: null,
+  }),
 }));
 const answerMutate = vi.fn(async () => ({}));
 vi.mock("@/hooks/use-chat", () => ({
@@ -94,7 +105,10 @@ afterEach(() => {
   state.liveText = "";
   state.liveQuestions = [];
   state.streaming = false;
+  state.queued = [];
   answerMutate.mockClear();
+  queueSendNow.mockClear();
+  queueRemove.mockClear();
 });
 
 const T0 = Date.parse("2026-09-04T10:00:00.000Z");
@@ -272,5 +286,72 @@ describe("HarnessPane questions and drops", () => {
     expect(screen.getByTestId("harness-drop-overlay")).toBeTruthy();
     fireEvent.drop(pane, { dataTransfer: { types: ["Files"], files: [] } });
     expect(screen.queryByTestId("harness-drop-overlay")).toBeNull();
+  });
+});
+
+describe("HarnessPane message queue", () => {
+  it("lists queued prompts under the live turn with Send now and Remove", () => {
+    state.turns = [
+      { id: "t2:user", role: "user", content: "first", timestamp: T0 },
+    ];
+    state.liveTrace = { startedAt: T0, steps: [] };
+    state.streaming = true;
+    state.queued = [
+      {
+        id: "m2",
+        source: "chat",
+        text: "second thoughts",
+        chatMessageId: "m2",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:01.000Z",
+      },
+      {
+        id: "q_3",
+        source: "agent",
+        text: "and mine",
+        senderName: "Reviewer",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:02.000Z",
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const rows = screen.getAllByTestId("harness-queued");
+    expect(rows).toHaveLength(2);
+    expect(rows[0].textContent).toContain("second thoughts");
+    expect(rows[0].textContent).toContain("Queued");
+    expect(rows[1].textContent).toContain("from Reviewer");
+    // The queue sits after the live turn, in order.
+    const stream = screen.getByTestId("harness-stream");
+    const live = screen.getByTestId("harness-live-activity");
+    expect(
+      live.compareDocumentPosition(rows[0]) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(stream.contains(rows[1])).toBe(true);
+
+    fireEvent.click(
+      rows[0].querySelector('[data-testid="harness-queued-send-now"]')!
+    );
+    expect(queueSendNow).toHaveBeenCalledWith("m2");
+    fireEvent.click(
+      rows[1].querySelector('[data-testid="harness-queued-remove"]')!
+    );
+    expect(queueRemove).toHaveBeenCalledWith("q_3");
+
+    // The composer says what Enter does while the agent is busy.
+    expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+      "Agent is working · Enter queues your message"
+    );
+  });
+
+  it("keeps the plain composer hint when nothing runs", () => {
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    expect(screen.queryByTestId("harness-queued")).toBeNull();
+    expect(screen.queryByTestId("chat-composer-hint")).toBeNull();
   });
 });

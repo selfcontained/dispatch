@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage } from "@dispatch/shared";
 
-import { assembleTurns, type TurnSourceRow } from "../src/agents/dsh/turns.js";
+import {
+  assembleTurns,
+  loadQueued,
+  type TurnSourceRow,
+} from "../src/agents/dsh/turns.js";
 
 let seq = 0;
 const at = (s: number) => new Date(Date.UTC(2026, 8, 4, 10, 0, s));
@@ -370,5 +374,82 @@ describe("assembleTurns labels", () => {
       ),
     ];
     expect(assembleTurns(none, new Map())[0].label).toBeUndefined();
+  });
+});
+
+describe("loadQueued", () => {
+  it("joins chat text onto queued chat prompts and passes the rest through", async () => {
+    const message = chatMsg("m9", "second thoughts");
+    const db = {
+      query: async (_sql: string, params?: unknown[]) => {
+        expect(params?.[0]).toEqual(["m9"]);
+        return {
+          rows: [
+            {
+              id: message.id,
+              agent_id: "a",
+              author_kind: "user",
+              kind: "reply",
+              text: message.text,
+              reply_to: null,
+              question: null,
+              answer: null,
+              attachments: [],
+              delivered: null,
+              delivery_text: null,
+              read_at: null,
+              origin: null,
+              created_at: at(0),
+              updated_at: at(0),
+            },
+          ],
+          rowCount: 1,
+        };
+      },
+    };
+    const queued = await loadQueued(db as never, [
+      {
+        id: "m9",
+        source: { source: "chat", chatMessageId: "m9" },
+        createdAt: at(1).toISOString(),
+      },
+      {
+        id: "q_1",
+        source: {
+          source: "agent",
+          senderId: "agt_r",
+          senderName: "Reviewer",
+          text: "also this",
+        },
+        createdAt: at(2).toISOString(),
+      },
+    ]);
+    expect(queued).toEqual([
+      {
+        id: "m9",
+        source: "chat",
+        text: "second thoughts",
+        chatMessageId: "m9",
+        attachments: [],
+        createdAt: at(1).toISOString(),
+      },
+      {
+        id: "q_1",
+        source: "agent",
+        text: "also this",
+        senderName: "Reviewer",
+        attachments: [],
+        createdAt: at(2).toISOString(),
+      },
+    ]);
+  });
+
+  it("skips the chat read when nothing queued came from chat", async () => {
+    const db = {
+      query: async () => {
+        throw new Error("should not query");
+      },
+    };
+    expect(await loadQueued(db as never, [])).toEqual([]);
   });
 });

@@ -1,4 +1,5 @@
 import type { HarnessConfigOption } from "@dispatch/shared";
+import type { QueuedPrompt } from "../../agents/dsh/supervisor.js";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import type WebSocket from "ws";
@@ -30,6 +31,11 @@ export type AgentRouteDeps = {
       configId: string,
       value: string
     ) => Promise<HarnessConfigOption[]>;
+    /** Prompts waiting behind the running turn (DshSupervisor.listQueued). */
+    listQueued: (agentId: string) => QueuedPrompt[];
+    /** Promote and interrupt; false when nothing queued has that id. */
+    sendQueuedNow: (agentId: string, id: string) => Promise<boolean>;
+    removeQueued: (agentId: string, id: string) => boolean;
   };
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;

@@ -845,6 +845,9 @@ async function registerRoutes() {
       getConfigOptions: (agentId) => dshSupervisor.getConfigOptions(agentId),
       setConfigOption: (agentId, configId, value) =>
         dshSupervisor.setConfigOption(agentId, configId, value),
+      listQueued: (agentId) => dshSupervisor.listQueued(agentId),
+      sendQueuedNow: (agentId, id) => dshSupervisor.sendQueuedNow(agentId, id),
+      removeQueued: (agentId, id) => dshSupervisor.removeQueued(agentId, id),
     },
     appLog: app.log,
     agentManager,

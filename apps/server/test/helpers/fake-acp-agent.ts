@@ -7,7 +7,9 @@ export type FakeTurn = (
   emit: (update: acp.SessionUpdate) => Promise<void>,
   ask: (
     request: Pick<acp.RequestPermissionRequest, "options">
-  ) => Promise<acp.RequestPermissionResponse>
+  ) => Promise<acp.RequestPermissionResponse>,
+  /** Fires when the client cancels the turn; a long turn should stop then. */
+  signal: AbortSignal
 ) => Promise<acp.StopReason>;
 
 /**
@@ -53,6 +55,8 @@ export function createFakeAcpAgent(
   let sessionCounter = 0;
   // Assigned below; the agent's prompt handler needs it to push updates.
   let connection: acp.AgentSideConnection;
+  // The turn in flight, so a cancel can reach it.
+  let inFlight: AbortController | null = null;
 
   const agent: acp.Agent = {
     async initialize() {
@@ -91,13 +95,20 @@ export function createFakeAcpAgent(
           toolCall: { toolCallId: "perm_1", title: "permission" },
           options: request.options,
         });
-      const stopReason = opts.turn
-        ? await opts.turn(text, emit, ask)
-        : "end_turn";
-      return { stopReason };
+      const controller = new AbortController();
+      inFlight = controller;
+      try {
+        const stopReason = opts.turn
+          ? await opts.turn(text, emit, ask, controller.signal)
+          : "end_turn";
+        return { stopReason };
+      } finally {
+        if (inFlight === controller) inFlight = null;
+      }
     },
     async cancel() {
       seen.cancels += 1;
+      inFlight?.abort();
     },
     async closeSession() {
       seen.closes += 1;

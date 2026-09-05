@@ -1,6 +1,7 @@
 import type {
   ChatMessage,
   HarnessPrompt,
+  HarnessQueuedPrompt,
   HarnessQuestion,
   HarnessStep,
   HarnessTurn,
@@ -29,7 +30,7 @@ function firstLine(text: string): string {
   return line.length > 120 ? `${line.slice(0, 117)}…` : line;
 }
 
-function promptFor(
+export function promptFor(
   source: PromptSource,
   chat: Map<string, ChatMessage>
 ): HarnessPrompt {
@@ -326,17 +327,7 @@ export async function loadTurns(
       (p): p is Extract<PromptSource, { source: "chat" }> => p.source === "chat"
     )
     .map((p) => p.chatMessageId);
-  const chat = new Map<string, ChatMessage>();
-  if (chatIds.length) {
-    const messages = await db.query(
-      `SELECT * FROM agent_chat_messages WHERE id = ANY($1::uuid[])`,
-      [chatIds]
-    );
-    for (const row of messages.rows) {
-      const message = toChatMessage(row as never);
-      chat.set(message.id, message);
-    }
-  }
+  const chat = await loadChatMessages(db, chatIds);
   // Agent questions posted since the window opened (Chat shows them; a
   // harness agent's pane does not).
   const since = source.length ? source[0].createdAt : new Date(0);
@@ -349,4 +340,44 @@ export async function loadTurns(
   );
   const questions = asked.rows.map((row) => toChatMessage(row as never));
   return assembleTurns(source, chat, questions);
+}
+
+/** Join the chat text onto queued chat prompts, the way turns get theirs. */
+export async function loadChatMessages(
+  db: Queryable,
+  ids: string[]
+): Promise<Map<string, ChatMessage>> {
+  const chat = new Map<string, ChatMessage>();
+  if (ids.length === 0) return chat;
+  const messages = await db.query(
+    `SELECT * FROM agent_chat_messages WHERE id = ANY($1::uuid[])`,
+    [ids]
+  );
+  for (const row of messages.rows) {
+    const message = toChatMessage(row as never);
+    chat.set(message.id, message);
+  }
+  return chat;
+}
+
+/** The supervisor's queue, shaped for the view with chat text joined. */
+export async function loadQueued(
+  db: Queryable,
+  queued: { id: string; source: PromptSource; createdAt: string }[]
+): Promise<HarnessQueuedPrompt[]> {
+  const chat = await loadChatMessages(
+    db,
+    queued
+      .map((q) => q.source)
+      .filter(
+        (p): p is Extract<PromptSource, { source: "chat" }> =>
+          p.source === "chat"
+      )
+      .map((p) => p.chatMessageId)
+  );
+  return queued.map((q) => ({
+    ...promptFor(q.source, chat),
+    id: q.id,
+    createdAt: q.createdAt,
+  }));
 }
