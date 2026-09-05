@@ -37,7 +37,7 @@ export type MediaContentProps = {
   selectedAgentName?: string | null;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
-  openLightbox: (file: MediaFile) => void;
+  openLightbox: (mediaId: number) => void;
   hasStream: boolean;
   streamUrl: string | null;
   onUploadFile?: (agentId: string, file: File) => Promise<void>;

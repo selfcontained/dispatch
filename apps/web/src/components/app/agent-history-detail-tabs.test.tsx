@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
   cleanup,
   fireEvent,
@@ -17,6 +18,11 @@ import type {
 import type { AgentMessage } from "@/hooks/use-agent-messages";
 
 import { DetailTabs } from "./agent-history-detail-tabs";
+
+vi.mock("@/lib/api", () => ({ api: vi.fn() }));
+
+const { api } = await import("@/lib/api");
+const apiMock = vi.mocked(api);
 
 // The messages tab renders HistoryThreadGroup's AnimatePresence collapse;
 // strip the animation layer so expanded content mounts synchronously.
@@ -40,6 +46,7 @@ function makeEvent(id: number, message: string): HistoryEvent {
 
 function makeMedia(overrides: Partial<HistoryMedia> = {}): HistoryMedia {
   return {
+    id: 1,
     file_name: "shot-2026-07-20-10-00-00-111.png",
     source: "screenshot",
     size_bytes: 2048,
@@ -83,17 +90,37 @@ function makeMessage(overrides: Partial<AgentMessage> = {}): AgentMessage {
 function renderTabs(
   overrides: Partial<React.ComponentProps<typeof DetailTabs>> = {}
 ) {
+  const media = overrides.media ?? [];
+  apiMock.mockImplementation(async (requestPath: string) => {
+    const mediaId = Number(requestPath.split("/").pop());
+    const item = media.find((candidate) => candidate.id === mediaId);
+    if (!item) throw new Error("Media item not found");
+    return {
+      media: {
+        id: item.id,
+        ownerAgentId: AGENT_ID,
+        name: item.file_name,
+        source: item.source,
+        size: item.size_bytes,
+        updatedAt: item.created_at,
+        description: item.description,
+        url: `/api/v1/agents/${AGENT_ID}/media/${encodeURIComponent(item.file_name)}`,
+      },
+    };
+  });
   return render(
-    <DetailTabs
-      events={[]}
-      media={[]}
-      pins={[]}
-      feedback={[]}
-      messages={[]}
-      agentId={AGENT_ID}
-      workspaceRoot="/repo"
-      {...overrides}
-    />
+    <QueryClientProvider client={new QueryClient()}>
+      <DetailTabs
+        events={[]}
+        media={[]}
+        pins={[]}
+        feedback={[]}
+        messages={[]}
+        agentId={AGENT_ID}
+        workspaceRoot="/repo"
+        {...overrides}
+      />
+    </QueryClientProvider>
   );
 }
 
@@ -105,7 +132,10 @@ function tabButton(label: string): HTMLElement {
   return button;
 }
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  apiMock.mockReset();
+});
 
 describe("DetailTabs", () => {
   it("defaults to the events tab and shows the empty state", () => {
@@ -180,15 +210,18 @@ describe("DetailTabs", () => {
     renderTabs({
       media: [
         makeMedia({
+          id: 1,
           file_name: "my shot-2026-07-20-10-00-00-111.png",
           description: "Login page",
         }),
         makeMedia({
+          id: 2,
           file_name: "capture-2026-07-20-10-00-00-222.mp4",
           source: "stream",
           description: null,
         }),
         makeMedia({
+          id: 3,
           file_name: "sim-2026-07-20-10-00-00-333.png",
           source: "simulator",
           description: "Simulator frame",
@@ -209,18 +242,21 @@ describe("DetailTabs", () => {
     expect(screen.getByAltText("Simulator frame")).toBeTruthy();
   });
 
-  it("opens the lightbox at the clicked index with a stripped-timestamp caption fallback", () => {
+  it("opens the lightbox at the clicked ID with a stripped-timestamp caption fallback", async () => {
     renderTabs({
       media: [
         makeMedia({
+          id: 1,
           file_name: "first-2026-07-20-10-00-00-111.png",
           description: "First shot",
         }),
         makeMedia({
+          id: 2,
           file_name: "second-2026-07-20-10-00-00-222.png",
           description: null,
         }),
         makeMedia({
+          id: 3,
           file_name: "third-2026-07-20-10-00-00-333.png",
           description: "Third shot",
         }),
@@ -236,7 +272,10 @@ describe("DetailTabs", () => {
         .closest("button")!
     );
 
+    expect(screen.queryByText("Loading media…")).toBeNull();
+    await screen.findByText("second.png");
     const lightbox = within(screen.getByTestId("media-lightbox"));
+    expect(apiMock).toHaveBeenCalledWith("/api/v1/media/2");
     // Caption falls back to the timestamp-stripped file name.
     expect(lightbox.getByText("second.png")).toBeTruthy();
     // Index and count both reached the lightbox.
@@ -245,8 +284,9 @@ describe("DetailTabs", () => {
     // ArrowRight advances to the third item, proving index wiring is live
     // state (not a snapshot) and totalItems permits forward navigation.
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(lightbox.getByText("Third shot")).toBeTruthy();
-    expect(lightbox.getByText("3/3")).toBeTruthy();
+    const thirdLightbox = within(screen.getByTestId("media-lightbox"));
+    await thirdLightbox.findByText("Third shot");
+    expect(thirdLightbox.getByText("3/3")).toBeTruthy();
 
     fireEvent.keyDown(window, { key: "Escape" });
     expect(screen.queryByTestId("media-lightbox")).toBeNull();

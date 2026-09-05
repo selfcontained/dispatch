@@ -980,14 +980,7 @@ describe("ChatFeed", () => {
       `/api/v1/agents/${AGENT_ID}/media/shot.png`
     );
     fireEvent.click(image.querySelector("button")!);
-    expect(onOpenMedia).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "shot.png",
-        size: 2048,
-        // Part of the lightbox identity — without it nothing opens.
-        ownerAgentId: AGENT_ID,
-      })
-    );
+    expect(onOpenMedia).toHaveBeenCalledWith(7);
 
     expect(screen.getByTestId("chat-attachment-file").textContent).toContain(
       "notes.md"
@@ -1302,12 +1295,7 @@ describe("ChatFeed", () => {
     expect(card.textContent).toContain("Login page");
     expect(card.querySelector("img")).toBeTruthy();
     fireEvent.click(card.querySelector("button")!);
-    expect(onOpenMedia).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "screen.png",
-        url: `/api/v1/agents/${AGENT_ID}/media/screen.png`,
-      })
-    );
+    expect(onOpenMedia).toHaveBeenCalledWith(3);
   });
 });
 

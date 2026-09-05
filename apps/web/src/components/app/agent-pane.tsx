@@ -2,7 +2,7 @@ import { type RefObject } from "react";
 import { Hash, ListFilter, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
-import { type Agent, type MediaFile } from "@/components/app/types";
+import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -187,7 +187,7 @@ export type AgentPaneProps = {
    * has a header of its own and puts `AgentViewToggle` there instead.
    */
   header: boolean;
-  openLightbox: (file: MediaFile) => void;
+  openLightbox: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar; from a review card in the feed. */
   onOpenReview?: (reviewId: number) => void;
   isMobile: boolean;

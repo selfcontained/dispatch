@@ -102,9 +102,10 @@ describe("GET /api/v1/agents/:id/media (list)", () => {
   });
 
   it("returns media files with metadata after seeding", async () => {
-    await ctx.pool.query(
+    const inserted = await ctx.pool.query<{ id: number }>(
       `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, 'screenshot-001.png', 'screenshot', 1024, 'a test image')`,
+       VALUES ($1, 'screenshot-001.png', 'screenshot', 1024, 'a test image')
+       RETURNING id`,
       [agentId]
     );
 
@@ -112,6 +113,7 @@ describe("GET /api/v1/agents/:id/media (list)", () => {
     expect(res.statusCode).toBe(200);
     const { files } = res.json();
     expect(files).toHaveLength(1);
+    expect(files[0].id).toBe(inserted.rows[0].id);
     expect(files[0].name).toBe("screenshot-001.png");
     expect(files[0].source).toBe("screenshot");
     expect(files[0].size).toBe(1024);
@@ -144,6 +146,42 @@ describe("GET /api/v1/agents/:id/media (list)", () => {
       `/api/v1/agents/${agentId}/media`
     );
     expect(listAfter.json().files[0].seen).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/media/:mediaId (metadata)
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/media/:mediaId (metadata)", () => {
+  it("resolves metadata and content URL by ID without an owner", async () => {
+    const inserted = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+       VALUES ($1, 'by-id.png', 'screenshot', 512, 'resolved by id')
+       RETURNING id`,
+      [agentId]
+    );
+
+    const mediaId = inserted.rows[0].id;
+    const res = await authedInject("GET", `/api/v1/media/${mediaId}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().media).toMatchObject({
+      id: mediaId,
+      ownerAgentId: agentId,
+      name: "by-id.png",
+      size: 512,
+      description: "resolved by id",
+      url: `/api/v1/agents/${agentId}/media/by-id.png`,
+    });
+  });
+
+  it("rejects invalid IDs and returns 404 for missing rows", async () => {
+    expect((await authedInject("GET", "/api/v1/media/nope")).statusCode).toBe(
+      400
+    );
+    expect((await authedInject("GET", "/api/v1/media/999999")).statusCode).toBe(
+      404
+    );
   });
 });
 

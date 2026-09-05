@@ -17,6 +17,12 @@ import { api } from "@/lib/api";
 const EMPTY_FILES: MediaFile[] = [];
 const EMPTY_SUB_AGENTS: SubAgentRef[] = [];
 
+export const MEDIA_ITEM_QUERY_PREFIX = ["media", "item"] as const;
+
+export function mediaItemQueryKey(mediaId: number) {
+  return [...MEDIA_ITEM_QUERY_PREFIX, mediaId] as const;
+}
+
 async function fetchMedia(agentId: string): Promise<MediaFile[]> {
   const payload = await api<{ files: MediaFile[] }>(
     `/api/v1/agents/${agentId}/media`
@@ -31,11 +37,6 @@ async function fetchMedia(agentId: string): Promise<MediaFile[]> {
  */
 function ownedMediaKey(file: MediaFile): string {
   return `${file.ownerAgentId ?? ""}/${file.name}:${file.updatedAt}`;
-}
-
-/** Lightbox identity: owner plus name, without updatedAt (see openLightbox). */
-function fileId(file: { ownerAgentId?: string; name: string }): string {
-  return `${file.ownerAgentId ?? ""}/${file.name}`;
 }
 
 /**
@@ -69,14 +70,16 @@ export function useMedia(
   const [animatingMediaKeys, setAnimatingMediaKeys] = useState<Set<string>>(
     new Set()
   );
-  const [lightboxFileName, setLightboxFileName] = useState<string | null>(null);
-  // Snapshot of file names taken when the lightbox opens; feeds lightboxOrder
+  const [lightboxMediaId, setLightboxMediaIdState] = useState<number | null>(
+    null
+  );
+  // Snapshot of media IDs taken when the lightbox opens; feeds lightboxOrder
   // below. State, not a ref: lightboxOrder is a memo keyed on this value, and
   // a ref write doesn't invalidate a memo — the fresh snapshot would only
-  // take effect on whatever unrelated render next changed lightboxItems,
-  // leaving n/N and prev/next wrong for everything in between.
+  // take effect on some unrelated render, leaving n/N and prev/next wrong in
+  // the meantime.
   const [lightboxOrderSnapshot, setLightboxOrderSnapshot] = useState<
-    string[] | null
+    number[] | null
   >(null);
   const mediaViewportRef = useRef<HTMLDivElement>(null);
   const previousMediaKeysRef = useRef<Set<string>>(new Set());
@@ -133,6 +136,15 @@ export function useMedia(
     [mediaFiles, subAgentMedia]
   );
 
+  // The owner-scoped lists already have complete media rows. Seed the
+  // owner-independent item cache so opening from the Media panel paints
+  // immediately; MediaLightbox still revalidates the item in the background.
+  useEffect(() => {
+    for (const file of allFiles) {
+      queryClient.setQueryData<MediaFile>(mediaItemQueryKey(file.id), file);
+    }
+  }, [allFiles, queryClient]);
+
   // Whose files the Media tab shows: null is the selected agent, otherwise
   // one sub agent. Lives here rather than in the panel because the lightbox
   // order and the seen observer both follow what is on screen. Falls back
@@ -157,7 +169,7 @@ export function useMedia(
   useEffect(() => {
     previousMediaKeysRef.current = new Set();
     setLightboxOrderSnapshot(null);
-    setLightboxFileName(null);
+    setLightboxMediaIdState(null);
   }, [selectedAgentId]);
 
   // Clear media when no agent selected.
@@ -281,84 +293,74 @@ export function useMedia(
     return allFiles.filter((file) => !file.seen).length;
   }, [allFiles]);
 
-  // The open lightbox item is tracked by file name alone, unlike the
-  // `name:updatedAt` media key used elsewhere in this hook (seen-tracking,
-  // animation) — an agent rewriting the open file must not make this lookup
-  // miss and unmount the lightbox, so identity here can't include updatedAt.
-  const openLightbox = useCallback(
-    (file: MediaFile) => {
-      // Snapshot the navigation order only on the closed->open transition,
-      // not when switching the already-open item. The list is sorted by
-      // updated_at DESC, so leaving this live would reshuffle prev/next
-      // and n/N under the reader every time any file in the list updates.
-      // (Plain read of lightboxFileName, not a functional setState updater —
-      // updaters must stay pure, and this needs to read mediaFiles too.)
-      if (lightboxFileName === null) {
-        setLightboxOrderSnapshot(visibleMediaFiles.map(fileId));
-      }
-      setLightboxFileName(fileId(file));
+  const ownerFileIds = useCallback(
+    (mediaId: number): number[] => {
+      const openedFile = allFiles.find((file) => file.id === mediaId);
+      if (!openedFile?.ownerAgentId) return [];
+      return allFiles
+        .filter((file) => file.ownerAgentId === openedFile.ownerAgentId)
+        .map((file) => file.id);
     },
-    [lightboxFileName, visibleMediaFiles]
+    [allFiles]
   );
 
-  // Only the owner on screen: prev/next must not wander into files the
-  // panel is not showing.
-  const lightboxItems = useMemo(
-    () =>
-      visibleMediaFiles.map((file) => ({
-        // Cache-buster stays here so a refreshed file's content actually loads.
-        src: `${file.url}?t=${encodeURIComponent(file.updatedAt)}`,
-        caption: file.description || "",
-        file,
-      })),
-    [visibleMediaFiles]
+  // The lightbox boundary is the stable media row ID. Chat already has it, and
+  // MediaLightbox resolves metadata by ID, so opening does not depend on the
+  // current owner's media query having loaded.
+  const openLightbox = useCallback(
+    (mediaId: number) => {
+      // Snapshot the navigation order only on the closed->open transition,
+      // not when navigating. The list is sorted by updated_at DESC, so leaving
+      // this live would reshuffle prev/next and n/N under the reader every time
+      // any file in the list updates.
+      if (lightboxMediaId === null) {
+        const ownerIds = ownerFileIds(mediaId);
+        setLightboxOrderSnapshot(ownerIds.length > 0 ? ownerIds : null);
+      }
+      setLightboxMediaIdState(mediaId);
+    },
+    [lightboxMediaId, ownerFileIds]
   );
+
+  // Chat can open an ID before its owner-scoped list has loaded. Take the
+  // frozen order exactly once, when that list first reveals the item's owner.
+  useEffect(() => {
+    if (lightboxMediaId === null || lightboxOrderSnapshot !== null) return;
+    const ownerIds = ownerFileIds(lightboxMediaId);
+    if (ownerIds.length > 0) setLightboxOrderSnapshot(ownerIds);
+  }, [lightboxMediaId, lightboxOrderSnapshot, ownerFileIds]);
 
   // Navigation order for one open-lightbox session: the snapshot taken at
   // open time, minus files that have since disappeared, plus files that
   // have since arrived (appended at the end, not reshuffled in). Content
-  // itself (lightboxItem below) is always looked up live by name, so a
-  // same-file refresh still shows fresh content — only traversal order and
-  // n/N are frozen.
+  // itself is loaded by MediaLightbox from its ID, so only traversal order is
+  // frozen here.
   const lightboxOrder = useMemo(() => {
-    const liveIds = new Set(lightboxItems.map((item) => fileId(item.file)));
-    const frozen = (lightboxOrderSnapshot ?? []).filter((id) =>
-      liveIds.has(id)
-    );
+    if (lightboxMediaId === null) return [];
+    if (lightboxOrderSnapshot === null) return [lightboxMediaId];
+
+    const ownerIds = ownerFileIds(lightboxMediaId);
+    if (ownerIds.length === 0) return [lightboxMediaId];
+
+    const lightboxLiveIds = ownerIds;
+    const liveIds = new Set(lightboxLiveIds);
+    const frozen = lightboxOrderSnapshot.filter((id) => liveIds.has(id));
     const frozenSet = new Set(frozen);
-    for (const item of lightboxItems) {
-      const id = fileId(item.file);
+    for (const id of lightboxLiveIds) {
       if (!frozenSet.has(id)) frozen.push(id);
     }
     return frozen;
-  }, [lightboxItems, lightboxOrderSnapshot]);
+  }, [lightboxMediaId, lightboxOrderSnapshot, ownerFileIds]);
 
-  const lightboxIndex = lightboxFileName
-    ? lightboxOrder.indexOf(lightboxFileName)
-    : -1;
-
-  const lightboxItem = useMemo(
-    () =>
-      lightboxFileName
-        ? (lightboxItems.find(
-            (item) => fileId(item.file) === lightboxFileName
-          ) ?? null)
-        : null,
-    [lightboxItems, lightboxFileName]
-  );
-
-  const setLightboxIndex = useCallback(
-    (nextIndex: number | null) => {
-      if (nextIndex === null) {
+  const setLightboxMediaId = useCallback(
+    (nextMediaId: number | null) => {
+      if (nextMediaId === null) {
         setLightboxOrderSnapshot(null);
-        setLightboxFileName(null);
+        setLightboxMediaIdState(null);
         return;
       }
-
-      const name = lightboxOrder[nextIndex];
-      if (name === undefined) return;
-
-      setLightboxFileName(name);
+      if (!lightboxOrder.includes(nextMediaId)) return;
+      setLightboxMediaIdState(nextMediaId);
     },
     [lightboxOrder]
   );
@@ -384,13 +386,9 @@ export function useMedia(
       setMediaOwnerId,
       animatingMediaKeys,
       unseenMediaCount,
-      lightboxIndex,
-      // Total for n/N and bounds-checking, matching the frozen order
-      // lightboxIndex is computed against — not mediaFiles.length, which
-      // can differ if a file arrived or disappeared mid-session.
-      lightboxTotalItems: lightboxOrder.length,
-      lightboxItem,
-      setLightboxIndex,
+      lightboxMediaId,
+      lightboxMediaIds: lightboxOrder,
+      setLightboxMediaId,
       openLightbox,
       mediaViewportRef: mediaViewportRef as RefObject<HTMLDivElement>,
       refreshMedia,
@@ -402,10 +400,9 @@ export function useMedia(
       viewedSubAgent,
       animatingMediaKeys,
       unseenMediaCount,
-      lightboxIndex,
+      lightboxMediaId,
       lightboxOrder,
-      lightboxItem,
-      setLightboxIndex,
+      setLightboxMediaId,
       openLightbox,
       refreshMedia,
     ]

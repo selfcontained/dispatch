@@ -59,6 +59,7 @@ export type Agent = Omit<AgentRecord, LenientAgentField> &
   };
 
 export type MediaFile = {
+  id: number;
   name: string;
   size: number;
   updatedAt: string;

@@ -18,7 +18,7 @@ export function MediaItemCard({
   file: MediaFile;
   animating: boolean;
   cacheBustUrl: string;
-  openLightbox: (file: MediaFile) => void;
+  openLightbox: (mediaId: number) => void;
 }): JSX.Element {
   const isStream = file.source === "stream";
   const isText = file.source === "text" || isTextFile(file.name);
@@ -65,7 +65,7 @@ export function MediaItemCard({
             "block w-full overflow-hidden rounded border-2 bg-muted/50 p-3 text-left",
             unseen ? "media-thumb-unseen" : "media-thumb-seen"
           )}
-          onClick={() => openLightbox(file)}
+          onClick={() => openLightbox(file.id)}
         >
           <div className="flex items-center gap-2">
             <FileText className="h-4 w-4 flex-none text-muted-foreground" />
@@ -99,7 +99,7 @@ export function MediaItemCard({
             "block w-full overflow-hidden border-2 bg-black/60",
             unseen ? "media-thumb-unseen" : "media-thumb-seen"
           )}
-          onClick={() => openLightbox(file)}
+          onClick={() => openLightbox(file.id)}
         >
           <img
             src={cacheBustUrl}
@@ -133,7 +133,7 @@ export function MediaCardList({
 }: {
   files: MediaFile[];
   animatingMediaKeys: Set<string>;
-  openLightbox: (file: MediaFile) => void;
+  openLightbox: (mediaId: number) => void;
 }): JSX.Element {
   return (
     <>

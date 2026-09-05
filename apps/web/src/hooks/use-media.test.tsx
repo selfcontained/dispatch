@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { type MediaFile } from "@/components/app/types";
 
-import { useMedia } from "./use-media";
+import { mediaItemQueryKey, useMedia } from "./use-media";
 
 vi.mock("@/lib/api", () => ({ api: vi.fn() }));
 
@@ -17,6 +17,7 @@ const AGENT_ID = "agt_test";
 
 function file(overrides: Partial<MediaFile> = {}): MediaFile {
   return {
+    id: 1,
     name: "report.md",
     size: 100,
     updatedAt: "2026-08-31T00:00:00Z",
@@ -55,8 +56,8 @@ describe("useMedia lightbox identity", () => {
 
     await waitFor(() => expect(result.current.mediaFiles).toHaveLength(1));
 
-    act(() => result.current.openLightbox(result.current.mediaFiles[0]));
-    expect(result.current.lightboxItem?.file.name).toBe("report.md");
+    act(() => result.current.openLightbox(result.current.mediaFiles[0].id));
+    expect(result.current.lightboxMediaId).toBe(1);
 
     // Simulate an agent rewriting the open file: same name, new updatedAt.
     files = [file({ updatedAt: "2026-08-31T00:05:00Z" })];
@@ -74,14 +75,10 @@ describe("useMedia lightbox identity", () => {
     // The lookup is by stable name, so the item must still resolve — this
     // is what keeps MediaLightbox mounted instead of hitting `if (!item)
     // return null`.
-    expect(result.current.lightboxItem).not.toBeNull();
-    expect(result.current.lightboxItem?.file.updatedAt).toBe(
-      "2026-08-31T00:05:00Z"
-    );
-    // The cache-buster still changes, so the refreshed content actually loads.
-    expect(result.current.lightboxItem?.src).toContain(
-      encodeURIComponent("2026-08-31T00:05:00Z")
-    );
+    expect(result.current.lightboxMediaId).toBe(1);
+    expect(
+      queryClient.getQueryData<MediaFile>(mediaItemQueryKey(1))?.updatedAt
+    ).toBe("2026-08-31T00:05:00Z");
   });
 
   it("keeps navigation order stable when an update reorders the underlying list", async () => {
@@ -90,9 +87,9 @@ describe("useMedia lightbox identity", () => {
     // by name, independent of order), but the reader's prev/next frame and
     // n/N must not reshuffle mid-read.
     let files: MediaFile[] = [
-      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
-      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
-      file({ name: "c.md", updatedAt: "2026-08-29T00:00:00Z" }),
+      file({ id: 1, name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ id: 2, name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+      file({ id: 3, name: "c.md", updatedAt: "2026-08-29T00:00:00Z" }),
     ];
     apiMock.mockImplementation(async () => ({ files }));
 
@@ -103,19 +100,15 @@ describe("useMedia lightbox identity", () => {
     await waitFor(() => expect(result.current.mediaFiles).toHaveLength(3));
 
     // Open "c.md" — last in the list, index 2.
-    act(() =>
-      result.current.openLightbox(
-        result.current.mediaFiles.find((f) => f.name === "c.md")!
-      )
-    );
-    expect(result.current.lightboxIndex).toBe(2);
-    expect(result.current.lightboxTotalItems).toBe(3);
+    act(() => result.current.openLightbox(3));
+    expect(result.current.lightboxMediaIds.indexOf(3)).toBe(2);
+    expect(result.current.lightboxMediaIds).toHaveLength(3);
 
     // "c.md" gets updated and jumps to the front of the underlying list.
     files = [
-      file({ name: "c.md", updatedAt: "2026-08-31T00:10:00Z" }),
-      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
-      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+      file({ id: 3, name: "c.md", updatedAt: "2026-08-31T00:10:00Z" }),
+      file({ id: 1, name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ id: 2, name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
     ];
     await act(async () => {
       await result.current.refreshMedia(AGENT_ID);
@@ -123,20 +116,20 @@ describe("useMedia lightbox identity", () => {
     rerender();
 
     await waitFor(() =>
-      expect(result.current.lightboxItem?.file.updatedAt).toBe(
+      expect(result.current.mediaFiles[0]?.updatedAt).toBe(
         "2026-08-31T00:10:00Z"
       )
     );
     // Content refreshed, but the reader's position in the frozen order
     // (still "c.md" last, index 2) is unchanged.
-    expect(result.current.lightboxIndex).toBe(2);
-    expect(result.current.lightboxItem?.file.name).toBe("c.md");
+    expect(result.current.lightboxMediaIds.indexOf(3)).toBe(2);
+    expect(result.current.lightboxMediaId).toBe(3);
   });
 
   it("appends a newly-arrived file at the end instead of reordering an open session", async () => {
     let files: MediaFile[] = [
-      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
-      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+      file({ id: 1, name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ id: 2, name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
     ];
     apiMock.mockImplementation(async () => ({ files }));
 
@@ -147,21 +140,17 @@ describe("useMedia lightbox identity", () => {
     await waitFor(() => expect(result.current.mediaFiles).toHaveLength(2));
 
     // Open "a.md" — first (and only prior) item, index 0, nothing to go back to.
-    act(() =>
-      result.current.openLightbox(
-        result.current.mediaFiles.find((f) => f.name === "a.md")!
-      )
-    );
-    expect(result.current.lightboxIndex).toBe(0);
-    expect(result.current.lightboxTotalItems).toBe(2);
+    act(() => result.current.openLightbox(1));
+    expect(result.current.lightboxMediaIds.indexOf(1)).toBe(0);
+    expect(result.current.lightboxMediaIds).toHaveLength(2);
 
     // An unrelated file is shared while the reader is mid-read. Sorted DESC,
     // it would land at index 0 live — but the open session's order must not
     // move "a.md" out from under the reader or silently enable "previous".
     files = [
-      file({ name: "new.md", updatedAt: "2026-08-31T00:20:00Z" }),
-      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
-      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+      file({ id: 3, name: "new.md", updatedAt: "2026-08-31T00:20:00Z" }),
+      file({ id: 1, name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ id: 2, name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
     ];
     await act(async () => {
       await result.current.refreshMedia(AGENT_ID);
@@ -169,16 +158,16 @@ describe("useMedia lightbox identity", () => {
     rerender();
 
     await waitFor(() => expect(result.current.mediaFiles).toHaveLength(3));
-    expect(result.current.lightboxIndex).toBe(0);
-    expect(result.current.lightboxItem?.file.name).toBe("a.md");
+    expect(result.current.lightboxMediaIds.indexOf(1)).toBe(0);
+    expect(result.current.lightboxMediaId).toBe(1);
     // The new file is appended at the end of the frozen order, not inserted
     // ahead of "a.md".
-    expect(result.current.lightboxTotalItems).toBe(3);
+    expect(result.current.lightboxMediaIds).toHaveLength(3);
   });
 
   it("computes the correct index at open, not one refetch later", async () => {
     // The bug this pins: the frozen-order snapshot lived in a ref, and
-    // lightboxOrder was a useMemo keyed on lightboxItems. A ref write
+    // lightboxOrder was a useMemo keyed on the live item list. A ref write
     // doesn't invalidate a memo, so closing a session (which reset the
     // snapshot) never forced a recompute either — lightboxOrder kept
     // showing that session's frozen order until some *unrelated* later
@@ -186,9 +175,9 @@ describe("useMedia lightbox identity", () => {
     // session in between read whatever stale value was left over: right
     // at open, not one refetch later.
     let files: MediaFile[] = [
-      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
-      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
-      file({ name: "c.md", updatedAt: "2026-08-29T00:00:00Z" }),
+      file({ id: 1, name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ id: 2, name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+      file({ id: 3, name: "c.md", updatedAt: "2026-08-29T00:00:00Z" }),
     ];
     apiMock.mockImplementation(async () => ({ files }));
 
@@ -199,19 +188,15 @@ describe("useMedia lightbox identity", () => {
     await waitFor(() => expect(result.current.mediaFiles).toHaveLength(3));
 
     // Open "a.md" — this session's frozen order is [a,b,c].
-    act(() =>
-      result.current.openLightbox(
-        result.current.mediaFiles.find((f) => f.name === "a.md")!
-      )
-    );
+    act(() => result.current.openLightbox(1));
 
     // While "a.md" is still open, "c.md" gets updated and jumps to the
     // front live — the open session correctly stays frozen at [a,b,c]
     // (that's #2283's fix), so lightboxOrder is [a,b,c] going into close.
     files = [
-      file({ name: "c.md", updatedAt: "2026-08-31T00:10:00Z" }),
-      file({ name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
-      file({ name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
+      file({ id: 3, name: "c.md", updatedAt: "2026-08-31T00:10:00Z" }),
+      file({ id: 1, name: "a.md", updatedAt: "2026-08-31T00:00:00Z" }),
+      file({ id: 2, name: "b.md", updatedAt: "2026-08-30T00:00:00Z" }),
     ];
     await act(async () => {
       await result.current.refreshMedia(AGENT_ID);
@@ -220,20 +205,68 @@ describe("useMedia lightbox identity", () => {
     await waitFor(() =>
       expect(result.current.mediaFiles[0]?.name).toBe("c.md")
     );
-    expect(result.current.lightboxIndex).toBe(0); // still "a.md", still frozen
+    expect(result.current.lightboxMediaIds.indexOf(1)).toBe(0);
 
-    act(() => result.current.setLightboxIndex(null));
+    act(() => result.current.setLightboxMediaId(null));
 
     // Open "b.md" — a fresh session, with no further mediaFiles change
     // after this call. Live order is [c,a,b], so "b.md" is at index 2 —
     // the stale session-1 frozen order ([a,b,c]) would instead put it at
     // index 1.
-    act(() =>
-      result.current.openLightbox(
-        result.current.mediaFiles.find((f) => f.name === "b.md")!
-      )
+    act(() => result.current.openLightbox(2));
+    expect(result.current.lightboxMediaIds.indexOf(2)).toBe(2);
+  });
+
+  it("opens a chat attachment before the media query contains it", async () => {
+    apiMock.mockResolvedValue({ files: [] });
+    const { result } = renderHook(() => useMedia(AGENT_ID, true), { wrapper });
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalled());
+
+    act(() => result.current.openLightbox(99));
+
+    expect(result.current.lightboxMediaId).toBe(99);
+    expect(result.current.lightboxMediaIds).toEqual([99]);
+  });
+
+  it("takes the owner's correct order when a chat-opened item arrives later", async () => {
+    let files: MediaFile[] = [];
+    apiMock.mockImplementation(async () => ({ files }));
+    const { result, rerender } = renderHook(() => useMedia(AGENT_ID, true), {
+      wrapper,
+    });
+
+    await waitFor(() => expect(apiMock).toHaveBeenCalled());
+    act(() => result.current.openLightbox(2));
+    expect(result.current.lightboxMediaIds).toEqual([2]);
+
+    files = [
+      file({ id: 1, name: "a.md" }),
+      file({ id: 2, name: "b.md" }),
+      file({ id: 3, name: "c.md" }),
+    ];
+    await act(async () => {
+      await result.current.refreshMedia(AGENT_ID);
+    });
+    rerender();
+
+    await waitFor(() =>
+      expect(result.current.lightboxMediaIds).toEqual([1, 2, 3])
     );
-    expect(result.current.lightboxIndex).toBe(2);
+    expect(result.current.lightboxMediaIds.indexOf(2)).toBe(1);
+
+    files = [
+      file({ id: 3, name: "c.md", updatedAt: "2026-08-31T00:10:00Z" }),
+      file({ id: 1, name: "a.md" }),
+      file({ id: 2, name: "b.md" }),
+    ];
+    await act(async () => {
+      await result.current.refreshMedia(AGENT_ID);
+    });
+    rerender();
+
+    await waitFor(() => expect(result.current.mediaFiles[0]?.id).toBe(3));
+    expect(result.current.lightboxMediaIds).toEqual([1, 2, 3]);
   });
 });
 
@@ -255,9 +288,10 @@ describe("useMedia sub agent media", () => {
 
   it("lists each child's files stamped with its owner and counts them unseen", async () => {
     mockPerAgent({
-      [AGENT_ID]: [file({ name: "own.png", seen: true })],
+      [AGENT_ID]: [file({ id: 1, name: "own.png", seen: true })],
       agt_child: [
         file({
+          id: 2,
           name: "shot.png",
           url: "/api/v1/agents/agt_child/media/shot.png",
         }),
@@ -282,8 +316,8 @@ describe("useMedia sub agent media", () => {
 
   it("shows one owner's files at a time and scopes the lightbox to them", async () => {
     mockPerAgent({
-      [AGENT_ID]: [file({ name: "own.png" })],
-      agt_child: [file({ name: "shot.png" })],
+      [AGENT_ID]: [file({ id: 1, name: "own.png" })],
+      agt_child: [file({ id: 2, name: "shot.png" })],
     });
     const subAgents = [CHILD];
     const { result } = renderHook(() => useMedia(AGENT_ID, true, subAgents), {
@@ -303,11 +337,9 @@ describe("useMedia sub agent media", () => {
       "shot.png",
     ]);
 
-    act(() =>
-      result.current.openLightbox(result.current.visibleMediaFiles[0]!)
-    );
-    expect(result.current.lightboxTotalItems).toBe(1);
-    expect(result.current.lightboxItem?.file.ownerAgentId).toBe("agt_child");
+    act(() => result.current.openLightbox(2));
+    expect(result.current.lightboxMediaIds).toEqual([2]);
+    expect(result.current.lightboxMediaId).toBe(2);
 
     // A sub agent that disappears falls back to the agent's own files.
     act(() => result.current.setMediaOwnerId("agt_gone"));
@@ -315,10 +347,31 @@ describe("useMedia sub agent media", () => {
     expect(result.current.visibleMediaFiles[0]?.name).toBe("own.png");
   });
 
+  it("opens a parent chat image while the Media tab shows a child", async () => {
+    mockPerAgent({
+      [AGENT_ID]: [file({ id: 1, name: "own.png" })],
+      agt_child: [file({ id: 2, name: "shot.png" })],
+    });
+    const { result } = renderHook(() => useMedia(AGENT_ID, true, [CHILD]), {
+      wrapper,
+    });
+    await waitFor(() =>
+      expect(result.current.subAgentMedia[0]?.files).toHaveLength(1)
+    );
+
+    act(() => result.current.setMediaOwnerId("agt_child"));
+    expect(result.current.visibleMediaFiles[0]?.name).toBe("shot.png");
+
+    act(() => result.current.openLightbox(1));
+
+    expect(result.current.lightboxMediaId).toBe(1);
+    expect(result.current.lightboxMediaIds).toEqual([1]);
+  });
+
   it("marks a child's file seen against the child, not the parent", async () => {
     mockPerAgent({
       [AGENT_ID]: [],
-      agt_child: [file({ name: "shot.png" })],
+      agt_child: [file({ id: 2, name: "shot.png" })],
     });
     // Stand in for the panel: a card carrying the child's owner attribute
     // inside the viewport the observer watches.

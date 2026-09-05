@@ -48,7 +48,7 @@ type MediaSidebarSharedProps = {
   onMediaOwnerChange?: (ownerId: string | null) => void;
   animatingMediaKeys: Set<string>;
   mediaViewportRef: RefObject<HTMLDivElement>;
-  openLightbox: (file: MediaFile) => void;
+  openLightbox: (mediaId: number) => void;
   hasStream: boolean;
   streamUrl: string | null;
   unseenMediaCount: number;
