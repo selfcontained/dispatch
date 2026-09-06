@@ -1,0 +1,22 @@
+-- The Chat feed hides a media file that already renders as a post attachment,
+-- and does it with a containment check against every message on the agent:
+--
+--   AND NOT EXISTS (
+--     SELECT 1 FROM agent_chat_messages c
+--      WHERE c.agent_id = $1
+--        AND c.attachments @> jsonb_build_array(
+--              jsonb_build_object('type','file','mediaId', m.id)))
+--
+-- That subquery is correlated, so without an index it re-scans every message
+-- for every candidate media row — media x messages, both growing together.
+-- Measured on a dev stack: 1,490ms at 1,000 media / 3,000 messages, and past
+-- 20s at 5,000 / 15,000, where it stops returning rather than merely being
+-- slow. With this index those become 19ms and 97ms.
+--
+-- jsonb_path_ops rather than the default jsonb_ops: `@>` is the only operator
+-- used against this column, and jsonb_path_ops indexes only full paths, which
+-- makes it smaller and faster for exactly that. It cannot serve key-existence
+-- queries (`?`, `?|`, `?&`) — nothing queries this column that way today, and
+-- anything that starts to will need the default opclass instead.
+CREATE INDEX IF NOT EXISTS agent_chat_messages_attachments_gin
+  ON agent_chat_messages USING gin (attachments jsonb_path_ops);

@@ -8,6 +8,8 @@ import type {
   ChatStatusEntry,
 } from "@dispatch/shared";
 
+import { dimensionFields, parseMediaMetadata } from "../media/metadata.js";
+
 import {
   type ChatStore,
   isChatMessageId,
@@ -151,6 +153,30 @@ function cursorClause(
 
 const intKey = (id: number) => String(id).padStart(20, "0");
 
+/**
+ * The message columns `toChatMessage` needs, minus `attachments` — the query
+ * below computes that one rather than passing the stored value through, so it
+ * cannot be part of a `*`.
+ */
+const MESSAGE_COLUMNS = [
+  "id",
+  "agent_id",
+  "author_kind",
+  "kind",
+  "text",
+  "reply_to",
+  "question",
+  "answer",
+  "delivered",
+  "read_at",
+  "origin",
+  "launched_by_agent_id",
+  "created_at",
+  "updated_at",
+];
+const MESSAGE_COLUMNS_SQL = MESSAGE_COLUMNS.join(", ");
+const PAGE_COLUMNS_SQL = MESSAGE_COLUMNS.map((c) => `p.${c}`).join(", ");
+
 async function listChatEntries(
   db: Queryable,
   agentId: string,
@@ -160,13 +186,54 @@ async function listChatEntries(
   const params: unknown[] = [agentId];
   const clause = cursorClause("chat", "uuid", cursor, params);
   params.push(limit);
+  // The page is materialized first, then its attachments are expanded once,
+  // joined to `media`, and re-aggregated. Doing it that way rather than as a
+  // per-row subquery is a planner concern, not a style one: `jsonb_array_elements`
+  // has no statistics, so the planner assumes 100 elements per message and
+  // prices a per-row lookup at ~100 index scans. On an agent with a long
+  // history that estimate carries the whole query past `jit_above_cost` and
+  // Postgres JIT-compiles it — measured at 17ms against 2.4ms for this shape,
+  // on a page whose actual work is about 1ms either way. Expanding once gives
+  // the planner one function scan and a hash join to price instead.
   const result = await db.query<
     Parameters<typeof toChatMessage>[0] & { at_key: string }
   >(
-    `SELECT *, ${AT_KEY_SQL} AS at_key FROM agent_chat_messages
-      WHERE agent_id = $1 ${clause}
-      ORDER BY created_at DESC, id DESC
-      LIMIT $${params.length}`,
+    `WITH page AS MATERIALIZED (
+       SELECT ${MESSAGE_COLUMNS_SQL}, attachments, ${AT_KEY_SQL} AS at_key
+         FROM agent_chat_messages m
+        WHERE m.agent_id = $1 ${clause}
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT $${params.length}
+     ), expanded AS (
+       SELECT p.id AS message_id, t.ord,
+              CASE
+                WHEN t.a->>'type' = 'file'
+                     AND md.metadata ? 'width'
+                     AND md.metadata ? 'height'
+                THEN t.a || jsonb_build_object(
+                              'width', md.metadata->'width',
+                              'height', md.metadata->'height')
+                ELSE t.a - 'width' - 'height'
+              END AS attachment
+         FROM page p
+         CROSS JOIN LATERAL
+           jsonb_array_elements(p.attachments) WITH ORDINALITY AS t(a, ord)
+         LEFT JOIN media md
+           ON md.id = CASE
+                        WHEN t.a->>'type' = 'file'
+                             AND jsonb_typeof(t.a->'mediaId') = 'number'
+                        THEN (t.a->>'mediaId')::int
+                      END
+     ), live AS (
+       SELECT message_id, jsonb_agg(attachment ORDER BY ord) AS attachments
+         FROM expanded
+        GROUP BY message_id
+     )
+     SELECT ${PAGE_COLUMNS_SQL},
+            p.at_key,
+            COALESCE(live.attachments, '[]'::jsonb) AS attachments
+       FROM page p
+       LEFT JOIN live ON live.message_id = p.id`,
     params
   );
   return result.rows.map((row) => {
@@ -288,10 +355,11 @@ async function listMediaEntries(
     file_name: string;
     size_bytes: number;
     description: string | null;
+    metadata: unknown;
     created_at: Date;
     at_key: string;
   }>(
-    `SELECT id, file_name, size_bytes, description, created_at,
+    `SELECT id, file_name, size_bytes, description, metadata, created_at,
             ${AT_KEY_SQL} AS at_key
        FROM media m
       WHERE m.agent_id = $1
@@ -323,6 +391,7 @@ async function listMediaEntries(
       fileName: row.file_name,
       sizeBytes: row.size_bytes,
       description: row.description ?? null,
+      ...dimensionFields(parseMediaMetadata(row.metadata)),
       at: row.created_at.toISOString(),
     },
     atKey: row.at_key,

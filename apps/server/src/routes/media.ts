@@ -5,6 +5,7 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
+import { mediaMetadataFromBuffer } from "../media/metadata.js";
 import {
   getMediaById,
   listMediaFiles,
@@ -345,10 +346,18 @@ export async function registerMediaRoutes(
     await writeFile(path.join(mediaDir, timestampedFileName), buffer);
 
     const result = await deps.pool.query<{ id: number; created_at: Date }>(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+                          metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, created_at`,
-      [id, timestampedFileName, source, buffer.length, description]
+      [
+        id,
+        timestampedFileName,
+        source,
+        buffer.length,
+        description,
+        mediaMetadataFromBuffer(buffer),
+      ]
     );
 
     deps.publishUiEvent({ type: "media.changed", agentId: id });

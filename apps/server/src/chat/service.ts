@@ -924,6 +924,11 @@ export class ChatService {
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
       mimeType: mimeType(match.file_name),
+      // No dimensions here on purpose. The feed fills them in from the live
+      // media row when it reads the page, which is the only thing that can be
+      // right: dispatch_share_file replaces a file's bytes under an unchanged
+      // URL, so a shape frozen at write time can describe bytes the post no
+      // longer serves.
     };
   }
 }

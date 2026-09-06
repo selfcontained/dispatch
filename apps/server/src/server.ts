@@ -34,6 +34,7 @@ import { loadConfig } from "./config.js";
 import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
+import { mediaMetadataFromBuffer } from "./media/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import { mimeType, resolveMediaDir } from "./shared/media.js";
@@ -249,9 +250,16 @@ const streamManager = new StreamManager(
     await writeFile(path.join(mediaDir, fileName), lastFrame);
 
     await pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, $2, 'stream', $3, $4)`,
-      [agentId, fileName, lastFrame.length, description]
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+                          metadata)
+       VALUES ($1, $2, 'stream', $3, $4, $5)`,
+      [
+        agentId,
+        fileName,
+        lastFrame.length,
+        description,
+        mediaMetadataFromBuffer(lastFrame),
+      ]
     );
 
     uiEventBroker.publish({ type: "media.changed", agentId });

@@ -30,6 +30,7 @@ import {
 } from "@/components/app/agent-event-utils";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { FeedImage } from "@/components/app/chat/feed-image";
 import { PinItem } from "@/components/app/pin-item";
 import {
   reviewerLabel,
@@ -573,18 +574,12 @@ function FileAttachment({
           className="block max-w-xs overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30"
           title={attachment.fileName}
         >
-          {/*
-           * A fixed height, not a max: the image is lazy, so a box that
-           * sized itself to the file would be 0px until the image arrives
-           * and then shove everything below it down — which is what pushes
-           * a reader off the message they were on. Letterboxing a short
-           * image is the cheaper cost.
-           */}
-          <img
+          <FeedImage
             src={url}
             alt={attachment.fileName}
-            className="h-56 w-full bg-muted/30 object-scale-down"
-            loading="lazy"
+            width={attachment.width}
+            height={attachment.height}
+            maxHeightPx={224}
           />
         </button>
       </AttachmentBlock>
@@ -1174,12 +1169,15 @@ export function MediaEntryView({
             {entry.fileName} · {formatBytes(entry.sizeBytes)}
           </span>
           {isImage ? (
-            /* Fixed height for the same reason as FileAttachment's. */
-            <img
+            <FeedImage
               src={url}
               alt={entry.description ?? entry.fileName}
-              className="mt-1.5 block h-64 w-full max-w-xs rounded-md border border-border bg-muted/30 object-scale-down transition-colors hover:border-foreground/30"
-              loading="lazy"
+              width={entry.width}
+              height={entry.height}
+              maxHeightPx={256}
+              // Matches the max-w-xs this image carried before it had a ratio.
+              containerMax="20rem"
+              className="mt-1.5 block rounded-md border border-border transition-colors hover:border-foreground/30"
             />
           ) : null}
         </button>
