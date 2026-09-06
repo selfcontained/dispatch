@@ -49,6 +49,8 @@ import { isAcceptedUploadFile } from "@/lib/media-upload";
 import { chatDraftAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+import { useComposerHistory } from "./use-composer-history";
+
 export type ChatComposerProps = {
   /**
    * Keys the persisted draft. With no agent the draft lives in memory only
@@ -114,6 +116,12 @@ export type ChatComposerProps = {
    * through them and ArrowDown forward again to the empty draft.
    */
   history?: string[];
+  /**
+   * Stop the running turn. Bound to Ctrl+C in the field when nothing is
+   * selected (with a selection Ctrl+C still copies); absent when nothing
+   * runs, so the key keeps its meaning.
+   */
+  onInterrupt?: () => void;
   /**
    * Asked before the history on ArrowUp with an empty field: a queued
    * message to take back for editing. Resolve to its text (the host has
@@ -273,6 +281,7 @@ export function ChatComposer({
   hint,
   history,
   recallQueued,
+  onInterrupt,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -304,54 +313,6 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Prompt history: null while typing a fresh draft; otherwise the index
-  // into `history` the field currently shows.
-  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
-  const recallingRef = useRef(false);
-  const recallOrStepBack = useCallback(async () => {
-    const entries = history ?? [];
-    if (historyIndex === null) {
-      if (recallQueued && !recallingRef.current) {
-        recallingRef.current = true;
-        try {
-          const queued = await recallQueued();
-          if (queued !== null) {
-            setText(queued);
-            setCaret(queued.length);
-            return;
-          }
-        } finally {
-          recallingRef.current = false;
-        }
-      }
-      if (entries.length === 0) return;
-      const index = entries.length - 1;
-      setHistoryIndex(index);
-      setText(entries[index]);
-      setCaret(entries[index].length);
-      return;
-    }
-    if (historyIndex > 0) {
-      const index = historyIndex - 1;
-      setHistoryIndex(index);
-      setText(entries[index]);
-      setCaret(entries[index].length);
-    }
-  }, [history, historyIndex, recallQueued, setText]);
-  const stepForward = useCallback(() => {
-    const entries = history ?? [];
-    if (historyIndex === null) return;
-    if (historyIndex < entries.length - 1) {
-      const index = historyIndex + 1;
-      setHistoryIndex(index);
-      setText(entries[index]);
-      setCaret(entries[index].length);
-    } else {
-      setHistoryIndex(null);
-      setText("");
-      setCaret(0);
-    }
-  }, [history, historyIndex, setText]);
   // Slash menu: open while the caret sits at the end of a "/<partial>"
   // token, closed by Escape until the text changes again. The caret is
   // tracked from the field on every change, key, click, and selection.
@@ -367,6 +328,13 @@ export function ChatComposer({
   const slashToken = slashItems?.length
     ? slashTokenAt(text, caret ?? text.length)
     : null;
+  const historyKeys = useComposerHistory({
+    text,
+    history,
+    recallQueued,
+    setText,
+    setCaret,
+  });
   const slashOpen = slashToken !== null && slashDismissed !== text;
   const slashMatches = useMemo(() => {
     if (!slashOpen || !slashToken) return [];
@@ -859,40 +827,35 @@ export function ChatComposer({
           return;
         }
       }
-      // History: an empty field (or one already showing an entry) walks
-      // back on ArrowUp and forward on ArrowDown, like a shell.
-      if (event.key === "ArrowUp" && (historyIndex !== null || text === "")) {
-        if (
-          historyIndex !== null ||
-          (history?.length ?? 0) > 0 ||
-          recallQueued
-        ) {
-          event.preventDefault();
-          void recallOrStepBack();
-          return;
-        }
-      }
-      if (event.key === "ArrowDown" && historyIndex !== null) {
+      // Ctrl+C, terminal-style: stop the turn. A selection keeps the copy.
+      if (
+        onInterrupt &&
+        event.key === "c" &&
+        event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        event.currentTarget.selectionStart === event.currentTarget.selectionEnd
+      ) {
         event.preventDefault();
-        stepForward();
+        onInterrupt();
         return;
       }
+      // History, shell-style; see useComposerHistory for when it takes over.
+      if (event.key === "ArrowUp" && historyKeys.onArrowUp(event)) return;
+      if (event.key === "ArrowDown" && historyKeys.onArrowDown(event)) return;
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
       if (event.nativeEvent.isComposing) return;
       event.preventDefault();
-      setHistoryIndex(null);
+      historyKeys.reset();
       submit();
     },
     [
-      history,
-      historyIndex,
+      historyKeys,
+      onInterrupt,
       pickSlash,
-      recallOrStepBack,
-      recallQueued,
       slashActive,
       slashMatches,
-      stepForward,
       submit,
       text,
     ]
@@ -1061,7 +1024,7 @@ export function ChatComposer({
               setText(event.target.value);
               setCaret(event.target.selectionStart);
               // Typing turns a recalled entry into a fresh draft.
-              setHistoryIndex(null);
+              historyKeys.reset();
             }}
             onKeyDown={onKeyDown}
             onKeyUp={syncCaret}

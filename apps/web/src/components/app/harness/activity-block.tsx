@@ -8,6 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
 import { computeUnaccountedMs } from "./reduce";
+import { isSubagentStep } from "./registry";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
 
@@ -63,8 +64,12 @@ function ActivityBlockImpl({
   }
 
   const unaccountedMs = computeUnaccountedMs(trace);
+  // Open while running; a subagent step stays open while the turn runs,
+  // since its call returns the moment the child starts and the child's
+  // progress lives under it.
   const stepOpen = (step: Step): boolean =>
-    stepOverrides[step.id] ?? (!done && step.status === "running");
+    stepOverrides[step.id] ??
+    (!done && (step.status === "running" || isSubagentStep(step)));
   const toggleStep = (id: string) =>
     setStepOverrides((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
 
@@ -274,18 +279,30 @@ function CollapsedSummary({
  * Nothing in the stream is open, so without this the rail's last row sits
  * finished and the turn looks stalled. Timed from the last thing that ended.
  */
+/** How long the rail waits with nothing running before it says "thinking". */
+const THINKING_DELAY_MS = 500;
+
 function ThinkingRow({
   since,
   maskClass,
 }: {
   since: number;
   maskClass: string;
-}): JSX.Element {
+}): JSX.Element | null {
+  // Back-to-back tool calls leave a few dozen milliseconds between steps;
+  // showing the row for those makes the rail flicker. Only a real pause
+  // earns it.
+  const [shown, setShown] = useState(false);
+  useEffect(() => {
+    setShown(false);
+    const timer = setTimeout(() => setShown(true), THINKING_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [since]);
+  if (!shown) return null;
   return (
     <div
       className="flex items-center gap-[9px] py-1"
       role="listitem"
-      aria-live="polite"
       aria-label="thinking, running"
       data-testid="harness-thinking-row"
     >

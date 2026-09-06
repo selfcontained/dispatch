@@ -3,6 +3,12 @@ import { cn } from "@/lib/utils";
 
 import type { TodoItem } from "./registry";
 
+const STATUS_WORD: Record<string, string> = {
+  completed: "completed",
+  in_progress: "in progress",
+  pending: "pending",
+};
+
 /** The agent's task list as the todo tool last wrote it. */
 export function TodoList({
   items,
@@ -39,6 +45,10 @@ export function TodoList({
               )}
             >
               {done ? "✓" : active ? <ActivityBars size={9} /> : "○"}
+            </span>
+            {/* The glyph and colour say it for sighted readers; this says it aloud. */}
+            <span className="sr-only">
+              {STATUS_WORD[item.status] ?? item.status}:{" "}
             </span>
             <span
               className={cn(

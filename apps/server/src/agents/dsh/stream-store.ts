@@ -194,15 +194,22 @@ export class StreamStore {
     return turns.rowCount ?? 0;
   }
 
-  /** The error recorded on the agent's newest turn, if any. */
-  async lastTurnError(agentId: string): Promise<string | null> {
-    const result = await this.db.query<{ error: string | null }>(
-      `SELECT payload->>'error' AS error FROM agent_stream_events
+  /** How the agent's newest turn ended: its error, if any, and when. */
+  async lastTurnSettlement(
+    agentId: string
+  ): Promise<{ error: string | null; endedAt: string | null } | null> {
+    const result = await this.db.query<{
+      error: string | null;
+      ended_at: string | null;
+    }>(
+      `SELECT payload->>'error' AS error, payload->>'endedAt' AS ended_at
+         FROM agent_stream_events
         WHERE agent_id = $1 AND kind = 'turn'
         ORDER BY seq DESC LIMIT 1`,
       [agentId]
     );
-    return result.rows[0]?.error ?? null;
+    const row = result.rows[0];
+    return row ? { error: row.error, endedAt: row.ended_at } : null;
   }
 
   /** Newest first. */

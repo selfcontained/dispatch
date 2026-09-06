@@ -12,9 +12,6 @@ import { harnessTurnsQueryKey } from "./use-harness-turns";
 export function useHarnessQueue(agentId: string | null): {
   sendNow: (id: string) => Promise<void>;
   remove: (id: string) => Promise<void>;
-  /** Cancel the running turn; what is queued runs next. */
-  interrupt: () => Promise<void>;
-  interrupting: boolean;
   /** The queued prompt whose action is in flight, if any. */
   busyId: string | null;
 } {
@@ -40,22 +37,36 @@ export function useHarnessQueue(agentId: string | null): {
       ),
     onSettled: refetch,
   });
-  const interrupt = useMutation<void, Error, void>({
-    mutationFn: () =>
-      api<void>(`/api/v1/agents/${agentId}/harness/interrupt`, {
-        method: "POST",
-      }),
-    onSettled: refetch,
-  });
   return {
     sendNow: sendNow.mutateAsync,
     remove: remove.mutateAsync,
-    interrupt: interrupt.mutateAsync,
-    interrupting: interrupt.isPending,
     busyId: sendNow.isPending
       ? (sendNow.variables ?? null)
       : remove.isPending
         ? (remove.variables ?? null)
         : null,
+  };
+}
+
+/** Stop: cancel the running turn. What is queued runs next. */
+export function useHarnessInterrupt(agentId: string | null): {
+  interrupt: () => Promise<void>;
+  interrupting: boolean;
+} {
+  const queryClient = useQueryClient();
+  const interrupt = useMutation<void, Error, void>({
+    mutationFn: () =>
+      api<void>(`/api/v1/agents/${agentId}/harness/interrupt`, {
+        method: "POST",
+      }),
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: harnessTurnsQueryKey(agentId),
+        exact: true,
+      }),
+  });
+  return {
+    interrupt: interrupt.mutateAsync,
+    interrupting: interrupt.isPending,
   };
 }

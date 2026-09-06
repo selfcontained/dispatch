@@ -19,7 +19,8 @@ let cwdBySession = new Map();
 // A prompt containing "sleep:<ms>" holds its turn that long (or until the
 // client cancels it), so a spec can watch what queues behind a running turn.
 const SLEEP = /sleep:(\d+)/;
-let sleeping = null;
+// One resolver per sleeping session, so a cancel reaches the right turn.
+const sleeping = new Map();
 
 const agent = {
   async initialize() {
@@ -61,12 +62,12 @@ const agent = {
     if (sleep) {
       const cancelled = await new Promise((resolve) => {
         const timer = setTimeout(() => resolve(false), Number(sleep[1]));
-        sleeping = () => {
+        sleeping.set(params.sessionId, () => {
           clearTimeout(timer);
           resolve(true);
-        };
+        });
       });
-      sleeping = null;
+      sleeping.delete(params.sessionId);
       if (cancelled) return { stopReason: "cancelled" };
     }
     await emit({
@@ -133,8 +134,8 @@ const agent = {
       },
     };
   },
-  async cancel() {
-    sleeping?.();
+  async cancel(params) {
+    sleeping.get(params.sessionId)?.();
   },
   async closeSession() {
     return {};

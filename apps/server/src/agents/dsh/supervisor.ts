@@ -14,7 +14,7 @@ import { dispatchMcpUrl } from "../tmux/mcp-url.js";
 import { DshDriver, type DriverEvent, type DriverLogger } from "./driver.js";
 import { appendCommandLog, commandLogPath } from "./command-log.js";
 import { removeOverlay, writeOverlay } from "./overlay.js";
-import { parsePromptSource, type PromptSource } from "./prompt-source.js";
+import { parsePromptSource, type QueuedPrompt } from "./prompt-source.js";
 import type { AgentModelOption } from "../../shared/agent-models.js";
 import { StreamRecorder } from "./stream-recorder.js";
 import { StreamStore } from "./stream-store.js";
@@ -116,6 +116,7 @@ export function buildChildEnv(input: {
 
 const MESSAGE_MAX = 200;
 const STOP_ALL_TIMEOUT_MS = 5_000;
+const RECONCILE_TIMEOUT_MS = 2_000;
 
 /**
  * Sent as the first turn after a restart to an agent whose previous turn
@@ -127,14 +128,6 @@ export const RESTART_PROMPT = [
   'Dispatch restarted while your previous turn was running, so that turn ended early (it is marked "interrupted by restart"). Pick the task back up from where you left off: check the current state of any files you were changing before redoing work, then continue.',
   "--- END DISPATCH: RESTART ---",
 ].join("\n");
-
-/** A prompt waiting its turn, as the Harness view lists it. */
-export type QueuedPrompt = {
-  /** The chat message id for a chat prompt; otherwise a queue-local id. */
-  id: string;
-  source: PromptSource;
-  createdAt: string;
-};
 
 type Pending = QueuedPrompt & {
   text: string;
@@ -509,7 +502,10 @@ export class DshSupervisor {
     return path.join(this.deps.config.dshHome, "overlays");
   }
 
-  async start(agentId: string): Promise<void> {
+  /** How long after a restart cut a turn the agent is still told to resume it. */
+  static readonly RESTART_RESUME_WINDOW_MS = 60 * 60_000;
+
+  async start(agentId: string): Promise<{ resumed: boolean }> {
     const agent = await this.deps.getAgent(agentId);
     if (!agent || agent.type !== "dsh") {
       throw new Error(`${agentId} is not a dsh agent`);
@@ -566,6 +562,7 @@ export class DshSupervisor {
         });
       }
     }
+    return { resumed };
   }
 
   /**
@@ -578,11 +575,9 @@ export class DshSupervisor {
     const failed: string[] = [];
     for (const id of await this.deps.listRunningAgentIds()) {
       try {
-        await this.start(id);
+        const { resumed } = await this.start(id);
         restored.push(id);
-        // A turn the restart cut short continues instead of sitting there
-        // marked interrupted until someone notices.
-        if (await this.streams.lastTurnInterruptedByRestart(id)) {
+        if (resumed && (await this.shouldResumeAfterRestart(id))) {
           this.enqueuePrompt(id, RESTART_PROMPT).settled.catch(
             (err: unknown) => {
               this.deps.logger.warn(
@@ -605,6 +600,25 @@ export class DshSupervisor {
       }
     }
     return { restored, failed };
+  }
+
+  /**
+   * A turn the restart cut short continues only when the cut is recent
+   * (an agent idle for days is not billed a turn at every boot), the
+   * session really resumed (a fresh session has no memory to continue
+   * from), and the agent had not already declared itself done, blocked,
+   * or waiting on someone.
+   */
+  private async shouldResumeAfterRestart(agentId: string): Promise<boolean> {
+    const cutAt = await this.streams.lastTurnInterruptedByRestartAt(agentId);
+    if (!cutAt) return false;
+    if (Date.now() - cutAt.getTime() > DshSupervisor.RESTART_RESUME_WINDOW_MS) {
+      return false;
+    }
+    const latest = (await this.deps.getAgent(agentId))?.latestEvent?.type;
+    return (
+      latest !== "done" && latest !== "blocked" && latest !== "waiting_user"
+    );
   }
 
   /**
@@ -673,12 +687,23 @@ export class DshSupervisor {
       });
   }
 
-  /** Drop everything queued for the agent, failing each prompt's start. */
-  private flushQueued(agentId: string, reason: string): void {
+  /**
+   * Drop everything queued for the agent, failing each prompt's start.
+   * With `keepChat`, chat messages are dropped from memory but their
+   * `started` is left pending: the chat row stays `delivered: null`, and
+   * the next boot delivers it again (see ChatService.redeliverPending).
+   */
+  private flushQueued(
+    agentId: string,
+    reason: string,
+    opts: { keepChat?: boolean } = {}
+  ): void {
     const list = this.pendingOf(agentId);
     this.pending.delete(agentId);
     for (const item of list) {
-      item.failStarted(new Error(reason));
+      if (!(opts.keepChat && item.source.source === "chat")) {
+        item.failStarted(new Error(reason));
+      }
       item.markSettled();
     }
     if (list.length > 0) this.deps.publishChat(agentId);
@@ -750,8 +775,15 @@ export class DshSupervisor {
     await this.driver.cancel(agentId);
   }
 
-  async stop(agentId: string): Promise<void> {
-    this.flushQueued(agentId, "The agent stopped before the message was sent.");
+  async stop(
+    agentId: string,
+    opts: { keepChat?: boolean } = {}
+  ): Promise<void> {
+    this.flushQueued(
+      agentId,
+      "The agent stopped before the message was sent.",
+      opts
+    );
     await this.driver.stop(agentId);
     this.context.delete(agentId);
     await removeOverlay(this.overlayDir(), agentId);
@@ -763,14 +795,18 @@ export class DshSupervisor {
     if (ids.length === 0) return;
     // A turn still running is the restart's doing, not the agent's: mark it
     // so the next boot knows to resume it, before the exit settles it as
-    // merely cancelled.
-    await Promise.allSettled(
-      ids
-        .filter((id) => this.running.has(id))
-        .map((id) => this.streams.reconcile(id))
-    );
+    // merely cancelled. Bounded: a slow database must not hold the
+    // shutdown past launchd's patience; the next boot settles the row too.
     await Promise.race([
-      Promise.allSettled(ids.map((id) => this.stop(id))),
+      Promise.allSettled(
+        ids
+          .filter((id) => this.running.has(id))
+          .map((id) => this.streams.reconcile(id))
+      ),
+      new Promise((resolve) => setTimeout(resolve, RECONCILE_TIMEOUT_MS)),
+    ]);
+    await Promise.race([
+      Promise.allSettled(ids.map((id) => this.stop(id, { keepChat: true }))),
       new Promise((resolve) => setTimeout(resolve, STOP_ALL_TIMEOUT_MS)),
     ]);
   }

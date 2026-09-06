@@ -81,3 +81,30 @@ describe("UsageBudgetSettings", () => {
     ).toEqual(["DeepSeek", "Anthropic", "Gemini"]);
   });
 });
+
+describe("UsageBudgetSettings validation", () => {
+  it("keeps a new row that has no amount yet and does not save until it does", async () => {
+    render(<UsageBudgetSettings />, { wrapper });
+    fireEvent.click(screen.getByTestId("usage-budget-add"));
+    fireEvent.click(screen.getByRole("option", { name: "Gemini" }));
+    const row = screen.getByTestId("usage-budget-row");
+    const amount = row.querySelector(
+      '[data-testid="usage-budget-amount"]'
+    ) as HTMLInputElement;
+    fireEvent.blur(amount);
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByTestId("usage-budget-row")).toBeTruthy();
+    expect(screen.getByTestId("usage-budget-invalid").textContent).toContain(
+      "Enter an amount"
+    );
+    fireEvent.change(amount, { target: { value: "-5" } });
+    fireEvent.blur(amount);
+    expect(save).not.toHaveBeenCalled();
+    expect(screen.getByTestId("usage-budget-invalid").textContent).toContain(
+      "positive"
+    );
+    fireEvent.change(amount, { target: { value: "12.5" } });
+    fireEvent.keyDown(amount, { key: "Enter" });
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ google: 12.5 }));
+  });
+});

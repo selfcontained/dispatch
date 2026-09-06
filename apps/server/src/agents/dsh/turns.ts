@@ -9,6 +9,7 @@ import type {
 
 import { type Queryable, toChatMessage } from "../../chat/store.js";
 import type { PromptSource } from "./prompt-source.js";
+import { subagentIdFromOutput } from "./subagents.js";
 import type {
   AssistantPayload,
   StreamEventRow,
@@ -115,6 +116,11 @@ function toolStep(row: TurnSourceRow): HarnessStep | null {
   const title = p.title ?? "";
   if (DROPPED_TOOL_TITLES.has(title)) return null;
   const settled = p.status === "completed" || p.status === "failed";
+  // dsh's subagent tool answers "started subagent <id>"; the view opens
+  // that session under the step, so the id travels as data, not as text
+  // for the view to re-parse.
+  const subagentId =
+    title === "subagent" ? subagentIdFromOutput(p.terminalOutput) : null;
   return {
     id: `stream:${row.id}`,
     kind: p.toolKind ?? "other",
@@ -141,6 +147,7 @@ function toolStep(row: TurnSourceRow): HarnessStep | null {
       terminalOutput: p.terminalOutput ?? null,
       ...(p.truncated ? { truncated: true } : {}),
       ...(p.input !== undefined ? { input: p.input } : {}),
+      ...(subagentId ? { subagentSessionId: subagentId } : {}),
     },
   };
 }

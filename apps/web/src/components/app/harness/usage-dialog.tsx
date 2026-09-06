@@ -44,9 +44,11 @@ export function spendOf(provider: HarnessUsageProvider): {
 function BudgetBar({
   spent,
   budget,
+  label,
 }: {
   spent: number;
   budget: number;
+  label: string;
 }): JSX.Element {
   const ratio = budget > 0 ? spent / budget : 0;
   const pct = Math.min(100, Math.round(ratio * 100));
@@ -63,7 +65,7 @@ function BudgetBar({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={pct}
-      aria-label={`${pct}% of budget used`}
+      aria-label={`${label}: ${pct}% of budget used`}
       data-testid="harness-usage-bar"
       data-pct={pct}
     >
@@ -88,16 +90,16 @@ function ProviderRow({
       data-testid="harness-usage-provider"
       data-provider={provider.id}
     >
-      <div className="flex items-baseline gap-2">
+      <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className="text-sm font-medium text-foreground">
           {provider.label}
         </span>
-        <span className="font-terminal text-[10.5px] text-muted-foreground">
+        <span className="min-w-0 truncate font-terminal text-[10.5px] text-muted-foreground">
           {provider.keyEnv}
           {provider.hasKey ? "" : " · not set"}
         </span>
         <span
-          className="ml-auto text-sm tabular-nums text-foreground"
+          className="ml-auto whitespace-nowrap text-sm tabular-nums text-foreground"
           data-testid="harness-usage-spend"
         >
           {spend.usd === null ? "—" : formatUsd(spend.usd)}
@@ -111,7 +113,7 @@ function ProviderRow({
       </div>
       <div className="mt-1.5">
         {budget && spend.usd !== null ? (
-          <BudgetBar spent={spend.usd} budget={budget} />
+          <BudgetBar spent={spend.usd} budget={budget} label={provider.label} />
         ) : (
           <p className="text-[11px] text-muted-foreground">
             {spend.usd === null
@@ -219,7 +221,7 @@ export function UsageDialog({
         <div className="flex items-center justify-between">
           <span className="text-[10.5px] text-muted-foreground">
             {usage.data
-              ? `As of ${new Date(usage.data.generatedAt).toLocaleTimeString()}`
+              ? `As of ${new Date(usage.data.generatedAt).toLocaleTimeString()}${usage.data.partial ? " · a log was too large to count" : ""}`
               : ""}
           </span>
           <Button

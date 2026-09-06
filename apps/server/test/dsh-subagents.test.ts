@@ -100,7 +100,8 @@ describe("shapeSubagent", () => {
     expect(sub.turns).toHaveLength(1);
     const turn = sub.turns[0];
     expect(turn.prompt).toEqual({
-      source: "chat",
+      source: "agent",
+      senderName: "parent agent",
       text: "Inspect the repo",
       attachments: [],
     });

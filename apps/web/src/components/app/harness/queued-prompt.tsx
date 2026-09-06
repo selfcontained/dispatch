@@ -5,6 +5,11 @@ import { Button } from "@/components/ui/button";
 const CHIP_CLASS =
   "inline-flex max-w-[240px] items-center truncate rounded-[2px] border border-border bg-background px-1.5 py-0.5 text-[10.5px] text-foreground/70";
 
+function clip(text: string, max = 40): string {
+  const line = text.replace(/\s+/g, " ").trim();
+  return line.length > max ? `${line.slice(0, max - 1)}…` : line;
+}
+
 /**
  * A prompt that waits behind the running turn: the same prompt line,
  * dimmed, with what the reader can do about it. It becomes a real prompt
@@ -23,6 +28,7 @@ export function QueuedPrompt({
   onRemove?: (id: string) => void;
 }): JSX.Element {
   const attachments = prompt.attachments ?? [];
+  const excerpt = clip(prompt.text);
   return (
     <div
       className="mb-3.5"
@@ -67,8 +73,9 @@ export function QueuedPrompt({
             disabled={busy}
             onClick={() => onSendNow?.(prompt.id)}
             title="Interrupt the running turn and send this next"
+            aria-label={`Send "${excerpt}" now, interrupting the current turn`}
             data-testid="harness-queued-send-now"
-            className="h-6 px-1.5 text-[10.5px] text-status-working hover:text-status-working"
+            className="h-6 px-1.5 text-[10.5px] text-status-working hover:text-status-working pointer-coarse:h-11 pointer-coarse:px-3"
           >
             Send now
           </Button>
@@ -79,8 +86,9 @@ export function QueuedPrompt({
             disabled={busy}
             onClick={() => onRemove?.(prompt.id)}
             title="Drop this message from the queue"
+            aria-label={`Remove "${excerpt}" from the queue`}
             data-testid="harness-queued-remove"
-            className="h-6 px-1.5 text-[10.5px] text-muted-foreground hover:text-foreground"
+            className="h-6 px-1.5 text-[10.5px] text-muted-foreground hover:text-foreground pointer-coarse:h-11 pointer-coarse:px-3"
           >
             Remove
           </Button>

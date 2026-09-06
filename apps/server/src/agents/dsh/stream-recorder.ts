@@ -241,9 +241,15 @@ export class StreamRecorder {
     return this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
   }
 
-  /** Whether the agent's newest turn ended because Dispatch restarted. */
-  async lastTurnInterruptedByRestart(agentId: string): Promise<boolean> {
-    return (await this.store.lastTurnError(agentId)) === INTERRUPTED_BY_RESTART;
+  /**
+   * When the agent's newest turn ended because Dispatch restarted, the
+   * time it was cut; null when it ended any other way.
+   */
+  async lastTurnInterruptedByRestartAt(agentId: string): Promise<Date | null> {
+    const last = await this.store.lastTurnSettlement(agentId);
+    if (!last || last.error !== INTERRUPTED_BY_RESTART) return null;
+    const at = last.endedAt ? Date.parse(last.endedAt) : NaN;
+    return Number.isFinite(at) ? new Date(at) : new Date(0);
   }
 
   /** Write any buffered text for the agent now (tests and shutdown). */

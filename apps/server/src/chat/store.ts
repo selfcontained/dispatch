@@ -225,12 +225,42 @@ export class ChatStore {
    * touched, so the caller can publish one `chat.changed` per feed.
    */
   async sweepPendingDeliveries(): Promise<string[]> {
+    // A running Dispatch Harness agent is brought back at boot and its
+    // pending rows delivered again (redeliverPending); they are left alone.
     const result = await this.db.query<{ agent_id: string }>(
       `UPDATE agent_chat_messages SET delivered = false
         WHERE author_kind = 'user' AND delivered IS NULL
+          AND agent_id NOT IN (
+            SELECT id FROM agents
+             WHERE type = 'dsh' AND status = 'running' AND deleted_at IS NULL
+          )
         RETURNING agent_id`
     );
     return [...new Set(result.rows.map((row) => row.agent_id))];
+  }
+
+  /** The same sweep for named agents only (a harness that did not come back). */
+  async sweepPendingDeliveriesFor(agentIds: string[]): Promise<string[]> {
+    if (agentIds.length === 0) return [];
+    const result = await this.db.query<{ agent_id: string }>(
+      `UPDATE agent_chat_messages SET delivered = false
+        WHERE author_kind = 'user' AND delivered IS NULL
+          AND agent_id = ANY($1::text[])
+        RETURNING agent_id`,
+      [agentIds]
+    );
+    return [...new Set(result.rows.map((row) => row.agent_id))];
+  }
+
+  /** User messages still waiting to be delivered, oldest first. */
+  async listPendingDeliveries(agentId: string): Promise<ChatMessage[]> {
+    const result = await this.db.query<Row>(
+      `SELECT * FROM agent_chat_messages
+        WHERE agent_id = $1 AND author_kind = 'user' AND delivered IS NULL
+        ORDER BY created_at ASC`,
+      [agentId]
+    );
+    return result.rows.map(toChatMessage);
   }
 
   /** The launch-context post recorded when the agent was created, if any. */

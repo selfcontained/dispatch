@@ -27,7 +27,11 @@ export function subagentIdFromOutput(
 
 type ContentPart = { type?: string; text?: string; [key: string]: unknown };
 
-function textOf(parts: unknown): string {
+/** The text parts of a message, joined; `keep` drops parts that are not wanted. */
+function textOf(
+  parts: unknown,
+  keep: (text: string) => boolean = () => true
+): string {
   if (!Array.isArray(parts)) return "";
   return parts
     .map((p) =>
@@ -35,7 +39,7 @@ function textOf(parts: unknown): string {
         ? String((p as ContentPart).text ?? "")
         : ""
     )
-    .filter((t) => t.length > 0)
+    .filter((t) => t.trim().length > 0 && keep(t))
     .join("\n");
 }
 
@@ -44,17 +48,7 @@ function textOf(parts: unknown): string {
  * workspace instructions it splices in as system reminders. The view wants
  * the task; the reminders are the same text every agent gets.
  */
-function promptTextOf(parts: unknown): string {
-  if (!Array.isArray(parts)) return "";
-  const texts = parts
-    .map((p) =>
-      typeof p === "object" && p !== null && (p as ContentPart).type === "text"
-        ? String((p as ContentPart).text ?? "")
-        : ""
-    )
-    .filter((t) => t.trim().length > 0 && !/^\s*<system-reminder>/.test(t));
-  return texts.join("\n");
-}
+const notSystemReminder = (text: string) => !/^\s*<system-reminder>/.test(text);
 
 function toolResultText(message: Record<string, unknown> | undefined): {
   text: string;
@@ -121,7 +115,13 @@ function finish(building: Building, id: number): HarnessTurn {
   steps.sort((a, b) => Date.parse(a.startedAt) - Date.parse(b.startedAt));
   return {
     id: `sub:${id}`,
-    prompt: { source: "chat", text: building.prompt, attachments: [] },
+    // The parent agent wrote this prompt, not a person in the chat.
+    prompt: {
+      source: "agent",
+      senderName: "parent agent",
+      text: building.prompt,
+      attachments: [],
+    },
     trace: {
       startedAt: iso(building.startedAt),
       ...(building.endedAt !== undefined
@@ -172,7 +172,7 @@ export function shapeSubagent(
         break;
       }
       case "user/message": {
-        const text = promptTextOf(data.content);
+        const text = textOf(data.content, notSystemReminder);
         if (current) {
           // A message that lands mid-turn (the parent talking to it) is
           // part of the running turn's prompt.
@@ -232,10 +232,13 @@ export function shapeSubagent(
         step.status = isError ? "error" : "ok";
         step.endedAt = iso(at);
         step.durMs = Math.max(0, at - Date.parse(step.startedAt));
+        const childId =
+          step.label === "subagent" ? subagentIdFromOutput(text) : null;
         step.detail = {
           ...step.detail,
           terminalOutput: clipped ? text.slice(0, OUTPUT_MAX) : text,
           ...(clipped ? { truncated: true } : {}),
+          ...(childId ? { subagentSessionId: childId } : {}),
         };
         if (!step.detail.locations?.length) {
           step.detail.locations = locationsFromInput(step.detail.input, text);

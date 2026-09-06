@@ -204,7 +204,8 @@ describe("todo and subagent steps", () => {
       label: "subagent",
       detail: {
         input: { description: "Study skill conventions", prompt: "…" },
-        terminalOutput: "started subagent 44D7B69A-a278-4f0b-a7d5-2158a60b3f07",
+        terminalOutput: "started subagent 44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
+        subagentSessionId: "44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
       },
     };
     expect(isSubagentStep(step)).toBe(true);

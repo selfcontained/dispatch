@@ -380,3 +380,30 @@ describe("ChatComposer history", () => {
     expect(recallQueued).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("ChatComposer history on multi-line entries", () => {
+  it("lets the arrows move the caret inside a recalled multi-line prompt", () => {
+    const { input } = renderComposer({
+      history: ["one", "line a\nline b\nline c"],
+    });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("line a\nline b\nline c");
+    // Caret on the last line: ArrowUp is the textarea's own.
+    input.setSelectionRange(input.value.length, input.value.length);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("line a\nline b\nline c");
+    // Caret on the first line: ArrowUp walks back.
+    input.setSelectionRange(2, 2);
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("one");
+    // An IME arrow press never swaps the field.
+    const composing = new KeyboardEvent("keydown", {
+      key: "ArrowDown",
+      bubbles: true,
+      cancelable: true,
+    });
+    Object.defineProperty(composing, "isComposing", { value: true });
+    input.dispatchEvent(composing);
+    expect(input.value).toBe("one");
+  });
+});

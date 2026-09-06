@@ -19,6 +19,7 @@ import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
 import { DshSupervisor } from "./agents/dsh/supervisor.js";
+import { createSessionLogReader } from "./agents/dsh/session-log.js";
 import { createUsageReporter } from "./agents/dsh/usage.js";
 import { getUsageBudgets } from "./usage-budget-settings.js";
 import type { AgentRecord } from "./agents/manager.js";
@@ -746,6 +747,13 @@ async function registerRoutes() {
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
     publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
     dshModels: () => dshSupervisor.modelCatalog(),
+    usageReport: createUsageReporter({
+      env: process.env,
+      dshHome: config.dshHome,
+      dshBin: config.dshBin,
+      budgets: () => getUsageBudgets(pool),
+      logger: app.log,
+    }),
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
@@ -843,6 +851,7 @@ async function registerRoutes() {
   await registerAgentRoutes(app, {
     pool,
     dshHome: config.dshHome,
+    subagentLogs: createSessionLogReader(),
     harness: {
       getConfigOptions: (agentId) => dshSupervisor.getConfigOptions(agentId),
       setConfigOption: (agentId, configId, value) =>
@@ -851,12 +860,6 @@ async function registerRoutes() {
       sendQueuedNow: (agentId, id) => dshSupervisor.sendQueuedNow(agentId, id),
       removeQueued: (agentId, id) => dshSupervisor.removeQueued(agentId, id),
       interrupt: (agentId) => dshSupervisor.interrupt(agentId),
-      usage: createUsageReporter({
-        env: process.env,
-        dshHome: config.dshHome,
-        dshBin: config.dshBin,
-        budgets: () => getUsageBudgets(pool),
-      }),
     },
     appLog: app.log,
     agentManager,
@@ -1031,6 +1034,22 @@ export async function start() {
   // after listen: the harness attaches Dispatch's MCP endpoint at resume.
   if (reconcileOnStart) {
     const dshRestore = await dshSupervisor.restoreRunning();
+    // Chat messages that were queued behind a running turn when the last
+    // process stopped: the boot sweep left them pending for these agents.
+    for (const id of dshRestore.restored) {
+      try {
+        const count = await chatService.redeliverPending(id);
+        if (count > 0) {
+          app.log.info(
+            { agentId: id, count },
+            "Redelivered queued chat messages"
+          );
+        }
+      } catch (err) {
+        app.log.warn({ err, agentId: id }, "Redelivering queued chat failed");
+      }
+    }
+    await chatService.abandonPending(dshRestore.failed).catch(() => []);
     if (dshRestore.restored.length + dshRestore.failed.length > 0) {
       app.log.info(dshRestore, "Restored dsh agents after restart");
     }

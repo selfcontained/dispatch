@@ -16,18 +16,14 @@ import type { Agent, MediaFile } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { useAnswerChatQuestion, useSendChatMessage } from "@/hooks/use-chat";
 import { uploadAgentMedia } from "@/lib/media-upload";
+import { cn } from "@/lib/utils";
 
-import type { Attachment, Step, Turn } from "./contracts";
-import { HarnessAgentContext } from "./harness-context";
+import type { Attachment, Turn } from "./contracts";
+import { HarnessContext } from "./harness-context";
 import { ModelPicker } from "./model-picker";
-import {
-  isTodoStep,
-  shortcutLabelsFromSteps,
-  todoItems,
-  type TodoItem,
-} from "./registry";
-import { ShortcutRow } from "./shortcut-row";
+import { latestTodoItems } from "./registry";
 import { TasksStrip } from "./tasks-strip";
+import { TurnShortcuts } from "./turn-shortcuts";
 import { TurnStream } from "./turn-stream";
 import { UsageDialog } from "./usage-dialog";
 import {
@@ -35,7 +31,7 @@ import {
   useHarnessConfig,
   useSetHarnessConfig,
 } from "./use-harness-config";
-import { useHarnessQueue } from "./use-harness-queue";
+import { useHarnessInterrupt, useHarnessQueue } from "./use-harness-queue";
 import { useHarnessSkills } from "./use-harness-skills";
 import { harnessTurnsQueryKey, useHarnessTurns } from "./use-harness-turns";
 
@@ -49,10 +45,30 @@ export type HarnessPaneProps = {
   openLightbox?: (file: MediaFile) => void;
 };
 
+const CHIP_CLASS =
+  "inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground pointer-coarse:min-h-11 pointer-coarse:px-3";
+
+/** What Enter and the arrows do right now, in the composer's helper line. */
+export function composerHint(
+  streaming: boolean,
+  queuedCount: number
+): string | undefined {
+  if (!streaming && queuedCount === 0) return undefined;
+  const parts = [
+    streaming
+      ? "Agent is working · Enter queues your message"
+      : "Message queued",
+  ];
+  if (queuedCount > 0) parts.push("↑ edits the queued one");
+  if (streaming) parts.push("Ctrl+C stops");
+  return parts.join(" · ");
+}
+
 /**
  * The Harness view for a Dispatch Harness agent: the PromptKit turn stream
  * over the same composer Chat uses. Prompts go through the chat endpoint,
- * so the Chat tab and cross-agent messaging keep working unchanged.
+ * so the Chat tab and cross-agent messaging keep working unchanged. The
+ * pane composes; what a turn shows is derived lower down.
  */
 export function HarnessPane({
   agentId,
@@ -69,16 +85,16 @@ export function HarnessPane({
     liveQuestions,
     streaming,
     queued,
+    promptHistory,
     loading,
     error,
   } = useHarnessTurns(agentId);
   const {
     sendNow: sendQueuedNow,
     remove: removeQueued,
-    interrupt,
-    interrupting,
     busyId: queueBusyId,
   } = useHarnessQueue(agentId);
+  const { interrupt, interrupting } = useHarnessInterrupt(agentId);
   const send = useSendChatMessage(agentId);
   const answer = useAnswerChatQuestion(agentId);
   const { mutateAsync: sendAsync } = send;
@@ -93,6 +109,8 @@ export function HarnessPane({
   // A file dropped anywhere on the pane attaches to the composer.
   const dropRef = useRef<HTMLDivElement>(null);
   const [draggingFiles, setDraggingFiles] = useState(false);
+  // The tasks strip's fold, kept here so a new list does not reopen it.
+  const [tasksExpanded, setTasksExpanded] = useState(!isMobile);
 
   const invalidateTurns = useCallback(() => {
     void queryClient.invalidateQueries({
@@ -120,58 +138,35 @@ export function HarnessPane({
   const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
     null
   );
-
-  // The task list as the agent last wrote it: from the live turn while one
-  // runs, else from the last settled turn. Shown while work remains on it.
-  const currentTasks = useMemo<TodoItem[]>(() => {
-    const steps: Step[] = [];
-    if (streaming && liveTrace) steps.push(...liveTrace.steps);
-    else {
-      for (let i = turns.length - 1; i >= 0; i -= 1) {
-        const trace = turns[i].trace;
-        if (turns[i].role === "assistant" && trace) {
-          steps.push(...trace.steps);
-          break;
-        }
-      }
-    }
-    for (let i = steps.length - 1; i >= 0; i -= 1) {
-      if (isTodoStep(steps[i])) return todoItems(steps[i]);
-    }
-    return [];
-  }, [liveTrace, streaming, turns]);
-  const tasksOpen = currentTasks.some((t) => t.status !== "completed");
-
-  // Shortcut pins a turn wrote render as buttons under that turn, in their
-  // live state: a pin since deleted is gone here too.
-  const shortcutsFor = useCallback(
-    (steps: Step[]) => {
-      const labels = shortcutLabelsFromSteps(steps);
-      if (labels.length === 0 || !agentId) return null;
-      const live = (agent?.pins ?? []).filter(
-        (pin) => pin.type === "shortcut" && labels.includes(pin.label)
-      );
-      if (live.length === 0) return null;
-      return (
-        <ShortcutRow
-          agentId={agentId}
-          agentName={agent?.name ?? null}
-          agentRunning={agent?.status === "running"}
-          pins={live}
-        />
-      );
-    },
-    [agent?.name, agent?.pins, agent?.status, agentId]
-  );
-  const turnExtras = useCallback(
-    (turn: Turn) => (turn.trace ? shortcutsFor(turn.trace.steps) : null),
-    [shortcutsFor]
-  );
-  const liveExtras = liveTrace ? shortcutsFor(liveTrace.steps) : null;
   const replyTarget =
     openFreeform && openFreeform.id !== dismissedQuestionId
       ? openFreeform
       : null;
+
+  const currentTasks = useMemo(
+    () => latestTodoItems(turns, liveTrace, streaming),
+    [liveTrace, streaming, turns]
+  );
+  const tasksOpen = currentTasks.some((t) => t.status !== "completed");
+
+  const turnExtras = useCallback(
+    (turn: Turn) =>
+      turn.trace ? (
+        <TurnShortcuts
+          agent={agent}
+          agentId={agentId}
+          steps={turn.trace.steps}
+        />
+      ) : null,
+    [agent, agentId]
+  );
+  const liveExtras = liveTrace ? (
+    <TurnShortcuts agent={agent} agentId={agentId} steps={liveTrace.steps} />
+  ) : null;
+  const context = useMemo(
+    () => ({ agentId, live: streaming }),
+    [agentId, streaming]
+  );
 
   const slashItems = useMemo<SlashItem[]>(
     () => [
@@ -214,6 +209,13 @@ export function HarnessPane({
     [setConfig]
   );
 
+  const report = useCallback(
+    (fallback: string) => (err: unknown) => {
+      setSendError(err instanceof Error ? err.message : fallback);
+    },
+    []
+  );
+
   const onSend = useCallback(
     async (
       text: string,
@@ -231,12 +233,12 @@ export function HarnessPane({
           await sendAsync({ text, attachments });
         }
       } catch (err) {
-        setSendError(err instanceof Error ? err.message : "Send failed.");
+        report("Send failed.")(err);
         throw err;
       }
       invalidateTurns();
     },
-    [answerAsync, invalidateTurns, replyTarget, sendAsync]
+    [answerAsync, invalidateTurns, replyTarget, report, sendAsync]
   );
 
   const onAnswer = useCallback(
@@ -248,56 +250,51 @@ export function HarnessPane({
         label: option.label,
       })
         .then(invalidateTurns)
-        .catch((err: unknown) => {
-          setSendError(err instanceof Error ? err.message : "Answer failed.");
-        });
+        .catch(report("Answer failed."));
     },
-    [answerAsync, invalidateTurns]
+    [answerAsync, invalidateTurns, report]
   );
 
   const onSendNow = useCallback(
     (id: string) => {
       setSendError(null);
-      sendQueuedNow(id).catch((err: unknown) => {
-        setSendError(err instanceof Error ? err.message : "Could not send.");
-      });
+      sendQueuedNow(id).catch(report("Could not send."));
     },
-    [sendQueuedNow]
+    [report, sendQueuedNow]
   );
   const onRemoveQueued = useCallback(
     (id: string) => {
       setSendError(null);
-      removeQueued(id).catch((err: unknown) => {
-        setSendError(err instanceof Error ? err.message : "Could not remove.");
-      });
+      removeQueued(id).catch(report("Could not remove."));
     },
-    [removeQueued]
+    [removeQueued, report]
   );
-
   const onStop = useCallback(() => {
     setSendError(null);
-    interrupt().catch((err: unknown) => {
-      setSendError(err instanceof Error ? err.message : "Could not stop.");
-    });
-  }, [interrupt]);
+    interrupt().catch(report("Could not stop."));
+  }, [interrupt, report]);
 
-  // What the user typed before, oldest first, for the composer's history.
-  const promptHistory = useMemo(() => {
-    const out: string[] = [];
-    for (const turn of turns) {
-      if (turn.role !== "user" || turn.extra?.source !== "chat") continue;
-      const text = turn.content.trim();
-      if (text && out[out.length - 1] !== text) out.push(text);
-    }
-    return out;
-  }, [turns]);
-  // ArrowUp on an empty field takes the newest queued message back to edit.
+  // ArrowUp on an empty field takes the newest queued message back to
+  // edit. One with attachments stays queued: the chips cannot come back
+  // into the draft, so it keeps Send now and Remove instead.
   const recallQueued = useCallback(async () => {
     const last = queued[queued.length - 1];
     if (!last) return null;
-    await removeQueued(last.id);
+    setSendError(null);
+    if (last.attachments.length > 0) {
+      setSendError(
+        "The queued message has attachments; use Send now or Remove on it."
+      );
+      return null;
+    }
+    try {
+      await removeQueued(last.id);
+    } catch (err) {
+      report("That message already started.")(err);
+      throw err;
+    }
     return last.text;
-  }, [queued, removeQueued]);
+  }, [queued, removeQueued, report]);
 
   const uploadFile = useCallback(
     (file: File) => {
@@ -365,7 +362,7 @@ export function HarnessPane({
           </div>
         </div>
       ) : null}
-      <HarnessAgentContext.Provider value={agentId}>
+      <HarnessContext.Provider value={context}>
         <TurnStream
           turns={turns}
           liveTrace={liveTrace}
@@ -411,16 +408,22 @@ export function HarnessPane({
             )
           }
         />
-      </HarnessAgentContext.Provider>
+      </HarnessContext.Provider>
       <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
-        {tasksOpen ? <TasksStrip items={currentTasks} /> : null}
-        <div className="mb-1 flex items-center justify-between gap-2">
+        {tasksOpen ? (
+          <TasksStrip
+            items={currentTasks}
+            open={tasksExpanded}
+            onOpenChange={setTasksExpanded}
+          />
+        ) : null}
+        <div className="mb-1 flex items-center gap-2">
           <button
             type="button"
             onClick={() => setPickerOpen(true)}
             title="Model and reasoning effort (or type /model)"
             data-testid="harness-model-chip"
-            className="inline-flex max-w-full items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground"
+            className={cn(CHIP_CLASS, "max-w-full")}
           >
             {starting || (!config.running && agent?.status === "running") ? (
               <ActivityBars size={10} className="shrink-0" />
@@ -440,24 +443,29 @@ export function HarnessPane({
             onClick={() => setUsageOpen(true)}
             title="API key usage this month (or type /usage)"
             data-testid="harness-usage-chip"
-            className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground"
+            className={CHIP_CLASS}
           >
             <CircleDollarSign className="h-3 w-3 shrink-0" aria-hidden="true" />
             usage
           </button>
-          {streaming ? (
-            <button
-              type="button"
-              onClick={onStop}
-              disabled={interrupting}
-              title="Stop the running turn; queued messages run next"
-              data-testid="harness-stop"
-              className="ml-auto inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50"
-            >
-              <Square className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-              {interrupting ? "Stopping…" : "Stop"}
-            </button>
-          ) : null}
+          {/* The Stop slot is always laid out, so the row does not reflow
+              when a turn starts; the button only shows while one runs. */}
+          <button
+            type="button"
+            onClick={onStop}
+            disabled={interrupting || !streaming}
+            aria-hidden={!streaming}
+            tabIndex={streaming ? 0 : -1}
+            title="Stop the running turn (Ctrl+C in the field); queued messages run next"
+            data-testid="harness-stop"
+            className={cn(
+              "ml-auto inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",
+              !streaming && "invisible"
+            )}
+          >
+            <Square className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+            {interrupting ? "Stopping…" : "Stop"}
+          </button>
         </div>
         <UsageDialog open={usageOpen} onOpenChange={setUsageOpen} />
         <ModelPicker
@@ -487,13 +495,10 @@ export function HarnessPane({
           autoFocus={active && !isMobile}
           slashItems={slashItems}
           onSlashCommand={onSlashCommand}
-          hint={
-            streaming || queued.length > 0
-              ? "Agent is working · Enter queues your message · ↑ edits the queued one"
-              : undefined
-          }
+          hint={composerHint(streaming, queued.length)}
           history={promptHistory}
           recallQueued={recallQueued}
+          onInterrupt={streaming ? onStop : undefined}
           dropTargetRef={dropRef}
           onDropZoneDragging={setDraggingFiles}
           replyContext={

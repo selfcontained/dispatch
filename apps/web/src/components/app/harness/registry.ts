@@ -8,7 +8,7 @@
 // step-detail.tsx.
 import { diffLines } from "@/components/app/chat/stream-entries";
 
-import type { Step } from "./contracts";
+import type { Step, Trace, Turn } from "./contracts";
 
 /** What the server puts on a step's `detail` (see harness-types.ts). */
 export type StepDetailData = {
@@ -20,6 +20,8 @@ export type StepDetailData = {
   /** The tool call's raw input; dsh sends the model's arguments. */
   input?: unknown;
   text?: string;
+  /** A `subagent` step: the child session it started. */
+  subagentSessionId?: string;
 };
 
 const LABELS: Record<string, string> = {
@@ -74,6 +76,32 @@ export type TodoItem = {
   status: string;
 };
 
+/**
+ * The task list as the agent last wrote it: from the live turn while one
+ * runs, else from the last settled turn; empty when neither has one.
+ */
+export function latestTodoItems(
+  turns: Turn[],
+  liveTrace: Trace | null,
+  streaming: boolean
+): TodoItem[] {
+  let steps: Step[] = [];
+  if (streaming && liveTrace) steps = liveTrace.steps;
+  else {
+    for (let i = turns.length - 1; i >= 0; i -= 1) {
+      const trace = turns[i].trace;
+      if (turns[i].role === "assistant" && trace) {
+        steps = trace.steps;
+        break;
+      }
+    }
+  }
+  for (let i = steps.length - 1; i >= 0; i -= 1) {
+    if (isTodoStep(steps[i])) return todoItems(steps[i]);
+  }
+  return [];
+}
+
 /** The task list a todo step wrote, when it is one. */
 export function todoItems(step: Step): TodoItem[] {
   const input = inputRecord(stepDetailData(step).input);
@@ -93,14 +121,10 @@ export function todoItems(step: Step): TodoItem[] {
   });
 }
 
-const SUBAGENT_ID =
-  /subagent\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
-
-/** The child session id a subagent step reported ("started subagent <id>"). */
+/** The child session a subagent step started; the server reads it off dsh's output. */
 export function subagentSessionId(step: Step): string | null {
-  const output = stepDetailData(step).terminalOutput;
-  const m = output ? SUBAGENT_ID.exec(output) : null;
-  return m ? m[1].toLowerCase() : null;
+  const id = stepDetailData(step).subagentSessionId;
+  return typeof id === "string" && id ? id : null;
 }
 
 /**

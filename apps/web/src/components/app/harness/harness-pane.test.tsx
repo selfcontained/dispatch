@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -25,6 +26,7 @@ const state: {
   liveQuestions: HarnessQuestion[];
   streaming: boolean;
   queued: HarnessQueuedPrompt[];
+  promptHistory: string[];
   loading: boolean;
   error: Error | null;
 } = {
@@ -34,6 +36,7 @@ const state: {
   liveQuestions: [],
   streaming: false,
   queued: [],
+  promptHistory: [],
   loading: false,
   error: null,
 };
@@ -78,7 +81,8 @@ vi.mock("./use-harness-subagent", () => ({
   useHarnessSubagent: () => subagentState,
 }));
 const runShortcut = vi.fn();
-vi.mock("@/hooks/use-pin-shortcuts", () => ({
+vi.mock("@/hooks/use-pin-shortcuts", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-pin-shortcuts")>()),
   useRunPinShortcut: () => ({
     mutate: runShortcut,
     isPending: false,
@@ -95,9 +99,11 @@ vi.mock("./use-harness-queue", () => ({
   useHarnessQueue: () => ({
     sendNow: queueSendNow,
     remove: queueRemove,
+    busyId: null,
+  }),
+  useHarnessInterrupt: () => ({
     interrupt: queueInterrupt,
     interrupting: false,
-    busyId: null,
   }),
 }));
 const answerMutate = vi.fn(async () => ({}));
@@ -143,9 +149,12 @@ afterEach(() => {
   state.liveQuestions = [];
   state.streaming = false;
   state.queued = [];
+  state.promptHistory = [];
   answerMutate.mockClear();
   queueSendNow.mockClear();
   queueRemove.mockClear();
+  queueInterrupt.mockClear();
+  runShortcut.mockClear();
 });
 
 const T0 = Date.parse("2026-09-04T10:00:00.000Z");
@@ -226,6 +235,7 @@ describe("HarnessPane", () => {
   });
 
   it("shows a running thinking row while the live turn has nothing open", () => {
+    vi.useFakeTimers();
     state.turns = [
       { id: "t2:user", role: "user", content: "again", timestamp: T0 },
     ];
@@ -248,6 +258,11 @@ describe("HarnessPane", () => {
       <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
       { wrapper }
     );
+    // The row waits half a second so back-to-back calls do not flicker it.
+    expect(screen.queryByTestId("harness-thinking-row")).toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
     const row = screen.getByTestId("harness-thinking-row");
     expect(row.textContent).toContain("thinking");
     // A step still running is its own sign of life; no extra row then.
@@ -268,10 +283,14 @@ describe("HarnessPane", () => {
       <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
       { wrapper }
     );
+    act(() => {
+      vi.advanceTimersByTime(600);
+    });
     expect(screen.queryByTestId("harness-thinking-row")).toBeNull();
     expect(screen.getAllByTestId("harness-step")[0].textContent).toContain(
       "thinking"
     );
+    vi.useRealTimers();
   });
 
   it("invites the first prompt when there are no turns", () => {
@@ -427,8 +446,8 @@ describe("HarnessPane message queue", () => {
     expect(queueRemove).toHaveBeenCalledWith("q_3");
 
     // The composer says what Enter does while the agent is busy.
-    expect(screen.getByTestId("chat-composer-hint").textContent).toContain(
-      "Agent is working · Enter queues your message"
+    expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+      "Agent is working · Enter queues your message · ↑ edits the queued one · Ctrl+C stops"
     );
   });
 
@@ -479,10 +498,19 @@ describe("HarnessPane tasks and subagents", () => {
     );
     const strip = screen.getByTestId("harness-tasks");
     expect(strip.textContent).toContain("1 of 3 done");
+    // The strip previews the active item and what comes next; done items
+    // are behind "+N more".
     const items = strip.querySelectorAll('[data-testid="harness-todo-item"]');
-    expect(items).toHaveLength(3);
-    expect(items[1].getAttribute("data-status")).toBe("in_progress");
-    expect(items[1].textContent).toContain("Write the skill");
+    expect(items).toHaveLength(2);
+    expect(items[0].getAttribute("data-status")).toBe("in_progress");
+    expect(items[0].textContent).toContain("Write the skill");
+    expect(screen.getByTestId("harness-tasks-more").textContent).toBe(
+      "+1 more"
+    );
+    fireEvent.click(screen.getByTestId("harness-tasks-more"));
+    expect(
+      strip.querySelectorAll('[data-testid="harness-todo-item"]')
+    ).toHaveLength(3);
     // Collapsing keeps the active task in the header line.
     fireEvent.click(screen.getByTestId("harness-tasks-toggle"));
     expect(strip.querySelector('[data-testid="harness-todo-list"]')).toBeNull();
@@ -582,6 +610,7 @@ describe("HarnessPane tasks and subagents", () => {
                 },
                 terminalOutput:
                   "started subagent 44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
+                subagentSessionId: "44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
               },
             },
           ],
@@ -730,15 +759,7 @@ describe("HarnessPane stop and recall", () => {
   });
 
   it("hides Stop when nothing runs, and ArrowUp pulls the queued message back", async () => {
-    state.turns = [
-      {
-        id: "t1:user",
-        role: "user",
-        content: "earlier prompt",
-        timestamp: T0,
-        extra: { source: "chat" },
-      },
-    ];
+    state.promptHistory = ["earlier prompt"];
     state.queued = [
       {
         id: "m2",
@@ -753,12 +774,75 @@ describe("HarnessPane stop and recall", () => {
       <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
       { wrapper }
     );
-    expect(screen.queryByTestId("harness-stop")).toBeNull();
+    expect(screen.getByTestId("harness-stop").getAttribute("aria-hidden")).toBe(
+      "true"
+    );
     const input = screen.getByTestId(
       "chat-composer-input"
     ) as HTMLTextAreaElement;
     fireEvent.keyDown(input, { key: "ArrowUp" });
     await waitFor(() => expect(input.value).toBe("queued one"));
     expect(queueRemove).toHaveBeenCalledWith("m2");
+  });
+});
+
+describe("composerHint", () => {
+  it("says what Enter and the arrows do for each state", async () => {
+    const { composerHint } = await import("./harness-pane");
+    expect(composerHint(false, 0)).toBeUndefined();
+    expect(composerHint(true, 0)).toBe(
+      "Agent is working · Enter queues your message · Ctrl+C stops"
+    );
+    expect(composerHint(true, 2)).toBe(
+      "Agent is working · Enter queues your message · ↑ edits the queued one · Ctrl+C stops"
+    );
+    expect(composerHint(false, 1)).toBe(
+      "Message queued · ↑ edits the queued one"
+    );
+  });
+
+  it("refuses to recall a queued message that carries attachments", async () => {
+    state.queued = [
+      {
+        id: "m3",
+        source: "chat",
+        text: "with a file",
+        chatMessageId: "m3",
+        attachments: [
+          { type: "file", mediaId: 1, fileName: "a.png", sizeBytes: 1 },
+        ],
+        createdAt: "2026-09-04T10:00:01.000Z",
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    // The draft atom is per agent and outlives the previous test's render.
+    fireEvent.change(input, { target: { value: "" } });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() =>
+      expect(screen.getByRole("alert").textContent).toContain("attachments")
+    );
+    expect(queueRemove).not.toHaveBeenCalled();
+    expect(input.value).toBe("");
+  });
+
+  it("stops the turn on Ctrl+C in the field while one runs", () => {
+    state.turns = [
+      { id: "t1:user", role: "user", content: "go", timestamp: T0 },
+    ];
+    state.liveTrace = { startedAt: T0, steps: [] };
+    state.streaming = true;
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const input = screen.getByTestId("chat-composer-input");
+    fireEvent.keyDown(input, { key: "c", ctrlKey: true });
+    expect(queueInterrupt).toHaveBeenCalledTimes(1);
   });
 });

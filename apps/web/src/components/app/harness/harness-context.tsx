@@ -1,12 +1,22 @@
 import { createContext, useContext } from "react";
 
-/**
- * The agent whose stream is on screen, for renderers deep in the rail
- * (a subagent step fetches its child's log by agent id) without threading
- * the id through every primitive.
- */
-export const HarnessAgentContext = createContext<string | null>(null);
+export type HarnessContextValue = {
+  /** The agent whose stream is on screen. */
+  agentId: string | null;
+  /** A turn is running: nested views keep polling; settled ones stop. */
+  live: boolean;
+};
 
-export function useHarnessAgentId(): string | null {
-  return useContext(HarnessAgentContext);
+/**
+ * What renderers deep in the rail need without threading props through
+ * every primitive: a subagent step fetches its child's log by agent id,
+ * and polls it only while the parent turn is still running.
+ */
+export const HarnessContext = createContext<HarnessContextValue>({
+  agentId: null,
+  live: false,
+});
+
+export function useHarnessContext(): HarnessContextValue {
+  return useContext(HarnessContext);
 }

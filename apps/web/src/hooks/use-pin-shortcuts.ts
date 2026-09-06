@@ -1,7 +1,21 @@
 import { useMutation } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import type { AgentPin } from "@/components/app/types";
 import { api } from "@/lib/api";
+
+/**
+ * Whether a shortcut click must go through the confirm dialog first: the
+ * pin asks for it, or the pointer is touch, where the hover tooltip that
+ * shows the full prompt never opens and a tap would send it unseen.
+ */
+export function shouldConfirmShortcut(
+  pin: AgentPin,
+  pointerType: string | undefined,
+  coarsePointer: boolean
+): boolean {
+  return Boolean(pin.confirm) || coarsePointer || pointerType === "touch";
+}
 
 /**
  * Fires a shortcut pin: the server looks the prompt up by pin ID and delivers

@@ -3,6 +3,7 @@ import path from "node:path";
 import { readdir, stat } from "node:fs/promises";
 
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
+import type { HarnessUsageResponse } from "@dispatch/shared";
 import type { Pool } from "pg";
 
 import { deleteSetting, getSetting, setSetting } from "../db/settings.js";
@@ -24,7 +25,7 @@ import {
 } from "../chat-surface-settings.js";
 import {
   getUsageBudgets,
-  isUsageProviderId,
+  parseUsageBudgets,
   setUsageBudgets,
 } from "../usage-budget-settings.js";
 import { JobService } from "../jobs/service.js";
@@ -64,6 +65,8 @@ type SystemRouteDeps = {
   publishUiEvent: (event: unknown) => void;
   /** Dispatch Harness models as dsh serves them; the static list is the fallback. */
   dshModels?: () => Promise<AgentModelOption[]>;
+  /** What the provider keys have been used for this month (agents/dsh/usage.ts). */
+  usageReport?: () => Promise<HarnessUsageResponse>;
 };
 
 export async function registerSystemRoutes(
@@ -462,33 +465,25 @@ export async function registerSystemRoutes(
     return { enabled: body.enabled };
   });
 
+  // Service-wide, not per agent: the keys are the service's. Cached a
+  // minute upstream.
+  app.get("/api/v1/harness/usage", async (_request, reply) => {
+    if (!deps.usageReport) {
+      return reply.code(503).send({ error: "Usage reporting is not wired." });
+    }
+    const response: HarnessUsageResponse = await deps.usageReport();
+    return response;
+  });
+
   app.get("/api/v1/app/settings/usage-budgets", async () => {
     return { budgets: await getUsageBudgets(deps.pool) };
   });
 
   app.post("/api/v1/app/settings/usage-budgets", async (request, reply) => {
     const body = request.body as { budgets?: unknown } | null;
-    const budgets = body?.budgets;
-    if (
-      typeof budgets !== "object" ||
-      budgets === null ||
-      Array.isArray(budgets)
-    ) {
-      return reply.code(400).send({ error: "budgets must be an object." });
-    }
-    for (const [id, value] of Object.entries(
-      budgets as Record<string, unknown>
-    )) {
-      if (!isUsageProviderId(id)) {
-        return reply.code(400).send({ error: `Unknown provider: ${id}.` });
-      }
-      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-        return reply.code(400).send({
-          error: `Budget for ${id} must be a positive number of USD.`,
-        });
-      }
-    }
-    return { budgets: await setUsageBudgets(deps.pool, budgets) };
+    const parsed = parseUsageBudgets(body?.budgets);
+    if (!parsed.ok) return reply.code(400).send({ error: parsed.error });
+    return { budgets: await setUsageBudgets(deps.pool, parsed.budgets) };
   });
 
   app.get("/api/v1/app/settings/chat-surface", async () => {

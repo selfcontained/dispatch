@@ -14,6 +14,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
+import { shouldConfirmShortcut } from "@/hooks/use-pin-shortcuts";
 
 /**
  * The rendering unit for a set of pins: grouping policy and `PinItem` travel
@@ -231,7 +232,7 @@ export function PinsPanel({
     pointerType: string | undefined,
     ownerAgentId: string | null
   ): void => {
-    if (pin.confirm || coarsePointer || pointerType === "touch") {
+    if (shouldConfirmShortcut(pin, pointerType, coarsePointer)) {
       lastTrigger.current = pin.id
         ? (shortcutButtons.current.get(pin.id) ?? null)
         : null;

@@ -164,17 +164,23 @@ test.describe("dsh agent", () => {
     await expect(harness.getByTestId("harness-live-activity")).toBeVisible({
       timeout: 30_000,
     });
-    await expect(harness.getByTestId("chat-composer-hint")).toHaveText(
-      "Agent is working · Enter queues your message · ↑ edits the queued one"
+    await expect(harness.getByTestId("chat-composer-hint")).toContainText(
+      "Enter queues your message"
     );
 
     // Two more land in the queue, in order, under the live turn.
+    const queued = harness.getByTestId("harness-queued");
     await input.fill("second");
     await input.press("Enter");
+    // Enter is ignored while a send is in flight (the draft is kept), so
+    // wait for the first to land before typing the next.
+    await expect(queued).toHaveCount(1, { timeout: 30_000 });
     await input.fill("third");
     await input.press("Enter");
-    const queued = harness.getByTestId("harness-queued");
     await expect(queued).toHaveCount(2, { timeout: 30_000 });
+    await expect(harness.getByTestId("chat-composer-hint")).toContainText(
+      "↑ edits the queued one"
+    );
     await expect(queued.nth(0)).toContainText("second");
     await expect(queued.nth(0)).toContainText("Queued");
     await expect(queued.nth(1)).toContainText("third");

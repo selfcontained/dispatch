@@ -503,3 +503,35 @@ describe("assembleTurns thinking", () => {
     expect(think).toMatchObject({ kind: "think", status: "ok", durMs: 4000 });
   });
 });
+
+describe("assembleTurns subagent steps", () => {
+  it("carries the child session id a subagent call reported as step data", () => {
+    seq = 0;
+    const turns = assembleTurns(
+      [
+        row(
+          "turn",
+          { state: "started", prompt: { source: "system", text: "go" } },
+          0
+        ),
+        row(
+          "tool_call",
+          {
+            toolKind: "other",
+            title: "subagent",
+            status: "completed",
+            input: { description: "look" },
+            terminalOutput:
+              "started subagent 44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
+          },
+          1,
+          2
+        ),
+      ],
+      new Map()
+    );
+    expect(turns[0].trace.steps[0].detail.subagentSessionId).toBe(
+      "44d7b69a-a278-4f0b-a7d5-2158a60b3f07"
+    );
+  });
+});

@@ -142,6 +142,17 @@ export function toPromptKitTurns(
   return { turns: out, liveTrace, liveText, liveQuestions, streaming };
 }
 
+/** Chat prompts in order, without immediate repeats. */
+export function promptHistoryOf(turns: Turn[]): string[] {
+  const out: string[] = [];
+  for (const turn of turns) {
+    if (turn.role !== "user" || turn.extra?.source !== "chat") continue;
+    const text = turn.content.trim();
+    if (text && out[out.length - 1] !== text) out.push(text);
+  }
+  return out;
+}
+
 export function useHarnessTurns(agentId: string | null): {
   turns: Turn[];
   liveTrace: Trace | null;
@@ -150,6 +161,8 @@ export function useHarnessTurns(agentId: string | null): {
   streaming: boolean;
   /** Prompts waiting behind the live turn, first to run first. */
   queued: HarnessQueuedPrompt[];
+  /** What the user typed before, oldest first, for the composer's history. */
+  promptHistory: string[];
   loading: boolean;
   error: Error | null;
 } {
@@ -165,6 +178,7 @@ export function useHarnessTurns(agentId: string | null): {
   const mapped = toPromptKitTurns(query.data?.turns ?? [], agentId ?? "");
   return {
     ...mapped,
+    promptHistory: promptHistoryOf(mapped.turns),
     queued: query.data?.queued ?? [],
     loading: query.isLoading,
     error: query.error,

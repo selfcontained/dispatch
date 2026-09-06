@@ -1,4 +1,11 @@
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { constants, zstdCompressSync } from "node:zlib";
@@ -54,7 +61,12 @@ async function fakeDshInstall(root: string): Promise<string> {
     path.join(pkg, "package.json"),
     JSON.stringify({ name: "@deepseek-ai/dsh" })
   );
+  await writeFile(
+    path.join(pkg, "node_modules", "@earendil-works", "pi-ai", "package.json"),
+    JSON.stringify({ name: "@earendil-works/pi-ai", version: "0.0.0" })
+  );
   await writeFile(path.join(pkg, "lib", "bin.js"), "");
+  await chmod(path.join(pkg, "lib", "bin.js"), 0o755);
   await writeFile(
     path.join(data, "openai.json"),
     JSON.stringify({
@@ -214,6 +226,12 @@ describe("prices and logs", () => {
       cacheWrite: 5,
     });
     expect(await loadPriceTable(path.join(tmp, "missing"))).toEqual(new Map());
+    // A bare name resolves through PATH the way the child spawn does.
+    expect(
+      (await loadPriceTable("dsh", { PATH: path.dirname(bin) })).get(
+        "openai/gpt-5.6-sol"
+      )
+    ).toBeTruthy();
     expect(
       costUsd(
         {
@@ -293,7 +311,15 @@ describe("prices and logs", () => {
       ])
     );
     const since = new Date(Date.UTC(2026, 8, 1));
-    const usage = await loggedUsage(home, since);
+    const cache = new Map();
+    const { usage, partial } = await loggedUsage(home, since, cache);
+    expect(partial).toBe(false);
+    // A second scan with the file unchanged comes from the cache.
+    expect(cache.size).toBe(1);
+    const again = await loggedUsage(home, since, cache);
+    expect(again.usage.get("openai")?.get("gpt-5.6-sol")).toEqual(
+      usage.get("openai")?.get("gpt-5.6-sol")
+    );
     expect(usage.get("openai")?.get("gpt-5.6-sol")).toEqual({
       input: 6,
       output: 44,
@@ -361,6 +387,31 @@ describe("prices and logs", () => {
     });
     expect(deepseek.logged.usd).toBeCloseTo((100 * 0.14 + 50 * 0.28) / 1e6, 12);
     expect(deepseek.budgetUsd).toBeNull();
+  });
+
+  it("hides provider response bodies behind fixed messages", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "dsh-usage-"));
+    const fetchFn: FetchLike = async () => ({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError(
+          "Unexpected token '<', \"<html><bod\"... is not valid JSON"
+        );
+      },
+      text: async () => "<html>",
+    });
+    const report = await buildUsageReport({
+      env: { DEEPSEEK_API_KEY: "d" },
+      dshHome: path.join(tmp, "nowhere"),
+      dshBin: path.join(tmp, "nobin"),
+      budgets: async () => ({}),
+      fetchFn,
+    });
+    expect(report.providers[0].error).toBe(
+      "DeepSeek balance API returned an unreadable response."
+    );
+    expect(report.providers[0].error).not.toContain("html");
   });
 
   it("names the missing admin key instead of failing the row, and caches the report", async () => {

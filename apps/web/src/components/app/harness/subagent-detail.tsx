@@ -3,7 +3,7 @@ import { cn } from "@/lib/utils";
 
 import { PlainBlock } from "./code-block";
 import type { Step } from "./contracts";
-import { useHarnessAgentId } from "./harness-context";
+import { useHarnessContext } from "./harness-context";
 import { inputRecord, stepDetailData, subagentSessionId } from "./registry";
 import { TurnStream } from "./turn-stream";
 import { useHarnessSubagent } from "./use-harness-subagent";
@@ -31,8 +31,12 @@ export function SubagentDetail({ step }: { step: Step }): JSX.Element {
 }
 
 function SubagentStream({ sessionId }: { sessionId: string }): JSX.Element {
-  const agentId = useHarnessAgentId();
-  const { subagent, loading, error } = useHarnessSubagent(agentId, sessionId);
+  const { agentId, live } = useHarnessContext();
+  const { subagent, loading, error } = useHarnessSubagent(
+    agentId,
+    sessionId,
+    live
+  );
   if (error) {
     return (
       <p
@@ -51,19 +55,35 @@ function SubagentStream({ sessionId }: { sessionId: string }): JSX.Element {
     );
   }
   const mapped = toPromptKitTurns(subagent.turns, agentId ?? "");
-  const running = subagent.status !== "finished";
+  // A child still "running" after its parent's turn ended did not finish
+  // cleanly; say so instead of spinning for ever.
+  const running = subagent.status !== "finished" && live;
+  const state =
+    subagent.status === "finished"
+      ? "finished"
+      : !live
+        ? "ended"
+        : subagent.status === "starting"
+          ? "starting"
+          : "running";
   return (
     <div
       className="rounded-md border border-border/60 bg-background/60 px-3 py-2"
       data-testid="harness-subagent"
-      data-status={subagent.status}
+      data-status={state}
     >
       <div className="mb-1 flex items-center gap-2 text-[11px]">
         {running ? (
           <ActivityBars size={10} className="shrink-0" />
         ) : (
-          <span className="font-bold text-status-done" aria-hidden="true">
-            ✓
+          <span
+            className={cn(
+              "font-bold",
+              state === "ended" ? "text-status-waiting" : "text-status-done"
+            )}
+            aria-hidden="true"
+          >
+            {state === "ended" ? "■" : "✓"}
           </span>
         )}
         <span
@@ -80,11 +100,7 @@ function SubagentStream({ sessionId }: { sessionId: string }): JSX.Element {
           </span>
         ) : null}
         <span className="ml-auto text-[10.5px] text-muted-foreground">
-          {subagent.status === "starting"
-            ? "starting"
-            : running
-              ? "running"
-              : "finished"}
+          {state}
         </span>
       </div>
       <TurnStream
@@ -92,7 +108,7 @@ function SubagentStream({ sessionId }: { sessionId: string }): JSX.Element {
         turns={mapped.turns}
         liveTrace={mapped.liveTrace}
         liveText={mapped.liveText}
-        streaming={mapped.streaming}
+        streaming={mapped.streaming && live}
         ariaLabel={`Subagent ${subagent.label ?? sessionId}`}
         emptyState={
           <p className="text-[11px] text-muted-foreground">

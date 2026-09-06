@@ -15,11 +15,13 @@ export function harnessSubagentQueryKey(
 
 /**
  * A subagent's shaped log. It has no stream of its own into Dispatch, so
- * while it runs this polls the file; once finished the answer is final.
+ * while it runs this polls the file; once finished, or once the parent
+ * turn has ended (a child cannot outlive it usefully), the answer is final.
  */
 export function useHarnessSubagent(
   agentId: string | null,
-  sessionId: string | null
+  sessionId: string | null,
+  parentLive: boolean
 ): {
   subagent: HarnessSubagent | null;
   loading: boolean;
@@ -34,7 +36,9 @@ export function useHarnessSubagent(
     enabled: agentId !== null && sessionId !== null,
     staleTime: 2_000,
     refetchInterval: (q) =>
-      q.state.data?.subagent.status === "finished" ? false : 3_000,
+      parentLive && q.state.data?.subagent.status !== "finished"
+        ? 3_000
+        : false,
   });
   return {
     subagent: query.data?.subagent ?? null,

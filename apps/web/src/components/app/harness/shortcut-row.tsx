@@ -5,7 +5,10 @@ import { ShortcutPinItem } from "@/components/app/pin-shortcut-item";
 import { ConfirmShortcutDialog } from "@/components/app/pins-panel";
 import type { AgentPin } from "@/components/app/types";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
-import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
+import {
+  shouldConfirmShortcut,
+  useRunPinShortcut,
+} from "@/hooks/use-pin-shortcuts";
 
 /**
  * The shortcut pins a turn wrote, as buttons where the agent said them.
@@ -58,9 +61,7 @@ export function ShortcutRow({
                   pending={run.isPending && run.variables?.pinId === pin.id}
                   onRun={(pointerType) => {
                     if (
-                      pin.confirm ||
-                      coarsePointer ||
-                      pointerType === "touch"
+                      shouldConfirmShortcut(pin, pointerType, coarsePointer)
                     ) {
                       setPending(pin);
                       return;

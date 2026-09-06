@@ -35,10 +35,17 @@ async function build(
     startFails?: boolean;
     /** What the newest turn row's error column says. */
     lastTurnError?: string | null;
+    /** When that turn ended; defaults to now. */
+    lastTurnEndedAt?: Date;
+    /** The stored session cannot be resumed: dsh opens a fresh one. */
+    resumeFails?: boolean;
   } = {}
 ) {
   home = await mkdtemp(path.join(os.tmpdir(), "dsh-sup-"));
-  const fake = createFakeAcpAgent({ turn: opts.turn });
+  const fake = createFakeAcpAgent({
+    turn: opts.turn,
+    resumeFails: opts.resumeFails,
+  });
   const driver = new DshDriver({
     dshBin: "dsh",
     dshHome: home,
@@ -80,7 +87,15 @@ async function build(
     query.mockImplementation(async (sql: string) => {
       await new Promise((r) => setTimeout(r, 2));
       if (/payload->>'error' AS error/.test(sql)) {
-        return { rows: [{ error }], rowCount: 1 };
+        return {
+          rows: [
+            {
+              error,
+              ended_at: (opts.lastTurnEndedAt ?? new Date()).toISOString(),
+            },
+          ],
+          rowCount: 1,
+        };
       }
       return { rows: [], rowCount: 0 };
     });
@@ -591,6 +606,38 @@ describe("DshSupervisor message queue", () => {
     await sup.stop("agt_1");
   });
 
+  it("shutdown leaves a queued chat message pending for the next boot", async () => {
+    const CHAT = "0f3d2a8e-6c4b-4c1e-9b7a-1d2e3f4a5b6c";
+    const { sup, fake } = await build({
+      turn: async (_p, _emit, _ask, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve());
+          setTimeout(resolve, 2000);
+        });
+        return "cancelled";
+      },
+    });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", "one");
+    const chat = sup.enqueuePrompt(
+      "agt_1",
+      `--- DISPATCH CHAT (id: ${CHAT}) ---\nlater\n--- END DISPATCH CHAT ---`
+    );
+    const system = sup.enqueuePrompt("agt_1", "system note");
+    await first.started;
+    let chatSettled: "pending" | "started" | "failed" = "pending";
+    chat.started.then(
+      () => (chatSettled = "started"),
+      () => (chatSettled = "failed")
+    );
+    await sup.stopAll();
+    await expect(system.started).rejects.toThrow(/stopped/);
+    await chat.settled;
+    await new Promise((r) => setTimeout(r, 10));
+    expect(chatSettled).toBe("pending");
+    expect(fake.seen.prompts).toEqual(["one"]);
+  });
+
   it("stop drops what is queued and fails their starts", async () => {
     const { sup, fake } = await build({
       turn: async (_p, _emit, _ask, signal) => {
@@ -626,6 +673,50 @@ describe("DshSupervisor restart resilience", () => {
     deps.listRunningAgentIds.mockResolvedValue(["agt_1"]);
     await sup.restoreRunning();
     await vi.waitFor(() => expect(fake.seen.prompts).toEqual([RESTART_PROMPT]));
+    await sup.stopAll();
+  });
+
+  it("does not resume when the cut is old, the agent is done, or the session is fresh", async () => {
+    for (const build_opts of [
+      {
+        cliSessionId: "sess_old",
+        lastTurnError: "interrupted by restart",
+        lastTurnEndedAt: new Date(Date.now() - 2 * 60 * 60_000),
+      },
+      {
+        cliSessionId: "sess_old",
+        lastTurnError: "interrupted by restart",
+        resumeFails: true,
+      },
+    ]) {
+      const { sup, deps, fake } = await build(build_opts);
+      deps.listRunningAgentIds.mockResolvedValue(["agt_1"]);
+      await sup.restoreRunning();
+      await new Promise((r) => setTimeout(r, 30));
+      expect(fake.seen.prompts).toEqual([]);
+      await sup.stopAll();
+    }
+    const { sup, deps, fake } = await build({
+      cliSessionId: "sess_old",
+      lastTurnError: "interrupted by restart",
+    });
+    deps.getAgent.mockImplementation(async (id: string) => ({
+      id,
+      type: "dsh",
+      cwd: "/tmp/w",
+      mediaDir: null,
+      model: null,
+      cliSessionId: "sess_old",
+      latestEvent: {
+        type: "done",
+        message: "Review submitted",
+        updatedAt: "x",
+      },
+    }));
+    deps.listRunningAgentIds.mockResolvedValue(["agt_1"]);
+    await sup.restoreRunning();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(fake.seen.prompts).toEqual([]);
     await sup.stopAll();
   });
 

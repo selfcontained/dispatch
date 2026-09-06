@@ -5,12 +5,11 @@ import type {
   HarnessSkillsResponse,
   HarnessSubagentResponse,
   HarnessTurnsResponse,
-  HarnessUsageResponse,
 } from "@dispatch/shared";
 
 import {
   findSessionLog,
-  readSessionLog,
+  readSessionHeader,
 } from "../../agents/dsh/session-log.js";
 import { listDshSkills } from "../../agents/dsh/skills.js";
 import { shapeSubagent } from "../../agents/dsh/subagents.js";
@@ -23,7 +22,7 @@ const MAX_LIMIT = 200;
 /** Turns for the Harness view: read-only, assembled from the stream rows. */
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
-  deps: Pick<AgentRouteDeps, "pool" | "dshHome" | "harness">
+  deps: Pick<AgentRouteDeps, "pool" | "dshHome" | "harness" | "subagentLogs">
 ): Promise<void> {
   const exists = async (id: string): Promise<boolean> => {
     const row = await deps.pool.query(
@@ -32,13 +31,6 @@ export async function registerAgentHarnessRoutes(
     );
     return row.rows.length > 0;
   };
-
-  // What the provider keys have been used for; not per agent, the keys are
-  // the service's. Cached a minute upstream.
-  app.get("/api/v1/harness/usage", async () => {
-    const response: HarnessUsageResponse = await deps.harness.usage();
-    return response;
-  });
 
   // Session config: the model and reasoning effort dsh serves, live.
   app.get("/api/v1/agents/:id/harness/config", async (request, reply) => {
@@ -176,16 +168,18 @@ export async function registerAgentHarnessRoutes(
       if (!file) {
         return reply.code(404).send({ error: "Subagent log not found." });
       }
-      const log = await readSessionLog(file);
-      // Only this agent's own children: the child names its parent session.
+      // Only this agent's own children: the child names its parent session
+      // in its header, which is one frame; the rest is inflated only after.
+      const header = await readSessionHeader(file);
       if (
-        !log.header?.parentSession ||
-        log.header.parentSession !== agent.cli_session_id
+        !header?.parentSession ||
+        header.parentSession !== agent.cli_session_id
       ) {
         return reply
           .code(404)
           .send({ error: "That session is not a subagent of this agent." });
       }
+      const log = await deps.subagentLogs.read(file);
       const response: HarnessSubagentResponse = {
         subagent: shapeSubagent(sessionId.toLowerCase(), log),
       };

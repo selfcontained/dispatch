@@ -38,3 +38,11 @@ export function parsePromptSource(text: string): PromptSource {
   }
   return { source: "system", text: text.slice(0, SYSTEM_MAX) };
 }
+
+/** A prompt waiting its turn in the supervisor's queue, as routes read it. */
+export type QueuedPrompt = {
+  /** The chat message id for a chat prompt; otherwise a queue-local id. */
+  id: string;
+  source: PromptSource;
+  createdAt: string;
+};

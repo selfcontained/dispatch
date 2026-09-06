@@ -659,6 +659,33 @@ export class ChatService {
   }
 
   /**
+   * A Dispatch Harness agent brought back after a restart: the messages
+   * that were waiting in its queue when the service went down are still
+   * `delivered: null`, and go out again in the order they were sent.
+   */
+  async redeliverPending(agentId: string): Promise<number> {
+    const pending = await this.store.listPendingDeliveries(agentId);
+    if (pending.length === 0) return 0;
+    const agent = await this.requireAgent(agentId);
+    const sessionName = await this.requireDeliverable(agentId);
+    for (const message of pending) {
+      const lines = message.attachments.length
+        ? this.describeAttachments(agent, message.attachments)
+        : [];
+      await this.deliverDetached(agentId, sessionName, message, lines);
+    }
+    this.publishChanged(agentId);
+    return pending.length;
+  }
+
+  /** The boot sweep for agents that did not come back. */
+  async abandonPending(agentIds: string[]): Promise<string[]> {
+    const touched = await this.store.sweepPendingDeliveriesFor(agentIds);
+    for (const agentId of touched) this.publishChanged(agentId);
+    return touched;
+  }
+
+  /**
    * Register a detached delivery's settlement chain so graceful shutdown can
    * wait for it. The promise must never reject (the route already handles
    * outcomes); it is dropped from the set once it settles.

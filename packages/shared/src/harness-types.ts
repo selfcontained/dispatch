@@ -36,6 +36,8 @@ export type HarnessStep = {
     input?: unknown;
     /** note and think steps: the full text. */
     text?: string;
+    /** A `subagent` step: the child session it started. */
+    subagentSessionId?: string;
   };
 };
 
@@ -200,6 +202,8 @@ export type HarnessUsageResponse = {
   generatedAt: string;
   monthStart: string;
   providers: HarnessUsageProvider[];
+  /** A session log was too large to count; the logged totals understate. */
+  partial?: boolean;
 };
 
 /** The provider keys the harness can run on, as the usage dialog and budget settings list them. */
