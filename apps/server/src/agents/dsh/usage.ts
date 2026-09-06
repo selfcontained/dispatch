@@ -1,9 +1,11 @@
 import { readdir, readFile, realpath, stat } from "node:fs/promises";
 import path from "node:path";
-import type {
-  HarnessTokenCounts,
-  HarnessUsageProvider,
-  HarnessUsageResponse,
+import {
+  HARNESS_USAGE_PROVIDERS,
+  type HarnessTokenCounts,
+  type HarnessUsageProvider,
+  type HarnessUsageResponse,
+  type UsageBudgets,
 } from "@dispatch/shared";
 
 import { listSessionLogs, readSessionLog } from "./session-log.js";
@@ -24,52 +26,13 @@ export type FetchLike = (
   text: () => Promise<string>;
 }>;
 
-/** dsh provider route id → its key, label, and what its billing API offers. */
-const PROVIDERS: {
-  id: string;
-  label: string;
-  keyEnv: string;
-  /** Model catalog file in pi-ai's data dir. */
-  catalog: string;
-}[] = [
-  {
-    id: "openai",
-    label: "OpenAI",
-    keyEnv: "OPENAI_API_KEY",
-    catalog: "openai",
-  },
-  {
-    id: "deepseek",
-    label: "DeepSeek",
-    keyEnv: "DEEPSEEK_API_KEY",
-    catalog: "deepseek",
-  },
-  {
-    id: "anthropic",
-    label: "Anthropic",
-    keyEnv: "ANTHROPIC_API_KEY",
-    catalog: "anthropic",
-  },
-  {
-    id: "google",
-    label: "Google",
-    keyEnv: "GEMINI_API_KEY",
-    catalog: "google",
-  },
-];
+/** The providers the usage dialog lists, with pi-ai's catalog file for each. */
+const PROVIDERS = HARNESS_USAGE_PROVIDERS.map((p) => ({ ...p, catalog: p.id }));
 
 /** dsh names the same provider "deepseek-official" on its default route. */
 const PROVIDER_ALIASES: Record<string, string> = {
   "deepseek-official": "deepseek",
 };
-
-export function budgetFor(env: NodeJS.ProcessEnv, id: string): number | null {
-  const raw =
-    env[`DISPATCH_USAGE_BUDGET_${id.toUpperCase().replace(/-/g, "_")}`];
-  if (raw === undefined || raw === "") return null;
-  const n = Number(raw);
-  return Number.isFinite(n) && n > 0 ? n : null;
-}
 
 export function monthStartUtc(now = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -377,6 +340,8 @@ export type UsageDeps = {
   env: NodeJS.ProcessEnv;
   dshHome: string;
   dshBin: string;
+  /** Monthly budgets from Settings (usage-budget-settings.ts). */
+  budgets: () => Promise<UsageBudgets>;
   fetchFn?: FetchLike;
   now?: () => Date;
 };
@@ -387,18 +352,23 @@ export async function buildUsageReport(
   const now = deps.now?.() ?? new Date();
   const since = monthStartUtc(now);
   const fetchFn = deps.fetchFn ?? (fetch as unknown as FetchLike);
-  const [table, logged] = await Promise.all([
+  const [table, logged, budgets] = await Promise.all([
     loadPriceTable(deps.dshBin),
     loggedUsage(deps.dshHome, since),
+    deps.budgets(),
   ]);
   const providers: HarnessUsageProvider[] = [];
   for (const spec of PROVIDERS) {
-    if (!deps.env[spec.keyEnv]) continue;
+    const hasKey = !!deps.env[spec.keyEnv];
+    const budgetUsd = budgets[spec.id] ?? null;
+    // A row for every key that is set, and for a budget set without one.
+    if (!hasKey && budgetUsd === null) continue;
     const row: HarnessUsageProvider = {
       id: spec.id,
       label: spec.label,
       keyEnv: spec.keyEnv,
-      budgetUsd: budgetFor(deps.env, spec.id),
+      hasKey,
+      budgetUsd,
       logged: {
         since: since.toISOString(),
         tokens: zero(),
@@ -424,7 +394,9 @@ export async function buildUsageReport(
       row.logged.models.length > 0 && priced ? usd : priced ? 0 : null;
     row.logged.models.sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0));
     try {
-      if (spec.id === "openai") {
+      if (!hasKey) {
+        row.error = `${spec.keyEnv} is not set in the server environment.`;
+      } else if (spec.id === "openai") {
         const admin = deps.env.OPENAI_ADMIN_KEY;
         if (admin) {
           row.billed = {

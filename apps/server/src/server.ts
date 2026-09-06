@@ -20,6 +20,7 @@ import * as z from "zod/v4";
 import { AgentManager } from "./agents/manager.js";
 import { DshSupervisor } from "./agents/dsh/supervisor.js";
 import { createUsageReporter } from "./agents/dsh/usage.js";
+import { getUsageBudgets } from "./usage-budget-settings.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
   validateSession,
@@ -853,6 +854,7 @@ async function registerRoutes() {
         env: process.env,
         dshHome: config.dshHome,
         dshBin: config.dshBin,
+        budgets: () => getUsageBudgets(pool),
       }),
     },
     appLog: app.log,

@@ -170,7 +170,9 @@ export type HarnessUsageProvider = {
   label: string;
   /** The env var holding the key. */
   keyEnv: string;
-  /** Monthly budget from DISPATCH_USAGE_BUDGET_<ID>, in USD; null when unset. */
+  /** Whether the key is set in the server environment. */
+  hasKey: boolean;
+  /** Monthly budget from Settings, in USD; null when none is set. */
   budgetUsd: number | null;
   /** Month-to-date cost from the provider's own billing API, when it has one we can read. */
   billed?: { usd: number; since: string; source: string };
@@ -199,3 +201,19 @@ export type HarnessUsageResponse = {
   monthStart: string;
   providers: HarnessUsageProvider[];
 };
+
+/** The provider keys the harness can run on, as the usage dialog and budget settings list them. */
+export const HARNESS_USAGE_PROVIDERS = [
+  { id: "openai", label: "OpenAI", keyEnv: "OPENAI_API_KEY" },
+  { id: "deepseek", label: "DeepSeek", keyEnv: "DEEPSEEK_API_KEY" },
+  { id: "anthropic", label: "Anthropic", keyEnv: "ANTHROPIC_API_KEY" },
+  { id: "google", label: "Gemini", keyEnv: "GEMINI_API_KEY" },
+] as const;
+
+export type HarnessUsageProviderId =
+  (typeof HARNESS_USAGE_PROVIDERS)[number]["id"];
+
+/** Monthly budgets in USD by provider id; a provider without a row has none. */
+export type UsageBudgets = Partial<Record<HarnessUsageProviderId, number>>;
+
+export type UsageBudgetsResponse = { budgets: UsageBudgets };

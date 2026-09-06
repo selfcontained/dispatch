@@ -5,6 +5,7 @@ import { AppearanceSettings } from "@/components/app/appearance-settings";
 import { BrowserExtensionSettings } from "@/components/app/browser-extension-settings";
 import { CrossRepoMessagingSettings } from "@/components/app/cross-repo-messaging-settings";
 import { ChatSurfaceSettings } from "@/components/app/chat-surface-settings";
+import { UsageBudgetSettings } from "@/components/app/usage-budget-settings";
 import { InjectionHoldSettings } from "@/components/app/injection-hold-settings";
 import { LaunchGuidanceSettings } from "@/components/app/launch-guidance-settings";
 import { IdeSettings } from "@/components/app/ide-settings";
@@ -222,6 +223,9 @@ export function SettingsContent({
             </div>
             <div className="border-t border-border">
               <ChatSurfaceSettings />
+            </div>
+            <div className="border-t border-border">
+              <UsageBudgetSettings />
             </div>
             <div className="px-6 pb-6">
               <WorktreeLocationSettings />

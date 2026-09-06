@@ -5,7 +5,6 @@ import { constants, zstdCompressSync } from "node:zlib";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  budgetFor,
   buildUsageReport,
   costUsd,
   createUsageReporter,
@@ -86,21 +85,6 @@ async function fakeDshInstall(root: string): Promise<string> {
 }
 
 describe("budgets and months", () => {
-  it("reads a positive monthly budget per provider id", () => {
-    expect(budgetFor({ DISPATCH_USAGE_BUDGET_OPENAI: "50" }, "openai")).toBe(
-      50
-    );
-    expect(
-      budgetFor({ DISPATCH_USAGE_BUDGET_OPENAI: "abc" }, "openai")
-    ).toBeNull();
-    expect(budgetFor({}, "openai")).toBeNull();
-    expect(
-      budgetFor(
-        { DISPATCH_USAGE_BUDGET_DEEPSEEK_OFFICIAL: "5" },
-        "deepseek-official"
-      )
-    ).toBe(5);
-  });
   it("starts the month at 00:00 UTC on the 1st", () => {
     expect(monthStartUtc(new Date("2026-09-05T23:00:00Z")).toISOString()).toBe(
       "2026-09-01T00:00:00.000Z"
@@ -345,17 +329,25 @@ describe("prices and logs", () => {
         OPENAI_API_KEY: "k",
         OPENAI_ADMIN_KEY: "a",
         DEEPSEEK_API_KEY: "d",
-        DISPATCH_USAGE_BUDGET_OPENAI: "50",
       },
       dshHome: home,
       dshBin: bin,
+      budgets: async () => ({ openai: 50, google: 5 }),
       fetchFn,
       now: () => new Date(Date.UTC(2026, 8, 5, 12)),
     });
     expect(report.monthStart).toBe("2026-09-01T00:00:00.000Z");
-    expect(report.providers.map((p) => p.id)).toEqual(["openai", "deepseek"]);
-    const [openai, deepseek] = report.providers;
+    // Keyed providers, plus Gemini for its budget alone.
+    expect(report.providers.map((p) => p.id)).toEqual([
+      "openai",
+      "deepseek",
+      "google",
+    ]);
+    const [openai, deepseek, google] = report.providers;
     expect(openai.budgetUsd).toBe(50);
+    expect(openai.hasKey).toBe(true);
+    expect(google).toMatchObject({ hasKey: false, budgetUsd: 5 });
+    expect(google.error).toMatch(/GEMINI_API_KEY/);
     expect(openai.billed).toMatchObject({ usd: 3.5, source: "openai-costs" });
     expect(openai.logged.models[0].model).toBe("gpt-5.6-sol");
     // 6*4 + 44*20 + 12810*0.4 + 14134*5 per million
@@ -378,6 +370,7 @@ describe("prices and logs", () => {
       env: { OPENAI_API_KEY: "k" },
       dshHome: path.join(tmp, "nowhere"),
       dshBin: path.join(tmp, "nobin"),
+      budgets: async () => ({}),
       fetchFn,
     });
     const first = await reporter();

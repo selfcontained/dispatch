@@ -838,3 +838,55 @@ describe("POST /api/v1/energy-report", () => {
     expect(res.statusCode).toBe(204);
   });
 });
+
+describe("usage budgets settings", () => {
+  const url = "/api/v1/app/settings/usage-budgets";
+  it("starts empty, stores known providers, and rejects the rest", async () => {
+    const empty = await ctx.app.inject({
+      method: "GET",
+      url,
+      headers: { cookie: sessionCookie },
+    });
+    expect(empty.statusCode).toBe(200);
+    expect(empty.json()).toEqual({ budgets: {} });
+
+    const saved = await ctx.app.inject({
+      method: "POST",
+      url,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { budgets: { openai: 50, google: 12.345 } },
+    });
+    expect(saved.statusCode).toBe(200);
+    expect(saved.json()).toEqual({ budgets: { openai: 50, google: 12.35 } });
+    const read = await ctx.app.inject({
+      method: "GET",
+      url,
+      headers: { cookie: sessionCookie },
+    });
+    expect(read.json()).toEqual({ budgets: { openai: 50, google: 12.35 } });
+
+    for (const payload of [
+      { budgets: [] },
+      { budgets: { mistral: 5 } },
+      { budgets: { openai: -1 } },
+      { budgets: { openai: "50" } },
+    ]) {
+      const bad = await ctx.app.inject({
+        method: "POST",
+        url,
+        headers: { cookie: sessionCookie, "content-type": "application/json" },
+        payload,
+      });
+      expect(bad.statusCode).toBe(400);
+    }
+
+    // An empty object clears every row.
+    const cleared = await ctx.app.inject({
+      method: "POST",
+      url,
+      headers: { cookie: sessionCookie, "content-type": "application/json" },
+      payload: { budgets: {} },
+    });
+    expect(cleared.json()).toEqual({ budgets: {} });
+  });
+});

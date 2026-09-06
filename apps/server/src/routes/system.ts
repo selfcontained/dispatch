@@ -22,6 +22,11 @@ import {
   isChatSurfaceEnabled,
   setChatSurfaceEnabled,
 } from "../chat-surface-settings.js";
+import {
+  getUsageBudgets,
+  isUsageProviderId,
+  setUsageBudgets,
+} from "../usage-budget-settings.js";
 import { JobService } from "../jobs/service.js";
 import {
   AGENT_TYPES,
@@ -455,6 +460,35 @@ export async function registerSystemRoutes(
     }
     await setInjectionHoldEnabled(deps.pool, body.enabled);
     return { enabled: body.enabled };
+  });
+
+  app.get("/api/v1/app/settings/usage-budgets", async () => {
+    return { budgets: await getUsageBudgets(deps.pool) };
+  });
+
+  app.post("/api/v1/app/settings/usage-budgets", async (request, reply) => {
+    const body = request.body as { budgets?: unknown } | null;
+    const budgets = body?.budgets;
+    if (
+      typeof budgets !== "object" ||
+      budgets === null ||
+      Array.isArray(budgets)
+    ) {
+      return reply.code(400).send({ error: "budgets must be an object." });
+    }
+    for (const [id, value] of Object.entries(
+      budgets as Record<string, unknown>
+    )) {
+      if (!isUsageProviderId(id)) {
+        return reply.code(400).send({ error: `Unknown provider: ${id}.` });
+      }
+      if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+        return reply.code(400).send({
+          error: `Budget for ${id} must be a positive number of USD.`,
+        });
+      }
+    }
+    return { budgets: await setUsageBudgets(deps.pool, budgets) };
   });
 
   app.get("/api/v1/app/settings/chat-surface", async () => {

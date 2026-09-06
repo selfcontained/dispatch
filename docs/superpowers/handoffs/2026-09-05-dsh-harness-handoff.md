@@ -195,7 +195,7 @@ tagged `v0.38.7-dsh.19`). Rollback binary `~/.dispatch/server/dispatch.dsh18`.
   API key; an unscoped personal key works, a workspace key 401s), DeepSeek
   `/user/balance`, and the harness logs' `assistant/message.usage` per
   provider/model priced with pi-ai's catalog found beside the dsh binary.
-  Budgets from `DISPATCH_USAGE_BUDGET_<PROVIDER>`. `GET /api/v1/harness/usage`,
+  Budgets come from Settings → Agents → Usage budgets (`usage_budgets` setting, `GET/POST /api/v1/app/settings/usage-budgets`; the dsh.19 env vars are gone). `GET /api/v1/harness/usage`,
   cached 60s. Web: `usage-dialog.tsx`, `/usage`, chip. Live on this
   machine: OpenAI billed ≈ logs estimate (19.4 vs 20.7 USD on 2026-09-05),
   DeepSeek balance reads, Anthropic needs the admin key.

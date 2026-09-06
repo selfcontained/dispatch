@@ -82,7 +82,6 @@ function ProviderRow({
 }): JSX.Element {
   const spend = spendOf(provider);
   const budget = provider.budgetUsd;
-  const envName = `DISPATCH_USAGE_BUDGET_${provider.id.toUpperCase().replace(/-/g, "_")}`;
   return (
     <div
       className="rounded-md border border-border/60 px-3 py-2.5"
@@ -95,6 +94,7 @@ function ProviderRow({
         </span>
         <span className="font-terminal text-[10.5px] text-muted-foreground">
           {provider.keyEnv}
+          {provider.hasKey ? "" : " · not set"}
         </span>
         <span
           className="ml-auto text-sm tabular-nums text-foreground"
@@ -116,7 +116,7 @@ function ProviderRow({
           <p className="text-[11px] text-muted-foreground">
             {spend.usd === null
               ? "No spend figure: neither a billing API nor prices for these models."
-              : `Spend this month. Set ${envName} (USD) in the server .env for a budget bar.`}
+              : "Spend this month. Set a budget in Settings → Agents → Usage budgets for a bar."}
           </p>
         )}
       </div>

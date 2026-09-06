@@ -89,6 +89,10 @@ vi.mock(
   "@/components/app/worktree-location-settings",
   stubModule("WorktreeLocationSettings")
 );
+vi.mock(
+  "@/components/app/usage-budget-settings",
+  stubModule("UsageBudgetSettings")
+);
 
 // The docs nav list is real data the sidebar renders one entry per, so only the
 // heavy content pane is stubbed out.
@@ -286,6 +290,7 @@ describe("SettingsContent", () => {
         "InjectionHoldSettings",
         "CrossRepoMessagingSettings",
         "ChatSurfaceSettings",
+        "UsageBudgetSettings",
         "WorktreeLocationSettings",
       ],
     ],
