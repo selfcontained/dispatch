@@ -1,4 +1,4 @@
-import { Children, isValidElement, type ReactNode } from "react";
+import { Children, isValidElement, memo, type ReactNode } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -41,7 +41,7 @@ type MarkdownProps = {
   headingAccents?: boolean;
 };
 
-export function Markdown({
+export const Markdown = memo(function Markdown({
   children,
   className,
   variant = "default",
@@ -60,7 +60,7 @@ export function Markdown({
       {children}
     </MarkdownDefault>
   );
-}
+});
 
 /**
  * Single-line muted markdown for subtitles (e.g. a shortcut pin's caption).

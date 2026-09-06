@@ -513,12 +513,16 @@ export function ChatPane({
   // Shortcut pins in the stream fire exactly as they do in the sidebar:
   // same confirmation rule, same dialog, same focus restoration.
   const runPinShortcut = useRunPinShortcut();
+  // As with `answer` above: the mutation result object is new every render,
+  // and it fed `ctx`, so every memoised post re-rendered whenever the pane
+  // did. Depend on the stable `mutate` and the flag instead.
+  const { mutate: runShortcutNow, isPending: shortcutPending } = runPinShortcut;
   const fireShortcut = useCallback(
     (pin: AgentPin) => {
-      if (!agentId || !pin.id || runPinShortcut.isPending) return;
-      runPinShortcut.mutate({ agentId, pinId: pin.id, label: pin.label });
+      if (!agentId || !pin.id || shortcutPending) return;
+      runShortcutNow({ agentId, pinId: pin.id, label: pin.label });
     },
-    [agentId, runPinShortcut]
+    [agentId, runShortcutNow, shortcutPending]
   );
   const shortcuts = useShortcutRunner(fireShortcut);
   const { request: requestShortcut, registerButton: registerShortcutButton } =
@@ -535,13 +539,20 @@ export function ChatPane({
   // The sidebar's agent list, read for a peer post's icon and lineage.
   // `select` narrows it to what the feed shows, so structural sharing keeps
   // the directory's identity across agent updates that change nothing here.
+  // A stable selector lets react-query hand back the previous selected value
+  // directly; an inline one is re-run and deep-compared on every render
+  // (the result's identity is preserved either way, this only skips work).
+  const selectPeers = useCallback(
+    (agents: Agent[]) => peerDirectory(agentId ?? "", agents),
+    [agentId]
+  );
   const { data: peers } = useQuery<Agent[], Error, PeerDirectory>({
     queryKey: ["agents"],
     queryFn: async () => {
       const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
       return payload.agents;
     },
-    select: (agents) => peerDirectory(agentId ?? "", agents),
+    select: selectPeers,
   });
   const ctx = useMemo<FeedContext>(
     () => ({

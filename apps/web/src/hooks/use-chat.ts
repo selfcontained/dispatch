@@ -12,6 +12,7 @@ import type {
 } from "@dispatch/shared";
 import {
   type InfiniteData,
+  replaceEqualDeep,
   useInfiniteQuery,
   useMutation,
   useQueryClient,
@@ -28,7 +29,7 @@ export function chatFeedQueryKey(agentId: string | null) {
   return [...CHAT_QUERY_PREFIX, agentId] as const;
 }
 
-type FeedCache = InfiniteData<ChatFeedResponse, string | undefined>;
+export type FeedCache = InfiniteData<ChatFeedResponse, string | undefined>;
 
 /**
  * One page of the feed. The server hands back an opaque `nextCursor` for the
@@ -58,6 +59,92 @@ function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
   return out;
 }
 
+function withoutEntries(
+  page: ChatFeedResponse
+): Omit<ChatFeedResponse, "entries"> {
+  const { entries: _entries, ...meta } = page;
+  return meta;
+}
+
+/**
+ * Structural sharing keyed by entry id.
+ *
+ * react-query's default shares by position: it walks the old and new pages
+ * index by index and keeps an old object wherever the new one is deep-equal.
+ * A feed page is a window onto a cursor-paged list, so one new entry shifts
+ * every page boundary by one and nothing lines up any more — every entry
+ * came back as a fresh object on every refetch, and every memoised post
+ * re-rendered (markdown parse, syntax highlighting, the lot) on every status
+ * event the agent emitted. Matching by id keeps the unchanged entries, so a
+ * refetch that added one message re-renders one message.
+ *
+ * Pages, the pages array and the whole cache keep their identity too when
+ * nothing in them changed, so `useMemo` consumers downstream stay quiet.
+ */
+export function shareFeedByEntryId(
+  prev: FeedCache,
+  next: FeedCache
+): FeedCache {
+  // Keyed by type as well as id: the server namespaces ids per source today
+  // (event:/media:/review:/pin:, uuids for the rest), but nothing here should
+  // depend on a source it does not control keeping that up.
+  const previousById = new Map<string, ChatFeedEntry>();
+  for (const page of prev.pages) {
+    for (const entry of page.entries) {
+      previousById.set(`${entry.type}:${entry.id}`, entry);
+    }
+  }
+
+  let pagesChanged = prev.pages.length !== next.pages.length;
+  const pages = next.pages.map((page, i) => {
+    const prevPage = prev.pages[i];
+    let entriesChanged =
+      !prevPage || prevPage.entries.length !== page.entries.length;
+    const entries = page.entries.map((entry, j) => {
+      const shared = replaceEqualDeep(
+        previousById.get(`${entry.type}:${entry.id}`),
+        entry
+      );
+      if (!entriesChanged && prevPage!.entries[j] !== shared) {
+        entriesChanged = true;
+      }
+      return shared;
+    });
+    // Everything but the entries is compared generically, so a field added
+    // to the response later cannot change on a refetch and go stale here.
+    const prevMeta = prevPage ? withoutEntries(prevPage) : undefined;
+    const metaSame =
+      prevMeta !== undefined &&
+      replaceEqualDeep(prevMeta, withoutEntries(page)) === prevMeta;
+    if (!entriesChanged && metaSame) return prevPage!;
+    pagesChanged = true;
+    return {
+      ...page,
+      entries: entriesChanged ? entries : prevPage!.entries,
+    };
+  });
+
+  const pageParams = replaceEqualDeep(prev.pageParams, next.pageParams);
+  if (!pagesChanged && pageParams === prev.pageParams) return prev;
+  return { pages, pageParams };
+}
+
+/** The one place the untyped react-query cache boundary is crossed. */
+function isFeedCache(data: unknown): data is FeedCache {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    Array.isArray((data as { pages?: unknown }).pages) &&
+    Array.isArray((data as { pageParams?: unknown }).pageParams)
+  );
+}
+
+export function shareFeedCache(oldData: unknown, newData: unknown): unknown {
+  return isFeedCache(oldData) && isFeedCache(newData)
+    ? shareFeedByEntryId(oldData, newData)
+    : replaceEqualDeep(oldData, newData);
+}
+
 export type ChatFeedState = {
   entries: ChatFeedEntry[];
   unreadCount: number;
@@ -85,6 +172,7 @@ export function useChatFeed(agentId: string | null): ChatFeedState {
     staleTime: 0,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    structuralSharing: shareFeedCache,
   });
 
   const entries = useMemo(
@@ -156,7 +244,7 @@ function optimisticUserMessage(
   };
 }
 
-function appendToNewestPage(
+export function appendToNewestPage(
   cache: FeedCache | undefined,
   message: ChatMessage
 ): FeedCache | undefined {
@@ -173,7 +261,7 @@ function appendToNewestPage(
   return { ...cache, pages };
 }
 
-function replaceMessage(
+export function replaceMessage(
   cache: FeedCache | undefined,
   matchId: string,
   next: ChatMessage

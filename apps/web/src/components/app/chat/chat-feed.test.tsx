@@ -10,6 +10,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -1447,6 +1448,60 @@ describe("ChatFeed", () => {
     expect(card.querySelector("img")).toBeTruthy();
     fireEvent.click(card.querySelector("button")!);
     expect(onOpenMedia).toHaveBeenCalledWith(3);
+  });
+});
+
+describe("memoised rows still repaint when their data changes", () => {
+  it("shows a pin's new value when a fresh ctx carries it", () => {
+    const entries: ChatFeedEntry[] = [
+      {
+        type: "pin",
+        id: "pin:1",
+        action: "created",
+        pins: [{ id: "p1", label: "Dev Server" }],
+        at: "2026-09-02T10:00:00.000Z",
+      },
+    ];
+    const onAnswer = vi.fn();
+    const onOpenMedia = vi.fn();
+    const pinAt = (value: string) => [
+      { id: "p1", label: "Dev Server", type: "url" as const, value },
+    ];
+    const view = render(
+      feedElement(
+        entries,
+        makeCtx({ pins: pinAt("http://a") }, onOpenMedia),
+        onAnswer
+      )
+    );
+    // Scoped to this tree so nothing else in the document can answer.
+    const pin = () => within(view.container).getByTestId("chat-pin-entry-pin");
+    expect(pin().textContent).toContain("http://a");
+    // Same entries, new ctx object: the live pin must follow the sidebar.
+    view.rerender(
+      feedElement(
+        entries,
+        makeCtx({ pins: pinAt("http://b") }, onOpenMedia),
+        onAnswer
+      )
+    );
+    expect(pin().textContent).toContain("http://b");
+  });
+
+  it("updates a status line's label and collapsed count", () => {
+    const { rerenderWith } = renderFeed([status("s1", "working", "Reading")]);
+    expect(screen.getByTestId("chat-status").textContent).toContain("Reading");
+    expect(screen.queryByTestId("chat-status-collapsed-count")).toBeNull();
+    rerenderWith([
+      status("s1", "working", "Reading"),
+      status("s2", "working", "Testing"),
+      status("s3", "working", "Linting"),
+    ]);
+    const line = screen.getByTestId("chat-status");
+    expect(line.textContent).toContain("Linting");
+    expect(
+      screen.getByTestId("chat-status-collapsed-count").textContent
+    ).toContain("3");
   });
 });
 
