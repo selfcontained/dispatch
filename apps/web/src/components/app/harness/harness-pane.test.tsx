@@ -50,9 +50,37 @@ vi.mock("./use-harness-skills", () => ({
   ],
   useHarnessSkills: () => [],
 }));
-vi.mock("./use-harness-turns", () => ({
-  harnessTurnsQueryKey: (agentId: string | null) => ["harness-turns", agentId],
+vi.mock("./use-harness-turns", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./use-harness-turns")>()),
   useHarnessTurns: () => state,
+}));
+const subagentState: {
+  subagent: unknown;
+  loading: boolean;
+  error: Error | null;
+} = {
+  subagent: null,
+  loading: false,
+  error: null,
+};
+vi.mock("./use-harness-subagent", () => ({
+  harnessSubagentQueryKey: (a: string | null, s: string | null) => [
+    "harness-subagent",
+    a,
+    s,
+  ],
+  useHarnessSubagent: () => subagentState,
+}));
+const runShortcut = vi.fn();
+vi.mock("@/hooks/use-pin-shortcuts", () => ({
+  useRunPinShortcut: () => ({
+    mutate: runShortcut,
+    isPending: false,
+    variables: undefined,
+  }),
+}));
+vi.mock("@/hooks/use-coarse-pointer", () => ({
+  useCoarsePointer: () => false,
 }));
 const queueSendNow = vi.fn(async (_id: string) => {});
 const queueRemove = vi.fn(async (_id: string) => {});
@@ -353,5 +381,277 @@ describe("HarnessPane message queue", () => {
     );
     expect(screen.queryByTestId("harness-queued")).toBeNull();
     expect(screen.queryByTestId("chat-composer-hint")).toBeNull();
+  });
+});
+
+describe("HarnessPane tasks and subagents", () => {
+  const todoStep = (status: [string, string, string]) => ({
+    id: "todo-1",
+    kind: "edit",
+    label: "todo_write",
+    status: "ok" as const,
+    startedAt: T0 + 100,
+    endedAt: T0 + 200,
+    durMs: 100,
+    detail: {
+      input: {
+        todos: [
+          { content: "Inspect conventions", status: status[0] },
+          { content: "Write the skill", status: status[1] },
+          { content: "Run validation", status: status[2] },
+        ],
+      },
+      terminalOutput:
+        "Updated todo list: 1 pending, 1 in progress, 1 completed.",
+    },
+  });
+
+  it("pins the live turn's task list above the composer and expands the step", () => {
+    state.turns = [
+      { id: "t1:user", role: "user", content: "build it", timestamp: T0 },
+    ];
+    state.liveTrace = {
+      startedAt: T0,
+      steps: [todoStep(["completed", "in_progress", "pending"])],
+    };
+    state.streaming = true;
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const strip = screen.getByTestId("harness-tasks");
+    expect(strip.textContent).toContain("1 of 3 done");
+    const items = strip.querySelectorAll('[data-testid="harness-todo-item"]');
+    expect(items).toHaveLength(3);
+    expect(items[1].getAttribute("data-status")).toBe("in_progress");
+    expect(items[1].textContent).toContain("Write the skill");
+    // Collapsing keeps the active task in the header line.
+    fireEvent.click(screen.getByTestId("harness-tasks-toggle"));
+    expect(strip.querySelector('[data-testid="harness-todo-list"]')).toBeNull();
+    expect(strip.textContent).toContain("Write the skill");
+
+    // The step reads as "tasks" with progress, and expands into the list.
+    const step = screen.getAllByTestId("harness-step")[0];
+    expect(step.textContent).toContain("tasks");
+    expect(step.getAttribute("data-expandable")).toBe("true");
+    fireEvent.click(step.querySelector("button")!);
+    expect(
+      step.querySelector('[data-testid="harness-todo-list"]')
+    ).not.toBeNull();
+  });
+
+  it("drops the strip once every task is done and the turn has settled", () => {
+    state.turns = [
+      { id: "t1:user", role: "user", content: "build it", timestamp: T0 },
+      {
+        id: "t1:assistant",
+        role: "assistant",
+        content: "Done.",
+        timestamp: T0 + 900,
+        trace: {
+          startedAt: T0,
+          endedAt: T0 + 900,
+          finalResult: "ok",
+          steps: [todoStep(["completed", "completed", "completed"])],
+        },
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    expect(screen.queryByTestId("harness-tasks")).toBeNull();
+  });
+
+  it("nests a subagent's own turns under its step", () => {
+    subagentState.subagent = {
+      id: "44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
+      label: "Study skill conventions",
+      model: "openai/gpt-5.6-sol",
+      status: "finished",
+      startedAt: "2026-09-04T10:00:01.000Z",
+      endedAt: "2026-09-04T10:00:09.000Z",
+      turns: [
+        {
+          id: "sub:1",
+          prompt: { source: "chat", text: "Inspect the repo", attachments: [] },
+          trace: {
+            startedAt: "2026-09-04T10:00:01.000Z",
+            endedAt: "2026-09-04T10:00:09.000Z",
+            finalResult: "ok",
+            steps: [
+              {
+                id: "sub:1:c1",
+                kind: "search",
+                label: "glob",
+                status: "ok",
+                startedAt: "2026-09-04T10:00:02.000Z",
+                endedAt: "2026-09-04T10:00:03.000Z",
+                durMs: 1000,
+                detail: { terminalOutput: "No files found" },
+              },
+            ],
+          },
+          result: { text: "Nothing to report.", streaming: false },
+        },
+      ],
+    };
+    state.turns = [
+      { id: "t1:user", role: "user", content: "go", timestamp: T0 },
+      {
+        id: "t1:assistant",
+        role: "assistant",
+        content: "Delegated.",
+        timestamp: T0 + 9000,
+        trace: {
+          startedAt: T0,
+          endedAt: T0 + 9000,
+          finalResult: "ok",
+          steps: [
+            {
+              id: "s1",
+              kind: "other",
+              label: "subagent",
+              status: "ok",
+              startedAt: T0 + 1000,
+              endedAt: T0 + 1100,
+              durMs: 100,
+              detail: {
+                input: {
+                  prompt: "Inspect the repo",
+                  description: "Study skill conventions",
+                  run_in_background: true,
+                },
+                terminalOutput:
+                  "started subagent 44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
+              },
+            },
+          ],
+        },
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    // Settled turns collapse; open the activity, then the step.
+    fireEvent.click(screen.getByTestId("harness-activity-summary"));
+    const step = screen.getAllByTestId("harness-step")[0];
+    expect(step.textContent).toContain("subagent");
+    expect(step.textContent).toContain("Study skill conventions");
+    fireEvent.click(step.querySelector("button")!);
+    const nested = screen.getByTestId("harness-subagent");
+    expect(nested.getAttribute("data-status")).toBe("finished");
+    expect(nested.textContent).toContain("Study skill conventions");
+    expect(nested.textContent).toContain("openai/gpt-5.6-sol");
+    const inner = nested.querySelector(
+      '[data-testid="harness-nested-stream"]'
+    )!;
+    expect(inner.textContent).toContain("Inspect the repo");
+    expect(inner.textContent).toContain("Nothing to report.");
+    expect(
+      inner.querySelector('[data-testid="harness-activity-summary"]')
+        ?.textContent
+    ).toContain("1 step");
+    subagentState.subagent = null;
+  });
+});
+
+describe("HarnessPane inline shortcuts", () => {
+  it("renders the shortcut pins a turn wrote as buttons that fire the pin", () => {
+    const withPins = {
+      ...agent,
+      pins: [
+        {
+          id: "p1",
+          label: "Run the E2E",
+          value: "run e2e",
+          type: "shortcut",
+          group: "Next steps",
+        },
+        {
+          id: "p2",
+          label: "Ship it",
+          value: "ship",
+          type: "shortcut",
+          confirm: true,
+        },
+        { id: "p3", label: "Docs", value: "https://x", type: "url" },
+      ],
+    } as unknown as Agent;
+    state.turns = [
+      { id: "t1:user", role: "user", content: "plan", timestamp: T0 },
+      {
+        id: "t1:assistant",
+        role: "assistant",
+        content: "Pick one.",
+        timestamp: T0 + 1000,
+        trace: {
+          startedAt: T0,
+          endedAt: T0 + 1000,
+          finalResult: "ok",
+          steps: [
+            {
+              id: "s1",
+              kind: "other",
+              label: "mcp__dispatch__dispatch_pins",
+              status: "ok",
+              startedAt: T0 + 100,
+              endedAt: T0 + 200,
+              durMs: 100,
+              detail: {
+                input: {
+                  pins: [
+                    {
+                      label: "Run the E2E",
+                      type: "shortcut",
+                      value: "run e2e",
+                    },
+                    { label: "Ship it", type: "shortcut", value: "ship" },
+                    { label: "Gone", type: "shortcut", value: "x" },
+                    { label: "Docs", type: "url", value: "https://x" },
+                  ],
+                },
+              },
+            },
+          ],
+        },
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={withPins} active isMobile={false} />,
+      { wrapper }
+    );
+    const row = screen.getByTestId("harness-shortcuts");
+    const items = row.querySelectorAll('[data-testid="pin-item"]');
+    expect([...items].map((i) => i.getAttribute("data-pin-label"))).toEqual([
+      "Run the E2E",
+      "Ship it",
+    ]);
+    expect(row.textContent).toContain("Next steps");
+    fireEvent.click(items[0].querySelector("button")!);
+    expect(runShortcut).toHaveBeenCalledWith({
+      agentId: "agt_1",
+      pinId: "p1",
+      label: "Run the E2E",
+    });
+    // A confirm pin asks first, then sends.
+    fireEvent.click(items[1].querySelector("button")!);
+    expect(screen.getByTestId("pin-shortcut-confirm-dialog")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("pin-shortcut-confirm"));
+    expect(runShortcut).toHaveBeenLastCalledWith({
+      agentId: "agt_1",
+      pinId: "p2",
+      label: "Ship it",
+    });
+  });
+
+  it("opens the usage dialog from the chip", () => {
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    fireEvent.click(screen.getByTestId("harness-usage-chip"));
+    expect(screen.getByTestId("harness-usage-dialog")).toBeTruthy();
   });
 });

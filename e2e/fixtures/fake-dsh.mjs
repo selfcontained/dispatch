@@ -83,6 +83,38 @@ const agent = {
       toolCallId: "c1",
       status: "completed",
     });
+    // A prompt mentioning "tasks:" writes a task list the way dsh's todo
+    // tool does, so the view's task strip and step have something to show.
+    if (/tasks:/.test(text)) {
+      const todos = [
+        { content: "Read the README", status: "completed" },
+        { content: "Echo the prompt", status: "in_progress" },
+        { content: "Wrap up", status: "pending" },
+      ];
+      await emit({
+        sessionUpdate: "tool_call",
+        toolCallId: "todo1",
+        title: "todo_write",
+        kind: "edit",
+        status: "in_progress",
+        rawInput: { todos },
+        content: [],
+      });
+      await emit({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "todo1",
+        status: "completed",
+        content: [
+          {
+            type: "content",
+            content: {
+              type: "text",
+              text: "Updated todo list: 1 pending, 1 in progress, 1 completed.",
+            },
+          },
+        ],
+      });
+    }
     for (const piece of ["You said: ", text]) {
       await emit({
         sessionUpdate: "agent_message_chunk",

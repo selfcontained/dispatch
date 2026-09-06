@@ -123,64 +123,67 @@ export function AgentViewToggle({
           Console
         </ToggleGroupItem>
       </ToggleGroup>
-      <Popover>
-        <PopoverTrigger asChild>
-          <Button
-            type="button"
-            size="icon"
-            variant="ghost"
-            aria-label={filtersLabel}
-            title={filtersLabel}
-            data-testid="chat-filters-trigger"
-            className={cn(
-              "group h-7 w-7 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11",
-              !showChildAgents && "text-primary"
-            )}
-          >
-            <span
-              data-testid="chat-filters-surface"
+      {/* The filter acts on the Chat feed, which a harness agent does not show. */}
+      {harnessEnabled ? null : (
+        <Popover>
+          <PopoverTrigger asChild>
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label={filtersLabel}
+              title={filtersLabel}
+              data-testid="chat-filters-trigger"
               className={cn(
-                "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring",
-                !showChildAgents && "bg-primary/10"
+                "group h-7 w-7 rounded-full p-0 hover:bg-transparent focus-visible:ring-0 pointer-coarse:h-11 pointer-coarse:w-11",
+                !showChildAgents && "text-primary"
               )}
             >
-              <ListFilter
-                data-testid="chat-filters-icon"
-                className="h-3.5 w-3.5"
-              />
-            </span>
-          </Button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="end"
-          className="w-64 p-3"
-          data-testid="chat-filters-popover"
-        >
-          <div className="mb-2 text-xs font-semibold text-foreground">
-            Chat filters
-          </div>
-          <label
-            htmlFor="show-child-agents"
-            className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
+              <span
+                data-testid="chat-filters-surface"
+                className={cn(
+                  "flex h-6 w-6 items-center justify-center rounded-full transition-colors group-hover:bg-muted/70 group-focus-visible:ring-2 group-focus-visible:ring-ring",
+                  !showChildAgents && "bg-primary/10"
+                )}
+              >
+                <ListFilter
+                  data-testid="chat-filters-icon"
+                  className="h-3.5 w-3.5"
+                />
+              </span>
+            </Button>
+          </PopoverTrigger>
+          <PopoverContent
+            align="end"
+            className="w-64 p-3"
+            data-testid="chat-filters-popover"
           >
-            <span className="min-w-0">
-              <span className="block text-sm font-medium text-foreground">
-                Show child agents
+            <div className="mb-2 text-xs font-semibold text-foreground">
+              Chat filters
+            </div>
+            <label
+              htmlFor="show-child-agents"
+              className="flex cursor-pointer items-center justify-between gap-4 rounded-md px-1 py-1.5"
+            >
+              <span className="min-w-0">
+                <span className="block text-sm font-medium text-foreground">
+                  Show child agents
+                </span>
+                <span className="block text-xs text-muted-foreground">
+                  Include messages between this agent and its children.
+                </span>
               </span>
-              <span className="block text-xs text-muted-foreground">
-                Include messages between this agent and its children.
-              </span>
-            </span>
-            <Switch
-              id="show-child-agents"
-              checked={showChildAgents}
-              onCheckedChange={onShowChildAgentsChange}
-              aria-label="Show child agents"
-              data-testid="show-child-agents-switch"
-            />
-          </label>
-        </PopoverContent>
-      </Popover>
+              <Switch
+                id="show-child-agents"
+                checked={showChildAgents}
+                onCheckedChange={onShowChildAgentsChange}
+                aria-label="Show child agents"
+                data-testid="show-child-agents-switch"
+              />
+            </label>
+          </PopoverContent>
+        </Popover>
+      )}
     </div>
   );
 }

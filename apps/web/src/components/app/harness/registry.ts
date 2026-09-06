@@ -52,8 +52,86 @@ export function toolName(title: string): { name: string; server?: string } {
   return m ? { name: m[2], server: m[1] } : { name: title };
 }
 
+/** The tool's own name, lowercased, without its MCP server prefix. */
+export function stepToolName(step: Step): string {
+  const title = step.label?.trim();
+  return title ? toolName(title).name.toLowerCase() : "";
+}
+
+/** dsh's `subagent` tool: the step stands for a whole child session. */
+export function isSubagentStep(step: Step): boolean {
+  return stepToolName(step) === "subagent";
+}
+
+/** dsh's `todo_write` tool: the step carries the agent's task list. */
+export function isTodoStep(step: Step): boolean {
+  return stepToolName(step) === "todo_write";
+}
+
+export type TodoItem = {
+  content: string;
+  /** pending | in_progress | completed */
+  status: string;
+};
+
+/** The task list a todo step wrote, when it is one. */
+export function todoItems(step: Step): TodoItem[] {
+  const input = inputRecord(stepDetailData(step).input);
+  const todos = input?.todos;
+  if (!Array.isArray(todos)) return [];
+  return todos.flatMap((t) => {
+    const record = inputRecord(t);
+    return record && typeof record.content === "string"
+      ? [
+          {
+            content: record.content,
+            status:
+              typeof record.status === "string" ? record.status : "pending",
+          },
+        ]
+      : [];
+  });
+}
+
+const SUBAGENT_ID =
+  /subagent\s+([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/i;
+
+/** The child session id a subagent step reported ("started subagent <id>"). */
+export function subagentSessionId(step: Step): string | null {
+  const output = stepDetailData(step).terminalOutput;
+  const m = output ? SUBAGENT_ID.exec(output) : null;
+  return m ? m[1].toLowerCase() : null;
+}
+
+/**
+ * Labels of the shortcut pins a turn's dispatch_pin / dispatch_pins calls
+ * wrote, in call order. The live pin list decides what to show for them.
+ */
+export function shortcutLabelsFromSteps(steps: Step[]): string[] {
+  const labels: string[] = [];
+  const push = (pin: unknown) => {
+    const record = inputRecord(pin);
+    if (!record || typeof record.label !== "string") return;
+    // An update without a type keeps the pin's stored type; the caller
+    // filters against the live list, so keep those too.
+    if (record.type !== undefined && record.type !== "shortcut") return;
+    if (!labels.includes(record.label)) labels.push(record.label);
+  };
+  for (const step of steps) {
+    const name = stepToolName(step);
+    const input = inputRecord(stepDetailData(step).input);
+    if (!input) continue;
+    if (name === "dispatch_pin") push(input);
+    else if (name === "dispatch_pins" && Array.isArray(input.pins)) {
+      for (const pin of input.pins) push(pin);
+    }
+  }
+  return labels;
+}
+
 /** The row's label: the tool's own name, or the kind when there is none. */
 export function stepLabel(step: Step): string {
+  if (isTodoStep(step)) return "tasks";
   const title = step.label?.trim();
   if (!title) return kindLabel(step.kind);
   return toolName(title).name.toLowerCase();
@@ -95,6 +173,18 @@ export function argsSummary(input: unknown): string | undefined {
 export function stepSummary(step: Step): string | undefined {
   const d = stepDetailData(step);
   const input = inputRecord(d.input);
+  if (isSubagentStep(step)) {
+    const description = input?.description;
+    return typeof description === "string" ? clip(description) : undefined;
+  }
+  if (isTodoStep(step)) {
+    const items = todoItems(step);
+    if (items.length === 0) return undefined;
+    const done = items.filter((i) => i.status === "completed").length;
+    const active = items.find((i) => i.status === "in_progress");
+    const progress = `${done} of ${items.length} done`;
+    return active ? clip(`${progress} · ${active.content}`) : progress;
+  }
   switch (step.kind) {
     case "execute": {
       const command = input?.command ?? input?.cmd;
@@ -192,6 +282,8 @@ export function turnLabelFromSteps(steps: Step[]): string | undefined {
 
 /** Whether expanding the step would show anything at all. */
 export function hasDetail(step: Step): boolean {
+  if (isSubagentStep(step)) return true;
+  if (isTodoStep(step)) return todoItems(step).length > 0;
   const d = stepDetailData(step);
   const output = !!d.terminalOutput?.trim();
   const locations = (d.locations?.length ?? 0) > 0;

@@ -3,10 +3,17 @@ import type {
   HarnessConfigResponse,
   HarnessConfigUpdateRequest,
   HarnessSkillsResponse,
+  HarnessSubagentResponse,
   HarnessTurnsResponse,
+  HarnessUsageResponse,
 } from "@dispatch/shared";
 
+import {
+  findSessionLog,
+  readSessionLog,
+} from "../../agents/dsh/session-log.js";
 import { listDshSkills } from "../../agents/dsh/skills.js";
+import { shapeSubagent } from "../../agents/dsh/subagents.js";
 import { loadQueued, loadTurns } from "../../agents/dsh/turns.js";
 import type { AgentRouteDeps } from "./shared.js";
 
@@ -25,6 +32,13 @@ export async function registerAgentHarnessRoutes(
     );
     return row.rows.length > 0;
   };
+
+  // What the provider keys have been used for; not per agent, the keys are
+  // the service's. Cached a minute upstream.
+  app.get("/api/v1/harness/usage", async () => {
+    const response: HarnessUsageResponse = await deps.harness.usage();
+    return response;
+  });
 
   // Session config: the model and reasoning effort dsh serves, live.
   app.get("/api/v1/agents/:id/harness/config", async (request, reply) => {
@@ -129,6 +143,41 @@ export async function registerAgentHarnessRoutes(
           .send({ error: "That message is no longer queued." });
       }
       return reply.code(204).send();
+    }
+  );
+
+  // A subagent the agent spawned: its own dsh session, read from the log.
+  app.get(
+    "/api/v1/agents/:id/harness/subagents/:sessionId",
+    async (request, reply) => {
+      const { id = "", sessionId = "" } = request.params as {
+        id?: string;
+        sessionId?: string;
+      };
+      const row = await deps.pool.query<{ cli_session_id: string | null }>(
+        "SELECT cli_session_id FROM agents WHERE id = $1 AND deleted_at IS NULL",
+        [id]
+      );
+      const agent = row.rows[0];
+      if (!agent) return reply.code(404).send({ error: "Agent not found." });
+      const file = await findSessionLog(deps.dshHome, sessionId);
+      if (!file) {
+        return reply.code(404).send({ error: "Subagent log not found." });
+      }
+      const log = await readSessionLog(file);
+      // Only this agent's own children: the child names its parent session.
+      if (
+        !log.header?.parentSession ||
+        log.header.parentSession !== agent.cli_session_id
+      ) {
+        return reply
+          .code(404)
+          .send({ error: "That session is not a subagent of this agent." });
+      }
+      const response: HarnessSubagentResponse = {
+        subagent: shapeSubagent(sessionId.toLowerCase(), log),
+      };
+      return response;
     }
   );
 

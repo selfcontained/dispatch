@@ -45,8 +45,20 @@ export function TurnStream({
   answeringId,
   answersDisabled,
   ariaLabel = "Harness conversation",
+  nested = false,
+  turnExtras,
+  liveExtras,
 }: {
   turns: Turn[];
+  /**
+   * Inside another stream (a subagent under its parent's step): no scroll
+   * container of its own, the parent scrolls; tighter spacing.
+   */
+  nested?: boolean;
+  /** Rendered under an assistant turn's result: shortcut buttons, forms. */
+  turnExtras?: (turn: Turn) => ReactNode;
+  /** The same, for the live turn. */
+  liveExtras?: ReactNode;
   liveTrace?: Trace | null;
   liveText?: string;
   liveQuestions?: HarnessQuestion[];
@@ -84,19 +96,19 @@ export function TurnStream({
   const lastTurnCountRef = useRef(0);
   useEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || nested) return;
     const onScroll = () => {
       followingRef.current =
         el.scrollHeight - el.scrollTop - el.clientHeight < 160;
     };
     el.addEventListener("scroll", onScroll, { passive: true });
     return () => el.removeEventListener("scroll", onScroll);
-  }, []);
+  }, [nested]);
 
   const lastTurnId = turns.length ? turns[turns.length - 1].id : null;
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || nested) return;
     // First paint with content, or a new turn while following: go to the end.
     const first = lastTurnCountRef.current === 0;
     const grew = turns.length > lastTurnCountRef.current;
@@ -105,7 +117,7 @@ export function TurnStream({
       el.scrollTop = el.scrollHeight;
       followingRef.current = true;
     }
-  }, [lastTurnId, turns.length]);
+  }, [lastTurnId, nested, turns.length]);
 
   const liveStepCount = liveTrace?.steps.length ?? 0;
   const liveEnded = liveTrace?.endedAt ?? null;
@@ -113,17 +125,28 @@ export function TurnStream({
   const queuedCount = queued?.length ?? 0;
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el) return;
+    if (!el || nested) return;
     if (followingRef.current) el.scrollTop = el.scrollHeight;
-  }, [liveStepCount, liveEnded, liveTextLength, streaming, queuedCount]);
+  }, [
+    liveStepCount,
+    liveEnded,
+    liveTextLength,
+    nested,
+    streaming,
+    queuedCount,
+  ]);
 
   return (
     <div
       ref={scrollRef}
       role="log"
       aria-label={ariaLabel}
-      className="min-h-0 flex-1 overflow-y-auto px-5 py-4 font-terminal"
-      data-testid="harness-stream"
+      className={
+        nested
+          ? "min-w-0 font-terminal"
+          : "min-h-0 flex-1 overflow-y-auto px-5 py-4 font-terminal"
+      }
+      data-testid={nested ? "harness-nested-stream" : "harness-stream"}
     >
       {turns.length === 0 ? emptyState : null}
       {turns.map((turn) => {
@@ -151,6 +174,7 @@ export function TurnStream({
               </div>
             ) : null}
             <ResultTurn turn={turn} />
+            {turnExtras?.(turn)}
             {renderQuestions(questionsOf(turn))}
           </div>
         );
@@ -165,6 +189,7 @@ export function TurnStream({
           <ResultText content={liveText} />
         </div>
       ) : null}
+      {streaming ? liveExtras : null}
       {streaming && liveQuestions?.length
         ? renderQuestions(liveQuestions)
         : null}

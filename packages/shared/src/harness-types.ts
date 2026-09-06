@@ -84,6 +84,25 @@ export type HarnessQueuedPrompt = HarnessPrompt & {
   createdAt: string;
 };
 
+/**
+ * A dsh subagent: a session of its own, spawned by a `subagent` tool call
+ * in the parent's turn. Shaped from the child's log, so it reads as turns.
+ */
+export type HarnessSubagent = {
+  /** The child session id, as the parent's step output names it. */
+  id: string;
+  /** The parent's description of the task. */
+  label?: string;
+  model?: string;
+  status: "starting" | "running" | "finished";
+  startedAt: string;
+  endedAt?: string;
+  parentSession?: string;
+  turns: HarnessTurn[];
+};
+
+export type HarnessSubagentResponse = { subagent: HarnessSubagent };
+
 export type HarnessTurnsResponse = {
   turns: HarnessTurn[];
   /** What waits behind the live turn, first to run first. */
@@ -135,3 +154,48 @@ export type HarnessConfigResponse = {
 };
 
 export type HarnessConfigUpdateRequest = { configId: string; value: string };
+
+/** Token counts as the harness logs them per model call. */
+export type HarnessTokenCounts = {
+  input: number;
+  output: number;
+  cacheRead: number;
+  cacheWrite: number;
+};
+
+/** One provider key the harness can use, with what is known of its usage. */
+export type HarnessUsageProvider = {
+  /** dsh's provider route id: openai, deepseek, … */
+  id: string;
+  label: string;
+  /** The env var holding the key. */
+  keyEnv: string;
+  /** Monthly budget from DISPATCH_USAGE_BUDGET_<ID>, in USD; null when unset. */
+  budgetUsd: number | null;
+  /** Month-to-date cost from the provider's own billing API, when it has one we can read. */
+  billed?: { usd: number; since: string; source: string };
+  /** Prepaid balance the provider reports (DeepSeek). */
+  balance?: {
+    currency: string;
+    total: number;
+    granted: number;
+    toppedUp: number;
+    available: boolean;
+  };
+  /** Dispatch's own count from the harness session logs, this month. */
+  logged: {
+    since: string;
+    tokens: HarnessTokenCounts;
+    /** Priced with the model table the harness ships; null when no price is known. */
+    usd: number | null;
+    models: { model: string; tokens: HarnessTokenCounts; usd: number | null }[];
+  };
+  /** Why the billing call gave nothing, when it failed. */
+  error?: string;
+};
+
+export type HarnessUsageResponse = {
+  generatedAt: string;
+  monthStart: string;
+  providers: HarnessUsageProvider[];
+};

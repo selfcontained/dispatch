@@ -5,7 +5,7 @@ import type {
   HarnessQuestion,
 } from "@dispatch/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { Cpu, Upload } from "lucide-react";
+import { CircleDollarSign, Cpu, Upload } from "lucide-react";
 
 import {
   ChatComposer,
@@ -17,9 +17,19 @@ import { ActivityBars } from "@/components/ui/activity-bars";
 import { useAnswerChatQuestion, useSendChatMessage } from "@/hooks/use-chat";
 import { uploadAgentMedia } from "@/lib/media-upload";
 
-import type { Attachment } from "./contracts";
+import type { Attachment, Step, Turn } from "./contracts";
+import { HarnessAgentContext } from "./harness-context";
 import { ModelPicker } from "./model-picker";
+import {
+  isTodoStep,
+  shortcutLabelsFromSteps,
+  todoItems,
+  type TodoItem,
+} from "./registry";
+import { ShortcutRow } from "./shortcut-row";
+import { TasksStrip } from "./tasks-strip";
 import { TurnStream } from "./turn-stream";
+import { UsageDialog } from "./usage-dialog";
 import {
   currentChoiceName,
   useHarnessConfig,
@@ -75,6 +85,7 @@ export function HarnessPane({
   const config = useHarnessConfig(agentId);
   const setConfig = useSetHarnessConfig(agentId);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [usageOpen, setUsageOpen] = useState(false);
   const [configError, setConfigError] = useState<string | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
   // A file dropped anywhere on the pane attaches to the composer.
@@ -107,6 +118,54 @@ export function HarnessPane({
   const [dismissedQuestionId, setDismissedQuestionId] = useState<string | null>(
     null
   );
+
+  // The task list as the agent last wrote it: from the live turn while one
+  // runs, else from the last settled turn. Shown while work remains on it.
+  const currentTasks = useMemo<TodoItem[]>(() => {
+    const steps: Step[] = [];
+    if (streaming && liveTrace) steps.push(...liveTrace.steps);
+    else {
+      for (let i = turns.length - 1; i >= 0; i -= 1) {
+        const trace = turns[i].trace;
+        if (turns[i].role === "assistant" && trace) {
+          steps.push(...trace.steps);
+          break;
+        }
+      }
+    }
+    for (let i = steps.length - 1; i >= 0; i -= 1) {
+      if (isTodoStep(steps[i])) return todoItems(steps[i]);
+    }
+    return [];
+  }, [liveTrace, streaming, turns]);
+  const tasksOpen = currentTasks.some((t) => t.status !== "completed");
+
+  // Shortcut pins a turn wrote render as buttons under that turn, in their
+  // live state: a pin since deleted is gone here too.
+  const shortcutsFor = useCallback(
+    (steps: Step[]) => {
+      const labels = shortcutLabelsFromSteps(steps);
+      if (labels.length === 0 || !agentId) return null;
+      const live = (agent?.pins ?? []).filter(
+        (pin) => pin.type === "shortcut" && labels.includes(pin.label)
+      );
+      if (live.length === 0) return null;
+      return (
+        <ShortcutRow
+          agentId={agentId}
+          agentName={agent?.name ?? null}
+          agentRunning={agent?.status === "running"}
+          pins={live}
+        />
+      );
+    },
+    [agent?.name, agent?.pins, agent?.status, agentId]
+  );
+  const turnExtras = useCallback(
+    (turn: Turn) => (turn.trace ? shortcutsFor(turn.trace.steps) : null),
+    [shortcutsFor]
+  );
+  const liveExtras = liveTrace ? shortcutsFor(liveTrace.steps) : null;
   const replyTarget =
     openFreeform && openFreeform.id !== dismissedQuestionId
       ? openFreeform
@@ -119,14 +178,25 @@ export function HarnessPane({
         description: "Choose the model and reasoning effort",
         command: true,
       },
+      {
+        name: "usage",
+        description: "API key usage and spend this month",
+        command: true,
+      },
       ...skills,
     ],
     [skills]
   );
   const onSlashCommand = useCallback((name: string) => {
-    if (name !== "model") return false;
-    setPickerOpen(true);
-    return true;
+    if (name === "model") {
+      setPickerOpen(true);
+      return true;
+    }
+    if (name === "usage") {
+      setUsageOpen(true);
+      return true;
+    }
+    return false;
   }, []);
 
   const applyConfig = useCallback(
@@ -268,50 +338,55 @@ export function HarnessPane({
           </div>
         </div>
       ) : null}
-      <TurnStream
-        turns={turns}
-        liveTrace={liveTrace}
-        liveText={liveText}
-        liveQuestions={liveQuestions}
-        streaming={streaming}
-        queued={queued}
-        queueBusyId={queueBusyId}
-        onSendNow={onSendNow}
-        onRemoveQueued={onRemoveQueued}
-        ariaLabel={`${agent?.name ?? "Agent"} harness conversation`}
-        onAttachmentClick={onAttachmentClick}
-        onAnswer={onAnswer}
-        answeringId={answeringId}
-        answersDisabled={disabledReason !== null}
-        emptyState={
-          starting ? (
-            <div
-              className="flex flex-col items-center gap-3 pt-10 text-center"
-              data-testid="harness-starting"
-            >
-              <ActivityBars size={28} />
-              <p className="text-xs text-foreground">Starting the harness…</p>
-              {agent?.latestEvent?.message ? (
-                <p className="text-[11px] text-muted-foreground">
-                  {agent.latestEvent.message}
-                </p>
-              ) : null}
-            </div>
-          ) : (
-            <p
-              className="pt-6 text-center text-xs text-muted-foreground"
-              data-testid="harness-empty"
-            >
-              {loading
-                ? "Loading…"
-                : error
-                  ? `Could not load turns: ${error.message}`
-                  : "Send the first prompt."}
-            </p>
-          )
-        }
-      />
+      <HarnessAgentContext.Provider value={agentId}>
+        <TurnStream
+          turns={turns}
+          liveTrace={liveTrace}
+          liveText={liveText}
+          liveQuestions={liveQuestions}
+          streaming={streaming}
+          queued={queued}
+          queueBusyId={queueBusyId}
+          onSendNow={onSendNow}
+          onRemoveQueued={onRemoveQueued}
+          turnExtras={turnExtras}
+          liveExtras={liveExtras}
+          ariaLabel={`${agent?.name ?? "Agent"} harness conversation`}
+          onAttachmentClick={onAttachmentClick}
+          onAnswer={onAnswer}
+          answeringId={answeringId}
+          answersDisabled={disabledReason !== null}
+          emptyState={
+            starting ? (
+              <div
+                className="flex flex-col items-center gap-3 pt-10 text-center"
+                data-testid="harness-starting"
+              >
+                <ActivityBars size={28} />
+                <p className="text-xs text-foreground">Starting the harness…</p>
+                {agent?.latestEvent?.message ? (
+                  <p className="text-[11px] text-muted-foreground">
+                    {agent.latestEvent.message}
+                  </p>
+                ) : null}
+              </div>
+            ) : (
+              <p
+                className="pt-6 text-center text-xs text-muted-foreground"
+                data-testid="harness-empty"
+              >
+                {loading
+                  ? "Loading…"
+                  : error
+                    ? `Could not load turns: ${error.message}`
+                    : "Send the first prompt."}
+              </p>
+            )
+          }
+        />
+      </HarnessAgentContext.Provider>
       <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
+        {tasksOpen ? <TasksStrip items={currentTasks} /> : null}
         <div className="mb-1 flex items-center justify-between gap-2">
           <button
             type="button"
@@ -333,7 +408,18 @@ export function HarnessPane({
                   : "model · not running"}
             </span>
           </button>
+          <button
+            type="button"
+            onClick={() => setUsageOpen(true)}
+            title="API key usage this month (or type /usage)"
+            data-testid="harness-usage-chip"
+            className="inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground"
+          >
+            <CircleDollarSign className="h-3 w-3 shrink-0" aria-hidden="true" />
+            usage
+          </button>
         </div>
+        <UsageDialog open={usageOpen} onOpenChange={setUsageOpen} />
         <ModelPicker
           open={pickerOpen}
           onOpenChange={setPickerOpen}

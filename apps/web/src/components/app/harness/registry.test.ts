@@ -4,6 +4,10 @@ import type { Step } from "./contracts";
 import {
   argsSummary,
   hasDetail,
+  isSubagentStep,
+  isTodoStep,
+  subagentSessionId,
+  todoItems,
   stepLabel,
   stepSummary,
   toolName,
@@ -162,5 +166,55 @@ describe("turnLabelFromSteps", () => {
       "thought it over"
     );
     expect(turnLabelFromSteps([])).toBeUndefined();
+  });
+});
+
+describe("todo and subagent steps", () => {
+  const base = { id: "s", status: "ok" as const, startedAt: 0 };
+  it("labels the task list with its progress and exposes the items", () => {
+    const step = {
+      ...base,
+      kind: "edit",
+      label: "todo_write",
+      detail: {
+        input: {
+          todos: [
+            { content: "a", status: "completed" },
+            { content: "b", status: "in_progress" },
+            { content: "c", status: "pending" },
+          ],
+        },
+      },
+    };
+    expect(isTodoStep(step)).toBe(true);
+    expect(stepLabel(step)).toBe("tasks");
+    expect(stepSummary(step)).toBe("1 of 3 done · b");
+    expect(hasDetail(step)).toBe(true);
+    expect(todoItems(step).map((t) => t.status)).toEqual([
+      "completed",
+      "in_progress",
+      "pending",
+    ]);
+  });
+
+  it("summarises a subagent by its description and finds its session id", () => {
+    const step = {
+      ...base,
+      kind: "other",
+      label: "subagent",
+      detail: {
+        input: { description: "Study skill conventions", prompt: "…" },
+        terminalOutput: "started subagent 44D7B69A-a278-4f0b-a7d5-2158a60b3f07",
+      },
+    };
+    expect(isSubagentStep(step)).toBe(true);
+    expect(stepSummary(step)).toBe("Study skill conventions");
+    expect(hasDetail(step)).toBe(true);
+    expect(subagentSessionId(step)).toBe(
+      "44d7b69a-a278-4f0b-a7d5-2158a60b3f07"
+    );
+    expect(
+      subagentSessionId({ ...step, detail: { terminalOutput: "done" } })
+    ).toBeNull();
   });
 });

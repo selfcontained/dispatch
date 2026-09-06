@@ -200,4 +200,60 @@ test.describe("dsh agent", () => {
       "first"
     );
   });
+
+  test("shows the agent's task list, expands it, and opens the usage dialog", async ({
+    page,
+    request,
+  }) => {
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dsh"]);
+    await setChatSurface(request, true);
+    const repo = makeRepo();
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dsh-tasks-${Date.now()}`,
+      type: "dsh",
+      cwd: repo,
+      useWorktree: true,
+    });
+    expect(agent.status).toBe("running");
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const harness = page.getByTestId("harness-pane");
+    const input = harness.getByTestId("chat-composer-input");
+    await expect(input).toBeEnabled({ timeout: 30_000 });
+
+    await input.fill("tasks: plan the work");
+    await input.press("Enter");
+    await expect(harness.getByTestId("harness-result").last()).toContainText(
+      "You said:",
+      { timeout: 30_000 }
+    );
+    // The turn's last task list stays pinned while work remains on it.
+    const tasks = harness.getByTestId("harness-tasks");
+    await expect(tasks).toContainText("1 of 3 done");
+    await expect(
+      tasks.locator(
+        '[data-testid="harness-todo-item"][data-status="in_progress"]'
+      )
+    ).toContainText("Echo the prompt");
+
+    // The step itself reads as "tasks" and expands into the same list.
+    await harness.getByTestId("harness-activity-summary").last().click();
+    const step = harness
+      .getByTestId("harness-step")
+      .filter({ hasText: "tasks" });
+    await expect(step).toContainText("1 of 3 done");
+    await step.getByRole("button").click();
+    await expect(step.getByTestId("harness-todo-list")).toBeVisible();
+
+    // /usage opens the usage dialog; this server has no provider keys.
+    await input.fill("/usa");
+    await input.press("Enter");
+    const dialog = page.getByTestId("harness-usage-dialog");
+    await expect(dialog).toBeVisible();
+    await expect(dialog).toContainText("No provider keys", { timeout: 15_000 });
+    await page.keyboard.press("Escape");
+    await expect(dialog).toBeHidden();
+  });
 });

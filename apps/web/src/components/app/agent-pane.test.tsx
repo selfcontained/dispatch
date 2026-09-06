@@ -253,6 +253,13 @@ describe("AgentViewToggle", () => {
     ).toBe("Chat filters, child-agent messages hidden");
   });
 
+  it("hides the Chat filter for a harness agent, whose feed it cannot filter", () => {
+    render(
+      <AgentViewToggle view="harness" onViewChange={vi.fn()} harnessEnabled />
+    );
+    expect(screen.queryByTestId("chat-filters-trigger")).toBeNull();
+  });
+
   it("keeps the filter icon unchanged inside a compact visible surface", () => {
     render(<AgentViewToggle view="chat" onViewChange={vi.fn()} />);
     const trigger = screen.getByTestId("chat-filters-trigger");

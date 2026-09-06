@@ -19,6 +19,7 @@ import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
 import { DshSupervisor } from "./agents/dsh/supervisor.js";
+import { createUsageReporter } from "./agents/dsh/usage.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
   validateSession,
@@ -848,6 +849,11 @@ async function registerRoutes() {
       listQueued: (agentId) => dshSupervisor.listQueued(agentId),
       sendQueuedNow: (agentId, id) => dshSupervisor.sendQueuedNow(agentId, id),
       removeQueued: (agentId, id) => dshSupervisor.removeQueued(agentId, id),
+      usage: createUsageReporter({
+        env: process.env,
+        dshHome: config.dshHome,
+        dshBin: config.dshBin,
+      }),
     },
     appLog: app.log,
     agentManager,

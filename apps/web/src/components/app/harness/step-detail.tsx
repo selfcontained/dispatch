@@ -15,7 +15,15 @@ import {
   PlainBlock,
 } from "./code-block";
 import type { Step } from "./contracts";
-import { inputRecord, stepDetailData } from "./registry";
+import {
+  inputRecord,
+  isSubagentStep,
+  isTodoStep,
+  stepDetailData,
+  todoItems,
+} from "./registry";
+import { SubagentDetail } from "./subagent-detail";
+import { TodoList } from "./todo-list";
 
 /** The body under an expanded step, chosen by the step's kind. */
 export function StepDetail({ step }: { step: Step }): JSX.Element {
@@ -35,6 +43,9 @@ export function StepDetail({ step }: { step: Step }): JSX.Element {
 function DetailBody({ step }: { step: Step }): JSX.Element | null {
   const d = stepDetailData(step);
   const input = inputRecord(d.input);
+  // Tools with a shape of their own, whatever kind dsh filed them under.
+  if (isTodoStep(step)) return <TodoList items={todoItems(step)} />;
+  if (isSubagentStep(step)) return <SubagentDetail step={step} />;
   switch (step.kind) {
     case "execute": {
       const command = input?.command ?? input?.cmd;

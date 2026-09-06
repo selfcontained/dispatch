@@ -62,6 +62,11 @@ export type {
 export type {
   HarnessPrompt,
   HarnessQueuedPrompt,
+  HarnessSubagent,
+  HarnessSubagentResponse,
+  HarnessTokenCounts,
+  HarnessUsageProvider,
+  HarnessUsageResponse,
   HarnessQuestion,
   HarnessStep,
   HarnessStepStatus,

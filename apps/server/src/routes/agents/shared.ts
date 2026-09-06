@@ -1,4 +1,7 @@
-import type { HarnessConfigOption } from "@dispatch/shared";
+import type {
+  HarnessConfigOption,
+  HarnessUsageResponse,
+} from "@dispatch/shared";
 import type { QueuedPrompt } from "../../agents/dsh/supervisor.js";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
@@ -36,6 +39,8 @@ export type AgentRouteDeps = {
     /** Promote and interrupt; false when nothing queued has that id. */
     sendQueuedNow: (agentId: string, id: string) => Promise<boolean>;
     removeQueued: (agentId: string, id: string) => boolean;
+    /** What the provider keys have been used for (see agents/dsh/usage.ts). */
+    usage: () => Promise<HarnessUsageResponse>;
   };
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;
