@@ -277,3 +277,27 @@ token, so they do unless the token rotates).
   no longer ships OpenAI or DeepSeek).
 - Nii's asks still open after this: dsh processes that outlive the server
   (see the sketch above); forms as structured input (plan file).
+
+## Update, 2026-09-06: dsh.25 (reviewer follow-ups)
+
+- The release-readiness reviewer found the done/blocked/waiting guard on
+  the restart follow-up was dead: `start()` writes latestEvent
+  "dsh session resumed." before the guard read it. `restoreRunning`
+  reads the type first now. The supervisor test's `setLatestEvent` mock
+  flips the record to idle, which is the order production has.
+- `readSessionHeader` reads a 64KB prefix through a file handle and
+  grows it ×4 only while no complete first frame fits (test: ~96KB first
+  frame, plain log, torn first frame).
+- `fetchOpenAiCosts` shares the caller's signal (it made its own 15s
+  timeout per page, up to 60s) and reads through `readJson`.
+- Usage budgets: `edits` counter captured at persist time; `dirty` clears
+  only when nothing was typed since (the effect otherwise rebuilt rows
+  from the response and dropped the newer edit).
+- `apps/server` `test` script runs `bun test/bun-session-log.smoke.ts`
+  before vitest.
+- Verified on prod with a scratch dsh agent (`agt_d02528303ef2`, archived
+  after): goal rounds appear as a `DISPATCH · GOAL ROUND` turn; the Goal
+  strip shows `blocked · round 0 of 3` and expands to the reason. Note
+  the strip hides for `paused` and `complete` goals on purpose, and two
+  rounds fired 3s apart merged into one autonomous turn (20s idle window).
+- Every item in reviews 298 to 302 is resolved by its reviewer.
