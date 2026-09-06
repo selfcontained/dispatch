@@ -253,6 +253,27 @@ export type ChatAnswerResponse = {
 
 export type ChatChangedEvent = { type: "chat.changed"; agentId: string };
 
+/**
+ * One feed row, exactly as `GET /agents/:id/chat` would return it, published
+ * when that row is written or edited so a mounted feed can put it in place
+ * instead of refetching every loaded page. Chat messages and status events
+ * are published this way; the other sources still announce themselves with
+ * the coarse `chat.changed`, which stays the fallback for anything a client
+ * cannot place.
+ */
+export type ChatEntryEvent = {
+  type: "chat.entry";
+  agentId: string;
+  entry: ChatFeedEntry;
+};
+
+/** Read state moved (mark-read): nothing the feed shows changes but its count. */
+export type ChatReadEvent = {
+  type: "chat.read";
+  agentId: string;
+  unreadCount: number;
+};
+
 export const CHAT_MESSAGE_MAX_CHARS = 20_000;
 export const CHAT_ATTACHMENTS_MAX = 20;
 export const CHAT_QUESTION_OPTIONS_MAX = 10;

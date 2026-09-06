@@ -15,11 +15,13 @@ vi.mock("@/lib/api", () => ({ api: apiMock }));
 
 import {
   appendToNewestPage,
+  applyChatRead,
   chatFeedQueryKey,
   type FeedCache,
   replaceMessage,
   shareFeedByEntryId,
   shareFeedCache,
+  upsertFeedEntry,
   useAnswerChatQuestion,
   useChatFeed,
 } from "./use-chat";
@@ -383,5 +385,174 @@ describe("shareFeedByEntryId", () => {
     });
     await waitFor(() => expect(result.current.entries).toHaveLength(2));
     expect(result.current.entries[0]).toBe(before[1]);
+  });
+});
+
+describe("upsertFeedEntry", () => {
+  const page = (
+    entries: ChatFeedEntry[],
+    extra: Partial<ChatFeedResponse> = {}
+  ): ChatFeedResponse => ({
+    entries,
+    hasMore: false,
+    unreadCount: 0,
+    nextCursor: null,
+    ...extra,
+  });
+  const at = (s: number) =>
+    `2026-09-02T10:00:${String(s).padStart(2, "0")}.000Z`;
+  const status = (id: string, when: string): ChatFeedEntry => ({
+    type: "status",
+    id,
+    eventType: "working",
+    message: id,
+    at: when,
+  });
+
+  it("appends a newer entry to the newest page and bumps unread for agent posts", () => {
+    const a = chat(message({ id: "a", createdAt: at(1) }));
+    const cache: FeedCache = { pageParams: [undefined], pages: [page([a])] };
+    const fresh = chat(message({ id: "b", createdAt: at(2), readAt: null }));
+    const result = upsertFeedEntry(cache, fresh);
+    expect(result.placed).toBe(true);
+    expect(result.cache.pages[0]!.entries).toEqual([a, fresh]);
+    expect(result.cache.pages[0]!.entries[0]).toBe(a);
+    expect(result.cache.pages[0]!.unreadCount).toBe(1);
+    // A user's own post is never unread.
+    const own = chat(
+      message({ id: "c", authorKind: "user", createdAt: at(3) })
+    );
+    expect(upsertFeedEntry(result.cache, own).cache.pages[0]!.unreadCount).toBe(
+      1
+    );
+  });
+
+  it("slots an entry in by time when it is not the newest", () => {
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([status("event:1", at(1)), status("event:3", at(3))])],
+    };
+    const result = upsertFeedEntry(cache, status("event:2", at(2)));
+    expect(result.cache.pages[0]!.entries.map((e) => e.id)).toEqual([
+      "event:1",
+      "event:2",
+      "event:3",
+    ]);
+  });
+
+  it("replaces a known entry in place, keeping identity when nothing changed", () => {
+    const q = chat(message({ id: "q", kind: "question", readAt: null }));
+    const other = status("event:9", at(5));
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([q, other], { unreadCount: 1 })],
+    };
+    const same = upsertFeedEntry(
+      cache,
+      chat(message({ id: "q", kind: "question", readAt: null }))
+    );
+    expect(same.cache).toBe(cache);
+    const read = chat(message({ id: "q", kind: "question", readAt: at(9) }));
+    const result = upsertFeedEntry(cache, read);
+    expect(result.placed).toBe(true);
+    expect(result.cache.pages[0]!.entries[0]).not.toBe(q);
+    expect(result.cache.pages[0]!.entries[1]).toBe(other);
+    // Marked read on the way: the count follows.
+    expect(result.cache.pages[0]!.unreadCount).toBe(0);
+  });
+
+  it("puts the count on the newest page even when the row is on an older one", () => {
+    const old = chat(message({ id: "o", createdAt: at(1), readAt: null }));
+    const cache: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [
+        page([status("event:5", at(5))], {
+          unreadCount: 1,
+          hasMore: true,
+          nextCursor: "c1",
+        }),
+        page([old]),
+      ],
+    };
+    const result = upsertFeedEntry(
+      cache,
+      chat(message({ id: "o", createdAt: at(1), readAt: at(6) }))
+    );
+    expect(
+      result.cache.pages[1]!.entries[0]!.type === "chat" &&
+        result.cache.pages[1]!.entries[0]!.message.readAt
+    ).toBe(at(6));
+    expect(result.cache.pages[0]!.unreadCount).toBe(0);
+    expect(result.cache.pages[0]!.entries).toBe(cache.pages[0]!.entries);
+  });
+
+  it("refuses an entry older than a head that has pages below it", () => {
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [
+        page([status("event:5", at(5))], { hasMore: true, nextCursor: "c1" }),
+      ],
+    };
+    const result = upsertFeedEntry(cache, status("event:1", at(1)));
+    expect(result.placed).toBe(false);
+    expect(result.cache).toBe(cache);
+    // With the whole history loaded it is simply the oldest row.
+    const complete: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([status("event:5", at(5))])],
+    };
+    expect(
+      upsertFeedEntry(
+        complete,
+        status("event:1", at(1))
+      ).cache.pages[0]!.entries.map((e) => e.id)
+    ).toEqual(["event:1", "event:5"]);
+  });
+
+  it("has nowhere to put anything in an empty cache", () => {
+    expect(
+      upsertFeedEntry({ pageParams: [], pages: [] }, status("event:1", at(1)))
+        .placed
+    ).toBe(false);
+  });
+});
+
+describe("applyChatRead", () => {
+  it("moves only the count, and only when it moved", () => {
+    const a = chat(message({ id: "a" }));
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [
+        { entries: [a], hasMore: false, nextCursor: null, unreadCount: 2 },
+      ],
+    };
+    expect(applyChatRead(cache, 2)).toBe(cache);
+    const next = applyChatRead(cache, 0)!;
+    expect(next.pages[0]!.unreadCount).toBe(0);
+    expect(next.pages[0]!.entries).toBe(cache.pages[0]!.entries);
+    expect(applyChatRead(undefined, 0)).toBeUndefined();
+  });
+});
+
+describe("replaceMessage", () => {
+  it("drops the placeholder when the real row already arrived over the stream", () => {
+    const temp = chat(
+      message({ id: "optimistic-1", authorKind: "user", text: "hi" })
+    );
+    const real = message({ id: "real", authorKind: "user", text: "hi" });
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [
+        {
+          entries: [temp, chat(real)],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+    };
+    const next = replaceMessage(cache, "optimistic-1", real)!;
+    expect(next.pages[0]!.entries.map((e) => e.id)).toEqual(["real"]);
+    expect(next.pages[0]!.entries[0]).toBe(cache.pages[0]!.entries[1]);
   });
 });

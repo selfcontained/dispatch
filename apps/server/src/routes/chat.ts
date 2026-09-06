@@ -187,7 +187,8 @@ export async function registerChatRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
     const updated = await store.markRead(id, upTo ?? undefined);
-    if (updated > 0) chat.publishChanged(id);
-    return { unreadCount: await store.countUnread(id) };
+    const unreadCount = await store.countUnread(id);
+    if (updated > 0) chat.publishRead(id, unreadCount);
+    return { unreadCount };
   });
 }

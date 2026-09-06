@@ -562,7 +562,17 @@ describe("chat routes with a deliverable terminal", () => {
     // Still held: nothing has reached the pane and the row is pending.
     expect(prompts).toHaveLength(0);
     expect((await store.getById(body.message.id))?.delivered).toBeNull();
-    expect(published).toEqual([{ type: "chat.changed", agentId }]);
+    expect(published).toEqual([
+      expect.objectContaining({
+        type: "chat.entry",
+        agentId,
+        entry: expect.objectContaining({
+          type: "chat",
+          id: body.message.id,
+          message: expect.objectContaining({ delivered: null }),
+        }),
+      }),
+    ]);
 
     release();
     const row = await settled(body.message.id);
@@ -576,9 +586,18 @@ describe("chat routes with a deliverable terminal", () => {
         `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${body.message.id}").`,
       ].join("\n")
     );
-    expect(published).toEqual([
-      { type: "chat.changed", agentId },
-      { type: "chat.changed", agentId },
+    // Pending first, then the same row once delivery settled it.
+    expect(
+      published.map((event) => {
+        const e = event as {
+          type: string;
+          entry?: { message?: { delivered: boolean | null } };
+        };
+        return [e.type, e.entry?.message?.delivered];
+      })
+    ).toEqual([
+      ["chat.entry", null],
+      ["chat.entry", true],
     ]);
     await app.close();
   });
@@ -731,7 +750,19 @@ describe("chat routes with a deliverable terminal", () => {
     expect(row.delivered).toBe(true);
     expect(prompts[0].prompt).toContain(`(id: ${body.reply.id})`);
     expect(prompts[0].prompt).toContain("\nYes\n");
-    expect(published[0]).toEqual({ type: "chat.changed", agentId });
+    // The answered question first, then its reply.
+    expect(published.slice(0, 2)).toEqual([
+      expect.objectContaining({
+        type: "chat.entry",
+        agentId,
+        entry: expect.objectContaining({ id: body.question.id }),
+      }),
+      expect.objectContaining({
+        type: "chat.entry",
+        agentId,
+        entry: expect.objectContaining({ id: body.reply.id }),
+      }),
+    ]);
 
     // Value-less options match on their label; but the question is taken.
     const again = await app.inject({

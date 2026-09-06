@@ -6,7 +6,11 @@
  * `SharedUiEvent` for why.
  */
 
-import type { ChatChangedEvent } from "./chat-types.js";
+import type {
+  ChatChangedEvent,
+  ChatEntryEvent,
+  ChatReadEvent,
+} from "./chat-types.js";
 import type { SurfaceChangedEvent } from "./surface-types.js";
 
 /**
@@ -90,6 +94,8 @@ export type SharedUiEvent =
   | { type: "agent.tool_invoked"; agentId: string; tool: string; at: string }
   | SurfaceChangedEvent
   | ChatChangedEvent
+  | ChatEntryEvent
+  | ChatReadEvent
   | { type: "stream.started"; agentId: string }
   | { type: "stream.stopped"; agentId: string }
   | {

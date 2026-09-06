@@ -267,17 +267,125 @@ export function replaceMessage(
   next: ChatMessage
 ): FeedCache | undefined {
   if (!cache) return cache;
+  // The row may already be here under its real id: `chat.entry` can land
+  // before the request that created it returns. Then the placeholder just
+  // goes, and the entry that came over the stream (the feed's own shape)
+  // stands.
+  const alreadyPresent =
+    matchId !== next.id &&
+    cache.pages.some((page) =>
+      page.entries.some(
+        (entry) => entry.type === "chat" && entry.message.id === next.id
+      )
+    );
   return {
     ...cache,
     pages: cache.pages.map((page) => ({
       ...page,
-      entries: page.entries.map((entry) =>
-        entry.type === "chat" && entry.message.id === matchId
-          ? { ...entry, id: next.id, at: next.createdAt, message: next }
-          : entry
-      ),
+      entries: page.entries.flatMap((entry) => {
+        if (entry.type !== "chat" || entry.message.id !== matchId) {
+          return [entry];
+        }
+        if (alreadyPresent) return [];
+        return [{ ...entry, id: next.id, at: next.createdAt, message: next }];
+      }),
     })),
   };
+}
+
+/** Where `entry` sits relative to the loaded head, or the row it replaces. */
+export type FeedUpsert = {
+  cache: FeedCache;
+  /**
+   * False when the entry belongs somewhere the cache does not hold — older
+   * than the newest page's first row, or the cache is empty — so the caller
+   * has to fall back to a refetch.
+   */
+  placed: boolean;
+};
+
+/**
+ * Put one feed row (from a `chat.entry` event) into the cached pages: in
+ * place when its id is already here, otherwise into the newest page at its
+ * position by time. The unread count follows agent messages that arrive
+ * unread. Identity is preserved everywhere the data did not change, so the
+ * rows that did not move do not re-render.
+ */
+export function upsertFeedEntry(
+  cache: FeedCache,
+  entry: ChatFeedEntry
+): FeedUpsert {
+  const newest = cache.pages[0];
+  if (!newest) return { cache, placed: false };
+  const key = `${entry.type}:${entry.id}`;
+  for (let p = 0; p < cache.pages.length; p += 1) {
+    const page = cache.pages[p]!;
+    const index = page.entries.findIndex(
+      (existing) => `${existing.type}:${existing.id}` === key
+    );
+    if (index === -1) continue;
+    const previous = page.entries[index]!;
+    const shared = replaceEqualDeep(previous, entry);
+    if (shared === previous) return { cache, placed: true };
+    const entries = page.entries.slice();
+    entries[index] = shared;
+    const pages = cache.pages.slice();
+    pages[p] = { ...page, entries };
+    // The count lives on the newest page whichever page the row is on.
+    pages[0] = {
+      ...pages[0]!,
+      unreadCount: pages[0]!.unreadCount + unreadDelta(previous, entry),
+    };
+    return { cache: { ...cache, pages }, placed: true };
+  }
+  const first = newest.entries[0];
+  const olderThanHead = first !== undefined && entry.at < first.at;
+  if (olderThanHead && (cache.pages.length > 1 || newest.hasMore)) {
+    // It belongs below the newest page, on a page this cache may or may not
+    // hold; splicing it in would put the cursor chain off.
+    return { cache, placed: false };
+  }
+  let at = newest.entries.length;
+  while (at > 0 && newest.entries[at - 1]!.at > entry.at) at -= 1;
+  const entries = newest.entries.slice();
+  entries.splice(at, 0, entry);
+  const pages = cache.pages.slice();
+  pages[0] = {
+    ...newest,
+    entries,
+    unreadCount: newest.unreadCount + unreadDelta(null, entry),
+  };
+  return { cache: { ...cache, pages }, placed: true };
+}
+
+function isUnreadAgentMessage(entry: ChatFeedEntry | null): boolean {
+  return (
+    entry !== null &&
+    entry.type === "chat" &&
+    entry.message.authorKind === "agent" &&
+    entry.message.readAt === null
+  );
+}
+
+function unreadDelta(
+  previous: ChatFeedEntry | null,
+  next: ChatFeedEntry
+): number {
+  return (
+    Number(isUnreadAgentMessage(next)) - Number(isUnreadAgentMessage(previous))
+  );
+}
+
+/** A `chat.read` event: the count moved, nothing on screen did. */
+export function applyChatRead(
+  cache: FeedCache | undefined,
+  unreadCount: number
+): FeedCache | undefined {
+  if (!cache || cache.pages.length === 0) return cache;
+  if (cache.pages[0]!.unreadCount === unreadCount) return cache;
+  const pages = cache.pages.slice();
+  pages[0] = { ...pages[0]!, unreadCount };
+  return { ...cache, pages };
 }
 
 /** Files here are already uploaded (`POST /agents/:id/media`). */
@@ -318,13 +426,12 @@ export function useSendChatMessage(agentId: string | null) {
     onError: (_err, _input, context) => {
       if (context) queryClient.setQueryData(key, context.previous);
     },
+    // No refetch on settle: the stored row reaches the cache as a
+    // `chat.entry` event, and the response stands in until it does.
     onSuccess: (data, _input, context) => {
       queryClient.setQueryData<FeedCache>(key, (old) =>
         replaceMessage(old, context.tempId, data.message)
       );
-    },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
     },
   });
 }
@@ -379,9 +486,6 @@ export function useAnswerChatQuestion(agentId: string | null) {
         )
       );
     },
-    onSettled: () => {
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
-    },
   });
 }
 
@@ -407,14 +511,12 @@ export function useMarkChatRead(
         method: "POST",
         body: JSON.stringify(upTo ? { upTo } : {}),
       }),
+    // The count is all that moved; the server's `chat.read` says the same
+    // to every other tab. Nothing on screen needs a refetch.
     onSuccess: (data) => {
-      queryClient.setQueryData<FeedCache>(key, (old) => {
-        if (!old || old.pages.length === 0) return old;
-        const pages = old.pages.slice();
-        pages[0] = { ...pages[0]!, unreadCount: data.unreadCount };
-        return { ...old, pages };
-      });
-      void queryClient.invalidateQueries({ queryKey: key, exact: true });
+      queryClient.setQueryData<FeedCache>(key, (old) =>
+        applyChatRead(old, data.unreadCount)
+      );
     },
   });
 

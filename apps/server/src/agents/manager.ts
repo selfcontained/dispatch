@@ -36,6 +36,8 @@ import {
 import { AgentError } from "./errors.js";
 import {
   type AgentEventBus,
+  type AgentEventHistoryListener,
+  type AgentEventHistoryRow,
   createAgentEventBus,
   writeLatestEvent,
   writeLatestEventIfCurrent,
@@ -311,6 +313,7 @@ export class AgentManager {
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
     [];
+  private readonly eventRecordedListeners: AgentEventHistoryListener[] = [];
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
@@ -341,6 +344,24 @@ export class AgentManager {
   onAgentCreated(listener: (agent: AgentRecord) => void): void {
     this.agentCreatedListeners.push(listener);
   }
+
+  /**
+   * Register a callback invoked with each `agent_events` history row as it
+   * is written — after the latest-event update, off its critical path.
+   */
+  onEventRecorded(listener: AgentEventHistoryListener): void {
+    this.eventRecordedListeners.push(listener);
+  }
+
+  private readonly notifyEventRecorded = (row: AgentEventHistoryRow): void => {
+    for (const listener of this.eventRecordedListeners) {
+      try {
+        listener(row);
+      } catch (err) {
+        this.logger.warn({ err }, "agent event history listener threw");
+      }
+    }
+  };
 
   /**
    * Inject the diff-stats refresher singleton. Wired post-construction so
@@ -1408,7 +1429,13 @@ export class AgentManager {
     id: string,
     input: AgentLatestEventInput
   ): Promise<AgentRecord> {
-    await writeLatestEvent(this.pool, this.logger, id, input);
+    await writeLatestEvent(
+      this.pool,
+      this.logger,
+      id,
+      input,
+      this.notifyEventRecorded
+    );
 
     // Agent could be soft-deleted between the UPDATE and this SELECT in rare
     // races. Guard against null to prevent downstream crashes (e.g. in event
@@ -1435,7 +1462,8 @@ export class AgentManager {
       this.logger,
       id,
       expectedUpdatedAt,
-      input
+      input,
+      this.notifyEventRecorded
     );
     if (!updated) return null;
 

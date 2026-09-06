@@ -10,6 +10,10 @@ import type {
   ChatQuestion,
   ChatSendResponse,
   ChatUserAttachmentInput,
+  ChatChangedEvent,
+  ChatEntryEvent,
+  ChatMessageEntry,
+  ChatReadEvent,
 } from "@dispatch/shared";
 import {
   CHAT_ATTACHMENTS_MAX,
@@ -20,6 +24,7 @@ import {
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import { mimeType, resolveMediaDir } from "../shared/media.js";
 import { buildChatEnvelope, formatAttachmentSize } from "./envelope.js";
+import { loadChatMessageEntry } from "./feed.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -76,7 +81,9 @@ type ChatAgent = Pick<AgentRecord, "id" | "mediaDir" | "pins">;
 
 export type ChatServiceDeps = {
   pool: Pool;
-  publishUiEvent: (event: { type: "chat.changed"; agentId: string }) => void;
+  publishUiEvent: (
+    event: ChatChangedEvent | ChatEntryEvent | ChatReadEvent
+  ) => void;
   /** Minimal agent lookup: media dir and pins are all the service needs. */
   getAgent: (agentId: string) => Promise<ChatAgent | null>;
   /**
@@ -320,7 +327,7 @@ export class ChatService {
       delivered,
     });
     if (sessionName === null) {
-      this.publishChanged(agentId);
+      await this.publishEntry(agentId, message.id);
       return { message, delivered: false, held: false };
     }
     const { held } = this.deliverDetached(
@@ -329,7 +336,7 @@ export class ChatService {
       message,
       attachmentLines
     );
-    this.publishChanged(agentId);
+    await this.publishEntry(agentId, message.id);
     return { message, delivered: null, held };
   }
 
@@ -440,7 +447,8 @@ export class ChatService {
     if (sessionName !== null) {
       this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
     }
-    this.publishChanged(agentId);
+    await this.publishEntry(agentId, answered.id);
+    await this.publishEntry(agentId, replyMessage.id);
     return { question: answered, reply: replyMessage, delivered };
   }
 
@@ -494,7 +502,7 @@ export class ChatService {
       )
       .then(async (delivered) => {
         await this.store.setDelivered(message.id, delivered);
-        this.publishChanged(agentId);
+        await this.publishEntry(agentId, message.id);
       })
       .catch((error: unknown) => {
         this.log.error(
@@ -584,7 +592,7 @@ export class ChatService {
             `A chat message with id ${id} already exists; the launch post was not written.`
           );
         }
-        this.publishChanged(input.agentId);
+        await this.publishEntry(input.agentId, message.id);
         return message;
       },
     };
@@ -614,9 +622,41 @@ export class ChatService {
   // Delivery lifecycle (startup recovery, shutdown drain)
   // -------------------------------------------------------------------------
 
-  /** Announce a write to `agent_chat_messages` so the Chat tab refetches. */
+  /**
+   * Announce a write to `agent_chat_messages` the coarse way: the Chat tab
+   * refetches every page it has. Kept for writes with no single row to
+   * carry (a mark-read sweep, startup recovery) and as `publishEntry`'s
+   * fallback.
+   */
   publishChanged(agentId: string): void {
     this.deps.publishUiEvent({ type: "chat.changed", agentId });
+  }
+
+  /** Mark-read moved the count; the rows on screen do not change. */
+  publishRead(agentId: string, unreadCount: number): void {
+    this.deps.publishUiEvent({ type: "chat.read", agentId, unreadCount });
+  }
+
+  /**
+   * Announce one message as the feed row it now is, read back through the
+   * feed's own query so the wire entry is exactly what a refetch would
+   * return. A row that cannot be read back falls back to `chat.changed`.
+   */
+  private async publishEntry(
+    agentId: string,
+    messageId: string
+  ): Promise<void> {
+    let entry: ChatMessageEntry | null = null;
+    try {
+      entry = await loadChatMessageEntry(this.store.db, agentId, messageId);
+    } catch (error) {
+      this.log.warn(
+        { err: error, agentId, messageId },
+        "chat: could not read a message back for its feed event"
+      );
+    }
+    if (entry) this.deps.publishUiEvent({ type: "chat.entry", agentId, entry });
+    else this.publishChanged(agentId);
   }
 
   /**
@@ -709,7 +749,7 @@ export class ChatService {
       question: kind === "question" ? (input.question ?? null) : null,
       attachments,
     });
-    this.publishChanged(agentId);
+    await this.publishEntry(agentId, message.id);
     return message;
   }
 
@@ -777,7 +817,7 @@ export class ChatService {
     }
     const updated = await this.store.update(messageId, patch);
     if (!updated) throw new ChatValidationError("Message not found.");
-    this.publishChanged(agentId);
+    await this.publishEntry(agentId, updated.id);
     return updated;
   }
 

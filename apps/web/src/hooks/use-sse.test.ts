@@ -807,6 +807,176 @@ describe("useSSE message handling", () => {
     ).toBe(42);
   });
 
+  it("puts a chat.entry straight into the cached feed without a refetch", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    const older = {
+      type: "status",
+      id: "event:1",
+      eventType: "working",
+      message: "Reading",
+      at: "2026-09-02T10:00:01.000Z",
+    };
+    queryClient.setQueryData(["chat", "agt_1"], {
+      pageParams: [undefined],
+      pages: [
+        { entries: [older], hasMore: false, nextCursor: null, unreadCount: 0 },
+      ],
+    });
+    const post = {
+      type: "chat",
+      id: "m1",
+      at: "2026-09-02T10:00:02.000Z",
+      message: {
+        id: "m1",
+        agentId: "agt_1",
+        authorKind: "agent",
+        kind: "reply",
+        text: "done",
+        replyTo: null,
+        question: null,
+        answer: null,
+        attachments: [],
+        delivered: null,
+        readAt: null,
+        createdAt: "2026-09-02T10:00:02.000Z",
+        updatedAt: "2026-09-02T10:00:02.000Z",
+      },
+    };
+
+    emit({ type: "chat.entry", agentId: "agt_1", entry: post });
+
+    const cache = queryClient.getQueryData<{
+      pages: { entries: unknown[]; unreadCount: number }[];
+    }>(["chat", "agt_1"]);
+    expect(cache?.pages[0]?.entries).toEqual([older, post]);
+    expect(cache?.pages[0]?.unreadCount).toBe(1);
+    // An agent's post moves the sidebar badge; the feed itself is not refetched.
+    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
+
+    // A status row: no badge to move, still no refetch.
+    invalidateQueries.mockClear();
+    emit({
+      type: "chat.entry",
+      agentId: "agt_1",
+      entry: { ...older, id: "event:2", at: "2026-09-02T10:00:03.000Z" },
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+    expect(
+      queryClient.getQueryData<{ pages: { entries: unknown[] }[] }>([
+        "chat",
+        "agt_1",
+      ])?.pages[0]?.entries
+    ).toHaveLength(3);
+  });
+
+  it("falls back to a refetch for a chat.entry it cannot place", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    queryClient.setQueryData(["chat", "agt_1"], {
+      pageParams: [undefined],
+      pages: [
+        {
+          entries: [
+            {
+              type: "status",
+              id: "event:5",
+              eventType: "working",
+              message: "later",
+              at: "2026-09-02T10:00:05.000Z",
+            },
+          ],
+          hasMore: true,
+          nextCursor: "c1",
+          unreadCount: 0,
+        },
+      ],
+    });
+
+    // Older than the loaded head, with pages below it not loaded.
+    emit({
+      type: "chat.entry",
+      agentId: "agt_1",
+      entry: {
+        type: "status",
+        id: "event:1",
+        eventType: "working",
+        message: "earlier",
+        at: "2026-09-02T10:00:01.000Z",
+      },
+    });
+    expectInvalidatedSet(invalidateQueries, [["chat", "agt_1"]]);
+
+    // A feed this tab never fetched has nothing to patch and nothing to refetch.
+    invalidateQueries.mockClear();
+    emit({
+      type: "chat.entry",
+      agentId: "agt_never",
+      entry: {
+        type: "status",
+        id: "event:1",
+        eventType: "working",
+        message: "x",
+        at: "2026-09-02T10:00:01.000Z",
+      },
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+    expect(queryClient.getQueryData(["chat", "agt_never"])).toBeUndefined();
+  });
+
+  it("moves only the unread count on chat.read", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    const entries = [
+      {
+        type: "status",
+        id: "event:1",
+        eventType: "done",
+        message: "x",
+        at: "2026-09-02T10:00:01.000Z",
+      },
+    ];
+    queryClient.setQueryData(["chat", "agt_1"], {
+      pageParams: [undefined],
+      pages: [{ entries, hasMore: false, nextCursor: null, unreadCount: 3 }],
+    });
+
+    emit({ type: "chat.read", agentId: "agt_1", unreadCount: 0 });
+
+    const cache = queryClient.getQueryData<{
+      pages: { entries: unknown[]; unreadCount: number }[];
+    }>(["chat", "agt_1"]);
+    expect(cache?.pages[0]?.unreadCount).toBe(0);
+    expect(cache?.pages[0]?.entries).toBe(entries);
+    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
+  });
+
+  it("no longer refetches the chat feed for a status-only agent upsert", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    const before = {
+      ...agent("agt_1", null),
+      latestEvent: { type: "working", message: "a", updatedAt: "1" },
+      pins: [],
+    } as unknown as Agent;
+    queryClient.setQueryData<Agent[]>(["agents"], [before]);
+
+    emit({
+      type: "agent.upsert",
+      agent: {
+        ...before,
+        latestEvent: { type: "working", message: "b", updatedAt: "2" },
+      },
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+
+    // Pin activity still reaches the feed through the agent row.
+    emit({
+      type: "agent.upsert",
+      agent: {
+        ...before,
+        pins: [{ label: "PR", value: "#1", type: "string" }],
+      },
+    });
+    expectInvalidatedSet(invalidateQueries, [["chat", "agt_1"]]);
+  });
+
   it("refetches an agent's chat feed and the sidebar unread summary on chat.changed", () => {
     const { emit, invalidateQueries } = renderMessages();
 
