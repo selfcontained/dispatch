@@ -1,4 +1,4 @@
-// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit) —
+// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, useState } from "react";
 import { Bell } from "lucide-react";
@@ -10,7 +10,7 @@ import type { Attachment, Turn } from "./contracts";
 
 const KEY_VALUE = /^([A-Za-z][A-Za-z ]{0,30}):\s*(.*)$/;
 
-/** "Review ID: 293" → key and value, for coloured rendering. */
+/** "Review ID: 293" → key and value, for colored rendering. */
 export function splitKeyValue(
   line: string
 ): { key: string; value: string } | null {
@@ -18,7 +18,7 @@ export function splitKeyValue(
   return m ? { key: m[1], value: m[2] } : null;
 }
 
-/** A line with its key in the accent colour and its value in the foreground. */
+/** A line with its key in the accent color and its value in the foreground. */
 function KeyValueText({ line }: { line: string }): JSX.Element {
   const kv = splitKeyValue(line);
   if (!kv) return <span className="text-foreground/75">{line}</span>;

@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
  * Provider marks for the model chip, the picker, the usage dialog and the
  * budget rows. OpenAI and DeepSeek are from LobeHub's icon set (MIT,
  * https://github.com/lobehub/lobe-icons); Anthropic and Gemini from
- * simple-icons. Drawn in the current text colour so every theme fits.
+ * simple-icons. Drawn in the current text color so every theme fits.
  */
 const MARKS: Record<string, { viewBox: string; paths: string[] }> = {
   openai: {
@@ -39,7 +39,7 @@ const ALIASES: Record<string, string> = {
   gemini: "google",
 };
 
-/** The provider half of a "provider/model" id, canonicalised; null when unknown. */
+/** The provider half of a "provider/model" id, canonicalized; null when unknown. */
 export function providerOf(modelId: string | null | undefined): string | null {
   if (!modelId) return null;
   const raw = modelId.includes("/")

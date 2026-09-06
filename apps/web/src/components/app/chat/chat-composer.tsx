@@ -88,26 +88,26 @@ export type ChatComposerProps = {
    */
   replyContext?: { excerpt: string; onDismiss: () => void } | null;
   /**
-   * Slash-menu entries. A "/" typed at a word boundary — the start of the
-   * message or after whitespace — opens a picker over them at the caret;
-   * picking one puts "/<name> " there. Nothing is sent on its own — the
+   * Slash-menu entries. A "/" typed at a word boundary (the start of the
+   * message or after whitespace) opens a picker over them at the caret;
+   * picking one puts "/<name> " there. Nothing is sent on its own: the
    * host decides what a "/name" message means.
    */
   slashItems?: SlashItem[];
   /**
    * Called when a command item (`command: true`) is picked, with its name.
-   * Return true to consume it — the field is cleared instead of filled.
+   * Return true to consume it: the field is cleared instead of filled.
    */
   onSlashCommand?: (name: string) => boolean;
   /**
-   * An element beyond the composer that also takes file drops — the whole
+   * An element beyond the composer that also takes file drops: the whole
    * pane, so a file dropped anywhere on the conversation attaches here.
    */
   dropTargetRef?: RefObject<HTMLElement | null>;
   /** Reports drag-over state of `dropTargetRef` for the host's overlay. */
   onDropZoneDragging?: (dragging: boolean) => void;
   /**
-   * Replaces the idle helper line ("Enter to send · …") — the host's word
+   * Replaces the idle helper line ("Enter to send · …") with the host's word
    * on what Enter does right now, such as queueing behind a running turn.
    */
   hint?: string;

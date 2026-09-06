@@ -145,7 +145,7 @@ export function AgentTypeIcon({
 }
 
 /**
- * The Dispatch Harness wears Dispatch's own brand mark, in the icon colour
+ * The Dispatch Harness wears Dispatch's own brand mark, in the icon color
  * the user picked for the sidebar.
  */
 function DispatchHarnessMark({

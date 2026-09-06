@@ -1,4 +1,4 @@
-// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit) —
+// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import type { ReactNode } from "react";
 

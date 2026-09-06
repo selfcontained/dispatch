@@ -46,7 +46,7 @@ export function TodoList({
             >
               {done ? "✓" : active ? <ActivityBars size={9} /> : "○"}
             </span>
-            {/* The glyph and colour say it for sighted readers; this says it aloud. */}
+            {/* The glyph and color say it for sighted readers; this says it aloud. */}
             <span className="sr-only">
               {STATUS_WORD[item.status] ?? item.status}:{" "}
             </span>

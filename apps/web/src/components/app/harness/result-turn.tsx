@@ -1,4 +1,4 @@
-// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit) —
+// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo } from "react";
 
@@ -15,7 +15,7 @@ function ResultTurnImpl({
   isStreaming?: boolean;
 }): JSX.Element | null {
   // While this turn is streaming (the live placeholder), the ActivityBlock
-  // above is the sole progress indicator — render nothing here.
+  // above is the sole progress indicator, so nothing renders here.
   if (isStreaming) return null;
   const error = turn.error;
   const showContent = !!turn.content;
