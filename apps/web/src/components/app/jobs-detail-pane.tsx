@@ -1,21 +1,18 @@
-import {
-  History,
-  MessageSquareText,
-  Play,
-  Settings,
-  Terminal,
-} from "lucide-react";
+import { History, MessageSquareText, Play, Settings } from "lucide-react";
 import { useState } from "react";
 
 import { type Agent } from "@/components/app/types";
 import { type DetailTab, useJobsContext } from "@/components/app/jobs-context";
+import {
+  AttachedAgentBanner,
+  JobAddedBanner,
+} from "@/components/app/jobs-detail-banners";
 import { HistoryTab } from "@/components/app/jobs-history-tab";
 import { JobsOverview } from "@/components/app/jobs-overview";
 import { PromptTab } from "@/components/app/jobs-prompt-tab";
 import { SettingsTab } from "@/components/app/jobs-settings-tab";
 import {
   ACTIVE_RUN_STATUSES,
-  formatJobDateTime,
   statusClasses,
   statusIcon,
 } from "@/components/app/jobs-helpers";
@@ -165,6 +162,18 @@ function JobDetail({
         ACTIVE_RUN_STATUSES.includes(job.lastRunStatus)
       ? "This job already has a run in progress."
       : null;
+  const handleRunNow = () => {
+    setDetailActionError(null);
+    void onRunNow(job).catch((error) =>
+      setDetailActionError(errorMessage(error))
+    );
+  };
+  const handleEnable = () => {
+    setDetailActionError(null);
+    void onSetEnabled(job, true).catch((error) =>
+      setDetailActionError(errorMessage(error))
+    );
+  };
   return (
     <div className={cn("flex h-full min-h-0 flex-col p-4 md:p-6", className)}>
       <div className="flex flex-wrap items-start gap-3">
@@ -184,12 +193,7 @@ function JobDetail({
           aria-describedby={
             runBlockedReason ? "job-run-blocked-reason" : undefined
           }
-          onClick={() => {
-            setDetailActionError(null);
-            void onRunNow(job).catch((error) =>
-              setDetailActionError(errorMessage(error))
-            );
-          }}
+          onClick={handleRunNow}
         >
           <Play className="mr-2 h-4 w-4" />
           Run now
@@ -229,110 +233,27 @@ function JobDetail({
       ) : null}
 
       {attachedAgent ? (
-        <div
-          className={cn(
-            "mt-4 rounded-md border p-3",
-            attachedAgent.isActive
-              ? "border-status-working/40 bg-status-working/10"
-              : "border-border/70 bg-muted/30"
-          )}
-        >
-          <div className="flex flex-wrap items-center gap-3">
-            <div className="min-w-0 flex-1">
-              <div
-                className={cn(
-                  "text-sm font-medium",
-                  attachedAgent.isActive
-                    ? "text-status-working"
-                    : "text-foreground"
-                )}
-              >
-                {attachedAgent.isActive
-                  ? "Active run is attached to a live agent session."
-                  : "Agent kept after completion — pick up where the run left off."}
-              </div>
-              <div className="truncate text-xs text-muted-foreground">
-                {attachedAgent.agent.name}
-              </div>
-            </div>
-            <Button
-              size="sm"
-              onClick={() => void onOpenAgent(attachedAgent.agent)}
-            >
-              <Terminal className="mr-2 h-4 w-4" />
-              Open session
-            </Button>
-          </div>
-        </div>
+        <AttachedAgentBanner
+          attachedAgent={attachedAgent}
+          onOpenAgent={onOpenAgent}
+        />
       ) : null}
 
       {justAdded ? (
-        <div className="mt-4 rounded-md border border-status-done/40 bg-status-done/10 p-4">
-          <div className="text-sm font-semibold text-status-done">
-            Job added
-          </div>
-          <div className="mt-1 text-sm text-muted-foreground">
-            {job.enabled && job.nextRun
-              ? `Scheduled next run: ${formatJobDateTime(job.nextRun)}.`
-              : job.schedule
-                ? "This job is saved but not enabled on a schedule yet."
-                : "This job is on-demand — use Run now to start it."}
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <Button
-              size="sm"
-              variant="primary"
-              disabled={Boolean(runBlockedReason)}
-              aria-describedby={
-                runBlockedReason ? "job-run-blocked-reason" : undefined
-              }
-              onClick={() => {
-                setDetailActionError(null);
-                void onRunNow(job).catch((error) =>
-                  setDetailActionError(errorMessage(error))
-                );
-              }}
-            >
-              <Play className="mr-2 h-4 w-4" />
-              Run now
-            </Button>
-            {!job.enabled ? (
-              <Button
-                size="sm"
-                variant="default"
-                disabled={!job.schedule && !job.continuationEnabled}
-                onClick={() => {
-                  setDetailActionError(null);
-                  void onSetEnabled(job, true).catch((error) =>
-                    setDetailActionError(errorMessage(error))
-                  );
-                }}
-              >
-                {job.continuationEnabled ? "Enable job" : "Enable schedule"}
-              </Button>
-            ) : null}
-            <Button
-              size="sm"
-              variant="default"
-              onClick={() => {
-                onDismissAdded();
-                onTabChange("configure");
-              }}
-            >
-              Edit settings
-            </Button>
-            <Button
-              size="sm"
-              variant="ghost"
-              onClick={() => {
-                onDismissAdded();
-                onTabChange("history");
-              }}
-            >
-              View history
-            </Button>
-          </div>
-        </div>
+        <JobAddedBanner
+          job={job}
+          runBlockedReason={runBlockedReason}
+          onRunNow={handleRunNow}
+          onEnable={handleEnable}
+          onEditSettings={() => {
+            onDismissAdded();
+            onTabChange("configure");
+          }}
+          onViewHistory={() => {
+            onDismissAdded();
+            onTabChange("history");
+          }}
+        />
       ) : null}
 
       <div className="mt-5 flex flex-wrap items-center gap-2 border-b border-border">
