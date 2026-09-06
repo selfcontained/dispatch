@@ -206,6 +206,8 @@ export function buildLaunchPostText(
 }
 
 export type ChatAnswerInput = {
+  /** Client-minted id for the reply row; see `ChatSendRequest.id`. */
+  id?: string;
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;
@@ -291,7 +293,7 @@ export class ChatService {
     agentId: string,
     text: string,
     attachments: ChatUserAttachmentInput[] = [],
-    options: { allowInert?: boolean } = {}
+    options: { allowInert?: boolean; id?: string } = {}
   ): Promise<ChatSendResponse> {
     if (!text.trim() && attachments.length === 0) {
       throw new ChatValidationError("text is required.");
@@ -318,14 +320,22 @@ export class ChatService {
       options.allowInert ?? false
     );
     const delivered = sessionName === null ? false : null;
-    const message = await this.store.insert({
+    const row = {
       agentId,
-      authorKind: "user",
-      kind: "reply",
+      authorKind: "user" as const,
+      kind: "reply" as const,
       text,
       attachments: resolved,
       delivered,
-    });
+    };
+    // A client-minted id is honoured once: a repeat is a retry of a send
+    // that already landed, not a second message.
+    const message = options.id
+      ? await this.store.insertIfAbsent({ id: options.id, ...row })
+      : await this.store.insert(row);
+    if (!message) {
+      throw new ChatConflictError("A message with that id already exists.");
+    }
     // The pending row goes out before delivery starts: settlement publishes
     // the same row again as delivered, and a client must never see that
     // one first and then the pending one on top of it.
@@ -417,15 +427,23 @@ export class ChatService {
     try {
       await client.query("BEGIN");
       const tx = this.store.withClient(client);
-      replyMessage = await tx.insert({
+      const replyRow = {
         agentId,
-        authorKind: "user",
-        kind: "reply",
+        authorKind: "user" as const,
+        kind: "reply" as const,
         text,
         replyTo: question.id,
         attachments: resolved,
         delivered,
-      });
+      };
+      const inserted = input.id
+        ? await tx.insertIfAbsent({ id: input.id, ...replyRow })
+        : await tx.insert(replyRow);
+      if (!inserted) {
+        await client.query("ROLLBACK");
+        throw new ChatConflictError("A message with that id already exists.");
+      }
+      replyMessage = inserted;
       answered = await tx.recordAnswer(question.id, {
         value,
         ...(label !== undefined ? { label } : {}),

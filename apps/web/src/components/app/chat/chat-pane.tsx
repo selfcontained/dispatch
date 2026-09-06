@@ -19,6 +19,7 @@ import {
   peerDirectory,
 } from "@/components/app/chat/chat-entries";
 import {
+  arrivedEntryIds,
   ChatFeed,
   latestAgentMessageId,
   latestOpenFreeformQuestion,
@@ -286,6 +287,7 @@ export function ChatPane({
   );
   const [pendingBelow, setPendingBelow] = useState(false);
   const lastEntryIdRef = useRef<string | null>(null);
+  const seenEntryIdsRef = useRef<ReadonlySet<string>>(new Set());
   const lastShowChildAgentsRef = useRef(showChildAgents);
   const olderLoadRef = useRef<{ height: number; top: number } | null>(null);
   const restoredRef = useRef(false);
@@ -368,6 +370,11 @@ export function ChatPane({
       return;
     }
     const lastId = visibleEntries[visibleEntries.length - 1]?.id ?? null;
+    // A live row is not always the last one: a status event can arrive
+    // late and land by time below the newest row. Any unseen row sitting
+    // under a seen one is an arrival; only "Load older" adds rows above.
+    const arrived = arrivedEntryIds(seenEntryIdsRef.current, visibleEntries);
+    seenEntryIdsRef.current = new Set(visibleEntries.map((e) => e.id));
     const filterChanged = lastShowChildAgentsRef.current !== showChildAgents;
     lastShowChildAgentsRef.current = showChildAgents;
     // Changing the filter can expose an older tail or remove the current one.
@@ -378,7 +385,7 @@ export function ChatPane({
       setPendingBelow(false);
       return;
     }
-    const appended = lastId !== lastEntryIdRef.current;
+    const appended = lastId !== lastEntryIdRef.current || arrived.length > 0;
     lastEntryIdRef.current = lastId;
     if (!appended) return;
     // The feed's first rows: put the reader back where they left this
@@ -412,6 +419,7 @@ export function ChatPane({
     setFollowing(savedPositionRef.current?.following ?? true);
     setPendingBelow(false);
     lastEntryIdRef.current = null;
+    seenEntryIdsRef.current = new Set();
     olderLoadRef.current = null;
   }, [agentId]);
 

@@ -528,6 +528,38 @@ describe("chat routes with a deliverable terminal", () => {
     return { app, ready, chat, published, prompts };
   }
 
+  it("stores a send under the client's id and refuses a repeat of it", async () => {
+    const { app, ready, published } = buildApp({});
+    await ready;
+    const id = "7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5";
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages`,
+      payload: { id, text: "hello" },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().message.id).toBe(id);
+    expect(published[0]).toEqual(
+      expect.objectContaining({
+        type: "chat.entry",
+        entry: expect.objectContaining({ id }),
+      })
+    );
+    const again = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages`,
+      payload: { id, text: "hello again" },
+    });
+    expect(again.statusCode).toBe(409);
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages`,
+      payload: { id: "not-a-uuid", text: "x" },
+    });
+    expect(bad.statusCode).toBe(400);
+    await app.close();
+  });
+
   it("announces a mark-read with the count and what it stamped", async () => {
     const { app, ready, published } = buildApp({});
     await ready;

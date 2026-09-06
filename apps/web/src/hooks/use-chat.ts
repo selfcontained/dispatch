@@ -15,6 +15,7 @@ import {
   replaceEqualDeep,
   useInfiniteQuery,
   useMutation,
+  type UseMutationResult,
   useQueryClient,
 } from "@tanstack/react-query";
 
@@ -209,7 +210,17 @@ export function useChatFeed(agentId: string | null): ChatFeedState {
   };
 }
 
-let optimisticSeq = 0;
+/** A fresh message id for a send; the server stores the row under it. */
+function newMessageId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
+  }
+  // No secure context (plain-http LAN access): assemble a v4-shaped id.
+  const hex = () => Math.floor(Math.random() * 16).toString(16);
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) =>
+    c === "x" ? hex() : ((Math.random() * 4) | 8).toString(16)
+  );
+}
 
 /**
  * What the optimistic post can show before the server answers: links and
@@ -228,14 +239,14 @@ function optimisticAttachments(
 }
 
 function optimisticUserMessage(
+  id: string,
   agentId: string,
   text: string,
   attachments: ChatAttachment[] = []
 ): ChatMessage {
   const now = new Date().toISOString();
-  optimisticSeq += 1;
   return {
-    id: `optimistic-${optimisticSeq}`,
+    id,
     agentId,
     authorKind: "user",
     kind: "reply",
@@ -251,26 +262,52 @@ function optimisticUserMessage(
   };
 }
 
-export function rollbackPlaceholder(
+/**
+ * The placeholder shares its id with the stored row, so it is told apart
+ * by identity: once the stream has replaced it, the object is gone from
+ * the cache and there is nothing left to remove.
+ */
+function rollbackPlaceholder(
   queryClient: ReturnType<typeof useQueryClient>,
   key: ReturnType<typeof chatFeedQueryKey>,
-  tempId: string
+  placeholder: ChatFeedEntry
 ): void {
-  queryClient.setQueryData<FeedCache>(key, (old) => removeMessage(old, tempId));
+  queryClient.setQueryData<FeedCache>(key, (old) =>
+    removeEntryObject(old, placeholder)
+  );
   void queryClient.invalidateQueries({ queryKey: key, exact: true });
+}
+
+function removeEntryObject(
+  cache: FeedCache | undefined,
+  target: ChatFeedEntry
+): FeedCache | undefined {
+  if (!cache) return cache;
+  let changed = false;
+  const pages = cache.pages.map((page) => {
+    if (!page.entries.includes(target)) return page;
+    changed = true;
+    return { ...page, entries: page.entries.filter((e) => e !== target) };
+  });
+  return changed ? { ...cache, pages } : cache;
+}
+
+function entryOf(message: ChatMessage): ChatFeedEntry {
+  return { type: "chat", id: message.id, at: message.createdAt, message };
 }
 
 export function appendToNewestPage(
   cache: FeedCache | undefined,
   message: ChatMessage
 ): FeedCache | undefined {
+  return appendEntry(cache, entryOf(message));
+}
+
+function appendEntry(
+  cache: FeedCache | undefined,
+  entry: ChatFeedEntry
+): FeedCache | undefined {
   if (!cache || cache.pages.length === 0) return cache;
-  const entry: ChatFeedEntry = {
-    type: "chat",
-    id: message.id,
-    at: message.createdAt,
-    message,
-  };
   const pages = cache.pages.slice();
   const newest = pages[0]!;
   pages[0] = { ...newest, entries: [...newest.entries, entry] };
@@ -466,48 +503,74 @@ export function useSendChatMessage(agentId: string | null) {
   const queryClient = useQueryClient();
   const key = chatFeedQueryKey(agentId);
 
-  return useMutation<
+  const mutation = useMutation<
     ChatSendResponse,
     Error,
-    ChatSendInput,
-    { tempId: string }
+    ChatSendInput & { id: string },
+    { placeholder: ChatFeedEntry }
   >({
-    mutationFn: async ({ text, attachments }) =>
+    mutationFn: async ({ id, text, attachments }) =>
       api<ChatSendResponse>(`/api/v1/agents/${agentId}/chat/messages`, {
         method: "POST",
         body: JSON.stringify(
           attachments && attachments.length > 0
-            ? ({ text, attachments } satisfies ChatSendRequest)
-            : ({ text } satisfies ChatSendRequest)
+            ? ({ id, text, attachments } satisfies ChatSendRequest)
+            : ({ id, text } satisfies ChatSendRequest)
         ),
       }),
-    onMutate: async ({ text, attachments }) => {
+    onMutate: async ({ id, text, attachments }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
-      const temp = optimisticUserMessage(
-        agentId ?? "",
-        text,
-        optimisticAttachments(attachments ?? [])
+      const placeholder = entryOf(
+        optimisticUserMessage(
+          id,
+          agentId ?? "",
+          text,
+          optimisticAttachments(attachments ?? [])
+        )
       );
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        appendToNewestPage(old, temp)
+        appendEntry(old, placeholder)
       );
-      return { tempId: temp.id };
+      return { placeholder };
     },
     // A failure may still have stored the row (the response was what got
-    // lost), and its `chat.entry` may already be in the cache: take out
-    // only the placeholder, never a snapshot that would erase it, and let a
-    // refetch settle what really happened.
+    // lost), and its `chat.entry` may already have replaced the
+    // placeholder: take out only the placeholder object, never a snapshot
+    // that would erase the row, and let a refetch settle what happened.
     onError: (_err, _input, context) => {
-      if (context) rollbackPlaceholder(queryClient, key, context.tempId);
+      if (context) rollbackPlaceholder(queryClient, key, context.placeholder);
     },
     // No refetch on settle: the stored row reaches the cache as a
     // `chat.entry` event, and the response stands in until it does.
-    onSuccess: (data, _input, context) => {
+    onSuccess: (data) => {
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        replaceMessage(old, context.tempId, data.message)
+        replaceMessage(old, data.message.id, data.message)
       );
     },
   });
+  return useWithMintedId(mutation);
+}
+
+/**
+ * Hands each send a fresh id before it starts, keeping the caller's input
+ * shape; the wrappers are as stable as `mutate`/`mutateAsync` themselves,
+ * which ChatPane relies on.
+ */
+function useWithMintedId<TData, TInput extends object, TContext>(
+  mutation: UseMutationResult<TData, Error, TInput & { id: string }, TContext>
+) {
+  const { mutate, mutateAsync } = mutation;
+  const mutateMinted = useCallback(
+    (input: TInput, options?: Parameters<typeof mutate>[1]) =>
+      mutate({ ...input, id: newMessageId() }, options),
+    [mutate]
+  );
+  const mutateAsyncMinted = useCallback(
+    (input: TInput, options?: Parameters<typeof mutateAsync>[1]) =>
+      mutateAsync({ ...input, id: newMessageId() }, options),
+    [mutateAsync]
+  );
+  return { ...mutation, mutate: mutateMinted, mutateAsync: mutateAsyncMinted };
 }
 
 /** Files here are already uploaded, as for `ChatSendInput`. */
@@ -517,14 +580,14 @@ export function useAnswerChatQuestion(agentId: string | null) {
   const queryClient = useQueryClient();
   const key = chatFeedQueryKey(agentId);
 
-  return useMutation<
+  const mutation = useMutation<
     ChatAnswerResponse,
     Error,
-    ChatAnswerInput,
-    { tempId: string }
+    ChatAnswerInput & { id: string },
+    { placeholder: ChatFeedEntry }
   >({
-    mutationFn: async ({ messageId, value, label, attachments }) => {
-      const body: ChatAnswerRequest = { value };
+    mutationFn: async ({ id, messageId, value, label, attachments }) => {
+      const body: ChatAnswerRequest = { id, value };
       if (label) body.label = label;
       if (attachments && attachments.length > 0) body.attachments = attachments;
       return api<ChatAnswerResponse>(
@@ -532,34 +595,36 @@ export function useAnswerChatQuestion(agentId: string | null) {
         { method: "POST", body: JSON.stringify(body) }
       );
     },
-    onMutate: async ({ messageId, value, label, attachments }) => {
+    onMutate: async ({ id, messageId, value, label, attachments }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
-      const temp = {
+      const placeholder = entryOf({
         ...optimisticUserMessage(
+          id,
           agentId ?? "",
           label ?? value,
           optimisticAttachments(attachments ?? [])
         ),
         replyTo: messageId,
-      };
+      });
       queryClient.setQueryData<FeedCache>(key, (old) =>
-        appendToNewestPage(old, temp)
+        appendEntry(old, placeholder)
       );
-      return { tempId: temp.id };
+      return { placeholder };
     },
     onError: (_err, _input, context) => {
-      if (context) rollbackPlaceholder(queryClient, key, context.tempId);
+      if (context) rollbackPlaceholder(queryClient, key, context.placeholder);
     },
-    onSuccess: (data, _input, context) => {
+    onSuccess: (data) => {
       queryClient.setQueryData<FeedCache>(key, (old) =>
         replaceMessage(
           replaceMessage(old, data.question.id, data.question),
-          context.tempId,
+          data.reply.id,
           data.reply
         )
       );
     },
   });
+  return useWithMintedId(mutation);
 }
 
 /**

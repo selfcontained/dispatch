@@ -72,6 +72,13 @@ export type ChatUserAttachmentInput =
 
 /** Body of `POST /agents/:id/chat/messages`. */
 export type ChatSendRequest = {
+  /**
+   * The message's id, minted by the client (a UUID). It lets the client's
+   * optimistic row and the stored row be one and the same, so the
+   * `chat.entry` for the stored row replaces the placeholder however the
+   * stream and the response are ordered. Reusing an id is a 409.
+   */
+  id?: string;
   /** May be blank when at least one attachment is present. */
   text: string;
   /** Up to `CHAT_ATTACHMENTS_MAX`. */
@@ -80,6 +87,8 @@ export type ChatSendRequest = {
 
 /** Body of `POST /agents/:id/chat/messages/:messageId/answer`. */
 export type ChatAnswerRequest = {
+  /** The reply message's id, minted by the client; see `ChatSendRequest.id`. */
+  id?: string;
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;

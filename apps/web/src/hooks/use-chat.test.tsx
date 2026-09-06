@@ -106,11 +106,15 @@ describe("useAnswerChatQuestion", () => {
         answeredAt: "2026-09-02T10:01:00.000Z",
       },
     };
-    apiMock.mockResolvedValue({
-      question: answered,
-      reply,
-      delivered: null,
-    } satisfies ChatAnswerResponse);
+    // The server stores the reply under the id the client minted.
+    apiMock.mockImplementation(async (_url: string, init: { body: string }) => {
+      const { id } = JSON.parse(init.body) as { id: string };
+      return {
+        question: answered,
+        reply: { ...reply, id },
+        delivered: null,
+      } satisfies ChatAnswerResponse;
+    });
 
     const { result } = renderHook(() => useAnswerChatQuestion("agt_1"), {
       wrapper,
@@ -127,14 +131,16 @@ describe("useAnswerChatQuestion", () => {
       "/api/v1/agents/agt_1/chat/messages/q1/answer",
       {
         method: "POST",
-        body: JSON.stringify({
-          value: "this one",
-          attachments: [{ type: "link", url: "https://example.com/spec" }],
-        }),
+        body: expect.stringMatching(
+          /^\{"id":"[0-9a-f-]{36}","value":"this one","attachments":\[\{"type":"link","url":"https:\/\/example.com\/spec"\}\]\}$/
+        ),
       }
     );
     const messages = feedMessages(client);
-    expect(messages.map((m) => m.id)).toEqual(["q1", "r1"]);
+    expect(messages.map((m) => m.id)).toEqual([
+      "q1",
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+    ]);
     expect(messages[0]!.answer).toEqual(answered.answer);
     expect(messages[1]!.attachments).toEqual(reply.attachments);
   });
@@ -160,8 +166,8 @@ describe("useAnswerChatQuestion", () => {
         attachments: [],
       });
     });
-    expect(apiMock.mock.calls[0]![1].body).toBe(
-      JSON.stringify({ value: "main", label: "main" })
+    expect(apiMock.mock.calls[0]![1].body).toMatch(
+      /^\{"id":"[0-9a-f-]{36}","value":"main","label":"main"\}$/
     );
   });
 });
@@ -616,6 +622,48 @@ describe("removeMessage", () => {
 });
 
 describe("useSendChatMessage", () => {
+  it("shows one row when the stream delivers the stored message before the response", async () => {
+    const client = seededClient([chat(message({ id: "a" }))]);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    let respond: (value: unknown) => void = () => undefined;
+    apiMock.mockImplementationOnce(
+      () => new Promise((resolve) => (respond = resolve))
+    );
+    const { result } = renderHook(() => useSendChatMessage("agt_1"), {
+      wrapper,
+    });
+    let sent: Promise<unknown> = Promise.resolve();
+    act(() => {
+      sent = result.current.mutateAsync({ text: "hi" });
+    });
+    await waitFor(() => expect(feedMessages(client)).toHaveLength(2));
+    const id = feedMessages(client)[1]!.id;
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    const stored = message({
+      id,
+      authorKind: "user",
+      text: "hi",
+      updatedAt: "2026-09-02T10:00:05.000Z",
+    });
+    // The stream's copy replaces the placeholder under the same id...
+    act(() => {
+      client.setQueryData<FeedCache>(chatFeedQueryKey("agt_1"), (old) =>
+        old ? upsertFeedEntry(old, chat(stored)).cache : old
+      );
+    });
+    expect(feedMessages(client).map((m) => m.id)).toEqual(["a", id]);
+    const streamed = feedMessages(client)[1];
+    // ...and the same-version response then leaves it alone.
+    await act(async () => {
+      respond({ message: stored, delivered: null, held: false });
+      await sent;
+    });
+    expect(feedMessages(client).map((m) => m.id)).toEqual(["a", id]);
+    expect(feedMessages(client)[1]).toBe(streamed);
+  });
+
   it("rolls back only its placeholder when the send fails, keeping a streamed row", async () => {
     const client = seededClient([chat(message({ id: "a" }))]);
     const invalidate = vi.spyOn(client, "invalidateQueries");
@@ -634,19 +682,28 @@ describe("useSendChatMessage", () => {
       sent = result.current.mutateAsync({ text: "hi" }).catch(() => undefined);
     });
     await waitFor(() => expect(feedMessages(client)).toHaveLength(2));
-    // The server did store it, and its chat.entry lands before the
-    // (failing) response does.
-    const stored = message({ id: "real", authorKind: "user", text: "hi" });
+    const placeholderId = feedMessages(client)[1]!.id;
+    // The server did store it under that id, and its chat.entry lands
+    // before the (failing) response does: the placeholder is replaced.
+    const stored = message({
+      id: placeholderId,
+      authorKind: "user",
+      text: "hi",
+      delivered: true,
+    });
     act(() => {
       client.setQueryData<FeedCache>(chatFeedQueryKey("agt_1"), (old) =>
-        appendToNewestPage(old, stored)
+        old ? upsertFeedEntry(old, chat(stored)).cache : old
       );
     });
     await act(async () => {
       failSend(new Error("connection lost"));
       await sent;
     });
-    expect(feedMessages(client).map((m) => m.id)).toEqual(["a", "real"]);
+    expect(feedMessages(client).map((m) => [m.id, m.delivered])).toEqual([
+      ["a", null],
+      [placeholderId, true],
+    ]);
     expect(invalidate).toHaveBeenCalledWith({
       queryKey: chatFeedQueryKey("agt_1"),
       exact: true,
