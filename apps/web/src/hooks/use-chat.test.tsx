@@ -17,7 +17,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const apiMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 
-import { chatFeedQueryKey, useAnswerChatQuestion } from "./use-chat";
+import {
+  chatFeedQueryKey,
+  shareFeedByEntryId,
+  useAnswerChatQuestion,
+} from "./use-chat";
 
 afterEach(() => {
   cleanup();
@@ -154,5 +158,119 @@ describe("useAnswerChatQuestion", () => {
     expect(apiMock.mock.calls[0]![1].body).toBe(
       JSON.stringify({ value: "main", label: "main" })
     );
+  });
+});
+
+describe("shareFeedByEntryId", () => {
+  function page(
+    entries: ChatFeedEntry[],
+    extra: Partial<ChatFeedResponse> = {}
+  ): ChatFeedResponse {
+    return {
+      entries,
+      hasMore: true,
+      unreadCount: 0,
+      nextCursor: "c",
+      ...extra,
+    };
+  }
+  const share = (prev: FeedCache | undefined, next: FeedCache) =>
+    shareFeedByEntryId(prev, next) as FeedCache;
+
+  it("keeps unchanged entries when a new entry shifts every page boundary", () => {
+    const m = (i: number) =>
+      chat(
+        message({
+          id: `m${i}`,
+          createdAt: `2026-09-02T10:${String(i).padStart(2, "0")}:00.000Z`,
+        })
+      );
+    // Two pages of two, newest page first; the refetch adds m5 and the
+    // oldest entry of each page slides into the next one.
+    const prev: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [page([m(3), m(4)]), page([m(1), m(2)], { nextCursor: null })],
+    };
+    const next: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [page([m(4), m(5)]), page([m(2), m(3)], { nextCursor: null })],
+    };
+    const shared = share(prev, next);
+    const byId = (cache: FeedCache) =>
+      new Map(cache.pages.flatMap((p) => p.entries.map((e) => [e.id, e])));
+    const before = byId(prev);
+    const after = byId(shared);
+    for (const id of ["m2", "m3", "m4"]) {
+      expect(after.get(id)).toBe(before.get(id));
+    }
+    expect(after.get("m5")).toBe(next.pages[0]!.entries[1]);
+    expect(after.has("m1")).toBe(false);
+    // Both pages changed content, so both are fresh objects.
+    expect(shared.pages[0]).not.toBe(prev.pages[0]);
+    expect(shared.pages[1]).not.toBe(prev.pages[1]);
+  });
+
+  it("returns the previous cache untouched when nothing changed", () => {
+    const a = chat(message({ id: "a" }));
+    const prev: FeedCache = { pageParams: [undefined], pages: [page([a])] };
+    const next: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([chat(message({ id: "a" }))])],
+    };
+    expect(share(prev, next)).toBe(prev);
+  });
+
+  it("replaces only the entry that changed and keeps the other page", () => {
+    const a = chat(message({ id: "a" }));
+    const b = chat(message({ id: "b", createdAt: "2026-09-02T09:00:00.000Z" }));
+    const prev: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [page([a]), page([b], { nextCursor: null })],
+    };
+    const edited = chat(
+      message({
+        id: "a",
+        text: "edited",
+        updatedAt: "2026-09-02T11:00:00.000Z",
+      })
+    );
+    const next: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [
+        page([edited]),
+        page(
+          [chat(message({ id: "b", createdAt: "2026-09-02T09:00:00.000Z" }))],
+          { nextCursor: null }
+        ),
+      ],
+    };
+    const shared = share(prev, next);
+    expect(shared).not.toBe(prev);
+    expect(shared.pages[0]!.entries[0]).not.toBe(a);
+    expect(
+      shared.pages[0]!.entries[0]!.type === "chat" &&
+        shared.pages[0]!.entries[0]!.message.text
+    ).toBe("edited");
+    expect(shared.pages[1]).toBe(prev.pages[1]);
+  });
+
+  it("tracks page metadata such as the unread count", () => {
+    const a = chat(message({ id: "a" }));
+    const prev: FeedCache = { pageParams: [undefined], pages: [page([a])] };
+    const next: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([chat(message({ id: "a" }))], { unreadCount: 2 })],
+    };
+    const shared = share(prev, next);
+    expect(shared.pages[0]!.unreadCount).toBe(2);
+    expect(shared.pages[0]!.entries).toBe(prev.pages[0]!.entries);
+  });
+
+  it("falls through to deep sharing without a previous cache", () => {
+    const next: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([chat(message({ id: "a" }))])],
+    };
+    expect(share(undefined, next)).toBe(next);
   });
 });

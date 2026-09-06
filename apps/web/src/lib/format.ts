@@ -30,11 +30,15 @@ export function shortPath(value: string): string {
   return `.../${parts.slice(-3).join("/")}`;
 }
 
+// Constructing an Intl.DateTimeFormat is slow (locale data lookup); this is
+// called once per post per render of the Chat feed, so keep one instance.
+let dateTimeFormat: Intl.DateTimeFormat | null = null;
 export function formatDateTime(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  dateTimeFormat ??= new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(iso));
+  });
+  return dateTimeFormat.format(new Date(iso));
 }
 
 export function formatShortDateTime(iso: string): string {

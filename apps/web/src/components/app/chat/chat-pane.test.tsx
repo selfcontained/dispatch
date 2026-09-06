@@ -8,7 +8,7 @@ import {
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -35,6 +35,9 @@ const H = vi.hoisted(() => ({
   refetch: vi.fn(),
   send: vi.fn(async (_input: unknown) => ({}) as never),
   answer: vi.fn(async (_input: unknown) => ({}) as never),
+  // Stable like the real `mutate`: the pane hangs memoised callbacks off it.
+  answerNow: vi.fn(),
+  sendNow: vi.fn(),
   markRead: vi.fn(),
 }));
 
@@ -50,18 +53,27 @@ vi.mock("@/hooks/use-chat", () => ({
     refetch: H.refetch,
   }),
   useSendChatMessage: () => ({
-    mutate: vi.fn(),
+    mutate: H.sendNow,
     mutateAsync: H.send,
     isPending: false,
     variables: undefined,
   }),
   useAnswerChatQuestion: () => ({
-    mutate: vi.fn(),
+    mutate: H.answerNow,
     mutateAsync: H.answer,
     isPending: false,
     variables: undefined,
   }),
   useMarkChatRead: () => H.markRead,
+}));
+// Counts renders of a post's markdown body: the feed's rows are memoised,
+// so a pane re-render that changes nothing they show must not reach it.
+const markdownRenders = vi.hoisted(() => ({ count: 0 }));
+vi.mock("@/components/ui/markdown", () => ({
+  Markdown: ({ children }: { children: string }) => {
+    markdownRenders.count += 1;
+    return <div data-testid="markdown-mock">{children}</div>;
+  },
 }));
 vi.mock("@/components/ui/markdown-mermaid", () => ({
   MermaidBlock: () => null,
@@ -115,10 +127,15 @@ function chat(m: ChatMessage): ChatFeedEntry {
   return { type: "chat", id: m.id, at: m.createdAt, message: m };
 }
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+function Wrapper({ children }: { children: ReactNode }) {
+  // One client per mounted tree: a rerender must not hand the pane a fresh
+  // client (and so fresh query/mutation state) that the app never would.
+  const [client] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+  );
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter>{children}</MemoryRouter>
@@ -140,7 +157,7 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
       isMobile={false}
       {...props}
     />,
-    { wrapper }
+    { wrapper: Wrapper }
   );
 }
 
@@ -151,6 +168,7 @@ function typeAndSend(text: string) {
 }
 
 beforeEach(() => {
+  markdownRenders.count = 0;
   H.entries = [];
   H.unreadCount = 0;
   H.isLoading = false;
@@ -282,7 +300,7 @@ describe("ChatPane", () => {
     };
     const { rerender } = render(
       <ChatPane {...baseProps} showChildAgents={true} />,
-      { wrapper }
+      { wrapper: Wrapper }
     );
     const scroll = screen.getByTestId("chat-scroll");
     Object.defineProperties(scroll, {
@@ -302,6 +320,31 @@ describe("ChatPane", () => {
     rerender(<ChatPane {...baseProps} showChildAgents={false} />);
     expect(screen.queryByText("New messages")).toBeNull();
     expect(screen.queryByText("still hidden")).toBeNull();
+  });
+
+  it("does not re-render memoised posts when the pane re-renders with equal data", () => {
+    H.entries = [chat(message({ id: "a", text: "**bold** body" }))];
+    const stable = {
+      onShowChildAgentsChange: vi.fn(),
+      openLightbox: vi.fn(),
+      childAgentIds: [] as string[],
+    };
+    const { rerender } = renderPane(stable);
+    expect(markdownRenders.count).toBe(1);
+    // Every agent.upsert hands the pane a fresh agent object with the same
+    // content; the row context must stay referentially stable through it.
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={{ ...agent, pins: [...(agent.pins ?? [])] }}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        isMobile={false}
+        {...stable}
+      />
+    );
+    expect(markdownRenders.count).toBe(1);
   });
 
   it("explains a filter-only empty feed and can show child messages again", () => {

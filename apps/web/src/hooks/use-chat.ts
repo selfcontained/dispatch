@@ -12,6 +12,7 @@ import type {
 } from "@dispatch/shared";
 import {
   type InfiniteData,
+  replaceEqualDeep,
   useInfiniteQuery,
   useMutation,
   useQueryClient,
@@ -58,6 +59,64 @@ function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
   return out;
 }
 
+/**
+ * Structural sharing keyed by entry id.
+ *
+ * react-query's default shares by position: it walks the old and new pages
+ * index by index and keeps an old object wherever the new one is deep-equal.
+ * A feed page is a window onto a cursor-paged list, so one new entry shifts
+ * every page boundary by one and nothing lines up any more — every entry
+ * came back as a fresh object on every refetch, and every memoised post
+ * re-rendered (markdown parse, syntax highlighting, the lot) on every status
+ * event the agent emitted. Matching by id keeps the unchanged entries, so a
+ * refetch that added one message re-renders one message.
+ *
+ * Pages, the pages array and the whole cache keep their identity too when
+ * nothing in them changed, so `useMemo` consumers downstream stay quiet.
+ */
+export function shareFeedByEntryId(
+  oldData: unknown,
+  newData: unknown
+): unknown {
+  const prev = oldData as FeedCache | undefined;
+  const next = newData as FeedCache | undefined;
+  if (!prev?.pages || !next?.pages) return replaceEqualDeep(oldData, newData);
+
+  const previousById = new Map<string, ChatFeedEntry>();
+  for (const page of prev.pages) {
+    for (const entry of page.entries) previousById.set(entry.id, entry);
+  }
+
+  let pagesChanged = prev.pages.length !== next.pages.length;
+  const pages = next.pages.map((page, i) => {
+    const prevPage = prev.pages[i];
+    let entriesChanged =
+      !prevPage || prevPage.entries.length !== page.entries.length;
+    const entries = page.entries.map((entry, j) => {
+      const shared = replaceEqualDeep(previousById.get(entry.id), entry);
+      if (!entriesChanged && prevPage!.entries[j] !== shared) {
+        entriesChanged = true;
+      }
+      return shared;
+    });
+    const metaSame =
+      prevPage !== undefined &&
+      prevPage.unreadCount === page.unreadCount &&
+      prevPage.hasMore === page.hasMore &&
+      prevPage.nextCursor === page.nextCursor;
+    if (!entriesChanged && metaSame) return prevPage!;
+    pagesChanged = true;
+    return {
+      ...page,
+      entries: entriesChanged ? entries : prevPage!.entries,
+    };
+  });
+
+  const pageParams = replaceEqualDeep(prev.pageParams, next.pageParams);
+  if (!pagesChanged && pageParams === prev.pageParams) return prev;
+  return { pages, pageParams } satisfies FeedCache;
+}
+
 export type ChatFeedState = {
   entries: ChatFeedEntry[];
   unreadCount: number;
@@ -85,6 +144,7 @@ export function useChatFeed(agentId: string | null): ChatFeedState {
     staleTime: 0,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
+    structuralSharing: shareFeedByEntryId,
   });
 
   const entries = useMemo(

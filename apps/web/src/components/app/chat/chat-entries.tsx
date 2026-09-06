@@ -1029,7 +1029,7 @@ export const ChatMessageView = memo(function ChatMessageView({
  * the gutter and its text starting where the gutter ends, so a run of them
  * reads as a seam between posts rather than as posts of its own.
  */
-export function StatusLine({
+export const StatusLine = memo(function StatusLine({
   entry,
   collapsedCount = 1,
 }: {
@@ -1065,7 +1065,7 @@ export function StatusLine({
       ) : null}
     </div>
   );
-}
+});
 
 /**
  * Who an agent-to-agent message reads as. Its group key names both ends of
@@ -1087,7 +1087,7 @@ export function agentMessageAuthor(
   };
 }
 
-export function AgentMessageView({
+export const AgentMessageView = memo(function AgentMessageView({
   entry,
   grouped,
   rule = false,
@@ -1131,9 +1131,9 @@ export function AgentMessageView({
       ) : null}
     </Post>
   );
-}
+});
 
-export function MediaEntryView({
+export const MediaEntryView = memo(function MediaEntryView({
   entry,
   grouped,
   rule = false,
@@ -1184,7 +1184,7 @@ export function MediaEntryView({
       </AttachmentBlock>
     </Post>
   );
-}
+});
 
 /** "Pinned", "Updated pin", "Removed pin" — plural when a batch wrote several. */
 export function pinEntryVerb(entry: ChatPinEntry): string {
@@ -1206,7 +1206,7 @@ export function pinEntryVerb(entry: ChatPinEntry): string {
  * shows a stale URL, and a shortcut runs from wherever it appears. A removed
  * pin has nothing left to render, so its entry names it by label only.
  */
-export function PinEntryView({
+export const PinEntryView = memo(function PinEntryView({
   entry,
   grouped,
   rule = false,
@@ -1251,7 +1251,7 @@ export function PinEntryView({
       )}
     </Post>
   );
-}
+});
 
 /**
  * Who a review card reads as: the reviewer agent that submitted it, or the
@@ -1289,7 +1289,7 @@ export function reviewAuthor(
  * Clicking opens that review in the sidebar, where the summary and the
  * feedback items live — the card is the notice, not a second copy of it.
  */
-export function ReviewEntryView({
+export const ReviewEntryView = memo(function ReviewEntryView({
   entry,
   grouped,
   rule = false,
@@ -1330,4 +1330,4 @@ export function ReviewEntryView({
       />
     </Post>
   );
-}
+});
