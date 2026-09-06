@@ -11,6 +11,7 @@ import type {
 import type { CopyModeAssistManager } from "../../terminal/copy-mode-assist-manager.js";
 import type { InjectionCoordinator } from "../../terminal/injection-coordinator.js";
 import type { ChatService } from "../../chat/service.js";
+import type { PublishUiEvent } from "../../server/ui-events.js";
 
 export const AGENT_INITIAL_PROMPT_MAX_CHARS = 16_000;
 export const CODEX_FULL_ACCESS_ARG =
@@ -21,7 +22,7 @@ export type AgentRouteDeps = {
   pool: Pool;
   appLog: FastifyBaseLogger;
   agentManager: AgentManager;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
   subscribeUiEvents: (stream: NodeJS.WritableStream) => () => void;
   sendUiSnapshot: (
     stream: NodeJS.WritableStream,

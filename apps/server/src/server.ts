@@ -224,7 +224,7 @@ agentManager.attachDiffStatsRefresher(diffStatsRefresher);
 const terminalTokenStore = new TerminalTokenStore(60_000);
 const loginLinkStore = new LoginLinkStore();
 const copyModeObserverManager = new CopyModeObserverManager((event) =>
-  uiEventBroker.publish(event as UiEvent)
+  uiEventBroker.publish(event)
 );
 const copyModeAssistManager = new CopyModeAssistManager();
 const jobService = new JobService(pool, agentManager, app.log, config);
@@ -342,7 +342,7 @@ const agentLifecycleRuntime = createAgentLifecycleRuntime({
   reconcileIntervalMs: AGENT_STATUS_RECONCILE_INTERVAL_MS,
   activityMonitor,
   withStreamFlag,
-  publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  publishUiEvent: (event) => uiEventBroker.publish(event),
   reconciliationTracker,
   activityTracker,
   onAgentsArchived: async (agentIds) => {
@@ -438,7 +438,7 @@ const authRuntime = createAuthRuntime({
 });
 const brainStore = new BrainStore(pool);
 const surfaceService = new SurfaceService(pool, {
-  publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  publishUiEvent: (event) => uiEventBroker.publish(event),
   sendAgentPrompt: injectAgentPrompt,
 });
 const chatService = new ChatService({
@@ -466,7 +466,7 @@ const mcpHandlers = createMcpHandlers({
   jobService,
   templateService,
   slackNotifier,
-  publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+  publishUiEvent: (event) => uiEventBroker.publish(event),
   withStreamFlag,
   sendAgentPrompt: injectAgentPrompt,
   enqueueAgentPrompt,
@@ -636,17 +636,17 @@ async function registerRoutes() {
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
     mediaRoot: config.mediaRoot,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
   await registerJobRoutes(app, {
     jobService,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
   await registerTemplateRoutes(app, {
     templateService,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
     withStreamFlag,
   });
 
@@ -714,7 +714,6 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
   });
   await registerResourceRoutes(app, { pool, resources: serviceResources });
 
@@ -778,7 +777,7 @@ async function registerRoutes() {
     runReleaseJob: releaseRuntime.runReleaseJob,
     runUpdateJob: releaseRuntime.runUpdateJob,
     getBearerToken,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
     withStreamFlag,
     handleAgentError,
     autoCheck: autoCheckRuntime,
@@ -789,13 +788,13 @@ async function registerRoutes() {
     mediaRoot: config.mediaRoot,
     agentManager,
     appLog: app.log,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
     injectionCoordinator,
   });
 
   await registerMessagesRoutes(app, {
     pool,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
   await registerChatRoutes(app, { pool, chat: chatService, handleAgentError });
@@ -806,14 +805,14 @@ async function registerRoutes() {
     pool,
     mediaRoot: config.mediaRoot,
     agentManager,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
   });
 
   await registerAgentRoutes(app, {
     pool,
     appLog: app.log,
     agentManager,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
     subscribeUiEvents: (stream) => uiEventBroker.subscribe(stream),
     sendUiSnapshot: (stream, agents) =>
       uiEventBroker.sendSnapshot(stream, agents),
@@ -863,7 +862,7 @@ async function registerRoutes() {
   await registerReviewRoutes(app, {
     pool,
     agentManager,
-    publishUiEvent: (event) => uiEventBroker.publish(event as UiEvent),
+    publishUiEvent: (event) => uiEventBroker.publish(event),
     sendAgentPrompt: (agentId, prompt) =>
       injectAgentPrompt(agentId, prompt, { swallowFailure: false }),
     handleAgentError,

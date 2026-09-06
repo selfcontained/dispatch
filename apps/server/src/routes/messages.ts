@@ -2,10 +2,11 @@ import type { FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import { MessageStore } from "../messages/store.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 type MessagesRouteDeps = {
   pool: Pool;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
 };
 
 export async function registerMessagesRoutes(

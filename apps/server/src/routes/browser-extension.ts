@@ -11,6 +11,7 @@ import { tokensEqual } from "../auth.js";
 import { mediaMetadataFromBuffer } from "../media/metadata.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveMediaDir } from "../shared/media.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -134,7 +135,7 @@ type BrowserExtensionRouteDeps = {
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
   /** Base media directory; when omitted, attached screenshots are ignored. */
   mediaRoot?: string;
-  publishUiEvent?: (event: { type: string; agentId: string }) => void;
+  publishUiEvent?: PublishUiEvent;
 };
 
 type ExtensionAuth = {

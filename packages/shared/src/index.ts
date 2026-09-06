@@ -19,6 +19,7 @@ export type {
   AgentStatus,
   ArchivePhase,
   SetupPhase,
+  StreamedAgentRecord,
   WorktreeCleanupMode,
 } from "./agent-record.js";
 export { VALID_PIN_SHORTCUT_VARIANTS, VALID_PIN_TYPES } from "./pin-types.js";

@@ -53,7 +53,6 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
-  publishUiEvent: (event: unknown) => void;
 };
 
 export async function registerSystemRoutes(

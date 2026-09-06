@@ -176,6 +176,7 @@ import type {
   UpdateJob,
 } from "../server/release-runtime.js";
 import { RELEASE_VERSION_TYPES } from "../server/release-runtime.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 const RELEASE_CHANNEL_KEY = "release_channel";
 const VALID_CHANNELS = ["stable", "latest"] as const;
@@ -243,7 +244,7 @@ type ReleaseRouteDeps = {
   getBearerToken: (request: {
     headers: { authorization?: string };
   }) => string | null;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
   withStreamFlag: <T extends AgentRecord>(
     agent: T
   ) => T & { hasStream: boolean };
