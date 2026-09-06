@@ -75,18 +75,18 @@ export async function fetchOpenAiCosts(
     if (page) url.searchParams.set("page", page);
     const res = await fetchFn(url.toString(), {
       headers: { Authorization: `Bearer ${adminKey}` },
-      signal: AbortSignal.timeout(PROVIDER_DEADLINE_MS),
+      signal,
     });
     if (!res.ok) {
       throw new Error(`OpenAI costs API answered ${res.status}`);
     }
-    const body = (await res.json()) as {
+    const body = await readJson<{
       data?: {
         results?: { amount?: { value?: number; currency?: string } }[];
       }[];
       has_more?: boolean;
       next_page?: string | null;
-    };
+    }>(res, "OpenAI costs API");
     for (const bucket of body.data ?? []) {
       for (const result of bucket.results ?? []) {
         const value = result.amount?.value;

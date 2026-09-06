@@ -141,6 +141,21 @@ describe("provider billing calls", () => {
     expect(calls[1]).toContain("page=p2");
   });
 
+  it("runs every OpenAI page under the caller's signal", async () => {
+    const signals: (AbortSignal | undefined)[] = [];
+    const fetchFn: FetchLike = async (_url, init) => {
+      signals.push(init?.signal ?? undefined);
+      return jsonResponse(200, {
+        data: [{ results: [{ amount: { value: 1 } }] }],
+        has_more: signals.length < 2,
+        next_page: "p2",
+      });
+    };
+    const controller = new AbortController();
+    await fetchOpenAiCosts("sk-admin", new Date(), fetchFn, controller.signal);
+    expect(signals).toEqual([controller.signal, controller.signal]);
+  });
+
   it("reports a failed OpenAI call by status", async () => {
     const fetchFn: FetchLike = async () => jsonResponse(401, { error: "nope" });
     await expect(fetchOpenAiCosts("bad", new Date(), fetchFn)).rejects.toThrow(

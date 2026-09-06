@@ -578,9 +578,12 @@ export class DshSupervisor {
     const failed: string[] = [];
     for (const id of await this.deps.listRunningAgentIds()) {
       try {
+        // start() overwrites latestEvent with "session resumed", so what
+        // the agent last said about itself is read before that.
+        const lastSaid = (await this.deps.getAgent(id))?.latestEvent?.type;
         const { resumed } = await this.start(id);
         restored.push(id);
-        if (resumed && (await this.shouldResumeAfterRestart(id))) {
+        if (resumed && (await this.shouldResumeAfterRestart(id, lastSaid))) {
           this.enqueuePrompt(id, RESTART_PROMPT).settled.catch(
             (err: unknown) => {
               this.deps.logger.warn(
@@ -612,15 +615,19 @@ export class DshSupervisor {
    * from), and the agent had not already declared itself done, blocked,
    * or waiting on someone.
    */
-  private async shouldResumeAfterRestart(agentId: string): Promise<boolean> {
+  private async shouldResumeAfterRestart(
+    agentId: string,
+    lastSaid: string | undefined
+  ): Promise<boolean> {
     const cutAt = await this.streams.lastTurnInterruptedByRestartAt(agentId);
     if (!cutAt) return false;
     if (Date.now() - cutAt.getTime() > DshSupervisor.RESTART_RESUME_WINDOW_MS) {
       return false;
     }
-    const latest = (await this.deps.getAgent(agentId))?.latestEvent?.type;
     return (
-      latest !== "done" && latest !== "blocked" && latest !== "waiting_user"
+      lastSaid !== "done" &&
+      lastSaid !== "blocked" &&
+      lastSaid !== "waiting_user"
     );
   }
 

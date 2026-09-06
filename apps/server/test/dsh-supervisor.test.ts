@@ -700,6 +700,14 @@ describe("DshSupervisor restart resilience", () => {
       cliSessionId: "sess_old",
       lastTurnError: "interrupted by restart",
     });
+    // As in production: the record says "done" until start() writes
+    // "session resumed" over it, so the guard must read it before that.
+    let latest = { type: "done", message: "Review submitted", updatedAt: "x" };
+    deps.setLatestEvent.mockImplementation(
+      async (_id: string, input: { type: string; message: string }) => {
+        latest = { ...input, updatedAt: "y" };
+      }
+    );
     deps.getAgent.mockImplementation(async (id: string) => ({
       id,
       type: "dsh",
@@ -707,11 +715,7 @@ describe("DshSupervisor restart resilience", () => {
       mediaDir: null,
       model: null,
       cliSessionId: "sess_old",
-      latestEvent: {
-        type: "done",
-        message: "Review submitted",
-        updatedAt: "x",
-      },
+      latestEvent: latest,
     }));
     deps.listRunningAgentIds.mockResolvedValue(["agt_1"]);
     await sup.restoreRunning();

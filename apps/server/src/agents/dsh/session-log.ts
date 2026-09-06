@@ -1,4 +1,4 @@
-import { readdir, readFile, stat } from "node:fs/promises";
+import { open, readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { constants, zstdDecompress, zstdDecompressSync } from "node:zlib";
 import { promisify } from "node:util";
@@ -127,11 +127,6 @@ async function walkFrames(buffer: Buffer, decode: Decoder): Promise<Buffer> {
   return Buffer.concat(parts);
 }
 
-const decodeSync: Decoder = async (slice, tolerant) =>
-  zstdDecompressSync(
-    slice,
-    tolerant ? { finishFlush: constants.ZSTD_e_flush } : {}
-  );
 const decodeAsync: Decoder = (slice, tolerant) =>
   zstdDecompressAsync(
     slice,
@@ -297,20 +292,60 @@ export async function listSessionLogs(dshHome: string): Promise<string[]> {
  * caller deciding whether it may read the log at all inflates one frame,
  * not the file.
  */
+/** The first read of a log when only its header is wanted. */
+export const HEADER_PROBE_BYTES = 64 * 1024;
+
+/** The first `length` bytes of a file, fewer when the file is shorter. */
+async function readPrefix(file: string, length: number): Promise<Buffer> {
+  const handle = await open(file, "r");
+  try {
+    const buffer = Buffer.allocUnsafe(length);
+    const { bytesRead } = await handle.read(buffer, 0, length, 0);
+    return buffer.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+/**
+ * The header line alone, from a bounded prefix of the file: the first
+ * frame (or line) is almost always inside the first 64KB, and the read
+ * grows only when it is not. A log this is polled on every few seconds
+ * must not be loaded whole for one line.
+ */
 export async function readSessionHeader(
   file: string
 ): Promise<SessionHeader | null> {
-  const buffer = await readFile(file);
-  if (!file.endsWith(".zstd")) {
-    return parseSessionLog(buffer.toString("utf8").split("\n")[0] ?? "").header;
-  }
-  const length = zstdFrameLength(buffer, 0);
-  if (length === null) return null;
-  try {
-    const first = await zstdDecompressAsync(buffer.subarray(0, length));
-    return parseSessionLog(first.toString("utf8")).header;
-  } catch {
-    return null;
+  const plain = !file.endsWith(".zstd");
+  let probe = HEADER_PROBE_BYTES;
+  for (;;) {
+    const buffer = await readPrefix(file, probe);
+    const whole = buffer.length < probe;
+    if (plain) {
+      const newline = buffer.indexOf(0x0a);
+      if (newline !== -1 || whole) {
+        const line = buffer.subarray(
+          0,
+          newline === -1 ? buffer.length : newline
+        );
+        return parseSessionLog(line.toString("utf8")).header;
+      }
+    } else {
+      const length = zstdFrameLength(buffer, 0);
+      if (length !== null) {
+        try {
+          const first = await zstdDecompressAsync(buffer.subarray(0, length));
+          return parseSessionLog(first.toString("utf8")).header;
+        } catch {
+          return null;
+        }
+      }
+      // No complete frame in the prefix: either the file ends inside its
+      // first frame (torn) or the frame is longer than the probe.
+      if (whole) return null;
+    }
+    if (probe >= SESSION_LOG_MAX_BYTES) return null;
+    probe = Math.min(probe * 4, SESSION_LOG_MAX_BYTES);
   }
 }
 

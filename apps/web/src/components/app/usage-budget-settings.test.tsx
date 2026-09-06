@@ -82,6 +82,37 @@ describe("UsageBudgetSettings", () => {
   });
 });
 
+describe("UsageBudgetSettings while a save is in flight", () => {
+  it("keeps what was typed after the save was issued", async () => {
+    state.budgets = { openai: 50 };
+    let finish: (() => void) | null = null;
+    save.mockImplementationOnce(
+      (budgets: Record<string, number>) =>
+        new Promise((resolve) => {
+          finish = () => {
+            state.budgets = budgets;
+            resolve({ budgets });
+          };
+        })
+    );
+    render(<UsageBudgetSettings />, { wrapper });
+    const amount = screen.getByTestId(
+      "usage-budget-amount"
+    ) as HTMLInputElement;
+    fireEvent.change(amount, { target: { value: "75" } });
+    fireEvent.keyDown(amount, { key: "Enter" });
+    await waitFor(() => expect(save).toHaveBeenCalledWith({ openai: 75 }));
+    // A newer edit while that save is still out.
+    fireEvent.change(amount, { target: { value: "80" } });
+    finish!();
+    await waitFor(() => expect(state.budgets).toEqual({ openai: 75 }));
+    // The settled save must not hand the row back to the server's 75.
+    expect(amount.value).toBe("80");
+    fireEvent.keyDown(amount, { key: "Enter" });
+    await waitFor(() => expect(save).toHaveBeenLastCalledWith({ openai: 80 }));
+  });
+});
+
 describe("UsageBudgetSettings validation", () => {
   it("keeps a new row that has no amount yet and does not save until it does", async () => {
     render(<UsageBudgetSettings />, { wrapper });

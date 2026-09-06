@@ -1,6 +1,7 @@
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { randomBytes } from "node:crypto";
 import { constants, zstdCompressSync } from "node:zlib";
 import { afterEach, describe, expect, it } from "vitest";
 
@@ -97,6 +98,31 @@ describe("zstdFrameLength", () => {
     expect(zstdFrameLength(c, 0)).toBe(c.length);
     const parsed = parseSessionLog(decodeZstdFrames(Buffer.concat([a, c, b])));
     expect(parsed.events.map((e) => e.type)).toEqual(["c", "a"]);
+  });
+});
+
+describe("readSessionHeader", () => {
+  it("reads only a prefix, growing it when the first frame is longer", async () => {
+    home = await mkdtemp(path.join(os.tmpdir(), "dsh-log-"));
+    // Random bytes do not compress: this header's frame is ~96KB, past
+    // the 64KB probe, so the read has to grow before it finds the frame.
+    const pad = randomBytes(72 * 1024).toString("base64");
+    const header = `{"type":"session","version":0,"id":"big","cwd":"/w","pad":"${pad}"}\n`;
+    const zst = path.join(home, "session.jsonl.zstd");
+    await writeFile(
+      zst,
+      frames([header, '{"type":"turn/start","seq":1,"time":5,"data":{}}\n'])
+    );
+    expect(await readSessionHeader(zst)).toMatchObject({ id: "big" });
+
+    const plain = path.join(home, "session.jsonl");
+    await writeFile(plain, header + '{"type":"turn/start","seq":1}\n');
+    expect(await readSessionHeader(plain)).toMatchObject({ id: "big" });
+
+    // A file that ends inside its first frame has no header to give.
+    const torn = path.join(home, "torn.jsonl.zstd");
+    await writeFile(torn, frames([header]).subarray(0, 70 * 1024));
+    expect(await readSessionHeader(torn)).toBeNull();
   });
 });
 

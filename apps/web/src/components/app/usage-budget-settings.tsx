@@ -50,6 +50,13 @@ export function UsageBudgetSettings(): JSX.Element {
   const [rows, setRows] = useState<Row[]>([]);
   // Rows follow the server until the user starts editing.
   const [dirty, setDirty] = useState(false);
+  // Counts edits, so a save that lands after a newer edit does not hand
+  // the rows back to the server and drop what was typed meanwhile.
+  const edits = useRef(0);
+  const markEdited = () => {
+    edits.current += 1;
+    setDirty(true);
+  };
   const [focusId, setFocusId] = useState<HarnessUsageProviderId | null>(null);
   const saveChain = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
@@ -63,10 +70,13 @@ export function UsageBudgetSettings(): JSX.Element {
     if (next.some((row) => parseAmount(row.amount) === null)) return;
     const payload: UsageBudgets = {};
     for (const row of next) payload[row.id] = parseAmount(row.amount)!;
+    const at = edits.current;
     saveChain.current = saveChain.current
       .catch(() => {})
       .then(() => save(payload))
-      .then(() => setDirty(false))
+      .then(() => {
+        if (edits.current === at) setDirty(false);
+      })
       .catch(() => {
         // The hook reports it; the rows stay so nothing typed is lost.
       });
@@ -123,7 +133,7 @@ export function UsageBudgetSettings(): JSX.Element {
                   data-testid="usage-budget-amount"
                   className="h-8 w-32 pointer-coarse:h-11"
                   onChange={(event) => {
-                    setDirty(true);
+                    markEdited();
                     setRows((current) =>
                       current.map((r) =>
                         r.id === row.id
@@ -151,7 +161,7 @@ export function UsageBudgetSettings(): JSX.Element {
                   data-testid="usage-budget-remove"
                   onClick={() => {
                     const next = rows.filter((r) => r.id !== row.id);
-                    setDirty(true);
+                    markEdited();
                     setRows(next);
                     persist(next);
                   }}
@@ -176,7 +186,7 @@ export function UsageBudgetSettings(): JSX.Element {
           <Select
             value=""
             onValueChange={(id) => {
-              setDirty(true);
+              markEdited();
               setFocusId(id as HarnessUsageProviderId);
               setRows((current) => [
                 ...current,
