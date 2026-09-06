@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -82,12 +88,15 @@ vi.mock("@/hooks/use-pin-shortcuts", () => ({
 vi.mock("@/hooks/use-coarse-pointer", () => ({
   useCoarsePointer: () => false,
 }));
+const queueInterrupt = vi.fn(async () => {});
 const queueSendNow = vi.fn(async (_id: string) => {});
 const queueRemove = vi.fn(async (_id: string) => {});
 vi.mock("./use-harness-queue", () => ({
   useHarnessQueue: () => ({
     sendNow: queueSendNow,
     remove: queueRemove,
+    interrupt: queueInterrupt,
+    interrupting: false,
     busyId: null,
   }),
 }));
@@ -418,7 +427,7 @@ describe("HarnessPane message queue", () => {
     expect(queueRemove).toHaveBeenCalledWith("q_3");
 
     // The composer says what Enter does while the agent is busy.
-    expect(screen.getByTestId("chat-composer-hint").textContent).toBe(
+    expect(screen.getByTestId("chat-composer-hint").textContent).toContain(
       "Agent is working · Enter queues your message"
     );
   });
@@ -702,5 +711,54 @@ describe("HarnessPane inline shortcuts", () => {
     );
     fireEvent.click(screen.getByTestId("harness-usage-chip"));
     expect(screen.getByTestId("harness-usage-dialog")).toBeTruthy();
+  });
+});
+
+describe("HarnessPane stop and recall", () => {
+  it("offers Stop while a turn runs and interrupts on click", () => {
+    state.turns = [
+      { id: "t1:user", role: "user", content: "go", timestamp: T0 },
+    ];
+    state.liveTrace = { startedAt: T0, steps: [] };
+    state.streaming = true;
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    fireEvent.click(screen.getByTestId("harness-stop"));
+    expect(queueInterrupt).toHaveBeenCalledTimes(1);
+  });
+
+  it("hides Stop when nothing runs, and ArrowUp pulls the queued message back", async () => {
+    state.turns = [
+      {
+        id: "t1:user",
+        role: "user",
+        content: "earlier prompt",
+        timestamp: T0,
+        extra: { source: "chat" },
+      },
+    ];
+    state.queued = [
+      {
+        id: "m2",
+        source: "chat",
+        text: "queued one",
+        chatMessageId: "m2",
+        attachments: [],
+        createdAt: "2026-09-04T10:00:01.000Z",
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    expect(screen.queryByTestId("harness-stop")).toBeNull();
+    const input = screen.getByTestId(
+      "chat-composer-input"
+    ) as HTMLTextAreaElement;
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("queued one"));
+    expect(queueRemove).toHaveBeenCalledWith("m2");
   });
 });

@@ -26,6 +26,8 @@ type OpenText = {
 /** Model output is not trusted input: bound what one row can hold. */
 export const TEXT_MAX_BYTES = 64 * 1024;
 export const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
+/** The error a turn carries when the service went down under it. */
+export const INTERRUPTED_BY_RESTART = "interrupted by restart";
 /** Chunks arrive per token; rewrite the row at most this often. */
 export const FLUSH_INTERVAL_MS = 100;
 
@@ -236,7 +238,12 @@ export class StreamRecorder {
    */
   async reconcile(agentId: string): Promise<number> {
     this.openTurn.delete(agentId);
-    return this.store.settleInterrupted(agentId, "interrupted by restart");
+    return this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
+  }
+
+  /** Whether the agent's newest turn ended because Dispatch restarted. */
+  async lastTurnInterruptedByRestart(agentId: string): Promise<boolean> {
+    return (await this.store.lastTurnError(agentId)) === INTERRUPTED_BY_RESTART;
   }
 
   /** Write any buffered text for the agent now (tests and shutdown). */

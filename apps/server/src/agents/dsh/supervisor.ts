@@ -117,6 +117,17 @@ export function buildChildEnv(input: {
 const MESSAGE_MAX = 200;
 const STOP_ALL_TIMEOUT_MS = 5_000;
 
+/**
+ * Sent as the first turn after a restart to an agent whose previous turn
+ * the restart cut short. The session log carries everything the model did
+ * up to the cut, so it can pick the task up rather than start over.
+ */
+export const RESTART_PROMPT = [
+  "--- DISPATCH: RESTART ---",
+  'Dispatch restarted while your previous turn was running, so that turn ended early (it is marked "interrupted by restart"). Pick the task back up from where you left off: check the current state of any files you were changing before redoing work, then continue.',
+  "--- END DISPATCH: RESTART ---",
+].join("\n");
+
 /** A prompt waiting its turn, as the Harness view lists it. */
 export type QueuedPrompt = {
   /** The chat message id for a chat prompt; otherwise a queue-local id. */
@@ -569,6 +580,18 @@ export class DshSupervisor {
       try {
         await this.start(id);
         restored.push(id);
+        // A turn the restart cut short continues instead of sitting there
+        // marked interrupted until someone notices.
+        if (await this.streams.lastTurnInterruptedByRestart(id)) {
+          this.enqueuePrompt(id, RESTART_PROMPT).settled.catch(
+            (err: unknown) => {
+              this.deps.logger.warn(
+                { err, agentId: id },
+                "dsh restart follow-up turn failed"
+              );
+            }
+          );
+        }
       } catch (err) {
         failed.push(id);
         const message = (err as Error).message;
@@ -738,6 +761,14 @@ export class DshSupervisor {
   async stopAll(): Promise<void> {
     const ids = this.driver.liveAgentIds();
     if (ids.length === 0) return;
+    // A turn still running is the restart's doing, not the agent's: mark it
+    // so the next boot knows to resume it, before the exit settles it as
+    // merely cancelled.
+    await Promise.allSettled(
+      ids
+        .filter((id) => this.running.has(id))
+        .map((id) => this.streams.reconcile(id))
+    );
     await Promise.race([
       Promise.allSettled(ids.map((id) => this.stop(id))),
       new Promise((resolve) => setTimeout(resolve, STOP_ALL_TIMEOUT_MS)),

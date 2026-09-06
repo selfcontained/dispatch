@@ -349,3 +349,34 @@ describe("ChatComposer slash menu", () => {
     expect(screen.getAllByTestId("chat-composer-slash-item")).toHaveLength(1);
   });
 });
+
+describe("ChatComposer history", () => {
+  it("walks earlier prompts with the arrows from an empty field", () => {
+    const { input } = renderComposer({ history: ["first", "second"] });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("second");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("first");
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("first");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.value).toBe("second");
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    expect(input.value).toBe("");
+    // A field with a draft is left alone.
+    fireEvent.change(input, { target: { value: "typing" } });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    expect(input.value).toBe("typing");
+  });
+
+  it("takes a queued message back before reaching for the history", async () => {
+    const recallQueued = vi.fn(async () => "queued draft");
+    const { input } = renderComposer({
+      history: ["older"],
+      recallQueued,
+    });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    await waitFor(() => expect(input.value).toBe("queued draft"));
+    expect(recallQueued).toHaveBeenCalledTimes(1);
+  });
+});

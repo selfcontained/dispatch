@@ -9,6 +9,7 @@ import {
   buildChildEnv,
   defaultModelFor,
   DshSupervisor,
+  RESTART_PROMPT,
 } from "../src/agents/dsh/supervisor.js";
 import { createFakeAcpAgent, type FakeTurn } from "./helpers/fake-acp-agent.js";
 
@@ -32,6 +33,8 @@ async function build(
     launchPrompt?: string;
     /** The binary cannot be resolved: driver.start rejects. */
     startFails?: boolean;
+    /** What the newest turn row's error column says. */
+    lastTurnError?: string | null;
   } = {}
 ) {
   home = await mkdtemp(path.join(os.tmpdir(), "dsh-sup-"));
@@ -72,6 +75,16 @@ async function build(
     }
     return { rows: [], rowCount: 0 };
   });
+  if (opts.lastTurnError !== undefined) {
+    const error = opts.lastTurnError;
+    query.mockImplementation(async (sql: string) => {
+      await new Promise((r) => setTimeout(r, 2));
+      if (/payload->>'error' AS error/.test(sql)) {
+        return { rows: [{ error }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 0 };
+    });
+  }
   const events: { type: string; message: string }[] = [];
   const deps = {
     pool: { query } as never,
@@ -601,5 +614,53 @@ describe("DshSupervisor message queue", () => {
     expect(fake.seen.prompts).toEqual(["one"]);
     expect(sup.listQueued("agt_1")).toEqual([]);
     expect(sup.isBusy("agt_1")).toBe(false);
+  });
+});
+
+describe("DshSupervisor restart resilience", () => {
+  it("resumes an agent whose last turn the restart cut short", async () => {
+    const { sup, deps, fake } = await build({
+      cliSessionId: "sess_old",
+      lastTurnError: "interrupted by restart",
+    });
+    deps.listRunningAgentIds.mockResolvedValue(["agt_1"]);
+    await sup.restoreRunning();
+    await vi.waitFor(() => expect(fake.seen.prompts).toEqual([RESTART_PROMPT]));
+    await sup.stopAll();
+  });
+
+  it("leaves an agent alone when its last turn ended on its own", async () => {
+    const { sup, deps, fake } = await build({
+      cliSessionId: "sess_old",
+      lastTurnError: null,
+    });
+    deps.listRunningAgentIds.mockResolvedValue(["agt_1"]);
+    await sup.restoreRunning();
+    await new Promise((r) => setTimeout(r, 30));
+    expect(fake.seen.prompts).toEqual([]);
+    await sup.stopAll();
+  });
+
+  it("marks a running turn as interrupted by restart when shutting down", async () => {
+    const { sup, query, fake } = await build({
+      turn: async (_p, _emit, _ask, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve());
+          setTimeout(resolve, 2000);
+        });
+        return "cancelled";
+      },
+    });
+    await sup.start("agt_1");
+    const first = sup.enqueuePrompt("agt_1", "long job");
+    await first.started;
+    query.mockClear();
+    await sup.stopAll();
+    const settle = query.mock.calls.find(([sql]) =>
+      /payload->>'state' = 'started'/.test(String(sql))
+    );
+    expect(settle?.[1]?.[0]).toBe("agt_1");
+    expect(String(settle?.[1]?.[1])).toContain("interrupted by restart");
+    expect(fake.seen.closes).toBe(1);
   });
 });

@@ -146,6 +146,18 @@ export async function registerAgentHarnessRoutes(
     }
   );
 
+  // Stop: cancel the running turn. Queued prompts stay queued and run next.
+  app.post("/api/v1/agents/:id/harness/interrupt", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    if (!(await exists(id))) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
+    if (!(await deps.harness.interrupt(id))) {
+      return reply.code(409).send({ error: "No turn is running." });
+    }
+    return reply.code(204).send();
+  });
+
   // A subagent the agent spawned: its own dsh session, read from the log.
   app.get(
     "/api/v1/agents/:id/harness/subagents/:sessionId",

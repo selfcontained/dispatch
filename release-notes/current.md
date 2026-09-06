@@ -15,7 +15,8 @@
 * Settings → Agents gains **Usage budgets**: a monthly USD amount per provider (OpenAI, DeepSeek, Anthropic, Gemini), empty until a row is added from the dropdown; the Harness usage dialog draws its bars from these. The `DISPATCH_USAGE_BUDGET_*` env vars from dsh.19 are gone.
 * Harness view fixes: the usage dialog names the month in UTC; a nested subagent's prompt shows the task without the spliced workspace instructions.
 * Harness view: a live turn never looks stalled. A thought still being written shows as a running step; between steps the rail shows a running "thinking" row timed from the last thing that ended; settled thoughts carry their duration.
+* Restart resilience for Dispatch Harness agents: a turn the service restart cut short is marked "interrupted by restart" at shutdown, and on the next boot the agent is told to pick the task back up from where it left off. A **Stop** button beside the composer cancels the running turn (queued messages run next). With the field empty, ↑ takes the newest queued message back for editing, then walks earlier prompts; ↓ walks forward.
 * Adds the `agent_stream_events` table (additive), the `@agentclientprotocol/sdk` dependency, and an update-migrations manifest. Running dsh agents are resumed after a service restart on their stored session ids.
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.22
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.23

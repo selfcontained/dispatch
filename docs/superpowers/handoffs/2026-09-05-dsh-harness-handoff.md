@@ -211,3 +211,36 @@ tagged `v0.38.7-dsh.19`). Rollback binary `~/.dispatch/server/dispatch.dsh18`.
 Next, from Nii: forms as structured input in the Harness. Plan in
 `docs/superpowers/plans/2026-09-05-harness-generative-ui-followups.md`,
 grounded in PromptKit's 2026-07-14 generative-UI modality spec.
+
+## Update, 2026-09-06 early: dsh.20 to dsh.23
+
+- dsh.20: UTC month label; subagent prompt clips `<system-reminder>` parts.
+- dsh.21: usage budgets moved to Settings → Agents → Usage budgets
+  (`usage_budgets` setting, `/api/v1/app/settings/usage-budgets`,
+  `HARNESS_USAGE_PROVIDERS` in shared incl. Gemini). Env vars gone.
+- dsh.22: live thinking. Newest thought row of an unsettled turn is a running
+  step; settled thoughts carry `durMs`; `ThinkingRow` in `activity-block.tsx`
+  when a live trace has steps but none running.
+- dsh.23: **restart resilience, first cut.** The service restart kills the
+  dsh child (it is a child process, unlike tmux consoles), so a running turn
+  died silently with "interrupted by restart". Now `stopAll()` marks running
+  turns before stopping them, and `restoreRunning()` sends `RESTART_PROMPT`
+  (a `--- DISPATCH: RESTART ---` notice) to any agent whose newest turn was
+  interrupted, so it continues from the session log. Every deploy still
+  restarts the service; check `list_agents` for a working dsh agent first.
+  Also: `POST /harness/interrupt` + a Stop button while a turn runs; composer
+  `history` and `recallQueued` props (↑ pulls the newest queued message back
+  via DELETE, then walks earlier chat prompts; ↓ forward).
+
+**The real fix Nii wants:** dsh processes that outlive the Dispatch server,
+like tmux consoles do. The shutdown path deliberately stops children today
+("full-access permissions and a stale MCP token"). Design sketch, not
+started: run `dsh --profile acp` detached (inside the agent's tmux session)
+behind a small relay that owns its stdio and listens on a Unix socket under
+`<DSH_HOME>/ipc/<agent>.sock`, buffering ACP notifications while no client is
+attached; the driver connects to the socket instead of spawning, and on
+reconnect adopts the in-flight `session/prompt` request id from the relay so
+the turn settles normally. Spike first: does dsh keep running its turn with
+the client gone, and does it accept a second `initialize` on reconnect? MCP
+tokens would need to survive a restart (they are signed with the auth
+token, so they do unless the token rotates).

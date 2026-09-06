@@ -109,6 +109,17 @@ export type ChatComposerProps = {
    * on what Enter does right now, such as queueing behind a running turn.
    */
   hint?: string;
+  /**
+   * Earlier prompts, oldest first. With the field empty, ArrowUp walks back
+   * through them and ArrowDown forward again to the empty draft.
+   */
+  history?: string[];
+  /**
+   * Asked before the history on ArrowUp with an empty field: a queued
+   * message to take back for editing. Resolve to its text (the host has
+   * removed it from the queue) or null when nothing is queued.
+   */
+  recallQueued?: () => Promise<string | null>;
 };
 
 export type SlashItem = {
@@ -260,6 +271,8 @@ export function ChatComposer({
   dropTargetRef,
   onDropZoneDragging,
   hint,
+  history,
+  recallQueued,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -291,6 +304,54 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // Prompt history: null while typing a fresh draft; otherwise the index
+  // into `history` the field currently shows.
+  const [historyIndex, setHistoryIndex] = useState<number | null>(null);
+  const recallingRef = useRef(false);
+  const recallOrStepBack = useCallback(async () => {
+    const entries = history ?? [];
+    if (historyIndex === null) {
+      if (recallQueued && !recallingRef.current) {
+        recallingRef.current = true;
+        try {
+          const queued = await recallQueued();
+          if (queued !== null) {
+            setText(queued);
+            setCaret(queued.length);
+            return;
+          }
+        } finally {
+          recallingRef.current = false;
+        }
+      }
+      if (entries.length === 0) return;
+      const index = entries.length - 1;
+      setHistoryIndex(index);
+      setText(entries[index]);
+      setCaret(entries[index].length);
+      return;
+    }
+    if (historyIndex > 0) {
+      const index = historyIndex - 1;
+      setHistoryIndex(index);
+      setText(entries[index]);
+      setCaret(entries[index].length);
+    }
+  }, [history, historyIndex, recallQueued, setText]);
+  const stepForward = useCallback(() => {
+    const entries = history ?? [];
+    if (historyIndex === null) return;
+    if (historyIndex < entries.length - 1) {
+      const index = historyIndex + 1;
+      setHistoryIndex(index);
+      setText(entries[index]);
+      setCaret(entries[index].length);
+    } else {
+      setHistoryIndex(null);
+      setText("");
+      setCaret(0);
+    }
+  }, [history, historyIndex, setText]);
   // Slash menu: open while the caret sits at the end of a "/<partial>"
   // token, closed by Escape until the text changes again. The caret is
   // tracked from the field on every change, key, click, and selection.
@@ -798,13 +859,43 @@ export function ChatComposer({
           return;
         }
       }
+      // History: an empty field (or one already showing an entry) walks
+      // back on ArrowUp and forward on ArrowDown, like a shell.
+      if (event.key === "ArrowUp" && (historyIndex !== null || text === "")) {
+        if (
+          historyIndex !== null ||
+          (history?.length ?? 0) > 0 ||
+          recallQueued
+        ) {
+          event.preventDefault();
+          void recallOrStepBack();
+          return;
+        }
+      }
+      if (event.key === "ArrowDown" && historyIndex !== null) {
+        event.preventDefault();
+        stepForward();
+        return;
+      }
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
       if (event.nativeEvent.isComposing) return;
       event.preventDefault();
+      setHistoryIndex(null);
       submit();
     },
-    [pickSlash, slashActive, slashMatches, submit, text]
+    [
+      history,
+      historyIndex,
+      pickSlash,
+      recallOrStepBack,
+      recallQueued,
+      slashActive,
+      slashMatches,
+      stepForward,
+      submit,
+      text,
+    ]
   );
 
   const uploadingName = fileViews.find(
@@ -969,6 +1060,8 @@ export function ChatComposer({
             onChange={(event) => {
               setText(event.target.value);
               setCaret(event.target.selectionStart);
+              // Typing turns a recalled entry into a fresh draft.
+              setHistoryIndex(null);
             }}
             onKeyDown={onKeyDown}
             onKeyUp={syncCaret}

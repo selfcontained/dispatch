@@ -5,7 +5,7 @@ import type {
   HarnessQuestion,
 } from "@dispatch/shared";
 import { useQueryClient } from "@tanstack/react-query";
-import { CircleDollarSign, Cpu, Upload } from "lucide-react";
+import { CircleDollarSign, Cpu, Square, Upload } from "lucide-react";
 
 import {
   ChatComposer,
@@ -75,6 +75,8 @@ export function HarnessPane({
   const {
     sendNow: sendQueuedNow,
     remove: removeQueued,
+    interrupt,
+    interrupting,
     busyId: queueBusyId,
   } = useHarnessQueue(agentId);
   const send = useSendChatMessage(agentId);
@@ -272,6 +274,31 @@ export function HarnessPane({
     [removeQueued]
   );
 
+  const onStop = useCallback(() => {
+    setSendError(null);
+    interrupt().catch((err: unknown) => {
+      setSendError(err instanceof Error ? err.message : "Could not stop.");
+    });
+  }, [interrupt]);
+
+  // What the user typed before, oldest first, for the composer's history.
+  const promptHistory = useMemo(() => {
+    const out: string[] = [];
+    for (const turn of turns) {
+      if (turn.role !== "user" || turn.extra?.source !== "chat") continue;
+      const text = turn.content.trim();
+      if (text && out[out.length - 1] !== text) out.push(text);
+    }
+    return out;
+  }, [turns]);
+  // ArrowUp on an empty field takes the newest queued message back to edit.
+  const recallQueued = useCallback(async () => {
+    const last = queued[queued.length - 1];
+    if (!last) return null;
+    await removeQueued(last.id);
+    return last.text;
+  }, [queued, removeQueued]);
+
   const uploadFile = useCallback(
     (file: File) => {
       if (!agentId) return Promise.reject(new Error("No agent selected."));
@@ -418,6 +445,19 @@ export function HarnessPane({
             <CircleDollarSign className="h-3 w-3 shrink-0" aria-hidden="true" />
             usage
           </button>
+          {streaming ? (
+            <button
+              type="button"
+              onClick={onStop}
+              disabled={interrupting}
+              title="Stop the running turn; queued messages run next"
+              data-testid="harness-stop"
+              className="ml-auto inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50"
+            >
+              <Square className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+              {interrupting ? "Stopping…" : "Stop"}
+            </button>
+          ) : null}
         </div>
         <UsageDialog open={usageOpen} onOpenChange={setUsageOpen} />
         <ModelPicker
@@ -449,9 +489,11 @@ export function HarnessPane({
           onSlashCommand={onSlashCommand}
           hint={
             streaming || queued.length > 0
-              ? "Agent is working · Enter queues your message"
+              ? "Agent is working · Enter queues your message · ↑ edits the queued one"
               : undefined
           }
+          history={promptHistory}
+          recallQueued={recallQueued}
           dropTargetRef={dropRef}
           onDropZoneDragging={setDraggingFiles}
           replyContext={

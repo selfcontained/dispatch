@@ -850,6 +850,7 @@ async function registerRoutes() {
       listQueued: (agentId) => dshSupervisor.listQueued(agentId),
       sendQueuedNow: (agentId, id) => dshSupervisor.sendQueuedNow(agentId, id),
       removeQueued: (agentId, id) => dshSupervisor.removeQueued(agentId, id),
+      interrupt: (agentId) => dshSupervisor.interrupt(agentId),
       usage: createUsageReporter({
         env: process.env,
         dshHome: config.dshHome,

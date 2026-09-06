@@ -165,7 +165,7 @@ test.describe("dsh agent", () => {
       timeout: 30_000,
     });
     await expect(harness.getByTestId("chat-composer-hint")).toHaveText(
-      "Agent is working · Enter queues your message"
+      "Agent is working · Enter queues your message · ↑ edits the queued one"
     );
 
     // Two more land in the queue, in order, under the live turn.

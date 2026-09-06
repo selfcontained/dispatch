@@ -39,6 +39,8 @@ export type AgentRouteDeps = {
     /** Promote and interrupt; false when nothing queued has that id. */
     sendQueuedNow: (agentId: string, id: string) => Promise<boolean>;
     removeQueued: (agentId: string, id: string) => boolean;
+    /** Cancel the running turn; false when nothing runs. */
+    interrupt: (agentId: string) => Promise<boolean>;
     /** What the provider keys have been used for (see agents/dsh/usage.ts). */
     usage: () => Promise<HarnessUsageResponse>;
   };

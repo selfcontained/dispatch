@@ -91,6 +91,24 @@ describe("GET /api/v1/agents/:id/harness/turns", () => {
   });
 });
 
+describe("POST /api/v1/agents/:id/harness/interrupt", () => {
+  it("409s when nothing is running and 404s for an unknown agent", async () => {
+    const cookie = await ctx.sessionCookie();
+    const idle = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/harness/interrupt`,
+      headers: { cookie },
+    });
+    expect(idle.statusCode).toBe(409);
+    const missing = await ctx.app.inject({
+      method: "POST",
+      url: `/api/v1/agents/agt_nope/harness/interrupt`,
+      headers: { cookie },
+    });
+    expect(missing.statusCode).toBe(404);
+  });
+});
+
 describe("harness queue routes", () => {
   it("404 when the message is not queued, and for an unknown agent", async () => {
     const cookie = await ctx.sessionCookie();
