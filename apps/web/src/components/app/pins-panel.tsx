@@ -109,7 +109,7 @@ const EMPTY_SUB_AGENT_PINS: SubAgentPins[] = [];
  * Confirmation is opt-in per shortcut pin (`confirm: true`) — the owning agent
  * decides which of its own actions deserve a second look before firing.
  */
-function ConfirmShortcutDialog({
+export function ConfirmShortcutDialog({
   pin,
   onOpenChange,
   onConfirm,

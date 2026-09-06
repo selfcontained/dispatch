@@ -172,6 +172,22 @@ export type ChatReviewEntry = {
   at: string;
 };
 
+/**
+ * Pins the agent created, updated, or deleted in one write (`pin_events`),
+ * surfaced as a post in the feed. Entries carry ids, not values: the web
+ * renders each pin live from the agent's current pins, exactly as a pin
+ * attachment does, so a later update refreshes every earlier entry and a
+ * shortcut in the stream stays runnable. `label` is the one snapshot, so an
+ * entry can still name a pin that has since been deleted.
+ */
+export type ChatPinEntry = {
+  type: "pin";
+  id: string;
+  action: "created" | "updated" | "deleted";
+  pins: Array<{ id: string; label: string }>;
+  at: string;
+};
+
 export type ChatMessageEntry = {
   type: "chat";
   id: string;
@@ -184,7 +200,8 @@ export type ChatFeedEntry =
   | ChatStatusEntry
   | ChatAgentMessageEntry
   | ChatMediaEntry
-  | ChatReviewEntry;
+  | ChatReviewEntry
+  | ChatPinEntry;
 
 export type ChatFeedResponse = {
   entries: ChatFeedEntry[];

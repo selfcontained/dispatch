@@ -1082,6 +1082,83 @@ describe("ChatFeed", () => {
     expect(screen.getByTestId("chat-attachment-pin-missing")).toBeTruthy();
   });
 
+  it("renders pin entries live from the agent's pins, with removed ones by label", () => {
+    const pins = [
+      {
+        id: "pin_a",
+        label: "Dev URL",
+        value: "http://localhost:5173",
+        type: "url" as const,
+      },
+      {
+        id: "pin_s",
+        label: "Rerun",
+        value: "rerun tests",
+        type: "shortcut" as const,
+      },
+    ];
+    const onRunShortcut = vi.fn();
+    renderFeed(
+      [
+        {
+          type: "pin",
+          id: "pin:1",
+          action: "created",
+          pins: [
+            { id: "pin_a", label: "Dev URL" },
+            { id: "pin_gone", label: "Old" },
+          ],
+          at: "2026-09-02T10:00:00.000Z",
+        },
+        {
+          type: "pin",
+          id: "pin:2",
+          action: "updated",
+          pins: [{ id: "pin_s", label: "Rerun" }],
+          at: "2026-09-02T10:01:00.000Z",
+        },
+        {
+          type: "pin",
+          id: "pin:3",
+          action: "deleted",
+          pins: [
+            { id: "pin_x", label: "Scratch" },
+            { id: "pin_y", label: "Notes" },
+          ],
+          at: "2026-09-02T10:02:00.000Z",
+        },
+      ],
+      {},
+      { pins, onRunShortcut }
+    );
+    const entries = screen.getAllByTestId("chat-pin-entry");
+    expect(entries).toHaveLength(3);
+    expect(
+      screen.getAllByTestId("chat-pin-entry-verb").map((n) => n.textContent)
+    ).toEqual(["Pinned 2 items", "Updated pin", "Removed 2 pins"]);
+    // Created: the live pin renders with the sidebar's own item; the one
+    // that has since gone is named by its snapshotted label.
+    const live = screen.getAllByTestId("chat-pin-entry-pin");
+    expect(live[0]!.textContent).toContain("Dev URL");
+    expect(live[0]!.textContent).toContain("localhost:5173");
+    expect(
+      screen.getByTestId("chat-pin-entry-pin-missing").textContent
+    ).toContain("Old");
+    // Updated: a shortcut in the stream is runnable.
+    const button = live[1]!.querySelector("button");
+    expect(button?.textContent).toContain("Rerun");
+    fireEvent.click(button!);
+    expect(onRunShortcut).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "pin_s" }),
+      expect.anything()
+    );
+    // Deleted: nothing to render, so the labels stand in.
+    expect(entries[2]!.textContent).toContain("Scratch, Notes");
+    expect(
+      entries[2]!.querySelector('[data-testid="chat-pin-entry-pin"]')
+    ).toBeNull();
+  });
+
   it("renders status lines with a collapsed count", () => {
     renderFeed([
       status("s1", "working", "Reading"),

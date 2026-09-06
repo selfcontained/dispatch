@@ -55,6 +55,7 @@ import {
   validatePinShortcutFields,
   validatePinValue,
 } from "../pins.js";
+import { diffPins, recordPinEvents } from "./pin-events.js";
 import { type SeededMedia, seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
@@ -1563,11 +1564,15 @@ export class AgentManager {
       );
       if (result.rows.length === 0)
         throw new AgentError("Agent not found.", 404);
-      const pins = mutate(result.rows[0]!.pins ?? []);
+      const currentPins = result.rows[0]!.pins ?? [];
+      const pins = mutate(currentPins);
       await client.query(
         "UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1",
         [id, JSON.stringify(pins)]
       );
+      // Same transaction as the write, so the Chat feed's pin history can
+      // never disagree with what the sidebar shows.
+      await recordPinEvents(client, id, diffPins(currentPins, pins));
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {});

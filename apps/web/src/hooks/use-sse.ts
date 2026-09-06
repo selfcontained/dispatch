@@ -211,9 +211,9 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.upsert") {
-          // Status events reach the feed through the agent row's latestEvent;
-          // an upsert that changed nothing about it (name edit, pin update)
-          // has nothing new for the feed.
+          // Status events reach the feed through the agent row's latestEvent
+          // and pin activity through its pins; an upsert that changed neither
+          // (a name edit) has nothing new for the feed.
           const existing = queryClient
             .getQueryData<Agent[]>(["agents"])
             ?.find((a) => a.id === payload.agent.id);
@@ -223,10 +223,18 @@ export function useSSE(authState: AuthState): void {
               payload.agent.latestEvent?.updatedAt ||
             existing.latestEvent?.message !==
               payload.agent.latestEvent?.message;
+          // A pin write lands a `pin_events` row in the same transaction, so
+          // the feed has a new entry whenever the pins array differs.
+          const pinsChanged =
+            !existing ||
+            JSON.stringify(existing.pins ?? []) !==
+              JSON.stringify(payload.agent.pins ?? []);
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
-          if (eventChanged) invalidateChatFeed(queryClient, payload.agent.id);
+          if (eventChanged || pinsChanged) {
+            invalidateChatFeed(queryClient, payload.agent.id);
+          }
           return;
         }
 
