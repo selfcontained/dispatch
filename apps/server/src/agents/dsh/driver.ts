@@ -92,7 +92,7 @@ const HANDSHAKE_TIMEOUT_MS = 30_000;
  * and keeps the real message in `data.details` (dsh itself does the same
  * for a failed turn), so surface that detail instead of the bare code.
  */
-export function describeRpcError(err: unknown): string {
+function describeRpcError(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
   const data = (err as { data?: unknown }).data;
   let detail: string | null = null;

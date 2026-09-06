@@ -15,7 +15,7 @@ const require = createRequire(
 const acp = require("@agentclientprotocol/sdk");
 
 let conn;
-let cwdBySession = new Map();
+const cwdBySession = new Map();
 // A prompt containing "sleep:<ms>" holds its turn that long (or until the
 // client cancels it), so a spec can watch what queues behind a running turn.
 const SLEEP = /sleep:(\d+)/;

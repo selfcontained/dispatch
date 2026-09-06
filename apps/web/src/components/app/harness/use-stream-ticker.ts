@@ -1,16 +1,12 @@
-// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit) —
+// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { useCallback, useSyncExternalStore } from "react";
 
 /**
- * A single, module-level animation ticker shared by every live glyph in the
- * fused assistant stream (braille spinners + "…" dots). One interval drives
- * all of them — never one timer per row, which would multiply across a long
- * trace and drift.
- *
- * The interval only runs while at least one component is actively subscribed
- * (i.e. something is `running`); it stops as soon as the last live glyph
- * unsubscribes, so an idle/finished stream costs nothing.
+ * One module-level ticker for every live glyph in the stream (braille
+ * spinners and "…" dots). One interval drives them all: a timer per row
+ * would multiply across a long trace and drift. It runs only while at
+ * least one component is subscribed, so an idle stream costs nothing.
  */
 const FRAME_MS = 110;
 
@@ -60,8 +56,8 @@ const getSnapshot = () => tick;
 const getZero = () => 0;
 const noopSubscribe = () => () => {};
 
-/** Respect the OS reduced-motion setting — when set, the spinner/dots must not
- *  cycle (the JS ticker is invisible to the CSS reduced-motion guard). */
+/** Under the OS reduced-motion setting the spinner and dots must not cycle:
+ *  the CSS reduced-motion guard cannot see a JS ticker. */
 function prefersReducedMotion(): boolean {
   return (
     typeof window !== "undefined" &&

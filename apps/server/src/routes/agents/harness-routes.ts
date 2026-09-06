@@ -19,7 +19,7 @@ import type { AgentRouteDeps } from "./shared.js";
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
-/** Turns for the Harness view: read-only, assembled from the stream rows. */
+/** The Harness view's routes: turns and the queue, session config, subagents, skills. */
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
   deps: Pick<AgentRouteDeps, "pool" | "dshHome" | "harness" | "subagentLogs">

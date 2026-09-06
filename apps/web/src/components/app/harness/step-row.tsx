@@ -1,4 +1,4 @@
-// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit) —
+// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { cn } from "@/lib/utils";
 
@@ -8,14 +8,13 @@ import { hasDetail, stepLabel, stepSummary, toolName } from "./registry";
 import { StepDetail } from "./step-detail";
 import { useStreamTicker } from "./use-stream-ticker";
 
-const STATUS_ARIA: Record<StatusStatusKey, string> = {
+const STATUS_ARIA: Record<StepStatus, string> = {
   running: "running",
   ok: "completed",
   retry: "retrying",
   error: "failed",
   skipped: "skipped",
 };
-type StatusStatusKey = StepStatus;
 
 const ROW_CLASS =
   "flex w-full items-center gap-[9px] py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50";

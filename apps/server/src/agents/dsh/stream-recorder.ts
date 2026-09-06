@@ -35,7 +35,7 @@ export const FLUSH_INTERVAL_MS = 100;
 
 /**
  * dsh's ACP server sends tool calls without a `kind`; the title is the tool
- * name, which is enough to pick the icon and colour the Chat row gets.
+ * name, which is enough to pick the icon and color the Chat row gets.
  */
 export function inferToolKind(
   kind: string | null | undefined,
@@ -76,7 +76,7 @@ export function boundOutput(
 const INPUT_MAX_BYTES = 8 * 1024;
 
 /**
- * Keep a tool call's raw input as sent, unless serialising it is large —
+ * Keep a tool call's raw input as sent, unless serializing it is large:
  * then a bounded string preview stands in, marked so the view can say so.
  */
 export function boundInput(input: unknown): unknown {
@@ -187,7 +187,7 @@ export class StreamRecorder {
         return this.handleUpdate(event.agentId, event.update);
       case "turn": {
         if (event.state === "started") {
-          await this.settleAutonomous(event.agentId, "next turn");
+          await this.settleAutonomous(event.agentId);
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",
             prompt: parsePromptSource(event.text),
@@ -336,14 +336,14 @@ export class StreamRecorder {
     if (prior) clearTimeout(prior);
     const timer = setTimeout(() => {
       this.autonomousIdle.delete(agentId);
-      void this.settleAutonomous(agentId, "quiet").catch(() => {});
+      void this.settleAutonomous(agentId).catch(() => {});
     }, this.deps.autonomousIdleMs ?? AUTONOMOUS_IDLE_MS);
     timer.unref?.();
     this.autonomousIdle.set(agentId, timer);
   }
 
   /** Close a turn dsh opened by itself; a no-op for a prompted turn. */
-  async settleAutonomous(agentId: string, _why: string): Promise<void> {
+  async settleAutonomous(agentId: string): Promise<void> {
     const open = this.openTurn.get(agentId);
     if (!open || !(open.payload as TurnPayload).autonomous) return;
     const timer = this.autonomousIdle.get(agentId);

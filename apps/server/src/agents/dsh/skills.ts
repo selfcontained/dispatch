@@ -8,7 +8,7 @@ import type { HarnessSkill } from "@dispatch/shared";
  * two project directories under the working tree, then the harness home.
  * The Harness composer's slash menu lists the same set the agent can load.
  */
-export function dshSkillDirs(input: {
+function dshSkillDirs(input: {
   cwd: string;
   dshHome: string;
 }): { dir: string; source: HarnessSkill["source"] }[] {

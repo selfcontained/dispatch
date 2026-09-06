@@ -5,11 +5,11 @@ import {
   extractAppendedSystemPrompt,
 } from "../tmux/command-builder.js";
 
-/** How a dsh agent's output reaches the user; replaces the pane-era chat rule. */
 /** The Harness composer's slash menu sends "/<skill> …" as plain text. */
-export const DSH_SLASH_RULE =
+const DSH_SLASH_RULE =
   'A user message that begins with "/<name>" names a skill: load that skill with the skill tool and follow it, treating the rest of the message as its input. If no skill has that name, say so briefly.';
 
+/** How a dsh agent's output reaches the user; replaces the pane-era chat rule. */
 export const DSH_CHAT_RULE =
   "The user is reading the Chat tab. Your replies appear there as you write them, so answer in plain text and do not repeat a reply through dispatch_chat_post. Use dispatch_chat_post only for a question that needs a choice (kind: question with options).";
 

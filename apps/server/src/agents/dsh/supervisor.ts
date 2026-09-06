@@ -139,11 +139,6 @@ type Pending = QueuedPrompt & {
 };
 
 /**
- * When no model was chosen, pick one whose provider key the service has, so
- * a first agent does not fail on the profile's DeepSeek default with only an
- * OpenAI key configured. Null keeps the profile default.
- */
-/**
  * Which env key each dsh provider route needs. A route without its key
  * still shows in dsh's options, but every call on it would fail, so the
  * catalog and the picker drop it. Unknown routes are kept.
@@ -277,6 +272,11 @@ export function modelIdFromValue(value: string): string | null {
 
 const CATALOG_TTL_MS = 10 * 60_000;
 
+/**
+ * With no model chosen, pick one whose provider key the service has, so a
+ * first agent does not fail on the profile's DeepSeek default when only an
+ * OpenAI key is configured. Null keeps the profile default.
+ */
 export function defaultModelFor(env: NodeJS.ProcessEnv): string | null {
   if (env.DEEPSEEK_API_KEY) return "deepseek-official/deepseek-v4-flash";
   if (env.OPENAI_API_KEY) return "openai/gpt-5.6-sol";
@@ -778,11 +778,6 @@ export class DshSupervisor {
       return;
     }
     await this.deps.setLatestEvent(agentId, input);
-  }
-
-  async cancel(agentId: string): Promise<void> {
-    if (!this.driver.isRunning(agentId)) return;
-    await this.driver.cancel(agentId);
   }
 
   async stop(

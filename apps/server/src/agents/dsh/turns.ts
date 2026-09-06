@@ -31,7 +31,7 @@ function firstLine(text: string): string {
   return line.length > 120 ? `${line.slice(0, 117)}…` : line;
 }
 
-export function promptFor(
+function promptFor(
   source: PromptSource,
   chat: Map<string, ChatMessage>
 ): HarnessPrompt {
@@ -179,7 +179,6 @@ function noteStep(
 
 type Group = { turn: TurnSourceRow | null; rows: TurnSourceRow[] };
 
-/** Cut ascending stream rows into turns and shape each for the view. */
 /** An agent question as the view carries it. */
 function toQuestion(message: ChatMessage): HarnessQuestion {
   return {
@@ -197,6 +196,7 @@ function toQuestion(message: ChatMessage): HarnessQuestion {
   };
 }
 
+/** Cut ascending stream rows into turns and shape each for the view. */
 export function assembleTurns(
   rows: TurnSourceRow[],
   chat: Map<string, ChatMessage>,
@@ -364,8 +364,8 @@ export async function loadTurns(
   return assembleTurns(source, chat, questions);
 }
 
-/** Join the chat text onto queued chat prompts, the way turns get theirs. */
-export async function loadChatMessages(
+/** The chat messages behind chat-sourced prompts, by id. */
+async function loadChatMessages(
   db: Queryable,
   ids: string[]
 ): Promise<Map<string, ChatMessage>> {

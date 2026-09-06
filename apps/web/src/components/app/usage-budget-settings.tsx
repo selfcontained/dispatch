@@ -63,8 +63,6 @@ export function UsageBudgetSettings(): JSX.Element {
     if (!dirty) setRows(rowsFrom(budgets));
   }, [budgets, dirty]);
 
-  const invalid = rows.filter((row) => parseAmount(row.amount) === null);
-
   const persist = (next: Row[]) => {
     // Nothing leaves the screen while a row still needs an amount.
     if (next.some((row) => parseAmount(row.amount) === null)) return;
@@ -215,7 +213,7 @@ export function UsageBudgetSettings(): JSX.Element {
         ) : null}
         {saving ? (
           <p className="text-xs text-muted-foreground">Saving…</p>
-        ) : invalid.length > 0 && dirty ? null : null}
+        ) : null}
       </div>
       {error ? (
         <p role="alert" className="mt-3 text-sm text-destructive">

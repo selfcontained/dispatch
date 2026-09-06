@@ -1,4 +1,4 @@
-// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit) —
+// Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, useEffect, useRef, useState, type RefObject } from "react";
 
@@ -12,7 +12,7 @@ import { isSubagentStep } from "./registry";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
 
-/** Fill behind the rail; steps mask the guide line with the same colour. */
+/** Fill behind the rail; steps mask the guide line with the same color. */
 const BLOCK_FILL = "bg-muted";
 
 function ActivityBlockImpl({
@@ -274,14 +274,14 @@ function CollapsedSummary({
   );
 }
 
+/** How long the rail waits with nothing running before it says "thinking". */
+const THINKING_DELAY_MS = 500;
+
 /**
  * The model is between steps: reading a result, reasoning, or composing.
  * Nothing in the stream is open, so without this the rail's last row sits
  * finished and the turn looks stalled. Timed from the last thing that ended.
  */
-/** How long the rail waits with nothing running before it says "thinking". */
-const THINKING_DELAY_MS = 500;
-
 function ThinkingRow({
   since,
   maskClass,

@@ -196,7 +196,7 @@ export type PriceTable = Map<string, ModelPrice>; // "provider/model"
 /**
  * dsh prices its models through pi-ai's catalog, which ships beside the
  * binary. Walk up from the executable to the dsh package and read it; a
- * layout we do not recognise means "no prices", never an error.
+ * layout we do not recognize means "no prices", never an error.
  */
 export async function loadPriceTable(
   dshBin: string,
@@ -288,7 +288,7 @@ export async function loadPriceTable(
   return table;
 }
 
-export function priceOf(
+function priceOf(
   table: PriceTable,
   provider: string,
   model: string

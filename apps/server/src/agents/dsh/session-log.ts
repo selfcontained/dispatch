@@ -42,7 +42,7 @@ const ZSTD_MAGIC = 0xfd2fb528;
 const SKIPPABLE_MAGIC_MASK = 0xfffffff0;
 const SKIPPABLE_MAGIC = 0x184d2a50;
 /** A single log larger than this is not inflated in-process. */
-export const SESSION_LOG_MAX_BYTES = 64 * 1024 * 1024;
+const SESSION_LOG_MAX_BYTES = 64 * 1024 * 1024;
 
 const zstdDecompressAsync = promisify(zstdDecompress);
 
@@ -213,7 +213,7 @@ function headerOf(record: Record<string, unknown>): SessionHeader {
   };
 }
 
-export function sessionsRoot(dshHome: string): string {
+function sessionsRoot(dshHome: string): string {
   return path.join(dshHome, "sessions");
 }
 
@@ -287,13 +287,8 @@ export async function listSessionLogs(dshHome: string): Promise<string[]> {
   return out;
 }
 
-/**
- * Only the header line: dsh writes it as the first frame on its own, so a
- * caller deciding whether it may read the log at all inflates one frame,
- * not the file.
- */
 /** The first read of a log when only its header is wanted. */
-export const HEADER_PROBE_BYTES = 64 * 1024;
+const HEADER_PROBE_BYTES = 64 * 1024;
 
 /** The first `length` bytes of a file, fewer when the file is shorter. */
 async function readPrefix(file: string, length: number): Promise<Buffer> {
@@ -308,10 +303,10 @@ async function readPrefix(file: string, length: number): Promise<Buffer> {
 }
 
 /**
- * The header line alone, from a bounded prefix of the file: the first
- * frame (or line) is almost always inside the first 64KB, and the read
- * grows only when it is not. A log this is polled on every few seconds
- * must not be loaded whole for one line.
+ * The header line alone, from a bounded prefix of the file. dsh writes the
+ * header as a frame of its own, and that first frame (or line) is almost
+ * always inside the first 64KB; the read grows only when it is not. A log
+ * polled every few seconds must not be loaded whole for one line.
  */
 export async function readSessionHeader(
   file: string
