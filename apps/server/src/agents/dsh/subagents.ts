@@ -39,6 +39,23 @@ function textOf(parts: unknown): string {
     .join("\n");
 }
 
+/**
+ * The prompt dsh hands a subagent carries the task first, then the
+ * workspace instructions it splices in as system reminders. The view wants
+ * the task; the reminders are the same text every agent gets.
+ */
+function promptTextOf(parts: unknown): string {
+  if (!Array.isArray(parts)) return "";
+  const texts = parts
+    .map((p) =>
+      typeof p === "object" && p !== null && (p as ContentPart).type === "text"
+        ? String((p as ContentPart).text ?? "")
+        : ""
+    )
+    .filter((t) => t.trim().length > 0 && !/^\s*<system-reminder>/.test(t));
+  return texts.join("\n");
+}
+
 function toolResultText(message: Record<string, unknown> | undefined): {
   text: string;
   isError: boolean;
@@ -155,7 +172,7 @@ export function shapeSubagent(
         break;
       }
       case "user/message": {
-        const text = textOf(data.content);
+        const text = promptTextOf(data.content);
         if (current) {
           // A message that lands mid-turn (the parent talking to it) is
           // part of the running turn's prompt.

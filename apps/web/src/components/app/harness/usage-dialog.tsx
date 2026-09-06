@@ -180,9 +180,11 @@ export function UsageDialog({
 }): JSX.Element {
   const usage = useHarnessUsage(open);
   const month = usage.data
-    ? new Date(usage.data.monthStart).toLocaleDateString(undefined, {
+    ? // The month starts at 00:00 UTC; local time would name the wrong month.
+      new Date(usage.data.monthStart).toLocaleDateString(undefined, {
         month: "long",
         year: "numeric",
+        timeZone: "UTC",
       })
     : null;
   return (

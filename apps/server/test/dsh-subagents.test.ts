@@ -143,6 +143,24 @@ describe("shapeSubagent", () => {
     expect(turn.result).toEqual({ text: "Working on it.", streaming: true });
   });
 
+  it("keeps the task and drops the spliced system reminders from the prompt", () => {
+    const sub = shapeSubagent("child", {
+      header,
+      events: [
+        ev("user/message", 2, {
+          content: [
+            { type: "text", text: "Inspect the repo" },
+            {
+              type: "text",
+              text: "<system-reminder>\nInstructions from AGENTS.md…\n</system-reminder>",
+            },
+          ],
+        }),
+      ],
+    });
+    expect(sub.turns[0].prompt.text).toBe("Inspect the repo");
+  });
+
   it("is 'starting' before the first prompt and folds a mid-turn message into the prompt", () => {
     expect(shapeSubagent("child", { header, events: [] }).status).toBe(
       "starting"
