@@ -665,13 +665,13 @@ function LivePin({
   // edge that box is invisible — the button reads as floating somewhere
   // short of where the post's copy action lives. A shortcut is already a
   // button, so it gets no card; it is a sidebar-width button (w-full) that
-  // in the channel's wide measure would stretch into a banner, so it is
-  // capped instead.
+  // in the channel's wide measure would stretch into a banner, so here it
+  // hugs its label up to a cap instead.
   return (
     <div
       className={
         pin.type === "shortcut"
-          ? "max-w-[14rem]"
+          ? "w-fit max-w-[20rem]"
           : "max-w-md rounded-md border border-border bg-card/60 px-3 py-2"
       }
       data-testid={testId}
