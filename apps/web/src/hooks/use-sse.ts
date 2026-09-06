@@ -16,6 +16,7 @@ import {
   CHAT_QUERY_PREFIX,
   chatFeedQueryKey,
   type FeedCache,
+  LIVE_HEAD_ROWS,
   upsertFeedEntry,
 } from "@/hooks/use-chat";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
@@ -168,6 +169,11 @@ export function applyChatEntry(
     return;
   }
   if (result.cache !== state.data) queryClient.setQueryData(key, result.cache);
+  // Live rows pile onto the newest page; past the bound, one refetch folds
+  // them back into pages of the configured size.
+  if (result.cache.pages[0]!.entries.length > LIVE_HEAD_ROWS) {
+    invalidateChatFeed(queryClient, agentId);
+  }
 }
 
 export function applyReviewCreated(
@@ -292,7 +298,11 @@ export function useSSE(authState: AuthState): void {
         if (payload.type === "chat.read") {
           queryClient.setQueryData<FeedCache>(
             chatFeedQueryKey(payload.agentId),
-            (old) => applyChatRead(old, payload.unreadCount)
+            (old) =>
+              applyChatRead(old, payload.unreadCount, {
+                readAt: payload.readAt,
+                upToAt: payload.upToAt,
+              })
           );
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,

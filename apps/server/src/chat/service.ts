@@ -326,17 +326,17 @@ export class ChatService {
       attachments: resolved,
       delivered,
     });
-    if (sessionName === null) {
-      await this.publishEntry(agentId, message.id);
-      return { message, delivered: false, held: false };
-    }
+    // The pending row goes out before delivery starts: settlement publishes
+    // the same row again as delivered, and a client must never see that
+    // one first and then the pending one on top of it.
+    await this.publishEntry(agentId, message.id);
+    if (sessionName === null) return { message, delivered: false, held: false };
     const { held } = this.deliverDetached(
       agentId,
       sessionName,
       message,
       attachmentLines
     );
-    await this.publishEntry(agentId, message.id);
     return { message, delivered: null, held };
   }
 
@@ -444,11 +444,13 @@ export class ChatService {
       client.release();
     }
 
+    // As in sendUserMessage: the pending reply is on the wire before its
+    // delivery can settle and publish it again.
+    await this.publishEntry(agentId, answered.id);
+    await this.publishEntry(agentId, replyMessage.id);
     if (sessionName !== null) {
       this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
     }
-    await this.publishEntry(agentId, answered.id);
-    await this.publishEntry(agentId, replyMessage.id);
     return { question: answered, reply: replyMessage, delivered };
   }
 
@@ -632,9 +634,12 @@ export class ChatService {
     this.deps.publishUiEvent({ type: "chat.changed", agentId });
   }
 
-  /** Mark-read moved the count; the rows on screen do not change. */
-  publishRead(agentId: string, unreadCount: number): void {
-    this.deps.publishUiEvent({ type: "chat.read", agentId, unreadCount });
+  /** A mark-read landed: the count, and which rows it stamped. */
+  publishRead(
+    agentId: string,
+    read: { unreadCount: number; readAt: string; upToAt: string | null }
+  ): void {
+    this.deps.publishUiEvent({ type: "chat.read", agentId, ...read });
   }
 
   /**

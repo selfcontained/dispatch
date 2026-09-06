@@ -528,6 +528,60 @@ describe("chat routes with a deliverable terminal", () => {
     return { app, ready, chat, published, prompts };
   }
 
+  it("announces a mark-read with the count and what it stamped", async () => {
+    const { app, ready, published } = buildApp({});
+    await ready;
+    const first = await store.insert({
+      agentId,
+      authorKind: "agent",
+      text: "1",
+    });
+    await store.insert({ agentId, authorKind: "agent", text: "2" });
+
+    const partial = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/read`,
+      payload: { upTo: first.id },
+    });
+    expect(partial.json()).toEqual({ unreadCount: 1 });
+    // The bound's time travels with the event so a cached feed can stamp
+    // the same rows the server did.
+    expect(published).toEqual([
+      {
+        type: "chat.read",
+        agentId,
+        unreadCount: 1,
+        readAt: expect.any(String),
+        upToAt: first.createdAt,
+      },
+    ]);
+
+    published.length = 0;
+    const all = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/read`,
+      payload: {},
+    });
+    expect(all.json()).toEqual({ unreadCount: 0 });
+    expect(published).toEqual([
+      expect.objectContaining({
+        type: "chat.read",
+        unreadCount: 0,
+        upToAt: null,
+      }),
+    ]);
+
+    // Nothing left to mark: nothing announced.
+    published.length = 0;
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/read`,
+      payload: {},
+    });
+    expect(published).toEqual([]);
+    await app.close();
+  });
+
   async function settled(id: string): Promise<ChatMessage> {
     for (let i = 0; i < 50; i++) {
       const row = await store.getById(id);

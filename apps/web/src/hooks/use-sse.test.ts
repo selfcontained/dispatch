@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
+import { LIVE_HEAD_ROWS } from "@/hooks/use-chat";
 import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
 import { CACHED_RELEASE_INFO_QUERY_KEY } from "@/hooks/use-cached-release-info";
 import {
@@ -869,6 +870,39 @@ describe("useSSE message handling", () => {
     ).toHaveLength(3);
   });
 
+  it("rebases the feed once live rows outgrow the newest page", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    const row = (i: number) => ({
+      type: "status",
+      id: `event:${i}`,
+      eventType: "working",
+      message: "x",
+      at: `2026-09-02T10:${String(Math.floor(i / 60)).padStart(2, "0")}:${String(i % 60).padStart(2, "0")}.000Z`,
+    });
+    queryClient.setQueryData(["chat", "agt_1"], {
+      pageParams: [undefined],
+      pages: [
+        {
+          entries: Array.from({ length: LIVE_HEAD_ROWS }, (_, i) => row(i)),
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+    });
+
+    emit({ type: "chat.entry", agentId: "agt_1", entry: row(LIVE_HEAD_ROWS) });
+
+    // Still placed — the reader sees it at once — and then folded back.
+    expect(
+      queryClient.getQueryData<{ pages: { entries: unknown[] }[] }>([
+        "chat",
+        "agt_1",
+      ])?.pages[0]?.entries
+    ).toHaveLength(LIVE_HEAD_ROWS + 1);
+    expectInvalidatedSet(invalidateQueries, [["chat", "agt_1"]]);
+  });
+
   it("falls back to a refetch for a chat.entry it cannot place", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
     queryClient.setQueryData(["chat", "agt_1"], {
@@ -922,29 +956,57 @@ describe("useSSE message handling", () => {
     expect(queryClient.getQueryData(["chat", "agt_never"])).toBeUndefined();
   });
 
-  it("moves only the unread count on chat.read", () => {
+  it("applies a chat.read to the count and the rows it covered, nothing else", () => {
     const { queryClient, emit, invalidateQueries } = renderMessages();
-    const entries = [
-      {
-        type: "status",
-        id: "event:1",
-        eventType: "done",
-        message: "x",
-        at: "2026-09-02T10:00:01.000Z",
+    const status = {
+      type: "status",
+      id: "event:1",
+      eventType: "done",
+      message: "x",
+      at: "2026-09-02T10:00:01.000Z",
+    };
+    const unread = {
+      type: "chat",
+      id: "m1",
+      at: "2026-09-02T10:00:02.000Z",
+      message: {
+        id: "m1",
+        authorKind: "agent",
+        readAt: null,
+        createdAt: "2026-09-02T10:00:02.000Z",
       },
-    ];
+    };
     queryClient.setQueryData(["chat", "agt_1"], {
       pageParams: [undefined],
-      pages: [{ entries, hasMore: false, nextCursor: null, unreadCount: 3 }],
+      pages: [
+        {
+          entries: [status, unread],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 3,
+        },
+      ],
     });
 
-    emit({ type: "chat.read", agentId: "agt_1", unreadCount: 0 });
+    emit({
+      type: "chat.read",
+      agentId: "agt_1",
+      unreadCount: 0,
+      readAt: "2026-09-02T10:00:09.000Z",
+      upToAt: null,
+    });
 
     const cache = queryClient.getQueryData<{
-      pages: { entries: unknown[]; unreadCount: number }[];
+      pages: {
+        entries: { message?: { readAt: string | null } }[];
+        unreadCount: number;
+      }[];
     }>(["chat", "agt_1"]);
     expect(cache?.pages[0]?.unreadCount).toBe(0);
-    expect(cache?.pages[0]?.entries).toBe(entries);
+    expect(cache?.pages[0]?.entries[0]).toBe(status);
+    expect(cache?.pages[0]?.entries[1]?.message?.readAt).toBe(
+      "2026-09-02T10:00:09.000Z"
+    );
     expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
   });
 

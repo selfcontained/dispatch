@@ -267,11 +267,17 @@ export type ChatEntryEvent = {
   entry: ChatFeedEntry;
 };
 
-/** Read state moved (mark-read): nothing the feed shows changes but its count. */
+/**
+ * A mark-read landed: the new count, plus what it marked so a cached feed
+ * can set `readAt` on the same rows — every unread agent message created
+ * at or before `upToAt` (all of them when null).
+ */
 export type ChatReadEvent = {
   type: "chat.read";
   agentId: string;
   unreadCount: number;
+  readAt: string;
+  upToAt: string | null;
 };
 
 export const CHAT_MESSAGE_MAX_CHARS = 20_000;

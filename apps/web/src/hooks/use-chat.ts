@@ -22,6 +22,13 @@ import { api } from "@/lib/api";
 
 const PAGE_SIZE = 100;
 
+/**
+ * How far the newest page may grow with live rows before the feed is
+ * refetched to rebase its pages. Without a bound, a tab left open on a
+ * chatty agent would accumulate every status row it ever saw.
+ */
+export const LIVE_HEAD_ROWS = PAGE_SIZE * 2;
+
 /** Prefix shared by every agent's feed key, for bulk invalidation. */
 export const CHAT_QUERY_PREFIX = ["chat"] as const;
 
@@ -244,6 +251,15 @@ function optimisticUserMessage(
   };
 }
 
+export function rollbackPlaceholder(
+  queryClient: ReturnType<typeof useQueryClient>,
+  key: ReturnType<typeof chatFeedQueryKey>,
+  tempId: string
+): void {
+  queryClient.setQueryData<FeedCache>(key, (old) => removeMessage(old, tempId));
+  void queryClient.invalidateQueries({ queryKey: key, exact: true });
+}
+
 export function appendToNewestPage(
   cache: FeedCache | undefined,
   message: ChatMessage
@@ -269,8 +285,10 @@ export function replaceMessage(
   if (!cache) return cache;
   // The row may already be here under its real id: `chat.entry` can land
   // before the request that created it returns. Then the placeholder just
-  // goes, and the entry that came over the stream (the feed's own shape)
-  // stands.
+  // goes, and the entry that came over the stream (the feed's own shape,
+  // attachment dimensions and all) stands. The same applies to a row
+  // replaced under its own id: the response is the bare stored message, so
+  // when the cache already holds this version of it, the cache's copy wins.
   const alreadyPresent =
     matchId !== next.id &&
     cache.pages.some((page) =>
@@ -278,19 +296,30 @@ export function replaceMessage(
         (entry) => entry.type === "chat" && entry.message.id === next.id
       )
     );
-  return {
-    ...cache,
-    pages: cache.pages.map((page) => ({
-      ...page,
-      entries: page.entries.flatMap((entry) => {
-        if (entry.type !== "chat" || entry.message.id !== matchId) {
-          return [entry];
-        }
-        if (alreadyPresent) return [];
-        return [{ ...entry, id: next.id, at: next.createdAt, message: next }];
-      }),
-    })),
-  };
+  let changed = false;
+  const pages = cache.pages.map((page) => {
+    const entries = page.entries.flatMap((entry) => {
+      if (entry.type !== "chat" || entry.message.id !== matchId) {
+        return [entry];
+      }
+      if (alreadyPresent) {
+        changed = true;
+        return [];
+      }
+      if (
+        entry.message.id === next.id &&
+        entry.message.updatedAt === next.updatedAt
+      ) {
+        return [entry];
+      }
+      changed = true;
+      return [{ ...entry, id: next.id, at: next.createdAt, message: next }];
+    });
+    return entries.length === page.entries.length && !changed
+      ? page
+      : { ...page, entries };
+  });
+  return changed ? { ...cache, pages } : cache;
 }
 
 /** Where `entry` sits relative to the loaded head, or the row it replaces. */
@@ -331,18 +360,22 @@ export function upsertFeedEntry(
     entries[index] = shared;
     const pages = cache.pages.slice();
     pages[p] = { ...page, entries };
-    // The count lives on the newest page whichever page the row is on.
-    pages[0] = {
-      ...pages[0]!,
-      unreadCount: pages[0]!.unreadCount + unreadDelta(previous, entry),
-    };
+    // A replacement never moves the count: read state only ever changes
+    // through mark-read, which announces its own count (`chat.read`), and a
+    // cached row's `readAt` can lag it.
     return { cache: { ...cache, pages }, placed: true };
   }
+  // The server orders rows by microsecond time, then source, then id; the
+  // wire carries milliseconds. Two rows in the same millisecond can't be
+  // ordered here, so their placement is left to a refetch — and so is a row
+  // at or below the newest page's oldest row when pages sit under it, since
+  // it may belong below the cursor.
   const first = newest.entries[0];
-  const olderThanHead = first !== undefined && entry.at < first.at;
-  if (olderThanHead && (cache.pages.length > 1 || newest.hasMore)) {
-    // It belongs below the newest page, on a page this cache may or may not
-    // hold; splicing it in would put the cursor chain off.
+  const belowHead = first !== undefined && entry.at <= first.at;
+  if (belowHead && (cache.pages.length > 1 || newest.hasMore)) {
+    return { cache, placed: false };
+  }
+  if (newest.entries.some((existing) => existing.at === entry.at)) {
     return { cache, placed: false };
   }
   let at = newest.entries.length;
@@ -353,39 +386,77 @@ export function upsertFeedEntry(
   pages[0] = {
     ...newest,
     entries,
-    unreadCount: newest.unreadCount + unreadDelta(null, entry),
+    unreadCount: newest.unreadCount + Number(isUnreadAgentMessage(entry)),
   };
   return { cache: { ...cache, pages }, placed: true };
 }
 
-function isUnreadAgentMessage(entry: ChatFeedEntry | null): boolean {
+function isUnreadAgentMessage(entry: ChatFeedEntry): boolean {
   return (
-    entry !== null &&
     entry.type === "chat" &&
     entry.message.authorKind === "agent" &&
     entry.message.readAt === null
   );
 }
 
-function unreadDelta(
-  previous: ChatFeedEntry | null,
-  next: ChatFeedEntry
-): number {
-  return (
-    Number(isUnreadAgentMessage(next)) - Number(isUnreadAgentMessage(previous))
-  );
-}
+/** Which rows a mark-read stamped, so the cache can say the same. */
+export type ChatReadMark = { readAt: string; upToAt: string | null };
 
-/** A `chat.read` event: the count moved, nothing on screen did. */
+/**
+ * A mark-read landed: take the server's count, and stamp the cached agent
+ * messages it covered — every unread one created at or before `upToAt`
+ * (all of them when null) — so the rows agree with the count. Rows and
+ * pages it did not touch keep their identity.
+ */
 export function applyChatRead(
   cache: FeedCache | undefined,
-  unreadCount: number
+  unreadCount: number,
+  mark?: ChatReadMark
 ): FeedCache | undefined {
   if (!cache || cache.pages.length === 0) return cache;
-  if (cache.pages[0]!.unreadCount === unreadCount) return cache;
-  const pages = cache.pages.slice();
+  let changed = cache.pages[0]!.unreadCount !== unreadCount;
+  const pages = cache.pages.map((page) => {
+    if (!mark) return page;
+    let touched = false;
+    const entries = page.entries.map((entry) => {
+      if (
+        !isUnreadAgentMessage(entry) ||
+        entry.type !== "chat" ||
+        (mark.upToAt !== null && entry.message.createdAt > mark.upToAt)
+      ) {
+        return entry;
+      }
+      touched = true;
+      return {
+        ...entry,
+        message: { ...entry.message, readAt: mark.readAt },
+      };
+    });
+    if (!touched) return page;
+    changed = true;
+    return { ...page, entries };
+  });
+  if (!changed) return cache;
   pages[0] = { ...pages[0]!, unreadCount };
   return { ...cache, pages };
+}
+
+/** Drop one message by id, wherever it sits; everything else keeps identity. */
+export function removeMessage(
+  cache: FeedCache | undefined,
+  messageId: string
+): FeedCache | undefined {
+  if (!cache) return cache;
+  let changed = false;
+  const pages = cache.pages.map((page) => {
+    const entries = page.entries.filter(
+      (entry) => entry.type !== "chat" || entry.message.id !== messageId
+    );
+    if (entries.length === page.entries.length) return page;
+    changed = true;
+    return { ...page, entries };
+  });
+  return changed ? { ...cache, pages } : cache;
 }
 
 /** Files here are already uploaded (`POST /agents/:id/media`). */
@@ -399,7 +470,7 @@ export function useSendChatMessage(agentId: string | null) {
     ChatSendResponse,
     Error,
     ChatSendInput,
-    { previous: FeedCache | undefined; tempId: string }
+    { tempId: string }
   >({
     mutationFn: async ({ text, attachments }) =>
       api<ChatSendResponse>(`/api/v1/agents/${agentId}/chat/messages`, {
@@ -412,7 +483,6 @@ export function useSendChatMessage(agentId: string | null) {
       }),
     onMutate: async ({ text, attachments }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
-      const previous = queryClient.getQueryData<FeedCache>(key);
       const temp = optimisticUserMessage(
         agentId ?? "",
         text,
@@ -421,10 +491,14 @@ export function useSendChatMessage(agentId: string | null) {
       queryClient.setQueryData<FeedCache>(key, (old) =>
         appendToNewestPage(old, temp)
       );
-      return { previous, tempId: temp.id };
+      return { tempId: temp.id };
     },
+    // A failure may still have stored the row (the response was what got
+    // lost), and its `chat.entry` may already be in the cache: take out
+    // only the placeholder, never a snapshot that would erase it, and let a
+    // refetch settle what really happened.
     onError: (_err, _input, context) => {
-      if (context) queryClient.setQueryData(key, context.previous);
+      if (context) rollbackPlaceholder(queryClient, key, context.tempId);
     },
     // No refetch on settle: the stored row reaches the cache as a
     // `chat.entry` event, and the response stands in until it does.
@@ -447,7 +521,7 @@ export function useAnswerChatQuestion(agentId: string | null) {
     ChatAnswerResponse,
     Error,
     ChatAnswerInput,
-    { previous: FeedCache | undefined; tempId: string }
+    { tempId: string }
   >({
     mutationFn: async ({ messageId, value, label, attachments }) => {
       const body: ChatAnswerRequest = { value };
@@ -460,7 +534,6 @@ export function useAnswerChatQuestion(agentId: string | null) {
     },
     onMutate: async ({ messageId, value, label, attachments }) => {
       await queryClient.cancelQueries({ queryKey: key, exact: true });
-      const previous = queryClient.getQueryData<FeedCache>(key);
       const temp = {
         ...optimisticUserMessage(
           agentId ?? "",
@@ -472,10 +545,10 @@ export function useAnswerChatQuestion(agentId: string | null) {
       queryClient.setQueryData<FeedCache>(key, (old) =>
         appendToNewestPage(old, temp)
       );
-      return { previous, tempId: temp.id };
+      return { tempId: temp.id };
     },
     onError: (_err, _input, context) => {
-      if (context) queryClient.setQueryData(key, context.previous);
+      if (context) rollbackPlaceholder(queryClient, key, context.tempId);
     },
     onSuccess: (data, _input, context) => {
       queryClient.setQueryData<FeedCache>(key, (old) =>

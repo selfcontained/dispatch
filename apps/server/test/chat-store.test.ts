@@ -173,17 +173,17 @@ describe("ChatStore", () => {
     await seed(B, 1, "agent");
     expect(await store.countUnread(A)).toBe(3);
 
-    expect(await store.markRead(A, ids[1])).toBe(2);
+    expect((await store.markRead(A, ids[1])).updated).toBe(2);
     expect(await store.countUnread(A)).toBe(1);
     expect((await store.getById(ids[2]))?.readAt).toBeNull();
     expect((await store.getById(ids[0]))?.readAt).not.toBeNull();
 
     // Unknown bound marks nothing.
     expect(
-      await store.markRead(A, "00000000-0000-0000-0000-000000000000")
+      (await store.markRead(A, "00000000-0000-0000-0000-000000000000")).updated
     ).toBe(0);
 
-    expect(await store.markRead(A)).toBe(1);
+    expect((await store.markRead(A)).updated).toBe(1);
     expect(await store.countUnread(A)).toBe(0);
     expect(await store.countUnread(B)).toBe(1);
   });
@@ -191,7 +191,7 @@ describe("ChatStore", () => {
   it("treats malformed ids as not found instead of erroring", async () => {
     expect(await store.getById("nope")).toBeNull();
     expect(await store.update("nope", { text: "x" })).toBeNull();
-    expect(await store.markRead(A, "nope")).toBe(0);
+    expect((await store.markRead(A, "nope")).updated).toBe(0);
     expect(
       await store.recordAnswer("nope", {
         value: "a",
