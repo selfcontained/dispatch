@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
-import { computeUnaccountedMs } from "./reduce";
+import { computeUnaccountedMs } from "./trace";
 import { isSubagentStep } from "./registry";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
