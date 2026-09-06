@@ -301,3 +301,24 @@ token, so they do unless the token rotates).
   the strip hides for `paused` and `complete` goals on purpose, and two
   rounds fired 3s apart merged into one autonomous turn (20s idle window).
 - Every item in reviews 298 to 302 is resolved by its reviewer.
+
+## Update, 2026-09-06: dsh.26 (PR opened; interrupted turns; review default)
+
+- PR #1067 (draft) is open against `main` from this branch; the branch is
+  pushed. Before opening it: two 62MB `.bun-build` blobs were rewritten out
+  of the last three commits (`v0.38.7-dsh.25` re-tagged) and `*.bun-build`
+  is ignored; the unused PromptKit reducer is gone (`computeUnaccountedMs`
+  lives in `harness/trace.ts`).
+- A cancelled turn (Stop, Ctrl+C, Send now) has `trace.finalResult:
+"interrupted"`; the activity header and collapsed summary say so and
+  `ResultTurn` adds a line (`harness-interrupted`). A cancelled turn with
+  no steps shows only the line, since a stepless settled trace renders no
+  block.
+- The Review button and `dispatch_launch_persona` default a dsh agent's
+  reviewer to `dsh` (`defaultReviewAgentType` in
+  `apps/web/src/lib/agent-types.ts`; the server fallback uses
+  `isCliAgentType`).
+- Deployed as `v0.38.7-dsh.26`; rollback binary
+  `~/.dispatch/server/dispatch.dsh25`. Both running dsh agents restored at
+  boot. The production dsh profile runs subagents in the foreground
+  (`one-shot`), so the nested subagent stream does not appear on prod.
