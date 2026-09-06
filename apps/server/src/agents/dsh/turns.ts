@@ -145,16 +145,27 @@ function toolStep(row: TurnSourceRow): HarnessStep | null {
   };
 }
 
-function noteStep(row: TurnSourceRow, kind: "note" | "think"): HarnessStep {
+function noteStep(
+  row: TurnSourceRow,
+  kind: "note" | "think",
+  running = false
+): HarnessStep {
   const p = row.payload as Partial<AssistantPayload & ThoughtPayload>;
   const text = p.text ?? "";
   return {
     id: `stream:${row.id}`,
     kind,
     label: kind === "think" ? "thinking" : firstLine(text),
-    status: "ok",
+    status: running ? "running" : "ok",
     startedAt: row.createdAt.toISOString(),
-    endedAt: row.updatedAt.toISOString(),
+    ...(running
+      ? {}
+      : {
+          endedAt: row.updatedAt.toISOString(),
+          // Thought rows grow with each chunk, so their span is the time
+          // the model spent thinking; the rail shows it like any step.
+          durMs: Math.max(0, row.updatedAt.getTime() - row.createdAt.getTime()),
+        }),
     detail: { text, ...(p.truncated ? { truncated: true } : {}) },
   };
 }
@@ -224,6 +235,10 @@ export function assembleTurns(
     let result: HarnessTurn["result"] = null;
     const assistants = group.rows.filter((r) => r.kind === "assistant");
     const last = assistants[assistants.length - 1];
+    // In a turn still running, a thought that is the newest row is the one
+    // being written now: it reads as a running step, not a finished one.
+    const live = group.turn !== null && !settled;
+    const newest = group.rows[group.rows.length - 1];
     // The agent's own account of the turn: dispatch_event messages are
     // dropped as steps but the last one names what happened. A terminal
     // event (done, idle, …) wins over the last "working".
@@ -242,7 +257,7 @@ export function assembleTurns(
         const step = toolStep(row);
         if (step) steps.push(step);
       } else if (row.kind === "thought") {
-        steps.push(noteStep(row, "think"));
+        steps.push(noteStep(row, "think", live && row === newest));
       } else if (row.kind === "assistant") {
         if (row === last) {
           const p = row.payload as Partial<AssistantPayload>;

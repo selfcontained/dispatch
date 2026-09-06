@@ -453,3 +453,53 @@ describe("loadQueued", () => {
     expect(await loadQueued(db as never, [])).toEqual([]);
   });
 });
+
+describe("assembleTurns thinking", () => {
+  it("marks the newest thought of a live turn as running, and times settled ones", () => {
+    seq = 0;
+    const live = assembleTurns(
+      [
+        row(
+          "turn",
+          { state: "started", prompt: { source: "system", text: "go" } },
+          0
+        ),
+        row(
+          "tool_call",
+          { toolKind: "read", title: "read", status: "completed" },
+          1,
+          2
+        ),
+        row("thought", { text: "" }, 3, 5),
+      ],
+      new Map()
+    );
+    const steps = live[0].trace.steps;
+    expect(steps.map((s) => [s.kind, s.status])).toEqual([
+      ["read", "ok"],
+      ["think", "running"],
+    ]);
+    expect(steps[1].endedAt).toBeUndefined();
+
+    seq = 0;
+    const settled = assembleTurns(
+      [
+        row(
+          "turn",
+          {
+            state: "settled",
+            prompt: { source: "system", text: "go" },
+            endedAt: at(9).toISOString(),
+          },
+          0,
+          9
+        ),
+        row("thought", { text: "hmm" }, 3, 7),
+        row("assistant", { text: "done", streaming: false }, 8),
+      ],
+      new Map()
+    );
+    const think = settled[0].trace.steps[0];
+    expect(think).toMatchObject({ kind: "think", status: "ok", durMs: 4000 });
+  });
+});

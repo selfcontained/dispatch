@@ -8,7 +8,7 @@ import { cn } from "@/lib/utils";
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
 import { computeUnaccountedMs } from "./reduce";
-import { StepRow } from "./step-row";
+import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
 
 /** Fill behind the rail; steps mask the guide line with the same colour. */
@@ -98,6 +98,17 @@ function ActivityBlockImpl({
               maskClass={BLOCK_FILL}
             />
           ))}
+          {!done &&
+          trace.steps.length > 0 &&
+          !trace.steps.some((s) => s.status === "running") ? (
+            <ThinkingRow
+              since={trace.steps.reduce(
+                (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
+                trace.startedAt
+              )}
+              maskClass={BLOCK_FILL}
+            />
+          ) : null}
           {unaccountedMs > 0 ? (
             <UnaccountedRow ms={unaccountedMs} maskClass={BLOCK_FILL} />
           ) : null}
@@ -255,6 +266,39 @@ function CollapsedSummary({
         ⏵
       </span>
     </button>
+  );
+}
+
+/**
+ * The model is between steps: reading a result, reasoning, or composing.
+ * Nothing in the stream is open, so without this the rail's last row sits
+ * finished and the turn looks stalled. Timed from the last thing that ended.
+ */
+function ThinkingRow({
+  since,
+  maskClass,
+}: {
+  since: number;
+  maskClass: string;
+}): JSX.Element {
+  return (
+    <div
+      className="flex items-center gap-[9px] py-1"
+      role="listitem"
+      aria-live="polite"
+      aria-label="thinking, running"
+      data-testid="harness-thinking-row"
+    >
+      <StatusGlyph status="running" maskClass={maskClass} />
+      <span className="shrink-0 text-[12px] font-medium text-status-working">
+        thinking
+      </span>
+      <RunningDots />
+      <LiveDuration startedAt={since} />
+      <span aria-hidden="true" className="invisible w-2 shrink-0 text-[9px]">
+        ⏵
+      </span>
+    </div>
   );
 }
 

@@ -14,7 +14,8 @@
 * Harness view: a `subagent` step expands into the child's own turns, nested and live (read from dsh's session logs); `todo_write` steps expand into the task list and the live turn's list stays pinned above the composer; `/usage` (and a chip by the model chip) shows each provider key's spend this month with a budget bar (`DISPATCH_USAGE_BUDGET_<PROVIDER>`), OpenAI cost through `OPENAI_ADMIN_KEY`, Anthropic's cost report, DeepSeek's balance, and Dispatch's own count from the logs; shortcut pins a turn wrote render as buttons under it. The Chat filter is hidden for harness agents (it only filters the Chat feed).
 * Settings → Agents gains **Usage budgets**: a monthly USD amount per provider (OpenAI, DeepSeek, Anthropic, Gemini), empty until a row is added from the dropdown; the Harness usage dialog draws its bars from these. The `DISPATCH_USAGE_BUDGET_*` env vars from dsh.19 are gone.
 * Harness view fixes: the usage dialog names the month in UTC; a nested subagent's prompt shows the task without the spliced workspace instructions.
+* Harness view: a live turn never looks stalled. A thought still being written shows as a running step; between steps the rail shows a running "thinking" row timed from the last thing that ended; settled thoughts carry their duration.
 * Adds the `agent_stream_events` table (additive), the `@agentclientprotocol/sdk` dependency, and an update-migrations manifest. Running dsh agents are resumed after a service restart on their stored session ids.
 
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.21
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.22

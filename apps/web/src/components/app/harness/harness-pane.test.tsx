@@ -216,6 +216,55 @@ describe("HarnessPane", () => {
     expect(screen.queryByTestId("harness-result")).toBeNull();
   });
 
+  it("shows a running thinking row while the live turn has nothing open", () => {
+    state.turns = [
+      { id: "t2:user", role: "user", content: "again", timestamp: T0 },
+    ];
+    state.liveTrace = {
+      startedAt: T0,
+      steps: [
+        {
+          id: "s2",
+          kind: "read",
+          label: "read",
+          status: "ok",
+          startedAt: T0 + 1000,
+          endedAt: T0 + 1200,
+          durMs: 200,
+        },
+      ],
+    };
+    state.streaming = true;
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const row = screen.getByTestId("harness-thinking-row");
+    expect(row.textContent).toContain("thinking");
+    // A step still running is its own sign of life; no extra row then.
+    state.liveTrace = {
+      startedAt: T0,
+      steps: [
+        {
+          id: "s3",
+          kind: "think",
+          label: "thinking",
+          status: "running",
+          startedAt: T0 + 1300,
+        },
+      ],
+    };
+    cleanup();
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    expect(screen.queryByTestId("harness-thinking-row")).toBeNull();
+    expect(screen.getAllByTestId("harness-step")[0].textContent).toContain(
+      "thinking"
+    );
+  });
+
   it("invites the first prompt when there are no turns", () => {
     render(
       <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,

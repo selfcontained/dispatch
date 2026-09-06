@@ -196,7 +196,7 @@ export function StatusGlyph({
   }
 }
 
-function RunningDots(): JSX.Element {
+export function RunningDots(): JSX.Element {
   const { dots } = useStreamTicker(true);
   return (
     <span
@@ -208,7 +208,11 @@ function RunningDots(): JSX.Element {
   );
 }
 
-function LiveDuration({ startedAt }: { startedAt: number }): JSX.Element {
+export function LiveDuration({
+  startedAt,
+}: {
+  startedAt: number;
+}): JSX.Element {
   useStreamTicker(true);
   const elapsed = Date.now() - startedAt;
   return (
