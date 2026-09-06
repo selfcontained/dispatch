@@ -29,7 +29,7 @@ export function chatFeedQueryKey(agentId: string | null) {
   return [...CHAT_QUERY_PREFIX, agentId] as const;
 }
 
-type FeedCache = InfiniteData<ChatFeedResponse, string | undefined>;
+export type FeedCache = InfiniteData<ChatFeedResponse, string | undefined>;
 
 /**
  * One page of the feed. The server hands back an opaque `nextCursor` for the
@@ -59,6 +59,13 @@ function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
   return out;
 }
 
+function withoutEntries(
+  page: ChatFeedResponse
+): Omit<ChatFeedResponse, "entries"> {
+  const { entries: _entries, ...meta } = page;
+  return meta;
+}
+
 /**
  * Structural sharing keyed by entry id.
  *
@@ -74,21 +81,10 @@ function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
  * Pages, the pages array and the whole cache keep their identity too when
  * nothing in them changed, so `useMemo` consumers downstream stay quiet.
  */
-function withoutEntries(
-  page: ChatFeedResponse
-): Omit<ChatFeedResponse, "entries"> {
-  const { entries: _entries, ...meta } = page;
-  return meta;
-}
-
 export function shareFeedByEntryId(
-  oldData: unknown,
-  newData: unknown
-): unknown {
-  const prev = oldData as FeedCache | undefined;
-  const next = newData as FeedCache | undefined;
-  if (!prev?.pages || !next?.pages) return replaceEqualDeep(oldData, newData);
-
+  prev: FeedCache,
+  next: FeedCache
+): FeedCache {
   const previousById = new Map<string, ChatFeedEntry>();
   for (const page of prev.pages) {
     for (const entry of page.entries) previousById.set(entry.id, entry);
@@ -122,7 +118,23 @@ export function shareFeedByEntryId(
 
   const pageParams = replaceEqualDeep(prev.pageParams, next.pageParams);
   if (!pagesChanged && pageParams === prev.pageParams) return prev;
-  return { pages, pageParams } satisfies FeedCache;
+  return { pages, pageParams };
+}
+
+/** The one place the untyped react-query cache boundary is crossed. */
+function isFeedCache(data: unknown): data is FeedCache {
+  return (
+    typeof data === "object" &&
+    data !== null &&
+    Array.isArray((data as { pages?: unknown }).pages) &&
+    Array.isArray((data as { pageParams?: unknown }).pageParams)
+  );
+}
+
+function shareFeedCache(oldData: unknown, newData: unknown): unknown {
+  return isFeedCache(oldData) && isFeedCache(newData)
+    ? shareFeedByEntryId(oldData, newData)
+    : replaceEqualDeep(oldData, newData);
 }
 
 export type ChatFeedState = {
@@ -152,7 +164,7 @@ export function useChatFeed(agentId: string | null): ChatFeedState {
     staleTime: 0,
     refetchOnWindowFocus: true,
     refetchOnReconnect: true,
-    structuralSharing: shareFeedByEntryId,
+    structuralSharing: shareFeedCache,
   });
 
   const entries = useMemo(

@@ -5,12 +5,8 @@ import type {
   ChatFeedResponse,
   ChatMessage,
 } from "@dispatch/shared";
-import {
-  type InfiniteData,
-  QueryClient,
-  QueryClientProvider,
-} from "@tanstack/react-query";
-import { act, cleanup, renderHook } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, cleanup, renderHook, waitFor } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -19,8 +15,10 @@ vi.mock("@/lib/api", () => ({ api: apiMock }));
 
 import {
   chatFeedQueryKey,
+  type FeedCache,
   shareFeedByEntryId,
   useAnswerChatQuestion,
+  useChatFeed,
 } from "./use-chat";
 
 afterEach(() => {
@@ -53,8 +51,6 @@ function message(overrides: Partial<ChatMessage>): ChatMessage {
 function chat(m: ChatMessage): ChatFeedEntry {
   return { type: "chat", id: m.id, at: m.createdAt, message: m };
 }
-
-type FeedCache = InfiniteData<ChatFeedResponse, string | undefined>;
 
 function seededClient(entries: ChatFeedEntry[]): QueryClient {
   const client = new QueryClient({
@@ -174,8 +170,7 @@ describe("shareFeedByEntryId", () => {
       ...extra,
     };
   }
-  const share = (prev: FeedCache | undefined, next: FeedCache) =>
-    shareFeedByEntryId(prev, next) as FeedCache;
+  const share = shareFeedByEntryId;
 
   it("keeps unchanged entries when a new entry shifts every page boundary", () => {
     const m = (i: number) =>
@@ -285,11 +280,29 @@ describe("shareFeedByEntryId", () => {
     expect(shared.pages[0]!.entries).toBe(prev.pages[0]!.entries);
   });
 
-  it("falls through to deep sharing without a previous cache", () => {
-    const next: FeedCache = {
-      pageParams: [undefined],
-      pages: [page([chat(message({ id: "a" }))])],
-    };
-    expect(share(undefined, next)).toBe(next);
+  it("shares by id through the query's structuralSharing option", async () => {
+    const m = (i: number) =>
+      chat(
+        message({
+          id: `m${i}`,
+          createdAt: `2026-09-02T10:${String(i).padStart(2, "0")}:00.000Z`,
+        })
+      );
+    apiMock.mockResolvedValueOnce(page([m(1), m(2)], { nextCursor: null }));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    const { result } = renderHook(() => useChatFeed("agt_1"), { wrapper });
+    await waitFor(() => expect(result.current.entries).toHaveLength(2));
+    const before = result.current.entries;
+    apiMock.mockResolvedValueOnce(page([m(2), m(3)], { nextCursor: null }));
+    await act(async () => {
+      await client.refetchQueries({ queryKey: chatFeedQueryKey("agt_1") });
+    });
+    await waitFor(() => expect(result.current.entries).toHaveLength(2));
+    expect(result.current.entries[0]).toBe(before[1]);
   });
 });
