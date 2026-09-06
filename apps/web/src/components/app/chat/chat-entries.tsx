@@ -660,22 +660,32 @@ function LivePin({
       </AttachmentBlock>
     );
   }
+  // A card rather than the accent bar the other attachments use: a pin's
+  // copy button sits at the right edge of its own box, and without a drawn
+  // edge that box is invisible — the button reads as floating somewhere
+  // short of where the post's copy action lives. A shortcut is already a
+  // button, so it gets no card; it is a sidebar-width button (w-full) that
+  // in the channel's wide measure would stretch into a banner, so it is
+  // capped instead.
   return (
-    <AttachmentBlock data-testid={testId}>
-      {/* A shortcut is a sidebar-width button (w-full); in the channel's
-          wide measure it would stretch into a banner. */}
-      <div className={cn(pin.type === "shortcut" && "max-w-[14rem]")}>
-        <PinItem
-          pin={pin}
-          workspaceRoot={ctx.workspaceRoot}
-          inGroup
-          agentIsRunning={ctx.agentIsRunning ?? true}
-          onRunShortcut={ctx.onRunShortcut}
-          pendingPinId={ctx.pendingPinId ?? null}
-          agentName={ctx.agentName ?? null}
-        />
-      </div>
-    </AttachmentBlock>
+    <div
+      className={
+        pin.type === "shortcut"
+          ? "max-w-[14rem]"
+          : "max-w-md rounded-md border border-border bg-card/60 px-3 py-2"
+      }
+      data-testid={testId}
+    >
+      <PinItem
+        pin={pin}
+        workspaceRoot={ctx.workspaceRoot}
+        inGroup
+        agentIsRunning={ctx.agentIsRunning ?? true}
+        onRunShortcut={ctx.onRunShortcut}
+        pendingPinId={ctx.pendingPinId ?? null}
+        agentName={ctx.agentName ?? null}
+      />
+    </div>
   );
 }
 
