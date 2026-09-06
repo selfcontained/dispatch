@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   AGENT_TYPES,
   CLI_AGENT_TYPES,
+  defaultReviewAgentType,
   isAgentType,
   isCliAgentType,
   sanitizeEnabledAgentTypes,
@@ -123,5 +124,21 @@ describe("sanitizeEnabledAgentTypes", () => {
 
   it("preserves a single valid type", () => {
     expect(sanitizeEnabledAgentTypes(["terminal"])).toEqual(["terminal"]);
+  });
+});
+
+describe("defaultReviewAgentType", () => {
+  it("runs the reviewer as the agent's own kind, dsh included", () => {
+    expect(defaultReviewAgentType({ type: "dsh" })).toBe("dsh");
+    expect(defaultReviewAgentType({ type: "cursor" })).toBe("cursor");
+    expect(defaultReviewAgentType({ type: "claude" })).toBe("claude");
+  });
+
+  it("prefers a saved choice, and falls back to codex for a terminal", () => {
+    expect(
+      defaultReviewAgentType({ type: "dsh", reviewAgentType: "claude" })
+    ).toBe("claude");
+    expect(defaultReviewAgentType({ type: "terminal" })).toBe("codex");
+    expect(defaultReviewAgentType({})).toBe("codex");
   });
 });

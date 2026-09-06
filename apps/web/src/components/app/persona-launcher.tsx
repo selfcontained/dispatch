@@ -24,6 +24,7 @@ import { api } from "@/lib/api";
 import {
   AGENT_TYPE_LABELS,
   type AgentType,
+  defaultReviewAgentType,
   isCliAgentType,
 } from "@/lib/agent-types";
 import { reviewAgentModelPrefAtom } from "@/lib/store";
@@ -34,17 +35,6 @@ type PersonaSummary = {
   name: string;
   description: string;
 };
-
-function defaultReviewAgentType(agent: Agent): AgentType {
-  return (
-    agent.reviewAgentType ??
-    (agent.type === "claude" ||
-    agent.type === "opencode" ||
-    agent.type === "cursor"
-      ? agent.type
-      : "codex")
-  );
-}
 
 export function PersonaLauncher({
   agent,

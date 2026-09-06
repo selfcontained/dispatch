@@ -4,7 +4,12 @@
  * apps/server/src/shared/agent-types.ts). Display labels and web-only
  * helpers live here.
  */
-import type { AgentType } from "../../../server/src/shared/agent-types";
+import type { AgentRecord } from "@dispatch/shared";
+
+import {
+  type AgentType,
+  isCliAgentType,
+} from "../../../server/src/shared/agent-types";
 
 export {
   AGENT_TYPES,
@@ -31,4 +36,13 @@ export function sortAgentTypes<T extends AgentType>(types: T[]): T[] {
     if (b === "terminal") return -1;
     return AGENT_TYPE_LABELS[a].localeCompare(AGENT_TYPE_LABELS[b]);
   });
+}
+
+/** The reviewer runs as the agent's own kind unless a choice was saved. */
+export function defaultReviewAgentType(
+  agent: Partial<Pick<AgentRecord, "type" | "reviewAgentType">>
+): AgentType {
+  return (
+    agent.reviewAgentType ?? (isCliAgentType(agent.type) ? agent.type : "codex")
+  );
 }

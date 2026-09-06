@@ -486,10 +486,10 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
       const fallbackReviewType = isCliAgentType(parent.reviewAgentType)
         ? parent.reviewAgentType
         : null;
-      const fallbackParentType =
-        parent.type === "claude" || parent.type === "opencode"
-          ? parent.type
-          : "codex";
+      // A persona runs as its parent's own kind unless told otherwise.
+      const fallbackParentType = isCliAgentType(parent.type)
+        ? parent.type
+        : "codex";
       const personaAgentType: (typeof CLI_AGENT_TYPES)[number] =
         opts.agentType ?? fallbackReviewType ?? fallbackParentType;
       if (!CLI_AGENT_TYPES.includes(personaAgentType)) {
