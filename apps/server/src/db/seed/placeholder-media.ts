@@ -2,17 +2,19 @@
  * The placeholder images the dev seed writes to disk, and the media rows in
  * seed/media.ts that describe them — one table so the two cannot drift.
  *
- * Solid-colour PNGs at realistic shapes rather than the 1x1 pixels these used
- * to be: the Chat feed reserves each image's box from the dimensions stored on
- * its media row, so a 1x1 placeholder would seed a 1px-tall image and hide the
- * very layout these rows exist to exercise. Flat colour keeps them ~1KB each.
+ * Solid-colour PNGs at realistic shapes (1280x720, 640x960, 900x900) rather
+ * than the 1x1 pixels these used to be: the Chat feed reserves each image's box
+ * from the dimensions on its media row, so a 1x1 placeholder would seed a
+ * 1px-tall image and hide the very layout these rows exist to exercise. Flat
+ * colour keeps them ~1KB each.
+ *
+ * The shapes are not declared here — seed/media.ts measures them off these
+ * bytes, so there is one source of truth and nothing to keep in step.
  */
 export const PLACEHOLDER_MEDIA = [
   {
     agentId: "seed-agent-running-feature",
     fileName: "seed-screenshot-1.png",
-    width: 1280,
-    height: 720,
     base64:
       "iVBORw0KGgoAAAANSUhEUgAABQAAAALQCAMAAAD4oy1kAAAAA1BMVEU6QFAVlENt" +
       "AAAACXBIWXMAAAPoAAAD6AG1e1JrAAADlElEQVR42u3BAQ0AAADCoPdPbQ8HFAAA" +
@@ -40,8 +42,6 @@ export const PLACEHOLDER_MEDIA = [
   {
     agentId: "seed-agent-running-feature",
     fileName: "seed-screenshot-2.png",
-    width: 640,
-    height: 960,
     base64:
       "iVBORw0KGgoAAAANSUhEUgAAAoAAAAPACAMAAACSPDjJAAAAA1BMVEU6QFAVlENt" +
       "AAAACXBIWXMAAAPoAAAD6AG1e1JrAAACa0lEQVR42u3BgQAAAADDoPlT3+AEVQEA" +
@@ -62,8 +62,6 @@ export const PLACEHOLDER_MEDIA = [
   {
     agentId: "seed-agent-running-feature",
     fileName: "seed-screenshot-3.png",
-    width: 900,
-    height: 900,
     base64:
       "iVBORw0KGgoAAAANSUhEUgAAA4QAAAOECAMAAADOkA8JAAAAA1BMVEU6QFAVlENt" +
       "AAAACXBIWXMAAAPoAAAD6AG1e1JrAAADKElEQVR42u3BAQ0AAADCoPdP7ewBFAAA" +

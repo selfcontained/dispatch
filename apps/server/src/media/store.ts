@@ -1,5 +1,7 @@
 import type { Pool } from "pg";
 
+import { parseMediaMetadata } from "./metadata.js";
+
 export type MediaListItem = {
   id: number;
   fileName: string;
@@ -8,9 +10,9 @@ export type MediaListItem = {
   updatedAt: string;
   description: string | null;
   /**
-   * Natural pixel size, when the file's header could be read. Null for
-   * non-images and for anything unparseable — a consumer reserving space for
-   * the image falls back to a fixed box in that case.
+   * Natural pixel size, read out of `media.metadata`. Null for non-images and
+   * for anything whose header could not be read — a consumer reserving space
+   * for the image falls back to a fixed box in that case.
    */
   width: number | null;
   height: number | null;
@@ -27,15 +29,15 @@ type MediaRow = {
   size_bytes: number;
   effective_updated_at: Date;
   description: string | null;
-  width: number | null;
-  height: number | null;
+  metadata: unknown;
 };
 
 const MEDIA_PROJECTION = `id, file_name, source, size_bytes,
   COALESCE(updated_at, created_at) AS effective_updated_at, description,
-  width, height`;
+  metadata`;
 
 function mapMediaRow(row: MediaRow): MediaListItem {
+  const { width, height } = parseMediaMetadata(row.metadata);
   return {
     id: row.id,
     fileName: row.file_name,
@@ -43,8 +45,8 @@ function mapMediaRow(row: MediaRow): MediaListItem {
     sizeBytes: row.size_bytes,
     updatedAt: row.effective_updated_at.toISOString(),
     description: row.description ?? null,
-    width: row.width ?? null,
-    height: row.height ?? null,
+    width: width ?? null,
+    height: height ?? null,
   };
 }
 

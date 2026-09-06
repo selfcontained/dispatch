@@ -18,6 +18,7 @@ import {
 } from "@dispatch/shared";
 
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
+import { dimensionFields, parseMediaMetadata } from "../media/metadata.js";
 import { mimeType, resolveMediaDir } from "../shared/media.js";
 import { buildChatEnvelope, formatAttachmentSize } from "./envelope.js";
 import {
@@ -904,10 +905,9 @@ export class ChatService {
       id: number;
       file_name: string;
       size_bytes: number;
-      width: number | null;
-      height: number | null;
+      metadata: unknown;
     }>(
-      `SELECT id, file_name, size_bytes, width, height FROM media
+      `SELECT id, file_name, size_bytes, metadata FROM media
         WHERE agent_id = $1
           AND CASE WHEN $2::text IS NOT NULL THEN file_name = $2::text
                    ELSE id = $3::int END`,
@@ -928,11 +928,9 @@ export class ChatService {
       mimeType: mimeType(match.file_name),
       // Snapshotted alongside the size so the feed can reserve the image's
       // shape even after the media row is deleted. The feed also fills this
-      // in from the media row on read, for posts written before the column
-      // existed.
-      ...(match.width !== null && match.height !== null
-        ? { width: match.width, height: match.height }
-        : {}),
+      // in from the live media row on read — the row is the truth, since
+      // dispatch_share_file can replace a file's bytes under an unchanged URL.
+      ...dimensionFields(parseMediaMetadata(match.metadata)),
     };
   }
 }

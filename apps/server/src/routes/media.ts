@@ -5,7 +5,7 @@ import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
 
 import type { AgentManager } from "../agents/manager.js";
-import { imageDimensionsFromBuffer } from "../media/image-dimensions.js";
+import { mediaMetadataFromBuffer } from "../media/metadata.js";
 import {
   getMediaById,
   listMediaFiles,
@@ -345,11 +345,10 @@ export async function registerMediaRoutes(
 
     await writeFile(path.join(mediaDir, timestampedFileName), buffer);
 
-    const dimensions = imageDimensionsFromBuffer(buffer);
     const result = await deps.pool.query<{ id: number; created_at: Date }>(
       `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
-                          width, height)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+                          metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id, created_at`,
       [
         id,
@@ -357,8 +356,7 @@ export async function registerMediaRoutes(
         source,
         buffer.length,
         description,
-        dimensions?.width ?? null,
-        dimensions?.height ?? null,
+        mediaMetadataFromBuffer(buffer),
       ]
     );
 

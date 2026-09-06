@@ -8,6 +8,8 @@ import type {
   ChatStatusEntry,
 } from "@dispatch/shared";
 
+import { dimensionFields, parseMediaMetadata } from "../media/metadata.js";
+
 import {
   type ChatStore,
   isChatMessageId,
@@ -288,12 +290,11 @@ async function listMediaEntries(
     file_name: string;
     size_bytes: number;
     description: string | null;
-    width: number | null;
-    height: number | null;
+    metadata: unknown;
     created_at: Date;
     at_key: string;
   }>(
-    `SELECT id, file_name, size_bytes, description, width, height, created_at,
+    `SELECT id, file_name, size_bytes, description, metadata, created_at,
             ${AT_KEY_SQL} AS at_key
        FROM media m
       WHERE m.agent_id = $1
@@ -325,7 +326,7 @@ async function listMediaEntries(
       fileName: row.file_name,
       sizeBytes: row.size_bytes,
       description: row.description ?? null,
-      ...dimensionFields(row.width, row.height),
+      ...dimensionFields(parseMediaMetadata(row.metadata)),
       at: row.created_at.toISOString(),
     },
     atKey: row.at_key,
@@ -459,17 +460,6 @@ function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
 }
 
 /**
- * Width and height as the wire shape wants them: present only when both are
- * known, so a consumer can test one field and trust the pair.
- */
-function dimensionFields(
-  width: number | null,
-  height: number | null
-): { width?: number; height?: number } {
-  return width !== null && height !== null ? { width, height } : {};
-}
-
-/**
  * Bring the `width`/`height` on a page's file attachments into line with the
  * media rows they point at.
  *
@@ -505,18 +495,16 @@ async function hydrateAttachmentDimensions(
   }
   if (pending.size === 0) return;
 
-  const result = await db.query<{
-    id: number;
-    width: number | null;
-    height: number | null;
-  }>(`SELECT id, width, height FROM media WHERE id = ANY($1::int[])`, [
-    [...pending.keys()],
-  ]);
+  const result = await db.query<{ id: number; metadata: unknown }>(
+    `SELECT id, metadata FROM media WHERE id = ANY($1::int[])`,
+    [[...pending.keys()]]
+  );
   for (const row of result.rows) {
+    const live = dimensionFields(parseMediaMetadata(row.metadata));
     for (const attachment of pending.get(row.id) ?? []) {
       delete attachment.width;
       delete attachment.height;
-      Object.assign(attachment, dimensionFields(row.width, row.height));
+      Object.assign(attachment, live);
     }
   }
 }

@@ -125,10 +125,6 @@ vi.mock("node:fs/promises", () => ({
   writeFile: vi.fn(async () => {}),
   mkdir: vi.fn(async () => {}),
   unlink: vi.fn(async () => {}),
-  // The media-replacement path keeps a copy of the bytes it is about to
-  // overwrite so a failure before the commit can put them back.
-  copyFile: vi.fn(async () => {}),
-  rename: vi.fn(async () => {}),
 }));
 
 import {
@@ -175,16 +171,7 @@ function templateRecord(overrides: Record<string, unknown> = {}) {
 
 function createMockDeps() {
   return {
-    // `connect` backs the media-replacement transaction; its statements are
-    // recorded on the same mock as `query` so assertions can stay on one
-    // call list.
-    pool: (() => {
-      const query = vi.fn(async () => ({ rows: [] }));
-      return {
-        query,
-        connect: vi.fn(async () => ({ query, release: vi.fn() })),
-      };
-    })() as any,
+    pool: { query: vi.fn(async () => ({ rows: [] })) } as any,
     mediaRoot: "/tmp/media",
     agentManager: {
       getAgent: vi.fn(async () => ({
@@ -2988,8 +2975,6 @@ describe("createMcpHandlers", () => {
 
     it("updates existing media when update option is provided", async () => {
       vi.mocked(isMediaFile).mockReturnValue(true);
-      // BEGIN, then the locking SELECT.
-      deps.pool.query.mockResolvedValueOnce({ rows: [] });
       deps.pool.query.mockResolvedValueOnce({
         rows: [{ file_name: "existing.png" }],
       });
@@ -2999,14 +2984,14 @@ describe("createMcpHandlers", () => {
         update: "existing.png",
       });
       expect(result.fileName).toBe("existing.png");
-      // BEGIN, SELECT ... FOR UPDATE, UPDATE, COMMIT — one transaction.
-      expect(deps.pool.query).toHaveBeenCalledTimes(4);
-      expect(deps.pool.connect).toHaveBeenCalledTimes(1);
+      // The lookup, then the update. No transaction: the dimensions written
+      // are read from the buffer being written, so there is nothing here that
+      // two statements could leave disagreeing.
+      expect(deps.pool.query).toHaveBeenCalledTimes(2);
     });
 
     it("throws when update target not found", async () => {
       vi.mocked(isMediaFile).mockReturnValue(true);
-      deps.pool.query.mockResolvedValueOnce({ rows: [] });
       deps.pool.query.mockResolvedValueOnce({ rows: [] });
       await expect(
         handlers.shareMedia("agt_test1", {

@@ -1,13 +1,6 @@
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import path from "node:path";
+import { describe, expect, it } from "vitest";
 
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
-
-import {
-  imageDimensionsFromBuffer,
-  probeImageFile,
-} from "../src/media/image-dimensions.js";
+import { imageDimensionsFromBuffer } from "../src/media/image-dimensions.js";
 
 /**
  * Real encoder output, not hand-built headers: each buffer below came out of
@@ -338,11 +331,27 @@ const JPEG_APP1_AFTER_SOF_120x90 = Buffer.from(
   "base64"
 );
 
+/**
+ * The same JPEG with a non-EXIF APP1 spliced in front of its other segments.
+ * XMP uses APP1 too, which is why the parser matches on the "Exif\0\0"
+ * signature rather than on the marker.
+ */
+function withXmpApp1(jpeg: Buffer): Buffer {
+  const payload = Buffer.from(
+    "http://ns.adobe.com/xap/1.0/\0<x:xmpmeta/>",
+    "latin1"
+  );
+  const segment = Buffer.alloc(4 + payload.length);
+  segment.writeUInt16BE(0xffe1, 0);
+  segment.writeUInt16BE(payload.length + 2, 2);
+  payload.copy(segment, 4);
+  return Buffer.concat([jpeg.subarray(0, 2), segment, jpeg.subarray(2)]);
+}
+
 describe("imageDimensionsFromBuffer", () => {
   it.each([
     ["PNG", PNG_37x19, 37, 19],
     ["baseline JPEG", JPEG_64x41, 64, 41],
-    ["JPEG behind an EXIF block", JPEG_EXIF_120x90, 120, 90],
     ["GIF89a", GIF_23x71, 23, 71],
     ["lossy WebP (VP8 )", WEBP_LOSSY_52x29, 52, 29],
     ["lossless WebP (VP8L)", WEBP_LOSSLESS_17x83, 17, 83],
@@ -405,104 +414,52 @@ describe("imageDimensionsFromBuffer", () => {
   });
 });
 
-describe("probeImageFile", () => {
-  let dir: string;
-
-  beforeAll(async () => {
-    dir = await mkdtemp(path.join(tmpdir(), "dispatch-image-dims-"));
-  });
-
-  afterAll(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
-
-  async function write(name: string, buffer: Buffer): Promise<string> {
-    const filePath = path.join(dir, name);
-    await writeFile(filePath, buffer);
-    return filePath;
-  }
-
-  it("reads dimensions off disk", async () => {
-    await expect(
-      probeImageFile(await write("a.png", PNG_37x19))
-    ).resolves.toEqual({ width: 37, height: 19 });
-    await expect(
-      probeImageFile(await write("b.jpg", JPEG_EXIF_120x90))
-    ).resolves.toEqual({ width: 120, height: 90 });
-    await expect(
-      probeImageFile(await write("c.webp", WEBP_LOSSLESS_17x83))
-    ).resolves.toEqual({ width: 17, height: 83 });
-  });
-
-  it("skips files that are not images without reading them", async () => {
-    await expect(
-      probeImageFile(await write("notes.md", Buffer.from("# hi")))
-    ).resolves.toBeNull();
-    await expect(
-      probeImageFile(await write("clip.mp4", Buffer.alloc(32)))
-    ).resolves.toBeNull();
-  });
-
-  it("returns null for a malformed image rather than throwing", async () => {
-    await expect(
-      probeImageFile(await write("broken.png", Buffer.from("nope")))
-    ).resolves.toBeNull();
-  });
-
-  it("refuses a file whose orientation sits beyond the head read", async () => {
-    // A metadata chunk large enough to push eXIf past the bounded read. The
-    // orientation is real and rotates the image, so answering from the IHDR
-    // alone would confidently return the ratio the wrong way round — worse
-    // than the fixed-height fallback that null selects.
-    const eXIf = PNG_EXIF_ORIENT_6_120x90.indexOf(Buffer.from("eXIf"));
-    const body = Buffer.concat([
-      Buffer.from("Comment\0", "latin1"),
-      Buffer.alloc(1200 * 1024, 0x41),
-    ]);
-    const length = Buffer.alloc(4);
-    length.writeUInt32BE(body.length);
-    const filler = Buffer.concat([
-      length,
-      Buffer.from("tEXt", "latin1"),
-      body,
-      Buffer.alloc(4),
-    ]);
-    const padded = Buffer.concat([
-      PNG_EXIF_ORIENT_6_120x90.subarray(0, eXIf - 4),
-      filler,
-      PNG_EXIF_ORIENT_6_120x90.subarray(eXIf - 4),
-    ]);
-
-    // Whole file in memory: the rotation is found and applied.
-    expect(imageDimensionsFromBuffer(padded)).toEqual({
-      width: 90,
-      height: 120,
-    });
-    // Off disk, where only the head is read: no answer rather than a wrong one.
-    await expect(
-      probeImageFile(await write("padded.png", padded))
-    ).resolves.toBeNull();
-  });
-
-  it("returns null when the file is gone", async () => {
-    await expect(
-      probeImageFile(path.join(dir, "missing.png"))
-    ).resolves.toBeNull();
-  });
-});
-
-describe("JPEG EXIF orientation", () => {
-  // Verified against Chromium: served through the real media endpoint, these
-  // four files report naturalWidth/naturalHeight of 120x90, 120x90, 90x120
-  // and 90x120 respectively. The stored pair has to match what the browser
-  // lays out, not what the SOF frame says.
+describe("EXIF is declined, not interpreted", () => {
+  // Chromium lays these four out at 120x90, 120x90, 90x120 and 90x120: the
+  // quarter turns in orientations 6 and 8 swap the axes, so the SOF numbers
+  // are the browser's answer for only half of them. Rather than work out
+  // which half, the parser declines whenever an EXIF block is present. A
+  // fixed-height box is a cheap loss; a sideways one is not.
   it.each([
-    ["1 (no transform)", JPEG_ORIENT_1_120x90, 120, 90],
-    ["3 (180 degrees, no swap)", JPEG_ORIENT_3_120x90, 120, 90],
-    ["6 (quarter turn)", JPEG_ORIENT_6_120x90, 90, 120],
-    ["8 (quarter turn back)", JPEG_ORIENT_8_120x90, 90, 120],
-  ])("reports orientation %s as the browser lays it out", (_l, buf, w, h) => {
-    expect(imageDimensionsFromBuffer(buf)).toEqual({ width: w, height: h });
+    ["1 (no transform)", JPEG_ORIENT_1_120x90],
+    ["3 (180 degrees, no swap)", JPEG_ORIENT_3_120x90],
+    ["6 (quarter turn)", JPEG_ORIENT_6_120x90],
+    ["8 (quarter turn back)", JPEG_ORIENT_8_120x90],
+  ])("declines a JPEG carrying orientation %s", (_l, buf) => {
+    expect(imageDimensionsFromBuffer(buf)).toBeNull();
+  });
+
+  it("declines any JPEG behind an EXIF block, rotated or not", () => {
+    expect(imageDimensionsFromBuffer(JPEG_EXIF_120x90)).toBeNull();
+  });
+
+  it.each([
+    ["1", PNG_EXIF_ORIENT_1_120x90],
+    ["3", PNG_EXIF_ORIENT_3_120x90],
+    ["6", PNG_EXIF_ORIENT_6_120x90],
+    ["8", PNG_EXIF_ORIENT_8_120x90],
+  ])("declines a PNG carrying an eXIf chunk with orientation %s", (_l, buf) => {
+    expect(imageDimensionsFromBuffer(buf)).toBeNull();
+  });
+
+  it("declines an EXIF APP1 that sits after the frame header", () => {
+    // Returning at the frame would read the size and never reach the block
+    // that invalidates it, so the walk has to run on to the scan.
+    expect(imageDimensionsFromBuffer(JPEG_APP1_AFTER_SOF_120x90)).toBeNull();
+  });
+
+  it("declines a file whose EXIF block is followed by another APP1", () => {
+    // An XMP APP1 after the EXIF one must not read as "nothing here".
+    expect(imageDimensionsFromBuffer(JPEG_EXIF_THEN_XMP_120x90)).toBeNull();
+  });
+
+  it("still measures a JPEG whose only APP1 is not EXIF", () => {
+    // The bail-out keys off the "Exif\0\0" signature, not the APP1 marker.
+    // An XMP segment carries no orientation, so it is no reason to decline.
+    expect(imageDimensionsFromBuffer(withXmpApp1(JPEG_64x41))).toEqual({
+      width: 64,
+      height: 41,
+    });
   });
 });
 
@@ -605,34 +562,6 @@ describe("JPEG segment-chain strictness", () => {
       Buffer.from([0xff, 0xc0, 0x00, 0x11, ...sofPayload]),
     ]);
     expect(imageDimensionsFromBuffer(unfinished)).toBeNull();
-  });
-});
-
-describe("orientation beyond a single JPEG EXIF block", () => {
-  it.each([
-    ["1", PNG_EXIF_ORIENT_1_120x90, 120, 90],
-    ["3", PNG_EXIF_ORIENT_3_120x90, 120, 90],
-    ["6", PNG_EXIF_ORIENT_6_120x90, 90, 120],
-    ["8", PNG_EXIF_ORIENT_8_120x90, 90, 120],
-  ])("applies a PNG eXIf orientation of %s", (_l, buf, w, h) => {
-    expect(imageDimensionsFromBuffer(buf)).toEqual({ width: w, height: h });
-  });
-
-  it("keeps an orientation that a later non-EXIF APP1 does not carry", () => {
-    // An XMP APP1 after the EXIF one must not read as "orientation 1".
-    expect(imageDimensionsFromBuffer(JPEG_EXIF_THEN_XMP_120x90)).toEqual({
-      width: 90,
-      height: 120,
-    });
-  });
-
-  it("applies an EXIF APP1 that sits after the frame header", () => {
-    // Reading the frame and returning there would get the size right and the
-    // rotation wrong; metadata is only settled once the scan starts.
-    expect(imageDimensionsFromBuffer(JPEG_APP1_AFTER_SOF_120x90)).toEqual({
-      width: 90,
-      height: 120,
-    });
   });
 });
 

@@ -34,8 +34,7 @@ import { loadConfig } from "./config.js";
 import { createPool, createServiceResourcesProbePool } from "./db/client.js";
 import { runMigrations } from "./db/migrate.js";
 import { deleteSetting, getSetting, setSetting } from "./db/settings.js";
-import { startMediaDimensionBackfill } from "./media/dimension-backfill.js";
-import { imageDimensionsFromBuffer } from "./media/image-dimensions.js";
+import { mediaMetadataFromBuffer } from "./media/metadata.js";
 import { runCommand } from "./shared/lib/run-command.js";
 import { shouldSkipAutomaticMacPathProbe } from "./shared/mac-path-privacy.js";
 import { mimeType, resolveMediaDir } from "./shared/media.js";
@@ -250,18 +249,16 @@ const streamManager = new StreamManager(
     await mkdir(mediaDir, { recursive: true });
     await writeFile(path.join(mediaDir, fileName), lastFrame);
 
-    const dimensions = imageDimensionsFromBuffer(lastFrame);
     await pool.query(
       `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
-                          width, height)
-       VALUES ($1, $2, 'stream', $3, $4, $5, $6)`,
+                          metadata)
+       VALUES ($1, $2, 'stream', $3, $4, $5)`,
       [
         agentId,
         fileName,
         lastFrame.length,
         description,
-        dimensions?.width ?? null,
-        dimensions?.height ?? null,
+        mediaMetadataFromBuffer(lastFrame),
       ]
     );
 
@@ -953,9 +950,6 @@ export async function initializeApp(options?: {
     agentLifecycleRuntime.startReconcileLoop();
     authRuntime.startSessionCleanupTimer();
     autoCheckRuntime.startScheduler();
-    // Media rows predating the width/height columns get measured once, in the
-    // background, so old images size themselves in the feed like new ones.
-    startMediaDimensionBackfill(pool, config.mediaRoot, app.log);
   }
   if (!routesRegistered) {
     await registerRoutes();

@@ -341,8 +341,8 @@ describe("composeChatFeed", () => {
     ): Promise<number> {
       const media = await pool.query<{ id: number }>(
         `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at,
-                            width, height)
-         VALUES ($1, $2, 'screenshot', 9, $3, 120, 90)
+                            metadata)
+         VALUES ($1, $2, 'screenshot', 9, $3, '{"width":120,"height":90}'::jsonb)
          RETURNING id`,
         [A, fileName, at(60)]
       );
@@ -381,7 +381,8 @@ describe("composeChatFeed", () => {
         height: 90,
       });
       await pool.query(
-        `UPDATE media SET width = 90, height = 120 WHERE id = $1`,
+        `UPDATE media SET metadata = '{"width":90,"height":120}'::jsonb
+          WHERE id = $1`,
         [mediaId]
       );
 
@@ -395,7 +396,7 @@ describe("composeChatFeed", () => {
         height: 90,
       });
       await pool.query(
-        `UPDATE media SET width = NULL, height = NULL WHERE id = $1`,
+        `UPDATE media SET metadata = '{}'::jsonb WHERE id = $1`,
         [mediaId]
       );
 

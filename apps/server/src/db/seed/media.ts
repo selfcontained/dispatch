@@ -1,5 +1,8 @@
 import type { PoolClient } from "pg";
 
+import type { MediaMetadata } from "../../media/metadata.js";
+import { mediaMetadataFromBuffer } from "../../media/metadata.js";
+
 import { seedNow } from "./constants.js";
 import { PLACEHOLDER_MEDIA } from "./placeholder-media.js";
 
@@ -10,8 +13,7 @@ type MediaRow = {
   sizeBytes: number;
   description: string;
   hoursAgo: number;
-  width: number;
-  height: number;
+  metadata: MediaMetadata;
 };
 
 const DESCRIPTIONS = [
@@ -20,18 +22,22 @@ const DESCRIPTIONS = [
   "Empty-state treatment",
 ];
 
-// Derived from the same table index.ts::writePlaceholderMedia writes the files
-// from, so a row's stored shape always matches the bytes on disk.
-const ROWS: MediaRow[] = PLACEHOLDER_MEDIA.map((placeholder, index) => ({
-  agentId: placeholder.agentId,
-  fileName: placeholder.fileName,
-  source: "screenshot",
-  sizeBytes: Buffer.from(placeholder.base64, "base64").length,
-  description: DESCRIPTIONS[index] ?? placeholder.fileName,
-  hoursAgo: index + 1,
-  width: placeholder.width,
-  height: placeholder.height,
-}));
+// Built from the same table index.ts::writePlaceholderMedia writes the files
+// from, and measured off those same bytes — so a seeded row describes the shape
+// of the file it points at by construction rather than by anyone remembering to
+// keep two numbers in step.
+const ROWS: MediaRow[] = PLACEHOLDER_MEDIA.map((placeholder, index) => {
+  const bytes = Buffer.from(placeholder.base64, "base64");
+  return {
+    agentId: placeholder.agentId,
+    fileName: placeholder.fileName,
+    source: "screenshot" as const,
+    sizeBytes: bytes.length,
+    description: DESCRIPTIONS[index] ?? placeholder.fileName,
+    hoursAgo: index + 1,
+    metadata: mediaMetadataFromBuffer(bytes),
+  };
+});
 
 function ago(now: Date, hours: number): Date {
   return new Date(now.getTime() - hours * 60 * 60 * 1000);
@@ -42,8 +48,8 @@ export async function seedMedia(client: PoolClient): Promise<void> {
   for (const row of ROWS) {
     await client.query(
       `
-      INSERT INTO media (agent_id, file_name, source, size_bytes, description, created_at, updated_at, width, height)
-      VALUES ($1,$2,$3,$4,$5,$6,$6,$7,$8)
+      INSERT INTO media (agent_id, file_name, source, size_bytes, description, created_at, updated_at, metadata)
+      VALUES ($1,$2,$3,$4,$5,$6,$6,$7)
       `,
       [
         row.agentId,
@@ -52,8 +58,7 @@ export async function seedMedia(client: PoolClient): Promise<void> {
         row.sizeBytes,
         row.description,
         ago(now, row.hoursAgo),
-        row.width,
-        row.height,
+        row.metadata,
       ]
     );
   }

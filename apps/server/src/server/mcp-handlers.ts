@@ -1,13 +1,6 @@
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import {
-  copyFile,
-  mkdir,
-  readFile,
-  rename,
-  unlink,
-  writeFile,
-} from "node:fs/promises";
+import { mkdir, readFile, unlink, writeFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger } from "fastify";
 import type { Pool } from "pg";
@@ -15,7 +8,7 @@ import type { Pool } from "pg";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { PinSpec } from "../agents/pin-write.js";
 import { AgentError } from "../agents/errors.js";
-import { imageDimensionsFromBuffer } from "../media/image-dimensions.js";
+import { mediaMetadataFromBuffer } from "../media/metadata.js";
 import type { AgentPin, WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
@@ -795,151 +788,50 @@ async function handleShareMedia(
   const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
   await mkdir(mediaDir, { recursive: true });
 
+  // Derived from the bytes we are about to write, not from the file on disk.
+  // The dimensions and the bytes are the same object, so the row cannot come to
+  // describe a shape its file does not have — there is nothing here for a
+  // transaction to keep in sync.
+  const metadata = mediaMetadataFromBuffer(buffer);
+
   if (opts.update) {
-    // One transaction around the whole replacement, on one client. The row
-    // lock below only lasts as long as the transaction holding it, so issuing
-    // the SELECT through the pool would take a lock and drop it before the
-    // file was even written — two concurrent replacements of the same file
-    // could then interleave as write A, write B, update B, update A, leaving
-    // the row describing bytes that are no longer there. Recording an image's
-    // shape is only worth doing if it cannot come to disagree with the file.
-    const client = await deps.pool.connect();
-    try {
-      await client.query("BEGIN");
-      const existing = await client.query<{ file_name: string }>(
-        `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2 FOR UPDATE`,
-        [agentId, opts.update]
+    const existing = await deps.pool.query<{ file_name: string }>(
+      `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2`,
+      [agentId, opts.update]
+    );
+    if (existing.rows.length === 0) {
+      throw new Error(
+        "No media file found with the given fileName for this agent."
       );
-      if (existing.rows.length === 0) {
-        throw new Error(
-          "No media file found with the given fileName for this agent."
-        );
-      }
-
-      const fileName = existing.rows[0].file_name;
-      const filePath = path.join(mediaDir, fileName);
-      const resolvedMediaDir = path.resolve(mediaDir);
-      if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
-        throw new Error("Invalid media file path.");
-      }
-
-      // The file write is the half of this that a ROLLBACK cannot undo. Keep
-      // the bytes it replaces so a failure between here and the commit can put
-      // them back, rather than leaving new bytes described by old dimensions —
-      // the mismatch this feature has to rule out. Copied rather than read
-      // into memory: a media file can be a video, and the replacement buffer
-      // is already resident.
-      const backupPath = path.join(mediaDir, `.replacing-${randomUUID()}.bak`);
-      let backedUp = false;
-      try {
-        await copyFile(filePath, backupPath);
-        backedUp = true;
-      } catch (err) {
-        // A failed copy can still leave a partial destination behind.
-        await unlink(backupPath).catch(() => {});
-        // ENOENT is the only failure that means "there was nothing to back
-        // up" — the write below is then a create, and undoing it means
-        // removing the file. Every other failure (a full disk, a permissions
-        // problem) leaves us with no recovery copy, and carrying on would
-        // reach the `unlink` in the catch below and delete the very file we
-        // failed to protect. Give up before touching it.
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-      }
-      // Set before the COMMIT is awaited, not after it returns: a COMMIT that
-      // throws is precisely the ambiguous case, and a flag that only rises on
-      // success cannot tell it apart from a failure that never got that far.
-      let commitAttempted = false;
-      // Cleared only when the backup is still the sole record of the old
-      // bytes and something might yet need it.
-      let keepBackup = false;
-
-      try {
-        await writeFile(filePath, buffer);
-        // Replacing the bytes can change the shape, so the stored dimensions
-        // move with them — including back to null when the new file is one we
-        // cannot read.
-        const dimensions = imageDimensionsFromBuffer(buffer);
-        await client.query(
-          `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
-                  width = $5, height = $6
-           WHERE agent_id = $3 AND file_name = $4`,
-          [
-            buffer.length,
-            opts.description,
-            agentId,
-            fileName,
-            dimensions?.width ?? null,
-            dimensions?.height ?? null,
-          ]
-        );
-        commitAttempted = true;
-        await client.query("COMMIT");
-      } catch (error) {
-        // A COMMIT that threw is the one case where restoring could be the
-        // wrong move: the transaction may well have landed, and putting the
-        // old bytes back would then create the very mismatch we are avoiding.
-        // Leave the file as written and say so loudly instead.
-        if (commitAttempted) {
-          // Keep the backup rather than deleting the only copy of the bytes
-          // this replaced: if the commit did not in fact land, that file is
-          // what a repair would need.
-          keepBackup = backedUp;
-          deps.appLog.error(
-            {
-              err: error,
-              agentId,
-              fileName,
-              backupPath: keepBackup ? backupPath : null,
-            },
-            "Media replacement commit failed after the bytes were written; " +
-              "the row may or may not describe the file on disk"
-          );
-          throw error;
-        }
-        if (backedUp) {
-          await rename(backupPath, filePath).catch((err) => {
-            // The restore is what makes the backup disposable. Without it the
-            // copy is the only intact record of the replaced bytes, so it has
-            // to outlive this function rather than be swept up below.
-            keepBackup = true;
-            deps.appLog.error(
-              { err, agentId, fileName, backupPath },
-              "Failed to restore media file after a failed replacement; " +
-                "the replaced bytes are kept at backupPath"
-            );
-          });
-        } else {
-          // Nothing to restore here — the row's file was already missing, so
-          // this write created it and undoing means removing it. If that also
-          // fails there is no recovery left, only the obligation to say so:
-          // the row keeps its old dimensions while these bytes sit on disk.
-          await unlink(filePath).catch((err) => {
-            deps.appLog.error(
-              { err, agentId, fileName },
-              "Failed to remove a media file written by a replacement that " +
-                "then failed; the row may not describe the file on disk"
-            );
-          });
-        }
-        throw error;
-      } finally {
-        if (backedUp && !keepBackup) await unlink(backupPath).catch(() => {});
-      }
-
-      deps.publishUiEvent({ type: "media.changed", agentId });
-      return {
-        fileName,
-        url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
-        sizeBytes: buffer.length,
-        source,
-        description: opts.description,
-      };
-    } catch (error) {
-      await client.query("ROLLBACK").catch(() => {});
-      throw error;
-    } finally {
-      client.release();
     }
+
+    const fileName = existing.rows[0].file_name;
+    const filePath = path.join(mediaDir, fileName);
+    const resolvedMediaDir = path.resolve(mediaDir);
+    if (!path.resolve(filePath).startsWith(resolvedMediaDir + path.sep)) {
+      throw new Error("Invalid media file path.");
+    }
+
+    // Write the bytes, then describe them. The other order would let a failed
+    // write leave the row describing bytes that never landed; this way a
+    // failure between the two leaves the row lagging its file until the next
+    // replacement, which costs one image a stale reserved box and nothing else.
+    await writeFile(filePath, buffer);
+    await deps.pool.query(
+      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
+              metadata = $5
+       WHERE agent_id = $3 AND file_name = $4`,
+      [buffer.length, opts.description, agentId, fileName, metadata]
+    );
+
+    deps.publishUiEvent({ type: "media.changed", agentId });
+    return {
+      fileName,
+      url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`,
+      sizeBytes: buffer.length,
+      source,
+      description: opts.description,
+    };
   }
 
   const timestamp = new Date()
@@ -959,20 +851,11 @@ async function handleShareMedia(
   const fileName = `${base}-${timestamp}${ext}`;
 
   await writeFile(path.join(mediaDir, fileName), buffer);
-  const dimensions = imageDimensionsFromBuffer(buffer);
   await deps.pool.query(
     `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
-                        width, height)
-     VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-    [
-      agentId,
-      fileName,
-      source,
-      buffer.length,
-      opts.description,
-      dimensions?.width ?? null,
-      dimensions?.height ?? null,
-    ]
+                        metadata)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [agentId, fileName, source, buffer.length, opts.description, metadata]
   );
 
   deps.publishUiEvent({ type: "media.changed", agentId });
