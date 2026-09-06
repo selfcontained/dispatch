@@ -61,6 +61,14 @@ export default defineConfig({
       DISPATCH_PORT: devPort,
       MEDIA_ROOT: mediaRoot,
       DISPATCH_AGENT_RUNTIME: agentRuntime,
+      // The dsh specs assume no provider keys; a developer's shell may export
+      // real ones, and the usage dialog would then call the billing APIs.
+      OPENAI_API_KEY: "",
+      OPENAI_ADMIN_KEY: "",
+      ANTHROPIC_API_KEY: "",
+      ANTHROPIC_ADMIN_KEY: "",
+      DEEPSEEK_API_KEY: "",
+      GEMINI_API_KEY: "",
     },
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
