@@ -662,15 +662,19 @@ function LivePin({
   }
   return (
     <AttachmentBlock data-testid={testId}>
-      <PinItem
-        pin={pin}
-        workspaceRoot={ctx.workspaceRoot}
-        inGroup
-        agentIsRunning={ctx.agentIsRunning ?? true}
-        onRunShortcut={ctx.onRunShortcut}
-        pendingPinId={ctx.pendingPinId ?? null}
-        agentName={ctx.agentName ?? null}
-      />
+      {/* A shortcut is a sidebar-width button (w-full); in the channel's
+          wide measure it would stretch into a banner. */}
+      <div className={cn(pin.type === "shortcut" && "max-w-[14rem]")}>
+        <PinItem
+          pin={pin}
+          workspaceRoot={ctx.workspaceRoot}
+          inGroup
+          agentIsRunning={ctx.agentIsRunning ?? true}
+          onRunShortcut={ctx.onRunShortcut}
+          pendingPinId={ctx.pendingPinId ?? null}
+          agentName={ctx.agentName ?? null}
+        />
+      </div>
     </AttachmentBlock>
   );
 }
