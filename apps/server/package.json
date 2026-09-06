@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/server",
-  "version": "0.38.7-dsh.20",
+  "version": "0.38.7-dsh.21",
   "private": true,
   "type": "module",
   "scripts": {
