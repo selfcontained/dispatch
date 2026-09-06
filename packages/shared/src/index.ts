@@ -37,6 +37,8 @@ export type {
   ChatAttachment,
   ChatAuthorKind,
   ChatChangedEvent,
+  ChatEntryEvent,
+  ChatReadEvent,
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMediaEntry,

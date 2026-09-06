@@ -240,24 +240,46 @@ export class ChatStore {
    * at or before that message (an unknown id marks nothing). Returns the
    * number of rows updated.
    */
-  async markRead(agentId: string, upTo?: string | null): Promise<number> {
-    if (upTo != null && !isChatMessageId(upTo)) return 0;
+  /**
+   * Mark unread agent messages read — up to and including `upTo`, or all of
+   * them. Reports what was marked so a client can mirror it on the rows it
+   * holds: `readAt` is the stamp written, `upToAt` the bound's created time
+   * (null when everything was marked). Both null when nothing changed.
+   */
+  async markRead(
+    agentId: string,
+    upTo?: string | null
+  ): Promise<{
+    updated: number;
+    readAt: string | null;
+    upToAt: string | null;
+  }> {
+    const none = { updated: 0, readAt: null, upToAt: null };
+    if (upTo != null && !isChatMessageId(upTo)) return none;
     const result = upTo
-      ? await this.db.query(
+      ? await this.db.query<{ read_at: Date; up_to_at: Date }>(
           `UPDATE agent_chat_messages AS m SET read_at = now()
             FROM agent_chat_messages AS bound
            WHERE bound.id = $2 AND bound.agent_id = $1
              AND m.agent_id = $1 AND m.author_kind = 'agent'
              AND m.read_at IS NULL
-             AND m.created_at <= bound.created_at`,
+             AND m.created_at <= bound.created_at
+           RETURNING m.read_at, bound.created_at AS up_to_at`,
           [agentId, upTo]
         )
-      : await this.db.query(
+      : await this.db.query<{ read_at: Date; up_to_at: null }>(
           `UPDATE agent_chat_messages SET read_at = now()
-            WHERE agent_id = $1 AND author_kind = 'agent' AND read_at IS NULL`,
+            WHERE agent_id = $1 AND author_kind = 'agent' AND read_at IS NULL
+           RETURNING read_at, NULL AS up_to_at`,
           [agentId]
         );
-    return result.rowCount ?? 0;
+    const first = result.rows[0];
+    if (!first) return none;
+    return {
+      updated: result.rowCount ?? result.rows.length,
+      readAt: first.read_at.toISOString(),
+      upToAt: first.up_to_at ? first.up_to_at.toISOString() : null,
+    };
   }
 
   async countUnread(agentId: string): Promise<number> {

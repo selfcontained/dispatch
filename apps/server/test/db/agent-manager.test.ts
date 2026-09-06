@@ -307,7 +307,14 @@ describe("AgentManager", () => {
           ],
         });
         expect(chatEvents).toEqual([
-          { type: "chat.changed", agentId: agent.id },
+          expect.objectContaining({
+            type: "chat.entry",
+            agentId: agent.id,
+            entry: expect.objectContaining({
+              type: "chat",
+              message: expect.objectContaining({ origin: "launch" }),
+            }),
+          }),
         ]);
       });
 

@@ -1552,6 +1552,24 @@ describe("ChatFeed enter animation", () => {
     expect(enterOf(posts[2]!)).not.toBeNull();
   });
 
+  it("fades in a live row that lands below the newest by time", () => {
+    // A status event published late sorts under the newest post; it is
+    // still an arrival, not a page of older rows.
+    const first = chat(
+      message({ id: "a1", text: "first", createdAt: at("10:00") })
+    );
+    const last = chat(
+      message({ id: "a2", text: "second", createdAt: at("10:05") })
+    );
+    const { rerenderWith } = renderFeed([first, last]);
+    rerenderWith([
+      first,
+      status("late", "working", "Late status", at("10:03")),
+      last,
+    ]);
+    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
+  });
+
   it("fades a post edited in place in again", () => {
     const original = message({
       id: "a1",

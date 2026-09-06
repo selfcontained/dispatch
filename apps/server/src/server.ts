@@ -110,6 +110,7 @@ import { registerTemplateRoutes } from "./routes/templates.js";
 import { registerMediaRoutes } from "./routes/media.js";
 import { registerMessagesRoutes } from "./routes/messages.js";
 import { registerChatRoutes } from "./routes/chat.js";
+import { toStatusEntry } from "./chat/feed.js";
 import { ChatService } from "./chat/service.js";
 import { isChatSurfaceEnabled } from "./chat-surface-settings.js";
 import { registerSurfaceRoutes } from "./routes/surfaces.js";
@@ -430,6 +431,15 @@ agentManager.onAgentCreated((agent) => {
   uiEventBroker.publish({
     type: "agent.upsert",
     agent: withStreamFlag(agent),
+  });
+});
+// A status row reaches the Chat feed as an entry of its own, so a mounted
+// feed appends one line instead of refetching every page per event.
+agentManager.onEventRecorded((row) => {
+  uiEventBroker.publish({
+    type: "chat.entry",
+    agentId: row.agentId,
+    entry: toStatusEntry(row.id, row.eventType, row.message, row.createdAt),
   });
 });
 const authRuntime = createAuthRuntime({

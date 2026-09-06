@@ -330,6 +330,55 @@ describe("ChatPane", () => {
     expect(screen.queryByText("still hidden")).toBeNull();
   });
 
+  it("offers the New messages pill for a live row that lands mid-feed", () => {
+    const first = chat(
+      message({
+        id: "a1",
+        text: "first",
+        createdAt: "2026-09-02T10:00:00.000Z",
+      })
+    );
+    const last = chat(
+      message({ id: "a2", text: "last", createdAt: "2026-09-02T10:05:00.000Z" })
+    );
+    H.entries = [first, last];
+    const { rerender } = renderPane();
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    });
+    fireEvent.scroll(scroll);
+    expect(screen.queryByText("New messages")).toBeNull();
+
+    H.entries = [
+      first,
+      {
+        type: "status",
+        id: "event:late",
+        eventType: "working",
+        message: "Late status",
+        at: "2026-09-02T10:03:00.000Z",
+      },
+      last,
+    ];
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={agent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(screen.getByText("New messages")).toBeTruthy();
+  });
+
   it("does not re-render memoised posts when the pane re-renders with equal data", async () => {
     H.entries = [chat(message({ id: "a", text: "**bold** body" }))];
     const stable = {

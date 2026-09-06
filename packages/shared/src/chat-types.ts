@@ -72,6 +72,13 @@ export type ChatUserAttachmentInput =
 
 /** Body of `POST /agents/:id/chat/messages`. */
 export type ChatSendRequest = {
+  /**
+   * The message's id, minted by the client (a UUID). It lets the client's
+   * optimistic row and the stored row be one and the same, so the
+   * `chat.entry` for the stored row replaces the placeholder however the
+   * stream and the response are ordered. Reusing an id is a 409.
+   */
+  id?: string;
   /** May be blank when at least one attachment is present. */
   text: string;
   /** Up to `CHAT_ATTACHMENTS_MAX`. */
@@ -80,6 +87,8 @@ export type ChatSendRequest = {
 
 /** Body of `POST /agents/:id/chat/messages/:messageId/answer`. */
 export type ChatAnswerRequest = {
+  /** The reply message's id, minted by the client; see `ChatSendRequest.id`. */
+  id?: string;
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;
@@ -252,6 +261,33 @@ export type ChatAnswerResponse = {
 };
 
 export type ChatChangedEvent = { type: "chat.changed"; agentId: string };
+
+/**
+ * One feed row, exactly as `GET /agents/:id/chat` would return it, published
+ * when that row is written or edited so a mounted feed can put it in place
+ * instead of refetching every loaded page. Chat messages and status events
+ * are published this way; the other sources still announce themselves with
+ * the coarse `chat.changed`, which stays the fallback for anything a client
+ * cannot place.
+ */
+export type ChatEntryEvent = {
+  type: "chat.entry";
+  agentId: string;
+  entry: ChatFeedEntry;
+};
+
+/**
+ * A mark-read landed: the new count, plus what it marked so a cached feed
+ * can set `readAt` on the same rows — every unread agent message created
+ * at or before `upToAt` (all of them when null).
+ */
+export type ChatReadEvent = {
+  type: "chat.read";
+  agentId: string;
+  unreadCount: number;
+  readAt: string;
+  upToAt: string | null;
+};
 
 export const CHAT_MESSAGE_MAX_CHARS = 20_000;
 export const CHAT_ATTACHMENTS_MAX = 20;

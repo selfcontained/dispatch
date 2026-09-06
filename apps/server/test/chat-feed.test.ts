@@ -6,8 +6,11 @@ import {
   composeChatFeed,
   decodeFeedCursor,
   encodeFeedCursor,
+  loadChatMessageEntry,
+  toStatusEntry,
 } from "../src/chat/feed.js";
 import { ChatStore } from "../src/chat/store.js";
+import { writeLatestEvent } from "../src/agents/events.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -579,5 +582,53 @@ describe("composeChatFeed", () => {
     expect(clampFeedLimit(0)).toBe(1);
     expect(clampFeedLimit(9999)).toBe(500);
     expect(clampFeedLimit(42.7)).toBe(42);
+  });
+});
+
+describe("feed entries as events carry them", () => {
+  it("reads one message back exactly as the feed lists it", async () => {
+    const { m1, m2 } = await seedAll();
+    const feed = await composeChatFeed(store, A);
+    const listed = feed.entries.find(
+      (entry) => entry.type === "chat" && entry.id === m1.id
+    );
+    expect(await loadChatMessageEntry(pool, A, m1.id)).toEqual(listed);
+    expect(await loadChatMessageEntry(pool, A, m2.id)).toEqual(
+      feed.entries.find((entry) => entry.type === "chat" && entry.id === m2.id)
+    );
+    // Another agent's feed does not hold it.
+    expect(await loadChatMessageEntry(pool, OTHER, m1.id)).toBeNull();
+  });
+
+  it("hands the written history row to onRecorded, shaped like the feed's status entry", async () => {
+    const logger = { warn: () => undefined } as unknown as Parameters<
+      typeof writeLatestEvent
+    >[1];
+    const recorded = await new Promise<
+      Parameters<NonNullable<Parameters<typeof writeLatestEvent>[4]>>[0]
+    >((resolve) => {
+      void writeLatestEvent(
+        pool,
+        logger,
+        A,
+        { type: "working", message: "Reading files" },
+        resolve
+      );
+    });
+    expect(recorded).toMatchObject({
+      agentId: A,
+      eventType: "working",
+      message: "Reading files",
+    });
+    const feed = await composeChatFeed(store, A);
+    const status = feed.entries.find((entry) => entry.type === "status");
+    expect(
+      toStatusEntry(
+        recorded.id,
+        recorded.eventType,
+        recorded.message,
+        recorded.createdAt
+      )
+    ).toEqual(status);
   });
 });

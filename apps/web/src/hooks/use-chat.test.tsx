@@ -15,13 +15,17 @@ vi.mock("@/lib/api", () => ({ api: apiMock }));
 
 import {
   appendToNewestPage,
+  applyChatRead,
   chatFeedQueryKey,
   type FeedCache,
+  removeMessage,
   replaceMessage,
   shareFeedByEntryId,
   shareFeedCache,
+  upsertFeedEntry,
   useAnswerChatQuestion,
   useChatFeed,
+  useSendChatMessage,
 } from "./use-chat";
 
 afterEach(() => {
@@ -94,17 +98,23 @@ describe("useAnswerChatQuestion", () => {
     });
     const answered: ChatMessage = {
       ...question,
+      // Recording the answer bumps the row's version, as the store does.
+      updatedAt: "2026-09-02T10:01:00.000Z",
       answer: {
         value: "this one",
         replyMessageId: "r1",
         answeredAt: "2026-09-02T10:01:00.000Z",
       },
     };
-    apiMock.mockResolvedValue({
-      question: answered,
-      reply,
-      delivered: null,
-    } satisfies ChatAnswerResponse);
+    // The server stores the reply under the id the client minted.
+    apiMock.mockImplementation(async (_url: string, init: { body: string }) => {
+      const { id } = JSON.parse(init.body) as { id: string };
+      return {
+        question: answered,
+        reply: { ...reply, id },
+        delivered: null,
+      } satisfies ChatAnswerResponse;
+    });
 
     const { result } = renderHook(() => useAnswerChatQuestion("agt_1"), {
       wrapper,
@@ -121,14 +131,16 @@ describe("useAnswerChatQuestion", () => {
       "/api/v1/agents/agt_1/chat/messages/q1/answer",
       {
         method: "POST",
-        body: JSON.stringify({
-          value: "this one",
-          attachments: [{ type: "link", url: "https://example.com/spec" }],
-        }),
+        body: expect.stringMatching(
+          /^\{"id":"[0-9a-f-]{36}","value":"this one","attachments":\[\{"type":"link","url":"https:\/\/example.com\/spec"\}\]\}$/
+        ),
       }
     );
     const messages = feedMessages(client);
-    expect(messages.map((m) => m.id)).toEqual(["q1", "r1"]);
+    expect(messages.map((m) => m.id)).toEqual([
+      "q1",
+      expect.stringMatching(/^[0-9a-f-]{36}$/),
+    ]);
     expect(messages[0]!.answer).toEqual(answered.answer);
     expect(messages[1]!.attachments).toEqual(reply.attachments);
   });
@@ -154,8 +166,8 @@ describe("useAnswerChatQuestion", () => {
         attachments: [],
       });
     });
-    expect(apiMock.mock.calls[0]![1].body).toBe(
-      JSON.stringify({ value: "main", label: "main" })
+    expect(apiMock.mock.calls[0]![1].body).toMatch(
+      /^\{"id":"[0-9a-f-]{36}","value":"main","label":"main"\}$/
     );
   });
 });
@@ -318,6 +330,7 @@ describe("shareFeedByEntryId", () => {
     };
     const answered = {
       ...qm,
+      updatedAt: "2026-09-02T10:05:00.000Z",
       answer: {
         value: "Yes",
         label: "Yes",
@@ -383,5 +396,381 @@ describe("shareFeedByEntryId", () => {
     });
     await waitFor(() => expect(result.current.entries).toHaveLength(2));
     expect(result.current.entries[0]).toBe(before[1]);
+  });
+});
+
+describe("upsertFeedEntry", () => {
+  const page = (
+    entries: ChatFeedEntry[],
+    extra: Partial<ChatFeedResponse> = {}
+  ): ChatFeedResponse => ({
+    entries,
+    hasMore: false,
+    unreadCount: 0,
+    nextCursor: null,
+    ...extra,
+  });
+  const at = (s: number) =>
+    `2026-09-02T10:00:${String(s).padStart(2, "0")}.000Z`;
+  const status = (id: string, when: string): ChatFeedEntry => ({
+    type: "status",
+    id,
+    eventType: "working",
+    message: id,
+    at: when,
+  });
+
+  it("appends a newer entry to the newest page and bumps unread for agent posts", () => {
+    const a = chat(message({ id: "a", createdAt: at(1) }));
+    const cache: FeedCache = { pageParams: [undefined], pages: [page([a])] };
+    const fresh = chat(message({ id: "b", createdAt: at(2), readAt: null }));
+    const result = upsertFeedEntry(cache, fresh);
+    expect(result.placed).toBe(true);
+    expect(result.cache.pages[0]!.entries).toEqual([a, fresh]);
+    expect(result.cache.pages[0]!.entries[0]).toBe(a);
+    expect(result.cache.pages[0]!.unreadCount).toBe(1);
+    // A user's own post is never unread.
+    const own = chat(
+      message({ id: "c", authorKind: "user", createdAt: at(3) })
+    );
+    expect(upsertFeedEntry(result.cache, own).cache.pages[0]!.unreadCount).toBe(
+      1
+    );
+  });
+
+  it("slots an entry in by time when it is not the newest", () => {
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([status("event:1", at(1)), status("event:3", at(3))])],
+    };
+    const result = upsertFeedEntry(cache, status("event:2", at(2)));
+    expect(result.cache.pages[0]!.entries.map((e) => e.id)).toEqual([
+      "event:1",
+      "event:2",
+      "event:3",
+    ]);
+  });
+
+  it("replaces a known entry in place, keeping identity when nothing changed", () => {
+    const q = chat(message({ id: "q", kind: "question", readAt: null }));
+    const other = status("event:9", at(5));
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([q, other], { unreadCount: 1 })],
+    };
+    const same = upsertFeedEntry(
+      cache,
+      chat(message({ id: "q", kind: "question", readAt: null }))
+    );
+    expect(same.cache).toBe(cache);
+    const read = chat(message({ id: "q", kind: "question", readAt: at(9) }));
+    const result = upsertFeedEntry(cache, read);
+    expect(result.placed).toBe(true);
+    expect(result.cache.pages[0]!.entries[0]).not.toBe(q);
+    expect(result.cache.pages[0]!.entries[1]).toBe(other);
+    // Read state is the server's to count (`chat.read`); a replacement
+    // never moves the number, even when it carries a fresh readAt.
+    expect(result.cache.pages[0]!.unreadCount).toBe(1);
+  });
+
+  it("replaces a row on an older page without touching the newest page", () => {
+    const old = chat(message({ id: "o", createdAt: at(1), text: "v1" }));
+    const cache: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [
+        page([status("event:5", at(5))], {
+          unreadCount: 1,
+          hasMore: true,
+          nextCursor: "c1",
+        }),
+        page([old]),
+      ],
+    };
+    const result = upsertFeedEntry(
+      cache,
+      chat(message({ id: "o", createdAt: at(1), text: "v2" }))
+    );
+    const replaced = result.cache.pages[1]!.entries[0]!;
+    expect(replaced.type === "chat" ? replaced.message.text : null).toBe("v2");
+    expect(result.cache.pages[0]).toBe(cache.pages[0]);
+  });
+
+  it("refuses an entry older than a head that has pages below it", () => {
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [
+        page([status("event:5", at(5))], { hasMore: true, nextCursor: "c1" }),
+      ],
+    };
+    const result = upsertFeedEntry(cache, status("event:1", at(1)));
+    expect(result.placed).toBe(false);
+    expect(result.cache).toBe(cache);
+    // With the whole history loaded it is simply the oldest row.
+    const complete: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([status("event:5", at(5))])],
+    };
+    expect(
+      upsertFeedEntry(
+        complete,
+        status("event:1", at(1))
+      ).cache.pages[0]!.entries.map((e) => e.id)
+    ).toEqual(["event:1", "event:5"]);
+  });
+
+  it("leaves a row that shares a millisecond with a cached one to a refetch", () => {
+    // The server breaks such ties by microsecond, source and id; the wire
+    // carries none of those, so local placement would only be a guess.
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([status("event:1", at(1)), status("event:2", at(2))])],
+    };
+    const tie = upsertFeedEntry(cache, status("event:3", at(2)));
+    expect(tie.placed).toBe(false);
+    expect(tie.cache).toBe(cache);
+    // Equal to the head's oldest row with pages below: also ambiguous.
+    const paged: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [
+        page([status("event:5", at(5))], { hasMore: true, nextCursor: "c1" }),
+        page([status("event:1", at(1))]),
+      ],
+    };
+    expect(upsertFeedEntry(paged, status("event:9", at(5))).placed).toBe(false);
+  });
+
+  it("has nowhere to put anything in an empty cache", () => {
+    expect(
+      upsertFeedEntry({ pageParams: [], pages: [] }, status("event:1", at(1)))
+        .placed
+    ).toBe(false);
+  });
+});
+
+describe("applyChatRead", () => {
+  it("moves only the count, and only when it moved", () => {
+    const a = chat(message({ id: "a" }));
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [
+        { entries: [a], hasMore: false, nextCursor: null, unreadCount: 2 },
+      ],
+    };
+    expect(applyChatRead(cache, 2)).toBe(cache);
+    const next = applyChatRead(cache, 0)!;
+    expect(next.pages[0]!.unreadCount).toBe(0);
+    expect(next.pages[0]!.entries).toBe(cache.pages[0]!.entries);
+    expect(applyChatRead(undefined, 0)).toBeUndefined();
+  });
+
+  it("stamps the rows a mark-read covered so they agree with the count", () => {
+    const t = (s: number) => `2026-09-02T10:00:0${s}.000Z`;
+    const early = chat(message({ id: "e", createdAt: t(1), readAt: null }));
+    const bound = chat(message({ id: "b", createdAt: t(2), readAt: null }));
+    const later = chat(message({ id: "l", createdAt: t(3), readAt: null }));
+    const user = chat(
+      message({ id: "u", authorKind: "user", createdAt: t(1), readAt: null })
+    );
+    const cache: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [
+        {
+          entries: [bound, later],
+          hasMore: true,
+          nextCursor: "c1",
+          unreadCount: 3,
+        },
+        {
+          entries: [user, early],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+    };
+    const next = applyChatRead(cache, 1, { readAt: t(9), upToAt: t(2) })!;
+    const readAt = (e: ChatFeedEntry) =>
+      e.type === "chat" ? e.message.readAt : "?";
+    expect(next.pages[0]!.entries.map(readAt)).toEqual([t(9), null]);
+    expect(next.pages[1]!.entries.map(readAt)).toEqual([null, t(9)]);
+    expect(next.pages[0]!.entries[1]).toBe(later);
+    expect(next.pages[1]!.entries[0]).toBe(user);
+    expect(next.pages[0]!.unreadCount).toBe(1);
+    const all = applyChatRead(cache, 0, { readAt: t(9), upToAt: null })!;
+    expect(all.pages[0]!.entries.map(readAt)).toEqual([t(9), t(9)]);
+    // Already stamped: nothing to do, same object back.
+    expect(applyChatRead(all, 0, { readAt: t(10), upToAt: null })).toBe(all);
+  });
+});
+
+describe("removeMessage", () => {
+  it("drops one message wherever it sits and keeps the rest by identity", () => {
+    const a = chat(message({ id: "a" }));
+    const b = chat(message({ id: "b" }));
+    const cache: FeedCache = {
+      pageParams: [undefined, "c1"],
+      pages: [
+        { entries: [b], hasMore: true, nextCursor: "c1", unreadCount: 0 },
+        { entries: [a], hasMore: false, nextCursor: null, unreadCount: 0 },
+      ],
+    };
+    const next = removeMessage(cache, "a")!;
+    expect(next.pages[0]).toBe(cache.pages[0]);
+    expect(next.pages[1]!.entries).toEqual([]);
+    expect(removeMessage(cache, "nope")).toBe(cache);
+  });
+});
+
+describe("useSendChatMessage", () => {
+  it("shows one row when the stream delivers the stored message before the response", async () => {
+    const client = seededClient([chat(message({ id: "a" }))]);
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    let respond: (value: unknown) => void = () => undefined;
+    apiMock.mockImplementationOnce(
+      () => new Promise((resolve) => (respond = resolve))
+    );
+    const { result } = renderHook(() => useSendChatMessage("agt_1"), {
+      wrapper,
+    });
+    let sent: Promise<unknown> = Promise.resolve();
+    act(() => {
+      sent = result.current.mutateAsync({ text: "hi" });
+    });
+    await waitFor(() => expect(feedMessages(client)).toHaveLength(2));
+    const id = feedMessages(client)[1]!.id;
+    expect(id).toMatch(/^[0-9a-f-]{36}$/);
+    const stored = message({
+      id,
+      authorKind: "user",
+      text: "hi",
+      updatedAt: "2026-09-02T10:00:05.000Z",
+    });
+    // The stream's copy replaces the placeholder under the same id...
+    act(() => {
+      client.setQueryData<FeedCache>(chatFeedQueryKey("agt_1"), (old) =>
+        old ? upsertFeedEntry(old, chat(stored)).cache : old
+      );
+    });
+    expect(feedMessages(client).map((m) => m.id)).toEqual(["a", id]);
+    const streamed = feedMessages(client)[1];
+    // ...and the same-version response then leaves it alone.
+    await act(async () => {
+      respond({ message: stored, delivered: null, held: false });
+      await sent;
+    });
+    expect(feedMessages(client).map((m) => m.id)).toEqual(["a", id]);
+    expect(feedMessages(client)[1]).toBe(streamed);
+  });
+
+  it("rolls back only its placeholder when the send fails, keeping a streamed row", async () => {
+    const client = seededClient([chat(message({ id: "a" }))]);
+    const invalidate = vi.spyOn(client, "invalidateQueries");
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    let failSend: (error: Error) => void = () => undefined;
+    apiMock.mockImplementationOnce(
+      () => new Promise((_resolve, reject) => (failSend = reject))
+    );
+    const { result } = renderHook(() => useSendChatMessage("agt_1"), {
+      wrapper,
+    });
+    let sent: Promise<unknown> = Promise.resolve();
+    act(() => {
+      sent = result.current.mutateAsync({ text: "hi" }).catch(() => undefined);
+    });
+    await waitFor(() => expect(feedMessages(client)).toHaveLength(2));
+    const placeholderId = feedMessages(client)[1]!.id;
+    // The server did store it under that id, and its chat.entry lands
+    // before the (failing) response does: the placeholder is replaced.
+    const stored = message({
+      id: placeholderId,
+      authorKind: "user",
+      text: "hi",
+      delivered: true,
+    });
+    act(() => {
+      client.setQueryData<FeedCache>(chatFeedQueryKey("agt_1"), (old) =>
+        old ? upsertFeedEntry(old, chat(stored)).cache : old
+      );
+    });
+    await act(async () => {
+      failSend(new Error("connection lost"));
+      await sent;
+    });
+    expect(feedMessages(client).map((m) => [m.id, m.delivered])).toEqual([
+      ["a", null],
+      [placeholderId, true],
+    ]);
+    expect(invalidate).toHaveBeenCalledWith({
+      queryKey: chatFeedQueryKey("agt_1"),
+      exact: true,
+    });
+  });
+});
+
+describe("replaceMessage", () => {
+  it("keeps the cache's copy of a row when the response is the same version", () => {
+    // The stream's copy carries what the feed derives (attachment
+    // dimensions); the bare response must not overwrite it.
+    const streamed = message({
+      id: "q",
+      kind: "question",
+      updatedAt: "2026-09-02T11:00:00.000Z",
+      attachments: [
+        {
+          type: "file",
+          mediaId: 1,
+          fileName: "a.png",
+          sizeBytes: 10,
+          mimeType: "image/png",
+          width: 640,
+          height: 480,
+        } as ChatMessage["attachments"][number],
+      ],
+    });
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [
+        {
+          entries: [chat(streamed)],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+    };
+    const bare = { ...streamed, attachments: [] };
+    expect(replaceMessage(cache, "q", bare)).toBe(cache);
+    // A newer version does replace it.
+    const newer = { ...bare, updatedAt: "2026-09-02T12:00:00.000Z" };
+    const next = replaceMessage(cache, "q", newer)!;
+    const row = next.pages[0]!.entries[0]!;
+    expect(row.type === "chat" ? row.message.updatedAt : null).toBe(
+      "2026-09-02T12:00:00.000Z"
+    );
+  });
+
+  it("drops the placeholder when the real row already arrived over the stream", () => {
+    const temp = chat(
+      message({ id: "optimistic-1", authorKind: "user", text: "hi" })
+    );
+    const real = message({ id: "real", authorKind: "user", text: "hi" });
+    const cache: FeedCache = {
+      pageParams: [undefined],
+      pages: [
+        {
+          entries: [temp, chat(real)],
+          hasMore: false,
+          nextCursor: null,
+          unreadCount: 0,
+        },
+      ],
+    };
+    const next = replaceMessage(cache, "optimistic-1", real)!;
+    expect(next.pages[0]!.entries.map((e) => e.id)).toEqual(["real"]);
+    expect(next.pages[0]!.entries[0]).toBe(cache.pages[0]!.entries[1]);
   });
 });

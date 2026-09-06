@@ -3,6 +3,7 @@ import type {
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMediaEntry,
+  ChatMessageEntry,
   ChatPinEntry,
   ChatReviewEntry,
   ChatStatusEntry,
@@ -181,10 +182,15 @@ async function listChatEntries(
   db: Queryable,
   agentId: string,
   cursor: FeedCursor | null,
-  limit: number
-): Promise<Keyed<ChatFeedEntry>[]> {
+  limit: number,
+  onlyId?: string
+): Promise<Keyed<ChatMessageEntry>[]> {
   const params: unknown[] = [agentId];
-  const clause = cursorClause("chat", "uuid", cursor, params);
+  let clause = cursorClause("chat", "uuid", cursor, params);
+  if (onlyId !== undefined) {
+    params.push(onlyId);
+    clause += ` AND m.id = $${params.length}::uuid`;
+  }
   params.push(limit);
   // The page is materialized first, then its attachments are expanded once,
   // joined to `media`, and re-aggregated. Doing it that way rather than as a
@@ -271,17 +277,41 @@ async function listStatusEntries(
     params
   );
   return result.rows.map((row) => ({
-    entry: {
-      type: "status",
-      id: `event:${row.id}`,
-      eventType: row.event_type,
-      message: row.message,
-      at: row.created_at.toISOString(),
-    },
+    entry: toStatusEntry(row.id, row.event_type, row.message, row.created_at),
     atKey: row.at_key,
     rawId: String(row.id),
     idKey: intKey(row.id),
   }));
+}
+
+/** The feed's shape for one `agent_events` row; also what `chat.entry` carries. */
+export function toStatusEntry(
+  id: number,
+  eventType: string,
+  message: string,
+  createdAt: Date | string
+): ChatStatusEntry {
+  return {
+    type: "status",
+    id: `event:${id}`,
+    eventType,
+    message,
+    at: new Date(createdAt).toISOString(),
+  };
+}
+
+/**
+ * One message as the feed would list it — read back through the feed's own
+ * query so the wire copy matches a refetch byte for byte (attachment
+ * dimensions included). Null when the row is not on this agent's feed.
+ */
+export async function loadChatMessageEntry(
+  db: Queryable,
+  agentId: string,
+  messageId: string
+): Promise<ChatMessageEntry | null> {
+  const [found] = await listChatEntries(db, agentId, null, 1, messageId);
+  return found?.entry ?? null;
 }
 
 async function listAgentMessageEntries(

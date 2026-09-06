@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { SharedUiEvent } from "@dispatch/shared";
+import type { ChatFeedEntry, SharedUiEvent } from "@dispatch/shared";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "jotai";
 import {
@@ -11,7 +11,14 @@ import {
   type TerminalUiState,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
-import { CHAT_QUERY_PREFIX, chatFeedQueryKey } from "@/hooks/use-chat";
+import {
+  applyChatRead,
+  CHAT_QUERY_PREFIX,
+  chatFeedQueryKey,
+  type FeedCache,
+  LIVE_HEAD_ROWS,
+  upsertFeedEntry,
+} from "@/hooks/use-chat";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
@@ -136,6 +143,39 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
   });
 }
 
+/**
+ * A `chat.entry` event: one feed row, put straight into the cached pages.
+ * Falls back to the refetch when there is no place for it — the entry is
+ * older than the loaded head — or when a fetch is already in flight, whose
+ * result would otherwise overwrite the patch with a snapshot that may or
+ * may not include the row. A feed that was never fetched has nothing to
+ * patch; its first fetch will carry the row.
+ */
+export function applyChatEntry(
+  queryClient: QueryClient,
+  agentId: string,
+  entry: ChatFeedEntry
+): void {
+  const key = chatFeedQueryKey(agentId);
+  const state = queryClient.getQueryState<FeedCache>(key);
+  if (!state?.data) return;
+  if (state.fetchStatus === "fetching") {
+    invalidateChatFeed(queryClient, agentId);
+    return;
+  }
+  const result = upsertFeedEntry(state.data, entry);
+  if (!result.placed) {
+    invalidateChatFeed(queryClient, agentId);
+    return;
+  }
+  if (result.cache !== state.data) queryClient.setQueryData(key, result.cache);
+  // Live rows pile onto the newest page; past the bound, one refetch folds
+  // them back into pages of the configured size.
+  if (result.cache.pages[0]!.entries.length > LIVE_HEAD_ROWS) {
+    invalidateChatFeed(queryClient, agentId);
+  }
+}
+
 export function applyReviewCreated(
   queryClient: QueryClient,
   reviewerAgentId: string | null | undefined,
@@ -211,20 +251,13 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.upsert") {
-          // Status events reach the feed through the agent row's latestEvent
-          // and pin activity through its pins; an upsert that changed neither
-          // (a name edit) has nothing new for the feed.
+          // Status events reach the feed as `chat.entry` rows of their own.
+          // Pin activity still comes through the agent row: a pin write
+          // lands a `pin_events` row in the same transaction, so the feed
+          // has a new entry whenever the pins array differs.
           const existing = queryClient
             .getQueryData<Agent[]>(["agents"])
             ?.find((a) => a.id === payload.agent.id);
-          const eventChanged =
-            !existing ||
-            existing.latestEvent?.updatedAt !==
-              payload.agent.latestEvent?.updatedAt ||
-            existing.latestEvent?.message !==
-              payload.agent.latestEvent?.message;
-          // A pin write lands a `pin_events` row in the same transaction, so
-          // the feed has a new entry whenever the pins array differs.
           const pinsChanged =
             !existing ||
             JSON.stringify(existing.pins ?? []) !==
@@ -232,7 +265,7 @@ export function useSSE(authState: AuthState): void {
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
-          if (eventChanged || pinsChanged) {
+          if (pinsChanged) {
             invalidateChatFeed(queryClient, payload.agent.id);
           }
           return;
@@ -244,6 +277,35 @@ export function useSSE(authState: AuthState): void {
           jotaiStore.set(agentToolBlipAtomFamily(payload.agentId), {
             tool: payload.tool,
             at: Date.now(),
+          });
+          return;
+        }
+
+        if (payload.type === "chat.entry") {
+          applyChatEntry(queryClient, payload.agentId, payload.entry);
+          // Only an agent's post can move the sidebar's unread badges.
+          if (
+            payload.entry.type === "chat" &&
+            payload.entry.message.authorKind === "agent"
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: CHAT_UNREAD_QUERY_KEY,
+            });
+          }
+          return;
+        }
+
+        if (payload.type === "chat.read") {
+          queryClient.setQueryData<FeedCache>(
+            chatFeedQueryKey(payload.agentId),
+            (old) =>
+              applyChatRead(old, payload.unreadCount, {
+                readAt: payload.readAt,
+                upToAt: payload.upToAt,
+              })
+          );
+          void queryClient.invalidateQueries({
+            queryKey: CHAT_UNREAD_QUERY_KEY,
           });
           return;
         }

@@ -10,6 +10,10 @@ import type {
   ChatQuestion,
   ChatSendResponse,
   ChatUserAttachmentInput,
+  ChatChangedEvent,
+  ChatEntryEvent,
+  ChatMessageEntry,
+  ChatReadEvent,
 } from "@dispatch/shared";
 import {
   CHAT_ATTACHMENTS_MAX,
@@ -20,6 +24,7 @@ import {
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import { mimeType, resolveMediaDir } from "../shared/media.js";
 import { buildChatEnvelope, formatAttachmentSize } from "./envelope.js";
+import { loadChatMessageEntry } from "./feed.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -76,7 +81,9 @@ type ChatAgent = Pick<AgentRecord, "id" | "mediaDir" | "pins">;
 
 export type ChatServiceDeps = {
   pool: Pool;
-  publishUiEvent: (event: { type: "chat.changed"; agentId: string }) => void;
+  publishUiEvent: (
+    event: ChatChangedEvent | ChatEntryEvent | ChatReadEvent
+  ) => void;
   /** Minimal agent lookup: media dir and pins are all the service needs. */
   getAgent: (agentId: string) => Promise<ChatAgent | null>;
   /**
@@ -199,6 +206,8 @@ export function buildLaunchPostText(
 }
 
 export type ChatAnswerInput = {
+  /** Client-minted id for the reply row; see `ChatSendRequest.id`. */
+  id?: string;
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;
@@ -284,7 +293,7 @@ export class ChatService {
     agentId: string,
     text: string,
     attachments: ChatUserAttachmentInput[] = [],
-    options: { allowInert?: boolean } = {}
+    options: { allowInert?: boolean; id?: string } = {}
   ): Promise<ChatSendResponse> {
     if (!text.trim() && attachments.length === 0) {
       throw new ChatValidationError("text is required.");
@@ -311,25 +320,33 @@ export class ChatService {
       options.allowInert ?? false
     );
     const delivered = sessionName === null ? false : null;
-    const message = await this.store.insert({
+    const row = {
       agentId,
-      authorKind: "user",
-      kind: "reply",
+      authorKind: "user" as const,
+      kind: "reply" as const,
       text,
       attachments: resolved,
       delivered,
-    });
-    if (sessionName === null) {
-      this.publishChanged(agentId);
-      return { message, delivered: false, held: false };
+    };
+    // A client-minted id is honoured once: a repeat is a retry of a send
+    // that already landed, not a second message.
+    const message = options.id
+      ? await this.store.insertIfAbsent({ id: options.id, ...row })
+      : await this.store.insert(row);
+    if (!message) {
+      throw new ChatConflictError("A message with that id already exists.");
     }
+    // The pending row goes out before delivery starts: settlement publishes
+    // the same row again as delivered, and a client must never see that
+    // one first and then the pending one on top of it.
+    await this.publishEntry(agentId, message.id);
+    if (sessionName === null) return { message, delivered: false, held: false };
     const { held } = this.deliverDetached(
       agentId,
       sessionName,
       message,
       attachmentLines
     );
-    this.publishChanged(agentId);
     return { message, delivered: null, held };
   }
 
@@ -410,15 +427,23 @@ export class ChatService {
     try {
       await client.query("BEGIN");
       const tx = this.store.withClient(client);
-      replyMessage = await tx.insert({
+      const replyRow = {
         agentId,
-        authorKind: "user",
-        kind: "reply",
+        authorKind: "user" as const,
+        kind: "reply" as const,
         text,
         replyTo: question.id,
         attachments: resolved,
         delivered,
-      });
+      };
+      const inserted = input.id
+        ? await tx.insertIfAbsent({ id: input.id, ...replyRow })
+        : await tx.insert(replyRow);
+      if (!inserted) {
+        await client.query("ROLLBACK");
+        throw new ChatConflictError("A message with that id already exists.");
+      }
+      replyMessage = inserted;
       answered = await tx.recordAnswer(question.id, {
         value,
         ...(label !== undefined ? { label } : {}),
@@ -437,10 +462,13 @@ export class ChatService {
       client.release();
     }
 
+    // As in sendUserMessage: the pending reply is on the wire before its
+    // delivery can settle and publish it again.
+    await this.publishEntry(agentId, answered.id);
+    await this.publishEntry(agentId, replyMessage.id);
     if (sessionName !== null) {
       this.deliverDetached(agentId, sessionName, replyMessage, attachmentLines);
     }
-    this.publishChanged(agentId);
     return { question: answered, reply: replyMessage, delivered };
   }
 
@@ -494,7 +522,7 @@ export class ChatService {
       )
       .then(async (delivered) => {
         await this.store.setDelivered(message.id, delivered);
-        this.publishChanged(agentId);
+        await this.publishEntry(agentId, message.id);
       })
       .catch((error: unknown) => {
         this.log.error(
@@ -584,7 +612,7 @@ export class ChatService {
             `A chat message with id ${id} already exists; the launch post was not written.`
           );
         }
-        this.publishChanged(input.agentId);
+        await this.publishEntry(input.agentId, message.id);
         return message;
       },
     };
@@ -614,9 +642,44 @@ export class ChatService {
   // Delivery lifecycle (startup recovery, shutdown drain)
   // -------------------------------------------------------------------------
 
-  /** Announce a write to `agent_chat_messages` so the Chat tab refetches. */
+  /**
+   * Announce a write to `agent_chat_messages` the coarse way: the Chat tab
+   * refetches every page it has. Kept for writes with no single row to
+   * carry (a mark-read sweep, startup recovery) and as `publishEntry`'s
+   * fallback.
+   */
   publishChanged(agentId: string): void {
     this.deps.publishUiEvent({ type: "chat.changed", agentId });
+  }
+
+  /** A mark-read landed: the count, and which rows it stamped. */
+  publishRead(
+    agentId: string,
+    read: { unreadCount: number; readAt: string; upToAt: string | null }
+  ): void {
+    this.deps.publishUiEvent({ type: "chat.read", agentId, ...read });
+  }
+
+  /**
+   * Announce one message as the feed row it now is, read back through the
+   * feed's own query so the wire entry is exactly what a refetch would
+   * return. A row that cannot be read back falls back to `chat.changed`.
+   */
+  private async publishEntry(
+    agentId: string,
+    messageId: string
+  ): Promise<void> {
+    let entry: ChatMessageEntry | null = null;
+    try {
+      entry = await loadChatMessageEntry(this.store.db, agentId, messageId);
+    } catch (error) {
+      this.log.warn(
+        { err: error, agentId, messageId },
+        "chat: could not read a message back for its feed event"
+      );
+    }
+    if (entry) this.deps.publishUiEvent({ type: "chat.entry", agentId, entry });
+    else this.publishChanged(agentId);
   }
 
   /**
@@ -709,7 +772,7 @@ export class ChatService {
       question: kind === "question" ? (input.question ?? null) : null,
       attachments,
     });
-    this.publishChanged(agentId);
+    await this.publishEntry(agentId, message.id);
     return message;
   }
 
@@ -777,7 +840,7 @@ export class ChatService {
     }
     const updated = await this.store.update(messageId, patch);
     if (!updated) throw new ChatValidationError("Message not found.");
-    this.publishChanged(agentId);
+    await this.publishEntry(agentId, updated.id);
     return updated;
   }
 
