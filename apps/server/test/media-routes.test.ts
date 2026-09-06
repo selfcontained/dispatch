@@ -292,6 +292,100 @@ describe("GET /api/v1/agents/:id/media/:file (serve)", () => {
     expect(res.headers["content-security-policy"]).toBeUndefined();
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
   });
+
+  it("advertises Accept-Ranges and Content-Length on a plain 200", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["accept-ranges"]).toBe("bytes");
+    expect(res.headers["content-length"]).toBe(String(content.length));
+  });
+
+  it("returns 206 with Content-Range for a mid-file byte range", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=2-4" } }
+    );
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe(`bytes 2-4/${content.length}`);
+    expect(res.headers["content-length"]).toBe("3");
+    expect(res.rawPayload.toString()).toBe("234");
+    // Security headers still land on a partial response.
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("resolves an open-ended range to end of file", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=7-" } }
+    );
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe(`bytes 7-9/${content.length}`);
+    expect(res.rawPayload.toString()).toBe("789");
+  });
+
+  it("resolves a suffix range to the last N bytes", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=-3" } }
+    );
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe(`bytes 7-9/${content.length}`);
+    expect(res.rawPayload.toString()).toBe("789");
+  });
+
+  it("returns 416 with Content-Range */size for an unsatisfiable range", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=100-200" } }
+    );
+    expect(res.statusCode).toBe(416);
+    expect(res.headers["content-range"]).toBe(`bytes */${content.length}`);
+  });
+
+  it("returns 416 for a malformed Range header", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), "0123456789");
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "not-a-range" } }
+    );
+    expect(res.statusCode).toBe(416);
+  });
 });
 
 // ---------------------------------------------------------------------------

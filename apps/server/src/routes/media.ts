@@ -1,5 +1,5 @@
 import path from "node:path";
-import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
+import { mkdir, open, stat, writeFile } from "node:fs/promises";
 
 import type { FastifyBaseLogger, FastifyInstance } from "fastify";
 import type { Pool } from "pg";
@@ -38,6 +38,46 @@ function nextFileSeq(agentId: string): number {
 
 function mediaContentUrl(agentId: string, fileName: string): string {
   return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
+}
+
+// Single-range `Range: bytes=start-end` support — the case video seeking
+// and PDF viewers actually issue. A malformed range, or one outside the
+// file's bounds, resolves to null so the caller responds 416. A multi-range
+// request (comma-separated) also falls into that bucket rather than being
+// split into a multipart response — no current caller sends one.
+function parseRange(
+  rangeHeader: string,
+  fileSize: number
+): { start: number; end: number } | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader.trim());
+  if (!match) return null;
+  const [, startStr, endStr] = match;
+  if (startStr === "" && endStr === "") return null;
+
+  let start: number;
+  let end: number;
+  if (startStr === "") {
+    // Suffix range ("last N bytes").
+    const suffixLength = Number(endStr);
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) return null;
+    start = Math.max(0, fileSize - suffixLength);
+    end = fileSize - 1;
+  } else {
+    start = Number(startStr);
+    end = endStr === "" ? fileSize - 1 : Number(endStr);
+  }
+
+  if (
+    !Number.isInteger(start) ||
+    !Number.isInteger(end) ||
+    start < 0 ||
+    end < start ||
+    start >= fileSize
+  ) {
+    return null;
+  }
+
+  return { start, end: Math.min(end, fileSize - 1) };
 }
 
 type MediaRouteDeps = {
@@ -158,7 +198,51 @@ export async function registerMediaRoutes(
         "sandbox allow-scripts allow-popups"
       );
     }
-    return reply.type(contentType).send(await readFile(filePath));
+    // Lets browsers show a video seek bar / issue Range requests at all.
+    reply.header("Accept-Ranges", "bytes");
+
+    let start = 0;
+    let end = fileStat.size - 1;
+    let status: 200 | 206 = 200;
+    const rangeHeader = request.headers.range;
+    if (typeof rangeHeader === "string" && rangeHeader.length > 0) {
+      const range = parseRange(rangeHeader, fileStat.size);
+      if (!range) {
+        reply.header("Content-Range", `bytes */${fileStat.size}`);
+        return reply.code(416).send();
+      }
+      ({ start, end } = range);
+      status = 206;
+    }
+
+    // Open explicitly rather than createReadStream(filePath) so a file
+    // deleted between the stat above and here surfaces as a normal 404
+    // instead of a stream error after headers may already be on the wire.
+    let handle;
+    try {
+      handle = await open(filePath, "r");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        return reply.code(404).send({ error: "Media file not found." });
+      }
+      throw err;
+    }
+    const stream = handle.createReadStream({ start, end, autoClose: true });
+    // A client that aborts mid-stream (closed tab, re-seek before the
+    // previous range finished) would otherwise leave the fd open.
+    reply.raw.on("close", () => {
+      if (!stream.destroyed) stream.destroy();
+    });
+    stream.on("error", (err) => {
+      deps.appLog.error({ err, filePath }, "Media stream read error");
+    });
+
+    reply.code(status);
+    if (status === 206) {
+      reply.header("Content-Range", `bytes ${start}-${end}/${fileStat.size}`);
+    }
+    reply.header("Content-Length", end - start + 1);
+    return reply.type(contentType).send(stream);
   });
 
   app.post("/api/v1/agents/:id/media", async (request, reply) => {
