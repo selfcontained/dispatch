@@ -19,6 +19,7 @@ import {
   type FeedCache,
   replaceMessage,
   shareFeedByEntryId,
+  shareFeedCache,
   useAnswerChatQuestion,
   useChatFeed,
 } from "./use-chat";
@@ -344,6 +345,18 @@ describe("shareFeedByEntryId", () => {
     expect(patched.pages[0]!.unreadCount).toBe(3);
     expect(patched.pages[0]!.entries).toBe(prev.pages[0]!.entries);
     expect(patched.pages[0]).not.toBe(prev.pages[0]);
+  });
+
+  it("falls back to deep sharing when either side is not a feed cache", () => {
+    const next: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([chat(message({ id: "a" }))])],
+    };
+    // First fetch: nothing to share with yet.
+    expect(shareFeedCache(undefined, next)).toBe(next);
+    // Not a cache at all: plain deep sharing, never the by-id path.
+    const prevPlain = { pages: "nope" };
+    expect(shareFeedCache(prevPlain, { pages: "nope" })).toBe(prevPlain);
   });
 
   it("shares by id through the query's structuralSharing option", async () => {

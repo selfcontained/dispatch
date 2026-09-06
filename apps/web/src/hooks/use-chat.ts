@@ -139,7 +139,7 @@ function isFeedCache(data: unknown): data is FeedCache {
   );
 }
 
-function shareFeedCache(oldData: unknown, newData: unknown): unknown {
+export function shareFeedCache(oldData: unknown, newData: unknown): unknown {
   return isFeedCache(oldData) && isFeedCache(newData)
     ? shareFeedByEntryId(oldData, newData)
     : replaceEqualDeep(oldData, newData);
