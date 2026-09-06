@@ -115,7 +115,7 @@ async function build(
     driver,
     getAgent: vi.fn(async (id: string) => ({
       id,
-      type: "dsh",
+      type: "dispatch",
       cwd: "/tmp/w",
       mediaDir: null,
       model: "openai/gpt-5.2",
@@ -318,7 +318,7 @@ describe("DshSupervisor", () => {
           }
         : {
             id,
-            type: "dsh",
+            type: "dispatch",
             cwd: "/tmp/w",
             mediaDir: null,
             model: null,
@@ -441,7 +441,7 @@ describe("DshSupervisor lifecycle edges", () => {
       new Date(Date.UTC(2026, 0, 1, 0, 0, n)).toISOString();
     deps.getAgent.mockImplementation(async (id: string) => ({
       id,
-      type: "dsh",
+      type: "dispatch",
       cwd: "/tmp/w",
       mediaDir: null,
       model: null,
@@ -710,7 +710,7 @@ describe("DshSupervisor restart resilience", () => {
     );
     deps.getAgent.mockImplementation(async (id: string) => ({
       id,
-      type: "dsh",
+      type: "dispatch",
       cwd: "/tmp/w",
       mediaDir: null,
       model: null,

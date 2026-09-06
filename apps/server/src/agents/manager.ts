@@ -350,7 +350,7 @@ export class AgentManager {
    */
   async getPromptTarget(id: string): Promise<AgentPromptTarget> {
     const agent = await this.getRequiredAgent(id);
-    if (agent.type === "dsh") {
+    if (agent.type === "dispatch") {
       if (!this.dshSupervisor?.isRunning(id)) {
         throw new AgentError(
           "dsh is not running for this agent — prompt cannot be delivered.",
@@ -383,7 +383,7 @@ export class AgentManager {
   async listRunningDshAgentIds(): Promise<string[]> {
     const result = await this.pool.query<{ id: string }>(
       `SELECT id FROM agents
-        WHERE type = 'dsh' AND status = 'running' AND deleted_at IS NULL
+        WHERE type = 'dispatch' AND status = 'running' AND deleted_at IS NULL
         ORDER BY created_at`
     );
     return result.rows.map((row) => row.id);
@@ -639,8 +639,8 @@ export class AgentManager {
     // the job prompt becomes the agent's first turn.
     const wantsEnvelope =
       recorder !== null &&
-      (launchGuidanceFlags.chatSurface || p.type === "dsh") &&
-      (!input.jobRunId || p.type === "dsh") &&
+      (launchGuidanceFlags.chatSurface || p.type === "dispatch") &&
+      (!input.jobRunId || p.type === "dispatch") &&
       !inertRuntime;
     const launchPostId = randomUUID();
     const launchContextInput = recorder
@@ -733,11 +733,11 @@ export class AgentManager {
       // kickoff, an MCP launch) still gets one. CLI agents type it in.
       text:
         input.launchContext?.prompt ??
-        (p.type === "dsh" ? input.initialPrompt : undefined),
+        (p.type === "dispatch" ? input.initialPrompt : undefined),
       // The MCP launch header and a rendered template ride initialPrompt;
       // a dsh first turn must carry them even though Chat shows the raw
       // prompt the launcher wrote.
-      ...(p.type === "dsh" &&
+      ...(p.type === "dispatch" &&
       input.initialPrompt &&
       input.launchContext?.prompt &&
       input.initialPrompt !== input.launchContext.prompt
@@ -1240,7 +1240,7 @@ export class AgentManager {
     // upsert) carries the populated context.
     await this.populateGitContext(id);
 
-    if (agent.type === "dsh") {
+    if (agent.type === "dispatch") {
       // The pane is only a shell; the harness is the ACP child the
       // supervisor starts now that the worktree exists.
       if (!this.dshSupervisor) {
@@ -1336,7 +1336,7 @@ export class AgentManager {
     if (hasSession) {
       // A dsh agent's pane is only a shell and outlives the harness child;
       // an attached shell is not a running harness. Start (or restart) it.
-      if (agent.type === "dsh" && !this.dshSupervisor?.isRunning(id)) {
+      if (agent.type === "dispatch" && !this.dshSupervisor?.isRunning(id)) {
         if (!this.dshSupervisor) {
           throw new AgentError("dsh supervisor is not attached.", 500);
         }
@@ -1438,7 +1438,7 @@ export class AgentManager {
       // predate inline-populate still get a fresh context (and any drift
       // from external git activity gets picked up at start time).
       await this.populateGitContext(id);
-      if (agent.type === "dsh") {
+      if (agent.type === "dispatch") {
         if (!this.dshSupervisor) {
           throw new Error("dsh supervisor is not attached.");
         }
@@ -1539,7 +1539,7 @@ export class AgentManager {
     );
 
     try {
-      if (agent.type === "dsh") await this.dshSupervisor?.stop(id);
+      if (agent.type === "dispatch") await this.dshSupervisor?.stop(id);
       if (tmuxSession && (await this.runtime.hasSession(tmuxSession))) {
         await this.runtime.stopSession(tmuxSession, force);
       }
@@ -2020,7 +2020,7 @@ export class AgentManager {
       getRequiredAgent: (id) => this.getRequiredAgent(id),
       harvestAgentTokens: (agent) => this.harvestAgentTokens(agent),
       stopHarness: async (agent) => {
-        if (agent.type === "dsh") await this.dshSupervisor?.stop(agent.id);
+        if (agent.type === "dispatch") await this.dshSupervisor?.stop(agent.id);
       },
       setAgentStatus: (id, status, lastError, tmuxSession) =>
         this.setAgentStatus(id, status, lastError, tmuxSession),

@@ -86,7 +86,7 @@ export function createActivityMonitor(
            AND tmux_session IS NOT NULL
            -- dsh agents derive working/idle from their ACP stream; their
            -- pane is a plain shell whose quiet would only demote them.
-           AND type <> 'dsh'`
+           AND type <> 'dispatch'`
       );
 
       const runningIds = new Set<string>();

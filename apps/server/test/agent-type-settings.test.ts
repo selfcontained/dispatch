@@ -25,9 +25,9 @@ describe("sanitizeEnabledAgentTypes", () => {
   });
 
   it("keeps dsh opt-in but accepts it when chosen", () => {
-    expect(DEFAULT_ENABLED_AGENT_TYPES).not.toContain("dsh");
-    expect(sanitizeEnabledAgentTypes(["dsh", "claude"])).toEqual([
-      "dsh",
+    expect(DEFAULT_ENABLED_AGENT_TYPES).not.toContain("dispatch");
+    expect(sanitizeEnabledAgentTypes(["dispatch", "claude"])).toEqual([
+      "dispatch",
       "claude",
     ]);
   });

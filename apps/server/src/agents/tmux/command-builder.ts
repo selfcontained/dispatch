@@ -29,7 +29,7 @@ export const CLI_BY_AGENT_TYPE: Record<
   claude: "claudeBin",
   opencode: "opencodeBin",
   cursor: "cursorBin",
-  dsh: "dshBin",
+  dispatch: "dshBin",
 };
 
 const DISPATCH_API_URL_ENV = "DISPATCH_API_URL";
@@ -560,7 +560,7 @@ export function buildAgentCommand(
   if (type === "terminal") {
     return `${envPrefix} "\${SHELL:-/bin/bash}" -il`;
   }
-  if (type === "dsh") {
+  if (type === "dispatch") {
     // The harness runs its commands in its own process; the pane shows
     // their log (agents/dsh/command-log.ts) in a split above an
     // interactive shell, so the Console reads as the agent's terminal.

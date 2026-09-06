@@ -51,7 +51,7 @@ export const AGENT_MODEL_OPTIONS: Partial<
   // configOptions on 2026-09-04 (see docs/agent-model-catalog.md).
   // Fallback only: the live list comes from dsh (DshSupervisor.modelCatalog)
   // and is filtered to providers with keys and, for OpenAI, the 5.6 line.
-  dsh: [
+  dispatch: [
     {
       id: "deepseek-official/deepseek-v4-flash",
       label: "DeepSeek-V4-Flash",
@@ -138,7 +138,7 @@ export function validateAgentModel(
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
-  if (agentType === "dsh") {
+  if (agentType === "dispatch") {
     if (DSH_MODEL_ID.test(normalizedModel)) return normalizedModel;
     throw new Error(
       `Model "${normalizedModel}" is not a dsh model id; use provider/model, e.g. openai/gpt-5.6-sol.`

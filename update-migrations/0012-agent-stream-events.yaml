@@ -1,14 +1,14 @@
 id: agent-stream-events
-title: Verify agent_stream_events migration and dsh agent restart
+title: Verify agent_stream_events migration and Dispatch Harness agent restart
 summary: >
   Adds the `agent_stream_events` table that stores the Chat-tab stream of
-  the new `dsh` (DeepSeek Harness) agent type: assistant messages, thoughts,
+  the new `dispatch` (Dispatch Harness) agent type: assistant messages, thoughts,
   tool calls, and status rows folded from the harness's Agent Client Protocol
   session. The table is additive and the migration runs automatically on
-  server boot. The release also adds the `dsh` agent type (opt-in: it is not
+  server boot. The release also adds the `dispatch` agent type (opt-in: it is not
   in the default enabled list), the `@agentclientprotocol/sdk` dependency,
-  and a child-process supervisor. A dsh agent's harness process does not
-  survive a service restart; the new process resumes running dsh agents on
+  and a child-process supervisor. A Dispatch Harness agent's `dsh` process does not
+  survive a service restart; the new process resumes running Dispatch Harness agents on
   their stored session ids and marks any it cannot resume as errored.
 
 alreadySatisfied:
@@ -16,14 +16,14 @@ alreadySatisfied:
     The install is already on the target tag, the local health endpoint
     returns status=ok, and release.json reports the target tag. Server boot
     runs the migration idempotently and the table is additive, so any
-    healthy install at the target tag has already taken it. Running dsh
+    healthy install at the target tag has already taken it. Running Dispatch Harness
     agents, if any existed, were restored or marked errored at boot.
 
 instructions:
   - Confirm the service has been restarted to the target release tag.
   - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok.
   - Confirm release.json under the install directory reports the target tag.
-  - Expect any dsh agents that were running before the restart to show
+  - Expect any Dispatch Harness agents that were running before the restart to show
     either "dsh session resumed." or an error event saying dsh did not come
     back; the latter means Start must be pressed again once `dsh` is on the
     server's PATH (DISPATCH_DSH_BIN) and a provider key is in the server env.

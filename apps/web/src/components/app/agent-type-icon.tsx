@@ -28,7 +28,14 @@ const CODEX_LOGO_PATH =
 
 function normalizeAgentType(
   type?: string | null
-): "codex" | "claude" | "opencode" | "cursor" | "dsh" | "terminal" | "unknown" {
+):
+  | "codex"
+  | "claude"
+  | "opencode"
+  | "cursor"
+  | "dispatch"
+  | "terminal"
+  | "unknown" {
   if (type === "claude") {
     return "claude";
   }
@@ -41,8 +48,8 @@ function normalizeAgentType(
   if (type === "terminal") {
     return "terminal";
   }
-  if (type === "dsh") {
-    return "dsh";
+  if (type === "dispatch") {
+    return "dispatch";
   }
   if (type === "codex") {
     return "codex";
@@ -83,7 +90,7 @@ export function AgentTypeIcon({
     );
   }
 
-  if (normalizedType === "dsh") {
+  if (normalizedType === "dispatch") {
     return (
       <DispatchHarnessMark
         className={cn(baseClass, statusClass, className)}

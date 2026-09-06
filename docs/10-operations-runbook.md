@@ -64,7 +64,8 @@ launchctl kickstart -k "gui/$(id -u)/com.dispatch.server"
 
 ### Read this first: a restart cuts a running Dispatch Harness turn
 
-A restart is not free for `dsh` agents the way it is for CLI agents. A Claude
+A restart is not free for Dispatch Harness agents (type `dispatch`) the way
+it is for CLI agents. A Claude
 or Codex agent runs inside a tmux session the service does not own, so
 `kickstart -k` leaves it working and the new process re-attaches to the pane.
 A Dispatch Harness agent runs as a **child of the service over stdio** (the

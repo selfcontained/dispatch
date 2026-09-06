@@ -483,7 +483,7 @@ export class ChatService {
   /** Whether the agent's harness streams its replies into Chat itself. */
   private async nativeReplies(agentId: string): Promise<boolean> {
     const agent = await this.deps.getAgent(agentId);
-    return agent?.type === "dsh";
+    return agent?.type === "dispatch";
   }
 
   /**

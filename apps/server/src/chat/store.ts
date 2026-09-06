@@ -232,7 +232,7 @@ export class ChatStore {
         WHERE author_kind = 'user' AND delivered IS NULL
           AND agent_id NOT IN (
             SELECT id FROM agents
-             WHERE type = 'dsh' AND status = 'running' AND deleted_at IS NULL
+             WHERE type = 'dispatch' AND status = 'running' AND deleted_at IS NULL
           )
         RETURNING agent_id`
     );

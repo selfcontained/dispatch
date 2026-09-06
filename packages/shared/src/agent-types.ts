@@ -13,7 +13,7 @@ export const AGENT_TYPES = [
   "codex",
   "cursor",
   "opencode",
-  "dsh",
+  "dispatch",
   "terminal",
 ] as const;
 export type AgentType = (typeof AGENT_TYPES)[number];
@@ -25,7 +25,7 @@ export const CLI_AGENT_TYPES = [
   "codex",
   "cursor",
   "opencode",
-  "dsh",
+  "dispatch",
 ] as const;
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 
@@ -33,5 +33,5 @@ export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 // needs the harness binary and a provider key on the server, and a curious
 // click without either should not be the first thing a new install sees.
 export const DEFAULT_ENABLED_AGENT_TYPES = AGENT_TYPES.filter(
-  (type) => type !== "dsh"
-) as readonly Exclude<AgentType, "dsh">[];
+  (type) => type !== "dispatch"
+) as readonly Exclude<AgentType, "dispatch">[];

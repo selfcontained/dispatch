@@ -756,5 +756,5 @@ export const agentToolBlipAtomFamily = atomFamily((_agentId: string) =>
 export function defaultAgentPaneView(
   agentType: string | null | undefined
 ): AgentPaneView {
-  return agentType === "dsh" ? "harness" : "chat";
+  return agentType === "dispatch" ? "harness" : "chat";
 }

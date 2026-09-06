@@ -84,7 +84,7 @@ describe("sortAgentTypes", () => {
 describe("sanitizeEnabledAgentTypes", () => {
   // dsh is opt-in: it needs the harness binary and a provider key on the
   // server, so it stays out of the fallback list.
-  const defaults = AGENT_TYPES.filter((type) => type !== "dsh");
+  const defaults = AGENT_TYPES.filter((type) => type !== "dispatch");
 
   it("returns the default types for non-array input", () => {
     expect(sanitizeEnabledAgentTypes(null)).toEqual(defaults);
@@ -115,7 +115,7 @@ describe("sanitizeEnabledAgentTypes", () => {
   });
 
   it("keeps dsh when it was chosen explicitly", () => {
-    expect(sanitizeEnabledAgentTypes(["dsh"])).toEqual(["dsh"]);
+    expect(sanitizeEnabledAgentTypes(["dispatch"])).toEqual(["dispatch"]);
   });
 
   it("filters out non-string entries", () => {
@@ -129,14 +129,14 @@ describe("sanitizeEnabledAgentTypes", () => {
 
 describe("defaultReviewAgentType", () => {
   it("runs the reviewer as the agent's own kind, dsh included", () => {
-    expect(defaultReviewAgentType({ type: "dsh" })).toBe("dsh");
+    expect(defaultReviewAgentType({ type: "dispatch" })).toBe("dispatch");
     expect(defaultReviewAgentType({ type: "cursor" })).toBe("cursor");
     expect(defaultReviewAgentType({ type: "claude" })).toBe("claude");
   });
 
   it("prefers a saved choice, and falls back to codex for a terminal", () => {
     expect(
-      defaultReviewAgentType({ type: "dsh", reviewAgentType: "claude" })
+      defaultReviewAgentType({ type: "dispatch", reviewAgentType: "claude" })
     ).toBe("claude");
     expect(defaultReviewAgentType({ type: "terminal" })).toBe("codex");
     expect(defaultReviewAgentType({})).toBe("codex");

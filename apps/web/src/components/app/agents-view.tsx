@@ -244,7 +244,7 @@ export function AgentsView({
   // Chat is on for it whether or not the global surface flag is.
   const chatEnabled =
     focusedAgent !== null &&
-    (chatSurfaceEnabled || focusedAgent.type === "dsh") &&
+    (chatSurfaceEnabled || focusedAgent.type === "dispatch") &&
     agentSupportsChat(focusedAgent.type);
   const activeTab: CenterTab = changesMatch
     ? "changes"

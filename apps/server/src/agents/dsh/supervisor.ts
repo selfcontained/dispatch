@@ -510,7 +510,7 @@ export class DshSupervisor {
 
   async start(agentId: string): Promise<{ resumed: boolean }> {
     const agent = await this.deps.getAgent(agentId);
-    if (!agent || agent.type !== "dsh") {
+    if (!agent || agent.type !== "dispatch") {
       throw new Error(`${agentId} is not a dsh agent`);
     }
     const model = agent.model ?? defaultModelFor(process.env);

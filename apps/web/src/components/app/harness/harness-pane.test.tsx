@@ -129,7 +129,7 @@ const agent = {
   id: "agt_1",
   name: "worker",
   status: "running",
-  type: "dsh",
+  type: "dispatch",
 } as unknown as Agent;
 
 function wrapper({ children }: { children: ReactNode }) {

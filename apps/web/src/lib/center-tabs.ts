@@ -92,7 +92,7 @@ export function centerTabRoute(agentId: string, tab: CenterTab): string {
 export function agentSupportsHarness(
   agentType: string | null | undefined
 ): boolean {
-  return agentType === "dsh";
+  return agentType === "dispatch";
 }
 
 export function agentSupportsChat(

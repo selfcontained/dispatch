@@ -63,12 +63,12 @@ test.describe("dsh agent", () => {
     page,
     request,
   }) => {
-    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dsh"]);
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
       name: `e2e-dsh-${Date.now()}`,
-      type: "dsh",
+      type: "dispatch",
       cwd: repo,
       useWorktree: true,
       // A persona launch hands its kickoff over this way; dsh takes no
@@ -139,12 +139,12 @@ test.describe("dsh agent", () => {
     page,
     request,
   }) => {
-    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dsh"]);
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
       name: `e2e-dsh-queue-${Date.now()}`,
-      type: "dsh",
+      type: "dispatch",
       cwd: repo,
       useWorktree: true,
     });
@@ -214,12 +214,12 @@ test.describe("dsh agent", () => {
     page,
     request,
   }) => {
-    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dsh"]);
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
       name: `e2e-dsh-tasks-${Date.now()}`,
-      type: "dsh",
+      type: "dispatch",
       cwd: repo,
       useWorktree: true,
     });

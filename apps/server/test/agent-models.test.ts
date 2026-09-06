@@ -177,9 +177,9 @@ describe("resolveAgentModelForUpdate", () => {
   });
 });
 
-describe("dsh catalog", () => {
-  it("lists provider-qualified ids for dsh", () => {
-    const ids = (AGENT_MODEL_OPTIONS.dsh ?? []).map((o) => o.id);
+describe("dispatch catalog", () => {
+  it("lists provider-qualified ids for dispatch", () => {
+    const ids = (AGENT_MODEL_OPTIONS.dispatch ?? []).map((o) => o.id);
     expect(ids).toContain("deepseek-official/deepseek-v4-flash");
     expect(ids).toContain("openai/gpt-5.6-sol");
     expect(ids).not.toContain("openai/gpt-5.2");

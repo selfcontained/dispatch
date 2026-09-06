@@ -4,7 +4,7 @@ import { buildDshPersona, DSH_CHAT_RULE } from "../src/agents/dsh/persona.js";
 
 const base = {
   id: "agt_p",
-  type: "dsh" as const,
+  type: "dispatch" as const,
   agentArgs: [] as string[],
   persona: null,
   autoReview: false,

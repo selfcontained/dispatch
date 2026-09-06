@@ -23,5 +23,6 @@
 
 * Harness view: a turn cut short by Stop, Ctrl+C, or Send now reads as **interrupted** (in the activity header, the collapsed summary, and a line under the result) instead of complete. The Review button and `dispatch_launch_persona` default a Dispatch Harness agent's reviewer to the Dispatch Harness type, the way every other agent reviews as its own kind. Cleanup ahead of the pull request: the unused PromptKit reducer is gone and stray build outputs are ignored.
 * Known limitation: a service restart (every deploy included) still cuts a running Dispatch Harness turn, where CLI agents in tmux keep working. The turn is marked interrupted, the agent is resumed at boot and told to continue from its session log, and queued chat is delivered again. See "Read this first" under Service Management in `docs/10-operations-runbook.md`.
+* The agent type id is `dispatch` (it was `dsh`, the name of the harness binary). Existing agents, saved reviewer types, jobs, templates, and the enabled-types setting migrate on boot; `dispatch_launch_agent` and `create_job` take `type: "dispatch"`. `DISPATCH_DSH_BIN` and `DISPATCH_DSH_HOME` keep their names: they point at the `dsh` binary and its home.
 
 **Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.26

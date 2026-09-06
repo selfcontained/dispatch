@@ -727,7 +727,7 @@ describe("ChatService user workflows", () => {
   });
 
   it("tells a stream-driven (dsh) agent its replies land in Chat by themselves", async () => {
-    const { svc, injected } = build({ agentType: "dsh" });
+    const { svc, injected } = build({ agentType: "dispatch" });
     const res = await svc.sendUserMessage(A, "hello harness");
     await settled(svc, res.message.id);
     expect(injected[0].text).toContain("--- DISPATCH CHAT");

@@ -1260,7 +1260,7 @@ describe("dsh agents", () => {
   it("launch into a login shell like terminal agents; the ACP driver owns the CLI", () => {
     const cmd = buildAgentCommand(
       baseConfig,
-      "dsh",
+      "dispatch",
       "standard",
       [],
       "/tmp/media",
@@ -1275,7 +1275,7 @@ describe("dsh agents", () => {
   it("tails the agent's command log in a split above the shell", () => {
     const cmd = buildAgentCommand(
       baseConfig,
-      "dsh",
+      "dispatch",
       "standard",
       [],
       "/tmp/media",
