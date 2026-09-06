@@ -138,6 +138,11 @@ export type FeedContext = {
    * Absent (agent history, tests) renders shortcuts inert.
    */
   onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
+  /** Registers each shortcut button so the confirm dialog can hand focus back. */
+  registerShortcutButton?: (
+    pin: AgentPin,
+    element: HTMLButtonElement | null
+  ) => void;
   /** The shortcut whose run is in flight; its button stays disabled. */
   pendingPinId?: string | null;
   /** Off when the agent cannot receive a shortcut (stopped, archived). */
@@ -684,6 +689,7 @@ function LivePin({
         onRunShortcut={ctx.onRunShortcut}
         pendingPinId={ctx.pendingPinId ?? null}
         agentName={ctx.agentName ?? null}
+        buttonRef={ctx.registerShortcutButton}
       />
     </div>
   );

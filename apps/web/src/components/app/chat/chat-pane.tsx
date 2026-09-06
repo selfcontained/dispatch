@@ -24,7 +24,7 @@ import {
   latestOpenFreeformQuestion,
   latestUserMessageId,
 } from "@/components/app/chat/chat-feed";
-import { ConfirmShortcutDialog } from "@/components/app/pins-panel";
+import { useShortcutRunner } from "@/components/app/pin-shortcut-runner";
 import { type Agent, type AgentPin } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +33,6 @@ import {
   useMarkChatRead,
   useSendChatMessage,
 } from "@/hooks/use-chat";
-import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
 import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
 import { api } from "@/lib/api";
@@ -511,11 +510,9 @@ export function ChatPane({
   // content so unchanged pins don't invalidate every memoised post.
   const pinsKey = JSON.stringify(agent?.pins ?? []);
   const pins = useMemo<AgentPin[]>(() => JSON.parse(pinsKey), [pinsKey]);
-  // Shortcut pins in the stream fire exactly as they do in the sidebar,
-  // confirmation dialog included (see PinsPanel for the touch rule).
+  // Shortcut pins in the stream fire exactly as they do in the sidebar:
+  // same confirmation rule, same dialog, same focus restoration.
   const runPinShortcut = useRunPinShortcut();
-  const coarsePointer = useCoarsePointer();
-  const [pendingShortcut, setPendingShortcut] = useState<AgentPin | null>(null);
   const fireShortcut = useCallback(
     (pin: AgentPin) => {
       if (!agentId || !pin.id || runPinShortcut.isPending) return;
@@ -523,15 +520,13 @@ export function ChatPane({
     },
     [agentId, runPinShortcut]
   );
+  const shortcuts = useShortcutRunner(fireShortcut);
+  const { request: requestShortcut, registerButton: registerShortcutButton } =
+    shortcuts;
   const onRunShortcut = useCallback(
-    (pin: AgentPin, pointerType?: string) => {
-      if (pin.confirm || coarsePointer || pointerType === "touch") {
-        setPendingShortcut(pin);
-        return;
-      }
-      fireShortcut(pin);
-    },
-    [coarsePointer, fireShortcut]
+    (pin: AgentPin, pointerType?: string) =>
+      requestShortcut(pin, pointerType, null),
+    [requestShortcut]
   );
   const pendingPinId = runPinShortcut.isPending
     ? (runPinShortcut.variables?.pinId ?? null)
@@ -557,6 +552,7 @@ export function ChatPane({
       pins,
       workspaceRoot: agent?.worktreePath ?? agent?.cwd ?? null,
       onRunShortcut,
+      registerShortcutButton,
       pendingPinId,
       agentIsRunning,
       onOpenMedia: openLightbox,
@@ -575,6 +571,7 @@ export function ChatPane({
       peers,
       pendingPinId,
       pins,
+      registerShortcutButton,
     ]
   );
 
@@ -737,16 +734,7 @@ export function ChatPane({
           replyContext={replyContext}
         />
       </div>
-      <ConfirmShortcutDialog
-        pin={pendingShortcut}
-        onOpenChange={(open) => {
-          if (!open) setPendingShortcut(null);
-        }}
-        onConfirm={() => {
-          if (pendingShortcut) fireShortcut(pendingShortcut);
-          setPendingShortcut(null);
-        }}
-      />
+      {shortcuts.dialog}
     </div>
   );
 }

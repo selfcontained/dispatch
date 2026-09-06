@@ -1,19 +1,11 @@
 import { Pin } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
 import { PinGroup, layoutPins } from "@/components/app/pin-group";
 import { OwnerSwitch } from "@/components/app/owner-switch";
 import { PinItem } from "@/components/app/pin-item";
+import { useShortcutRunner } from "@/components/app/pin-shortcut-runner";
 import { type AgentPin, type SubAgentPins } from "@/components/app/types";
-import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
-import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 
 /**
  * The rendering unit for a set of pins: grouping policy and `PinItem` travel
@@ -105,62 +97,6 @@ type PinsPanelProps = {
 
 const EMPTY_SUB_AGENT_PINS: SubAgentPins[] = [];
 
-/**
- * Confirmation is opt-in per shortcut pin (`confirm: true`) — the owning agent
- * decides which of its own actions deserve a second look before firing.
- */
-export function ConfirmShortcutDialog({
-  pin,
-  onOpenChange,
-  onConfirm,
-  onRestoreFocus,
-}: {
-  pin: AgentPin | null;
-  onOpenChange: (open: boolean) => void;
-  onConfirm: () => void;
-  onRestoreFocus?: () => void;
-}): JSX.Element {
-  return (
-    <Dialog open={pin !== null} onOpenChange={onOpenChange}>
-      <DialogContent
-        data-testid="pin-shortcut-confirm-dialog"
-        onCloseAutoFocus={(event) => {
-          if (!onRestoreFocus) return;
-          event.preventDefault();
-          onRestoreFocus();
-        }}
-      >
-        <DialogHeader>
-          <DialogTitle>{pin?.label ?? "Run action"}?</DialogTitle>
-          <DialogDescription>
-            This sends the following prompt to the agent:
-          </DialogDescription>
-        </DialogHeader>
-        <pre className="max-h-40 overflow-y-auto whitespace-pre-wrap break-words rounded-md border border-border/60 bg-background/40 p-2 font-sans text-xs text-foreground">
-          {pin?.value}
-        </pre>
-        <div className="flex justify-end gap-2">
-          <Button
-            type="button"
-            variant="ghost"
-            onClick={() => onOpenChange(false)}
-          >
-            Cancel
-          </Button>
-          <Button
-            type="button"
-            variant={pin?.variant === "destructive" ? "destructive" : "primary"}
-            onClick={onConfirm}
-            data-testid="pin-shortcut-confirm"
-          >
-            Send
-          </Button>
-        </div>
-      </DialogContent>
-    </Dialog>
-  );
-}
-
 export function PinsPanel({
   pins,
   selectedAgentId = null,
@@ -172,11 +108,6 @@ export function PinsPanel({
   collapseScope,
   subAgentPins = EMPTY_SUB_AGENT_PINS,
 }: PinsPanelProps): JSX.Element {
-  const [pendingShortcut, setPendingShortcut] = useState<{
-    pin: AgentPin;
-    ownerAgentId: string | null;
-  } | null>(null);
-  const pendingShortcutPin = pendingShortcut?.pin ?? null;
   // Which owner the tab is showing; null is the selected agent. Reset when
   // the selection moves, and fall back to the agent's own pins if the chosen
   // sub agent has since been archived out of the list.
@@ -206,40 +137,9 @@ export function PinsPanel({
         onChange={setViewOwnerId}
       />
     ) : null;
-  const coarsePointer = useCoarsePointer();
-  // This dialog has no DialogTrigger (one instance serves the whole panel), so
-  // Radix has nothing to hand focus back to on close — track the button that
-  // opened it and restore focus there ourselves.
-  const shortcutButtons = useRef(new Map<string, HTMLButtonElement>());
-  const lastTrigger = useRef<HTMLButtonElement | null>(null);
-
-  const registerShortcutButton = (
-    pin: AgentPin,
-    element: HTMLButtonElement | null
-  ): void => {
-    if (!pin.id) return;
-    if (element) shortcutButtons.current.set(pin.id, element);
-    else shortcutButtons.current.delete(pin.id);
-  };
-
-  // On a touch device the hover tooltip never opens — a tap fires the click —
-  // so the prompt would be delivered having shown the user only the label.
-  // The confirm dialog already renders the full prompt, so route everything
-  // through it there regardless of the pin's own `confirm` setting.
-  const handleRunShortcut = (
-    pin: AgentPin,
-    pointerType: string | undefined,
-    ownerAgentId: string | null
-  ): void => {
-    if (pin.confirm || coarsePointer || pointerType === "touch") {
-      lastTrigger.current = pin.id
-        ? (shortcutButtons.current.get(pin.id) ?? null)
-        : null;
-      setPendingShortcut({ pin, ownerAgentId });
-      return;
-    }
-    onRunShortcut?.(pin, ownerAgentId);
-  };
+  const shortcuts = useShortcutRunner<string | null>((pin, ownerAgentId) =>
+    onRunShortcut?.(pin, ownerAgentId)
+  );
 
   if (viewedPins.length === 0) {
     return (
@@ -286,12 +186,12 @@ export function PinsPanel({
           onRunShortcut={
             onRunShortcut
               ? (pin, pointerType) =>
-                  handleRunShortcut(pin, pointerType, ownerAgentId)
+                  shortcuts.request(pin, pointerType, ownerAgentId)
               : undefined
           }
           agentName={viewedSubAgent?.agent.name ?? selectedAgentName}
           pendingPinId={pendingPinId}
-          buttonRef={registerShortcutButton}
+          buttonRef={shortcuts.registerButton}
           // Keyed by the owner's id, not its name: a rename must not reset
           // a persisted group collapse.
           collapseScope={
@@ -303,18 +203,7 @@ export function PinsPanel({
           }
         />
       </div>
-      <ConfirmShortcutDialog
-        onRestoreFocus={() => lastTrigger.current?.focus()}
-        pin={pendingShortcutPin}
-        onOpenChange={(open) => {
-          if (!open) setPendingShortcut(null);
-        }}
-        onConfirm={() => {
-          if (pendingShortcut)
-            onRunShortcut?.(pendingShortcut.pin, pendingShortcut.ownerAgentId);
-          setPendingShortcut(null);
-        }}
-      />
+      {shortcuts.dialog}
     </div>
   );
 }

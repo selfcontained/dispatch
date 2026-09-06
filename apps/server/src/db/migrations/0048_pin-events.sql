@@ -18,3 +18,8 @@ CREATE TABLE IF NOT EXISTS pin_events (
 
 CREATE INDEX IF NOT EXISTS pin_events_agent_created_idx
   ON pin_events (agent_id, created_at DESC);
+
+-- The coalescing lookup in recordPinEvents asks for one pin's latest row;
+-- without this it would walk the agent's whole interleaved history.
+CREATE INDEX IF NOT EXISTS pin_events_agent_pin_created_idx
+  ON pin_events (agent_id, pin_id, created_at DESC, id DESC);
