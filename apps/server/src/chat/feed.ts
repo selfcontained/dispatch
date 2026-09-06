@@ -1,6 +1,5 @@
 import type {
   ChatAgentMessageEntry,
-  ChatAttachment,
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMediaEntry,
@@ -154,6 +153,48 @@ function cursorClause(
 
 const intKey = (id: number) => String(id).padStart(20, "0");
 
+/**
+ * `attachments` with each file attachment's `width`/`height` taken from the
+ * media row it points at.
+ *
+ * The shape cannot be stored on the message: an attachment is frozen into the
+ * row as JSONB when the message is written, but the URL it renders is not
+ * frozen with it. `dispatch_share_file` replaces a file's bytes in place and
+ * the historical post then serves the *new* ones, so a shape recorded at write
+ * time would describe bytes the post no longer has — a wrong box, where absent
+ * merely means a plain one. The media row is the truth, and this is where the
+ * feed reads it.
+ *
+ * `- 'width' - 'height'` on the fallback branch is deliberate: whatever the
+ * live row says wins, including when it says nothing, so a stale pair written
+ * by some earlier version of this code cannot survive a read.
+ *
+ * The `mediaId` guard matters because a join condition is not short-circuited
+ * — without it, a malformed blob would fail the cast for every row on the page
+ * rather than losing one attachment's dimensions.
+ */
+const ATTACHMENTS_SQL = `
+  COALESCE((
+    SELECT jsonb_agg(
+             CASE
+               WHEN a->>'type' = 'file'
+                    AND md.metadata ? 'width'
+                    AND md.metadata ? 'height'
+               THEN a || jsonb_build_object(
+                           'width', md.metadata->'width',
+                           'height', md.metadata->'height')
+               ELSE a - 'width' - 'height'
+             END
+             ORDER BY ord)
+      FROM jsonb_array_elements(m.attachments) WITH ORDINALITY AS t(a, ord)
+      LEFT JOIN media md
+        ON md.id = CASE
+                     WHEN a->>'type' = 'file'
+                          AND jsonb_typeof(a->'mediaId') = 'number'
+                     THEN (a->>'mediaId')::int
+                   END
+  ), '[]'::jsonb)`;
+
 async function listChatEntries(
   db: Queryable,
   agentId: string,
@@ -166,9 +207,14 @@ async function listChatEntries(
   const result = await db.query<
     Parameters<typeof toChatMessage>[0] & { at_key: string }
   >(
-    `SELECT *, ${AT_KEY_SQL} AS at_key FROM agent_chat_messages
-      WHERE agent_id = $1 ${clause}
-      ORDER BY created_at DESC, id DESC
+    `SELECT m.id, m.agent_id, m.author_kind, m.kind, m.text, m.reply_to,
+            m.question, m.answer, m.delivered, m.read_at, m.origin,
+            m.launched_by_agent_id, m.created_at, m.updated_at,
+            ${ATTACHMENTS_SQL} AS attachments,
+            ${AT_KEY_SQL} AS at_key
+       FROM agent_chat_messages m
+      WHERE m.agent_id = $1 ${clause}
+      ORDER BY m.created_at DESC, m.id DESC
       LIMIT $${params.length}`,
     params
   );
@@ -461,52 +507,6 @@ function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
 }
 
 /**
- * Fill in the `width`/`height` of a page's file attachments from the media rows
- * they point at.
- *
- * @mutates the attachments inside `entries`, in place.
- *
- * The live row is the only thing that can be right here. An attachment is
- * frozen into the message row as JSONB when the message is written, but the URL
- * it renders is not frozen with it: `dispatch_share_file` replaces a file's
- * bytes in place and the historical post then serves the *new* ones. A shape
- * recorded at write time would describe bytes the post no longer has, which is
- * a wrong box rather than merely a plain one — so nothing is recorded at write
- * time and this is where the shape comes from.
- *
- * Purely additive. An attachment whose row is gone, or whose row has no
- * dimensions, is left without them and renders in the fixed-height fallback.
- */
-async function applyLiveDimensions(
-  db: Queryable,
-  entries: Keyed<ChatFeedEntry>[]
-): Promise<void> {
-  type FileAttachment = Extract<ChatAttachment, { type: "file" }>;
-  const pending = new Map<number, FileAttachment[]>();
-  for (const item of entries) {
-    if (item.entry.type !== "chat") continue;
-    for (const attachment of item.entry.message.attachments) {
-      if (attachment.type !== "file") continue;
-      const targets = pending.get(attachment.mediaId);
-      if (targets) targets.push(attachment);
-      else pending.set(attachment.mediaId, [attachment]);
-    }
-  }
-  if (pending.size === 0) return;
-
-  const result = await db.query<{ id: number; metadata: unknown }>(
-    `SELECT id, metadata FROM media WHERE id = ANY($1::int[])`,
-    [[...pending.keys()]]
-  );
-  for (const row of result.rows) {
-    const live = dimensionFields(parseMediaMetadata(row.metadata));
-    for (const attachment of pending.get(row.id) ?? []) {
-      Object.assign(attachment, live);
-    }
-  }
-}
-
-/**
  * Compose one agent's Chat feed at read time from chat messages, status
  * events, cross-agent messages, shared media, reviews, and pin activity.
  * Each source contributes its newest `limit + 1` rows past the cursor; the
@@ -543,7 +543,6 @@ export async function composeChatFeed(
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
-  await applyLiveDimensions(db, page);
   const oldest = page[page.length - 1];
   const nextCursor =
     hasMore && oldest

@@ -400,6 +400,93 @@ describe("composeChatFeed", () => {
       expect(attachment.height).toBeUndefined();
     });
 
+    it("overrides a stale pair that somehow reached the blob", async () => {
+      // Nothing writes dimensions into an attachment today, but the query
+      // strips them rather than merging over them, so a pair left by an
+      // earlier version of this code cannot outlive the row it disagrees with.
+      const media = await pool.query<{ id: number }>(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at,
+                            metadata)
+         VALUES ($1, 'stale.png', 'screenshot', 9, $2,
+                 '{"width":90,"height":120}'::jsonb)
+         RETURNING id`,
+        [A, at(60)]
+      );
+      const mediaId = media.rows[0]!.id;
+      await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        kind: "reply",
+        text: "Here it is.",
+        attachments: [
+          {
+            type: "file",
+            mediaId,
+            fileName: "stale.png",
+            sizeBytes: 9,
+            width: 1280,
+            height: 720,
+          },
+        ],
+      });
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      expect(attachmentOf(feed)).toMatchObject({ width: 90, height: 120 });
+    });
+
+    it("strips a stale pair when the row has no dimensions", async () => {
+      const media = await pool.query<{ id: number }>(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+         VALUES ($1, 'unmeasured.png', 'screenshot', 9, $2)
+         RETURNING id`,
+        [A, at(60)]
+      );
+      await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        kind: "reply",
+        text: "Here it is.",
+        attachments: [
+          {
+            type: "file",
+            mediaId: media.rows[0]!.id,
+            fileName: "unmeasured.png",
+            sizeBytes: 9,
+            width: 1280,
+            height: 720,
+          },
+        ],
+      });
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      const attachment = attachmentOf(feed);
+      expect(attachment.width).toBeUndefined();
+      expect(attachment.height).toBeUndefined();
+    });
+
+    it("leaves non-file attachments untouched", async () => {
+      // The CASE runs over every element of the array, not just the files.
+      await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        kind: "reply",
+        text: "Here it is.",
+        attachments: [
+          { type: "link", url: "https://example.com", title: "Example" },
+          { type: "pin", pinId: "pin_1" },
+        ],
+      });
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      const entry = (feed.entries as Array<{ type: string; message?: unknown }>)
+        .filter((e) => e.type === "chat")
+        .pop() as { message: { attachments: unknown[] } };
+      expect(entry.message.attachments).toEqual([
+        { type: "link", url: "https://example.com", title: "Example" },
+        { type: "pin", pinId: "pin_1" },
+      ]);
+    });
+
     it("leaves them off when the media row is gone", async () => {
       const mediaId = await postWithAttachment("deleted.png");
       await pool.query(`DELETE FROM media WHERE id = $1`, [mediaId]);
