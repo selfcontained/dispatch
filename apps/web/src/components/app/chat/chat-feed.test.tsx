@@ -14,6 +14,12 @@ import {
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+
+import {
+  INERT_PIN_SHORTCUTS,
+  PinShortcutProvider,
+  type PinShortcutState,
+} from "@/components/app/chat/pin-shortcut-context";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -97,8 +103,6 @@ function makeCtx(
     agentId: AGENT_ID,
     agentName: "builder",
     agentType: "claude",
-    pins: [],
-    workspaceRoot: null,
     onOpenMedia,
     ...overrides,
   };
@@ -108,18 +112,21 @@ function feedElement(
   entries: ChatFeedEntry[],
   ctx: FeedContext,
   onAnswer: ReturnType<typeof vi.fn>,
-  extra: Partial<Parameters<typeof ChatFeed>[0]> = {}
+  extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
+  pinShortcuts: Partial<PinShortcutState> = {}
 ) {
   return (
     <MemoryRouter>
-      <ChatFeed
-        entries={entries}
-        ctx={ctx}
-        heldMessageId={null}
-        answeringMessageId={null}
-        onAnswer={onAnswer}
-        {...extra}
-      />
+      <PinShortcutProvider value={{ ...INERT_PIN_SHORTCUTS, ...pinShortcuts }}>
+        <ChatFeed
+          entries={entries}
+          ctx={ctx}
+          heldMessageId={null}
+          answeringMessageId={null}
+          onAnswer={onAnswer}
+          {...extra}
+        />
+      </PinShortcutProvider>
     </MemoryRouter>
   );
 }
@@ -127,14 +134,15 @@ function feedElement(
 function renderFeed(
   entries: ChatFeedEntry[],
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
-  ctxOverrides: Partial<FeedContext> = {}
+  ctxOverrides: Partial<FeedContext> = {},
+  pinShortcuts: Partial<PinShortcutState> = {}
 ) {
   const onAnswer = vi.fn();
   const onOpenMedia = vi.fn();
   const ctx = makeCtx(ctxOverrides, onOpenMedia);
-  const view = render(feedElement(entries, ctx, onAnswer, extra));
+  const view = render(feedElement(entries, ctx, onAnswer, extra, pinShortcuts));
   const rerenderWith = (next: ChatFeedEntry[]) =>
-    view.rerender(feedElement(next, ctx, onAnswer, extra));
+    view.rerender(feedElement(next, ctx, onAnswer, extra, pinShortcuts));
   return { onAnswer, onOpenMedia, rerenderWith };
 }
 
@@ -1043,6 +1051,7 @@ describe("ChatFeed", () => {
         ),
       ],
       {},
+      {},
       {
         pins: [
           { id: "pin_1", label: "Dev URL", value: "http://x", type: "url" },
@@ -1129,6 +1138,7 @@ describe("ChatFeed", () => {
           at: "2026-09-02T10:02:00.000Z",
         },
       ],
+      {},
       {},
       { pins, onRunShortcut }
     );
@@ -1467,23 +1477,17 @@ describe("memoised rows still repaint when their data changes", () => {
     const pinAt = (value: string) => [
       { id: "p1", label: "Dev Server", type: "url" as const, value },
     ];
+    const ctx = makeCtx({}, onOpenMedia);
     const view = render(
-      feedElement(
-        entries,
-        makeCtx({ pins: pinAt("http://a") }, onOpenMedia),
-        onAnswer
-      )
+      feedElement(entries, ctx, onAnswer, {}, { pins: pinAt("http://a") })
     );
     // Scoped to this tree so nothing else in the document can answer.
     const pin = () => within(view.container).getByTestId("chat-pin-entry-pin");
     expect(pin().textContent).toContain("http://a");
-    // Same entries, new ctx object: the live pin must follow the sidebar.
+    // Same entries, same ctx: only the pin context moved, and the memoised
+    // pin row must still follow the sidebar through it.
     view.rerender(
-      feedElement(
-        entries,
-        makeCtx({ pins: pinAt("http://b") }, onOpenMedia),
-        onAnswer
-      )
+      feedElement(entries, ctx, onAnswer, {}, { pins: pinAt("http://b") })
     );
     expect(pin().textContent).toContain("http://b");
   });

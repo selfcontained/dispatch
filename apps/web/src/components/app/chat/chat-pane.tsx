@@ -7,17 +7,11 @@ import {
   useState,
 } from "react";
 import type { ChatFeedEntry, ChatQuestionOption } from "@dispatch/shared";
-import { useQuery } from "@tanstack/react-query";
 import { ArrowDown, MessageSquare } from "lucide-react";
 
 import { type ChatUserAttachmentInput } from "@/components/app/chat/chat-attachments";
 import { ChatComposer } from "@/components/app/chat/chat-composer";
 import { ChatPresenceStrip } from "@/components/app/chat/chat-presence-strip";
-import {
-  type FeedContext,
-  type PeerDirectory,
-  peerDirectory,
-} from "@/components/app/chat/chat-entries";
 import {
   arrivedEntryIds,
   ChatFeed,
@@ -25,8 +19,9 @@ import {
   latestOpenFreeformQuestion,
   latestUserMessageId,
 } from "@/components/app/chat/chat-feed";
-import { useShortcutRunner } from "@/components/app/pin-shortcut-runner";
-import { type Agent, type AgentPin } from "@/components/app/types";
+import { PinShortcutProvider } from "@/components/app/chat/pin-shortcut-context";
+import { useChatFeedContext } from "@/components/app/chat/use-chat-feed-context";
+import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   useAnswerChatQuestion,
@@ -35,8 +30,6 @@ import {
   useSendChatMessage,
 } from "@/hooks/use-chat";
 import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
-import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
-import { api } from "@/lib/api";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
 
@@ -514,85 +507,12 @@ export function ChatPane({
     [answerNow]
   );
 
-  // Every agent.upsert hands over a fresh pins array; key the context on its
-  // content so unchanged pins don't invalidate every memoised post.
-  const pinsKey = JSON.stringify(agent?.pins ?? []);
-  const pins = useMemo<AgentPin[]>(() => JSON.parse(pinsKey), [pinsKey]);
-  // Shortcut pins in the stream fire exactly as they do in the sidebar:
-  // same confirmation rule, same dialog, same focus restoration.
-  const runPinShortcut = useRunPinShortcut();
-  // As with `answer` above: the mutation result object is new every render,
-  // and it fed `ctx`, so every memoised post re-rendered whenever the pane
-  // did. Depend on the stable `mutate` and the flag instead.
-  const { mutate: runShortcutNow, isPending: shortcutPending } = runPinShortcut;
-  const fireShortcut = useCallback(
-    (pin: AgentPin) => {
-      if (!agentId || !pin.id || shortcutPending) return;
-      runShortcutNow({ agentId, pinId: pin.id, label: pin.label });
-    },
-    [agentId, runShortcutNow, shortcutPending]
-  );
-  const shortcuts = useShortcutRunner(fireShortcut);
-  const { request: requestShortcut, registerButton: registerShortcutButton } =
-    shortcuts;
-  const onRunShortcut = useCallback(
-    (pin: AgentPin, pointerType?: string) =>
-      requestShortcut(pin, pointerType, null),
-    [requestShortcut]
-  );
-  const pendingPinId = runPinShortcut.isPending
-    ? (runPinShortcut.variables?.pinId ?? null)
-    : null;
-  const agentIsRunning = agent?.status === "running";
-  // The sidebar's agent list, read for a peer post's icon and lineage.
-  // `select` narrows it to what the feed shows, so structural sharing keeps
-  // the directory's identity across agent updates that change nothing here.
-  // A stable selector lets react-query hand back the previous selected value
-  // directly; an inline one is re-run and deep-compared on every render
-  // (the result's identity is preserved either way, this only skips work).
-  const selectPeers = useCallback(
-    (agents: Agent[]) => peerDirectory(agentId ?? "", agents),
-    [agentId]
-  );
-  const { data: peers } = useQuery<Agent[], Error, PeerDirectory>({
-    queryKey: ["agents"],
-    queryFn: async () => {
-      const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
-      return payload.agents;
-    },
-    select: selectPeers,
+  const { ctx, pinShortcuts, shortcutDialog } = useChatFeedContext({
+    agentId,
+    agent,
+    openLightbox,
+    onOpenReview,
   });
-  const ctx = useMemo<FeedContext>(
-    () => ({
-      agentId: agentId ?? "",
-      agentName: agent?.name,
-      agentType: agent?.type ?? null,
-      peers,
-      pins,
-      workspaceRoot: agent?.worktreePath ?? agent?.cwd ?? null,
-      onRunShortcut,
-      registerShortcutButton,
-      pendingPinId,
-      agentIsRunning,
-      onOpenMedia: openLightbox,
-      onOpenReview,
-    }),
-    [
-      agent?.cwd,
-      agent?.name,
-      agent?.type,
-      agent?.worktreePath,
-      agentId,
-      agentIsRunning,
-      onOpenReview,
-      onRunShortcut,
-      openLightbox,
-      peers,
-      pendingPinId,
-      pins,
-      registerShortcutButton,
-    ]
-  );
 
   const disabledReason = composerDisabledReason(agent, terminalMode, {
     isLoading: feed.isLoading,
@@ -696,14 +616,16 @@ export function ChatPane({
             </div>
           ) : null}
           {visibleEntries.length > 0 ? (
-            <ChatFeed
-              entries={visibleEntries}
-              ctx={ctx}
-              heldMessageId={heldMessageId}
-              answeringMessageId={answeringMessageId}
-              answersDisabled={disabledReason !== null}
-              onAnswer={onAnswer}
-            />
+            <PinShortcutProvider value={pinShortcuts}>
+              <ChatFeed
+                entries={visibleEntries}
+                ctx={ctx}
+                heldMessageId={heldMessageId}
+                answeringMessageId={answeringMessageId}
+                answersDisabled={disabledReason !== null}
+                onAnswer={onAnswer}
+              />
+            </PinShortcutProvider>
           ) : null}
         </div>
         {pendingBelow && !following ? (
@@ -753,7 +675,7 @@ export function ChatPane({
           replyContext={replyContext}
         />
       </div>
-      {shortcuts.dialog}
+      {shortcutDialog}
     </div>
   );
 }

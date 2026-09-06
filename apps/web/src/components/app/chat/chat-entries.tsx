@@ -31,12 +31,13 @@ import {
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
 import { FeedImage } from "@/components/app/chat/feed-image";
+import { usePinShortcuts } from "@/components/app/chat/pin-shortcut-context";
 import { PinItem } from "@/components/app/pin-item";
 import {
   reviewerLabel,
   ReviewSummaryBlock,
 } from "@/components/app/review-summary-block";
-import { type Agent, type AgentPin } from "@/components/app/types";
+import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
 import { useCopyText } from "@/hooks/use-copy";
@@ -124,7 +125,13 @@ export function peerDirectory(
   return peers;
 }
 
-/** What every row of the channel needs to know about the agent it belongs to. */
+/**
+ * What every row of the channel needs to know about the agent it belongs
+ * to. Every row is memoised on this object's identity, so it carries only
+ * what changes rarely; what the pin rows need on top of it — the live pins
+ * and the shortcut machinery — travels on `PinShortcutContext`, which
+ * changes on its own schedule and re-renders only them.
+ */
 export type FeedContext = {
   agentId: string;
   /** The agent this channel belongs to; names its posts. */
@@ -132,22 +139,6 @@ export type FeedContext = {
   agentType?: string | null;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
-  pins: AgentPin[];
-  workspaceRoot: string | null;
-  /**
-   * Fires a shortcut pin shown in the feed, the same way the sidebar does.
-   * Absent (agent history, tests) renders shortcuts inert.
-   */
-  onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
-  /** Registers each shortcut button so the confirm dialog can hand focus back. */
-  registerShortcutButton?: (
-    pin: AgentPin,
-    element: HTMLButtonElement | null
-  ) => void;
-  /** The shortcut whose run is in flight; its button stays disabled. */
-  pendingPinId?: string | null;
-  /** Off when the agent cannot receive a shortcut (stopped, archived). */
-  agentIsRunning?: boolean;
   onOpenMedia: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded. */
   onOpenReview?: (reviewId: number) => void;
@@ -642,7 +633,8 @@ function LivePin({
   ctx: FeedContext;
   testId: string;
 }): JSX.Element {
-  const pin = ctx.pins.find((p) => p.id === pinId);
+  const shortcuts = usePinShortcuts();
+  const pin = shortcuts.pins.find((p) => p.id === pinId);
   if (!pin) {
     return (
       <AttachmentBlock
@@ -678,13 +670,13 @@ function LivePin({
     >
       <PinItem
         pin={pin}
-        workspaceRoot={ctx.workspaceRoot}
+        workspaceRoot={shortcuts.workspaceRoot}
         inGroup
-        agentIsRunning={ctx.agentIsRunning ?? true}
-        onRunShortcut={ctx.onRunShortcut}
-        pendingPinId={ctx.pendingPinId ?? null}
+        agentIsRunning={shortcuts.agentIsRunning}
+        onRunShortcut={shortcuts.onRunShortcut}
+        pendingPinId={shortcuts.pendingPinId}
         agentName={ctx.agentName ?? null}
-        buttonRef={ctx.registerShortcutButton}
+        buttonRef={shortcuts.registerShortcutButton}
       />
     </div>
   );
