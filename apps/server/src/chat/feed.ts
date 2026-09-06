@@ -3,6 +3,7 @@ import type {
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMediaEntry,
+  ChatPinEntry,
   ChatReviewEntry,
   ChatStatusEntry,
 } from "@dispatch/shared";
@@ -25,7 +26,7 @@ export type ComposeChatFeedOptions = {
 
 /**
  * Feed ordering is (created_at desc, source rank desc, id desc) — a total
- * order across the five tables, so a page boundary that falls on rows with
+ * order across the six tables, so a page boundary that falls on rows with
  * identical timestamps never drops or repeats a row. The cursor names the
  * last entry of the previous page in that order. `at` is Postgres microsecond
  * text (`to_char(..., 'YYYY-MM-DD HH24:MI:SS.US')`), not the millisecond ISO
@@ -38,9 +39,10 @@ export type FeedCursor = {
 };
 
 const SOURCE_RANK: Record<ChatFeedEntry["type"], number> = {
-  review: 4,
-  chat: 3,
-  status: 2,
+  review: 5,
+  chat: 4,
+  status: 3,
+  pin: 2,
   agent_message: 1,
   media: 0,
 };
@@ -63,6 +65,7 @@ function isValidCursorId(type: ChatFeedEntry["type"], id: string): boolean {
     case "status":
     case "media":
     case "review":
+    case "pin":
       return SERIAL_ID_RE.test(id) && Number(id) <= 2_147_483_647;
   }
 }
@@ -391,6 +394,58 @@ async function listReviewEntries(
   }));
 }
 
+/**
+ * Pin activity, one entry per write: every row of a batch write shares the
+ * transaction's `now()`, so grouping by (created_at, action) turns "replace
+ * group Build with five pins" into one post rather than five. The group's
+ * smallest id is its id, which keeps the cursor's (created_at, id) tuple
+ * comparison exact — no other row shares that timestamp and action.
+ */
+async function listPinEntries(
+  db: Queryable,
+  agentId: string,
+  cursor: FeedCursor | null,
+  limit: number
+): Promise<Keyed<ChatPinEntry>[]> {
+  const params: unknown[] = [agentId];
+  const clause = cursorClause("pin", "int", cursor, params);
+  params.push(limit);
+  const result = await db.query<{
+    id: number;
+    action: ChatPinEntry["action"];
+    pin_ids: string[];
+    labels: string[];
+    created_at: Date;
+    at_key: string;
+  }>(
+    `SELECT id, action, pin_ids, labels, created_at, ${AT_KEY_SQL} AS at_key
+       FROM (
+         SELECT min(id) AS id, action, created_at,
+                array_agg(pin_id ORDER BY id) AS pin_ids,
+                array_agg(label ORDER BY id) AS labels
+           FROM pin_events
+          WHERE agent_id = $1
+          GROUP BY created_at, action
+       ) AS writes
+      WHERE TRUE ${clause}
+      ORDER BY created_at DESC, id DESC
+      LIMIT $${params.length}`,
+    params
+  );
+  return result.rows.map((row) => ({
+    entry: {
+      type: "pin",
+      id: `pin:${row.id}`,
+      action: row.action,
+      pins: row.pin_ids.map((id, i) => ({ id, label: row.labels[i] ?? "" })),
+      at: row.created_at.toISOString(),
+    },
+    atKey: row.at_key,
+    rawId: String(row.id),
+    idKey: intKey(row.id),
+  }));
+}
+
 /** Newest first: (atKey, source rank, id) descending. */
 function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
   if (a.atKey !== b.atKey) return a.atKey < b.atKey ? 1 : -1;
@@ -402,11 +457,11 @@ function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
 
 /**
  * Compose one agent's Chat feed at read time from chat messages, status
- * events, cross-agent messages, shared media, and reviews. Each source
- * contributes its newest `limit + 1` rows past the cursor; the merge keeps the newest
- * `limit` overall, so any row that belongs on the page is present (a row in
- * the top `limit` overall is in the top `limit` of its source), and anything
- * left over proves an older page exists.
+ * events, cross-agent messages, shared media, reviews, and pin activity.
+ * Each source contributes its newest `limit + 1` rows past the cursor; the
+ * merge keeps the newest `limit` overall, so any row that belongs on the page
+ * is present (a row in the top `limit` overall is in the top `limit` of its
+ * source), and anything left over proves an older page exists.
  */
 export async function composeChatFeed(
   store: ChatStore,
@@ -416,13 +471,14 @@ export async function composeChatFeed(
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
   const { db } = store;
-  const [chat, status, agentMessages, media, reviews, unreadCount] =
+  const [chat, status, agentMessages, media, reviews, pins, unreadCount] =
     await Promise.all([
       listChatEntries(db, agentId, cursor, limit + 1),
       listStatusEntries(db, agentId, cursor, limit + 1),
       listAgentMessageEntries(db, agentId, cursor, limit + 1),
       listMediaEntries(db, agentId, cursor, limit + 1),
       listReviewEntries(db, agentId, cursor, limit + 1),
+      listPinEntries(db, agentId, cursor, limit + 1),
       store.countUnread(agentId),
     ]);
 
@@ -432,6 +488,7 @@ export async function composeChatFeed(
     ...agentMessages,
     ...media,
     ...reviews,
+    ...pins,
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);

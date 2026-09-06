@@ -15,6 +15,7 @@ import {
   DayDivider,
   dayLabel,
   MediaEntryView,
+  PinEntryView,
   reviewAuthor,
   ReviewEntryView,
   StatusLine,
@@ -185,6 +186,7 @@ function authorKey(
     case "agent_message":
       return agentMessageAuthor(entry, ctx).key;
     case "media":
+    case "pin":
       return "agent";
     case "review":
       return reviewAuthor(entry, ctx).key;
@@ -395,6 +397,15 @@ export function ChatFeed({
             case "review":
               return (
                 <ReviewEntryView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
+            case "pin":
+              return (
+                <PinEntryView
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}

@@ -4,6 +4,7 @@ import type {
   ChatAttachment,
   ChatMediaEntry,
   ChatMessage,
+  ChatPinEntry,
   ChatQuestionOption,
   ChatReviewEntry,
   ChatStatusEntry,
@@ -18,6 +19,7 @@ import {
   GitPullRequest,
   Hourglass,
   Loader2,
+  Pin,
   Rocket,
   UserRound,
 } from "lucide-react";
@@ -131,6 +133,20 @@ export type FeedContext = {
   peers?: PeerDirectory;
   pins: AgentPin[];
   workspaceRoot: string | null;
+  /**
+   * Fires a shortcut pin shown in the feed, the same way the sidebar does.
+   * Absent (agent history, tests) renders shortcuts inert.
+   */
+  onRunShortcut?: (pin: AgentPin, pointerType?: string) => void;
+  /** Registers each shortcut button so the confirm dialog can hand focus back. */
+  registerShortcutButton?: (
+    pin: AgentPin,
+    element: HTMLButtonElement | null
+  ) => void;
+  /** The shortcut whose run is in flight; its button stays disabled. */
+  pendingPinId?: string | null;
+  /** Off when the agent cannot receive a shortcut (stopped, archived). */
+  agentIsRunning?: boolean;
   onOpenMedia: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded. */
   onOpenReview?: (reviewId: number) => void;
@@ -615,6 +631,70 @@ function CodeAttachment({
   );
 }
 
+/**
+ * A pin rendered live from the agent's current pins — the sidebar's own
+ * `PinItem`, so the stream and the sidebar never disagree, and a shortcut
+ * fires from either place. `label` names a pin that is no longer there.
+ */
+function LivePin({
+  pinId,
+  label,
+  ctx,
+  testId,
+}: {
+  pinId: string;
+  label?: string;
+  ctx: FeedContext;
+  testId: string;
+}): JSX.Element {
+  const pin = ctx.pins.find((p) => p.id === pinId);
+  if (!pin) {
+    return (
+      <AttachmentBlock
+        className="text-xs italic text-muted-foreground"
+        data-testid={`${testId}-missing`}
+      >
+        {label ? (
+          <>
+            <span className="not-italic font-medium">{label}</span> · pin no
+            longer available
+          </>
+        ) : (
+          "Pin no longer available"
+        )}
+      </AttachmentBlock>
+    );
+  }
+  // A card rather than the accent bar the other attachments use: a pin's
+  // copy button sits at the right edge of its own box, and without a drawn
+  // edge that box is invisible — the button reads as floating somewhere
+  // short of where the post's copy action lives. A shortcut is already a
+  // button, so it gets no card; it is a sidebar-width button (w-full) that
+  // in the channel's wide measure would stretch into a banner, so here it
+  // hugs its label up to a cap instead.
+  return (
+    <div
+      className={
+        pin.type === "shortcut"
+          ? "w-fit max-w-[20rem]"
+          : "max-w-md rounded-md border border-border bg-card/60 px-3 py-2"
+      }
+      data-testid={testId}
+    >
+      <PinItem
+        pin={pin}
+        workspaceRoot={ctx.workspaceRoot}
+        inGroup
+        agentIsRunning={ctx.agentIsRunning ?? true}
+        onRunShortcut={ctx.onRunShortcut}
+        pendingPinId={ctx.pendingPinId ?? null}
+        agentName={ctx.agentName ?? null}
+        buttonRef={ctx.registerShortcutButton}
+      />
+    </div>
+  );
+}
+
 function PinAttachment({
   attachment,
   ctx,
@@ -622,21 +702,8 @@ function PinAttachment({
   attachment: Extract<ChatAttachment, { type: "pin" }>;
   ctx: FeedContext;
 }): JSX.Element {
-  const pin = ctx.pins.find((p) => p.id === attachment.pinId);
-  if (!pin) {
-    return (
-      <AttachmentBlock
-        className="text-xs italic text-muted-foreground"
-        data-testid="chat-attachment-pin-missing"
-      >
-        Pin no longer available
-      </AttachmentBlock>
-    );
-  }
   return (
-    <AttachmentBlock data-testid="chat-attachment-pin">
-      <PinItem pin={pin} workspaceRoot={ctx.workspaceRoot} inGroup />
-    </AttachmentBlock>
+    <LivePin pinId={attachment.pinId} ctx={ctx} testId="chat-attachment-pin" />
   );
 }
 
@@ -1117,6 +1184,73 @@ export function MediaEntryView({
           ) : null}
         </button>
       </AttachmentBlock>
+    </Post>
+  );
+}
+
+/** "Pinned", "Updated pin", "Removed pin" — plural when a batch wrote several. */
+export function pinEntryVerb(entry: ChatPinEntry): string {
+  const plural = entry.pins.length !== 1;
+  switch (entry.action) {
+    case "created":
+      return plural ? `Pinned ${entry.pins.length} items` : "Pinned";
+    case "updated":
+      return plural ? `Updated ${entry.pins.length} pins` : "Updated pin";
+    case "deleted":
+      return plural ? `Removed ${entry.pins.length} pins` : "Removed pin";
+  }
+}
+
+/**
+ * A pin the agent created, updated, or removed, shown at that moment in the
+ * stream. The pin itself renders live (see {@link LivePin}): every earlier
+ * entry for a pin shows its latest value, so re-reading the channel never
+ * shows a stale URL, and a shortcut runs from wherever it appears. A removed
+ * pin has nothing left to render, so its entry names it by label only.
+ */
+export function PinEntryView({
+  entry,
+  grouped,
+  rule = false,
+  ctx,
+}: {
+  entry: ChatPinEntry;
+  grouped: boolean;
+  rule?: boolean;
+  ctx: FeedContext;
+}): JSX.Element {
+  const removed = entry.action === "deleted";
+  return (
+    <Post
+      author={agentAuthor(ctx, "Agent")}
+      at={entry.at}
+      grouped={grouped}
+      rule={rule}
+      data-testid="chat-pin-entry"
+      data-pin-action={entry.action}
+    >
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Pin className="h-3 w-3 shrink-0" aria-hidden="true" />
+        <span data-testid="chat-pin-entry-verb">{pinEntryVerb(entry)}</span>
+        {removed ? (
+          <span className="min-w-0 truncate font-medium text-foreground/80">
+            {entry.pins.map((pin) => pin.label).join(", ")}
+          </span>
+        ) : null}
+      </div>
+      {removed ? null : (
+        <div className="mt-1 flex flex-col gap-2">
+          {entry.pins.map((pin) => (
+            <LivePin
+              key={pin.id}
+              pinId={pin.id}
+              label={pin.label}
+              ctx={ctx}
+              testId="chat-pin-entry-pin"
+            />
+          ))}
+        </div>
+      )}
     </Post>
   );
 }

@@ -24,6 +24,7 @@ import {
   latestOpenFreeformQuestion,
   latestUserMessageId,
 } from "@/components/app/chat/chat-feed";
+import { useShortcutRunner } from "@/components/app/pin-shortcut-runner";
 import { type Agent, type AgentPin } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,6 +34,7 @@ import {
   useSendChatMessage,
 } from "@/hooks/use-chat";
 import { useInjectionHoldState } from "@/hooks/use-injection-hold-state";
+import { useRunPinShortcut } from "@/hooks/use-pin-shortcuts";
 import { api } from "@/lib/api";
 import { uploadAgentMedia } from "@/lib/media-upload";
 import { cn } from "@/lib/utils";
@@ -508,6 +510,28 @@ export function ChatPane({
   // content so unchanged pins don't invalidate every memoised post.
   const pinsKey = JSON.stringify(agent?.pins ?? []);
   const pins = useMemo<AgentPin[]>(() => JSON.parse(pinsKey), [pinsKey]);
+  // Shortcut pins in the stream fire exactly as they do in the sidebar:
+  // same confirmation rule, same dialog, same focus restoration.
+  const runPinShortcut = useRunPinShortcut();
+  const fireShortcut = useCallback(
+    (pin: AgentPin) => {
+      if (!agentId || !pin.id || runPinShortcut.isPending) return;
+      runPinShortcut.mutate({ agentId, pinId: pin.id, label: pin.label });
+    },
+    [agentId, runPinShortcut]
+  );
+  const shortcuts = useShortcutRunner(fireShortcut);
+  const { request: requestShortcut, registerButton: registerShortcutButton } =
+    shortcuts;
+  const onRunShortcut = useCallback(
+    (pin: AgentPin, pointerType?: string) =>
+      requestShortcut(pin, pointerType, null),
+    [requestShortcut]
+  );
+  const pendingPinId = runPinShortcut.isPending
+    ? (runPinShortcut.variables?.pinId ?? null)
+    : null;
+  const agentIsRunning = agent?.status === "running";
   // The sidebar's agent list, read for a peer post's icon and lineage.
   // `select` narrows it to what the feed shows, so structural sharing keeps
   // the directory's identity across agent updates that change nothing here.
@@ -527,6 +551,10 @@ export function ChatPane({
       peers,
       pins,
       workspaceRoot: agent?.worktreePath ?? agent?.cwd ?? null,
+      onRunShortcut,
+      registerShortcutButton,
+      pendingPinId,
+      agentIsRunning,
       onOpenMedia: openLightbox,
       onOpenReview,
     }),
@@ -536,10 +564,14 @@ export function ChatPane({
       agent?.type,
       agent?.worktreePath,
       agentId,
+      agentIsRunning,
       onOpenReview,
+      onRunShortcut,
       openLightbox,
       peers,
+      pendingPinId,
       pins,
+      registerShortcutButton,
     ]
   );
 
@@ -702,6 +734,7 @@ export function ChatPane({
           replyContext={replyContext}
         />
       </div>
+      {shortcuts.dialog}
     </div>
   );
 }
