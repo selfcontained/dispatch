@@ -10,6 +10,7 @@ import {
   fireEvent,
   render,
   screen,
+  within,
   waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -1473,9 +1474,9 @@ describe("memoised rows still repaint when their data changes", () => {
         onAnswer
       )
     );
-    expect(screen.getByTestId("chat-pin-entry-pin").textContent).toContain(
-      "http://a"
-    );
+    // Scoped to this tree so nothing else in the document can answer.
+    const pin = () => within(view.container).getByTestId("chat-pin-entry-pin");
+    expect(pin().textContent).toContain("http://a");
     // Same entries, new ctx object: the live pin must follow the sidebar.
     view.rerender(
       feedElement(
@@ -1484,9 +1485,7 @@ describe("memoised rows still repaint when their data changes", () => {
         onAnswer
       )
     );
-    expect(screen.getByTestId("chat-pin-entry-pin").textContent).toContain(
-      "http://b"
-    );
+    expect(pin().textContent).toContain("http://b");
   });
 
   it("updates a status line's label and collapsed count", () => {
