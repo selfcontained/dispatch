@@ -21,5 +21,6 @@
 * Harness view: a standing goal is visible. dsh's goal loop (`create_goal`; "monitoring is armed") runs rounds on its own after a turn settles, and those rounds used to land silently inside the previous turn. Each round is now its own turn, labelled as a goal round, and a **Goal** strip above the composer shows the objective, the round count, and whether it is armed or blocked (with the reason). Provider marks: the model chip, the model picker, the usage dialog and the budget rows show the OpenAI, DeepSeek, Anthropic and Gemini logos.
 * Adds the `agent_stream_events` table (additive), the `@agentclientprotocol/sdk` dependency, and an update-migrations manifest. Running dsh agents are resumed after a service restart on their stored session ids.
 
+* Harness view: a turn cut short by Stop, Ctrl+C, or Send now reads as **interrupted** (in the activity header, the collapsed summary, and a line under the result) instead of complete. The Review button and `dispatch_launch_persona` default a Dispatch Harness agent's reviewer to the Dispatch Harness type, the way every other agent reviews as its own kind. Cleanup ahead of the pull request: the unused PromptKit reducer is gone and stray build outputs are ignored.
 
-**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.25
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.6...v0.38.7-dsh.26
