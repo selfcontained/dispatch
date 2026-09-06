@@ -142,7 +142,9 @@ function BlockHeader({
   const label = done
     ? trace.finalResult === "error"
       ? "failed"
-      : "complete"
+      : trace.finalResult === "interrupted"
+        ? "interrupted"
+        : "complete"
     : thinking
       ? "thinking"
       : "working";
@@ -152,6 +154,10 @@ function BlockHeader({
   ) : trace.finalResult === "error" ? (
     <span className="font-bold text-status-blocked" aria-hidden="true">
       ✗
+    </span>
+  ) : trace.finalResult === "interrupted" ? (
+    <span className="font-bold text-status-waiting" aria-hidden="true">
+      ■
     </span>
   ) : (
     <span className="font-bold text-status-done" aria-hidden="true">
@@ -230,7 +236,12 @@ function CollapsedSummary({
   const stepCount = trace.steps.length;
   const dur = (trace.endedAt ?? trace.startedAt) - trace.startedAt;
   const failed = trace.finalResult === "error";
-  const verb = failed ? "failed" : (label ?? "done");
+  const interrupted = trace.finalResult === "interrupted";
+  const verb = failed
+    ? "failed"
+    : interrupted
+      ? "interrupted"
+      : (label ?? "done");
   const steps = `${stepCount} step${stepCount === 1 ? "" : "s"}`;
   return (
     <button
@@ -239,6 +250,7 @@ function CollapsedSummary({
       onClick={onExpand}
       aria-label={`${verb}, ${steps}, ${formatStepDuration(dur)} — expand activity`}
       data-testid="harness-activity-summary"
+      data-final-result={trace.finalResult}
       className={cn(
         "animate-harness-row flex w-full items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-left motion-reduce:animate-none",
         "hover:border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50",
@@ -251,6 +263,8 @@ function CollapsedSummary({
       >
         {failed ? (
           <span className="font-bold text-status-blocked">✗</span>
+        ) : interrupted ? (
+          <span className="font-bold text-status-waiting">■</span>
         ) : (
           <span className="font-bold text-status-done">✓</span>
         )}

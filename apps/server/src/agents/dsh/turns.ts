@@ -283,7 +283,11 @@ export function assembleTurns(
     const trace: HarnessTurn["trace"] = { startedAt, steps };
     if (settled) {
       if (turnPayload?.endedAt) trace.endedAt = turnPayload.endedAt;
-      trace.finalResult = error ? "error" : "ok";
+      trace.finalResult = error
+        ? "error"
+        : turnPayload?.stopReason === "cancelled"
+          ? "interrupted"
+          : "ok";
     } else if (!group.turn && lastRow) {
       // Rows from before turn rows existed: one closed synthetic turn.
       trace.endedAt = lastRow.updatedAt.toISOString();

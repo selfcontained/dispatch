@@ -62,7 +62,8 @@ export type HarnessTurn = {
   trace: {
     startedAt: string;
     endedAt?: string;
-    finalResult?: "ok" | "error";
+    /** `interrupted`: the turn was cancelled (Stop, Ctrl+C, Send now). */
+    finalResult?: "ok" | "error" | "interrupted";
     steps: HarnessStep[];
   };
   result: { text: string; streaming: boolean; truncated?: boolean } | null;

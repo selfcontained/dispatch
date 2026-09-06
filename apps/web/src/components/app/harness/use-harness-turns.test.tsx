@@ -97,6 +97,15 @@ describe("toPromptKitTurns", () => {
     expect(out.streaming).toBe(true);
   });
 
+  it("keeps an interrupted turn's final result", () => {
+    const out = toPromptKitTurns(
+      [{ ...settled, trace: { ...settled.trace, finalResult: "interrupted" } }],
+      "agt_1"
+    );
+    expect(out.turns[1].trace?.finalResult).toBe("interrupted");
+    expect(out.turns[1].error).toBeUndefined();
+  });
+
   it("surfaces a failed turn's error on the assistant turn", () => {
     const failed: HarnessTurn = {
       ...settled,

@@ -160,6 +160,49 @@ afterEach(() => {
 const T0 = Date.parse("2026-09-04T10:00:00.000Z");
 
 describe("HarnessPane", () => {
+  it("says so when a turn was interrupted", () => {
+    state.turns = [
+      { id: "t1:user", role: "user", content: "look around", timestamp: T0 },
+      {
+        id: "t1:assistant",
+        role: "assistant",
+        content: "Half way",
+        timestamp: T0 + 4000,
+        trace: {
+          startedAt: T0,
+          endedAt: T0 + 4000,
+          finalResult: "interrupted",
+          steps: [
+            {
+              id: "s1",
+              kind: "execute",
+              label: "bash",
+              status: "ok",
+              startedAt: T0 + 1000,
+              endedAt: T0 + 2000,
+              durMs: 1000,
+              detail: { terminalOutput: "ok\n" },
+            },
+          ],
+        },
+        extra: { label: "Working on the latest message." },
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const summary = screen.getByTestId("harness-activity-summary");
+    expect(summary.textContent).toContain("interrupted");
+    expect(summary.getAttribute("data-final-result")).toBe("interrupted");
+    expect(screen.getByTestId("harness-interrupted").textContent).toContain(
+      "Interrupted mid-turn"
+    );
+    expect(screen.getByTestId("harness-result").textContent).toContain(
+      "Half way"
+    );
+  });
+
   it("renders a settled turn as prompt, collapsed activity and result", () => {
     state.turns = [
       { id: "t1:user", role: "user", content: "look around", timestamp: T0 },

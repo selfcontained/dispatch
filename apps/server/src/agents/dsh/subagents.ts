@@ -82,7 +82,7 @@ type Building = {
   prompt: string;
   startedAt: number;
   endedAt?: number;
-  finalResult?: "ok" | "error";
+  finalResult?: "ok" | "error" | "interrupted";
   steps: HarnessStep[];
   texts: { text: string; at: number }[];
   open: Map<string, OpenStep>;
@@ -146,7 +146,7 @@ export function shapeSubagent(
   let label: string | undefined;
   let model: string | undefined;
   let turnCounter = 0;
-  const closeCurrent = (at: number, result: "ok" | "error") => {
+  const closeCurrent = (at: number, result: "ok" | "error" | "interrupted") => {
     if (!current) return;
     current.endedAt = at;
     current.finalResult = result;
@@ -254,7 +254,14 @@ export function shapeSubagent(
       }
       case "turn/end": {
         const reason = data.reason as { kind?: string } | undefined;
-        closeCurrent(at, reason?.kind === "completed" ? "ok" : "error");
+        closeCurrent(
+          at,
+          reason?.kind === "completed"
+            ? "ok"
+            : reason?.kind === "cancelled"
+              ? "interrupted"
+              : "error"
+        );
         break;
       }
       case "session/end":

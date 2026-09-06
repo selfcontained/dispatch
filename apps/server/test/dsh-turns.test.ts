@@ -208,6 +208,27 @@ describe("assembleTurns", () => {
     expect(turns[1].error).toBe("no API key");
     expect(turns[1].trace.finalResult).toBe("error");
   });
+
+  it("reads a cancelled turn as interrupted, not complete", () => {
+    const rows: TurnSourceRow[] = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "p" },
+          stopReason: "cancelled",
+          endedAt: at(2).toISOString(),
+        },
+        0,
+        2
+      ),
+      row("assistant", { text: "half", streaming: false }, 1),
+    ];
+    const turns = assembleTurns(rows, new Map());
+    expect(turns[0].trace.finalResult).toBe("interrupted");
+    expect(turns[0].error).toBeUndefined();
+    expect(turns[0].result?.text).toBe("half");
+  });
 });
 
 describe("assembleTurns with agent questions", () => {

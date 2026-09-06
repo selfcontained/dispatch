@@ -18,6 +18,7 @@ function ResultTurnImpl({
   // above is the sole progress indicator, so nothing renders here.
   if (isStreaming) return null;
   const error = turn.error;
+  const interrupted = turn.trace?.finalResult === "interrupted";
   const showContent = !!turn.content;
   return (
     <div
@@ -31,6 +32,17 @@ function ResultTurnImpl({
       {error?.hint ? (
         <p className="pl-[21px] text-[11px] text-muted-foreground">
           {error.hint}
+        </p>
+      ) : null}
+      {interrupted ? (
+        <p
+          className="flex items-center gap-[9px] text-[11.5px] text-status-waiting"
+          data-testid="harness-interrupted"
+        >
+          <span aria-hidden="true" className="select-none font-bold">
+            ■
+          </span>
+          Interrupted mid-turn: the agent was stopped before it finished.
         </p>
       ) : null}
       <div className="pl-[21px] text-[10.5px] text-muted-foreground">

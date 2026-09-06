@@ -200,6 +200,9 @@ test.describe("dsh agent", () => {
     const result = harness.getByTestId("harness-result").last();
     await expect(result).toContainText("You said:", { timeout: 30_000 });
     await expect(result).toContainText("third");
+    // The turn Send now cut short says so, above the turn that replaced it
+    // (it never got a step, so the line is all that marks it).
+    await expect(harness.getByTestId("harness-interrupted")).toHaveCount(1);
     // "second" never ran: no prompt line carries it.
     await expect(harness.getByTestId("harness-prompt")).toHaveCount(2);
     await expect(harness.getByTestId("harness-prompt").first()).toContainText(

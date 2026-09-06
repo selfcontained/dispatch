@@ -177,6 +177,6 @@ describe("shapeSubagent", () => {
       ],
     });
     expect(sub.turns[0].prompt.text).toBe("first\n\nand this");
-    expect(sub.turns[0].trace.finalResult).toBe("error");
+    expect(sub.turns[0].trace.finalResult).toBe("interrupted");
   });
 });

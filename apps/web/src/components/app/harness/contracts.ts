@@ -28,7 +28,7 @@ export interface Trace {
   startedAt: number;
   endedAt?: number;
   steps: Step[];
-  finalResult?: "ok" | "error" | "clarification";
+  finalResult?: "ok" | "error" | "interrupted" | "clarification";
   extra?: Record<string, unknown>;
 }
 
