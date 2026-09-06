@@ -614,10 +614,18 @@ describe("chat routes with a deliverable terminal", () => {
     await app.close();
   });
 
-  async function settled(id: string): Promise<ChatMessage> {
+  /**
+   * The delivered row, once its whole settlement chain has run: the row
+   * is marked before the delivered entry is read back and published, so
+   * waiting on the row alone can observe the state between the two.
+   */
+  async function settled(chat: ChatService, id: string): Promise<ChatMessage> {
     for (let i = 0; i < 50; i++) {
       const row = await store.getById(id);
-      if (row && row.delivered !== null) return row;
+      if (row && row.delivered !== null) {
+        await chat.waitForInFlightDeliveries(1_000);
+        return row;
+      }
       await new Promise((r) => setTimeout(r, 20));
     }
     throw new Error("delivery never settled");
@@ -628,7 +636,10 @@ describe("chat routes with a deliverable terminal", () => {
     const gate = new Promise<void>((r) => {
       release = r;
     });
-    const { app, ready, published, prompts } = buildApp({ held: true, gate });
+    const { app, ready, chat, published, prompts } = buildApp({
+      held: true,
+      gate,
+    });
     await ready;
     const res = await app.inject({
       method: "POST",
@@ -661,7 +672,7 @@ describe("chat routes with a deliverable terminal", () => {
     ]);
 
     release();
-    const row = await settled(body.message.id);
+    const row = await settled(chat, body.message.id);
     expect(row.delivered).toBe(true);
     expect(prompts).toHaveLength(1);
     expect(prompts[0].prompt).toBe(
@@ -696,7 +707,7 @@ describe("chat routes with a deliverable terminal", () => {
       [agentId]
     );
     const mediaId = media.rows[0].id;
-    const { app, ready, prompts } = buildApp({});
+    const { app, ready, chat, prompts } = buildApp({});
     await ready;
     const res = await app.inject({
       method: "POST",
@@ -724,7 +735,7 @@ describe("chat routes with a deliverable terminal", () => {
       { type: "pin", pinId: "pin_1" },
       { type: "link", url: "https://example.com/x" },
     ]);
-    await settled(body.message.id);
+    await settled(chat, body.message.id);
     expect(prompts).toHaveLength(1);
     expect(prompts[0].prompt).toContain(
       [
@@ -740,7 +751,7 @@ describe("chat routes with a deliverable terminal", () => {
   });
 
   it("settles delivered=false when the pane write fails after the response", async () => {
-    const { app, ready } = buildApp({
+    const { app, ready, chat } = buildApp({
       sendCommand: async () => {
         throw new Error("session gone");
       },
@@ -753,7 +764,7 @@ describe("chat routes with a deliverable terminal", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().delivered).toBeNull();
-    const row = await settled(res.json().message.id);
+    const row = await settled(chat, res.json().message.id);
     expect(row.delivered).toBe(false);
     await app.close();
   });
@@ -803,7 +814,7 @@ describe("chat routes with a deliverable terminal", () => {
   });
 
   it("answers a question: resolves the option label server-side and injects it", async () => {
-    const { app, ready, prompts, published } = buildApp({});
+    const { app, ready, chat, prompts, published } = buildApp({});
     await ready;
     const q = await store.insert({
       agentId,
@@ -832,7 +843,7 @@ describe("chat routes with a deliverable terminal", () => {
       label: "Yes",
       replyMessageId: body.reply.id,
     });
-    const row = await settled(body.reply.id);
+    const row = await settled(chat, body.reply.id);
     expect(row.delivered).toBe(true);
     expect(prompts[0].prompt).toContain(`(id: ${body.reply.id})`);
     expect(prompts[0].prompt).toContain("\nYes\n");
@@ -892,7 +903,7 @@ describe("chat routes with a deliverable terminal", () => {
       [agentId]
     );
     const mediaId = media.rows[0].id;
-    const { app, ready, prompts } = buildApp({});
+    const { app, ready, chat, prompts } = buildApp({});
     await ready;
     const q = await store.insert({
       agentId,
@@ -931,7 +942,7 @@ describe("chat routes with a deliverable terminal", () => {
       value: "see the doc",
       replyMessageId: body.reply.id,
     });
-    await settled(body.reply.id);
+    await settled(chat, body.reply.id);
     expect(prompts).toHaveLength(1);
     expect(prompts[0].prompt).toContain(
       [
@@ -949,7 +960,7 @@ describe("chat routes with a deliverable terminal", () => {
   });
 
   it("400s an answer whose attachments are malformed, unknown, or too many, leaving the question open", async () => {
-    const { app, ready, prompts } = buildApp({});
+    const { app, ready, chat, prompts } = buildApp({});
     await ready;
     const q = await store.insert({
       agentId,

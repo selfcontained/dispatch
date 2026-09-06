@@ -647,10 +647,18 @@ describe("ChatService user workflows", () => {
     return { svc, events, injected };
   }
 
+  /**
+   * The delivered row, once its whole settlement chain has run: the row
+   * is marked before the delivered entry is read back and published, so
+   * waiting on the row alone can observe the state between the two.
+   */
   async function settled(svc: ChatService, id: string): Promise<ChatMessage> {
     for (let i = 0; i < 50; i++) {
       const row = await svc.store.getById(id);
-      if (row && row.delivered !== null) return row;
+      if (row && row.delivered !== null) {
+        await svc.waitForInFlightDeliveries(1_000);
+        return row;
+      }
       await new Promise((r) => setTimeout(r, 20));
     }
     throw new Error("delivery never settled");
