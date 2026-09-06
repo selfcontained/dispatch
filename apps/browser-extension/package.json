@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/browser-extension",
-  "version": "0.38.9",
+  "version": "0.38.10",
   "private": true,
   "type": "module",
   "scripts": {
