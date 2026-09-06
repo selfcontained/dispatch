@@ -62,6 +62,33 @@ launchctl bootout    "gui/$(id -u)/com.dispatch.server"
 launchctl kickstart -k "gui/$(id -u)/com.dispatch.server"
 ```
 
+### Read this first: a restart cuts a running Dispatch Harness turn
+
+A restart is not free for `dsh` agents the way it is for CLI agents. A Claude
+or Codex agent runs inside a tmux session the service does not own, so
+`kickstart -k` leaves it working and the new process re-attaches to the pane.
+A Dispatch Harness agent runs as a **child of the service over stdio** (the
+Agent Client Protocol needs a live pipe to its client), so every restart,
+deploys included, ends the turn it was running.
+
+What the service does about it:
+
+- At shutdown the running turn is marked `interrupted by restart`; the Harness
+  view shows it as interrupted.
+- At boot the agent is resumed on its stored session id. If the cut was within
+  the last hour and the agent had not already reported done, blocked, or
+  waiting, it receives a `--- DISPATCH: RESTART ---` notice and picks the task
+  up from its session log. Chat messages still queued at shutdown are
+  delivered again, in order.
+- The tasks strip stays empty until the agent writes its list again; the old
+  list is still on the interrupted turn's steps.
+
+Before a restart, check the sidebar for a Dispatch Harness agent that is
+`Working` and either wait for the turn or accept the cut. Letting the harness
+outlive the service (a detached `dsh` behind a relay socket, so the new
+process reconnects instead of respawning) is a known limitation; the design
+sketch is in `docs/superpowers/handoffs/2026-09-05-dsh-harness-handoff.md`.
+
 ## Database
 
 Production uses Homebrew Postgres (native, no Docker overhead):
