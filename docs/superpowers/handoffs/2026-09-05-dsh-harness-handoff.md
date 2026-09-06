@@ -169,3 +169,45 @@ cache, then navigate again.
 Next up, from Nii: a usage popup for the provider API keys the harness
 uses (tokens or dollars left, one bar per key). Recorded in the brain
 (`dsh-harness` collection).
+
+## Update, 2026-09-05 evening: v0.38.7-dsh.19
+
+Shipped by the same successor session (feature `933416c`, release commit
+tagged `v0.38.7-dsh.19`). Rollback binary `~/.dispatch/server/dispatch.dsh18`.
+
+- **Subagents.** dsh keeps each subagent as its own session under
+  `<DSH_HOME>/sessions/<project>/<id>/session.jsonl.zstd` (concatenated zstd
+  frames; header line carries `parentSession`, `origin: "subagent"`). The
+  parent's `subagent` step output says `started subagent <id>`.
+  `session-log.ts` finds and decodes a log (own frame scanner: Node's
+  one-shot zstd stops after frame one, Bun's does not), `subagents.ts`
+  shapes it into turns, `GET /api/v1/agents/:id/harness/subagents/:sessionId`
+  serves it only when the header's `parentSession` equals the agent's
+  `cli_session_id`. Web: `subagent-detail.tsx` nests a `TurnStream nested`
+  under the step, polled every 3s until finished; the agent id reaches it
+  through `HarnessAgentContext`.
+- **Tasks.** `todo_write` input holds the whole list; `registry.ts` has
+  `isTodoStep`/`todoItems`, `todo-list.tsx` renders it, `tasks-strip.tsx`
+  pins the live turn's latest list above the composer while anything is not
+  completed.
+- **Usage.** `agents/dsh/usage.ts`: OpenAI costs API (`OPENAI_ADMIN_KEY`,
+  sums daily buckets), Anthropic cost report (`ANTHROPIC_ADMIN_KEY`, else the
+  API key; an unscoped personal key works, a workspace key 401s), DeepSeek
+  `/user/balance`, and the harness logs' `assistant/message.usage` per
+  provider/model priced with pi-ai's catalog found beside the dsh binary.
+  Budgets from `DISPATCH_USAGE_BUDGET_<PROVIDER>`. `GET /api/v1/harness/usage`,
+  cached 60s. Web: `usage-dialog.tsx`, `/usage`, chip. Live on this
+  machine: OpenAI billed ≈ logs estimate (19.4 vs 20.7 USD on 2026-09-05),
+  DeepSeek balance reads, Anthropic needs the admin key.
+- **Shortcut pins inline.** `TurnStream.turnExtras(turn)` / `liveExtras`
+  is the slot; `shortcut-row.tsx` reuses `ShortcutPinItem` and the
+  sidebar's `ConfirmShortcutDialog` (now exported from `pins-panel.tsx`) and
+  `useRunPinShortcut`. Labels come from the turn's `dispatch_pin(s)` steps,
+  state from `agent.pins`.
+- The Chat filter popover is hidden when `harnessEnabled`.
+- E2E: `fake-dsh.mjs` writes a task list when the prompt says `tasks:`; the
+  dsh spec has a third scenario (tasks strip, step expand, /usage dialog).
+
+Next, from Nii: forms as structured input in the Harness. Plan in
+`docs/superpowers/plans/2026-09-05-harness-generative-ui-followups.md`,
+grounded in PromptKit's 2026-07-14 generative-UI modality spec.
