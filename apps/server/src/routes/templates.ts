@@ -21,6 +21,7 @@ import {
   isTextFile,
   sanitizeUploadedFileName,
 } from "../shared/media.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 const directoryField = z
   .string()
@@ -88,7 +89,7 @@ function classifyErrorCode(message: string): number {
 
 type TemplateRouteDeps = {
   templateService: TemplateService;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
   withStreamFlag: <T extends AgentRecord>(
     agent: T
   ) => T & { hasStream: boolean };

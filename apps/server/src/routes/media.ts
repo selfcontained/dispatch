@@ -26,6 +26,7 @@ import { TmuxTerminal } from "../terminal/tmux-terminal.js";
 import { hostClipboardImageCapable } from "../shared/lib/clipboard-capability.js";
 import { writeImageToClipboard } from "../shared/lib/clipboard-write.js";
 import { runCommand } from "../shared/lib/run-command.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 // Per-agent [File #N] sequence counter for terminal injection. In-memory,
 // resets on server restart — N is a cosmetic prompt label, not a stable ID.
@@ -95,7 +96,7 @@ type MediaRouteDeps = {
   mediaRoot: string;
   agentManager: AgentManager;
   appLog: FastifyBaseLogger;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
   injectionCoordinator: InjectionCoordinator;
 };
 

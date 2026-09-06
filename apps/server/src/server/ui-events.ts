@@ -1,5 +1,4 @@
-import type { AgentRecord } from "../agents/manager.js";
-import type { SharedUiEvent } from "@dispatch/shared";
+import type { SharedUiEvent, StreamedAgentRecord } from "@dispatch/shared";
 import type { ReleaseInfoSnapshot } from "../release-info.js";
 
 import type { DiffStats } from "../shared/git/diff-stats.js";
@@ -10,8 +9,8 @@ import type { DiffStats } from "../shared/git/diff-stats.js";
  * Every other member of the stream lives in that shared union.
  */
 export type UiEvent =
-  | { type: "snapshot"; agents: AgentRecord[] }
-  | { type: "agent.upsert"; agent: AgentRecord }
+  | { type: "snapshot"; agents: StreamedAgentRecord[] }
+  | { type: "agent.upsert"; agent: StreamedAgentRecord }
   | {
       type: "agent.diff_state_changed";
       agentId: string;
@@ -22,6 +21,9 @@ export type UiEvent =
       snapshot: ReleaseInfoSnapshot | null;
     }
   | SharedUiEvent;
+
+/** How every route and runtime module receives the broker's `publish`. */
+export type PublishUiEvent = (event: UiEvent) => void;
 
 export class UiEventBroker {
   private clients = new Set<NodeJS.WritableStream>();
@@ -57,7 +59,10 @@ export class UiEventBroker {
     };
   }
 
-  sendSnapshot(stream: NodeJS.WritableStream, agents: AgentRecord[]): void {
+  sendSnapshot(
+    stream: NodeJS.WritableStream,
+    agents: StreamedAgentRecord[]
+  ): void {
     this.write({ type: "snapshot", agents }, stream);
   }
 

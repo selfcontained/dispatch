@@ -5,6 +5,7 @@ import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { StreamManager } from "../stream-manager.js";
 import type { SubsystemTracker } from "../observability/subsystem-tracker.js";
 import type { JobService } from "../jobs/service.js";
+import type { PublishUiEvent } from "./ui-events.js";
 
 type CreateAgentLifecycleRuntimeDeps = {
   agentManager: AgentManager;
@@ -15,7 +16,7 @@ type CreateAgentLifecycleRuntimeDeps = {
   withStreamFlag: <T extends AgentRecord>(
     agent: T
   ) => T & { hasStream: boolean };
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
   reconciliationTracker?: SubsystemTracker;
   activityTracker?: SubsystemTracker;
   onAgentsArchived?: (agentIds: string[]) => Promise<void>;

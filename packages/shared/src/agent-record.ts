@@ -129,3 +129,12 @@ export type AgentRecord = {
   createdAt: string;
   updatedAt: string;
 };
+
+/**
+ * The agent row as it goes out on the `snapshot` and `agent.upsert` SSE
+ * events: every publish site runs the record through the server's
+ * `withStreamFlag` first, so `hasStream` is always present on the stream.
+ * REST responses carry it too, but those are separate contracts — see
+ * `apps/server/src/routes/agents/`.
+ */
+export type StreamedAgentRecord = AgentRecord & { hasStream: boolean };

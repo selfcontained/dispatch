@@ -42,6 +42,7 @@ import {
   isWorktreeLocation,
   WORKTREE_LOCATION_KEY,
 } from "../worktree-location-settings.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 const INSTANCE_NAME_KEY = "instance_name";
 
@@ -53,7 +54,7 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
 };
 
 export async function registerSystemRoutes(
