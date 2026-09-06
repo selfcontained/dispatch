@@ -154,46 +154,28 @@ function cursorClause(
 const intKey = (id: number) => String(id).padStart(20, "0");
 
 /**
- * `attachments` with each file attachment's `width`/`height` taken from the
- * media row it points at.
- *
- * The shape cannot be stored on the message: an attachment is frozen into the
- * row as JSONB when the message is written, but the URL it renders is not
- * frozen with it. `dispatch_share_file` replaces a file's bytes in place and
- * the historical post then serves the *new* ones, so a shape recorded at write
- * time would describe bytes the post no longer has — a wrong box, where absent
- * merely means a plain one. The media row is the truth, and this is where the
- * feed reads it.
- *
- * `- 'width' - 'height'` on the fallback branch is deliberate: whatever the
- * live row says wins, including when it says nothing, so a stale pair written
- * by some earlier version of this code cannot survive a read.
- *
- * The `mediaId` guard matters because a join condition is not short-circuited
- * — without it, a malformed blob would fail the cast for every row on the page
- * rather than losing one attachment's dimensions.
+ * The message columns `toChatMessage` needs, minus `attachments` — the query
+ * below computes that one rather than passing the stored value through, so it
+ * cannot be part of a `*`.
  */
-const ATTACHMENTS_SQL = `
-  COALESCE((
-    SELECT jsonb_agg(
-             CASE
-               WHEN a->>'type' = 'file'
-                    AND md.metadata ? 'width'
-                    AND md.metadata ? 'height'
-               THEN a || jsonb_build_object(
-                           'width', md.metadata->'width',
-                           'height', md.metadata->'height')
-               ELSE a - 'width' - 'height'
-             END
-             ORDER BY ord)
-      FROM jsonb_array_elements(m.attachments) WITH ORDINALITY AS t(a, ord)
-      LEFT JOIN media md
-        ON md.id = CASE
-                     WHEN a->>'type' = 'file'
-                          AND jsonb_typeof(a->'mediaId') = 'number'
-                     THEN (a->>'mediaId')::int
-                   END
-  ), '[]'::jsonb)`;
+const MESSAGE_COLUMNS = [
+  "id",
+  "agent_id",
+  "author_kind",
+  "kind",
+  "text",
+  "reply_to",
+  "question",
+  "answer",
+  "delivered",
+  "read_at",
+  "origin",
+  "launched_by_agent_id",
+  "created_at",
+  "updated_at",
+];
+const MESSAGE_COLUMNS_SQL = MESSAGE_COLUMNS.join(", ");
+const PAGE_COLUMNS_SQL = MESSAGE_COLUMNS.map((c) => `p.${c}`).join(", ");
 
 async function listChatEntries(
   db: Queryable,
@@ -204,18 +186,54 @@ async function listChatEntries(
   const params: unknown[] = [agentId];
   const clause = cursorClause("chat", "uuid", cursor, params);
   params.push(limit);
+  // The page is materialized first, then its attachments are expanded once,
+  // joined to `media`, and re-aggregated. Doing it that way rather than as a
+  // per-row subquery is a planner concern, not a style one: `jsonb_array_elements`
+  // has no statistics, so the planner assumes 100 elements per message and
+  // prices a per-row lookup at ~100 index scans. On an agent with a long
+  // history that estimate carries the whole query past `jit_above_cost` and
+  // Postgres JIT-compiles it — measured at 17ms against 2.4ms for this shape,
+  // on a page whose actual work is about 1ms either way. Expanding once gives
+  // the planner one function scan and a hash join to price instead.
   const result = await db.query<
     Parameters<typeof toChatMessage>[0] & { at_key: string }
   >(
-    `SELECT m.id, m.agent_id, m.author_kind, m.kind, m.text, m.reply_to,
-            m.question, m.answer, m.delivered, m.read_at, m.origin,
-            m.launched_by_agent_id, m.created_at, m.updated_at,
-            ${ATTACHMENTS_SQL} AS attachments,
-            ${AT_KEY_SQL} AS at_key
-       FROM agent_chat_messages m
-      WHERE m.agent_id = $1 ${clause}
-      ORDER BY m.created_at DESC, m.id DESC
-      LIMIT $${params.length}`,
+    `WITH page AS MATERIALIZED (
+       SELECT ${MESSAGE_COLUMNS_SQL}, attachments, ${AT_KEY_SQL} AS at_key
+         FROM agent_chat_messages m
+        WHERE m.agent_id = $1 ${clause}
+        ORDER BY m.created_at DESC, m.id DESC
+        LIMIT $${params.length}
+     ), expanded AS (
+       SELECT p.id AS message_id, t.ord,
+              CASE
+                WHEN t.a->>'type' = 'file'
+                     AND md.metadata ? 'width'
+                     AND md.metadata ? 'height'
+                THEN t.a || jsonb_build_object(
+                              'width', md.metadata->'width',
+                              'height', md.metadata->'height')
+                ELSE t.a - 'width' - 'height'
+              END AS attachment
+         FROM page p
+         CROSS JOIN LATERAL
+           jsonb_array_elements(p.attachments) WITH ORDINALITY AS t(a, ord)
+         LEFT JOIN media md
+           ON md.id = CASE
+                        WHEN t.a->>'type' = 'file'
+                             AND jsonb_typeof(t.a->'mediaId') = 'number'
+                        THEN (t.a->>'mediaId')::int
+                      END
+     ), live AS (
+       SELECT message_id, jsonb_agg(attachment ORDER BY ord) AS attachments
+         FROM expanded
+        GROUP BY message_id
+     )
+     SELECT ${PAGE_COLUMNS_SQL},
+            p.at_key,
+            COALESCE(live.attachments, '[]'::jsonb) AS attachments
+       FROM page p
+       LEFT JOIN live ON live.message_id = p.id`,
     params
   );
   return result.rows.map((row) => {
