@@ -539,13 +539,20 @@ export function ChatPane({
   // The sidebar's agent list, read for a peer post's icon and lineage.
   // `select` narrows it to what the feed shows, so structural sharing keeps
   // the directory's identity across agent updates that change nothing here.
+  // The selector itself must be stable too: react-query re-runs a fresh
+  // selector every render, and an empty directory (a lone agent) comes back
+  // as a new object each time, which would churn `ctx` below.
+  const selectPeers = useCallback(
+    (agents: Agent[]) => peerDirectory(agentId ?? "", agents),
+    [agentId]
+  );
   const { data: peers } = useQuery<Agent[], Error, PeerDirectory>({
     queryKey: ["agents"],
     queryFn: async () => {
       const payload = await api<{ agents: Agent[] }>("/api/v1/agents");
       return payload.agents;
     },
-    select: (agents) => peerDirectory(agentId ?? "", agents),
+    select: selectPeers,
   });
   const ctx = useMemo<FeedContext>(
     () => ({

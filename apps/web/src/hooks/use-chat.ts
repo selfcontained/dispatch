@@ -85,9 +85,14 @@ export function shareFeedByEntryId(
   prev: FeedCache,
   next: FeedCache
 ): FeedCache {
+  // Keyed by type as well as id: the server namespaces ids per source today
+  // (event:/media:/review:/pin:, uuids for the rest), but nothing here should
+  // depend on a source it does not control keeping that up.
   const previousById = new Map<string, ChatFeedEntry>();
   for (const page of prev.pages) {
-    for (const entry of page.entries) previousById.set(entry.id, entry);
+    for (const entry of page.entries) {
+      previousById.set(`${entry.type}:${entry.id}`, entry);
+    }
   }
 
   let pagesChanged = prev.pages.length !== next.pages.length;
@@ -96,7 +101,10 @@ export function shareFeedByEntryId(
     let entriesChanged =
       !prevPage || prevPage.entries.length !== page.entries.length;
     const entries = page.entries.map((entry, j) => {
-      const shared = replaceEqualDeep(previousById.get(entry.id), entry);
+      const shared = replaceEqualDeep(
+        previousById.get(`${entry.type}:${entry.id}`),
+        entry
+      );
       if (!entriesChanged && prevPage!.entries[j] !== shared) {
         entriesChanged = true;
       }
@@ -236,7 +244,7 @@ function optimisticUserMessage(
   };
 }
 
-function appendToNewestPage(
+export function appendToNewestPage(
   cache: FeedCache | undefined,
   message: ChatMessage
 ): FeedCache | undefined {
@@ -253,7 +261,7 @@ function appendToNewestPage(
   return { ...cache, pages };
 }
 
-function replaceMessage(
+export function replaceMessage(
   cache: FeedCache | undefined,
   matchId: string,
   next: ChatMessage

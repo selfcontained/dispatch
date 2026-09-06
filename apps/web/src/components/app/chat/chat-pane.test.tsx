@@ -2,6 +2,7 @@
 import type { ChatFeedEntry, ChatMessage } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -39,6 +40,13 @@ const H = vi.hoisted(() => ({
   answerNow: vi.fn(),
   sendNow: vi.fn(),
   markRead: vi.fn(),
+}));
+
+// No real request may be in flight under a test: the pane's peers query
+// (`GET /api/v1/agents`) would otherwise hit whatever answers the jsdom
+// origin, and a resolved directory re-renders every post.
+vi.mock("@/lib/api", () => ({
+  api: vi.fn(async () => ({ agents: [] })),
 }));
 
 vi.mock("@/hooks/use-chat", () => ({
@@ -322,7 +330,7 @@ describe("ChatPane", () => {
     expect(screen.queryByText("still hidden")).toBeNull();
   });
 
-  it("does not re-render memoised posts when the pane re-renders with equal data", () => {
+  it("does not re-render memoised posts when the pane re-renders with equal data", async () => {
     H.entries = [chat(message({ id: "a", text: "**bold** body" }))];
     const stable = {
       onShowChildAgentsChange: vi.fn(),
@@ -330,7 +338,11 @@ describe("ChatPane", () => {
       childAgentIds: [] as string[],
     };
     const { rerender } = renderPane(stable);
-    expect(markdownRenders.count).toBe(1);
+    // Let mount-time queries (peers, injection hold) settle, then take the
+    // baseline so the assertion measures only what the rerender does. The
+    // query cache notifies on a macrotask, so a microtask flush is not enough.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    const settled = markdownRenders.count;
     // Every agent.upsert hands the pane a fresh agent object with the same
     // content; the row context must stay referentially stable through it.
     rerender(
@@ -344,7 +356,7 @@ describe("ChatPane", () => {
         {...stable}
       />
     );
-    expect(markdownRenders.count).toBe(1);
+    expect(markdownRenders.count).toBe(settled);
   });
 
   it("explains a filter-only empty feed and can show child messages again", () => {

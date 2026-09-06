@@ -14,8 +14,10 @@ const apiMock = vi.hoisted(() => vi.fn());
 vi.mock("@/lib/api", () => ({ api: apiMock }));
 
 import {
+  appendToNewestPage,
   chatFeedQueryKey,
   type FeedCache,
+  replaceMessage,
   shareFeedByEntryId,
   useAnswerChatQuestion,
   useChatFeed,
@@ -278,6 +280,70 @@ describe("shareFeedByEntryId", () => {
     );
     expect((shared.pages[0] as unknown as { extra: string }).extra).toBe("two");
     expect(shared.pages[0]!.entries).toBe(prev.pages[0]!.entries);
+  });
+
+  // setQueryData applies structuralSharing too, so the optimistic paths in
+  // this module pass through the function; each shape must come out right.
+  it("keeps an optimistic append and reuses every other entry", () => {
+    const a = chat(message({ id: "a" }));
+    const b = chat(message({ id: "b" }));
+    const prev: FeedCache = { pageParams: [undefined], pages: [page([a, b])] };
+    const optimistic = message({ id: "optimistic-1", text: "sending" });
+    const shared = share(prev, appendToNewestPage(prev, optimistic)!);
+    expect(shared.pages[0]!.entries.map((e) => e.id)).toEqual([
+      "a",
+      "b",
+      "optimistic-1",
+    ]);
+    expect(shared.pages[0]!.entries[0]).toBe(a);
+    expect(shared.pages[0]!.entries[1]).toBe(b);
+    expect(
+      shared.pages[0]!.entries[2]!.type === "chat" &&
+        shared.pages[0]!.entries[2]!.message.text
+    ).toBe("sending");
+  });
+
+  it("replaces an answered question in place and reuses the rest", () => {
+    const qm = message({
+      id: "q",
+      kind: "question",
+      question: { options: [{ label: "Yes" }] },
+    });
+    const q = chat(qm);
+    const other = chat(message({ id: "o" }));
+    const prev: FeedCache = {
+      pageParams: [undefined],
+      pages: [page([q, other])],
+    };
+    const answered = {
+      ...qm,
+      answer: {
+        value: "Yes",
+        label: "Yes",
+        replyMessageId: "r",
+        answeredAt: "2026-09-02T10:05:00.000Z",
+      },
+    };
+    const shared = share(prev, replaceMessage(prev, "q", answered)!);
+    const first = shared.pages[0]!.entries[0]!;
+    const second = shared.pages[0]!.entries[1];
+    expect(first).not.toBe(q);
+    expect(first.type === "chat" ? first.message.answer?.value : null).toBe(
+      "Yes"
+    );
+    expect(second).toBe(other);
+  });
+
+  it("applies the unread patch while keeping the entries array", () => {
+    const a = chat(message({ id: "a" }));
+    const prev: FeedCache = { pageParams: [undefined], pages: [page([a])] };
+    const patched = share(prev, {
+      ...prev,
+      pages: [{ ...prev.pages[0]!, unreadCount: 3 }],
+    });
+    expect(patched.pages[0]!.unreadCount).toBe(3);
+    expect(patched.pages[0]!.entries).toBe(prev.pages[0]!.entries);
+    expect(patched.pages[0]).not.toBe(prev.pages[0]);
   });
 
   it("shares by id through the query's structuralSharing option", async () => {
