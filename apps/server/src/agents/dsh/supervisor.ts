@@ -326,6 +326,9 @@ export class DshSupervisor {
     this.streams = new StreamRecorder(new StreamStore(deps.pool), {
       commandLog: (agentId, entry) =>
         appendCommandLog(commandLogPath(deps.config.dshHome, agentId), entry),
+      // A goal round dsh ran on its own settles by going quiet; the view
+      // learns of it the same way it learns of every other stream write.
+      onAutonomousSettled: (agentId) => deps.publishChat(agentId),
     });
     this.usage = new UsageRecorder(deps.pool);
     this.driver.onEvent((event) => {

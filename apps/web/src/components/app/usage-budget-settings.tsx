@@ -15,6 +15,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { ProviderIcon } from "@/components/app/harness/provider-icon";
 import { useUsageBudgets } from "@/hooks/use-usage-budgets";
 
 type Row = { id: HarnessUsageProviderId; amount: string };
@@ -104,7 +105,8 @@ export function UsageBudgetSettings(): JSX.Element {
               data-provider={row.id}
             >
               <div className="flex items-center gap-3">
-                <span className="w-24 text-sm font-medium text-foreground">
+                <span className="flex w-28 items-center gap-1.5 text-sm font-medium text-foreground">
+                  <ProviderIcon provider={row.id} className="h-3.5 w-3.5" />
                   {labelOf(row.id)}
                 </span>
                 <span className="text-sm text-muted-foreground">$</span>
@@ -192,7 +194,10 @@ export function UsageBudgetSettings(): JSX.Element {
             <SelectContent>
               {available.map((p) => (
                 <SelectItem key={p.id} value={p.id}>
-                  {p.label}
+                  <span className="flex items-center gap-1.5">
+                    <ProviderIcon provider={p.id} className="h-3.5 w-3.5" />
+                    {p.label}
+                  </span>
                 </SelectItem>
               ))}
             </SelectContent>

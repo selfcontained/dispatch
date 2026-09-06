@@ -19,6 +19,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 
+import { ProviderIcon } from "./provider-icon";
 import { configChoices, isConfigGroup } from "./use-harness-config";
 
 /**
@@ -136,7 +137,12 @@ export function ModelPicker({
                     <SelectGroup
                       key={entry.groupId ?? entry.group ?? entry.name}
                     >
-                      <SelectLabel>{entry.name}</SelectLabel>
+                      <SelectLabel className="flex items-center gap-1.5">
+                        <ProviderIcon
+                          provider={entry.groupId ?? entry.group ?? entry.name}
+                        />
+                        {entry.name}
+                      </SelectLabel>
                       {entry.options.map((c) => (
                         <SelectItem key={c.value} value={encodeValue(c.value)}>
                           {c.name}

@@ -329,3 +329,62 @@ export function hasDetail(step: Step): boolean {
     }
   }
 }
+
+/** dsh's goal loop, as its goal tools last reported it. */
+export type GoalState = {
+  id: string;
+  objective: string;
+  phase: string;
+  roundsStarted: number;
+  maxRounds: number;
+  blockedReason?: string;
+};
+
+const GOAL_TOOLS = new Set(["create_goal", "update_goal", "get_goal"]);
+
+/** The goal in a goal tool's output, when the output is one. */
+export function goalFromStep(step: Step): GoalState | null {
+  if (!GOAL_TOOLS.has(stepToolName(step))) return null;
+  const output = stepDetailData(step).terminalOutput;
+  if (!output) return null;
+  try {
+    const parsed = JSON.parse(output) as { goal?: Record<string, unknown> };
+    const goal = parsed.goal;
+    if (!goal || typeof goal.objective !== "string") return null;
+    const blocked = inputRecord(goal.blockedReason);
+    return {
+      id: typeof goal.id === "string" ? goal.id : "",
+      objective: goal.objective,
+      phase: typeof goal.phase === "string" ? goal.phase : "active",
+      roundsStarted:
+        typeof goal.roundsStarted === "number" ? goal.roundsStarted : 0,
+      maxRounds:
+        typeof goal.maxGoalRounds === "number" ? goal.maxGoalRounds : 0,
+      ...(typeof blocked?.message === "string"
+        ? { blockedReason: blocked.message }
+        : typeof goal.blockedReason === "string"
+          ? { blockedReason: goal.blockedReason }
+          : {}),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/** The newest goal state across the turns and the live trace. */
+export function latestGoal(
+  turns: Turn[],
+  liveTrace: Trace | null
+): GoalState | null {
+  const traces: Trace[] = [];
+  for (const turn of turns) if (turn.trace) traces.push(turn.trace);
+  if (liveTrace) traces.push(liveTrace);
+  for (let t = traces.length - 1; t >= 0; t -= 1) {
+    const steps = traces[t].steps;
+    for (let i = steps.length - 1; i >= 0; i -= 1) {
+      const goal = goalFromStep(steps[i]);
+      if (goal) return goal;
+    }
+  }
+  return null;
+}

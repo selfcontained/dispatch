@@ -21,7 +21,9 @@ import { cn } from "@/lib/utils";
 import type { Attachment, Turn } from "./contracts";
 import { HarnessContext } from "./harness-context";
 import { ModelPicker } from "./model-picker";
-import { latestTodoItems } from "./registry";
+import { GoalStrip } from "./goal-strip";
+import { ProviderIcon, providerOfConfigValue } from "./provider-icon";
+import { latestGoal, latestTodoItems } from "./registry";
 import { TasksStrip } from "./tasks-strip";
 import { TurnShortcuts } from "./turn-shortcuts";
 import { TurnStream } from "./turn-stream";
@@ -148,6 +150,7 @@ export function HarnessPane({
     [liveTrace, streaming, turns]
   );
   const tasksOpen = currentTasks.some((t) => t.status !== "completed");
+  const goal = useMemo(() => latestGoal(turns, liveTrace), [liveTrace, turns]);
 
   const turnExtras = useCallback(
     (turn: Turn) =>
@@ -410,6 +413,7 @@ export function HarnessPane({
         />
       </HarnessContext.Provider>
       <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
+        {goal ? <GoalStrip goal={goal} /> : null}
         {tasksOpen ? (
           <TasksStrip
             items={currentTasks}
@@ -428,7 +432,11 @@ export function HarnessPane({
             {starting || (!config.running && agent?.status === "running") ? (
               <ActivityBars size={10} className="shrink-0" />
             ) : (
-              <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
+              (config.running && (
+                <ProviderIcon
+                  provider={providerOfConfigValue(config.model?.currentValue)}
+                />
+              )) || <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
             )}
             <span className="truncate">
               {config.running

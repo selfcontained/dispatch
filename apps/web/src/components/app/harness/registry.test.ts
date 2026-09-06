@@ -3,7 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { Step } from "./contracts";
 import {
   argsSummary,
+  goalFromStep,
   hasDetail,
+  latestGoal,
   isSubagentStep,
   isTodoStep,
   subagentSessionId,
@@ -217,5 +219,55 @@ describe("todo and subagent steps", () => {
     expect(
       subagentSessionId({ ...step, detail: { terminalOutput: "done" } })
     ).toBeNull();
+  });
+});
+
+describe("goal steps", () => {
+  const goalStep = (phase: string, extra = "") => ({
+    id: "g",
+    kind: "other",
+    label: "get_goal",
+    status: "ok" as const,
+    startedAt: 0,
+    detail: {
+      terminalOutput: `{"goal":{"id":"goal-1","objective":"Merge PR #177 when green","phase":"${phase}","roundsStarted":3,"maxGoalRounds":8${extra}},"activation":"armed"}`,
+    },
+  });
+  it("reads the goal state out of a goal tool's output", () => {
+    expect(goalFromStep(goalStep("active"))).toEqual({
+      id: "goal-1",
+      objective: "Merge PR #177 when green",
+      phase: "active",
+      roundsStarted: 3,
+      maxRounds: 8,
+    });
+    expect(
+      goalFromStep(
+        goalStep(
+          "blocked",
+          ',"blockedReason":{"code":"model-reported","message":"CI is red"}'
+        )
+      )?.blockedReason
+    ).toBe("CI is red");
+    expect(goalFromStep({ ...goalStep("active"), label: "bash" })).toBeNull();
+  });
+  it("takes the newest goal across turns and the live trace", () => {
+    const older = goalStep("active");
+    const newer = { ...goalStep("blocked"), id: "g2" };
+    expect(
+      latestGoal(
+        [
+          {
+            id: "a",
+            role: "assistant",
+            content: "",
+            timestamp: 0,
+            trace: { startedAt: 0, steps: [older] },
+          },
+        ],
+        { startedAt: 1, steps: [newer] }
+      )?.phase
+    ).toBe("blocked");
+    expect(latestGoal([], null)).toBeNull();
   });
 });

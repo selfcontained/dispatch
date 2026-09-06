@@ -99,7 +99,11 @@ describe("StreamRecorder", () => {
     });
     await rec.handle(chunk("two"));
     await rec.flush(A);
-    const rows = (await store.list(A, 10)).reverse();
+    // Updates with no prompted turn open a turn of their own (a goal round);
+    // this test is about the text rows, so it looks past that one.
+    const rows = (await store.list(A, 10))
+      .reverse()
+      .filter((r) => r.kind !== "turn");
     expect(rows.map((r) => r.kind)).toEqual([
       "assistant",
       "tool_call",
@@ -123,7 +127,9 @@ describe("StreamRecorder", () => {
     await rec.handle(thought("plan"));
     await rec.handle(thought("ning"));
     await rec.handle(chunk("Done."));
-    const rows = (await store.list(A, 10)).reverse();
+    const rows = (await store.list(A, 10))
+      .reverse()
+      .filter((r) => r.kind !== "turn");
     expect(rows.map((r) => [r.kind, r.payload.text])).toEqual([
       ["thought", "planning"],
       ["assistant", "Done."],
@@ -454,5 +460,84 @@ describe("StreamRecorder command log", () => {
       output: "web\n",
       status: "completed",
     });
+  });
+});
+
+describe("StreamRecorder autonomous turns", () => {
+  const call = (id: string): DriverEvent => ({
+    type: "update",
+    agentId: A,
+    update: {
+      sessionUpdate: "tool_call",
+      toolCallId: id,
+      title: "get_goal",
+      kind: "other",
+      status: "completed",
+      content: [{ type: "content", content: { type: "text", text: "{}" } }],
+    },
+  });
+  const turnRows = async () =>
+    (
+      await pool.query<{ payload: Record<string, unknown> }>(
+        `SELECT payload FROM agent_stream_events WHERE agent_id = $1 AND kind = 'turn' ORDER BY seq`,
+        [A]
+      )
+    ).rows.map((r) => r.payload);
+
+  it("opens a goal-round turn when dsh acts without a prompt and settles it once quiet", async () => {
+    const settled: string[] = [];
+    const rec = new StreamRecorder(store, {
+      autonomousIdleMs: 40,
+      onAutonomousSettled: (id) => settled.push(id),
+    });
+    await rec.handle(call("c1"));
+    let turns = await turnRows();
+    expect(turns).toHaveLength(1);
+    expect(turns[0]).toMatchObject({ state: "started", autonomous: true });
+    expect(String((turns[0].prompt as { text: string }).text)).toContain(
+      "GOAL ROUND"
+    );
+    // Activity keeps it open; quiet ends it.
+    await new Promise((r) => setTimeout(r, 25));
+    await rec.handle(call("c2"));
+    await new Promise((r) => setTimeout(r, 25));
+    expect((await turnRows())[0].state).toBe("started");
+    await new Promise((r) => setTimeout(r, 60));
+    turns = await turnRows();
+    expect(turns[0]).toMatchObject({
+      state: "settled",
+      stopReason: "end_turn",
+    });
+    expect(settled).toEqual([A]);
+  });
+
+  it("settles an open goal-round turn before a prompted turn starts", async () => {
+    const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
+    await rec.handle(call("c1"));
+    await rec.handle({
+      type: "turn",
+      agentId: A,
+      state: "started",
+      text: "go",
+    });
+    const turns = await turnRows();
+    expect(turns.map((t) => [t.state, t.autonomous ?? false])).toEqual([
+      ["settled", true],
+      ["started", false],
+    ]);
+    await rec.reconcile(A);
+  });
+
+  it("does not open a turn for a config change alone", async () => {
+    const rec = new StreamRecorder(store, { autonomousIdleMs: 10_000 });
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "config_option_update",
+        configOptions: [],
+      } as never,
+    });
+    expect(await turnRows()).toHaveLength(0);
   });
 });

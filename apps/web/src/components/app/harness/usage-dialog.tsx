@@ -14,6 +14,7 @@ import {
 } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
+import { ProviderIcon } from "./provider-icon";
 import { useHarnessUsage } from "./use-harness-usage";
 
 export function formatUsd(value: number): string {
@@ -91,7 +92,8 @@ function ProviderRow({
       data-provider={provider.id}
     >
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-        <span className="text-sm font-medium text-foreground">
+        <span className="flex items-center gap-1.5 text-sm font-medium text-foreground">
+          <ProviderIcon provider={provider.id} className="h-3.5 w-3.5" />
           {provider.label}
         </span>
         <span className="min-w-0 truncate font-terminal text-[10.5px] text-muted-foreground">

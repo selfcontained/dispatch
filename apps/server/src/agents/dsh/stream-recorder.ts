@@ -26,6 +26,8 @@ type OpenText = {
 /** Model output is not trusted input: bound what one row can hold. */
 export const TEXT_MAX_BYTES = 64 * 1024;
 export const TERMINAL_OUTPUT_MAX_BYTES = 32 * 1024;
+/** A self-opened turn with no update for this long is over. */
+export const AUTONOMOUS_IDLE_MS = 20_000;
 /** The error a turn carries when the service went down under it. */
 export const INTERRUPTED_BY_RESTART = "interrupted by restart";
 /** Chunks arrive per token; rewrite the row at most this often. */
@@ -155,12 +157,22 @@ export class StreamRecorder {
   private readonly cwd = new Map<string, string>();
   /** The turn row awaiting its settle, per agent. */
   private readonly openTurn = new Map<string, StreamEventRow>();
+  /**
+   * A turn dsh opened on its own (a goal round) has no prompt response to
+   * end it; it settles once the stream has been quiet for a while, or when
+   * something else starts.
+   */
+  private readonly autonomousIdle = new Map<string, NodeJS.Timeout>();
 
   constructor(
     private readonly store: StreamStore,
     private readonly deps: {
       /** Receives every shell command as it settles (see command-log.ts). */
       commandLog?: (agentId: string, entry: CommandLogEntry) => Promise<void>;
+      /** Quiet time after which a turn dsh opened by itself is settled. */
+      autonomousIdleMs?: number;
+      /** A self-opened turn settled: the feed should re-read. */
+      onAutonomousSettled?: (agentId: string) => void;
     } = {}
   ) {}
 
@@ -175,6 +187,7 @@ export class StreamRecorder {
         return this.handleUpdate(event.agentId, event.update);
       case "turn": {
         if (event.state === "started") {
+          await this.settleAutonomous(event.agentId, "next turn");
           const row = await this.store.append(event.agentId, "turn", {
             state: "started",
             prompt: parsePromptSource(event.text),
@@ -237,6 +250,9 @@ export class StreamRecorder {
    * turn interrupted by a server restart has no in-memory state here).
    */
   async reconcile(agentId: string): Promise<number> {
+    const timer = this.autonomousIdle.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.autonomousIdle.delete(agentId);
     this.openTurn.delete(agentId);
     return this.store.settleInterrupted(agentId, INTERRUPTED_BY_RESTART);
   }
@@ -281,10 +297,75 @@ export class StreamRecorder {
     });
   }
 
+  /** Prompt text for a turn dsh opened by itself. */
+  static readonly GOAL_ROUND_PROMPT = [
+    "--- DISPATCH: GOAL ROUND ---",
+    "The agent continued on its own: a round of its standing goal.",
+    "--- END DISPATCH: GOAL ROUND ---",
+  ].join("\n");
+
+  private async openAutonomousIfNeeded(
+    agentId: string,
+    update: DriverUpdate
+  ): Promise<void> {
+    if (this.openTurn.has(agentId)) {
+      this.touchAutonomous(agentId);
+      return;
+    }
+    // Only content opens a turn; a config change is not the agent working.
+    if (
+      update.sessionUpdate !== "agent_message_chunk" &&
+      update.sessionUpdate !== "agent_thought_chunk" &&
+      update.sessionUpdate !== "tool_call"
+    ) {
+      return;
+    }
+    const row = await this.store.append(agentId, "turn", {
+      state: "started",
+      prompt: parsePromptSource(StreamRecorder.GOAL_ROUND_PROMPT),
+      autonomous: true,
+    } satisfies TurnPayload);
+    this.openTurn.set(agentId, row);
+    this.touchAutonomous(agentId);
+  }
+
+  private touchAutonomous(agentId: string): void {
+    const open = this.openTurn.get(agentId);
+    if (!open || !(open.payload as TurnPayload).autonomous) return;
+    const prior = this.autonomousIdle.get(agentId);
+    if (prior) clearTimeout(prior);
+    const timer = setTimeout(() => {
+      this.autonomousIdle.delete(agentId);
+      void this.settleAutonomous(agentId, "quiet").catch(() => {});
+    }, this.deps.autonomousIdleMs ?? AUTONOMOUS_IDLE_MS);
+    timer.unref?.();
+    this.autonomousIdle.set(agentId, timer);
+  }
+
+  /** Close a turn dsh opened by itself; a no-op for a prompted turn. */
+  async settleAutonomous(agentId: string, _why: string): Promise<void> {
+    const open = this.openTurn.get(agentId);
+    if (!open || !(open.payload as TurnPayload).autonomous) return;
+    const timer = this.autonomousIdle.get(agentId);
+    if (timer) clearTimeout(timer);
+    this.autonomousIdle.delete(agentId);
+    await this.closeText(agentId);
+    const prev = open.payload as TurnPayload;
+    await this.store.updatePayload(open.id, {
+      ...prev,
+      state: "settled",
+      stopReason: "end_turn",
+      endedAt: new Date().toISOString(),
+    } satisfies TurnPayload);
+    this.openTurn.delete(agentId);
+    this.deps.onAutonomousSettled?.(agentId);
+  }
+
   private async handleUpdate(
     agentId: string,
     update: DriverUpdate
   ): Promise<void> {
+    await this.openAutonomousIfNeeded(agentId, update);
     switch (update.sessionUpdate) {
       case "agent_message_chunk":
         return this.appendText(agentId, "assistant", textOf(update.content));

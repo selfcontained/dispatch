@@ -34,6 +34,11 @@ export type StatusPayload = { message: string };
 export type TurnPayload = {
   state: "started" | "settled";
   prompt: PromptSource;
+  /**
+   * dsh started this turn itself (a goal round), so no prompt from
+   * Dispatch opened it and no prompt response closes it.
+   */
+  autonomous?: boolean;
   stopReason?: string;
   error?: string;
   /** ISO time of settle. */

@@ -846,3 +846,53 @@ describe("composerHint", () => {
     expect(queueInterrupt).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("HarnessPane goal strip", () => {
+  it("shows an armed goal with its round count, and the reason when blocked", () => {
+    state.turns = [
+      {
+        id: "t1:user",
+        role: "user",
+        content: "merge when green",
+        timestamp: T0,
+      },
+      {
+        id: "t1:assistant",
+        role: "assistant",
+        content: "Monitoring is armed.",
+        timestamp: T0 + 1000,
+        trace: {
+          startedAt: T0,
+          endedAt: T0 + 1000,
+          finalResult: "ok",
+          steps: [
+            {
+              id: "g1",
+              kind: "other",
+              label: "create_goal",
+              status: "ok",
+              startedAt: T0 + 100,
+              endedAt: T0 + 200,
+              durMs: 100,
+              detail: {
+                terminalOutput:
+                  '{"goal":{"id":"goal-1","objective":"Merge PR #177 when green","phase":"active","roundsStarted":2,"maxGoalRounds":8},"activation":"armed"}',
+              },
+            },
+          ],
+        },
+      },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const strip = screen.getByTestId("harness-goal");
+    expect(strip.getAttribute("data-phase")).toBe("active");
+    expect(strip.textContent).toContain("armed");
+    expect(strip.textContent).toContain("round 2 of 8");
+    expect(strip.textContent).toContain("Merge PR #177 when green");
+    fireEvent.click(screen.getByTestId("harness-goal-toggle"));
+    expect(strip.textContent).toContain("runs another round on its own");
+  });
+});

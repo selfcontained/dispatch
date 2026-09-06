@@ -244,3 +244,36 @@ the turn settles normally. Spike first: does dsh keep running its turn with
 the client gone, and does it accept a second `initialize` on reconnect? MCP
 tokens would need to survive a restart (they are signed with the auth
 token, so they do unless the token rotates).
+
+## Update, 2026-09-06: dsh.24 (review round + goal visibility + logos)
+
+- Five persona reviews (#298 frontend-ux, #299 architecture, #300
+  release-readiness, #301 backend-security, #302 infra; 36 items) were all
+  acted on in `0b4452e`. Notable outcomes: `ChatService.redeliverPending`
+  and the boot sweep skipping running dsh agents (queued chat survives a
+  restart); `shouldResumeAfterRestart` (resumed + cut within 1h + not
+  done/blocked/waiting); `zstdFrameLength` walks frame headers (Node's
+  one-shot decoder returns _empty_ for a truncated frame, no error, so
+  magic-hunting could never recover); `test/bun-session-log.smoke.ts` runs
+  the decoder under Bun; usage: per-file cache, async decode, 64MB cap
+  (`partial`), parallel providers, 15s deadline each, stale-while-
+  revalidate, fixed error strings, `resolveExecutable` + Node roots for
+  the price table; `createSessionLogReader` caches subagent logs;
+  `chat/use-composer-history.ts`; `turn-shortcuts.tsx`; `latestTodoItems`;
+  `useHarnessInterrupt`; `shouldConfirmShortcut`.
+- **Goal rounds.** dsh's goal loop (`dsh-goal-round-driver`) starts turns
+  by itself with a spliced `<goal_round>` prompt; ACP shows only the
+  resulting updates, no turn boundary, no `user_message_chunk`. The
+  recorder now opens an _autonomous_ turn (`TurnPayload.autonomous`,
+  prompt `--- DISPATCH: GOAL ROUND ---`) on the first content update with
+  no turn open, and settles it after 20s of quiet
+  (`AUTONOMOUS_IDLE_MS`), when a prompted turn starts, or at reconcile.
+  Resume does not replay history over ACP (checked: dsh-acp has no
+  replay), so this cannot misfire at boot. Web: `goal-strip.tsx` from
+  `latestGoal` (parses the goal tools' JSON output: objective, phase,
+  roundsStarted, maxGoalRounds, blockedReason).
+- Provider marks: `harness/provider-icon.tsx` (OpenAI and DeepSeek from
+  LobeHub's MIT icon set, Anthropic and Gemini from simple-icons, which
+  no longer ships OpenAI or DeepSeek).
+- Nii's asks still open after this: dsh processes that outlive the server
+  (see the sketch above); forms as structured input (plan file).
