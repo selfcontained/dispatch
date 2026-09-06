@@ -1,4 +1,4 @@
-import { type CSSProperties, memo, type ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import type {
   ChatAgentMessageEntry,
   ChatAttachment,
@@ -30,6 +30,7 @@ import {
 } from "@/components/app/agent-event-utils";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { FeedImage } from "@/components/app/chat/feed-image";
 import { PinItem } from "@/components/app/pin-item";
 import {
   reviewerLabel,
@@ -62,58 +63,6 @@ function asEventType(type: string): EventType {
 
 function mediaFileUrl(agentId: string, fileName: string): string {
   return `/api/v1/agents/${agentId}/media/${encodeURIComponent(fileName)}`;
-}
-
-/**
- * The box a feed image gets to occupy, given the natural size the server read
- * off the file.
- *
- * Every value here is resolvable from the stored numbers alone, which is the
- * whole point: the box has to be the right size *before* the image loads, or
- * the feed moves under whoever is reading it.
- *
- *  - `width` is definite, in pixels. A percentage width would not be: inside
- *    the shrink-to-fit button that wraps these images, `width: 100%` has no
- *    basis until the image has intrinsic dimensions, so the button sizes
- *    itself to the alt text and everything jumps when the bytes arrive. That
- *    is the bug this whole change exists to prevent, so the width cannot be
- *    left to resolve later.
- *  - `maxWidth: 100%` lets the surrounding column shrink the box on a narrow
- *    viewport, without ever being what establishes its size.
- *  - `aspectRatio` makes the height follow, so there is no letterboxing and no
- *    dead space around a short or narrow image.
- *
- * The width itself is capped at whichever comes first: the image's own natural
- * width (never upscale a small thumbnail into a blurry banner) or the width at
- * which the ratio would push the height past `maxHeightPx` (never let one tall
- * screenshot take over the feed). Capping the *width* rather than the height
- * is what keeps the box flush around a tall image — a `max-height` would clamp
- * the frame and leave the image floating inside it.
- *
- * `containerMax` is any CSS length the caller's own layout imposes. It is
- * folded in here because an inline width would otherwise ignore the class that
- * sets it; both operands are absolute, so the `min()` still resolves without
- * knowing anything about the parent.
- *
- * Returns undefined when dimensions are unknown, and the caller falls back to
- * a fixed-height box.
- */
-function imageBoxStyle(
-  width: number | undefined,
-  height: number | undefined,
-  maxHeightPx: number,
-  containerMax?: string
-): CSSProperties | undefined {
-  if (!width || !height) return undefined;
-  // Deliberately unrounded: an image tall enough that its width at the maximum
-  // height lands under half a pixel would round to a 0px box and vanish.
-  const widthAtMaxHeight = maxHeightPx * (width / height);
-  const cap = `${Math.min(width, widthAtMaxHeight)}px`;
-  return {
-    width: containerMax ? `min(${containerMax}, ${cap})` : cap,
-    maxWidth: "100%",
-    aspectRatio: `${width} / ${height}`,
-  };
 }
 
 /** "10:04 AM" — the wall-clock time a channel shows next to a post. */
@@ -614,7 +563,6 @@ function FileAttachment({
     isImageFile(attachment.fileName) ||
     (attachment.mimeType?.startsWith("image/") ?? false);
   if (isImage) {
-    const box = imageBoxStyle(attachment.width, attachment.height, 224);
     return (
       <AttachmentBlock data-testid="chat-attachment-image">
         <div className="mb-1 truncate text-[11px] text-muted-foreground">
@@ -626,29 +574,12 @@ function FileAttachment({
           className="block max-w-xs overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30"
           title={attachment.fileName}
         >
-          {/*
-           * The box is sized before the image loads, from the dimensions
-           * stored on the media row: the image is lazy, so a box that sized
-           * itself to the file would be 0px until the image arrives and then
-           * shove everything below it down — which is what pushes a reader
-           * off the message they were on. Rows with no stored dimensions keep
-           * the fixed height that shipped before them; it letterboxes, but it
-           * does not move.
-           */}
-          <img
+          <FeedImage
             src={url}
             alt={attachment.fileName}
-            className={cn(
-              // overflow-hidden matters only when the file is missing: a
-              // broken <img> lays out its alt text as content, and an
-              // aspect-ratio height is a preferred size that content can push
-              // past — which would move the feed. Clipping keeps the box the
-              // size that was reserved for it.
-              "w-full overflow-hidden bg-muted/30 object-scale-down",
-              !box && "h-56"
-            )}
-            style={box}
-            loading="lazy"
+            width={attachment.width}
+            height={attachment.height}
+            maxHeightPx={224}
           />
         </button>
       </AttachmentBlock>
@@ -1216,8 +1147,6 @@ export function MediaEntryView({
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
   const open = () => ctx.onOpenMedia(entry.mediaId);
   const isImage = isImageFile(entry.fileName);
-  // 20rem matches the max-w-xs this image carried before it had a ratio.
-  const box = imageBoxStyle(entry.width, entry.height, 256, "20rem");
   return (
     <Post
       author={agentAuthor(ctx, "Agent")}
@@ -1240,16 +1169,15 @@ export function MediaEntryView({
             {entry.fileName} · {formatBytes(entry.sizeBytes)}
           </span>
           {isImage ? (
-            /* Sized ahead of load for the same reason as FileAttachment's. */
-            <img
+            <FeedImage
               src={url}
               alt={entry.description ?? entry.fileName}
-              className={cn(
-                "mt-1.5 block w-full overflow-hidden rounded-md border border-border bg-muted/30 object-scale-down transition-colors hover:border-foreground/30",
-                box ? "max-w-full" : "h-64 max-w-xs"
-              )}
-              style={box}
-              loading="lazy"
+              width={entry.width}
+              height={entry.height}
+              maxHeightPx={256}
+              // Matches the max-w-xs this image carried before it had a ratio.
+              containerMax="20rem"
+              className="mt-1.5 block rounded-md border border-border transition-colors hover:border-foreground/30"
             />
           ) : null}
         </button>

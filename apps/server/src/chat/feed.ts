@@ -1,5 +1,6 @@
 import type {
   ChatAgentMessageEntry,
+  ChatAttachment,
   ChatFeedEntry,
   ChatFeedResponse,
   ChatMediaEntry,
@@ -460,30 +461,28 @@ function compareNewestFirst(a: Keyed<ChatFeedEntry>, b: Keyed<ChatFeedEntry>) {
 }
 
 /**
- * Bring the `width`/`height` on a page's file attachments into line with the
- * media rows they point at.
+ * Fill in the `width`/`height` of a page's file attachments from the media rows
+ * they point at.
  *
- * Attachments are frozen into the message row as JSONB when the message is
- * written, but the URL they render is not frozen with them:
- * `dispatch_share_file` can replace a file in place, and the historical post
- * then serves the *new* bytes. So the snapshot is not the truth for the
- * message — the live row is. A post whose image was swapped for one of a
- * different shape would otherwise render new bytes against an old ratio, which
- * is the wrong box rather than merely a plain one.
+ * @mutates the attachments inside `entries`, in place.
  *
- * Reading the live row also covers the posts written before these columns
- * existed, which carry no dimensions at all.
+ * The live row is the only thing that can be right here. An attachment is
+ * frozen into the message row as JSONB when the message is written, but the URL
+ * it renders is not frozen with it: `dispatch_share_file` replaces a file's
+ * bytes in place and the historical post then serves the *new* ones. A shape
+ * recorded at write time would describe bytes the post no longer has, which is
+ * a wrong box rather than merely a plain one — so nothing is recorded at write
+ * time and this is where the shape comes from.
  *
- * Two cases keep the snapshot: a media row that no longer exists (a deleted
- * file has no shape to look up), and nothing else. When the live row exists
- * but has null dimensions the snapshot is *removed*, so the attachment falls
- * back to a fixed box rather than claiming a ratio the file no longer has.
+ * Purely additive. An attachment whose row is gone, or whose row has no
+ * dimensions, is left without them and renders in the fixed-height fallback.
  */
-async function hydrateAttachmentDimensions(
+async function applyLiveDimensions(
   db: Queryable,
   entries: Keyed<ChatFeedEntry>[]
 ): Promise<void> {
-  const pending = new Map<number, Array<{ width?: number; height?: number }>>();
+  type FileAttachment = Extract<ChatAttachment, { type: "file" }>;
+  const pending = new Map<number, FileAttachment[]>();
   for (const item of entries) {
     if (item.entry.type !== "chat") continue;
     for (const attachment of item.entry.message.attachments) {
@@ -502,8 +501,6 @@ async function hydrateAttachmentDimensions(
   for (const row of result.rows) {
     const live = dimensionFields(parseMediaMetadata(row.metadata));
     for (const attachment of pending.get(row.id) ?? []) {
-      delete attachment.width;
-      delete attachment.height;
       Object.assign(attachment, live);
     }
   }
@@ -546,7 +543,7 @@ export async function composeChatFeed(
   ].sort(compareNewestFirst);
   const hasMore = merged.length > limit;
   const page = merged.slice(0, limit);
-  await hydrateAttachmentDimensions(db, page);
+  await applyLiveDimensions(db, page);
   const oldest = page[page.length - 1];
   const nextCursor =
     hasMore && oldest

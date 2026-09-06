@@ -23,9 +23,12 @@
 
 import * as z from "zod/v4";
 
-import { imageDimensionsFromBuffer } from "./image-dimensions.js";
+import {
+  imageDimensionsFromBuffer,
+  MAX_DIMENSION,
+} from "./image-dimensions.js";
 
-const dimension = z.number().int().positive().max(100_000);
+const dimension = z.number().int().positive().max(MAX_DIMENSION);
 
 const MediaMetadataSchema = z
   .object({

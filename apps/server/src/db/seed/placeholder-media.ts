@@ -8,13 +8,18 @@
  * 1px-tall image and hide the very layout these rows exist to exercise. Flat
  * colour keeps them ~1KB each.
  *
- * The shapes are not declared here — seed/media.ts measures them off these
- * bytes, so there is one source of truth and nothing to keep in step.
+ * Everything a seeded row needs lives on its own entry — description and how
+ * far back it is dated included — so nothing is joined back by array position.
+ * The shapes are the exception, and only because they are stronger for it:
+ * seed/media.ts measures them off these bytes rather than taking a declared
+ * number, so a row cannot describe a shape its file does not have.
  */
 export const PLACEHOLDER_MEDIA = [
   {
     agentId: "seed-agent-running-feature",
     fileName: "seed-screenshot-1.png",
+    description: "Activity heatmap — daily view",
+    hoursAgo: 1,
     base64:
       "iVBORw0KGgoAAAANSUhEUgAABQAAAALQCAMAAAD4oy1kAAAAA1BMVEU6QFAVlENt" +
       "AAAACXBIWXMAAAPoAAAD6AG1e1JrAAADlElEQVR42u3BAQ0AAADCoPdPbQ8HFAAA" +
@@ -42,6 +47,8 @@ export const PLACEHOLDER_MEDIA = [
   {
     agentId: "seed-agent-running-feature",
     fileName: "seed-screenshot-2.png",
+    description: "Activity heatmap — hourly breakdown",
+    hoursAgo: 2,
     base64:
       "iVBORw0KGgoAAAANSUhEUgAAAoAAAAPACAMAAACSPDjJAAAAA1BMVEU6QFAVlENt" +
       "AAAACXBIWXMAAAPoAAAD6AG1e1JrAAACa0lEQVR42u3BgQAAAADDoPlT3+AEVQEA" +
@@ -62,6 +69,8 @@ export const PLACEHOLDER_MEDIA = [
   {
     agentId: "seed-agent-running-feature",
     fileName: "seed-screenshot-3.png",
+    description: "Empty-state treatment",
+    hoursAgo: 3,
     base64:
       "iVBORw0KGgoAAAANSUhEUgAAA4QAAAOECAMAAADOkA8JAAAAA1BMVEU6QFAVlENt" +
       "AAAACXBIWXMAAAPoAAAD6AG1e1JrAAADKElEQVR42u3BAQ0AAADCoPdP7ewBFAAA" +

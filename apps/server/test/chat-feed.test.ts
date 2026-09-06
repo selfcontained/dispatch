@@ -335,10 +335,11 @@ describe("composeChatFeed", () => {
   });
 
   describe("attachment dimensions", () => {
-    async function postWithAttachment(
-      fileName: string,
-      snapshot: { width?: number; height?: number }
-    ): Promise<number> {
+    // Nothing records a shape when the message is written: dispatch_share_file
+    // replaces a file's bytes under an unchanged URL, so anything frozen at
+    // write time can end up describing bytes the post no longer serves. The
+    // live media row is the only source, read when the page is composed.
+    async function postWithAttachment(fileName: string): Promise<number> {
       const media = await pool.query<{ id: number }>(
         `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at,
                             metadata)
@@ -352,9 +353,7 @@ describe("composeChatFeed", () => {
         authorKind: "agent",
         kind: "reply",
         text: "Here it is.",
-        attachments: [
-          { type: "file", mediaId, fileName, sizeBytes: 9, ...snapshot },
-        ],
+        attachments: [{ type: "file", mediaId, fileName, sizeBytes: 9 }],
       });
       return mediaId;
     }
@@ -366,20 +365,17 @@ describe("composeChatFeed", () => {
       return entry.message.attachments[0]!;
     };
 
-    it("fills in dimensions a pre-column post never stored", async () => {
-      await postWithAttachment("old-post.png", {});
+    it("fills dimensions in from the live media row", async () => {
+      await postWithAttachment("posted.png");
       const feed = await composeChatFeed(store, A, { limit: 50 });
       expect(attachmentOf(feed)).toMatchObject({ width: 120, height: 90 });
     });
 
-    it("replaces a snapshot the media row has since moved past", async () => {
-      // dispatch_share_file can swap a file's bytes in place, and the post
-      // serves the new ones from an unchanged URL. Rendering them against the
-      // old ratio would reserve a box the image does not fit.
-      const mediaId = await postWithAttachment("replaced.png", {
-        width: 120,
-        height: 90,
-      });
+    it("follows the row when the file is replaced with another shape", async () => {
+      // dispatch_share_file swaps the bytes in place and the post serves the
+      // new ones from an unchanged URL. Rendering them against the old ratio
+      // would reserve a box the image does not fit.
+      const mediaId = await postWithAttachment("replaced.png");
       await pool.query(
         `UPDATE media SET metadata = '{"width":90,"height":120}'::jsonb
           WHERE id = $1`,
@@ -390,11 +386,8 @@ describe("composeChatFeed", () => {
       expect(attachmentOf(feed)).toMatchObject({ width: 90, height: 120 });
     });
 
-    it("drops a snapshot when the media row no longer has dimensions", async () => {
-      const mediaId = await postWithAttachment("unreadable-now.png", {
-        width: 120,
-        height: 90,
-      });
+    it("leaves them off when the row has no dimensions", async () => {
+      const mediaId = await postWithAttachment("unreadable-now.png");
       await pool.query(
         `UPDATE media SET metadata = '{}'::jsonb WHERE id = $1`,
         [mediaId]
@@ -407,16 +400,16 @@ describe("composeChatFeed", () => {
       expect(attachment.height).toBeUndefined();
     });
 
-    it("keeps the snapshot when the media row is gone", async () => {
-      const mediaId = await postWithAttachment("deleted.png", {
-        width: 120,
-        height: 90,
-      });
+    it("leaves them off when the media row is gone", async () => {
+      const mediaId = await postWithAttachment("deleted.png");
       await pool.query(`DELETE FROM media WHERE id = $1`, [mediaId]);
 
       const feed = await composeChatFeed(store, A, { limit: 50 });
-      // Nothing left to look up, so the snapshot is all there is.
-      expect(attachmentOf(feed)).toMatchObject({ width: 120, height: 90 });
+      const attachment = attachmentOf(feed);
+      // The file 404s now, so there is no shape to reserve and nothing to
+      // reserve it for.
+      expect(attachment.width).toBeUndefined();
+      expect(attachment.height).toBeUndefined();
     });
   });
 

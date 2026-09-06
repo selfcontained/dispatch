@@ -42,8 +42,15 @@
 
 export type ImageDimensions = { width: number; height: number };
 
-/** Largest value we will believe. Guards against a corrupt header. */
-const MAX_DIMENSION = 100_000;
+/**
+ * Largest value we will believe. Guards against a corrupt header.
+ *
+ * Exported because `media/metadata.ts` bounds the stored value by the same
+ * number: this cap is what stops a bad header producing an absurd one, and the
+ * schema's cap is what stops a hand-edited row doing the same. If the two ever
+ * diverged a row could be writable but unreadable, so there is only one.
+ */
+export const MAX_DIMENSION = 100_000;
 
 function valid(width: number, height: number): ImageDimensions | null {
   if (!Number.isInteger(width) || !Number.isInteger(height)) return null;

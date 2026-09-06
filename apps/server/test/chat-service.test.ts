@@ -395,6 +395,25 @@ describe("ChatService.post", () => {
     ).rejects.toThrow(/not both/);
   });
 
+  it("stores no dimensions on a file attachment, even for a measured image", async () => {
+    // The shape is filled in when the feed is composed, from the live media
+    // row. Freezing it here would let dispatch_share_file replace the bytes
+    // under an unchanged URL and leave the post reserving the old ratio — a
+    // wrong box, where absent merely means the plain one.
+    await pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, metadata)
+       VALUES ($1, 'measured.png', 'screenshot', 9,
+               '{"width":120,"height":90}'::jsonb)`,
+      [A]
+    );
+    const message = await service.post(A, {
+      text: "see",
+      attachments: [{ type: "file", fileName: "measured.png" }],
+    });
+    expect(message.attachments[0]).not.toHaveProperty("width");
+    expect(message.attachments[0]).not.toHaveProperty("height");
+  });
+
   it("rejects unknown files and unknown pins", async () => {
     await expect(
       service.post(A, {

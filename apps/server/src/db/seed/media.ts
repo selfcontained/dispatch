@@ -16,25 +16,19 @@ type MediaRow = {
   metadata: MediaMetadata;
 };
 
-const DESCRIPTIONS = [
-  "Activity heatmap — daily view",
-  "Activity heatmap — hourly breakdown",
-  "Empty-state treatment",
-];
-
 // Built from the same table index.ts::writePlaceholderMedia writes the files
-// from, and measured off those same bytes — so a seeded row describes the shape
-// of the file it points at by construction rather than by anyone remembering to
-// keep two numbers in step.
-const ROWS: MediaRow[] = PLACEHOLDER_MEDIA.map((placeholder, index) => {
+// from. Size and shape are measured off those same bytes, so a seeded row
+// describes the file it points at by construction; everything else comes from
+// the placeholder's own entry rather than a lookup by position.
+const ROWS: MediaRow[] = PLACEHOLDER_MEDIA.map((placeholder) => {
   const bytes = Buffer.from(placeholder.base64, "base64");
   return {
     agentId: placeholder.agentId,
     fileName: placeholder.fileName,
     source: "screenshot" as const,
     sizeBytes: bytes.length,
-    description: DESCRIPTIONS[index] ?? placeholder.fileName,
-    hoursAgo: index + 1,
+    description: placeholder.description,
+    hoursAgo: placeholder.hoursAgo,
     metadata: mediaMetadataFromBuffer(bytes),
   };
 });

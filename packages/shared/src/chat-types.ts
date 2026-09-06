@@ -44,12 +44,12 @@ export type ChatAttachment =
       sizeBytes: number;
       mimeType?: string;
       /**
-       * Natural pixel size of an image, when the server could read it off the
-       * file. The feed reserves a box of this aspect ratio before the image
-       * loads, so an arriving image never pushes the reader's place down the
-       * page. Absent for non-images, for a file whose header could not be
-       * parsed, and for a media row that has since been deleted — each of
-       * which falls back to a fixed-height box.
+       * Natural pixel size of an image, filled in at read time from the live
+       * media row. The feed reserves a box of this aspect ratio before the
+       * image loads, so an arriving image never pushes the reader's place down
+       * the page. Absent for non-images, for a file whose header could not be
+       * read, and for a media row that has since been deleted — each of which
+       * falls back to a fixed-height box.
        */
       width?: number;
       height?: number;
