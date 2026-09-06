@@ -266,6 +266,25 @@ describe("shareFeedByEntryId", () => {
     expect(shared.pages[0]!.entries).toBe(prev.pages[0]!.entries);
   });
 
+  it("notices any page field changing, not only the ones it knows about", () => {
+    const a = chat(message({ id: "a" }));
+    const prev: FeedCache = { pageParams: [undefined], pages: [page([a])] };
+    const withExtra = (value: string): ChatFeedResponse =>
+      ({
+        ...page([chat(message({ id: "a" }))]),
+        extra: value,
+      }) as ChatFeedResponse;
+    const shared = share(
+      share(prev, { ...prev, pages: [withExtra("one")] }) as FeedCache,
+      {
+        pageParams: [undefined],
+        pages: [withExtra("two")],
+      }
+    );
+    expect((shared.pages[0] as unknown as { extra: string }).extra).toBe("two");
+    expect(shared.pages[0]!.entries).toBe(prev.pages[0]!.entries);
+  });
+
   it("falls through to deep sharing without a previous cache", () => {
     const next: FeedCache = {
       pageParams: [undefined],

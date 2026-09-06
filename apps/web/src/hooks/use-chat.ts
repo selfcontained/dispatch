@@ -74,6 +74,13 @@ function flattenFeedPages(pages: ChatFeedResponse[]): ChatFeedEntry[] {
  * Pages, the pages array and the whole cache keep their identity too when
  * nothing in them changed, so `useMemo` consumers downstream stay quiet.
  */
+function withoutEntries(
+  page: ChatFeedResponse
+): Omit<ChatFeedResponse, "entries"> {
+  const { entries: _entries, ...meta } = page;
+  return meta;
+}
+
 export function shareFeedByEntryId(
   oldData: unknown,
   newData: unknown
@@ -99,11 +106,12 @@ export function shareFeedByEntryId(
       }
       return shared;
     });
+    // Everything but the entries is compared generically, so a field added
+    // to the response later cannot change on a refetch and go stale here.
+    const prevMeta = prevPage ? withoutEntries(prevPage) : undefined;
     const metaSame =
-      prevPage !== undefined &&
-      prevPage.unreadCount === page.unreadCount &&
-      prevPage.hasMore === page.hasMore &&
-      prevPage.nextCursor === page.nextCursor;
+      prevMeta !== undefined &&
+      replaceEqualDeep(prevMeta, withoutEntries(page)) === prevMeta;
     if (!entriesChanged && metaSame) return prevPage!;
     pagesChanged = true;
     return {
