@@ -374,17 +374,63 @@ describe("GET /api/v1/agents/:id/media/:file (serve)", () => {
     expect(res.headers["content-range"]).toBe(`bytes */${content.length}`);
   });
 
-  it("returns 416 for a malformed Range header", async () => {
+  it("ignores a malformed Range header and serves the whole file (RFC 9110 §14.2)", async () => {
     const agentMediaDir = path.join(mediaRoot, agentId);
     await mkdir(agentMediaDir, { recursive: true });
-    await writeFile(path.join(agentMediaDir, "clip.mp4"), "0123456789");
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
 
     const res = await authedInject(
       "GET",
       `/api/v1/agents/${agentId}/media/clip.mp4`,
       { headers: { range: "not-a-range" } }
     );
-    expect(res.statusCode).toBe(416);
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.length).toBe(content.length);
+  });
+
+  it("ignores a multi-range request and serves the whole file", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=0-1,4-6" } }
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.length).toBe(content.length);
+  });
+
+  it("ignores an unrecognized Range unit and serves the whole file", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "items=0-1" } }
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.length).toBe(content.length);
+  });
+
+  it("serves a 0-byte file as an empty 200 rather than crashing", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    await writeFile(path.join(agentMediaDir, "empty.png"), Buffer.alloc(0));
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/empty.png`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-length"]).toBe("0");
+    expect(res.rawPayload.length).toBe(0);
   });
 });
 
