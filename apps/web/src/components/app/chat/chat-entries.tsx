@@ -767,6 +767,12 @@ function QuestionOptions({
   if (!question) return null;
   const answer = message.answer;
   const open = answer === null;
+  const answeredOption = answer
+    ? (question.options.find(
+        (option) => (option.value ?? option.label) === answer.value
+      ) ?? null)
+    : null;
+  const answerDisplay = answeredOption?.label ?? answer?.value ?? "";
   const optionsDisabled = answer !== null || answering || answersDisabled;
   return (
     <div
@@ -792,12 +798,13 @@ function QuestionOptions({
           Answered
           <span className="flex min-w-0 items-center gap-1">
             <span aria-hidden="true">·</span>
-            <Markdown
-              variant="caption"
-              className="line-clamp-none truncate text-[11px] leading-normal text-inherit"
-            >
-              {answer.label ?? answer.value}
-            </Markdown>
+            {answeredOption ? (
+              <Markdown variant="inline" className="truncate">
+                {answerDisplay}
+              </Markdown>
+            ) : (
+              <span className="truncate">{answerDisplay}</span>
+            )}
           </span>
         </div>
       )}
@@ -825,12 +832,7 @@ function QuestionOptions({
               onClick={() => onAnswer(option)}
             >
               {chosen ? <Check className="h-3 w-3" /> : null}
-              <Markdown
-                variant="caption"
-                className="line-clamp-none text-xs leading-normal text-inherit"
-              >
-                {option.label}
-              </Markdown>
+              <Markdown variant="inline">{option.label}</Markdown>
             </Button>
           );
         })}

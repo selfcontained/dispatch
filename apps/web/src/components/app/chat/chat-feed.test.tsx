@@ -960,6 +960,34 @@ describe("ChatFeed", () => {
     expect(onAnswer).not.toHaveBeenCalled();
   });
 
+  it("keeps a freeform answer literal in the answered summary", () => {
+    renderFeed([
+      chat(
+        message({
+          id: "q-freeform",
+          kind: "question",
+          text: "Other?",
+          question: {
+            options: [{ label: "Suggested" }],
+            allowFreeform: true,
+          },
+          answer: {
+            value: "__init__.py uses `literal` *marks*",
+            label: "__init__.py uses `literal` *marks*",
+            replyMessageId: "u10",
+            answeredAt: "2026-09-02T10:01:00.000Z",
+          },
+        })
+      ),
+    ]);
+
+    const card = screen.getByTestId("chat-question-options");
+    expect(card.textContent).toContain("__init__.py uses `literal` *marks*");
+    expect(card.querySelector("strong")).toBeNull();
+    expect(card.querySelector("code")).toBeNull();
+    expect(card.querySelector("em")).toBeNull();
+  });
+
   it("locks options and hides the freeform hint while answers are unavailable", () => {
     renderFeed(
       [
