@@ -487,7 +487,8 @@ const dshSupervisor = new DshSupervisor({
   setLatestEvent: async (agentId, input) => {
     await agentManager.upsertLatestEvent(agentId, input);
   },
-  publishChat: (agentId) => chatService.publishChanged(agentId),
+  publishHarness: (agentId, config) =>
+    chatService.publishHarnessChanged(agentId, config),
   personaPromptFor: (agent, jobRunId) =>
     agentManager.buildDshPersonaFor(agent, jobRunId ?? undefined),
   activeJobRunIdFor: async (agentId) =>

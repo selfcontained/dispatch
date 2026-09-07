@@ -1,3 +1,4 @@
+import type { ChatFeedEntry } from "@dispatch/shared";
 // @vitest-environment jsdom
 import { createElement, type ReactNode } from "react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
@@ -857,8 +858,12 @@ describe("useSSE message handling", () => {
     }>(["chat", "agt_1"]);
     expect(cache?.pages[0]?.entries).toEqual([older, post]);
     expect(cache?.pages[0]?.unreadCount).toBe(1);
-    // An agent's post moves the sidebar badge; the feed itself is not refetched.
-    expectInvalidatedSet(invalidateQueries, [["chat-unread"]]);
+    // An agent's post moves the sidebar badge and is a turn change for the
+    // Harness; the feed itself is not refetched.
+    expectInvalidatedSet(invalidateQueries, [
+      ["chat-unread"],
+      ["harness-turns", "agt_1"],
+    ]);
 
     // A status row: no badge to move, still no refetch.
     invalidateQueries.mockClear();
@@ -1055,6 +1060,80 @@ describe("useSSE message handling", () => {
       ["harness-turns", "agt_1"],
       ["harness-config", "agt_1"],
     ]);
+  });
+
+  it("refetches the feed and the harness turns on harness.changed, and the config only when told", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    emit({ type: "harness.changed", agentId: "agt_1" });
+    expectInvalidatedSet(invalidateQueries, [
+      ["chat", "agt_1"],
+      ["harness-turns", "agt_1"],
+    ]);
+    invalidateQueries.mockClear();
+    emit({ type: "harness.changed", agentId: "agt_1", config: true });
+    expectInvalidatedSet(invalidateQueries, [
+      ["chat", "agt_1"],
+      ["harness-turns", "agt_1"],
+      ["harness-config", "agt_1"],
+    ]);
+  });
+
+  it("refetches the harness turns for a chat row a feed never fetched, not for a status row", () => {
+    const { emit, invalidateQueries } = renderMessages();
+    emit({
+      type: "chat.entry",
+      agentId: "agt_1",
+      entry: {
+        type: "chat",
+        id: "q1",
+        at: "2026-09-02T10:00:02.000Z",
+        message: {
+          id: "q1",
+          agentId: "agt_1",
+          authorKind: "agent",
+          kind: "question",
+          text: "Ship it?",
+          replyTo: null,
+          question: { options: [] },
+          answer: null,
+          attachments: [],
+          delivered: null,
+          readAt: null,
+          createdAt: "2026-09-02T10:00:02.000Z",
+          updatedAt: "2026-09-02T10:00:02.000Z",
+        },
+      } as unknown as ChatFeedEntry,
+    });
+    // An agent question: the Harness threads it, and the unread badge moves.
+    expectInvalidatedSet(invalidateQueries, [
+      ["harness-turns", "agt_1"],
+      ["chat-unread"],
+    ]);
+    invalidateQueries.mockClear();
+    emit({
+      type: "chat.entry",
+      agentId: "agt_1",
+      entry: {
+        type: "status",
+        id: "event:9",
+        eventType: "working",
+        message: "x",
+        at: "2026-09-02T10:00:03.000Z",
+      },
+    });
+    expect(invalidateQueries).not.toHaveBeenCalled();
+  });
+
+  it("refetches the harness config when an agent's status changes", () => {
+    const { queryClient, emit, invalidateQueries } = renderMessages();
+    const before = {
+      ...agent("agt_1", null),
+      status: "running",
+      pins: [],
+    } as unknown as Agent;
+    queryClient.setQueryData<Agent[]>(["agents"], [before]);
+    emit({ type: "agent.upsert", agent: { ...before, status: "stopped" } });
+    expectInvalidatedSet(invalidateQueries, [["harness-config", "agt_1"]]);
   });
 
   it("invalidates both ends of a created message and only one on read", () => {

@@ -39,7 +39,15 @@ validation:
 rollback:
   - If the new release does not return healthy, roll back to the previous
     release tag using the normal release rollback path for this host. The
-    agent_stream_events table is additive — the prior release ignores it, and
+    agent_stream_events table is additive: the prior release ignores it, and
     leaving it in place is harmless and safer than dropping it.
+  - Since v0.38.12-dsh.28 the Dispatch Harness migrations are numbered
+    0051-0054 behind upstream's 0048-0050, and boot rewrites the old-name
+    pgmigrations rows on the way up. A binary older than dsh.28 checks
+    migration order against the OLD names, so before it can boot on a
+    database that has run dsh.28 or later, delete the pgmigrations rows
+    whose names start with 0048 through 0054:
+    DELETE FROM pgmigrations WHERE name ~ '^00(48|49|50|51|52|53|54)_';
+    The schema stays compatible; only the bookkeeping differs.
   - Restart the service and confirm $DISPATCH_API_URL/api/v1/health returns
     status=ok and release.json reports the prior tag.

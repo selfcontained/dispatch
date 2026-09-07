@@ -8,6 +8,7 @@
 
 import type {
   ChatChangedEvent,
+  HarnessChangedEvent,
   ChatEntryEvent,
   ChatReadEvent,
 } from "./chat-types.js";
@@ -94,6 +95,7 @@ export type SharedUiEvent =
   | { type: "agent.tool_invoked"; agentId: string; tool: string; at: string }
   | SurfaceChangedEvent
   | ChatChangedEvent
+  | HarnessChangedEvent
   | ChatEntryEvent
   | ChatReadEvent
   | { type: "stream.started"; agentId: string }

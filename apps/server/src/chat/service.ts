@@ -12,6 +12,7 @@ import type {
   ChatUserAttachmentInput,
   ChatChangedEvent,
   ChatEntryEvent,
+  HarnessChangedEvent,
   ChatMessageEntry,
   ChatReadEvent,
 } from "@dispatch/shared";
@@ -82,7 +83,11 @@ type ChatAgent = Pick<AgentRecord, "id" | "type" | "mediaDir" | "pins">;
 export type ChatServiceDeps = {
   pool: Pool;
   publishUiEvent: (
-    event: ChatChangedEvent | ChatEntryEvent | ChatReadEvent
+    event:
+      | ChatChangedEvent
+      | ChatEntryEvent
+      | ChatReadEvent
+      | HarnessChangedEvent
   ) => void;
   /** Minimal agent lookup: media dir and pins are all the service needs. */
   getAgent: (agentId: string) => Promise<ChatAgent | null>;
@@ -268,6 +273,11 @@ export function validateChatContent(input: {
   }
 }
 
+/** Whether the agent's harness streams its replies into Chat itself. */
+function nativeRepliesFor(agent: ChatAgent): boolean {
+  return agent.type === "dispatch";
+}
+
 export class ChatService {
   readonly store: ChatStore;
   /** Detached pane deliveries that have not recorded their outcome yet. */
@@ -314,17 +324,19 @@ export class ChatService {
         `attachments must have ${CHAT_ATTACHMENTS_MAX} entries or fewer.`
       );
     }
-    let resolved: ChatAttachment[] = [];
-    let attachmentLines: string[] = [];
-    if (attachments.length > 0) {
-      const agent = await this.requireAgent(agentId);
-      resolved = await this.resolveAttachmentsFor(agent, attachments);
-      attachmentLines = this.describeAttachments(agent, resolved);
-    }
     const sessionName = await this.deliverySession(
       agentId,
       options.allowInert ?? false
     );
+    // The agent is needed either way: for its attachments, and to know
+    // whether its harness streams replies into Chat itself.
+    const agent = await this.requireAgent(agentId);
+    let resolved: ChatAttachment[] = [];
+    let attachmentLines: string[] = [];
+    if (attachments.length > 0) {
+      resolved = await this.resolveAttachmentsFor(agent, attachments);
+      attachmentLines = this.describeAttachments(agent, resolved);
+    }
     const delivered = sessionName === null ? false : null;
     const row = {
       agentId,
@@ -347,11 +359,12 @@ export class ChatService {
     // one first and then the pending one on top of it.
     await this.publishEntry(agentId, message.id);
     if (sessionName === null) return { message, delivered: false, held: false };
-    const { held } = await this.deliverDetached(
+    const { held } = this.deliverDetached(
       agentId,
       sessionName,
       message,
-      attachmentLines
+      attachmentLines,
+      { nativeReplies: nativeRepliesFor(agent) }
     );
     return { message, delivered: null, held };
   }
@@ -413,15 +426,15 @@ export class ChatService {
         `value must be ${CHAT_MESSAGE_MAX_CHARS} characters or fewer.`
       );
     }
+    const sessionName = await this.deliverySession(agentId, true);
+    const agent = await this.requireAgent(agentId);
     let resolved: ChatAttachment[] = [];
     let attachmentLines: string[] = [];
     if (attachments.length > 0) {
-      const agent = await this.requireAgent(agentId);
       resolved = await this.resolveAttachmentsFor(agent, attachments);
       attachmentLines = this.describeAttachments(agent, resolved);
     }
 
-    const sessionName = await this.deliverySession(agentId, true);
     const delivered = sessionName === null ? false : null;
 
     // Reply row and answer land together or not at all: a concurrent answer
@@ -473,11 +486,14 @@ export class ChatService {
     await this.publishEntry(agentId, answered.id);
     await this.publishEntry(agentId, replyMessage.id);
     if (sessionName !== null) {
-      await this.deliverDetached(
+      this.deliverDetached(
         agentId,
         sessionName,
         replyMessage,
-        attachmentLines
+        attachmentLines,
+        {
+          nativeReplies: nativeRepliesFor(agent),
+        }
       );
     }
     return { question: answered, reply: replyMessage, delivered };
@@ -522,30 +538,26 @@ export class ChatService {
     );
   }
 
-  /** Whether the agent's harness streams its replies into Chat itself. */
-  private async nativeReplies(agentId: string): Promise<boolean> {
-    const agent = await this.deps.getAgent(agentId);
-    return agent?.type === "dispatch";
-  }
-
   /**
    * Enqueue the envelope and return at once. The detached continuation
-   * records true/false on the row and publishes `chat.changed`; graceful
+   * records true/false on the row and publishes the delivered row; graceful
    * shutdown waits (briefly) for it, and a restart sweeps whatever it could
-   * not wait for to delivered=false.
+   * not wait for to delivered=false. `nativeReplies` says the agent's
+   * harness streams its replies into Chat itself (see nativeRepliesFor).
    */
-  private async deliverDetached(
+  private deliverDetached(
     agentId: string,
     sessionName: string,
     message: ChatMessage,
-    attachmentLines: string[] = []
-  ): Promise<{ held: boolean }> {
+    attachmentLines: string[] = [],
+    options: { nativeReplies?: boolean } = {}
+  ): { held: boolean } {
     const delivery = this.delivery();
     const envelope = buildChatEnvelope(
       message.id,
       message.text,
       attachmentLines,
-      { nativeReplies: await this.nativeReplies(agentId) }
+      { nativeReplies: options.nativeReplies ?? false }
     );
     const settlement = delivery
       .inject(agentId, sessionName, envelope)
@@ -692,6 +704,19 @@ export class ChatService {
     this.deps.publishUiEvent({ type: "chat.changed", agentId });
   }
 
+  /**
+   * A Dispatch Harness stream write. The feed reads the stream rows and the
+   * Harness view its turns; `config` also refreshes the session's model,
+   * effort, and running state, which a chunk does not change.
+   */
+  publishHarnessChanged(agentId: string, config = false): void {
+    this.deps.publishUiEvent({
+      type: "harness.changed",
+      agentId,
+      ...(config ? { config: true } : {}),
+    });
+  }
+
   /** A mark-read landed: the count, and which rows it stamped. */
   publishRead(
     agentId: string,
@@ -744,15 +769,22 @@ export class ChatService {
     const pending = await this.store.listPendingDeliveries(agentId);
     if (pending.length === 0) return 0;
     const agent = await this.requireAgent(agentId);
-    // A harness that came back has a pane; without one there is nowhere
-    // to redeliver to, and the boot sweep marks the rows undelivered.
+    // A harness that came back has a pane; without one (an inert runtime)
+    // there is nowhere to redeliver to. The boot sweep skips running
+    // harness agents on purpose, so the rows are abandoned here, or they
+    // would read as pending for as long as the agent runs.
     const sessionName = await this.deliverySession(agentId, true);
-    if (sessionName === null) return 0;
+    if (sessionName === null) {
+      await this.abandonPending([agentId]);
+      return 0;
+    }
     for (const message of pending) {
       const lines = message.attachments.length
         ? this.describeAttachments(agent, message.attachments)
         : [];
-      await this.deliverDetached(agentId, sessionName, message, lines);
+      this.deliverDetached(agentId, sessionName, message, lines, {
+        nativeReplies: nativeRepliesFor(agent),
+      });
     }
     this.publishChanged(agentId);
     return pending.length;

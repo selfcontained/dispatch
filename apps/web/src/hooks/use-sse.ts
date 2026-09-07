@@ -146,22 +146,35 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
 }
 
 /**
- * The Harness view reads the same stream rows the feed does and settles on
- * the same signals (chat changes, reviews, messages, media), so it refetches
- * with the feed on those. A row the feed can patch in place (`chat.entry`)
- * is not one of them: the harness turns come from their own table.
+ * The Harness view assembles its turns from the stream rows and from the
+ * chat rows (prompts, agent questions and their answers), so it refetches
+ * on every stream write (`harness.changed`), on a chat row event, and on
+ * the coarse chat changes reviews, messages, and media announce with.
  */
-function invalidateHarness(queryClient: QueryClient, agentId: string): void {
+function invalidateHarnessTurns(
+  queryClient: QueryClient,
+  agentId: string
+): void {
   void queryClient.invalidateQueries({
     queryKey: harnessTurnsQueryKey(agentId),
     exact: true,
   });
-  // The session config (model, effort, running) changes on the same
-  // events: a start, a settle, a switch.
+}
+
+/** The session config (model, effort, running): a start, a settle, a switch. */
+function invalidateHarnessConfig(
+  queryClient: QueryClient,
+  agentId: string
+): void {
   void queryClient.invalidateQueries({
     queryKey: harnessConfigQueryKey(agentId),
     exact: true,
   });
+}
+
+function invalidateHarness(queryClient: QueryClient, agentId: string): void {
+  invalidateHarnessTurns(queryClient, agentId);
+  invalidateHarnessConfig(queryClient, agentId);
 }
 
 function invalidateChatFeedAndHarness(
@@ -293,11 +306,17 @@ export function useSSE(authState: AuthState): void {
             !existing ||
             JSON.stringify(existing.pins ?? []) !==
               JSON.stringify(payload.agent.pins ?? []);
+          // A harness session's running flag follows the agent's status.
+          const statusChanged =
+            !!existing && existing.status !== payload.agent.status;
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
           if (pinsChanged) {
             invalidateChatFeed(queryClient, payload.agent.id);
+          }
+          if (statusChanged) {
+            invalidateHarnessConfig(queryClient, payload.agent.id);
           }
           return;
         }
@@ -314,6 +333,11 @@ export function useSSE(authState: AuthState): void {
 
         if (payload.type === "chat.entry") {
           applyChatEntry(queryClient, payload.agentId, payload.entry);
+          // The Harness threads prompts, questions, and answers from the
+          // chat rows: a chat row is a turn change for it.
+          if (payload.entry.type === "chat") {
+            invalidateHarnessTurns(queryClient, payload.agentId);
+          }
           // Only an agent's post can move the sidebar's unread badges.
           if (
             payload.entry.type === "chat" &&
@@ -322,6 +346,18 @@ export function useSSE(authState: AuthState): void {
             void queryClient.invalidateQueries({
               queryKey: CHAT_UNREAD_QUERY_KEY,
             });
+          }
+          return;
+        }
+
+        if (payload.type === "harness.changed") {
+          // A stream write: the feed reads the stream rows, the Harness its
+          // turns. The session config is read again only when the write
+          // says it changed (a start, a settle, a switch).
+          invalidateChatFeed(queryClient, payload.agentId);
+          invalidateHarnessTurns(queryClient, payload.agentId);
+          if (payload.config) {
+            invalidateHarnessConfig(queryClient, payload.agentId);
           }
           return;
         }

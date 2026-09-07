@@ -42,8 +42,12 @@ export type SupervisorDeps = {
     id: string,
     input: { type: AgentLatestEventType; message: string }
   ) => Promise<void>;
-  /** ChatService.publishChanged: the feed re-reads after each stream write. */
-  publishChat: (agentId: string) => void;
+  /**
+   * ChatService.publishHarnessChanged: the feed and the Harness view re-read
+   * after each stream write; `config` marks a session start, settle, or
+   * option switch, when the session config is worth re-reading too.
+   */
+  publishHarness: (agentId: string, config?: boolean) => void;
   /** Full persona text for the overlay (see persona.ts). */
   personaPromptFor: (
     agent: AgentRecord,
@@ -389,7 +393,7 @@ export class DshSupervisor {
         appendCommandLog(commandLogPath(deps.config.dshHome, agentId), entry),
       // A goal round dsh ran on its own settles by going quiet; the view
       // learns of it the same way it learns of every other stream write.
-      onAutonomousSettled: (agentId) => deps.publishChat(agentId),
+      onAutonomousSettled: (agentId) => deps.publishHarness(agentId, true),
     });
     this.usage = new UsageRecorder(deps.pool);
     this.driver.onEvent((event) => {
@@ -438,7 +442,7 @@ export class DshSupervisor {
     if (list.length === 0) this.pending.delete(agentId);
     item.failStarted(new Error("Removed from the queue before it started."));
     item.markSettled();
-    this.deps.publishChat(agentId);
+    this.deps.publishHarness(agentId);
     return true;
   }
 
@@ -450,7 +454,7 @@ export class DshSupervisor {
     if (index > 0) {
       const [item] = list.splice(index, 1);
       list.unshift(item);
-      this.deps.publishChat(agentId);
+      this.deps.publishHarness(agentId);
     }
     return true;
   }
@@ -501,6 +505,8 @@ export class DshSupervisor {
         await this.deps.setAgentModel?.(agentId, model);
       }
     }
+    // Another client's picker shows the switch without waiting for a poll.
+    this.deps.publishHarness(agentId, true);
     return filterConfigOptionsByKeys(
       options as HarnessConfigOption[],
       process.env,
@@ -624,6 +630,8 @@ export class DshSupervisor {
       type: "idle",
       message: resumed ? "dsh session resumed." : "dsh session started.",
     });
+    // The session's options exist from here: the picker can read them.
+    this.deps.publishHarness(agentId, true);
     // A fresh session gets the launch prompt as its first turn; a resumed
     // one already had it.
     if (!agent.cliSessionId) {
@@ -740,7 +748,8 @@ export class DshSupervisor {
     this.pump(agentId);
     // Still waiting: no stream write announces it, so tell the feed here
     // and the view lists it at once.
-    if (this.pendingOf(agentId).includes(item)) this.deps.publishChat(agentId);
+    if (this.pendingOf(agentId).includes(item))
+      this.deps.publishHarness(agentId);
     return { started, settled };
   }
 
@@ -785,7 +794,7 @@ export class DshSupervisor {
       }
       item.markSettled();
     }
-    if (list.length > 0) this.deps.publishChat(agentId);
+    if (list.length > 0) this.deps.publishHarness(agentId);
   }
 
   /** Runs one turn after any queued before it; resolves when it settles. */
@@ -895,7 +904,11 @@ export class DshSupervisor {
       await this.streams.handle(event);
       const ctx = this.context.get(event.agentId);
       if (ctx) await this.usage.handle(event, ctx);
-      this.deps.publishChat(event.agentId);
+      // A turn boundary or the child going away changes the running state.
+      this.deps.publishHarness(
+        event.agentId,
+        event.type === "turn" || event.type === "exit"
+      );
       if (event.type === "exit" && !event.expected) {
         this.context.delete(event.agentId);
         // Any unexpected exit, code 0 included: a "running" agent over a

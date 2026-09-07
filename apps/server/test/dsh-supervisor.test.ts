@@ -127,7 +127,7 @@ async function build(
         events.push(input);
       }
     ),
-    publishChat: vi.fn(),
+    publishHarness: vi.fn(),
     personaPromptFor: vi.fn(async () => "PERSONA TEXT"),
     launchPromptFor: vi.fn(async () => opts.launchPrompt ?? null),
     listRunningAgentIds: vi.fn(async () => [] as string[]),
@@ -186,7 +186,7 @@ describe("DshSupervisor", () => {
     await sup.start("agt_1");
     await sup.prompt("agt_1", "go");
     expect(events.map((e) => e.type)).toEqual(["idle", "working", "idle"]);
-    expect(deps.publishChat).toHaveBeenCalledWith("agt_1");
+    expect(deps.publishHarness).toHaveBeenCalledWith("agt_1", true);
     // The stream recorder wrote through the pool.
     expect(query).toHaveBeenCalled();
     await sup.stop("agt_1");
@@ -553,7 +553,7 @@ describe("DshSupervisor message queue", () => {
     expect(queued[1].id).toMatch(/^q_/);
     expect(queued[0].createdAt <= queued[1].createdAt).toBe(true);
     // The feed is told, so the view lists the wait without a stream write.
-    expect(deps.publishChat).toHaveBeenCalledWith("agt_1");
+    expect(deps.publishHarness).toHaveBeenCalledWith("agt_1");
     await third.settled;
     expect(sup.listQueued("agt_1")).toEqual([]);
     expect(fake.seen.prompts).toEqual(["one", envelope("two"), "three"]);

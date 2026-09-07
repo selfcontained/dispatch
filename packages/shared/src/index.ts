@@ -45,6 +45,7 @@ export type {
   ChatAuthorKind,
   ChatChangedEvent,
   ChatEntryEvent,
+  HarnessChangedEvent,
   ChatReadEvent,
   ChatFeedEntry,
   ChatFeedResponse,

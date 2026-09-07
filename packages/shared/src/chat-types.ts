@@ -302,6 +302,19 @@ export type ChatAnswerResponse = {
 export type ChatChangedEvent = { type: "chat.changed"; agentId: string };
 
 /**
+ * A Dispatch Harness stream write: an assistant chunk, a tool call, a
+ * turn boundary, a queue change. The feed and the Harness turns refetch;
+ * `config` marks the writes that also change the session's model,
+ * effort, or running state (a session start, a settle, a switch), so a
+ * client refetches that only then, not on every chunk.
+ */
+export type HarnessChangedEvent = {
+  type: "harness.changed";
+  agentId: string;
+  config?: boolean;
+};
+
+/**
  * One feed row, exactly as `GET /agents/:id/chat` would return it, published
  * when that row is written or edited so a mounted feed can put it in place
  * instead of refetching every loaded page. Chat messages and status events

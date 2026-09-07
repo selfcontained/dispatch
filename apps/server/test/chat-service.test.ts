@@ -1001,6 +1001,24 @@ describe("ChatService user workflows", () => {
     expect(injected).toHaveLength(0);
   });
 
+  it("redeliverPending abandons the queue when the resumed harness has no pane", async () => {
+    // A Dispatch Harness agent that came back on an inert runtime: nothing
+    // to inject into, and the boot sweep skipped it as a running harness.
+    const { svc, events } = build({
+      agentType: "dispatch",
+      access: async () => ({ mode: "inert", message: "No pane." }),
+    });
+    const pending = await svc.store.insert({
+      agentId: A,
+      authorKind: "user",
+      text: "waiting since before the restart",
+      delivered: null,
+    });
+    expect(await svc.redeliverPending(A)).toBe(0);
+    expect((await svc.store.getById(pending.id))?.delivered).toBe(false);
+    expect(events).toEqual([{ type: "chat.changed", agentId: A }]);
+  });
+
   it("recoverPendingDeliveries sweeps pending user rows and announces each feed", async () => {
     const { svc, events } = build();
     const pending = await svc.store.insert({
