@@ -273,6 +273,38 @@ describe("ChatComposer path picker", () => {
     expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
   });
 
+  it("scrolls the highlight mirror with the field, and on the first token", () => {
+    // jsdom keeps every scrollTop at 0; record what each element is set to.
+    const offsets = new Map<Element, number>();
+    const had = Object.getOwnPropertyDescriptor(
+      Element.prototype,
+      "scrollTop"
+    )!;
+    Object.defineProperty(Element.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return offsets.get(this as Element) ?? 0;
+      },
+      set(value: number) {
+        offsets.set(this as Element, value);
+      },
+    });
+    try {
+      const { input } = renderComposer({ atItems: paths, onAtQuery: vi.fn() });
+      // A draft scrolled before its first token: the mirror mounts at the
+      // field's offset, not at zero.
+      input.scrollTop = 32;
+      fireEvent.change(input, { target: { value: "look at @apps/" } });
+      const mirror = screen.getByTestId("chat-composer-highlights");
+      expect(mirror.scrollTop).toBe(32);
+      input.scrollTop = 40;
+      fireEvent.scroll(input);
+      expect(mirror.scrollTop).toBe(40);
+    } finally {
+      Object.defineProperty(Element.prototype, "scrollTop", had);
+    }
+  });
+
   it("keeps a scoped package path as one token", () => {
     const onAtQuery = vi.fn();
     const { input } = renderComposer({

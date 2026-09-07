@@ -353,6 +353,15 @@ export function ChatComposer({
   // hop here would re-render the whole composer per scrolled pixel.
   const highlightsRef = useRef<HTMLDivElement>(null);
   const painted = hasAtTokens(text);
+  // The mirror mounts at scroll 0 when the first token appears, and no
+  // scroll event fires for that; a draft already scrolled past max-h-48
+  // would show its top through a transparent field until the next scroll.
+  useLayoutEffect(() => {
+    if (!painted) return;
+    const field = textareaRef.current;
+    const mirror = highlightsRef.current;
+    if (field && mirror) mirror.scrollTop = field.scrollTop;
+  }, [painted]);
   const syncCaret = useCallback(
     (event: SyntheticEvent<HTMLTextAreaElement>) => {
       setCaret(event.currentTarget.selectionStart);
@@ -1153,12 +1162,10 @@ export function ChatComposer({
               onClick={syncCaret}
               onSelect={syncCaret}
               onPaste={onPaste}
-              onScroll={(event) =>
-                highlightsRef.current?.scrollTo(
-                  0,
-                  event.currentTarget.scrollTop
-                )
-              }
+              onScroll={(event) => {
+                const mirror = highlightsRef.current;
+                if (mirror) mirror.scrollTop = event.currentTarget.scrollTop;
+              }}
               disabled={disabled}
               rows={1}
               maxLength={CHAT_MESSAGE_MAX_CHARS}

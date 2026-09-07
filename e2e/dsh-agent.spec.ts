@@ -170,6 +170,13 @@ test.describe("dsh agent", () => {
     await expect(items).toHaveCount(2, { timeout: 30_000 });
     await expect(items.nth(0)).toContainText("src/");
     await expect(items.nth(1)).toContainText("README.md");
+    // The first row is picked by default; ArrowUp wraps to the last row,
+    // ArrowDown comes back, and the marked row is the one Enter takes.
+    await expect(items.nth(0)).toHaveAttribute("aria-selected", "true");
+    await input.press("ArrowUp");
+    await expect(items.nth(1)).toHaveAttribute("aria-selected", "true");
+    await input.press("ArrowDown");
+    await expect(items.nth(0)).toHaveAttribute("aria-selected", "true");
     const shotDir = process.env.E2E_SCREENSHOT_DIR;
     if (shotDir) {
       await page.screenshot({
@@ -189,7 +196,7 @@ test.describe("dsh agent", () => {
     await expect(items.first()).toContainText("src/index.ts", {
       timeout: 30_000,
     });
-    // The active row is visibly marked; ArrowUp wraps to the last row.
+    // The single child row is marked as the pick.
     await expect(items.first()).toHaveAttribute("aria-selected", "true");
     if (shotDir) {
       await page.screenshot({

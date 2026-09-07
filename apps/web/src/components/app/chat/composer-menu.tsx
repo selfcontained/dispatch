@@ -93,7 +93,7 @@ export function ComposerMenu<T>({
         aria-hidden="true"
         className="sticky bottom-0 h-7 border-t border-border/60 bg-popover px-2.5 py-1 text-[11px] text-muted-foreground pointer-coarse:hidden"
       >
-        ↑↓ move · Enter picks · Esc closes
+        ↑↓ move · Enter/Tab picks · Esc closes
       </div>
     </div>
   );

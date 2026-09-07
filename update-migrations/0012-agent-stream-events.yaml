@@ -17,7 +17,11 @@ alreadySatisfied:
     returns status=ok, and release.json reports the target tag. Server boot
     runs the migration idempotently and the table is additive, so any
     healthy install at the target tag has already taken it. Running Dispatch Harness
-    agents, if any existed, were restored or marked errored at boot.
+    agents, if any existed, were restored or marked errored at boot. Since
+    v0.38.12-dsh.28 the harness migrations are numbered 0051-0054, and a boot
+    on a database that ran them as 0048-0051 logs
+    "[migrate] forgot 4 legacy Dispatch Harness migration rows" and re-runs
+    them as no-ops: that line is the upgrade working, not a fault.
 
 instructions:
   - Confirm the service has been restarted to the target release tag.
