@@ -400,9 +400,11 @@ export function ChatFeed({
         const answeredOptionLabel = (() => {
           if (entry.type !== "chat" || !entry.message.replyTo) return null;
           const question = messageDirectory.get(entry.message.replyTo);
-          const option = question?.question?.options.find(
+          if (question?.answer?.replyMessageId !== entry.message.id)
+            return null;
+          const option = question.question?.options.find(
             (candidate) =>
-              (candidate.value ?? candidate.label) === entry.message.text
+              (candidate.value ?? candidate.label) === question.answer?.value
           );
           return option?.label ?? null;
         })();

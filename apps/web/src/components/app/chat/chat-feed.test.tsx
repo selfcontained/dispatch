@@ -944,6 +944,17 @@ describe("ChatFeed", () => {
           },
         })
       ),
+      chat(
+        message({
+          id: "u9",
+          authorKind: "user",
+          text: "**Alpha** uses `a`",
+          replyTo: "q1",
+          delivered: true,
+          createdAt: "2026-09-02T10:01:00.000Z",
+          updatedAt: "2026-09-02T10:01:00.000Z",
+        })
+      ),
     ]);
     expect(screen.queryByTestId("chat-needs-reply")).toBeNull();
     expect(screen.queryByText("Or type a reply below.")).toBeNull();
@@ -952,6 +963,12 @@ describe("ChatFeed", () => {
     expect(card.textContent).not.toContain("**Alpha**");
     expect(card.querySelector("strong")?.textContent).toBe("Alpha");
     expect(card.querySelector("code")?.textContent).toBe("a");
+    const userReply = screen
+      .getAllByTestId("chat-message")
+      .find((row) => row.getAttribute("data-message-id") === "u9")!;
+    expect(userReply.textContent).not.toContain("**Alpha**");
+    expect(userReply.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(userReply.querySelector("code")?.textContent).toBe("a");
     const options = screen.getAllByTestId("chat-question-option");
     expect(options.every((o) => (o as HTMLButtonElement).disabled)).toBe(true);
     expect(options[0]!.getAttribute("aria-pressed")).toBe("true");
