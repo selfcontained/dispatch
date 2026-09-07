@@ -1,6 +1,6 @@
 {
   "name": "@dispatch/web",
-  "version": "0.38.7-dsh.27",
+  "version": "0.38.12",
   "private": true,
   "type": "module",
   "scripts": {

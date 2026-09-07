@@ -8,8 +8,10 @@ import * as z from "zod/v4";
 
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import { tokensEqual } from "../auth.js";
+import { mediaMetadataFromBuffer } from "../media/metadata.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveMediaDir } from "../shared/media.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 const PAIRING_TTL_MS = 10 * 60 * 1000;
 const TOKEN_TTL_MS = 90 * 24 * 60 * 60 * 1000;
@@ -133,7 +135,7 @@ type BrowserExtensionRouteDeps = {
   sendAgentPrompt: (agentId: string, prompt: string) => Promise<void>;
   /** Base media directory; when omitted, attached screenshots are ignored. */
   mediaRoot?: string;
-  publishUiEvent?: (event: { type: string; agentId: string }) => void;
+  publishUiEvent?: PublishUiEvent;
 };
 
 type ExtensionAuth = {
@@ -394,14 +396,16 @@ async function storeSubmissionScreenshot(
     await writeFile(filePath, buffer);
     writtenPath = filePath;
     await deps.pool.query(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, $2, $3, $4, $5)`,
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+                          metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)`,
       [
         agent.id,
         fileName,
         "screenshot",
         buffer.length,
         "Browser feedback: selected element",
+        mediaMetadataFromBuffer(buffer),
       ]
     );
   } catch (error) {

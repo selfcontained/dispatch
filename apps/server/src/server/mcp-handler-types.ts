@@ -1,4 +1,4 @@
-export type PublishUiEvent = (event: unknown) => void;
+export type { PublishUiEvent } from "./ui-events.js";
 export type SendAgentPrompt = (
   agentId: string,
   prompt: string,

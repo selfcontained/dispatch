@@ -21,6 +21,7 @@ import type { CrudToolCallbacks } from "../shared/mcp/crud-tools.js";
 import { handleMcpRequest } from "../shared/mcp/server.js";
 import type { SurfaceService } from "../surfaces/service.js";
 import type { ChatService } from "../chat/service.js";
+import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
 
 /**
  * Resolves once the response has left the server — `finish` when it was
@@ -316,6 +317,15 @@ export async function registerMcpRoutes(
       worktreeRoot = await resolveWorktreeRoot(agent.cwd);
     } catch {}
 
+    // Read per request rather than cached: it only shapes a tool description,
+    // and one settings lookup is small next to the two git resolutions this
+    // route already runs. The job route deliberately skips it — see
+    // `McpRequestContext.chatSurface`. A failed read falls back to the neutral
+    // description: wording is never worth failing a tool call over.
+    const chatSurface = await isChatSurfaceEnabled(deps.pool).catch(
+      () => false
+    );
+
     reply.hijack();
     // Captured before the transport writes anything, so an archive that stops
     // the calling session can wait for its own response to be delivered.
@@ -333,6 +343,7 @@ export async function registerMcpRoutes(
       },
       repoRoot,
       worktreeRoot,
+      chatSurface,
       sendNotify: deps.mcpSendNotify,
       upsertEvent: deps.mcpUpsertEvent,
       renameSession: deps.mcpRenameSession,

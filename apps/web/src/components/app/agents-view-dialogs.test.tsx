@@ -96,10 +96,9 @@ function baseProps(): Props {
     setStopConfirmOpen: vi.fn(),
     setStopTarget: vi.fn(),
     onStop: vi.fn().mockResolvedValue(undefined),
-    lightboxItem: null,
-    lightboxIndex: -1,
-    mediaFileCount: 0,
-    setLightboxIndex: vi.fn(),
+    lightboxMediaId: null,
+    lightboxMediaIds: [],
+    setLightboxMediaId: vi.fn(),
   };
 }
 
@@ -207,30 +206,31 @@ describe("AgentsViewDialogs", () => {
     expect(labels).not.toContain("Terminal");
   });
 
-  it("wires index and count into the lightbox so navigation lands correctly", () => {
-    const props = renderDialogs({
-      lightboxItem: {
-        src: "/api/media/shot.png",
-        caption: "shot",
-        file: {
-          name: "shot.png",
-          size: 2048,
-          updatedAt: "2026-07-15T12:00:00.000Z",
-          source: "screenshot",
-        },
+  it("wires media IDs into the lightbox so navigation lands correctly", () => {
+    apiMock.mockResolvedValue({
+      media: {
+        id: 2,
+        ownerAgentId: "agt_a",
+        name: "shot.png",
+        size: 2048,
+        updatedAt: "2026-07-15T12:00:00.000Z",
+        source: "screenshot",
+        description: "shot",
+        url: "/api/media/shot.png",
       },
-      lightboxIndex: 1,
-      mediaFileCount: 3,
+    });
+    const props = renderDialogs({
+      lightboxMediaId: 2,
+      lightboxMediaIds: [1, 2, 3],
     });
 
     expect(screen.getByTestId("media-lightbox")).toBeTruthy();
 
-    // ArrowRight advancing to index 2 proves currentIndex AND totalItems both
-    // reached the lightbox — a mis-wired count would disable forward nav.
+    // ArrowRight advances to the next stable ID.
     fireEvent.keyDown(window, { key: "ArrowRight" });
-    expect(props.setLightboxIndex).toHaveBeenCalledWith(2);
+    expect(props.setLightboxMediaId).toHaveBeenCalledWith(3);
 
     fireEvent.keyDown(window, { key: "Escape" });
-    expect(props.setLightboxIndex).toHaveBeenCalledWith(null);
+    expect(props.setLightboxMediaId).toHaveBeenCalledWith(null);
   });
 });

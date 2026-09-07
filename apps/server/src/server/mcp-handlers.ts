@@ -8,6 +8,7 @@ import type { Pool } from "pg";
 import type { AgentManager, AgentRecord } from "../agents/manager.js";
 import type { PinSpec } from "../agents/pin-write.js";
 import { AgentError } from "../agents/errors.js";
+import { mediaMetadataFromBuffer } from "../media/metadata.js";
 import type { AgentPin, WorktreeCleanupMode } from "../agents/types.js";
 import {
   CLI_AGENT_TYPES,
@@ -787,9 +788,15 @@ async function handleShareMedia(
   const mediaDir = resolveMediaDir(agentId, agent.mediaDir, deps.mediaRoot);
   await mkdir(mediaDir, { recursive: true });
 
+  // Derived from the bytes we are about to write, not from the file on disk.
+  // The dimensions and the bytes are the same object, so the row cannot come to
+  // describe a shape its file does not have — there is nothing here for a
+  // transaction to keep in sync.
+  const metadata = mediaMetadataFromBuffer(buffer);
+
   if (opts.update) {
     const existing = await deps.pool.query<{ file_name: string }>(
-      `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2 FOR UPDATE`,
+      `SELECT file_name FROM media WHERE agent_id = $1 AND file_name = $2`,
       [agentId, opts.update]
     );
     if (existing.rows.length === 0) {
@@ -805,11 +812,16 @@ async function handleShareMedia(
       throw new Error("Invalid media file path.");
     }
 
+    // Write the bytes, then describe them. The other order would let a failed
+    // write leave the row describing bytes that never landed; this way a
+    // failure between the two leaves the row lagging its file until the next
+    // replacement, which costs one image a stale reserved box and nothing else.
     await writeFile(filePath, buffer);
     await deps.pool.query(
-      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW()
+      `UPDATE media SET size_bytes = $1, description = $2, updated_at = NOW(),
+              metadata = $5
        WHERE agent_id = $3 AND file_name = $4`,
-      [buffer.length, opts.description, agentId, fileName]
+      [buffer.length, opts.description, agentId, fileName, metadata]
     );
 
     deps.publishUiEvent({ type: "media.changed", agentId });
@@ -840,9 +852,10 @@ async function handleShareMedia(
 
   await writeFile(path.join(mediaDir, fileName), buffer);
   await deps.pool.query(
-    `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-     VALUES ($1, $2, $3, $4, $5)`,
-    [agentId, fileName, source, buffer.length, opts.description]
+    `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+                        metadata)
+     VALUES ($1, $2, $3, $4, $5, $6)`,
+    [agentId, fileName, source, buffer.length, opts.description, metadata]
   );
 
   deps.publishUiEvent({ type: "media.changed", agentId });

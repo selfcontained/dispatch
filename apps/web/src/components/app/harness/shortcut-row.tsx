@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Zap } from "lucide-react";
 
 import { ShortcutPinItem } from "@/components/app/pin-shortcut-item";
-import { ConfirmShortcutDialog } from "@/components/app/pins-panel";
+import { ConfirmShortcutDialog } from "@/components/app/pin-shortcut-runner";
 import type { AgentPin } from "@/components/app/types";
 import { useCoarsePointer } from "@/hooks/use-coarse-pointer";
 import {

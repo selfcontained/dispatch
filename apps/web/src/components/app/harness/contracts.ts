@@ -35,6 +35,8 @@ export interface Trace {
 export interface Attachment {
   kind: string;
   url: string;
+  /** The media row behind a shared file; the lightbox opens by this id. */
+  mediaId?: number;
   name?: string;
   mimeType?: string;
   /** Bytes, when known (feeds the media lightbox). */

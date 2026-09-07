@@ -339,6 +339,9 @@ export function buildLaunchGuidance(
         ? "Report status with dispatch_event as you work and before your final response — blocked means genuinely stuck, not an error you're about to fix. Your reported status is verified against session activity and auto-corrected."
         : "Report status with dispatch_event. Types: working (making progress — includes debugging, fixing test failures, investigating errors), blocked (completely stuck with no further approach to try — NOT for errors or test failures you plan to fix next), waiting_user (need a decision or approval), done (task complete), idle (no-op, just answered a question). Emit working at turn start and when shifting phases. Emit a terminal event before your final response. Your reported status is verified against session activity and auto-corrected when it doesn't match."
     );
+    rules.push(
+      "Once you accept a task, do not end a turn after only announcing a plan or status. Continue into substantive work in the same turn, or explicitly report waiting_user or blocked when you genuinely cannot proceed."
+    );
     if (chatSurface) {
       rules.push(CHAT_SURFACE_GUIDANCE_RULE);
     }

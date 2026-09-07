@@ -71,8 +71,8 @@ describe("registerChatTools", () => {
 
   it("describes the mechanics without asserting the user is reading Chat", () => {
     const description = tool("dispatch_chat_post").config.description;
-    // The directive lives in the flag-gated launch rule; the tool is
-    // registered whether or not the Chat tab is enabled.
+    // With the flag off the tool is still registered, so the wording stays
+    // capability-neutral and the directive lives in the launch rule alone.
     expect(description).not.toMatch(/user reads the Chat tab/i);
     expect(description).toContain("optional Chat tab");
     expect(description).toContain("replyTo");
@@ -86,6 +86,54 @@ describe("registerChatTools", () => {
       "question",
       "attachments",
     ]);
+  });
+
+  it("asserts Chat is where the user is when the surface flag is on", () => {
+    const on = createMockServer();
+    registerChatTools(on as never, ALL, {
+      agentId: AGENT_ID,
+      chat: { post, update } as never,
+      chatSurface: true,
+    });
+    const description = on.tools.find((t) => t.name === "dispatch_chat_post")
+      ?.config.description as string;
+    expect(description).toContain("where the user is reading this session");
+    expect(description).toMatch(/never reaches them/);
+    expect(description).toMatch(/do not end a turn without one/);
+    // The neutral hedge is gone — it is the half this flag replaces.
+    expect(description).not.toContain("optional Chat tab");
+    expect(description).not.toContain("this tool only describes the mechanics");
+    // …while everything after the lead-in is unchanged.
+    expect(description).toContain("DISPATCH CHAT envelope");
+    expect(description).toContain("dispatch_share_file");
+    expect(description).toContain("dispatch_chat_update");
+  });
+
+  it("keeps the neutral description for an explicit false and for the default", () => {
+    const off = createMockServer();
+    registerChatTools(off as never, ALL, {
+      agentId: AGENT_ID,
+      chat: { post, update } as never,
+      chatSurface: false,
+    });
+    const offDescription = off.tools.find(
+      (t) => t.name === "dispatch_chat_post"
+    )?.config.description as string;
+    expect(offDescription).toBe(tool("dispatch_chat_post").config.description);
+    expect(offDescription).toContain("optional Chat tab");
+  });
+
+  it("leaves dispatch_chat_update's description alone either way", () => {
+    const on = createMockServer();
+    registerChatTools(on as never, ALL, {
+      agentId: AGENT_ID,
+      chat: { post, update } as never,
+      chatSurface: true,
+    });
+    expect(
+      on.tools.find((t) => t.name === "dispatch_chat_update")?.config
+        .description
+    ).toBe(tool("dispatch_chat_update").config.description);
   });
 
   it("posts a reply and returns id + createdAt", async () => {

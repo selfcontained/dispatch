@@ -11,6 +11,7 @@ import { seedMedia } from "./media.js";
 import { seedJobs } from "./jobs.js";
 import { seedReviews } from "./reviews.js";
 import { seedSurfaces } from "./surfaces.js";
+import { PLACEHOLDER_MEDIA } from "./placeholder-media.js";
 
 type SeedOptions = {
   databaseUrl: string;
@@ -97,35 +98,17 @@ export async function seedDevData(
 }
 
 // Minimal 1x1 PNGs so media thumbnails/routes have real bytes on disk.
+
 async function writePlaceholderMedia(
   mediaRoot: string,
   report: (msg: string) => void
 ): Promise<void> {
-  // 1x1 transparent PNG
-  const pngBytes = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9VE3D7wAAAAASUVORK5CYII=",
-    "base64"
-  );
-  const placements: Array<{ agentId: string; fileName: string }> = [
-    {
-      agentId: "seed-agent-running-feature",
-      fileName: "seed-screenshot-1.png",
-    },
-    {
-      agentId: "seed-agent-running-feature",
-      fileName: "seed-screenshot-2.png",
-    },
-    {
-      agentId: "seed-agent-running-feature",
-      fileName: "seed-screenshot-3.png",
-    },
-  ];
-  for (const { agentId, fileName } of placements) {
+  for (const { agentId, fileName, base64 } of PLACEHOLDER_MEDIA) {
     const dir = path.join(mediaRoot, agentId);
     await mkdir(dir, { recursive: true });
-    await writeFile(path.join(dir, fileName), pngBytes);
+    await writeFile(path.join(dir, fileName), Buffer.from(base64, "base64"));
   }
   report(
-    `Wrote ${placements.length} placeholder media files under ${mediaRoot}.`
+    `Wrote ${PLACEHOLDER_MEDIA.length} placeholder media files under ${mediaRoot}.`
   );
 }

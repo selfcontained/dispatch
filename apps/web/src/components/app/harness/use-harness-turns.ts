@@ -61,6 +61,7 @@ function toAttachment(
             ? "image"
             : "file",
         url: mediaFileUrl(agentId, a.fileName),
+        mediaId: a.mediaId,
         name: a.fileName,
         size: a.sizeBytes,
         at,

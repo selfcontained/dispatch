@@ -6,8 +6,11 @@ import {
   composeChatFeed,
   decodeFeedCursor,
   encodeFeedCursor,
+  loadChatMessageEntry,
+  toStatusEntry,
 } from "../src/chat/feed.js";
 import { ChatStore } from "../src/chat/store.js";
+import { writeLatestEvent } from "../src/agents/events.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;
@@ -335,6 +338,172 @@ describe("composeChatFeed", () => {
     expect(names).not.toContain("from-composer.png");
   });
 
+  describe("attachment dimensions", () => {
+    // Nothing records a shape when the message is written: dispatch_share_file
+    // replaces a file's bytes under an unchanged URL, so anything frozen at
+    // write time can end up describing bytes the post no longer serves. The
+    // live media row is the only source, read when the page is composed.
+    async function postWithAttachment(fileName: string): Promise<number> {
+      const media = await pool.query<{ id: number }>(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at,
+                            metadata)
+         VALUES ($1, $2, 'screenshot', 9, $3, '{"width":120,"height":90}'::jsonb)
+         RETURNING id`,
+        [A, fileName, at(60)]
+      );
+      const mediaId = media.rows[0]!.id;
+      await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        kind: "reply",
+        text: "Here it is.",
+        attachments: [{ type: "file", mediaId, fileName, sizeBytes: 9 }],
+      });
+      return mediaId;
+    }
+
+    const attachmentOf = (feed: { entries: unknown[] }) => {
+      const entry = (feed.entries as Array<{ type: string; message?: unknown }>)
+        .filter((e) => e.type === "chat")
+        .pop() as { message: { attachments: Array<Record<string, unknown>> } };
+      return entry.message.attachments[0]!;
+    };
+
+    it("fills dimensions in from the live media row", async () => {
+      await postWithAttachment("posted.png");
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      expect(attachmentOf(feed)).toMatchObject({ width: 120, height: 90 });
+    });
+
+    it("follows the row when the file is replaced with another shape", async () => {
+      // dispatch_share_file swaps the bytes in place and the post serves the
+      // new ones from an unchanged URL. Rendering them against the old ratio
+      // would reserve a box the image does not fit.
+      const mediaId = await postWithAttachment("replaced.png");
+      await pool.query(
+        `UPDATE media SET metadata = '{"width":90,"height":120}'::jsonb
+          WHERE id = $1`,
+        [mediaId]
+      );
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      expect(attachmentOf(feed)).toMatchObject({ width: 90, height: 120 });
+    });
+
+    it("leaves them off when the row has no dimensions", async () => {
+      const mediaId = await postWithAttachment("unreadable-now.png");
+      await pool.query(
+        `UPDATE media SET metadata = '{}'::jsonb WHERE id = $1`,
+        [mediaId]
+      );
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      const attachment = attachmentOf(feed);
+      // Absent, not stale: the fixed-height fallback is the honest render.
+      expect(attachment.width).toBeUndefined();
+      expect(attachment.height).toBeUndefined();
+    });
+
+    it("overrides a stale pair that somehow reached the blob", async () => {
+      // Nothing writes dimensions into an attachment today, but the query
+      // strips them rather than merging over them, so a pair left by an
+      // earlier version of this code cannot outlive the row it disagrees with.
+      const media = await pool.query<{ id: number }>(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at,
+                            metadata)
+         VALUES ($1, 'stale.png', 'screenshot', 9, $2,
+                 '{"width":90,"height":120}'::jsonb)
+         RETURNING id`,
+        [A, at(60)]
+      );
+      const mediaId = media.rows[0]!.id;
+      await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        kind: "reply",
+        text: "Here it is.",
+        attachments: [
+          {
+            type: "file",
+            mediaId,
+            fileName: "stale.png",
+            sizeBytes: 9,
+            width: 1280,
+            height: 720,
+          },
+        ],
+      });
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      expect(attachmentOf(feed)).toMatchObject({ width: 90, height: 120 });
+    });
+
+    it("strips a stale pair when the row has no dimensions", async () => {
+      const media = await pool.query<{ id: number }>(
+        `INSERT INTO media (agent_id, file_name, source, size_bytes, created_at)
+         VALUES ($1, 'unmeasured.png', 'screenshot', 9, $2)
+         RETURNING id`,
+        [A, at(60)]
+      );
+      await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        kind: "reply",
+        text: "Here it is.",
+        attachments: [
+          {
+            type: "file",
+            mediaId: media.rows[0]!.id,
+            fileName: "unmeasured.png",
+            sizeBytes: 9,
+            width: 1280,
+            height: 720,
+          },
+        ],
+      });
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      const attachment = attachmentOf(feed);
+      expect(attachment.width).toBeUndefined();
+      expect(attachment.height).toBeUndefined();
+    });
+
+    it("leaves non-file attachments untouched", async () => {
+      // The CASE runs over every element of the array, not just the files.
+      await store.insert({
+        agentId: A,
+        authorKind: "agent",
+        kind: "reply",
+        text: "Here it is.",
+        attachments: [
+          { type: "link", url: "https://example.com", title: "Example" },
+          { type: "pin", pinId: "pin_1" },
+        ],
+      });
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      const entry = (feed.entries as Array<{ type: string; message?: unknown }>)
+        .filter((e) => e.type === "chat")
+        .pop() as { message: { attachments: unknown[] } };
+      expect(entry.message.attachments).toEqual([
+        { type: "link", url: "https://example.com", title: "Example" },
+        { type: "pin", pinId: "pin_1" },
+      ]);
+    });
+
+    it("leaves them off when the media row is gone", async () => {
+      const mediaId = await postWithAttachment("deleted.png");
+      await pool.query(`DELETE FROM media WHERE id = $1`, [mediaId]);
+
+      const feed = await composeChatFeed(store, A, { limit: 50 });
+      const attachment = attachmentOf(feed);
+      // The file 404s now, so there is no shape to reserve and nothing to
+      // reserve it for.
+      expect(attachment.width).toBeUndefined();
+      expect(attachment.height).toBeUndefined();
+    });
+  });
+
   it("surfaces a review with its reviewer and live counts", async () => {
     const reviewer = "agt_feed_reviewer";
     await pool.query(
@@ -456,5 +625,53 @@ describe("stream sources", () => {
       e.type === "assistant" ? e.text : ""
     );
     expect(texts).toEqual(["m1", "m2", "m3", "m4"]);
+  });
+});
+
+describe("feed entries as events carry them", () => {
+  it("reads one message back exactly as the feed lists it", async () => {
+    const { m1, m2 } = await seedAll();
+    const feed = await composeChatFeed(store, A);
+    const listed = feed.entries.find(
+      (entry) => entry.type === "chat" && entry.id === m1.id
+    );
+    expect(await loadChatMessageEntry(pool, A, m1.id)).toEqual(listed);
+    expect(await loadChatMessageEntry(pool, A, m2.id)).toEqual(
+      feed.entries.find((entry) => entry.type === "chat" && entry.id === m2.id)
+    );
+    // Another agent's feed does not hold it.
+    expect(await loadChatMessageEntry(pool, OTHER, m1.id)).toBeNull();
+  });
+
+  it("hands the written history row to onRecorded, shaped like the feed's status entry", async () => {
+    const logger = { warn: () => undefined } as unknown as Parameters<
+      typeof writeLatestEvent
+    >[1];
+    const recorded = await new Promise<
+      Parameters<NonNullable<Parameters<typeof writeLatestEvent>[4]>>[0]
+    >((resolve) => {
+      void writeLatestEvent(
+        pool,
+        logger,
+        A,
+        { type: "working", message: "Reading files" },
+        resolve
+      );
+    });
+    expect(recorded).toMatchObject({
+      agentId: A,
+      eventType: "working",
+      message: "Reading files",
+    });
+    const feed = await composeChatFeed(store, A);
+    const status = feed.entries.find((entry) => entry.type === "status");
+    expect(
+      toStatusEntry(
+        recorded.id,
+        recorded.eventType,
+        recorded.message,
+        recorded.createdAt
+      )
+    ).toEqual(status);
   });
 });

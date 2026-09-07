@@ -1,7 +1,7 @@
 {
   "name": "dispatch",
-  "version": "0.3.0",
-  "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, sharing artifacts, interactive surfaces, review workflow, UI validation, personas, whiteboard, jobs, templates, and personalities.",
+  "version": "0.4.0",
+  "description": "Teaches agents how to use Dispatch: shared memory, subagents, repo tools, reaching the user, sharing artifacts, interactive surfaces, review workflow, UI validation, personas, whiteboard, jobs, templates, and personalities.",
   "author": {
     "name": "Dispatch",
     "url": "https://github.com/selfcontained/dispatch"

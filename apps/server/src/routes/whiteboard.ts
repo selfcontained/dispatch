@@ -14,6 +14,7 @@ import {
   saveWhiteboard,
   WHITEBOARD_SNAPSHOT_FILENAME,
 } from "../shared/whiteboard-store.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 const SCENE_BODY_LIMIT = 8 * 1024 * 1024;
 
@@ -21,7 +22,7 @@ type WhiteboardRouteDeps = {
   pool: Pool;
   mediaRoot: string;
   agentManager: AgentManager;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
 };
 
 export async function registerWhiteboardRoutes(

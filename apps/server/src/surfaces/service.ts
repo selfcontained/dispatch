@@ -22,6 +22,7 @@ import {
   type SurfaceIcon,
   type SurfaceLifecycle,
 } from "./types.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 function surfaceNotice(kind: string, lines: string[]): string {
   return [
@@ -142,7 +143,7 @@ export class SurfaceService {
   constructor(
     private readonly pool: Pool,
     private readonly deps: {
-      publishUiEvent: (event: unknown) => void;
+      publishUiEvent: PublishUiEvent;
       sendAgentPrompt?: (agentId: string, prompt: string) => Promise<void>;
     }
   ) {}

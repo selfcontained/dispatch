@@ -1,10 +1,10 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
+import { useQueryClient } from "@tanstack/react-query";
 
 import { cn } from "@/lib/utils";
 import { MediaLightbox } from "@/components/app/media-lightbox";
-import { stripTimestamp } from "@/components/app/media-file-utils";
 import { PinList } from "@/components/app/pins-panel";
-import { type AgentPin } from "@/components/app/types";
+import { type AgentPin, type MediaFile } from "@/components/app/types";
 import {
   type HistoryEvent,
   type HistoryFeedbackItem,
@@ -16,6 +16,7 @@ import {
 } from "@/components/app/agent-history-timeline";
 import { HistoryMessages } from "@/components/app/agent-history-messages";
 import { type AgentMessage } from "@/hooks/use-agent-messages";
+import { mediaItemQueryKey } from "@/hooks/use-media";
 
 type DetailTab = "events" | "media" | "pins" | "feedback" | "messages";
 
@@ -36,26 +37,25 @@ export function DetailTabs({
   agentId: string;
   workspaceRoot: string | null;
 }) {
+  const queryClient = useQueryClient();
   const [tab, setTab] = useState<DetailTab>("events");
-  const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [lightboxMediaId, setLightboxMediaId] = useState<number | null>(null);
+  const mediaIds = useMemo(() => media.map((item) => item.id), [media]);
 
-  const lightboxItems = useMemo(
-    () =>
-      media.map((m) => ({
-        src: `/api/v1/agents/${agentId}/media/${encodeURIComponent(m.file_name)}`,
-        caption: m.description ?? stripTimestamp(m.file_name),
-        file: {
-          name: m.file_name,
-          size: m.size_bytes,
-          updatedAt: m.created_at,
-          source: m.source as "screenshot" | "stream" | "text",
-        },
-      })),
-    [media, agentId]
-  );
-
-  const lightboxItem =
-    lightboxIndex !== null ? (lightboxItems[lightboxIndex] ?? null) : null;
+  useEffect(() => {
+    for (const item of media) {
+      queryClient.setQueryData<MediaFile>(mediaItemQueryKey(item.id), {
+        id: item.id,
+        ownerAgentId: agentId,
+        name: item.file_name,
+        size: item.size_bytes,
+        updatedAt: item.created_at,
+        url: `/api/v1/agents/${agentId}/media/${encodeURIComponent(item.file_name)}`,
+        description: item.description,
+        source: item.source as MediaFile["source"],
+      });
+    }
+  }, [agentId, media, queryClient]);
 
   const tabs: Array<{ key: DetailTab; label: string; count: number }> = [
     { key: "events", label: "Events", count: events.length },
@@ -112,10 +112,10 @@ export function DetailTabs({
 
           {tab === "media" && media.length > 0 && (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-              {media.map((m, i) => (
+              {media.map((m) => (
                 <button
-                  key={m.file_name}
-                  onClick={() => setLightboxIndex(i)}
+                  key={m.id}
+                  onClick={() => setLightboxMediaId(m.id)}
                   className="overflow-hidden rounded border border-border bg-muted/20 text-left transition-colors hover:border-foreground/30"
                 >
                   {m.source === "screenshot" || m.source === "simulator" ? (
@@ -181,10 +181,9 @@ export function DetailTabs({
       </div>
 
       <MediaLightbox
-        item={lightboxItem}
-        currentIndex={lightboxIndex ?? 0}
-        totalItems={lightboxItems.length}
-        setLightboxIndex={setLightboxIndex}
+        mediaId={lightboxMediaId}
+        mediaIds={mediaIds}
+        setMediaId={setLightboxMediaId}
       />
     </>
   );

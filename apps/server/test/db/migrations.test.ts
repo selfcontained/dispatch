@@ -121,6 +121,22 @@ describe("migrations", () => {
     expect(seen.rowCount).toBe(0);
   });
 
+  it("should index chat attachments for the feed's containment lookup", async () => {
+    // The feed hides a media file that already renders as a post attachment,
+    // with a correlated `@>` check against every message on the agent. Without
+    // this index that is media x messages: measured past 20s at 5,000 media and
+    // 15,000 messages, against 97ms with it. jsonb_path_ops because `@>` is the
+    // only operator used here.
+    const index = await pool.query<{ indexdef: string }>(
+      `SELECT indexdef FROM pg_indexes
+        WHERE tablename = 'agent_chat_messages'
+          AND indexname = 'agent_chat_messages_attachments_gin'`
+    );
+    expect(index.rowCount).toBe(1);
+    expect(index.rows[0].indexdef).toContain("USING gin");
+    expect(index.rows[0].indexdef).toContain("jsonb_path_ops");
+  });
+
   it("should have unique, sequential numeric prefixes", () => {
     const files = readdirSync(migrationsDir)
       .filter((f) => /^\d+_.+\.sql$/.test(f))

@@ -30,15 +30,45 @@ export function shortPath(value: string): string {
   return `.../${parts.slice(-3).join("/")}`;
 }
 
+/**
+ * Constructing an `Intl.DateTimeFormat` does a locale-data lookup, which
+ * shows up once a formatter is called per row of a long list. Formatters are
+ * keyed by their options and kept for the page's lifetime; the locale is the
+ * browser default throughout, as it was when each call built its own.
+ */
+const dateTimeFormatters = new Map<string, Intl.DateTimeFormat>();
+function dateTimeFormatter(
+  options: Intl.DateTimeFormatOptions
+): Intl.DateTimeFormat {
+  const key = JSON.stringify(options);
+  let formatter = dateTimeFormatters.get(key);
+  if (!formatter) {
+    formatter = new Intl.DateTimeFormat(undefined, options);
+    dateTimeFormatters.set(key, formatter);
+  }
+  return formatter;
+}
+
+/**
+ * `Intl.DateTimeFormat.format` throws on an invalid date where the
+ * `toLocale*String` methods return "Invalid Date"; keep the latter, since
+ * callers pass server strings that are not always dates (a draft release has
+ * no publish time, for one).
+ */
+function formatDate(date: Date, options: Intl.DateTimeFormatOptions): string {
+  if (!Number.isFinite(date.getTime())) return "Invalid Date";
+  return dateTimeFormatter(options).format(date);
+}
+
 export function formatDateTime(iso: string): string {
-  return new Intl.DateTimeFormat(undefined, {
+  return formatDate(new Date(iso), {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(iso));
+  });
 }
 
 export function formatShortDateTime(iso: string): string {
-  return new Date(iso).toLocaleString(undefined, {
+  return formatDate(new Date(iso), {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -47,8 +77,10 @@ export function formatShortDateTime(iso: string): string {
 }
 
 export function formatShortDate(dateOnlyIso: string): string {
-  const d = new Date(dateOnlyIso + "T00:00:00");
-  return d.toLocaleDateString(undefined, { month: "short", day: "numeric" });
+  return formatDate(new Date(dateOnlyIso + "T00:00:00"), {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export function formatRelativeTime(iso: string): string {
@@ -62,10 +94,7 @@ export function formatRelativeTime(iso: string): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   if (days < 30) return `${days}d ago`;
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: "short",
-    day: "numeric",
-  });
+  return formatDate(new Date(iso), { month: "short", day: "numeric" });
 }
 
 /** Badge counts stop at "99+" so a runaway number can't stretch the chip. */

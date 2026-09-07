@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import type { SharedUiEvent } from "@dispatch/shared";
+import type { ChatFeedEntry, SharedUiEvent } from "@dispatch/shared";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
 import { useStore } from "jotai";
 import {
@@ -11,12 +11,20 @@ import {
   type TerminalUiState,
 } from "@/components/app/types";
 import { agentDiffQueryKey } from "@/hooks/use-agent-diff";
-import { CHAT_QUERY_PREFIX, chatFeedQueryKey } from "@/hooks/use-chat";
+import {
+  applyChatRead,
+  CHAT_QUERY_PREFIX,
+  chatFeedQueryKey,
+  type FeedCache,
+  LIVE_HEAD_ROWS,
+  upsertFeedEntry,
+} from "@/hooks/use-chat";
 import { harnessConfigQueryKey } from "@/components/app/harness/use-harness-config";
 import { harnessTurnsQueryKey } from "@/components/app/harness/use-harness-turns";
 import { CHAT_UNREAD_QUERY_KEY } from "@/hooks/use-chat-unread-summary";
 import { surfacesQueryKey } from "@/hooks/use-agent-surfaces";
 import { diffStatsQueryKey } from "@/hooks/use-agent-diff-stats";
+import { MEDIA_ITEM_QUERY_PREFIX } from "@/hooks/use-media";
 import { sortAgentsByCreatedAtDesc } from "@/lib/agent-sort";
 import { recordSSEEvent, recordSSEReconnect } from "@/lib/energy-metrics";
 import {
@@ -135,8 +143,15 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
     queryKey: chatFeedQueryKey(agentId),
     exact: true,
   });
-  // The Harness view reads the same stream rows the feed does, and settles
-  // on the same signals (agent events, chat changes), so it refetches with it.
+}
+
+/**
+ * The Harness view reads the same stream rows the feed does and settles on
+ * the same signals (chat changes, reviews, messages, media), so it refetches
+ * with the feed on those. A row the feed can patch in place (`chat.entry`)
+ * is not one of them: the harness turns come from their own table.
+ */
+function invalidateHarness(queryClient: QueryClient, agentId: string): void {
   void queryClient.invalidateQueries({
     queryKey: harnessTurnsQueryKey(agentId),
     exact: true,
@@ -147,6 +162,47 @@ function invalidateChatFeed(queryClient: QueryClient, agentId: string): void {
     queryKey: harnessConfigQueryKey(agentId),
     exact: true,
   });
+}
+
+function invalidateChatFeedAndHarness(
+  queryClient: QueryClient,
+  agentId: string
+): void {
+  invalidateChatFeed(queryClient, agentId);
+  invalidateHarness(queryClient, agentId);
+}
+
+/**
+ * A `chat.entry` event: one feed row, put straight into the cached pages.
+ * Falls back to the refetch when there is no place for it — the entry is
+ * older than the loaded head — or when a fetch is already in flight, whose
+ * result would otherwise overwrite the patch with a snapshot that may or
+ * may not include the row. A feed that was never fetched has nothing to
+ * patch; its first fetch will carry the row.
+ */
+export function applyChatEntry(
+  queryClient: QueryClient,
+  agentId: string,
+  entry: ChatFeedEntry
+): void {
+  const key = chatFeedQueryKey(agentId);
+  const state = queryClient.getQueryState<FeedCache>(key);
+  if (!state?.data) return;
+  if (state.fetchStatus === "fetching") {
+    invalidateChatFeed(queryClient, agentId);
+    return;
+  }
+  const result = upsertFeedEntry(state.data, entry);
+  if (!result.placed) {
+    invalidateChatFeed(queryClient, agentId);
+    return;
+  }
+  if (result.cache !== state.data) queryClient.setQueryData(key, result.cache);
+  // Live rows pile onto the newest page; past the bound, one refetch folds
+  // them back into pages of the configured size.
+  if (result.cache.pages[0]!.entries.length > LIVE_HEAD_ROWS) {
+    invalidateChatFeed(queryClient, agentId);
+  }
 }
 
 export function applyReviewCreated(
@@ -226,22 +282,23 @@ export function useSSE(authState: AuthState): void {
         }
 
         if (payload.type === "agent.upsert") {
-          // Status events reach the feed through the agent row's latestEvent;
-          // an upsert that changed nothing about it (name edit, pin update)
-          // has nothing new for the feed.
+          // Status events reach the feed as `chat.entry` rows of their own.
+          // Pin activity still comes through the agent row: a pin write
+          // lands a `pin_events` row in the same transaction, so the feed
+          // has a new entry whenever the pins array differs.
           const existing = queryClient
             .getQueryData<Agent[]>(["agents"])
             ?.find((a) => a.id === payload.agent.id);
-          const eventChanged =
+          const pinsChanged =
             !existing ||
-            existing.latestEvent?.updatedAt !==
-              payload.agent.latestEvent?.updatedAt ||
-            existing.latestEvent?.message !==
-              payload.agent.latestEvent?.message;
+            JSON.stringify(existing.pins ?? []) !==
+              JSON.stringify(payload.agent.pins ?? []);
           queryClient.setQueryData<Agent[]>(["agents"], (old) =>
             applyAgentUpsert(old, payload.agent)
           );
-          if (eventChanged) invalidateChatFeed(queryClient, payload.agent.id);
+          if (pinsChanged) {
+            invalidateChatFeed(queryClient, payload.agent.id);
+          }
           return;
         }
 
@@ -255,8 +312,37 @@ export function useSSE(authState: AuthState): void {
           return;
         }
 
+        if (payload.type === "chat.entry") {
+          applyChatEntry(queryClient, payload.agentId, payload.entry);
+          // Only an agent's post can move the sidebar's unread badges.
+          if (
+            payload.entry.type === "chat" &&
+            payload.entry.message.authorKind === "agent"
+          ) {
+            void queryClient.invalidateQueries({
+              queryKey: CHAT_UNREAD_QUERY_KEY,
+            });
+          }
+          return;
+        }
+
+        if (payload.type === "chat.read") {
+          queryClient.setQueryData<FeedCache>(
+            chatFeedQueryKey(payload.agentId),
+            (old) =>
+              applyChatRead(old, payload.unreadCount, {
+                readAt: payload.readAt,
+                upToAt: payload.upToAt,
+              })
+          );
+          void queryClient.invalidateQueries({
+            queryKey: CHAT_UNREAD_QUERY_KEY,
+          });
+          return;
+        }
+
         if (payload.type === "chat.changed") {
-          invalidateChatFeed(queryClient, payload.agentId);
+          invalidateChatFeedAndHarness(queryClient, payload.agentId);
           void queryClient.invalidateQueries({
             queryKey: CHAT_UNREAD_QUERY_KEY,
           });
@@ -301,7 +387,10 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["media", payload.agentId],
             exact: true,
           });
-          invalidateChatFeed(queryClient, payload.agentId);
+          void queryClient.invalidateQueries({
+            queryKey: MEDIA_ITEM_QUERY_PREFIX,
+          });
+          invalidateChatFeedAndHarness(queryClient, payload.agentId);
           return;
         }
 
@@ -369,7 +458,7 @@ export function useSSE(authState: AuthState): void {
           // The Chat feed renders reviews as cards, with their live status
           // and counts — so a new review, and every later change to one,
           // has to reach the feed too.
-          invalidateChatFeed(queryClient, payload.agentId);
+          invalidateChatFeedAndHarness(queryClient, payload.agentId);
           return;
         }
 
@@ -400,8 +489,8 @@ export function useSSE(authState: AuthState): void {
             queryKey: ["messages", payload.recipientAgentId],
             exact: true,
           });
-          invalidateChatFeed(queryClient, payload.senderAgentId);
-          invalidateChatFeed(queryClient, payload.recipientAgentId);
+          invalidateChatFeedAndHarness(queryClient, payload.senderAgentId);
+          invalidateChatFeedAndHarness(queryClient, payload.recipientAgentId);
           return;
         }
 

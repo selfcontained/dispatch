@@ -12,7 +12,7 @@ import {
   type SlashItem,
 } from "@/components/app/chat/chat-composer";
 import { questionExcerpt } from "@/components/app/chat/chat-pane";
-import type { Agent, MediaFile } from "@/components/app/types";
+import type { Agent } from "@/components/app/types";
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { useAnswerChatQuestion, useSendChatMessage } from "@/hooks/use-chat";
 import { uploadAgentMedia } from "@/lib/media-upload";
@@ -45,7 +45,7 @@ export type HarnessPaneProps = {
   active: boolean;
   isMobile: boolean;
   /** Opens a shared file in the media lightbox. */
-  openLightbox?: (file: MediaFile) => void;
+  openLightbox?: (mediaId: number) => void;
 };
 
 const CHIP_CLASS =
@@ -311,18 +311,12 @@ export function HarnessPane({
 
   const onAttachmentClick = useCallback(
     (a: Attachment) => {
-      if (!agentId || !openLightbox || !a.name) return;
-      openLightbox({
-        // ownerAgentId is part of the lightbox identity; without it the
-        // synthesized file never matches the media list and nothing opens.
-        ownerAgentId: agentId,
-        name: a.name,
-        size: a.size ?? 0,
-        updatedAt: a.at ?? new Date().toISOString(),
-        url: a.url,
-      });
+      // The lightbox opens by media id; an attachment with none (a link,
+      // an inline paste) has nothing to open there.
+      if (!openLightbox || a.mediaId === undefined) return;
+      openLightbox(a.mediaId);
     },
-    [agentId, openLightbox]
+    [openLightbox]
   );
 
   // The pane is up before the harness is: setup (worktree, dependencies)

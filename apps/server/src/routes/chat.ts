@@ -37,6 +37,7 @@ const userAttachmentSchema = z.discriminatedUnion("type", [
 ]);
 
 const sendBodySchema = z.object({
+  id: z.uuid().optional(),
   text: z
     .string()
     .max(
@@ -56,6 +57,7 @@ const sendBodySchema = z.object({
  * the reply.
  */
 const answerBodySchema = z.object({
+  id: z.uuid().optional(),
   value: z.string("value is required."),
   label: z.string("label must be a string.").optional(),
   attachments: z
@@ -143,7 +145,8 @@ export async function registerChatRoutes(
       return await chat.sendUserMessage(
         id,
         parsed.data.text,
-        parsed.data.attachments ?? []
+        parsed.data.attachments ?? [],
+        { allowInert: true, id: parsed.data.id }
       );
     } catch (error) {
       return sendError(reply, error);
@@ -160,10 +163,11 @@ export async function registerChatRoutes(
       if (!parsed.success) {
         return reply.code(400).send({ error: bodyIssueMessage(parsed.error) });
       }
-      const { value, label, attachments } = parsed.data;
+      const { value, label, attachments, id: replyId } = parsed.data;
       try {
         return await chat.answerQuestion(id, messageId, {
           value,
+          ...(replyId !== undefined ? { id: replyId } : {}),
           ...(label !== undefined ? { label } : {}),
           ...(attachments && attachments.length > 0 ? { attachments } : {}),
         });
@@ -185,8 +189,15 @@ export async function registerChatRoutes(
     if (!(await agentExists(id))) {
       return reply.code(404).send({ error: "Agent not found." });
     }
-    const updated = await store.markRead(id, upTo ?? undefined);
-    if (updated > 0) chat.publishChanged(id);
-    return { unreadCount: await store.countUnread(id) };
+    const marked = await store.markRead(id, upTo ?? undefined);
+    const unreadCount = await store.countUnread(id);
+    if (marked.updated > 0 && marked.readAt !== null) {
+      chat.publishRead(id, {
+        unreadCount,
+        readAt: marked.readAt,
+        upToAt: marked.upToAt,
+      });
+    }
+    return { unreadCount };
   });
 }

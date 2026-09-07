@@ -303,6 +303,52 @@ describe("ServiceResources", () => {
     resources.setCollectionEnabled(false);
   });
 
+  it("samples database size on its own cadence and survives its failure", async () => {
+    let sizeCalls = 0;
+    let failSize = false;
+    const query = vi.fn(async (sql: string) => {
+      if (!sql.includes("pg_database_size")) return { rows: [{ ok: 1 }] };
+      sizeCalls += 1;
+      if (failSize) throw new Error("permission denied");
+      return { rows: [{ size: String(4_096 * sizeCalls) }] };
+    });
+    const resources = new ServiceResources({
+      pool: createPool(),
+      probePool: createProbePool(query as never),
+      listAgentSessions: async () => [],
+      getWorkloads: workloads,
+      subsystemTrackers: [],
+      processTreeSupported: false,
+    });
+
+    resources.start();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sizeCalls).toBe(1);
+    expect(resources.getSnapshot().current.database).toMatchObject({
+      state: "healthy",
+      sizeBytes: 4_096,
+    });
+
+    // Liveness probes keep running every 10s, but size stays on its own clock.
+    await vi.advanceTimersByTimeAsync(240_000);
+    expect(sizeCalls).toBe(1);
+    expect(resources.getSnapshot().current.database.sizeBytes).toBe(4_096);
+
+    await vi.advanceTimersByTimeAsync(70_000);
+    expect(sizeCalls).toBe(2);
+    expect(resources.getSnapshot().current.database.sizeBytes).toBe(8_192);
+
+    // A failed size query keeps the last known value and stays healthy.
+    failSize = true;
+    await vi.advanceTimersByTimeAsync(310_000);
+    expect(sizeCalls).toBe(3);
+    expect(resources.getSnapshot().current.database).toMatchObject({
+      state: "healthy",
+      sizeBytes: 8_192,
+    });
+    resources.stop();
+  });
+
   it("degrades owner subsystems when recent writes or polls fail", async () => {
     const current = workloads();
     current.sseClients = 1;

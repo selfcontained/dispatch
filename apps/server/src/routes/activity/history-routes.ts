@@ -307,7 +307,7 @@ async function handleHistoryAgentDetail(
       [id]
     ),
     deps.pool.query<HistoryMedia>(
-      `SELECT file_name, source, size_bytes, description, created_at
+      `SELECT id, file_name, source, size_bytes, description, created_at
            FROM media WHERE agent_id = $1 ORDER BY created_at`,
       [id]
     ),

@@ -1,9 +1,10 @@
-import { type RefObject } from "react";
+import { type ReactNode, type RefObject, useEffect, useRef } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Hash, ListFilter, MessageSquare, TerminalSquare } from "lucide-react";
 
 import { ChatPane } from "@/components/app/chat/chat-pane";
 import { HarnessPane } from "@/components/app/harness/harness-pane";
-import { type Agent, type MediaFile } from "@/components/app/types";
+import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import {
   Popover,
@@ -15,6 +16,47 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { formatBadgeCount } from "@/lib/format";
 import { type AgentPaneView, isAgentPaneView } from "@/lib/store";
 import { cn } from "@/lib/utils";
+
+const PANE_FADE_OUT_SECONDS = 0.32;
+const PANE_FADE_IN_SECONDS = 0.26;
+
+/**
+ * The Chat ⇄ Console fade. Framer drives opacity through the Web Animations
+ * API, so the fade keeps running on the compositor even when the flip itself
+ * janks the main thread — a plain CSS class swap starts late (or visibly
+ * restarts) on a phone, where the same commit also wakes the terminal.
+ *
+ * `visibility` rides along via `transitionEnd`: it flips at the *end* of the
+ * fade-out and the *start* of the fade-in, so the outgoing view stays painted
+ * while it fades yet is fully unpainted — and out of the tab and
+ * accessibility order — once down. That is what keeps the terminal canvas
+ * from bleeding through the chat feed; `opacity: 0` alone would not.
+ */
+function paneFade(shown: boolean) {
+  return shown
+    ? { opacity: 1, visibility: "visible" as const }
+    : { opacity: 0, transitionEnd: { visibility: "hidden" as const } };
+}
+
+/**
+ * The two views hand over rather than cross-dissolve: the outgoing one fades
+ * all the way out, and only then does the incoming one fade in. Sequencing it
+ * is a single delay on whichever layer is arriving — they animate against the
+ * same clock, so the hand-off needs no coordination beyond this.
+ *
+ * `instant` collapses both to zero for reduced motion and for the chat-surface
+ * flag resolving, neither of which is a view change the user asked for.
+ */
+function paneTransition(shown: boolean, instant: boolean) {
+  if (instant) return { duration: 0, delay: 0 };
+  return shown
+    ? {
+        duration: PANE_FADE_IN_SECONDS,
+        delay: PANE_FADE_OUT_SECONDS,
+        ease: "easeInOut" as const,
+      }
+    : { duration: PANE_FADE_OUT_SECONDS, delay: 0, ease: "easeInOut" as const };
+}
 
 export type AgentViewToggleProps = {
   view: AgentPaneView;
@@ -61,12 +103,7 @@ export function AgentViewToggle({
         aria-label="Agent pane view"
         data-testid="agent-view-toggle"
         data-view={view}
-        className={cn(
-          "relative isolate grid h-6 grid-cols-2 border-0 bg-transparent p-0 shadow-none pointer-coarse:h-11",
-          harnessEnabled
-            ? "w-[8.75rem] sm:w-[9.5rem]"
-            : "w-[7.75rem] sm:w-[8.5rem]"
-        )}
+        className="relative isolate grid h-6 w-[9.5rem] grid-cols-2 border-0 bg-transparent p-0 shadow-none sm:w-[10rem] pointer-coarse:h-11"
       >
         <span
           aria-hidden="true"
@@ -77,9 +114,8 @@ export function AgentViewToggle({
           aria-hidden="true"
           data-testid="agent-view-indicator"
           className={cn(
-            "pointer-events-none absolute left-0.5 top-1/2 z-0 h-5 -translate-y-1/2 rounded-full bg-primary shadow transition-transform duration-200 ease-out motion-reduce:transition-none",
-            "w-[calc(50%-0.25rem)]",
-            position === 1 && "translate-x-[calc(100%+0.25rem)]"
+            "pointer-events-none absolute left-0.5 top-1/2 z-0 h-5 w-[calc(50%-0.25rem)] -translate-y-1/2 rounded-full border border-border bg-background shadow transition-transform duration-200 ease-out motion-reduce:transition-none",
+            view === "console" && "translate-x-[calc(100%+0.25rem)]"
           )}
         />
         {harnessEnabled ? (
@@ -87,10 +123,10 @@ export function AgentViewToggle({
             value="harness"
             aria-label="Chat"
             data-testid="agent-view-harness"
-            className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
+            className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
           >
             {/* The Harness view is this agent's chat; it reads as Chat. */}
-            <MessageSquare className="h-2.5 w-2.5" />
+            <MessageSquare className="h-2.5 w-2.5 shrink-0" />
             Chat
           </ToggleGroupItem>
         ) : (
@@ -98,15 +134,15 @@ export function AgentViewToggle({
             value="chat"
             aria-label="Chat"
             data-testid="agent-view-chat"
-            className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
+            className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
           >
-            <MessageSquare className="h-2.5 w-2.5" />
+            <MessageSquare className="h-2.5 w-2.5 shrink-0" />
             Chat
             {showUnread ? (
               <span
                 data-testid="agent-view-chat-unread"
                 aria-label={`${chatUnreadCount} unread chat messages`}
-                className="ml-0.5 min-w-4 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
+                className="ml-0.5 min-w-4 shrink-0 rounded-full bg-primary px-1 text-center text-[9px] font-semibold leading-4 text-primary-foreground"
               >
                 {formatBadgeCount(chatUnreadCount)}
               </span>
@@ -117,9 +153,9 @@ export function AgentViewToggle({
           value="console"
           aria-label="Console"
           data-testid="agent-view-console"
-          className="relative z-10 h-5 rounded-full px-1.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-primary-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-1.5"
+          className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
         >
-          <TerminalSquare className="h-2.5 w-2.5" />
+          <TerminalSquare className="h-2.5 w-2.5 shrink-0" />
           Console
         </ToggleGroupItem>
       </ToggleGroup>
@@ -214,11 +250,19 @@ export type AgentPaneProps = {
    */
   terminalSlotRef: RefObject<HTMLDivElement>;
   /**
+   * Chrome that belongs to the Console and nothing else — on mobile, the
+   * terminal keyboard toolbar. It sits *inside* the Console layer so its
+   * height is charged to that layer alone: the pane's content region, the
+   * header above it and the Chat layer beside it all keep the same geometry
+   * whichever view is up, which is what lets the flip be a pure cross-fade.
+   */
+  consoleFooter?: ReactNode;
+  /**
    * Render the pane's own header row (agent name + toggle). A split pane
    * has a header of its own and puts `AgentViewToggle` there instead.
    */
   header: boolean;
-  openLightbox: (file: MediaFile) => void;
+  openLightbox: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar; from a review card in the feed. */
   onOpenReview?: (reviewId: number) => void;
   isMobile: boolean;
@@ -249,6 +293,7 @@ export function AgentPane({
   onShowChildAgentsChange,
   childAgentIds,
   terminalSlotRef,
+  consoleFooter = null,
   header,
   openLightbox,
   onOpenReview,
@@ -258,7 +303,20 @@ export function AgentPane({
   // "chat" preference (or the default) lands on Harness.
   const harnessShown = chatEnabled && harnessEnabled && view !== "console";
   const chatShown = chatEnabled && !harnessEnabled && view === "chat";
-  const consoleShown = !harnessShown && !chatShown;
+  // The feed layer (Chat, or Harness standing in for it) is up; else the Console.
+  const feedShown = harnessShown || chatShown;
+  const reduceMotion = useReducedMotion();
+  // The chat-surface flag resolves after the first paint, so the pane can go
+  // from "bare terminal" to "Chat over Console" a tick in. That is hydration
+  // catching up, not a view change, and it must settle in the same frame —
+  // otherwise the Console layer sits there fading out under a toggle that
+  // already reads Chat. Only a real Chat ⇄ Console flip is animated.
+  const settledChatEnabled = useRef(chatEnabled);
+  const hydrating = settledChatEnabled.current !== chatEnabled;
+  useEffect(() => {
+    settledChatEnabled.current = chatEnabled;
+  }, [chatEnabled]);
+  const instant = Boolean(reduceMotion) || hydrating;
   return (
     <div
       className="flex h-full min-h-0 min-w-0 max-w-full flex-col overflow-hidden"
@@ -281,57 +339,90 @@ export function AgentPane({
           />
         </div>
       ) : null}
-      {chatEnabled && harnessEnabled ? (
-        <div
+      {/*
+       * Chat and Console are stacked, not stitched into the column: both
+       * fill the same box so the flip can cross-fade instead of swapping
+       * `display`. Console sits on top (later in the DOM) and paints an
+       * opaque background, so either direction reads as one fade.
+       */}
+      <div className="relative min-h-0 min-w-0 max-w-full flex-1 overflow-hidden">
+        {chatEnabled ? (
+          <motion.div
+            className={cn(
+              "absolute inset-0 overflow-hidden",
+              !feedShown && "pointer-events-none"
+            )}
+            initial={false}
+            animate={paneFade(feedShown)}
+            transition={paneTransition(feedShown, instant)}
+            data-testid="agent-pane-chat"
+            data-state={feedShown ? "shown" : "hidden"}
+          >
+            {/*
+             * Keyed per agent: the pane's dismissed question, send error and
+             * scroll position are agent-local, and a direct /agents/a →
+             * /agents/b transition must not carry them across.
+             */}
+            {harnessEnabled ? (
+              <div className="h-full" data-testid="agent-pane-harness">
+                <HarnessPane
+                  key={agentId ?? "none"}
+                  agentId={agentId}
+                  agent={agent}
+                  active={active && harnessShown}
+                  isMobile={isMobile}
+                  openLightbox={openLightbox}
+                />
+              </div>
+            ) : (
+              <ChatPane
+                key={agentId ?? "none"}
+                agentId={agentId}
+                agent={agent}
+                terminalMode={terminalMode}
+                active={active && chatShown}
+                showChildAgents={showChildAgents}
+                childAgentIds={childAgentIds}
+                onShowChildAgentsChange={onShowChildAgentsChange}
+                openLightbox={openLightbox}
+                onOpenReview={onOpenReview}
+                isMobile={isMobile}
+              />
+            )}
+          </motion.div>
+        ) : null}
+        <motion.div
           className={cn(
-            "min-h-0 min-w-0 max-w-full flex-1 overflow-hidden",
-            !harnessShown && "hidden"
+            "absolute inset-0 grid grid-rows-[minmax(0,1fr)_auto]",
+            feedShown && "pointer-events-none"
           )}
-          data-testid="agent-pane-harness"
-        >
-          <HarnessPane
-            key={agentId ?? "none"}
-            agentId={agentId}
-            agent={agent}
-            active={active && harnessShown}
-            isMobile={isMobile}
-            openLightbox={openLightbox}
-          />
-        </div>
-      ) : null}
-      {chatEnabled && !harnessEnabled ? (
-        <div
-          className={cn(
-            "min-h-0 min-w-0 max-w-full flex-1 overflow-hidden",
-            !chatShown && "hidden"
-          )}
-          data-testid="agent-pane-chat"
+          initial={false}
+          // Always a defined target, chat surface or not: handing framer
+          // `undefined` leaves it with no baseline to animate from, and the
+          // first flip after the flag resolves snaps instead of fading.
+          // With the surface off `chatShown` is always false, which is the
+          // bare-terminal mode's "fully shown" anyway.
+          animate={paneFade(!feedShown)}
+          transition={paneTransition(!feedShown, instant)}
+          data-testid="agent-pane-console"
+          data-state={feedShown ? "hidden" : "shown"}
         >
           {/*
-           * Keyed per agent: the pane's dismissed question, send error and
-           * scroll position are agent-local, and a direct /agents/a →
-           * /agents/b transition must not carry them across.
+           * `min-w-0 overflow-hidden` is load-bearing, not tidiness: the slot
+           * is a grid item now, and a grid track sizes to its content. The
+           * terminal's rows are routinely wider than a phone — carrying a
+           * stale width from a wider fit, or simply long output — so without
+           * this the track grows to them and drags the layer, the toolbar
+           * included, off the side of the screen.
            */}
-          <ChatPane
-            key={agentId ?? "none"}
-            agentId={agentId}
-            agent={agent}
-            terminalMode={terminalMode}
-            active={active && chatShown}
-            showChildAgents={showChildAgents}
-            childAgentIds={childAgentIds}
-            onShowChildAgentsChange={onShowChildAgentsChange}
-            openLightbox={openLightbox}
-            onOpenReview={onOpenReview}
-            isMobile={isMobile}
+          <div
+            ref={terminalSlotRef}
+            className="min-h-0 min-w-0 overflow-hidden"
+            data-testid="agent-pane-terminal-slot"
           />
-        </div>
-      ) : null}
-      <div
-        ref={terminalSlotRef}
-        className={cn("min-h-0 flex-1", !consoleShown && "hidden")}
-        data-testid="agent-pane-console"
-      />
+          {consoleFooter}
+        </motion.div>
+      </div>
     </div>
   );
 }

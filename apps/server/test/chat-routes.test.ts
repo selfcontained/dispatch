@@ -233,19 +233,23 @@ describe("POST /api/v1/agents/:id/chat/messages (inert runtime)", () => {
     expect(rows.rows).toHaveLength(0);
   });
 
-  it("409s when the agent has no tmux session, and persists nothing", async () => {
-    // Same boundary as terminal inject-text: agents run inert in tests.
+  it("stores an undelivered stream post when the agent is inert", async () => {
     const res = await authedInject(
       "POST",
       `/api/v1/agents/${agentId}/chat/messages`,
       { text: "hello?" }
     );
-    expect(res.statusCode).toBe(409);
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      delivered: false,
+      held: false,
+      message: { text: "hello?", delivered: false },
+    });
     const rows = await ctx.pool.query(
-      "SELECT 1 FROM agent_chat_messages WHERE agent_id = $1",
+      "SELECT text, delivered FROM agent_chat_messages WHERE agent_id = $1",
       [agentId]
     );
-    expect(rows.rows).toHaveLength(0);
+    expect(rows.rows).toEqual([{ text: "hello?", delivered: false }]);
   });
 
   it("404s for an unknown agent", async () => {
@@ -323,7 +327,7 @@ describe("POST /api/v1/agents/:id/chat/messages/:messageId/answer (inert runtime
     expect(res.json().error).toMatch(/already answered/i);
   });
 
-  it("409s for an unanswered question when there is no session", async () => {
+  it("records an undelivered answer when there is no session", async () => {
     const q = await store.insert({
       agentId,
       authorKind: "agent",
@@ -336,9 +340,12 @@ describe("POST /api/v1/agents/:id/chat/messages/:messageId/answer (inert runtime
       `/api/v1/agents/${agentId}/chat/messages/${q.id}/answer`,
       { value: "a" }
     );
-    expect(res.statusCode).toBe(409);
-    expect(res.json().error).not.toMatch(/already answered/i);
-    expect((await store.getById(q.id))?.answer).toBeNull();
+    expect(res.statusCode).toBe(200);
+    expect(res.json()).toMatchObject({
+      delivered: false,
+      reply: { text: "a", delivered: false },
+    });
+    expect((await store.getById(q.id))?.answer).toMatchObject({ value: "a" });
   });
 });
 
@@ -522,10 +529,104 @@ describe("chat routes with a deliverable terminal", () => {
     return { app, ready, chat, published, prompts };
   }
 
-  async function settled(id: string): Promise<ChatMessage> {
+  it("stores a send under the client's id and refuses a repeat of it", async () => {
+    const { app, ready, published } = buildApp({});
+    await ready;
+    const id = "7c1d2e3f-4a5b-4c6d-8e7f-90a1b2c3d4e5";
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages`,
+      payload: { id, text: "hello" },
+    });
+    expect(first.statusCode).toBe(200);
+    expect(first.json().message.id).toBe(id);
+    expect(published[0]).toEqual(
+      expect.objectContaining({
+        type: "chat.entry",
+        entry: expect.objectContaining({ id }),
+      })
+    );
+    const again = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages`,
+      payload: { id, text: "hello again" },
+    });
+    expect(again.statusCode).toBe(409);
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/messages`,
+      payload: { id: "not-a-uuid", text: "x" },
+    });
+    expect(bad.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("announces a mark-read with the count and what it stamped", async () => {
+    const { app, ready, published } = buildApp({});
+    await ready;
+    const first = await store.insert({
+      agentId,
+      authorKind: "agent",
+      text: "1",
+    });
+    await store.insert({ agentId, authorKind: "agent", text: "2" });
+
+    const partial = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/read`,
+      payload: { upTo: first.id },
+    });
+    expect(partial.json()).toEqual({ unreadCount: 1 });
+    // The bound's time travels with the event so a cached feed can stamp
+    // the same rows the server did.
+    expect(published).toEqual([
+      {
+        type: "chat.read",
+        agentId,
+        unreadCount: 1,
+        readAt: expect.any(String),
+        upToAt: first.createdAt,
+      },
+    ]);
+
+    published.length = 0;
+    const all = await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/read`,
+      payload: {},
+    });
+    expect(all.json()).toEqual({ unreadCount: 0 });
+    expect(published).toEqual([
+      expect.objectContaining({
+        type: "chat.read",
+        unreadCount: 0,
+        upToAt: null,
+      }),
+    ]);
+
+    // Nothing left to mark: nothing announced.
+    published.length = 0;
+    await app.inject({
+      method: "POST",
+      url: `/api/v1/agents/${agentId}/chat/read`,
+      payload: {},
+    });
+    expect(published).toEqual([]);
+    await app.close();
+  });
+
+  /**
+   * The delivered row, once its whole settlement chain has run: the row
+   * is marked before the delivered entry is read back and published, so
+   * waiting on the row alone can observe the state between the two.
+   */
+  async function settled(chat: ChatService, id: string): Promise<ChatMessage> {
     for (let i = 0; i < 50; i++) {
       const row = await store.getById(id);
-      if (row && row.delivered !== null) return row;
+      if (row && row.delivered !== null) {
+        await chat.waitForInFlightDeliveries(1_000);
+        return row;
+      }
       await new Promise((r) => setTimeout(r, 20));
     }
     throw new Error("delivery never settled");
@@ -536,7 +637,10 @@ describe("chat routes with a deliverable terminal", () => {
     const gate = new Promise<void>((r) => {
       release = r;
     });
-    const { app, ready, published, prompts } = buildApp({ held: true, gate });
+    const { app, ready, chat, published, prompts } = buildApp({
+      held: true,
+      gate,
+    });
     await ready;
     const res = await app.inject({
       method: "POST",
@@ -556,10 +660,20 @@ describe("chat routes with a deliverable terminal", () => {
     // Still held: nothing has reached the pane and the row is pending.
     expect(prompts).toHaveLength(0);
     expect((await store.getById(body.message.id))?.delivered).toBeNull();
-    expect(published).toEqual([{ type: "chat.changed", agentId }]);
+    expect(published).toEqual([
+      expect.objectContaining({
+        type: "chat.entry",
+        agentId,
+        entry: expect.objectContaining({
+          type: "chat",
+          id: body.message.id,
+          message: expect.objectContaining({ delivered: null }),
+        }),
+      }),
+    ]);
 
     release();
-    const row = await settled(body.message.id);
+    const row = await settled(chat, body.message.id);
     expect(row.delivered).toBe(true);
     expect(prompts).toHaveLength(1);
     expect(prompts[0].prompt).toBe(
@@ -570,9 +684,18 @@ describe("chat routes with a deliverable terminal", () => {
         `The user only sees Chat — reply with dispatch_chat_post (replyTo: "${body.message.id}").`,
       ].join("\n")
     );
-    expect(published).toEqual([
-      { type: "chat.changed", agentId },
-      { type: "chat.changed", agentId },
+    // Pending first, then the same row once delivery settled it.
+    expect(
+      published.map((event) => {
+        const e = event as {
+          type: string;
+          entry?: { message?: { delivered: boolean | null } };
+        };
+        return [e.type, e.entry?.message?.delivered];
+      })
+    ).toEqual([
+      ["chat.entry", null],
+      ["chat.entry", true],
     ]);
     await app.close();
   });
@@ -585,7 +708,7 @@ describe("chat routes with a deliverable terminal", () => {
       [agentId]
     );
     const mediaId = media.rows[0].id;
-    const { app, ready, prompts } = buildApp({});
+    const { app, ready, chat, prompts } = buildApp({});
     await ready;
     const res = await app.inject({
       method: "POST",
@@ -613,7 +736,7 @@ describe("chat routes with a deliverable terminal", () => {
       { type: "pin", pinId: "pin_1" },
       { type: "link", url: "https://example.com/x" },
     ]);
-    await settled(body.message.id);
+    await settled(chat, body.message.id);
     expect(prompts).toHaveLength(1);
     expect(prompts[0].prompt).toContain(
       [
@@ -629,7 +752,7 @@ describe("chat routes with a deliverable terminal", () => {
   });
 
   it("settles delivered=false when the pane write fails after the response", async () => {
-    const { app, ready } = buildApp({
+    const { app, ready, chat } = buildApp({
       sendCommand: async () => {
         throw new Error("session gone");
       },
@@ -642,7 +765,7 @@ describe("chat routes with a deliverable terminal", () => {
     });
     expect(res.statusCode).toBe(200);
     expect(res.json().delivered).toBeNull();
-    const row = await settled(res.json().message.id);
+    const row = await settled(chat, res.json().message.id);
     expect(row.delivered).toBe(false);
     await app.close();
   });
@@ -692,7 +815,7 @@ describe("chat routes with a deliverable terminal", () => {
   });
 
   it("answers a question: resolves the option label server-side and injects it", async () => {
-    const { app, ready, prompts, published } = buildApp({});
+    const { app, ready, chat, prompts, published } = buildApp({});
     await ready;
     const q = await store.insert({
       agentId,
@@ -721,11 +844,23 @@ describe("chat routes with a deliverable terminal", () => {
       label: "Yes",
       replyMessageId: body.reply.id,
     });
-    const row = await settled(body.reply.id);
+    const row = await settled(chat, body.reply.id);
     expect(row.delivered).toBe(true);
     expect(prompts[0].prompt).toContain(`(id: ${body.reply.id})`);
     expect(prompts[0].prompt).toContain("\nYes\n");
-    expect(published[0]).toEqual({ type: "chat.changed", agentId });
+    // The answered question first, then its reply.
+    expect(published.slice(0, 2)).toEqual([
+      expect.objectContaining({
+        type: "chat.entry",
+        agentId,
+        entry: expect.objectContaining({ id: body.question.id }),
+      }),
+      expect.objectContaining({
+        type: "chat.entry",
+        agentId,
+        entry: expect.objectContaining({ id: body.reply.id }),
+      }),
+    ]);
 
     // Value-less options match on their label; but the question is taken.
     const again = await app.inject({
@@ -769,7 +904,7 @@ describe("chat routes with a deliverable terminal", () => {
       [agentId]
     );
     const mediaId = media.rows[0].id;
-    const { app, ready, prompts } = buildApp({});
+    const { app, ready, chat, prompts } = buildApp({});
     await ready;
     const q = await store.insert({
       agentId,
@@ -808,7 +943,7 @@ describe("chat routes with a deliverable terminal", () => {
       value: "see the doc",
       replyMessageId: body.reply.id,
     });
-    await settled(body.reply.id);
+    await settled(chat, body.reply.id);
     expect(prompts).toHaveLength(1);
     expect(prompts[0].prompt).toContain(
       [
@@ -826,7 +961,7 @@ describe("chat routes with a deliverable terminal", () => {
   });
 
   it("400s an answer whose attachments are malformed, unknown, or too many, leaving the question open", async () => {
-    const { app, ready, prompts } = buildApp({});
+    const { app, ready, chat, prompts } = buildApp({});
     await ready;
     const q = await store.insert({
       agentId,

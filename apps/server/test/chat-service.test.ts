@@ -18,6 +18,20 @@ let pool: Pool;
 let service: ChatService;
 let published: unknown[];
 
+/** The `chat.entry` a write publishes: the message as its own feed row. */
+function entryEvent(message: ChatMessage): unknown {
+  return {
+    type: "chat.entry",
+    agentId: message.agentId,
+    entry: {
+      type: "chat",
+      id: message.id,
+      at: message.createdAt,
+      message: expect.objectContaining({ id: message.id, text: message.text }),
+    },
+  };
+}
+
 const A = "agt_chat_svc";
 const PINS = [{ id: "pin_1", label: "URL", value: "http://x", type: "url" }];
 
@@ -91,7 +105,7 @@ describe("ChatService.recordLaunchContext", () => {
       ],
     });
     expect(message && "launchedByAgentId" in message).toBe(false);
-    expect(published).toEqual([{ type: "chat.changed", agentId: A }]);
+    expect(published).toEqual([entryEvent(message!)]);
     expect(await service.store.getById(message!.id)).toEqual(message);
   });
 
@@ -184,7 +198,7 @@ describe("ChatService.prepareLaunchContext", () => {
     const message = await prepared!.record();
     expect(message.id).toBe("8a4f9e60-1111-4222-8333-444455556666");
     expect(message).toMatchObject({ origin: "launch", delivered: true });
-    expect(published).toEqual([{ type: "chat.changed", agentId: A }]);
+    expect(published).toEqual([entryEvent(message)]);
   });
 
   it("returns null for a launch with no context", async () => {
@@ -264,7 +278,7 @@ describe("ChatService.prepareLaunchContext", () => {
 });
 
 describe("ChatService.post", () => {
-  it("persists an agent message and publishes chat.changed", async () => {
+  it("persists an agent message and publishes it as a feed entry", async () => {
     const message = await service.post(A, { text: "hello", kind: "update" });
     expect(message).toMatchObject({
       agentId: A,
@@ -272,7 +286,7 @@ describe("ChatService.post", () => {
       kind: "update",
       text: "hello",
     });
-    expect(published).toEqual([{ type: "chat.changed", agentId: A }]);
+    expect(published).toEqual([entryEvent(message)]);
   });
 
   it("validates content once, at the service boundary", () => {
@@ -397,6 +411,25 @@ describe("ChatService.post", () => {
     ).rejects.toThrow(/not both/);
   });
 
+  it("stores no dimensions on a file attachment, even for a measured image", async () => {
+    // The shape is filled in when the feed is composed, from the live media
+    // row. Freezing it here would let dispatch_share_file replace the bytes
+    // under an unchanged URL and leave the post reserving the old ratio — a
+    // wrong box, where absent merely means the plain one.
+    await pool.query(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, metadata)
+       VALUES ($1, 'measured.png', 'screenshot', 9,
+               '{"width":120,"height":90}'::jsonb)`,
+      [A]
+    );
+    const message = await service.post(A, {
+      text: "see",
+      attachments: [{ type: "file", fileName: "measured.png" }],
+    });
+    expect(message.attachments[0]).not.toHaveProperty("width");
+    expect(message.attachments[0]).not.toHaveProperty("height");
+  });
+
   it("rejects unknown files and unknown pins", async () => {
     await expect(
       service.post(A, {
@@ -471,7 +504,7 @@ describe("ChatService.update", () => {
       kind: "summary",
     });
     expect(updated).toMatchObject({ text: "final", kind: "summary" });
-    expect(published).toEqual([{ type: "chat.changed", agentId: A }]);
+    expect(published).toEqual([entryEvent(updated)]);
 
     await expect(
       service.update("agt_other", mine.id, { text: "hijack" })
@@ -622,10 +655,18 @@ describe("ChatService user workflows", () => {
     return { svc, events, injected };
   }
 
+  /**
+   * The delivered row, once its whole settlement chain has run: the row
+   * is marked before the delivered entry is read back and published, so
+   * waiting on the row alone can observe the state between the two.
+   */
   async function settled(svc: ChatService, id: string): Promise<ChatMessage> {
     for (let i = 0; i < 50; i++) {
       const row = await svc.store.getById(id);
-      if (row && row.delivered !== null) return row;
+      if (row && row.delivered !== null) {
+        await svc.waitForInFlightDeliveries(1_000);
+        return row;
+      }
       await new Promise((r) => setTimeout(r, 20));
     }
     throw new Error("delivery never settled");
@@ -644,7 +685,7 @@ describe("ChatService user workflows", () => {
       message: { authorKind: "user", kind: "reply", delivered: null },
     });
     expect(injected).toHaveLength(0);
-    expect(events).toEqual([{ type: "chat.changed", agentId: A }]);
+    expect(events).toEqual([entryEvent(res.message)]);
     expect(svc.inFlightDeliveryCount).toBe(1);
 
     release();
@@ -664,7 +705,7 @@ describe("ChatService user workflows", () => {
     expect((await settled(svc, res.message.id)).delivered).toBe(false);
   });
 
-  it("sendUserMessage rejects empty/oversized text and an undeliverable agent", async () => {
+  it("sendUserMessage rejects invalid text but records inert posts", async () => {
     const { svc } = build({
       access: async () => ({ mode: "inert", message: "No pane." }),
     });
@@ -674,12 +715,18 @@ describe("ChatService user workflows", () => {
     await expect(
       svc.sendUserMessage(A, "x".repeat(20_001))
     ).rejects.toBeInstanceOf(ChatValidationError);
-    await expect(svc.sendUserMessage(A, "hi")).rejects.toThrow(
-      new ChatConflictError("No pane.")
+    const inert = await svc.sendUserMessage(A, "hi", [], {
+      allowInert: true,
+    });
+    expect(inert).toMatchObject({
+      delivered: false,
+      held: false,
+      message: { text: "hi", delivered: false },
+    });
+    const rows = await pool.query(
+      "SELECT text, delivered FROM agent_chat_messages"
     );
-    // Nothing was written for any of them.
-    const rows = await pool.query("SELECT 1 FROM agent_chat_messages");
-    expect(rows.rowCount).toBe(0);
+    expect(rows.rows).toEqual([{ text: "hi", delivered: false }]);
   });
 
   it("sendUserMessage resolves user attachments and lists them in the envelope", async () => {
@@ -797,7 +844,11 @@ describe("ChatService user workflows", () => {
       label: "Yes",
       replyMessageId: res.reply.id,
     });
-    expect(events[0]).toEqual({ type: "chat.changed", agentId: A });
+    // The answered question first, then the reply it created.
+    expect(events.slice(0, 2)).toEqual([
+      entryEvent(res.question),
+      entryEvent(res.reply),
+    ]);
     expect((await settled(svc, res.reply.id)).delivered).toBe(true);
     expect(injected[0].text).toContain("\nYes\n");
 

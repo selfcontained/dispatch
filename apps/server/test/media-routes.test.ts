@@ -102,9 +102,10 @@ describe("GET /api/v1/agents/:id/media (list)", () => {
   });
 
   it("returns media files with metadata after seeding", async () => {
-    await ctx.pool.query(
+    const inserted = await ctx.pool.query<{ id: number }>(
       `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, 'screenshot-001.png', 'screenshot', 1024, 'a test image')`,
+       VALUES ($1, 'screenshot-001.png', 'screenshot', 1024, 'a test image')
+       RETURNING id`,
       [agentId]
     );
 
@@ -112,6 +113,7 @@ describe("GET /api/v1/agents/:id/media (list)", () => {
     expect(res.statusCode).toBe(200);
     const { files } = res.json();
     expect(files).toHaveLength(1);
+    expect(files[0].id).toBe(inserted.rows[0].id);
     expect(files[0].name).toBe("screenshot-001.png");
     expect(files[0].source).toBe("screenshot");
     expect(files[0].size).toBe(1024);
@@ -144,6 +146,42 @@ describe("GET /api/v1/agents/:id/media (list)", () => {
       `/api/v1/agents/${agentId}/media`
     );
     expect(listAfter.json().files[0].seen).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// GET /api/v1/media/:mediaId (metadata)
+// ---------------------------------------------------------------------------
+describe("GET /api/v1/media/:mediaId (metadata)", () => {
+  it("resolves metadata and content URL by ID without an owner", async () => {
+    const inserted = await ctx.pool.query<{ id: number }>(
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
+       VALUES ($1, 'by-id.png', 'screenshot', 512, 'resolved by id')
+       RETURNING id`,
+      [agentId]
+    );
+
+    const mediaId = inserted.rows[0].id;
+    const res = await authedInject("GET", `/api/v1/media/${mediaId}`);
+
+    expect(res.statusCode).toBe(200);
+    expect(res.json().media).toMatchObject({
+      id: mediaId,
+      ownerAgentId: agentId,
+      name: "by-id.png",
+      size: 512,
+      description: "resolved by id",
+      url: `/api/v1/agents/${agentId}/media/by-id.png`,
+    });
+  });
+
+  it("rejects invalid IDs and returns 404 for missing rows", async () => {
+    expect((await authedInject("GET", "/api/v1/media/nope")).statusCode).toBe(
+      400
+    );
+    expect((await authedInject("GET", "/api/v1/media/999999")).statusCode).toBe(
+      404
+    );
   });
 });
 
@@ -253,6 +291,146 @@ describe("GET /api/v1/agents/:id/media/:file (serve)", () => {
     expect(res.statusCode).toBe(200);
     expect(res.headers["content-security-policy"]).toBeUndefined();
     expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("advertises Accept-Ranges and Content-Length on a plain 200", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["accept-ranges"]).toBe("bytes");
+    expect(res.headers["content-length"]).toBe(String(content.length));
+  });
+
+  it("returns 206 with Content-Range for a mid-file byte range", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=2-4" } }
+    );
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe(`bytes 2-4/${content.length}`);
+    expect(res.headers["content-length"]).toBe("3");
+    expect(res.rawPayload.toString()).toBe("234");
+    // Security headers still land on a partial response.
+    expect(res.headers["x-content-type-options"]).toBe("nosniff");
+  });
+
+  it("resolves an open-ended range to end of file", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=7-" } }
+    );
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe(`bytes 7-9/${content.length}`);
+    expect(res.rawPayload.toString()).toBe("789");
+  });
+
+  it("resolves a suffix range to the last N bytes", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=-3" } }
+    );
+    expect(res.statusCode).toBe(206);
+    expect(res.headers["content-range"]).toBe(`bytes 7-9/${content.length}`);
+    expect(res.rawPayload.toString()).toBe("789");
+  });
+
+  it("returns 416 with Content-Range */size for an unsatisfiable range", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=100-200" } }
+    );
+    expect(res.statusCode).toBe(416);
+    expect(res.headers["content-range"]).toBe(`bytes */${content.length}`);
+  });
+
+  it("ignores a malformed Range header and serves the whole file (RFC 9110 §14.2)", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "not-a-range" } }
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.length).toBe(content.length);
+  });
+
+  it("ignores a multi-range request and serves the whole file", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "bytes=0-1,4-6" } }
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.length).toBe(content.length);
+  });
+
+  it("ignores an unrecognized Range unit and serves the whole file", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    const content = Buffer.from("0123456789");
+    await writeFile(path.join(agentMediaDir, "clip.mp4"), content);
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/clip.mp4`,
+      { headers: { range: "items=0-1" } }
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.rawPayload.length).toBe(content.length);
+  });
+
+  it("serves a 0-byte file as an empty 200 rather than crashing", async () => {
+    const agentMediaDir = path.join(mediaRoot, agentId);
+    await mkdir(agentMediaDir, { recursive: true });
+    await writeFile(path.join(agentMediaDir, "empty.png"), Buffer.alloc(0));
+
+    const res = await authedInject(
+      "GET",
+      `/api/v1/agents/${agentId}/media/empty.png`
+    );
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-length"]).toBe("0");
+    expect(res.rawPayload.length).toBe(0);
   });
 });
 

@@ -2984,6 +2984,9 @@ describe("createMcpHandlers", () => {
         update: "existing.png",
       });
       expect(result.fileName).toBe("existing.png");
+      // The lookup, then the update. No transaction: the dimensions written
+      // are read from the buffer being written, so there is nothing here that
+      // two statements could leave disagreeing.
       expect(deps.pool.query).toHaveBeenCalledTimes(2);
     });
 

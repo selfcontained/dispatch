@@ -138,6 +138,16 @@ describe("formatRelativeTime", () => {
   });
 });
 
+describe("invalid dates", () => {
+  it("render as Invalid Date instead of throwing", () => {
+    for (const bad of ["", "not-a-date", "null"]) {
+      expect(formatDateTime(bad)).toBe("Invalid Date");
+      expect(formatShortDateTime(bad)).toBe("Invalid Date");
+      expect(formatShortDate(bad)).toBe("Invalid Date");
+    }
+  });
+});
+
 describe("formatDateTime", () => {
   it("includes date and time parts", () => {
     const result = formatDateTime("2026-03-15T14:30:00Z");

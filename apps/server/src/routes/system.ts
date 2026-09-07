@@ -62,7 +62,6 @@ type SystemRouteDeps = {
   validIconColors: readonly string[];
   getCachedIconColor: () => string;
   rewriteForColor: (color: string) => void;
-  publishUiEvent: (event: unknown) => void;
   /** Dispatch Harness models as dsh serves them; the static list is the fallback. */
   dshModels?: () => Promise<AgentModelOption[]>;
   /** What the provider keys have been used for this month (agents/dsh/usage.ts). */

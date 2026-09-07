@@ -15,6 +15,16 @@ export class UnauthenticatedError extends Error {
   }
 }
 
+export class ApiError extends Error {
+  constructor(
+    readonly status: number,
+    message: string
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 /**
  * Shared fetch wrapper used by React Query queryFn / mutationFn
  * implementations as well as imperative callers (e.g. the terminal hook).
@@ -52,7 +62,7 @@ export async function api<T>(path: string, init?: RequestInit): Promise<T> {
         message = payload.error;
       }
     } catch {}
-    throw new Error(message);
+    throw new ApiError(res.status, message);
   }
 
   if (res.status === 204) {

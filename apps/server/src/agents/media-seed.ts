@@ -3,6 +3,8 @@ import path from "node:path";
 
 import type { Pool } from "pg";
 
+import { mediaMetadataFromBuffer } from "../media/metadata.js";
+
 export type SeedMediaInput = {
   fileName: string;
   originalName?: string;
@@ -72,8 +74,9 @@ export async function seedInitialMedia(
     );
     await writeFile(path.join(mediaDir, timestampedFileName), file.buffer);
     const inserted = await pool.query<{ id: number }>(
-      `INSERT INTO media (agent_id, file_name, source, size_bytes, description)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO media (agent_id, file_name, source, size_bytes, description,
+                          metadata)
+       VALUES ($1, $2, $3, $4, $5, $6)
        RETURNING id`,
       [
         agentId,
@@ -81,6 +84,7 @@ export async function seedInitialMedia(
         file.source,
         file.buffer.length,
         file.description ?? null,
+        mediaMetadataFromBuffer(file.buffer),
       ]
     );
     results.push({

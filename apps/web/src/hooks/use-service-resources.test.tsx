@@ -62,6 +62,8 @@ function response(
         state: "healthy",
         latencyMs: 2,
         sampledAt: 1_700_000_000_000,
+        sizeBytes: 12_582_912,
+        sizeSampledAt: 1_700_000_000_000,
         pool: { total: 2, idle: 2, waiting: 0, max: 10 },
       },
       eventLoop: { p95DelayMs: 1 },

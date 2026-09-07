@@ -84,6 +84,7 @@ describe("toPromptKitTurns", () => {
     expect(out.turns[2].attachments).toEqual([
       {
         kind: "image",
+        mediaId: 7,
         url: "/api/v1/agents/agt_1/media/shot.png",
         size: 10,
         at: "2026-09-04T10:00:10.000Z",

@@ -23,6 +23,8 @@ import {
   reconcileAgentScopedStorage,
   CUSTOM_TAB_ORDER_STORAGE_PREFIX,
   SURFACE_FORM_DRAFT_STORAGE_PREFIX,
+  CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
+  chatShowChildAgentsAtom,
 } from "./store";
 
 describe("reconcileAgentSidebarOrder", () => {
@@ -660,5 +662,50 @@ describe("atomWithLocalStorage", () => {
       validate: (value): value is number => typeof value === "number",
     });
     expect(createStore().get(testAtom)).toBe(7);
+  });
+});
+
+describe("chatShowChildAgentsAtom", () => {
+  const { createStore } = jotai;
+
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
+  afterEach(() => {
+    window.localStorage.clear();
+  });
+
+  it("shows child-agent messages until the user says otherwise", () => {
+    expect(createStore().get(chatShowChildAgentsAtom)).toBe(true);
+  });
+
+  it("persists the filter under one key, not one per agent", () => {
+    const store = createStore();
+    store.set(chatShowChildAgentsAtom, false);
+    expect(store.get(chatShowChildAgentsAtom)).toBe(false);
+    expect(
+      window.localStorage.getItem(CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY)
+    ).toBe("false");
+    expect(
+      Object.keys(window.localStorage).filter((key) =>
+        key.startsWith(`${CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY}:`)
+      )
+    ).toEqual([]);
+  });
+
+  it("follows a flip made in another tab", () => {
+    const store = createStore();
+    // Subscribing mounts the atom, which is what installs the listener.
+    const unsub = store.sub(chatShowChildAgentsAtom, () => {});
+    window.dispatchEvent(
+      new StorageEvent("storage", {
+        key: CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
+        newValue: "false",
+        storageArea: window.localStorage,
+      })
+    );
+    expect(store.get(chatShowChildAgentsAtom)).toBe(false);
+    unsub();
   });
 });

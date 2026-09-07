@@ -64,10 +64,10 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
       <Section>
         <H3 id="plugin-skills">What's in it</H3>
         <P>
-          Twelve narrow skills, each written to fire on a situation rather than
-          a feature name — an agent that doesn't know a capability exists will
-          never match its name, but will match a description of the spot it's
-          currently in.
+          Thirteen narrow skills, each written to fire on a situation rather
+          than a feature name — an agent that doesn't know a capability exists
+          will never match its name, but will match a description of the spot
+          it's currently in.
         </P>
         <ul className="grid gap-1.5 pl-4 text-sm text-muted-foreground list-disc">
           <li>
@@ -81,6 +81,10 @@ codex plugin add dispatch@dispatch`}</CodeBlock>
           <li>
             <Code>repo-tools</Code> — a repo script should become a first-class
             tool
+          </li>
+          <li>
+            <Code>communicate</Code> — something needs to reach the user and the
+            channel is unchosen
           </li>
           <li>
             <Code>sharing</Code> — an artifact needs to reach the user

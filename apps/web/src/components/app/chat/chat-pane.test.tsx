@@ -2,13 +2,14 @@
 import type { ChatFeedEntry, ChatMessage } from "@dispatch/shared";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
   screen,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -16,8 +17,12 @@ import type { Agent } from "@/components/app/types";
 
 import {
   ChatPane,
+  clearChatScrollMemory,
   filterChildAgentMessages,
   questionExcerpt,
+  readChatScrollPosition,
+  REMEMBER_THROTTLE_MS,
+  rememberChatScrollPosition,
 } from "./chat-pane";
 
 // The pane's data layer is exercised elsewhere; here it is replaced so the
@@ -31,7 +36,17 @@ const H = vi.hoisted(() => ({
   refetch: vi.fn(),
   send: vi.fn(async (_input: unknown) => ({}) as never),
   answer: vi.fn(async (_input: unknown) => ({}) as never),
+  // Stable like the real `mutate`: the pane hangs memoised callbacks off it.
+  answerNow: vi.fn(),
+  sendNow: vi.fn(),
   markRead: vi.fn(),
+}));
+
+// No real request may be in flight under a test: the pane's peers query
+// (`GET /api/v1/agents`) would otherwise hit whatever answers the jsdom
+// origin, and a resolved directory re-renders every post.
+vi.mock("@/lib/api", () => ({
+  api: vi.fn(async () => ({ agents: [] })),
 }));
 
 vi.mock("@/hooks/use-chat", () => ({
@@ -46,18 +61,27 @@ vi.mock("@/hooks/use-chat", () => ({
     refetch: H.refetch,
   }),
   useSendChatMessage: () => ({
-    mutate: vi.fn(),
+    mutate: H.sendNow,
     mutateAsync: H.send,
     isPending: false,
     variables: undefined,
   }),
   useAnswerChatQuestion: () => ({
-    mutate: vi.fn(),
+    mutate: H.answerNow,
     mutateAsync: H.answer,
     isPending: false,
     variables: undefined,
   }),
   useMarkChatRead: () => H.markRead,
+}));
+// Counts renders of a post's markdown body: the feed's rows are memoised,
+// so a pane re-render that changes nothing they show must not reach it.
+const markdownRenders = vi.hoisted(() => ({ count: 0 }));
+vi.mock("@/components/ui/markdown", () => ({
+  Markdown: ({ children }: { children: string }) => {
+    markdownRenders.count += 1;
+    return <div data-testid="markdown-mock">{children}</div>;
+  },
 }));
 vi.mock("@/components/ui/markdown-mermaid", () => ({
   MermaidBlock: () => null,
@@ -111,10 +135,15 @@ function chat(m: ChatMessage): ChatFeedEntry {
   return { type: "chat", id: m.id, at: m.createdAt, message: m };
 }
 
-function wrapper({ children }: { children: ReactNode }) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false } },
-  });
+function Wrapper({ children }: { children: ReactNode }) {
+  // One client per mounted tree: a rerender must not hand the pane a fresh
+  // client (and so fresh query/mutation state) that the app never would.
+  const [client] = useState(
+    () =>
+      new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+  );
   return (
     <QueryClientProvider client={client}>
       <MemoryRouter>{children}</MemoryRouter>
@@ -136,7 +165,7 @@ function renderPane(props: Partial<Parameters<typeof ChatPane>[0]> = {}) {
       isMobile={false}
       {...props}
     />,
-    { wrapper }
+    { wrapper: Wrapper }
   );
 }
 
@@ -147,6 +176,7 @@ function typeAndSend(text: string) {
 }
 
 beforeEach(() => {
+  markdownRenders.count = 0;
   H.entries = [];
   H.unreadCount = 0;
   H.isLoading = false;
@@ -156,6 +186,7 @@ beforeEach(() => {
   H.answer.mockReset();
   H.markRead.mockReset();
   Element.prototype.scrollTo = vi.fn();
+  clearChatScrollMemory();
 });
 
 afterEach(() => {
@@ -277,7 +308,7 @@ describe("ChatPane", () => {
     };
     const { rerender } = render(
       <ChatPane {...baseProps} showChildAgents={true} />,
-      { wrapper }
+      { wrapper: Wrapper }
     );
     const scroll = screen.getByTestId("chat-scroll");
     Object.defineProperties(scroll, {
@@ -297,6 +328,84 @@ describe("ChatPane", () => {
     rerender(<ChatPane {...baseProps} showChildAgents={false} />);
     expect(screen.queryByText("New messages")).toBeNull();
     expect(screen.queryByText("still hidden")).toBeNull();
+  });
+
+  it("offers the New messages pill for a live row that lands mid-feed", () => {
+    const first = chat(
+      message({
+        id: "a1",
+        text: "first",
+        createdAt: "2026-09-02T10:00:00.000Z",
+      })
+    );
+    const last = chat(
+      message({ id: "a2", text: "last", createdAt: "2026-09-02T10:05:00.000Z" })
+    );
+    H.entries = [first, last];
+    const { rerender } = renderPane();
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: 100, writable: true },
+    });
+    fireEvent.scroll(scroll);
+    expect(screen.queryByText("New messages")).toBeNull();
+
+    H.entries = [
+      first,
+      {
+        type: "status",
+        id: "event:late",
+        eventType: "working",
+        message: "Late status",
+        at: "2026-09-02T10:03:00.000Z",
+      },
+      last,
+    ];
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={agent}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        childAgentIds={[]}
+        onShowChildAgentsChange={vi.fn()}
+        openLightbox={vi.fn()}
+        isMobile={false}
+      />
+    );
+    expect(screen.getByText("New messages")).toBeTruthy();
+  });
+
+  it("does not re-render memoised posts when the pane re-renders with equal data", async () => {
+    H.entries = [chat(message({ id: "a", text: "**bold** body" }))];
+    const stable = {
+      onShowChildAgentsChange: vi.fn(),
+      openLightbox: vi.fn(),
+      childAgentIds: [] as string[],
+    };
+    const { rerender } = renderPane(stable);
+    // Let mount-time queries (peers, injection hold) settle, then take the
+    // baseline so the assertion measures only what the rerender does. The
+    // query cache notifies on a macrotask, so a microtask flush is not enough.
+    await act(() => new Promise((resolve) => setTimeout(resolve, 20)));
+    const settled = markdownRenders.count;
+    // Every agent.upsert hands the pane a fresh agent object with the same
+    // content; the row context must stay referentially stable through it.
+    rerender(
+      <ChatPane
+        agentId="agt_1"
+        agent={{ ...agent, pins: [...(agent.pins ?? [])] }}
+        terminalMode="tmux"
+        active={true}
+        showChildAgents={true}
+        isMobile={false}
+        {...stable}
+      />
+    );
+    expect(markdownRenders.count).toBe(settled);
   });
 
   it("explains a filter-only empty feed and can show child messages again", () => {
@@ -543,14 +652,158 @@ describe("ChatPane", () => {
     expect(screen.queryByTestId("chat-reply-context")).toBeNull();
   });
 
-  it("disables the composer with a reason when the terminal is inert", () => {
+  it("lets an inert agent collect messages in its stream", () => {
     renderPane({ terminalMode: "inert" });
     expect(
       (screen.getByTestId("chat-composer-input") as HTMLTextAreaElement)
         .disabled
-    ).toBe(true);
-    expect(
-      screen.getByTestId("chat-composer-disabled-reason").textContent
-    ).toContain("inert mode");
+    ).toBe(false);
+    expect(screen.queryByTestId("chat-composer-disabled-reason")).toBeNull();
+  });
+});
+
+describe("ChatPane scroll memory", () => {
+  /** jsdom has no layout; hand the pane the geometry it reads. */
+  function stubLayout(scrollTop: number) {
+    const scroll = screen.getByTestId("chat-scroll");
+    Object.defineProperties(scroll, {
+      scrollHeight: { configurable: true, value: 1_000 },
+      clientHeight: { configurable: true, value: 200 },
+      scrollTop: { configurable: true, value: scrollTop, writable: true },
+    });
+    scroll.getBoundingClientRect = () => ({ top: 0, bottom: 200 }) as DOMRect;
+    const rows = [
+      ...scroll.querySelectorAll<HTMLElement>("[data-chat-entry-id]"),
+    ];
+    rows.forEach((row, i) => {
+      // Rows 100px tall, stacked, shifted by however far the feed is scrolled.
+      row.getBoundingClientRect = () =>
+        ({
+          top: i * 100 - scrollTop,
+          bottom: i * 100 + 100 - scrollTop,
+        }) as DOMRect;
+    });
+    return scroll;
+  }
+
+  it("records the rows on screen when the reader leaves", () => {
+    H.entries = [
+      chat(message({ id: "m1", text: "one" })),
+      chat(message({ id: "m2", text: "two" })),
+      chat(message({ id: "m3", text: "three" })),
+    ];
+    const { unmount } = renderPane();
+    const scroll = stubLayout(250);
+    fireEvent.scroll(scroll);
+    unmount();
+
+    // 250px down: the first two rows are above the fold, so the reader is
+    // parked on the third, 50px of it scrolled past.
+    expect(readChatScrollPosition("agt_1")).toEqual({
+      following: false,
+      anchors: [{ entryId: "m3", offset: -50 }],
+    });
+  });
+
+  it("keeps recording through a long scroll, not only at its ends", () => {
+    vi.useFakeTimers();
+    try {
+      H.entries = [
+        chat(message({ id: "m1", text: "one" })),
+        chat(message({ id: "m2", text: "two" })),
+        chat(message({ id: "m3", text: "three" })),
+      ];
+      const { unmount } = renderPane();
+      // One unbroken fling: every event resets the trailing timer, so it
+      // never fires, and the reader switches away mid-gesture. What is
+      // recorded must not be the position from the start of the gesture.
+      fireEvent.scroll(stubLayout(50));
+      vi.advanceTimersByTime(REMEMBER_THROTTLE_MS);
+      fireEvent.scroll(stubLayout(150));
+      vi.advanceTimersByTime(REMEMBER_THROTTLE_MS);
+      fireEvent.scroll(stubLayout(250));
+      unmount();
+
+      expect(readChatScrollPosition("agt_1")?.anchors[0]).toEqual({
+        entryId: "m3",
+        offset: -50,
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stays following when the reader leaves from the bottom", () => {
+    H.entries = [chat(message({ id: "m1", text: "one" }))];
+    const { unmount } = renderPane();
+    const scroll = stubLayout(800);
+    fireEvent.scroll(scroll);
+    unmount();
+
+    expect(readChatScrollPosition("agt_1")?.following).toBe(true);
+  });
+
+  it("reopens on the remembered row instead of the newest message", () => {
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [{ entryId: "m2", offset: -50 }],
+    });
+    H.entries = [
+      chat(message({ id: "m1", text: "one" })),
+      chat(message({ id: "m2", text: "two" })),
+    ];
+
+    renderPane();
+
+    // Rects are all zero here, so the row sits 50px above where it was left.
+    expect(screen.getByTestId("chat-scroll").scrollTop).toBe(50);
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("falls back to a lower row when the top one no longer exists", () => {
+    // What a collapsed run of `working` events does: the status row the
+    // reader was on now carries a newer event's id.
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [
+        { entryId: "status-that-moved-on", offset: -20 },
+        { entryId: "m2", offset: -50 },
+      ],
+    });
+    H.entries = [
+      chat(message({ id: "m1", text: "one" })),
+      chat(message({ id: "m2", text: "two" })),
+    ];
+
+    renderPane();
+
+    expect(screen.getByTestId("chat-scroll").scrollTop).toBe(50);
+    expect(Element.prototype.scrollTo).not.toHaveBeenCalled();
+  });
+
+  it("opens at the newest message when every remembered row is gone", () => {
+    rememberChatScrollPosition("agt_1", {
+      following: false,
+      anchors: [{ entryId: "rolled-off", offset: -50 }],
+    });
+    H.entries = [chat(message({ id: "m1", text: "one" }))];
+
+    renderPane();
+
+    expect(Element.prototype.scrollTo).toHaveBeenCalled();
+  });
+
+  it("forgets the agents nobody has looked at in longest", () => {
+    for (let i = 0; i < 60; i += 1) {
+      rememberChatScrollPosition(`agt_${i}`, {
+        following: false,
+        anchors: [{ entryId: `m${i}`, offset: 0 }],
+      });
+    }
+
+    expect(readChatScrollPosition("agt_0")).toBeNull();
+    expect(readChatScrollPosition("agt_9")).toBeNull();
+    expect(readChatScrollPosition("agt_10")?.anchors[0]?.entryId).toBe("m10");
+    expect(readChatScrollPosition("agt_59")?.anchors[0]?.entryId).toBe("m59");
   });
 });

@@ -11,8 +11,16 @@ import {
   render,
   renderHook,
   screen,
+  within,
+  waitFor,
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
+
+import {
+  INERT_PIN_SHORTCUTS,
+  PinShortcutProvider,
+  type PinShortcutState,
+} from "@/components/app/chat/pin-shortcut-context";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -45,6 +53,7 @@ vi.mock("@/components/ui/markdown-mermaid-theme", () => ({
 
 afterEach(() => {
   cleanup();
+  Reflect.deleteProperty(navigator, "clipboard");
 });
 
 const AGENT_ID = "agt_1";
@@ -98,8 +107,6 @@ function makeCtx(
     agentId: AGENT_ID,
     agentName: "builder",
     agentType: "claude",
-    pins: [],
-    workspaceRoot: null,
     onOpenMedia,
     ...overrides,
   };
@@ -109,18 +116,21 @@ function feedElement(
   entries: ChatFeedEntry[],
   ctx: FeedContext,
   onAnswer: ReturnType<typeof vi.fn>,
-  extra: Partial<Parameters<typeof ChatFeed>[0]> = {}
+  extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
+  pinShortcuts: Partial<PinShortcutState> = {}
 ) {
   return (
     <MemoryRouter>
-      <ChatFeed
-        entries={entries}
-        ctx={ctx}
-        heldMessageId={null}
-        answeringMessageId={null}
-        onAnswer={onAnswer}
-        {...extra}
-      />
+      <PinShortcutProvider value={{ ...INERT_PIN_SHORTCUTS, ...pinShortcuts }}>
+        <ChatFeed
+          entries={entries}
+          ctx={ctx}
+          heldMessageId={null}
+          answeringMessageId={null}
+          onAnswer={onAnswer}
+          {...extra}
+        />
+      </PinShortcutProvider>
     </MemoryRouter>
   );
 }
@@ -128,14 +138,15 @@ function feedElement(
 function renderFeed(
   entries: ChatFeedEntry[],
   extra: Partial<Parameters<typeof ChatFeed>[0]> = {},
-  ctxOverrides: Partial<FeedContext> = {}
+  ctxOverrides: Partial<FeedContext> = {},
+  pinShortcuts: Partial<PinShortcutState> = {}
 ) {
   const onAnswer = vi.fn();
   const onOpenMedia = vi.fn();
   const ctx = makeCtx(ctxOverrides, onOpenMedia);
-  const view = render(feedElement(entries, ctx, onAnswer, extra));
+  const view = render(feedElement(entries, ctx, onAnswer, extra, pinShortcuts));
   const rerenderWith = (next: ChatFeedEntry[]) =>
-    view.rerender(feedElement(next, ctx, onAnswer, extra));
+    view.rerender(feedElement(next, ctx, onAnswer, extra, pinShortcuts));
   return { onAnswer, onOpenMedia, rerenderWith };
 }
 
@@ -406,6 +417,66 @@ describe("latestOpenFreeformQuestion", () => {
 });
 
 describe("ChatFeed", () => {
+  it("copies the raw text of chat and agent-to-agent messages", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: { writeText },
+    });
+    renderFeed([
+      chat(
+        message({
+          id: "u1",
+          authorKind: "user",
+          text: "User message",
+          delivered: true,
+        })
+      ),
+      chat(message({ id: "a1", text: "Hello **there**" })),
+      {
+        type: "agent_message",
+        id: "p1",
+        direction: "in",
+        senderAgentId: "agt_2",
+        senderName: "Reviewer",
+        recipientAgentId: AGENT_ID,
+        recipientName: "builder",
+        content: "Peer message",
+        delivered: true,
+        at: "2026-09-02T10:01:00.000Z",
+      },
+    ]);
+
+    const copyButtons = screen.getAllByTestId("chat-copy-message");
+    expect(copyButtons).toHaveLength(3);
+    fireEvent.click(copyButtons[0]!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("User message"));
+
+    fireEvent.click(copyButtons[1]!);
+    await waitFor(() =>
+      expect(writeText).toHaveBeenCalledWith("Hello **there**")
+    );
+    expect(screen.getAllByLabelText("Message copied")).toHaveLength(2);
+
+    fireEvent.click(copyButtons[2]!);
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("Peer message"));
+  });
+
+  it("does not show a copy action for an attachment-only post", () => {
+    renderFeed([
+      chat(
+        message({
+          id: "a1",
+          text: "",
+          attachments: [
+            { type: "link", url: "https://example.com", title: "Example" },
+          ],
+        })
+      ),
+    ]);
+    expect(screen.queryByTestId("chat-copy-message")).toBeNull();
+  });
+
   it('renders a user post under a "You" header with delivery failure marker', () => {
     renderFeed([
       chat(
@@ -733,6 +804,13 @@ describe("ChatFeed", () => {
     // Bodies stop at a reading measure; the row itself spans the pane.
     const body = agentPost!.querySelector(".max-w-\\[90ch\\]");
     expect(body?.textContent).toContain("agent one");
+    // The copy action floats over the corner; it must not reserve a strip down
+    // the full height of the message body.
+    expect(body?.parentElement?.className).not.toContain("pr-7");
+    const action = agentPost!.querySelector("[data-testid='chat-post-action']");
+    expect(action?.className).toContain("float-right");
+    expect(action?.className).toContain("max-sm:-mr-2");
+    expect(action?.className).toContain("max-sm:-mt-2");
   });
 
   it("uses the agent's type for its avatar", () => {
@@ -813,7 +891,7 @@ describe("ChatFeed", () => {
     expect(update!.textContent).toContain("Still going");
   });
 
-  it("renders an unanswered question with clickable options", () => {
+  it("renders an unanswered question with clickable Markdown options", () => {
     const { onAnswer } = renderFeed([
       chat(
         message({
@@ -821,7 +899,10 @@ describe("ChatFeed", () => {
           kind: "question",
           text: "Which one?",
           question: {
-            options: [{ label: "Alpha", value: "a" }, { label: "Beta" }],
+            options: [
+              { label: "**Alpha** uses `a`", value: "a" },
+              { label: "Beta" },
+            ],
             allowFreeform: true,
           },
         })
@@ -832,6 +913,9 @@ describe("ChatFeed", () => {
     const options = screen.getAllByTestId("chat-question-option");
     expect(options).toHaveLength(2);
     expect(options.every((o) => !(o as HTMLButtonElement).disabled)).toBe(true);
+    expect(options[0]!.textContent).toBe("Alpha uses a");
+    expect(options[0]!.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(options[0]!.querySelector("code")?.textContent).toBe("a");
 
     fireEvent.click(options[1]!);
     expect(onAnswer).toHaveBeenCalledWith("q1", { label: "Beta" });
@@ -850,29 +934,79 @@ describe("ChatFeed", () => {
           kind: "question",
           text: "Which one?",
           question: {
-            options: [{ label: "Alpha", value: "a" }, { label: "Beta" }],
+            options: [
+              { label: "**Alpha** uses `a`", value: "a" },
+              { label: "Beta" },
+            ],
             allowFreeform: true,
           },
           answer: {
             value: "a",
-            label: "Alpha",
+            label: "**Alpha** uses `a`",
             replyMessageId: "u9",
             answeredAt: "2026-09-02T10:01:00.000Z",
           },
         })
       ),
+      chat(
+        message({
+          id: "u9",
+          authorKind: "user",
+          text: "**Alpha** uses `a`",
+          replyTo: "q1",
+          delivered: true,
+          createdAt: "2026-09-02T10:01:00.000Z",
+          updatedAt: "2026-09-02T10:01:00.000Z",
+        })
+      ),
     ]);
     expect(screen.queryByTestId("chat-needs-reply")).toBeNull();
     expect(screen.queryByText("Or type a reply below.")).toBeNull();
-    expect(screen.getByTestId("chat-question-options").textContent).toContain(
-      "Answered"
-    );
+    const card = screen.getByTestId("chat-question-options");
+    expect(card.textContent).toContain("Answered");
+    expect(card.textContent).not.toContain("**Alpha**");
+    expect(card.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(card.querySelector("code")?.textContent).toBe("a");
+    const userReply = screen
+      .getAllByTestId("chat-message")
+      .find((row) => row.getAttribute("data-message-id") === "u9")!;
+    expect(userReply.textContent).not.toContain("**Alpha**");
+    expect(userReply.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(userReply.querySelector("code")?.textContent).toBe("a");
     const options = screen.getAllByTestId("chat-question-option");
     expect(options.every((o) => (o as HTMLButtonElement).disabled)).toBe(true);
     expect(options[0]!.getAttribute("aria-pressed")).toBe("true");
     expect(options[1]!.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(options[1]!);
     expect(onAnswer).not.toHaveBeenCalled();
+  });
+
+  it("keeps a freeform answer literal in the answered summary", () => {
+    renderFeed([
+      chat(
+        message({
+          id: "q-freeform",
+          kind: "question",
+          text: "Other?",
+          question: {
+            options: [{ label: "Suggested" }],
+            allowFreeform: true,
+          },
+          answer: {
+            value: "__init__.py uses `literal` *marks*",
+            label: "__init__.py uses `literal` *marks*",
+            replyMessageId: "u10",
+            answeredAt: "2026-09-02T10:01:00.000Z",
+          },
+        })
+      ),
+    ]);
+
+    const card = screen.getByTestId("chat-question-options");
+    expect(card.textContent).toContain("__init__.py uses `literal` *marks*");
+    expect(card.querySelector("strong")).toBeNull();
+    expect(card.querySelector("code")).toBeNull();
+    expect(card.querySelector("em")).toBeNull();
   });
 
   it("locks options and hides the freeform hint while answers are unavailable", () => {
@@ -977,6 +1111,7 @@ describe("ChatFeed", () => {
         ),
       ],
       {},
+      {},
       {
         pins: [
           { id: "pin_1", label: "Dev URL", value: "http://x", type: "url" },
@@ -989,14 +1124,7 @@ describe("ChatFeed", () => {
       `/api/v1/agents/${AGENT_ID}/media/shot.png`
     );
     fireEvent.click(image.querySelector("button")!);
-    expect(onOpenMedia).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "shot.png",
-        size: 2048,
-        // Part of the lightbox identity — without it nothing opens.
-        ownerAgentId: AGENT_ID,
-      })
-    );
+    expect(onOpenMedia).toHaveBeenCalledWith(7);
 
     expect(screen.getByTestId("chat-attachment-file").textContent).toContain(
       "notes.md"
@@ -1022,6 +1150,84 @@ describe("ChatFeed", () => {
       "Dev URL"
     );
     expect(screen.getByTestId("chat-attachment-pin-missing")).toBeTruthy();
+  });
+
+  it("renders pin entries live from the agent's pins, with removed ones by label", () => {
+    const pins = [
+      {
+        id: "pin_a",
+        label: "Dev URL",
+        value: "http://localhost:5173",
+        type: "url" as const,
+      },
+      {
+        id: "pin_s",
+        label: "Rerun",
+        value: "rerun tests",
+        type: "shortcut" as const,
+      },
+    ];
+    const onRunShortcut = vi.fn();
+    renderFeed(
+      [
+        {
+          type: "pin",
+          id: "pin:1",
+          action: "created",
+          pins: [
+            { id: "pin_a", label: "Dev URL" },
+            { id: "pin_gone", label: "Old" },
+          ],
+          at: "2026-09-02T10:00:00.000Z",
+        },
+        {
+          type: "pin",
+          id: "pin:2",
+          action: "updated",
+          pins: [{ id: "pin_s", label: "Rerun" }],
+          at: "2026-09-02T10:01:00.000Z",
+        },
+        {
+          type: "pin",
+          id: "pin:3",
+          action: "deleted",
+          pins: [
+            { id: "pin_x", label: "Scratch" },
+            { id: "pin_y", label: "Notes" },
+          ],
+          at: "2026-09-02T10:02:00.000Z",
+        },
+      ],
+      {},
+      {},
+      { pins, onRunShortcut }
+    );
+    const entries = screen.getAllByTestId("chat-pin-entry");
+    expect(entries).toHaveLength(3);
+    expect(
+      screen.getAllByTestId("chat-pin-entry-verb").map((n) => n.textContent)
+    ).toEqual(["Pinned 2 items", "Updated pin", "Removed 2 pins"]);
+    // Created: the live pin renders with the sidebar's own item; the one
+    // that has since gone is named by its snapshotted label.
+    const live = screen.getAllByTestId("chat-pin-entry-pin");
+    expect(live[0]!.textContent).toContain("Dev URL");
+    expect(live[0]!.textContent).toContain("localhost:5173");
+    expect(
+      screen.getByTestId("chat-pin-entry-pin-missing").textContent
+    ).toContain("Old");
+    // Updated: a shortcut in the stream is runnable.
+    const button = live[1]!.querySelector("button");
+    expect(button?.textContent).toContain("Rerun");
+    fireEvent.click(button!);
+    expect(onRunShortcut).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "pin_s" }),
+      expect.anything()
+    );
+    // Deleted: nothing to render, so the labels stand in.
+    expect(entries[2]!.textContent).toContain("Scratch, Notes");
+    expect(
+      entries[2]!.querySelector('[data-testid="chat-pin-entry-pin"]')
+    ).toBeNull();
   });
 
   it("renders status lines with a collapsed count", () => {
@@ -1311,12 +1517,55 @@ describe("ChatFeed", () => {
     expect(card.textContent).toContain("Login page");
     expect(card.querySelector("img")).toBeTruthy();
     fireEvent.click(card.querySelector("button")!);
-    expect(onOpenMedia).toHaveBeenCalledWith(
-      expect.objectContaining({
-        name: "screen.png",
-        url: `/api/v1/agents/${AGENT_ID}/media/screen.png`,
-      })
+    expect(onOpenMedia).toHaveBeenCalledWith(3);
+  });
+});
+
+describe("memoised rows still repaint when their data changes", () => {
+  it("shows a pin's new value when a fresh ctx carries it", () => {
+    const entries: ChatFeedEntry[] = [
+      {
+        type: "pin",
+        id: "pin:1",
+        action: "created",
+        pins: [{ id: "p1", label: "Dev Server" }],
+        at: "2026-09-02T10:00:00.000Z",
+      },
+    ];
+    const onAnswer = vi.fn();
+    const onOpenMedia = vi.fn();
+    const pinAt = (value: string) => [
+      { id: "p1", label: "Dev Server", type: "url" as const, value },
+    ];
+    const ctx = makeCtx({}, onOpenMedia);
+    const view = render(
+      feedElement(entries, ctx, onAnswer, {}, { pins: pinAt("http://a") })
     );
+    // Scoped to this tree so nothing else in the document can answer.
+    const pin = () => within(view.container).getByTestId("chat-pin-entry-pin");
+    expect(pin().textContent).toContain("http://a");
+    // Same entries, same ctx: only the pin context moved, and the memoised
+    // pin row must still follow the sidebar through it.
+    view.rerender(
+      feedElement(entries, ctx, onAnswer, {}, { pins: pinAt("http://b") })
+    );
+    expect(pin().textContent).toContain("http://b");
+  });
+
+  it("updates a status line's label and collapsed count", () => {
+    const { rerenderWith } = renderFeed([status("s1", "working", "Reading")]);
+    expect(screen.getByTestId("chat-status").textContent).toContain("Reading");
+    expect(screen.queryByTestId("chat-status-collapsed-count")).toBeNull();
+    rerenderWith([
+      status("s1", "working", "Reading"),
+      status("s2", "working", "Testing"),
+      status("s3", "working", "Linting"),
+    ]);
+    const line = screen.getByTestId("chat-status");
+    expect(line.textContent).toContain("Linting");
+    expect(
+      screen.getByTestId("chat-status-collapsed-count").textContent
+    ).toContain("3");
   });
 });
 
@@ -1365,6 +1614,24 @@ describe("ChatFeed enter animation", () => {
     expect(enterOf(posts[0]!)).toBeNull();
     expect(enterOf(posts[1]!)).toBeNull();
     expect(enterOf(posts[2]!)).not.toBeNull();
+  });
+
+  it("fades in a live row that lands below the newest by time", () => {
+    // A status event published late sorts under the newest post; it is
+    // still an arrival, not a page of older rows.
+    const first = chat(
+      message({ id: "a1", text: "first", createdAt: at("10:00") })
+    );
+    const last = chat(
+      message({ id: "a2", text: "second", createdAt: at("10:05") })
+    );
+    const { rerenderWith } = renderFeed([first, last]);
+    rerenderWith([
+      first,
+      status("late", "working", "Late status", at("10:03")),
+      last,
+    ]);
+    expect(enterOf(screen.getByTestId("chat-status"))).not.toBeNull();
   });
 
   it("fades a post edited in place in again", () => {

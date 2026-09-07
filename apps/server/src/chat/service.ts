@@ -10,6 +10,10 @@ import type {
   ChatQuestion,
   ChatSendResponse,
   ChatUserAttachmentInput,
+  ChatChangedEvent,
+  ChatEntryEvent,
+  ChatMessageEntry,
+  ChatReadEvent,
 } from "@dispatch/shared";
 import {
   CHAT_ATTACHMENTS_MAX,
@@ -20,6 +24,7 @@ import {
 import type { AgentRecord, AgentTerminalAccess } from "../agents/types.js";
 import { mimeType, resolveMediaDir } from "../shared/media.js";
 import { buildChatEnvelope, formatAttachmentSize } from "./envelope.js";
+import { loadChatMessageEntry } from "./feed.js";
 import {
   ChatStore,
   isChatMessageId,
@@ -76,7 +81,9 @@ type ChatAgent = Pick<AgentRecord, "id" | "type" | "mediaDir" | "pins">;
 
 export type ChatServiceDeps = {
   pool: Pool;
-  publishUiEvent: (event: { type: "chat.changed"; agentId: string }) => void;
+  publishUiEvent: (
+    event: ChatChangedEvent | ChatEntryEvent | ChatReadEvent
+  ) => void;
   /** Minimal agent lookup: media dir and pins are all the service needs. */
   getAgent: (agentId: string) => Promise<ChatAgent | null>;
   /**
@@ -205,6 +212,8 @@ export function buildLaunchPostText(
 }
 
 export type ChatAnswerInput = {
+  /** Client-minted id for the reply row; see `ChatSendRequest.id`. */
+  id?: string;
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;
@@ -275,10 +284,12 @@ export class ChatService {
   // -------------------------------------------------------------------------
 
   /**
-   * A user message typed in the Chat tab: persist it as pending, enqueue the
-   * pane delivery, and return at once. The quiet gate can hold a delivery far
-   * longer than a request should wait, so `delivered` stays null until the
-   * injection settles; `held` reports whether the gate is holding right now.
+   * A user message typed in the Chat tab: persist it, enqueue pane delivery
+   * when a terminal exists, and return at once. In inert mode the post still
+   * belongs in the feed, but starts at `delivered: false` because there is no
+   * pane to receive it. The quiet gate can hold a real delivery far longer
+   * than a request should wait, so those rows stay null until injection
+   * settles; `held` reports whether the gate is holding right now.
    *
    * `text` may be blank when at least one attachment is present. Attachments
    * are resolved (file by mediaId, pin verified on the agent, link as given)
@@ -287,7 +298,8 @@ export class ChatService {
   async sendUserMessage(
     agentId: string,
     text: string,
-    attachments: ChatUserAttachmentInput[] = []
+    attachments: ChatUserAttachmentInput[] = [],
+    options: { allowInert?: boolean; id?: string } = {}
   ): Promise<ChatSendResponse> {
     if (!text.trim() && attachments.length === 0) {
       throw new ChatValidationError("text is required.");
@@ -309,22 +321,38 @@ export class ChatService {
       resolved = await this.resolveAttachmentsFor(agent, attachments);
       attachmentLines = this.describeAttachments(agent, resolved);
     }
-    const sessionName = await this.requireDeliverable(agentId);
-    const message = await this.store.insert({
+    const sessionName = await this.deliverySession(
       agentId,
-      authorKind: "user",
-      kind: "reply",
+      options.allowInert ?? false
+    );
+    const delivered = sessionName === null ? false : null;
+    const row = {
+      agentId,
+      authorKind: "user" as const,
+      kind: "reply" as const,
       text,
       attachments: resolved,
-      delivered: null,
-    });
+      delivered,
+    };
+    // A client-minted id is honoured once: a repeat is a retry of a send
+    // that already landed, not a second message.
+    const message = options.id
+      ? await this.store.insertIfAbsent({ id: options.id, ...row })
+      : await this.store.insert(row);
+    if (!message) {
+      throw new ChatConflictError("A message with that id already exists.");
+    }
+    // The pending row goes out before delivery starts: settlement publishes
+    // the same row again as delivered, and a client must never see that
+    // one first and then the pending one on top of it.
+    await this.publishEntry(agentId, message.id);
+    if (sessionName === null) return { message, delivered: false, held: false };
     const { held } = await this.deliverDetached(
       agentId,
       sessionName,
       message,
       attachmentLines
     );
-    this.publishChanged(agentId);
     return { message, delivered: null, held };
   }
 
@@ -393,7 +421,8 @@ export class ChatService {
       attachmentLines = this.describeAttachments(agent, resolved);
     }
 
-    const sessionName = await this.requireDeliverable(agentId);
+    const sessionName = await this.deliverySession(agentId, true);
+    const delivered = sessionName === null ? false : null;
 
     // Reply row and answer land together or not at all: a concurrent answer
     // makes recordAnswer match nothing, and the rollback takes the orphan
@@ -404,15 +433,23 @@ export class ChatService {
     try {
       await client.query("BEGIN");
       const tx = this.store.withClient(client);
-      replyMessage = await tx.insert({
+      const replyRow = {
         agentId,
-        authorKind: "user",
-        kind: "reply",
+        authorKind: "user" as const,
+        kind: "reply" as const,
         text,
         replyTo: question.id,
         attachments: resolved,
-        delivered: null,
-      });
+        delivered,
+      };
+      const inserted = input.id
+        ? await tx.insertIfAbsent({ id: input.id, ...replyRow })
+        : await tx.insert(replyRow);
+      if (!inserted) {
+        await client.query("ROLLBACK");
+        throw new ChatConflictError("A message with that id already exists.");
+      }
+      replyMessage = inserted;
       answered = await tx.recordAnswer(question.id, {
         value,
         ...(label !== undefined ? { label } : {}),
@@ -431,25 +468,30 @@ export class ChatService {
       client.release();
     }
 
-    await this.deliverDetached(
-      agentId,
-      sessionName,
-      replyMessage,
-      attachmentLines
-    );
-    this.publishChanged(agentId);
-    return { question: answered, reply: replyMessage, delivered: null };
+    // As in sendUserMessage: the pending reply is on the wire before its
+    // delivery can settle and publish it again.
+    await this.publishEntry(agentId, answered.id);
+    await this.publishEntry(agentId, replyMessage.id);
+    if (sessionName !== null) {
+      await this.deliverDetached(
+        agentId,
+        sessionName,
+        replyMessage,
+        attachmentLines
+      );
+    }
+    return { question: answered, reply: replyMessage, delivered };
   }
 
-  /**
-   * Same rule as terminal inject-text: no pane to deliver into is a 409.
-   * `AgentError` from the access check (missing/stopped agent) propagates as
-   * is — it already carries its status.
-   */
-  private async requireDeliverable(agentId: string): Promise<string> {
+  /** A real pane's session name, or null when this Chat flow permits inert. */
+  private async deliverySession(
+    agentId: string,
+    allowInert: boolean
+  ): Promise<string | null> {
     const access = await this.delivery().access(agentId);
-    if (access.mode !== "tmux") throw new ChatConflictError(access.message);
-    return access.sessionName;
+    if (access.mode === "tmux") return access.sessionName;
+    if (!allowInert) throw new ChatConflictError(access.message);
+    return null;
   }
 
   private delivery(): ChatDeliveryAdapter {
@@ -519,7 +561,7 @@ export class ChatService {
       )
       .then(async (delivered) => {
         await this.store.setDelivered(message.id, delivered);
-        this.publishChanged(agentId);
+        await this.publishEntry(agentId, message.id);
       })
       .catch((error: unknown) => {
         this.log.error(
@@ -610,7 +652,7 @@ export class ChatService {
             `A chat message with id ${id} already exists; the launch post was not written.`
           );
         }
-        this.publishChanged(input.agentId);
+        await this.publishEntry(input.agentId, message.id);
         return message;
       },
     };
@@ -640,9 +682,44 @@ export class ChatService {
   // Delivery lifecycle (startup recovery, shutdown drain)
   // -------------------------------------------------------------------------
 
-  /** Announce a write to `agent_chat_messages` so the Chat tab refetches. */
+  /**
+   * Announce a write to `agent_chat_messages` the coarse way: the Chat tab
+   * refetches every page it has. Kept for writes with no single row to
+   * carry (a mark-read sweep, startup recovery) and as `publishEntry`'s
+   * fallback.
+   */
   publishChanged(agentId: string): void {
     this.deps.publishUiEvent({ type: "chat.changed", agentId });
+  }
+
+  /** A mark-read landed: the count, and which rows it stamped. */
+  publishRead(
+    agentId: string,
+    read: { unreadCount: number; readAt: string; upToAt: string | null }
+  ): void {
+    this.deps.publishUiEvent({ type: "chat.read", agentId, ...read });
+  }
+
+  /**
+   * Announce one message as the feed row it now is, read back through the
+   * feed's own query so the wire entry is exactly what a refetch would
+   * return. A row that cannot be read back falls back to `chat.changed`.
+   */
+  private async publishEntry(
+    agentId: string,
+    messageId: string
+  ): Promise<void> {
+    let entry: ChatMessageEntry | null = null;
+    try {
+      entry = await loadChatMessageEntry(this.store.db, agentId, messageId);
+    } catch (error) {
+      this.log.warn(
+        { err: error, agentId, messageId },
+        "chat: could not read a message back for its feed event"
+      );
+    }
+    if (entry) this.deps.publishUiEvent({ type: "chat.entry", agentId, entry });
+    else this.publishChanged(agentId);
   }
 
   /**
@@ -667,7 +744,10 @@ export class ChatService {
     const pending = await this.store.listPendingDeliveries(agentId);
     if (pending.length === 0) return 0;
     const agent = await this.requireAgent(agentId);
-    const sessionName = await this.requireDeliverable(agentId);
+    // A harness that came back has a pane; without one there is nowhere
+    // to redeliver to, and the boot sweep marks the rows undelivered.
+    const sessionName = await this.deliverySession(agentId, true);
+    if (sessionName === null) return 0;
     for (const message of pending) {
       const lines = message.attachments.length
         ? this.describeAttachments(agent, message.attachments)
@@ -762,7 +842,7 @@ export class ChatService {
       question: kind === "question" ? (input.question ?? null) : null,
       attachments,
     });
-    this.publishChanged(agentId);
+    await this.publishEntry(agentId, message.id);
     return message;
   }
 
@@ -830,7 +910,7 @@ export class ChatService {
     }
     const updated = await this.store.update(messageId, patch);
     if (!updated) throw new ChatValidationError("Message not found.");
-    this.publishChanged(agentId);
+    await this.publishEntry(agentId, updated.id);
     return updated;
   }
 
@@ -977,6 +1057,11 @@ export class ChatService {
       fileName: match.file_name,
       sizeBytes: match.size_bytes,
       mimeType: mimeType(match.file_name),
+      // No dimensions here on purpose. The feed fills them in from the live
+      // media row when it reads the page, which is the only thing that can be
+      // right: dispatch_share_file replaces a file's bytes under an unchanged
+      // URL, so a shape frozen at write time can describe bytes the post no
+      // longer serves.
     };
   }
 }

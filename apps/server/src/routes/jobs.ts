@@ -6,6 +6,7 @@ import { type JobService, WebhookNotFoundError } from "../jobs/service.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import { parseInput } from "../shared/lib/parse-input.js";
 import { resolveTilde } from "../shared/lib/resolve-tilde.js";
+import type { PublishUiEvent } from "../server/ui-events.js";
 
 const directoryField = z
   .string()
@@ -52,7 +53,7 @@ const JobHistoryParamsSchema = z.object({
 
 type JobsRouteDeps = {
   jobService: JobService;
-  publishUiEvent: (event: unknown) => void;
+  publishUiEvent: PublishUiEvent;
 };
 
 export async function registerJobRoutes(

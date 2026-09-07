@@ -43,6 +43,16 @@ export type ChatAttachment =
       fileName: string;
       sizeBytes: number;
       mimeType?: string;
+      /**
+       * Natural pixel size of an image, filled in at read time from the live
+       * media row. The feed reserves a box of this aspect ratio before the
+       * image loads, so an arriving image never pushes the reader's place down
+       * the page. Absent for non-images, for a file whose header could not be
+       * read, and for a media row that has since been deleted — each of which
+       * falls back to a fixed-height box.
+       */
+      width?: number;
+      height?: number;
     }
   | { type: "link"; url: string; title?: string }
   | { type: "pr"; url: string; title?: string }
@@ -62,6 +72,13 @@ export type ChatUserAttachmentInput =
 
 /** Body of `POST /agents/:id/chat/messages`. */
 export type ChatSendRequest = {
+  /**
+   * The message's id, minted by the client (a UUID). It lets the client's
+   * optimistic row and the stored row be one and the same, so the
+   * `chat.entry` for the stored row replaces the placeholder however the
+   * stream and the response are ordered. Reusing an id is a 409.
+   */
+  id?: string;
   /** May be blank when at least one attachment is present. */
   text: string;
   /** Up to `CHAT_ATTACHMENTS_MAX`. */
@@ -70,6 +87,8 @@ export type ChatSendRequest = {
 
 /** Body of `POST /agents/:id/chat/messages/:messageId/answer`. */
 export type ChatAnswerRequest = {
+  /** The reply message's id, minted by the client; see `ChatSendRequest.id`. */
+  id?: string;
   value: string;
   /** Only consulted for a freeform answer; an option's label wins otherwise. */
   label?: string;
@@ -147,6 +166,9 @@ export type ChatMediaEntry = {
   fileName: string;
   sizeBytes: number;
   description: string | null;
+  /** See `ChatAttachment`'s file variant — same meaning, same fallback. */
+  width?: number;
+  height?: number;
   at: string;
 };
 
@@ -209,6 +231,22 @@ export type ChatActivityEntry = {
   at: string;
 };
 
+/**
+ * Pins the agent created, updated, or deleted in one write (`pin_events`),
+ * surfaced as a post in the feed. Entries carry ids, not values: the web
+ * renders each pin live from the agent's current pins, exactly as a pin
+ * attachment does, so a later update refreshes every earlier entry and a
+ * shortcut in the stream stays runnable. `label` is the one snapshot, so an
+ * entry can still name a pin that has since been deleted.
+ */
+export type ChatPinEntry = {
+  type: "pin";
+  id: string;
+  action: "created" | "updated" | "deleted";
+  pins: Array<{ id: string; label: string }>;
+  at: string;
+};
+
 export type ChatMessageEntry = {
   type: "chat";
   id: string;
@@ -223,7 +261,8 @@ export type ChatFeedEntry =
   | ChatMediaEntry
   | ChatReviewEntry
   | ChatAssistantEntry
-  | ChatActivityEntry;
+  | ChatActivityEntry
+  | ChatPinEntry;
 
 export type ChatFeedResponse = {
   entries: ChatFeedEntry[];
@@ -261,6 +300,33 @@ export type ChatAnswerResponse = {
 };
 
 export type ChatChangedEvent = { type: "chat.changed"; agentId: string };
+
+/**
+ * One feed row, exactly as `GET /agents/:id/chat` would return it, published
+ * when that row is written or edited so a mounted feed can put it in place
+ * instead of refetching every loaded page. Chat messages and status events
+ * are published this way; the other sources still announce themselves with
+ * the coarse `chat.changed`, which stays the fallback for anything a client
+ * cannot place.
+ */
+export type ChatEntryEvent = {
+  type: "chat.entry";
+  agentId: string;
+  entry: ChatFeedEntry;
+};
+
+/**
+ * A mark-read landed: the new count, plus what it marked so a cached feed
+ * can set `readAt` on the same rows — every unread agent message created
+ * at or before `upToAt` (all of them when null).
+ */
+export type ChatReadEvent = {
+  type: "chat.read";
+  agentId: string;
+  unreadCount: number;
+  readAt: string;
+  upToAt: string | null;
+};
 
 export const CHAT_MESSAGE_MAX_CHARS = 20_000;
 export const CHAT_ATTACHMENTS_MAX = 20;

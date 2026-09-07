@@ -15,6 +15,7 @@ import {
   DayDivider,
   dayLabel,
   MediaEntryView,
+  PinEntryView,
   reviewAuthor,
   ReviewEntryView,
   StatusLine,
@@ -85,9 +86,11 @@ export function entryGrowthKey(entry: ChatFeedEntry): string {
  * The entries to fade in: those that arrived after the feed first rendered,
  * plus posts edited in place — never what was there at mount, and never a
  * page of older entries. An unseen id is an arrival when it is at least as
- * new as the newest entry seen so far; anything older came in above with
- * "Load older". The value is the version the animation belongs to, so an
- * edit of an entry that already faded in fades it in again.
+ * new as the newest entry seen so far, or when it sits below an entry that
+ * was already here (a late status event lands by time under the newest
+ * post); a page from "Load older" is the one thing that only ever lands
+ * above everything seen. The value is the version the animation belongs
+ * to, so an edit of an entry that already faded in fades it in again.
  *
  * Bookkeeping lives in refs and is updated during render: it only ever
  * adds to the answer for the current entries, so a repeated render (strict
@@ -114,14 +117,21 @@ export function useEnteringEntries(
   const entering = enteringRef.current;
   const present = new Set<string>();
   let newest = newestAtRef.current;
+  let afterSeen = false;
   for (const entry of entries) {
     present.add(entry.id);
     const version = entryVersion(entry);
     const prior = seen.get(entry.id);
     if (prior === undefined) {
-      if (entry.at >= newestAtRef.current) entering.set(entry.id, version);
-    } else if (prior !== version) {
-      entering.set(entry.id, version);
+      // New here, and either newer than anything seen or sitting below a
+      // row that was already here: a live arrival, wherever time put it.
+      // Only a page of older rows lands above everything seen.
+      if (entry.at >= newestAtRef.current || afterSeen) {
+        entering.set(entry.id, version);
+      }
+    } else {
+      afterSeen = true;
+      if (prior !== version) entering.set(entry.id, version);
     }
     seen.set(entry.id, version);
     if (entry.at > newest) newest = entry.at;
@@ -134,6 +144,24 @@ export function useEnteringEntries(
     }
   }
   return entering;
+}
+
+/**
+ * Ids of entries that were not in `seen` and sit below one that was — live
+ * arrivals, as opposed to a page of older rows, which lands above every
+ * seen entry. Empty when nothing was seen yet (first render).
+ */
+export function arrivedEntryIds(
+  seen: ReadonlySet<string>,
+  entries: readonly ChatFeedEntry[]
+): string[] {
+  const arrived: string[] = [];
+  let afterSeen = false;
+  for (const entry of entries) {
+    if (seen.has(entry.id)) afterSeen = true;
+    else if (afterSeen) arrived.push(entry.id);
+  }
+  return arrived;
 }
 
 /**
@@ -151,12 +179,19 @@ function Enter({
   children: ReactNode;
 }): JSX.Element {
   const version = entering.get(id);
-  if (version === undefined) return <>{children}</>;
+  // Always a real element, animating or not: `data-chat-entry-id` is how
+  // ChatPane names the row a reader was parked on so it can put them back
+  // there when the feed reopens.
   return (
     <div
       key={version}
-      className="animate-chat-enter motion-reduce:animate-none"
-      data-testid="chat-entry-enter"
+      data-chat-entry-id={id}
+      className={
+        version === undefined
+          ? undefined
+          : "animate-chat-enter motion-reduce:animate-none"
+      }
+      data-testid={version === undefined ? undefined : "chat-entry-enter"}
     >
       {children}
     </div>
@@ -204,6 +239,7 @@ function authorKey(
     case "agent_message":
       return agentMessageAuthor(entry, ctx).key;
     case "media":
+    case "pin":
       return "agent";
     case "review":
       return reviewAuthor(entry, ctx).key;
@@ -335,6 +371,15 @@ export function ChatFeed({
   answersDisabled = false,
   onAnswer,
 }: ChatFeedProps): JSX.Element {
+  const messageDirectory = useMemo(
+    () =>
+      new Map(
+        entries
+          .filter((entry) => entry.type === "chat")
+          .map((entry) => [entry.message.id, entry.message] as const)
+      ),
+    [entries]
+  );
   const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
   const entering = useEnteringEntries(entries);
 
@@ -394,6 +439,17 @@ export function ChatFeed({
         }
         if (row.kind === "status") return null;
         const entry = row.entry;
+        const answeredOptionLabel = (() => {
+          if (entry.type !== "chat" || !entry.message.replyTo) return null;
+          const question = messageDirectory.get(entry.message.replyTo);
+          if (question?.answer?.replyMessageId !== entry.message.id)
+            return null;
+          const option = question.question?.options.find(
+            (candidate) =>
+              (candidate.value ?? candidate.label) === question.answer?.value
+          );
+          return option?.label ?? null;
+        })();
         const view = (() => {
           switch (entry.type) {
             case "chat":
@@ -406,6 +462,7 @@ export function ChatFeed({
                   ctx={ctx}
                   answering={answeringMessageId === entry.message.id}
                   answersDisabled={answersDisabled}
+                  answeredOptionLabel={answeredOptionLabel}
                   onAnswer={onAnswer}
                 />
               );
@@ -448,6 +505,15 @@ export function ChatFeed({
             case "activity":
               return (
                 <ActivityEntryView
+                  entry={entry}
+                  grouped={row.grouped}
+                  rule={row.rule}
+                  ctx={ctx}
+                />
+              );
+            case "pin":
+              return (
+                <PinEntryView
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}

@@ -8,6 +8,61 @@ import type {
   AgentRecord,
 } from "./types.js";
 
+/** An `agent_events` row as written, for anything that mirrors the history. */
+export type AgentEventHistoryRow = {
+  id: number;
+  agentId: string;
+  eventType: string;
+  message: string;
+  createdAt: string;
+};
+
+export type AgentEventHistoryListener = (row: AgentEventHistoryRow) => void;
+
+/**
+ * The history INSERT behind both latest-event writers. Fire-and-forget by
+ * design (see `writeLatestEvent`); the written row is handed to
+ * `onRecorded` once it exists, so the Chat feed can carry it as an entry
+ * without a second read.
+ */
+function recordEventHistory(
+  pool: Pool,
+  logger: FastifyBaseLogger,
+  id: string,
+  input: AgentLatestEventInput,
+  message: string,
+  onRecorded?: AgentEventHistoryListener
+): void {
+  pool
+    .query<{
+      id: number;
+      event_type: string;
+      message: string;
+      created_at: Date;
+    }>(
+      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
+       SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
+       FROM agents WHERE id = $1
+       RETURNING id, event_type, message, created_at`,
+      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
+    )
+    .then((result) => {
+      const row = result.rows[0];
+      if (row && onRecorded) {
+        onRecorded({
+          id: row.id,
+          agentId: id,
+          eventType: row.event_type,
+          message: row.message,
+          createdAt: row.created_at.toISOString(),
+        });
+      }
+    })
+    .catch((err) =>
+      logger.warn({ err }, "Failed to insert agent event history")
+    );
+}
+
 /**
  * Persist a latest-event update for `id`. Two writes:
  *   1. UPDATE the agent's `latest_event_*` columns synchronously. Throws
@@ -25,7 +80,8 @@ export async function writeLatestEvent(
   pool: Pool,
   logger: FastifyBaseLogger,
   id: string,
-  input: AgentLatestEventInput
+  input: AgentLatestEventInput,
+  onRecorded?: AgentEventHistoryListener
 ): Promise<void> {
   const message = input.message.trim();
   if (!message) {
@@ -55,16 +111,7 @@ export async function writeLatestEvent(
   // Append to event history (fire-and-forget — keeping this off the critical
   // path means the agent status indicator updates even if the history table
   // is briefly unavailable).
-  pool
-    .query(
-      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-       SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-       FROM agents WHERE id = $1`,
-      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
-    )
-    .catch((err) =>
-      logger.warn({ err }, "Failed to insert agent event history")
-    );
+  recordEventHistory(pool, logger, id, input, message, onRecorded);
 }
 
 /**
@@ -79,7 +126,8 @@ export async function writeLatestEventIfCurrent(
   logger: FastifyBaseLogger,
   id: string,
   expectedUpdatedAt: string,
-  input: AgentLatestEventInput
+  input: AgentLatestEventInput,
+  onRecorded?: AgentEventHistoryListener
 ): Promise<boolean> {
   const message = input.message.trim();
   if (!message) {
@@ -113,16 +161,7 @@ export async function writeLatestEventIfCurrent(
     return false;
   }
 
-  pool
-    .query(
-      `INSERT INTO agent_events (agent_id, event_type, message, metadata, agent_type, agent_name, project_dir)
-       SELECT $1, $2, $3, $4::jsonb, type, name, COALESCE(git_context->>'repoRoot', cwd)
-       FROM agents WHERE id = $1`,
-      [id, input.type, message, JSON.stringify(input.metadata ?? {})]
-    )
-    .catch((err) =>
-      logger.warn({ err }, "Failed to insert agent event history")
-    );
+  recordEventHistory(pool, logger, id, input, message, onRecorded);
 
   return true;
 }

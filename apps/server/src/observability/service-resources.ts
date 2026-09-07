@@ -18,6 +18,12 @@ const HTTP_BUCKET_MS = 5_000;
 const HTTP_BUCKET_COUNT = HTTP_WINDOW_MS / HTTP_BUCKET_MS;
 const MAX_HTTP_DURATIONS_PER_BUCKET = 128;
 const DATABASE_PROBE_TIMEOUT_MS = 3_000;
+/**
+ * `pg_database_size` stats every file in the database directory, so it is far
+ * heavier than the liveness probe it rides along with. Sample it on a slow
+ * cadence — disk usage moves in minutes, not seconds.
+ */
+const DATABASE_SIZE_INTERVAL_MS = 300_000;
 
 export type ResourceSample = {
   at: number;
@@ -127,6 +133,9 @@ export type ServiceResourcesResponse = {
       state: "healthy" | "unavailable" | "unknown";
       latencyMs: number | null;
       sampledAt: number | null;
+      /** On-disk size of the connected database, sampled on its own cadence. */
+      sizeBytes: number | null;
+      sizeSampledAt: number | null;
       pool: { total: number; idle: number; waiting: number; max: number };
     };
     eventLoop: { p95DelayMs: number };
@@ -215,6 +224,8 @@ export class ServiceResources {
   private databaseProbe: Promise<
     ServiceResourcesResponse["current"]["database"]
   > | null = null;
+  private databaseSizeBytes: number | null = null;
+  private databaseSizeSampledAt: number | null = null;
   private cancelDatabaseProbe: (() => void) | null = null;
   private shutdownPromise: Promise<void> | null = null;
   private httpInFlight = 0;
@@ -254,6 +265,8 @@ export class ServiceResources {
       state: "unknown",
       latencyMs: null,
       sampledAt: null,
+      sizeBytes: null,
+      sizeSampledAt: null,
       pool: this.poolSnapshot(),
     };
   }
@@ -676,6 +689,8 @@ export class ServiceResources {
       state: "unavailable" as const,
       latencyMs: null,
       sampledAt: Date.now(),
+      sizeBytes: this.databaseSizeBytes,
+      sizeSampledAt: this.databaseSizeSampledAt,
       pool: this.poolSnapshot(),
     });
     const release = (error?: Error) => {
@@ -714,11 +729,19 @@ export class ServiceResources {
         client = acquiredClient;
         void acquiredClient.query("SELECT 1").then(
           () => {
-            finish({
-              state: "healthy",
-              latencyMs: round(performance.now() - started, 1),
-              sampledAt: Date.now(),
-              pool: this.poolSnapshot(),
+            // Latency belongs to the liveness query alone, so it is read before
+            // the size sample — which is throttled and never rejects — piggybacks
+            // on the same client.
+            const latencyMs = round(performance.now() - started, 1);
+            void this.sampleDatabaseSizeIfDue(acquiredClient).then(() => {
+              finish({
+                state: "healthy",
+                latencyMs,
+                sampledAt: Date.now(),
+                sizeBytes: this.databaseSizeBytes,
+                sizeSampledAt: this.databaseSizeSampledAt,
+                pool: this.poolSnapshot(),
+              });
             });
           },
           (error: unknown) => {
@@ -742,6 +765,32 @@ export class ServiceResources {
     );
 
     return { probe, cancel };
+  }
+
+  /**
+   * Refreshes the cached database size when its own interval has elapsed. Never
+   * rejects: a failed size query says nothing about connectivity, so it must not
+   * downgrade the liveness probe it rides along with. The attempt is stamped
+   * either way, so a failing query backs off a full interval instead of retrying
+   * on every probe, and the last known size just goes stale.
+   */
+  private async sampleDatabaseSizeIfDue(client: PoolClient): Promise<void> {
+    if (
+      this.databaseSizeSampledAt !== null &&
+      Date.now() - this.databaseSizeSampledAt < DATABASE_SIZE_INTERVAL_MS
+    ) {
+      return;
+    }
+    try {
+      const result = await client.query<{ size: string | null }>(
+        "SELECT pg_database_size(current_database())::text AS size"
+      );
+      const parsed = Number(result.rows[0]?.size);
+      if (Number.isFinite(parsed)) this.databaseSizeBytes = parsed;
+    } catch {
+      // Intentionally ignored — see the doc comment.
+    }
+    this.databaseSizeSampledAt = Date.now();
   }
 
   private poolSnapshot() {

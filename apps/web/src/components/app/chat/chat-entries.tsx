@@ -4,6 +4,7 @@ import type {
   ChatAttachment,
   ChatMediaEntry,
   ChatMessage,
+  ChatPinEntry,
   ChatQuestionOption,
   ChatReviewEntry,
   ChatStatusEntry,
@@ -12,11 +13,13 @@ import {
   AlertTriangle,
   ArrowLeftRight,
   Check,
+  Copy,
   ExternalLink,
   FileText,
   GitPullRequest,
   Hourglass,
   Loader2,
+  Pin,
   Rocket,
   UserRound,
 } from "lucide-react";
@@ -27,18 +30,17 @@ import {
 } from "@/components/app/agent-event-utils";
 import { AgentRelationBadge } from "@/components/app/agent-relation-badge";
 import { AgentTypeIcon } from "@/components/app/agent-type-icon";
+import { FeedImage } from "@/components/app/chat/feed-image";
+import { usePinShortcuts } from "@/components/app/chat/pin-shortcut-context";
 import { PinItem } from "@/components/app/pin-item";
 import {
   reviewerLabel,
   ReviewSummaryBlock,
 } from "@/components/app/review-summary-block";
-import {
-  type Agent,
-  type AgentPin,
-  type MediaFile,
-} from "@/components/app/types";
+import { type Agent } from "@/components/app/types";
 import { Button } from "@/components/ui/button";
 import { Markdown } from "@/components/ui/markdown";
+import { useCopyText } from "@/hooks/use-copy";
 import { formatBytes } from "@/components/app/service-resources-format";
 import { type AgentRelation, agentRelation } from "@/lib/agent-lineage";
 import { formatDateTime } from "@/lib/format";
@@ -123,7 +125,13 @@ export function peerDirectory(
   return peers;
 }
 
-/** What every row of the channel needs to know about the agent it belongs to. */
+/**
+ * What every row of the channel needs to know about the agent it belongs
+ * to. Every row is memoised on this object's identity, so it carries only
+ * what changes rarely; what the pin rows need on top of it — the live pins
+ * and the shortcut machinery — travels on `PinShortcutContext`, which
+ * changes on its own schedule and re-renders only them.
+ */
 export type FeedContext = {
   agentId: string;
   /** The agent this channel belongs to; names its posts. */
@@ -131,9 +139,7 @@ export type FeedContext = {
   agentType?: string | null;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
-  pins: AgentPin[];
-  workspaceRoot: string | null;
-  onOpenMedia: (file: MediaFile) => void;
+  onOpenMedia: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded. */
   onOpenReview?: (reviewId: number) => void;
 };
@@ -276,6 +282,37 @@ export const POST_BODY_MEASURE = "max-w-[90ch]";
  */
 export const SIDE_POST_INDENT = "pl-[3.75rem]";
 
+/** A post-local clipboard action with the same confirmation used elsewhere. */
+function MessageCopyButton({ text }: { text: string }): JSX.Element {
+  const [copied, copyText] = useCopyText();
+  return (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      className={cn(
+        "h-7 w-7 p-0 hover:bg-transparent",
+        "max-sm:h-11 max-sm:w-11 [@media(pointer:coarse)]:h-11 [@media(pointer:coarse)]:w-11",
+        "opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
+        "max-sm:opacity-100 [@media(pointer:coarse)]:opacity-100",
+        copied && "opacity-100 text-status-working"
+      )}
+      onClick={() => copyText(text)}
+      title={copied ? "Copied" : "Copy message"}
+      aria-label={copied ? "Message copied" : "Copy message"}
+      data-testid="chat-copy-message"
+    >
+      <span className="flex h-7 w-7 items-center justify-center rounded-md border border-border/60 bg-background/90 shadow-sm">
+        {copied ? (
+          <Check className="h-3.5 w-3.5" aria-hidden="true" />
+        ) : (
+          <Copy className="h-3.5 w-3.5" aria-hidden="true" />
+        )}
+      </span>
+    </Button>
+  );
+}
+
 /**
  * One full-width row of the channel. A header row carries the avatar, the
  * author and the time; a grouped row (same author, shortly after) keeps only
@@ -297,6 +334,7 @@ export function Post({
   grouped,
   rule = false,
   side,
+  action,
   children,
   ...rest
 }: {
@@ -307,6 +345,8 @@ export function Post({
   rule?: boolean;
   /** Who the post is addressed to, when that is another agent. */
   side?: { recipientName: string };
+  /** A compact post action, shown in the top-right on hover or touch. */
+  action?: ReactNode;
   children: ReactNode;
   [dataAttr: `data-${string}`]: string | undefined;
 }): JSX.Element {
@@ -339,7 +379,15 @@ export function Post({
           <Avatar author={author} side={side !== undefined} />
         )}
       </div>
-      <div className="min-w-0 flex-1">
+      <div className="min-w-0 flex-1 after:block after:clear-both after:content-['']">
+        {action ? (
+          <div
+            className="float-right ml-2 max-sm:-mr-2 max-sm:-mt-2 [@media(pointer:coarse)]:-mr-2 [@media(pointer:coarse)]:-mt-2"
+            data-testid="chat-post-action"
+          >
+            {action}
+          </div>
+        ) : null}
         {grouped ? null : (
           <div
             // Wrapping keeps the recipient readable on narrow screens: rather
@@ -493,24 +541,13 @@ function LinkAttachment({
 
 function FileAttachment({
   attachment,
-  at,
   ctx,
 }: {
   attachment: Extract<ChatAttachment, { type: "file" }>;
-  at: string;
   ctx: FeedContext;
 }): JSX.Element {
   const url = mediaFileUrl(ctx.agentId, attachment.fileName);
-  const open = () =>
-    ctx.onOpenMedia({
-      // ownerAgentId is part of the lightbox identity; without it the
-      // synthesized file never matches the media list and nothing opens.
-      ownerAgentId: ctx.agentId,
-      name: attachment.fileName,
-      size: attachment.sizeBytes,
-      updatedAt: at,
-      url,
-    });
+  const open = () => ctx.onOpenMedia(attachment.mediaId);
   // By stored name or by the media row's type: a file shared without an
   // extension still renders as the image it is.
   const isImage =
@@ -528,11 +565,12 @@ function FileAttachment({
           className="block max-w-xs overflow-hidden rounded-md border border-border bg-background/60 text-left transition-colors hover:border-foreground/30"
           title={attachment.fileName}
         >
-          <img
+          <FeedImage
             src={url}
             alt={attachment.fileName}
-            className="max-h-56 w-full object-contain"
-            loading="lazy"
+            width={attachment.width}
+            height={attachment.height}
+            maxHeightPx={224}
           />
         </button>
       </AttachmentBlock>
@@ -579,6 +617,71 @@ function CodeAttachment({
   );
 }
 
+/**
+ * A pin rendered live from the agent's current pins — the sidebar's own
+ * `PinItem`, so the stream and the sidebar never disagree, and a shortcut
+ * fires from either place. `label` names a pin that is no longer there.
+ */
+function LivePin({
+  pinId,
+  label,
+  ctx,
+  testId,
+}: {
+  pinId: string;
+  label?: string;
+  ctx: FeedContext;
+  testId: string;
+}): JSX.Element {
+  const shortcuts = usePinShortcuts();
+  const pin = shortcuts.pins.find((p) => p.id === pinId);
+  if (!pin) {
+    return (
+      <AttachmentBlock
+        className="text-xs italic text-muted-foreground"
+        data-testid={`${testId}-missing`}
+      >
+        {label ? (
+          <>
+            <span className="not-italic font-medium">{label}</span> · pin no
+            longer available
+          </>
+        ) : (
+          "Pin no longer available"
+        )}
+      </AttachmentBlock>
+    );
+  }
+  // A card rather than the accent bar the other attachments use: a pin's
+  // copy button sits at the right edge of its own box, and without a drawn
+  // edge that box is invisible — the button reads as floating somewhere
+  // short of where the post's copy action lives. A shortcut is already a
+  // button, so it gets no card; it is a sidebar-width button (w-full) that
+  // in the channel's wide measure would stretch into a banner, so here it
+  // hugs its label up to a cap instead.
+  return (
+    <div
+      className={
+        pin.type === "shortcut"
+          ? "w-fit max-w-[20rem]"
+          : "max-w-md rounded-md border border-border bg-card/60 px-3 py-2"
+      }
+      data-testid={testId}
+    >
+      <PinItem
+        pin={pin}
+        workspaceRoot={shortcuts.workspaceRoot}
+        inGroup
+        agentIsRunning={shortcuts.agentIsRunning}
+        onRunShortcut={shortcuts.onRunShortcut}
+        pendingPinId={shortcuts.pendingPinId}
+        agentName={ctx.agentName ?? null}
+        buttonRef={shortcuts.registerShortcutButton}
+      />
+    </div>
+  );
+}
+
 function PinAttachment({
   attachment,
   ctx,
@@ -586,36 +689,21 @@ function PinAttachment({
   attachment: Extract<ChatAttachment, { type: "pin" }>;
   ctx: FeedContext;
 }): JSX.Element {
-  const pin = ctx.pins.find((p) => p.id === attachment.pinId);
-  if (!pin) {
-    return (
-      <AttachmentBlock
-        className="text-xs italic text-muted-foreground"
-        data-testid="chat-attachment-pin-missing"
-      >
-        Pin no longer available
-      </AttachmentBlock>
-    );
-  }
   return (
-    <AttachmentBlock data-testid="chat-attachment-pin">
-      <PinItem pin={pin} workspaceRoot={ctx.workspaceRoot} inGroup />
-    </AttachmentBlock>
+    <LivePin pinId={attachment.pinId} ctx={ctx} testId="chat-attachment-pin" />
   );
 }
 
 function AttachmentView({
   attachment,
-  at,
   ctx,
 }: {
   attachment: ChatAttachment;
-  at: string;
   ctx: FeedContext;
 }): JSX.Element {
   switch (attachment.type) {
     case "file":
-      return <FileAttachment attachment={attachment} at={at} ctx={ctx} />;
+      return <FileAttachment attachment={attachment} ctx={ctx} />;
     case "link":
       return (
         <LinkAttachment
@@ -643,18 +731,16 @@ function AttachmentView({
 
 function AttachmentList({
   attachments,
-  at,
   ctx,
 }: {
   attachments: ChatAttachment[];
-  at: string;
   ctx: FeedContext;
 }): JSX.Element | null {
   if (attachments.length === 0) return null;
   return (
     <div className="mt-2 flex flex-col gap-2">
       {attachments.map((attachment, index) => (
-        <AttachmentView key={index} attachment={attachment} at={at} ctx={ctx} />
+        <AttachmentView key={index} attachment={attachment} ctx={ctx} />
       ))}
     </div>
   );
@@ -681,6 +767,12 @@ function QuestionOptions({
   if (!question) return null;
   const answer = message.answer;
   const open = answer === null;
+  const answeredOption = answer
+    ? (question.options.find(
+        (option) => (option.value ?? option.label) === answer.value
+      ) ?? null)
+    : null;
+  const answerDisplay = answeredOption?.label ?? answer?.value ?? "";
   const optionsDisabled = answer !== null || answering || answersDisabled;
   return (
     <div
@@ -704,7 +796,16 @@ function QuestionOptions({
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Check className="h-3 w-3" />
           Answered
-          <span className="truncate">· {answer.label ?? answer.value}</span>
+          <span className="flex min-w-0 items-center gap-1">
+            <span aria-hidden="true">·</span>
+            {answeredOption ? (
+              <Markdown variant="inline" className="truncate">
+                {answerDisplay}
+              </Markdown>
+            ) : (
+              <span className="truncate">{answerDisplay}</span>
+            )}
+          </span>
         </div>
       )}
       <div className="flex flex-wrap gap-1.5">
@@ -731,7 +832,7 @@ function QuestionOptions({
               onClick={() => onAnswer(option)}
             >
               {chosen ? <Check className="h-3 w-3" /> : null}
-              {option.label}
+              <Markdown variant="inline">{option.label}</Markdown>
             </Button>
           );
         })}
@@ -805,6 +906,7 @@ export const ChatMessageView = memo(function ChatMessageView({
   ctx,
   answering,
   answersDisabled = false,
+  answeredOptionLabel = null,
   onAnswer,
 }: {
   message: ChatMessage;
@@ -816,8 +918,14 @@ export const ChatMessageView = memo(function ChatMessageView({
   answering: boolean;
   /** Answers go through the same injection as the composer; lock them together. */
   answersDisabled?: boolean;
+  /** Canonical option label when this user row answers a declared option. */
+  answeredOptionLabel?: string | null;
   onAnswer: (messageId: string, option: ChatQuestionOption) => void;
 }): JSX.Element {
+  const copyAction = message.text ? (
+    <MessageCopyButton text={message.text} />
+  ) : undefined;
+
   if (message.authorKind === "user") {
     return (
       <Post
@@ -830,6 +938,7 @@ export const ChatMessageView = memo(function ChatMessageView({
         data-origin={message.origin}
         data-launched-by={message.launchedByAgentId}
         data-message-id={message.id}
+        action={copyAction}
       >
         {message.origin === "launch" ? (
           <div
@@ -843,14 +952,14 @@ export const ChatMessageView = memo(function ChatMessageView({
         ) : null}
         {message.text ? (
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-            {message.text}
+            {answeredOptionLabel ? (
+              <Markdown variant="inline">{answeredOptionLabel}</Markdown>
+            ) : (
+              message.text
+            )}
           </div>
         ) : null}
-        <AttachmentList
-          attachments={message.attachments}
-          at={message.createdAt}
-          ctx={ctx}
-        />
+        <AttachmentList attachments={message.attachments} ctx={ctx} />
         <DeliveryMeta message={message} held={held} />
       </Post>
     );
@@ -870,15 +979,12 @@ export const ChatMessageView = memo(function ChatMessageView({
         data-author="agent"
         data-kind="update"
         data-message-id={message.id}
+        action={copyAction}
       >
         <Markdown className="text-muted-foreground prose-p:my-0.5">
           {message.text}
         </Markdown>
-        <AttachmentList
-          attachments={message.attachments}
-          at={message.createdAt}
-          ctx={ctx}
-        />
+        <AttachmentList attachments={message.attachments} ctx={ctx} />
       </Post>
     );
   }
@@ -886,11 +992,7 @@ export const ChatMessageView = memo(function ChatMessageView({
   const body = (
     <>
       <Markdown>{message.text}</Markdown>
-      <AttachmentList
-        attachments={message.attachments}
-        at={message.createdAt}
-        ctx={ctx}
-      />
+      <AttachmentList attachments={message.attachments} ctx={ctx} />
     </>
   );
 
@@ -904,6 +1006,7 @@ export const ChatMessageView = memo(function ChatMessageView({
       data-author="agent"
       data-kind={message.kind}
       data-message-id={message.id}
+      action={copyAction}
     >
       {message.kind === "summary" ? (
         <AttachmentBlock
@@ -940,7 +1043,7 @@ export const ChatMessageView = memo(function ChatMessageView({
  * the gutter and its text starting where the gutter ends, so a run of them
  * reads as a seam between posts rather than as posts of its own.
  */
-export function StatusLine({
+export const StatusLine = memo(function StatusLine({
   entry,
   collapsedCount = 1,
 }: {
@@ -976,7 +1079,7 @@ export function StatusLine({
       ) : null}
     </div>
   );
-}
+});
 
 /**
  * Who an agent-to-agent message reads as. Its group key names both ends of
@@ -998,7 +1101,7 @@ export function agentMessageAuthor(
   };
 }
 
-export function AgentMessageView({
+export const AgentMessageView = memo(function AgentMessageView({
   entry,
   grouped,
   rule = false,
@@ -1019,6 +1122,7 @@ export function AgentMessageView({
       side={{ recipientName: entry.recipientName }}
       data-testid="chat-agent-message"
       data-direction={entry.direction}
+      action={<MessageCopyButton text={entry.content} />}
     >
       <div className="whitespace-pre-wrap break-words">{entry.content}</div>
       {delivered === null ? (
@@ -1041,9 +1145,9 @@ export function AgentMessageView({
       ) : null}
     </Post>
   );
-}
+});
 
-export function MediaEntryView({
+export const MediaEntryView = memo(function MediaEntryView({
   entry,
   grouped,
   rule = false,
@@ -1055,15 +1159,7 @@ export function MediaEntryView({
   ctx: FeedContext;
 }): JSX.Element {
   const url = mediaFileUrl(ctx.agentId, entry.fileName);
-  const open = () =>
-    ctx.onOpenMedia({
-      ownerAgentId: ctx.agentId,
-      name: entry.fileName,
-      size: entry.sizeBytes,
-      updatedAt: entry.at,
-      url,
-      description: entry.description,
-    });
+  const open = () => ctx.onOpenMedia(entry.mediaId);
   const isImage = isImageFile(entry.fileName);
   return (
     <Post
@@ -1087,18 +1183,89 @@ export function MediaEntryView({
             {entry.fileName} · {formatBytes(entry.sizeBytes)}
           </span>
           {isImage ? (
-            <img
+            <FeedImage
               src={url}
               alt={entry.description ?? entry.fileName}
-              className="mt-1.5 block max-h-64 max-w-xs rounded-md border border-border object-contain transition-colors hover:border-foreground/30"
-              loading="lazy"
+              width={entry.width}
+              height={entry.height}
+              maxHeightPx={256}
+              // Matches the max-w-xs this image carried before it had a ratio.
+              containerMax="20rem"
+              className="mt-1.5 block rounded-md border border-border transition-colors hover:border-foreground/30"
             />
           ) : null}
         </button>
       </AttachmentBlock>
     </Post>
   );
+});
+
+/** "Pinned", "Updated pin", "Removed pin" — plural when a batch wrote several. */
+export function pinEntryVerb(entry: ChatPinEntry): string {
+  const plural = entry.pins.length !== 1;
+  switch (entry.action) {
+    case "created":
+      return plural ? `Pinned ${entry.pins.length} items` : "Pinned";
+    case "updated":
+      return plural ? `Updated ${entry.pins.length} pins` : "Updated pin";
+    case "deleted":
+      return plural ? `Removed ${entry.pins.length} pins` : "Removed pin";
+  }
 }
+
+/**
+ * A pin the agent created, updated, or removed, shown at that moment in the
+ * stream. The pin itself renders live (see {@link LivePin}): every earlier
+ * entry for a pin shows its latest value, so re-reading the channel never
+ * shows a stale URL, and a shortcut runs from wherever it appears. A removed
+ * pin has nothing left to render, so its entry names it by label only.
+ */
+export const PinEntryView = memo(function PinEntryView({
+  entry,
+  grouped,
+  rule = false,
+  ctx,
+}: {
+  entry: ChatPinEntry;
+  grouped: boolean;
+  rule?: boolean;
+  ctx: FeedContext;
+}): JSX.Element {
+  const removed = entry.action === "deleted";
+  return (
+    <Post
+      author={agentAuthor(ctx, "Agent")}
+      at={entry.at}
+      grouped={grouped}
+      rule={rule}
+      data-testid="chat-pin-entry"
+      data-pin-action={entry.action}
+    >
+      <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+        <Pin className="h-3 w-3 shrink-0" aria-hidden="true" />
+        <span data-testid="chat-pin-entry-verb">{pinEntryVerb(entry)}</span>
+        {removed ? (
+          <span className="min-w-0 truncate font-medium text-foreground/80">
+            {entry.pins.map((pin) => pin.label).join(", ")}
+          </span>
+        ) : null}
+      </div>
+      {removed ? null : (
+        <div className="mt-1 flex flex-col gap-2">
+          {entry.pins.map((pin) => (
+            <LivePin
+              key={pin.id}
+              pinId={pin.id}
+              label={pin.label}
+              ctx={ctx}
+              testId="chat-pin-entry-pin"
+            />
+          ))}
+        </div>
+      )}
+    </Post>
+  );
+});
 
 /**
  * Who a review card reads as: the reviewer agent that submitted it, or the
@@ -1136,7 +1303,7 @@ export function reviewAuthor(
  * Clicking opens that review in the sidebar, where the summary and the
  * feedback items live — the card is the notice, not a second copy of it.
  */
-export function ReviewEntryView({
+export const ReviewEntryView = memo(function ReviewEntryView({
   entry,
   grouped,
   rule = false,
@@ -1177,4 +1344,4 @@ export function ReviewEntryView({
       />
     </Post>
   );
-}
+});

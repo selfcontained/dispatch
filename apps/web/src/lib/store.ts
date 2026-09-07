@@ -409,12 +409,6 @@ export const reviewDraftAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
-export function reconcileReviewDraftStorage(agentIds: Iterable<string>): void {
-  reconcileAgentScopedStorageDomains(agentIds, [
-    { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
-  ]);
-}
-
 export const DIFF_VIEW_STATE_STORAGE_PREFIX = "dispatch:diffViewState:";
 
 export const diffViewStateAtomFamily = atomFamily((agentId: string) =>
@@ -551,6 +545,23 @@ export function isAgentPaneView(value: unknown): value is AgentPaneView {
 }
 
 // ---------------------------------------------------------------------------
+// Chat child-agent filter — whether Chat shows the messages exchanged with an
+// agent's children. One global preference, unlike the Chat|Console toggle
+// beside it: which view a session needs really does differ session to
+// session, but wanting child chatter out of the way is a standing taste, and
+// scoping it per agent would leave every new session starting noisy again.
+// ---------------------------------------------------------------------------
+
+export const CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY =
+  "dispatch:chatShowChildAgents";
+
+export const chatShowChildAgentsAtom = atomWithLocalStorage<boolean>(
+  CHAT_SHOW_CHILD_AGENTS_STORAGE_KEY,
+  true,
+  { validate: (value): value is boolean => typeof value === "boolean" }
+);
+
+// ---------------------------------------------------------------------------
 // Chat composer drafts — what was typed and attached but not yet sent, per
 // agent. The atom holds the full draft; storage gets `fitChatDraft`'s
 // bounded snapshot of it. See lib/chat-draft.ts for the shape and the cap.
@@ -594,14 +605,6 @@ export const customTabOrderAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
-export function reconcileCustomTabOrderStorage(
-  agentIds: Iterable<string>
-): void {
-  reconcileAgentScopedStorageDomains(agentIds, [
-    { prefix: CUSTOM_TAB_ORDER_STORAGE_PREFIX },
-  ]);
-}
-
 export const CUSTOM_TAB_HIDDEN_STORAGE_PREFIX = "dispatch:customTabHidden:";
 
 export const customTabHiddenAtomFamily = atomFamily((agentId: string) =>
@@ -610,14 +613,6 @@ export const customTabHiddenAtomFamily = atomFamily((agentId: string) =>
     []
   )
 );
-
-export function reconcileCustomTabHiddenStorage(
-  agentIds: Iterable<string>
-): void {
-  reconcileAgentScopedStorageDomains(agentIds, [
-    { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
-  ]);
-}
 
 // ---------------------------------------------------------------------------
 // Seen surface ids — per-agent record of which agent-authored tabs the user
@@ -663,18 +658,6 @@ export const surfaceFormDraftAtomFamily = atomFamily((draftKey: string) =>
   )
 );
 
-/** Drops drafts whose `<agentId>:...` prefix no longer names a live agent. */
-export function reconcileSurfaceFormDraftStorage(
-  agentIds: Iterable<string>
-): void {
-  reconcileAgentScopedStorageDomains(agentIds, [
-    {
-      prefix: SURFACE_FORM_DRAFT_STORAGE_PREFIX,
-      agentIdFromSuffix: (draftKey) => draftKey.split(":")[0],
-    },
-  ]);
-}
-
 // ---------------------------------------------------------------------------
 // Message group collapsed state — per-agent set of collapsed thread IDs
 // ---------------------------------------------------------------------------
@@ -689,14 +672,6 @@ export const messageGroupsCollapsedAtomFamily = atomFamily((agentId: string) =>
   )
 );
 
-export function reconcileMessageGroupsStateStorage(
-  agentIds: Iterable<string>
-): void {
-  reconcileAgentScopedStorageDomains(agentIds, [
-    { prefix: MESSAGE_GROUPS_STATE_STORAGE_PREFIX },
-  ]);
-}
-
 const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: MEDIA_SIDEBAR_STATE_STORAGE_PREFIX },
   { prefix: REVIEW_DRAFTS_STORAGE_PREFIX },
@@ -710,6 +685,8 @@ const AGENT_SCOPED_STORAGE_DOMAINS: readonly AgentScopedStorageDomain[] = [
   { prefix: CUSTOM_TAB_HIDDEN_STORAGE_PREFIX },
   { prefix: SEEN_SURFACE_IDS_STORAGE_PREFIX },
   {
+    // Drafts are keyed `<agentId>:<surfaceId>:<blockId>`, so the live-agent
+    // check reads the first segment rather than the whole suffix.
     prefix: SURFACE_FORM_DRAFT_STORAGE_PREFIX,
     agentIdFromSuffix: (draftKey) => draftKey.split(":")[0],
   },

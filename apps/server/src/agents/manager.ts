@@ -39,6 +39,8 @@ import {
 import { AgentError } from "./errors.js";
 import {
   type AgentEventBus,
+  type AgentEventHistoryListener,
+  type AgentEventHistoryRow,
   createAgentEventBus,
   writeLatestEvent,
   writeLatestEventIfCurrent,
@@ -58,6 +60,7 @@ import {
   validatePinShortcutFields,
   validatePinValue,
 } from "../pins.js";
+import { diffPins, recordPinEvents } from "./pin-events.js";
 import { type SeededMedia, seedInitialMedia } from "./media-seed.js";
 import { type Reconciler, createReconciler } from "./reconciler.js";
 import { type AgentRuntime, createAgentRuntime } from "./runtime.js";
@@ -314,6 +317,7 @@ export class AgentManager {
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
     [];
+  private readonly eventRecordedListeners: AgentEventHistoryListener[] = [];
 
   constructor(pool: Pool, logger: FastifyBaseLogger, config: AppConfig) {
     this.pool = pool;
@@ -469,6 +473,24 @@ export class AgentManager {
   onAgentCreated(listener: (agent: AgentRecord) => void): void {
     this.agentCreatedListeners.push(listener);
   }
+
+  /**
+   * Register a callback invoked with each `agent_events` history row as it
+   * is written — after the latest-event update, off its critical path.
+   */
+  onEventRecorded(listener: AgentEventHistoryListener): void {
+    this.eventRecordedListeners.push(listener);
+  }
+
+  private readonly notifyEventRecorded = (row: AgentEventHistoryRow): void => {
+    for (const listener of this.eventRecordedListeners) {
+      try {
+        listener(row);
+      } catch (err) {
+        this.logger.warn({ err }, "agent event history listener threw");
+      }
+    }
+  };
 
   /**
    * Inject the diff-stats refresher singleton. Wired post-construction so
@@ -1608,7 +1630,13 @@ export class AgentManager {
     id: string,
     input: AgentLatestEventInput
   ): Promise<AgentRecord> {
-    await writeLatestEvent(this.pool, this.logger, id, input);
+    await writeLatestEvent(
+      this.pool,
+      this.logger,
+      id,
+      input,
+      this.notifyEventRecorded
+    );
 
     // Agent could be soft-deleted between the UPDATE and this SELECT in rare
     // races. Guard against null to prevent downstream crashes (e.g. in event
@@ -1635,7 +1663,8 @@ export class AgentManager {
       this.logger,
       id,
       expectedUpdatedAt,
-      input
+      input,
+      this.notifyEventRecorded
     );
     if (!updated) return null;
 
@@ -1764,11 +1793,15 @@ export class AgentManager {
       );
       if (result.rows.length === 0)
         throw new AgentError("Agent not found.", 404);
-      const pins = mutate(result.rows[0]!.pins ?? []);
+      const currentPins = result.rows[0]!.pins ?? [];
+      const pins = mutate(currentPins);
       await client.query(
         "UPDATE agents SET pins = $2::jsonb, updated_at = NOW() WHERE id = $1",
         [id, JSON.stringify(pins)]
       );
+      // Same transaction as the write, so the Chat feed's pin history can
+      // never disagree with what the sidebar shows.
+      await recordPinEvents(client, id, diffPins(currentPins, pins));
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK").catch(() => {});
