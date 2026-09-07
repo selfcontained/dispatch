@@ -224,8 +224,8 @@ describe("ChatComposer path picker", () => {
     const { onSend, input } = renderComposer({ atItems: paths, onAtQuery });
     expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
     expect(onAtQuery).toHaveBeenLastCalledWith(null);
-    fireEvent.change(input, { target: { value: "look at @ap" } });
-    expect(onAtQuery).toHaveBeenLastCalledWith("ap");
+    fireEvent.change(input, { target: { value: "look at @" } });
+    expect(onAtQuery).toHaveBeenLastCalledWith("");
     const options = screen.getAllByTestId("chat-composer-at-item");
     expect(options.map((o) => o.textContent)).toEqual([
       "apps/",
@@ -233,11 +233,19 @@ describe("ChatComposer path picker", () => {
       "README.md",
     ]);
     expect(options[0].getAttribute("data-kind")).toBe("dir");
+    // The host's list lags the field; only what the live token still
+    // prefixes is offered, so Enter cannot pick from a stale list.
+    fireEvent.change(input, { target: { value: "look at @ap" } });
+    expect(onAtQuery).toHaveBeenLastCalledWith("ap");
+    expect(
+      screen.getAllByTestId("chat-composer-at-item").map((o) => o.textContent)
+    ).toEqual(["apps/"]);
     fireEvent.keyDown(input, { key: "Enter" });
-    // A directory pick keeps the picker open one level down.
+    // A directory pick keeps the token open one level down; the menu
+    // shows again once the host answers for the new prefix.
     expect(input.value).toBe("look at @apps/");
     expect(onAtQuery).toHaveBeenLastCalledWith("apps/");
-    expect(screen.getAllByTestId("chat-composer-at-item")).toHaveLength(3);
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
     expect(onSend).not.toHaveBeenCalled();
   });
 
@@ -251,9 +259,43 @@ describe("ChatComposer path picker", () => {
     expect(input.value).toBe("@README.md ");
     expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
     fireEvent.change(input, { target: { value: "@README.md @d" } });
-    expect(screen.getAllByTestId("chat-composer-at-item")).toHaveLength(3);
+    expect(
+      screen.getAllByTestId("chat-composer-at-item").map((o) => o.textContent)
+    ).toEqual(["docs/"]);
     fireEvent.keyDown(input, { key: "Escape" });
     expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+  });
+
+  it("keeps a scoped package path as one token", () => {
+    const onAtQuery = vi.fn();
+    const { input } = renderComposer({
+      atItems: [{ path: "node_modules/@types/node", kind: "dir" as const }],
+      onAtQuery,
+    });
+    fireEvent.change(input, { target: { value: "@node_modules/@types/" } });
+    expect(onAtQuery).toHaveBeenLastCalledWith("node_modules/@types/");
+    const options = screen.getAllByTestId("chat-composer-at-item");
+    expect(options).toHaveLength(1);
+    // The parent is muted and may truncate; the entry's own name never does.
+    expect(options[0].getAttribute("title")).toBe("node_modules/@types/node");
+    expect(options[0].textContent).toBe("node_modules/@types/node/");
+  });
+
+  it("sends on Enter once a file is typed out in full, and leaves an IME alone", () => {
+    const { onSend, input } = renderComposer({
+      atItems: paths,
+      onAtQuery: vi.fn(),
+    });
+    fireEvent.change(input, { target: { value: "@README.md" } });
+    expect(
+      screen.getAllByTestId("chat-composer-at-item").map((o) => o.textContent)
+    ).toEqual(["README.md"]);
+    // A composing Enter belongs to the IME, not the menu.
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(input.value).toBe("@README.md");
+    expect(onSend).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(onSend).toHaveBeenCalledWith("@README.md", []);
   });
 
   it("stays closed without a host, and for an @ inside a word", () => {

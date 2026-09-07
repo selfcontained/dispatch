@@ -1,5 +1,7 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
+import { useEffect, useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 import type { Step, StepStatus } from "./contracts";
@@ -7,6 +9,9 @@ import { formatStepDuration } from "./format";
 import { hasDetail, stepLabel, stepSummary, toolName } from "./registry";
 import { StepDetail } from "./step-detail";
 import { useStreamTicker } from "./use-stream-ticker";
+
+/** Matches the grid-rows transition's duration-300. */
+const FOLD_MS = 300;
 
 const STATUS_ARIA: Record<StepStatus, string> = {
   running: "running",
@@ -36,6 +41,18 @@ export function StepRow({
   // Only a step with something underneath gets a toggle.
   const expandable = hasDetail(step);
   const expanded = expandable && open;
+  // The body stays mounted while the rows collapse, or the fold snaps
+  // shut instead of animating; it unmounts once the transition ends (or
+  // after its duration, for a reduced-motion run that fires no event).
+  const [mounted, setMounted] = useState(expanded);
+  useEffect(() => {
+    if (expanded) {
+      setMounted(true);
+      return;
+    }
+    const timer = setTimeout(() => setMounted(false), FOLD_MS + 50);
+    return () => clearTimeout(timer);
+  }, [expanded]);
   const label = stepLabel(step);
   const server = step.label ? toolName(step.label).server : undefined;
   const summary = running ? undefined : stepSummary(step);
@@ -119,9 +136,14 @@ export function StepRow({
           "grid transition-[grid-template-rows] duration-300 ease-[cubic-bezier(0.2,0.7,0.2,1)] motion-reduce:transition-none",
           expanded ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
         )}
+        onTransitionEnd={(event) => {
+          if (event.target === event.currentTarget && !expanded) {
+            setMounted(false);
+          }
+        }}
       >
         <div className="overflow-hidden">
-          {expanded ? <StepDetail step={step} /> : null}
+          {expanded || mounted ? <StepDetail step={step} /> : null}
         </div>
       </div>
     </div>

@@ -1,6 +1,6 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import type { HarnessPath, HarnessPathsResponse } from "@dispatch/shared";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import { api } from "@/lib/api";
 
@@ -42,4 +42,18 @@ export function useHarnessPaths(
   });
   if (query === null) return [];
   return result.data?.paths ?? [];
+}
+
+/**
+ * The path picker as the composer host sees it: the list to show and the
+ * setter to call with what follows the "@" (null when no picker is open).
+ * The query lives here, not in the pane, since nothing else reads it.
+ */
+export function useHarnessPathPicker(agentId: string | null): {
+  items: HarnessPath[];
+  onQuery: (query: string | null) => void;
+} {
+  const [query, setQuery] = useState<string | null>(null);
+  const onQuery = useCallback((next: string | null) => setQuery(next), []);
+  return { items: useHarnessPaths(agentId, query), onQuery };
 }

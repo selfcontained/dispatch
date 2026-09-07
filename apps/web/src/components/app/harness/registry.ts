@@ -312,15 +312,20 @@ export function hasInput(step: Step): boolean {
 
 /**
  * Whether expanding the step would show anything at all. A step still
- * running has no output yet, so what it was asked to do — the command,
- * the arguments, the paths — is its body until the result lands; the
- * same detail renderer shows both, so the row reads the same live and
- * settled.
+ * running has no output yet, so what it was asked to do (the command,
+ * the arguments, the paths) is its body until the result lands. This is
+ * the one place that rule lives; `DetailBody` asks the same question.
  */
 export function hasDetail(step: Step): boolean {
+  return (
+    (step.status === "running" && hasInput(step)) || hasSettledDetail(step)
+  );
+}
+
+/** Whether the step has a result-side body: output, a diff, locations, text. */
+export function hasSettledDetail(step: Step): boolean {
   if (isSubagentStep(step)) return true;
   if (isTodoStep(step)) return todoItems(step).length > 0;
-  if (step.status === "running" && hasInput(step)) return true;
   const d = stepDetailData(step);
   const output = !!d.terminalOutput?.trim();
   const locations = (d.locations?.length ?? 0) > 0;

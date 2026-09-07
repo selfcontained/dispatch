@@ -366,6 +366,15 @@ describe("HarnessPane", () => {
       "true"
     );
     expect(running.textContent).toContain("$ pnpm test");
+    // A step open by default closes on its first click.
+    fireEvent.click(running.querySelector("button")!);
+    expect(running.querySelector("button")?.getAttribute("aria-expanded")).toBe(
+      "false"
+    );
+    fireEvent.click(running.querySelector("button")!);
+    expect(running.querySelector("button")?.getAttribute("aria-expanded")).toBe(
+      "true"
+    );
 
     // Settled, the row folds to one line; the output waits under it.
     state.liveTrace = {

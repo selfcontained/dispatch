@@ -16,6 +16,7 @@ import {
 } from "./code-block";
 import type { Step } from "./contracts";
 import {
+  hasSettledDetail,
   inputRecord,
   isSubagentStep,
   isTodoStep,
@@ -46,39 +47,37 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
   // Tools with a shape of their own, whatever kind dsh filed them under.
   if (isTodoStep(step)) return <TodoList items={todoItems(step)} />;
   if (isSubagentStep(step)) return <SubagentDetail step={step} />;
-  // A step still running has its input and nothing else: the same body
-  // the settled step gets, minus the result, so the reader watches the
-  // call it is waiting on rather than a bare label.
-  const running = step.status === "running";
+  // A step still running has its input and nothing else: its arguments
+  // are the body until the result lands, so the reader watches the call
+  // it is waiting on rather than a bare label. A command string is
+  // settled detail in its own right, so an execute step keeps CommandLine.
+  const command = input?.command ?? input?.cmd;
+  if (
+    step.status === "running" &&
+    !hasSettledDetail(step) &&
+    !(step.kind === "execute" && typeof command === "string")
+  ) {
+    return <Args input={d.input} />;
+  }
   switch (step.kind) {
-    case "execute": {
-      const command = input?.command ?? input?.cmd;
+    case "execute":
       return (
         <>
           {typeof command === "string" ? (
             <CommandLine command={command} />
-          ) : running ? (
-            <Args input={d.input} />
           ) : null}
           <OutputBlock text={d.terminalOutput} />
         </>
       );
-    }
     case "edit":
       return d.diff ? (
         <DiffBlock oldText={d.diff.oldText} newText={d.diff.newText} />
-      ) : running ? (
-        <Args input={d.input} />
       ) : (
         <Locations locations={d.locations} />
       );
     case "read": {
       if (!d.terminalOutput?.trim()) {
-        return d.locations?.length || !running ? (
-          <Locations locations={d.locations} />
-        ) : (
-          <Args input={d.input} />
-        );
+        return <Locations locations={d.locations} />;
       }
       const parsed = parseReadOutput(d.terminalOutput);
       const fileName = parsed.path ?? d.locations?.[0]?.path;
@@ -108,10 +107,8 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
           <Locations locations={d.locations} />
           {d.terminalOutput && looksLikePathList(d.terminalOutput) ? (
             <PathList text={d.terminalOutput} />
-          ) : d.terminalOutput?.trim() || !running ? (
-            <OutputBlock text={d.terminalOutput} />
           ) : (
-            <Args input={d.input} />
+            <OutputBlock text={d.terminalOutput} />
           )}
         </>
       );
@@ -130,7 +127,14 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
   }
 }
 
+/** Past this many lines a command (a heredoc, a script) is clipped like output. */
+const COMMAND_INLINE_LINES = 4;
+
 function CommandLine({ command }: { command: string }): JSX.Element {
+  const lines = command.split("\n");
+  if (lines.length > COMMAND_INLINE_LINES) {
+    return <PlainBlock text={`$ ${command}`} />;
+  }
   return (
     <p className="whitespace-pre-wrap font-terminal text-[11px] text-foreground">
       <span className="select-none text-muted-foreground">$ </span>

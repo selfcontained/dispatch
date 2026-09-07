@@ -60,6 +60,7 @@ import { isAcceptedUploadFile } from "@/lib/media-upload";
 import { chatDraftAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+import { ComposerMenu } from "./composer-menu";
 import { useComposerHistory } from "./use-composer-history";
 
 export type ChatComposerProps = {
@@ -195,10 +196,13 @@ export function slashTokenAt(text: string, caret: number): SlashToken | null {
 export function atTokenAt(text: string, caret: number): SlashToken | null {
   const end = Math.max(0, Math.min(caret, text.length));
   if (end < text.length && !/\s/.test(text[end])) return null;
+  // Back to whitespace, not to the nearest "@": a scoped package path
+  // like "@node_modules/@types/" is one token. The token must then start
+  // with "@", which still keeps "me@example" closed.
   let start = end - 1;
-  while (start >= 0 && !/[\s@]/.test(text[start])) start -= 1;
-  if (start < 0 || text[start] !== "@") return null;
-  if (start > 0 && !/\s/.test(text[start - 1])) return null;
+  while (start >= 0 && !/\s/.test(text[start])) start -= 1;
+  start += 1;
+  if (start >= end || text[start] !== "@") return null;
   return { query: text.slice(start + 1, end), start, end };
 }
 
@@ -350,11 +354,13 @@ export function ChatComposer({
   const [inFlight, setInFlight] = useState(false);
   const [error, setError] = useState<ComposerError | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
-  // Slash menu: open while the caret sits at the end of a "/<partial>"
-  // token, closed by Escape until the text changes again. The caret is
-  // tracked from the field on every change, key, click, and selection.
-  const [slashDismissed, setSlashDismissed] = useState<string | null>(null);
-  const [slashIndex, setSlashIndex] = useState(0);
+  // Token menus: the slash menu opens while the caret sits at the end of
+  // a "/<partial>" token, the path picker at the end of an "@<partial>"
+  // one; the two never open together, so one active index and one
+  // Escape dismissal (until the text changes again) serve both. The caret
+  // is tracked from the field on every change, key, click, and selection.
+  const [menuDismissed, setMenuDismissed] = useState<string | null>(null);
+  const [menuIndex, setMenuIndex] = useState(0);
   const [caret, setCaret] = useState<number | null>(null);
   const syncCaret = useCallback(
     (event: SyntheticEvent<HTMLTextAreaElement>) => {
@@ -372,7 +378,7 @@ export function ChatComposer({
     setText,
     setCaret,
   });
-  const slashOpen = slashToken !== null && slashDismissed !== text;
+  const slashOpen = slashToken !== null && menuDismissed !== text;
   const slashMatches = useMemo(() => {
     if (!slashOpen || !slashToken) return [];
     // Commands (/model) act on the whole message: start-of-message only.
@@ -383,26 +389,31 @@ export function ChatComposer({
     return filterSlashItems(pool, slashToken.query);
   }, [slashOpen, slashItems, slashToken]);
   const slashActive =
-    slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
+    slashMatches.length > 0 ? menuIndex % slashMatches.length : 0;
   // Path picker: the same popup for an "@<partial path>" token, fed by the
   // host through `onAtQuery` → `atItems`. Escape dismisses it the same way.
   const atToken =
     onAtQuery && slashToken === null
       ? atTokenAt(text, caret ?? text.length)
       : null;
-  const atOpen = atToken !== null && slashDismissed !== text;
+  const atOpen = atToken !== null && menuDismissed !== text;
   const atQuery = atOpen && atToken ? atToken.query : null;
   useEffect(() => {
     onAtQuery?.(atQuery);
   }, [atQuery, onAtQuery]);
-  const atMatches = useMemo(
-    () => (atOpen ? (atItems ?? []).slice(0, AT_MENU_MAX) : []),
-    [atOpen, atItems]
-  );
-  // One index serves whichever menu is open; the two never open together.
+  // The host's list lags the field by its debounce, so an Enter mid-word
+  // must not pick from the previous query: only entries the live token
+  // still prefixes are offered.
+  const atMatches = useMemo(() => {
+    if (!atOpen || !atToken) return [];
+    const q = atToken.query.toLowerCase();
+    return (atItems ?? [])
+      .filter((item) => item.path.toLowerCase().startsWith(q))
+      .slice(0, AT_MENU_MAX);
+  }, [atOpen, atItems, atToken]);
   const menuCount =
     slashMatches.length > 0 ? slashMatches.length : atMatches.length;
-  const menuActive = menuCount > 0 ? slashIndex % menuCount : 0;
+  const menuActive = menuCount > 0 ? menuIndex % menuCount : 0;
   const pickAt = useCallback(
     (item: HarnessPath) => {
       const token = atToken ?? { start: 0, end: text.length };
@@ -418,7 +429,7 @@ export function ChatComposer({
         token.start + insert.length + (item.kind === "file" && spaced ? 1 : 0);
       setText(text.slice(0, token.start) + insert + after);
       setCaret(next);
-      setSlashIndex(0);
+      setMenuIndex(0);
       requestAnimationFrame(() => {
         const el = textareaRef.current;
         el?.focus();
@@ -445,7 +456,7 @@ export function ChatComposer({
           textareaRef.current?.setSelectionRange(next, next);
         });
       }
-      setSlashIndex(0);
+      setMenuIndex(0);
       requestAnimationFrame(() => textareaRef.current?.focus());
     },
     [onSlashCommand, setText, slashToken, text]
@@ -883,26 +894,38 @@ export function ChatComposer({
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
+      // An IME composition owns Enter and the arrows until it commits.
+      if (event.nativeEvent.isComposing) return;
       if (menuCount > 0) {
         if (event.key === "ArrowDown") {
           event.preventDefault();
-          setSlashIndex((i) => (i + 1) % menuCount);
+          setMenuIndex((i) => (i + 1) % menuCount);
           return;
         }
         if (event.key === "ArrowUp") {
           event.preventDefault();
-          setSlashIndex((i) => (i - 1 + menuCount) % menuCount);
+          setMenuIndex((i) => (i - 1 + menuCount) % menuCount);
           return;
         }
         if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
-          event.preventDefault();
-          if (slashMatches.length > 0) pickSlash(slashMatches[slashActive]);
-          else pickAt(atMatches[menuActive]);
-          return;
+          const at = slashMatches.length > 0 ? null : atMatches[menuActive];
+          // A file already typed out in full has nothing left to pick:
+          // Enter sends the message instead of re-inserting the path.
+          const typedOut =
+            at !== null &&
+            at.kind === "file" &&
+            atToken !== null &&
+            at.path === atToken.query;
+          if (!(typedOut && event.key === "Enter")) {
+            event.preventDefault();
+            if (slashMatches.length > 0) pickSlash(slashMatches[slashActive]);
+            else pickAt(at as HarnessPath);
+            return;
+          }
         }
         if (event.key === "Escape") {
           event.preventDefault();
-          setSlashDismissed(text);
+          setMenuDismissed(text);
           return;
         }
       }
@@ -924,13 +947,13 @@ export function ChatComposer({
       if (event.key === "ArrowDown" && historyKeys.onArrowDown(event)) return;
       if (event.key !== "Enter") return;
       if (event.shiftKey) return;
-      if (event.nativeEvent.isComposing) return;
       event.preventDefault();
       historyKeys.reset();
       submit();
     },
     [
       atMatches,
+      atToken,
       historyKeys,
       menuActive,
       menuCount,
@@ -973,76 +996,63 @@ export function ChatComposer({
         )}
       >
         {slashMatches.length > 0 ? (
-          <div
-            role="listbox"
-            aria-label="Slash commands"
-            data-testid="chat-composer-slash-menu"
-            className="absolute bottom-full left-0 z-20 mb-1 w-full max-w-md overflow-hidden rounded-md border border-border bg-popover text-popover-foreground shadow-md"
-          >
-            {slashMatches.map((item, i) => (
-              <button
-                key={item.name}
-                type="button"
-                role="option"
-                aria-selected={i === slashActive}
-                data-testid="chat-composer-slash-item"
-                onMouseDown={(event) => {
-                  // Keep the field's focus; a click picks like Enter does.
-                  event.preventDefault();
-                  pickSlash(item);
-                }}
-                onMouseEnter={() => setSlashIndex(i)}
-                className={cn(
-                  "flex w-full items-baseline gap-2 px-2.5 py-1.5 text-left text-xs",
-                  i === slashActive ? "bg-accent text-accent-foreground" : ""
-                )}
-              >
+          <ComposerMenu
+            items={slashMatches}
+            activeIndex={slashActive}
+            onPick={pickSlash}
+            onHover={setMenuIndex}
+            keyOf={(item) => item.name}
+            ariaLabel="Slash commands"
+            testId="chat-composer-slash-menu"
+            itemTestId="chat-composer-slash-item"
+            renderItem={(item) => (
+              <>
                 <span className="shrink-0 font-terminal">/{item.name}</span>
                 {item.description ? (
                   <span className="min-w-0 truncate text-[11px] text-muted-foreground">
                     {item.description}
                   </span>
                 ) : null}
-              </button>
-            ))}
-          </div>
+              </>
+            )}
+          />
         ) : atMatches.length > 0 ? (
-          <div
-            role="listbox"
-            aria-label="Paths"
-            data-testid="chat-composer-at-menu"
-            className="absolute bottom-full left-0 z-20 mb-1 max-h-72 w-full max-w-md overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md"
-          >
-            {atMatches.map((item, i) => (
-              <button
-                key={item.path}
-                type="button"
-                role="option"
-                aria-selected={i === menuActive}
-                data-testid="chat-composer-at-item"
-                data-kind={item.kind}
-                onMouseDown={(event) => {
-                  event.preventDefault();
-                  pickAt(item);
-                }}
-                onMouseEnter={() => setSlashIndex(i)}
-                className={cn(
-                  "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs",
-                  i === menuActive ? "bg-accent text-accent-foreground" : ""
-                )}
-              >
-                {item.kind === "dir" ? (
-                  <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                ) : (
-                  <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-                )}
-                <span className="min-w-0 truncate font-terminal">
-                  {item.path}
-                  {item.kind === "dir" ? "/" : ""}
+          <ComposerMenu
+            items={atMatches}
+            activeIndex={menuActive}
+            onPick={pickAt}
+            onHover={setMenuIndex}
+            keyOf={(item) => item.path}
+            ariaLabel="Paths"
+            testId="chat-composer-at-menu"
+            itemTestId="chat-composer-at-item"
+            itemData={(item) => ({ "data-kind": item.kind, title: item.path })}
+            scroll
+            renderItem={(item) => {
+              // The shared parent may truncate; the entry's own name never does.
+              const cut = item.path.lastIndexOf("/");
+              const parent = cut >= 0 ? item.path.slice(0, cut + 1) : "";
+              const name = item.path.slice(cut + 1);
+              return (
+                <span className="flex min-w-0 items-center gap-2 font-terminal">
+                  {item.kind === "dir" ? (
+                    <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  ) : (
+                    <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  )}
+                  {parent ? (
+                    <span className="min-w-0 truncate text-muted-foreground">
+                      {parent}
+                    </span>
+                  ) : null}
+                  <span className="shrink-0">
+                    {name}
+                    {item.kind === "dir" ? "/" : ""}
+                  </span>
                 </span>
-              </button>
-            ))}
-          </div>
+              );
+            }}
+          />
         ) : null}
         {replyContext && !disabled ? (
           <div className="px-2 pt-2">

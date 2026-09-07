@@ -70,8 +70,11 @@ function ActivityBlockImpl({
   const stepOpen = (step: Step): boolean =>
     stepOverrides[step.id] ??
     (!done && (step.status === "running" || isSubagentStep(step)));
-  const toggleStep = (id: string) =>
-    setStepOverrides((prev) => ({ ...prev, [id]: !(prev[id] ?? false) }));
+  // The override flips the effective state, not the stored one: a step
+  // open by default (running) has no override yet, and its first click
+  // must close it.
+  const toggleStep = (step: Step) =>
+    setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
 
   return (
     <div
@@ -99,7 +102,7 @@ function ActivityBlockImpl({
               key={step.id}
               step={step}
               open={stepOpen(step)}
-              onToggle={() => toggleStep(step.id)}
+              onToggle={() => toggleStep(step)}
               maskClass={BLOCK_FILL}
             />
           ))}
