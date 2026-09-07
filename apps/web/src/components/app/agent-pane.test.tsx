@@ -278,7 +278,7 @@ describe("AgentViewToggle", () => {
 
   it("hides the Chat filter for a harness agent, whose feed it cannot filter", () => {
     render(
-      <AgentViewToggle view="harness" onViewChange={vi.fn()} harnessEnabled />
+      <AgentViewToggle view="chat" onViewChange={vi.fn()} harnessEnabled />
     );
     expect(screen.queryByTestId("chat-filters-trigger")).toBeNull();
   });
@@ -438,11 +438,7 @@ describe("AgentViewToggle with the Harness segment", () => {
   it("replaces Chat with Harness and reports a pick of Console", () => {
     const onViewChange = vi.fn();
     render(
-      <AgentViewToggle
-        view="harness"
-        onViewChange={onViewChange}
-        harnessEnabled
-      />
+      <AgentViewToggle view="chat" onViewChange={onViewChange} harnessEnabled />
     );
     const harness = screen.getByTestId("agent-view-harness");
     expect(harness.getAttribute("data-state")).toBe("on");
@@ -460,24 +456,25 @@ describe("AgentViewToggle with the Harness segment", () => {
 });
 
 describe("AgentPane with the Harness view", () => {
-  it("shows the Harness pane over a hidden Console, with no Chat mounted", () => {
-    renderPane({ harnessEnabled: true, view: "harness" });
-    expect(isHidden(screen.getByTestId("agent-pane-harness"))).toBe(false);
-    expect(screen.getByTestId("harness-pane")).toBeTruthy();
+  it("shows the Harness pane in the feed layer over a hidden Console, with no Chat mounted", () => {
+    renderPane({ harnessEnabled: true, view: "chat" });
     // The feed layer hosts the Harness; the Chat pane itself is not mounted.
     expect(isHidden(screen.getByTestId("agent-pane-chat"))).toBe(false);
+    expect(screen.getByTestId("harness-pane")).toBeTruthy();
     expect(screen.queryByTestId("chat-pane")).toBeNull();
     expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(true);
   });
 
-  it("treats a stored Chat preference as Harness for a harness agent", () => {
-    renderPane({ harnessEnabled: true, view: "chat" });
-    expect(isHidden(screen.getByTestId("agent-pane-harness"))).toBe(false);
-    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(true);
+  it("hides the Harness under the Console when the view is Console", () => {
+    renderPane({ harnessEnabled: true, view: "console" });
+    expect(isHidden(screen.getByTestId("agent-pane-chat"))).toBe(true);
+    expect(screen.getByTestId("harness-pane")).toBeTruthy();
+    expect(isHidden(screen.getByTestId("agent-pane-console"))).toBe(false);
   });
 
   it("does not mount the Harness pane for agents without it", () => {
     renderPane({ view: "chat" });
-    expect(screen.queryByTestId("agent-pane-harness")).toBeNull();
+    expect(screen.queryByTestId("harness-pane")).toBeNull();
+    expect(screen.getByTestId("chat-pane")).toBeTruthy();
   });
 });

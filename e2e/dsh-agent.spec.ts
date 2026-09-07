@@ -83,10 +83,14 @@ test.describe("dsh agent", () => {
     await clickAgentRow(page, agent.id);
     await page.getByTestId("center-tab-agent").click();
 
-    // A Dispatch Harness agent opens on the Harness view.
+    // A Dispatch Harness agent opens on the Harness view, its Chat.
     await expect(page.getByTestId("agent-view-toggle")).toHaveAttribute(
       "data-view",
-      "harness"
+      "chat"
+    );
+    await expect(page.getByTestId("agent-view-harness")).toHaveAttribute(
+      "data-state",
+      "on"
     );
     const harness = page.getByTestId("harness-pane");
     await expect(harness).toBeVisible();

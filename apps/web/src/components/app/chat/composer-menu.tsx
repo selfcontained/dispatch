@@ -53,7 +53,12 @@ export function ComposerMenu<T>({
       data-testid={testId}
       className={cn(
         "absolute bottom-full left-0 z-20 mb-1 w-full max-w-md rounded-md border border-border bg-popover text-popover-foreground shadow-md",
-        scroll ? "max-h-72 overflow-y-auto" : "overflow-hidden"
+        // The sticky footer paints over the container's bottom edge, so a
+        // row scrolled to "nearest" would land under it: pad the scroll
+        // target by the footer's height.
+        scroll
+          ? "max-h-72 overflow-y-auto [scroll-padding-bottom:1.75rem]"
+          : "overflow-hidden"
       )}
     >
       {items.map((item, i) => (
@@ -83,9 +88,10 @@ export function ComposerMenu<T>({
           {renderItem(item)}
         </button>
       ))}
+      {/* Keys a phone does not have: the hint is for pointer-and-keyboard. */}
       <div
         aria-hidden="true"
-        className="sticky bottom-0 border-t border-border/60 bg-popover px-2.5 py-1 text-[10.5px] text-muted-foreground"
+        className="sticky bottom-0 h-7 border-t border-border/60 bg-popover px-2.5 py-1 text-[11px] text-muted-foreground pointer-coarse:hidden"
       >
         ↑↓ move · Enter picks · Esc closes
       </div>

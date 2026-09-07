@@ -523,25 +523,21 @@ export const LEGACY_CENTER_TAB_STORAGE_PREFIX = "dispatch:centerTab:";
 // route of round 1 only survives as a redirect that flips it to "chat".
 // ---------------------------------------------------------------------------
 
-export type AgentPaneView = "harness" | "chat" | "console";
+export type AgentPaneView = "chat" | "console";
 
 export const AGENT_PANE_VIEW_STORAGE_PREFIX = "dispatch:agentPaneView:";
 
-/**
- * `null` until the user picks a view: the pane then opens on the type's
- * default (`defaultAgentPaneView`), which a stored "chat" could not express.
- */
 export const agentPaneViewAtomFamily = atomFamily((agentId: string) =>
-  atomWithLocalStorage<AgentPaneView | null>(
+  atomWithLocalStorage<AgentPaneView>(
     `${AGENT_PANE_VIEW_STORAGE_PREFIX}${agentId}`,
-    null
+    "chat"
   )
 );
 
-export const inactiveAgentPaneViewAtom = atom<AgentPaneView | null>(null);
+export const inactiveAgentPaneViewAtom = atom<AgentPaneView>("chat");
 
 export function isAgentPaneView(value: unknown): value is AgentPaneView {
-  return value === "harness" || value === "chat" || value === "console";
+  return value === "chat" || value === "console";
 }
 
 // ---------------------------------------------------------------------------
@@ -725,13 +721,3 @@ export type AgentToolBlip = {
 export const agentToolBlipAtomFamily = atomFamily((_agentId: string) =>
   atom<AgentToolBlip | null>(null)
 );
-
-/**
- * The view an Agent pane opens on before the user picks one: the Harness
- * view for a Dispatch Harness agent, Chat for every other.
- */
-export function defaultAgentPaneView(
-  agentType: string | null | undefined
-): AgentPaneView {
-  return agentType === "dispatch" ? "harness" : "chat";
-}

@@ -1,52 +1,28 @@
-import { useEffect, useRef } from "react";
+import { forwardRef } from "react";
 
 import { cn } from "@/lib/utils";
 
-/** One run of the field's text: plain, or an "@path" token the picker filled. */
-export type ComposerSegment = { text: string; token: boolean };
+import { COMPOSER_FIELD_BOX_CLASS, splitAtTokens } from "./composer-tokens";
+
+export { splitAtTokens } from "./composer-tokens";
 
 /**
- * Split the field's text into plain runs and "@path" tokens: an "@" at
- * the start or after whitespace, up to the next whitespace. The same
- * boundary rule the picker uses, so what it filled is what lights up; an
- * "@" inside a word (an email) stays plain.
+ * A mirror of the field laid over it: the same text in the same box, with
+ * the "@path" tokens painted in the working color. While a token is on
+ * screen the field draws its text transparent and this layer draws every
+ * glyph once, so nothing halos; the field keeps the caret, the selection,
+ * and every event. This layer takes no pointer input, and the host keeps
+ * its scroll offset in step with the field's.
  */
-export function splitAtTokens(text: string): ComposerSegment[] {
-  const segments: ComposerSegment[] = [];
-  const re = /(^|\s)(@[^\s]+)/g;
-  let last = 0;
-  for (const match of text.matchAll(re)) {
-    const start = (match.index ?? 0) + match[1].length;
-    if (start > last)
-      segments.push({ text: text.slice(last, start), token: false });
-    segments.push({ text: match[2], token: true });
-    last = start + match[2].length;
+export const ComposerHighlights = forwardRef<
+  HTMLDivElement,
+  {
+    text: string;
+    /** Mirrors the field's disabled dimming. */
+    disabled?: boolean;
+    className?: string;
   }
-  if (last < text.length)
-    segments.push({ text: text.slice(last), token: false });
-  return segments;
-}
-
-/**
- * A mirror of the field laid over it: the same text in the same box, all
- * of it transparent except the "@path" tokens, which paint over the
- * field's own glyphs in the working color. The field keeps the caret,
- * selection, and every event; this layer takes no pointer input and
- * follows the field's scroll.
- */
-export function ComposerHighlights({
-  text,
-  scrollTop,
-  className,
-}: {
-  text: string;
-  scrollTop: number;
-  className?: string;
-}): JSX.Element | null {
-  const ref = useRef<HTMLDivElement>(null);
-  useEffect(() => {
-    if (ref.current) ref.current.scrollTop = scrollTop;
-  }, [scrollTop, text]);
+>(function ComposerHighlights({ text, disabled = false, className }, ref) {
   const segments = splitAtTokens(text);
   if (!segments.some((s) => s.token)) return null;
   return (
@@ -55,7 +31,9 @@ export function ComposerHighlights({
       aria-hidden="true"
       data-testid="chat-composer-highlights"
       className={cn(
-        "pointer-events-none absolute inset-0 z-[1] overflow-hidden whitespace-pre-wrap break-words text-transparent",
+        "pointer-events-none absolute inset-0 z-[1] overflow-hidden whitespace-pre-wrap break-words text-foreground",
+        COMPOSER_FIELD_BOX_CLASS,
+        disabled && "opacity-50",
         className
       )}
     >
@@ -76,4 +54,9 @@ export function ComposerHighlights({
       {text.endsWith("\n") ? "​" : null}
     </div>
   );
+});
+
+/** Whether the field currently holds a token the mirror will paint. */
+export function hasAtTokens(text: string): boolean {
+  return splitAtTokens(text).some((s) => s.token);
 }

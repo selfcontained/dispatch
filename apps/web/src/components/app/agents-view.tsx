@@ -606,10 +606,7 @@ export function AgentsView({
   // viewport out from under the cross-fade; the toolbar's keyboard button is
   // how a phone asks for input. Same reasoning as the foreground-focus guard
   // in useTerminal.
-  const [agentView, setAgentViewRaw] = useAgentPaneView(
-    focusedAgentId,
-    focusedAgent?.type
-  );
+  const [agentView, setAgentViewRaw] = useAgentPaneView(focusedAgentId);
   const harnessEnabled =
     chatEnabled && agentSupportsHarness(focusedAgent?.type);
   const consoleFocusTimerRef = useRef<number | null>(null);

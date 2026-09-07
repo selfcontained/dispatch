@@ -60,7 +60,8 @@ import { isAcceptedUploadFile } from "@/lib/media-upload";
 import { chatDraftAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
-import { ComposerHighlights } from "./composer-highlights";
+import { ComposerHighlights, hasAtTokens } from "./composer-highlights";
+import { atTokenAt, COMPOSER_FIELD_BOX_CLASS } from "./composer-tokens";
 import { ComposerMenu } from "./composer-menu";
 import { useComposerHistory } from "./use-composer-history";
 
@@ -188,24 +189,9 @@ export function slashTokenAt(text: string, caret: number): SlashToken | null {
   return { query: text.slice(start + 1, end), start, end };
 }
 
-/**
- * The "@partial/path" token under the caret, if the path picker should be
- * open: an "@" at the start of the text or after whitespace, then no
- * whitespace up to the caret (slashes are the point), and nothing glued on
- * after the caret. An email-like "a@b" does not count.
- */
-export function atTokenAt(text: string, caret: number): SlashToken | null {
-  const end = Math.max(0, Math.min(caret, text.length));
-  if (end < text.length && !/\s/.test(text[end])) return null;
-  // Back to whitespace, not to the nearest "@": a scoped package path
-  // like "@node_modules/@types/" is one token. The token must then start
-  // with "@", which still keeps "me@example" closed.
-  let start = end - 1;
-  while (start >= 0 && !/\s/.test(text[start])) start -= 1;
-  start += 1;
-  if (start >= end || text[start] !== "@") return null;
-  return { query: text.slice(start + 1, end), start, end };
-}
+// The "@path" token rule lives with the highlight layer's, so the picker
+// and the paint agree: see composer-tokens.ts.
+export { atTokenAt } from "./composer-tokens";
 
 /** The "/query" the field holds while the menu should be open, else null. */
 export function slashQuery(text: string): string | null {
@@ -363,8 +349,10 @@ export function ChatComposer({
   const [menuDismissed, setMenuDismissed] = useState<string | null>(null);
   const [menuIndex, setMenuIndex] = useState(0);
   const [caret, setCaret] = useState<number | null>(null);
-  // The field's scroll offset, so the highlight layer follows it.
-  const [scrollTop, setScrollTop] = useState(0);
+  // The highlight mirror follows the field's scroll imperatively: a state
+  // hop here would re-render the whole composer per scrolled pixel.
+  const highlightsRef = useRef<HTMLDivElement>(null);
+  const painted = hasAtTokens(text);
   const syncCaret = useCallback(
     (event: SyntheticEvent<HTMLTextAreaElement>) => {
       setCaret(event.currentTarget.selectionStart);
@@ -1165,7 +1153,12 @@ export function ChatComposer({
               onClick={syncCaret}
               onSelect={syncCaret}
               onPaste={onPaste}
-              onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+              onScroll={(event) =>
+                highlightsRef.current?.scrollTo(
+                  0,
+                  event.currentTarget.scrollTop
+                )
+              }
               disabled={disabled}
               rows={1}
               maxLength={CHAT_MESSAGE_MAX_CHARS}
@@ -1175,14 +1168,20 @@ export function ChatComposer({
               }
               aria-label="Message the agent"
               // The box around it is the border; the field itself is bare.
-              className="max-h-48 min-h-10 w-full resize-none border-0 bg-transparent px-2 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
+              // With a token on screen the mirror draws every glyph and the
+              // field draws none, keeping only its caret and selection.
+              className={cn(
+                "w-full resize-none border-0 bg-transparent shadow-none backdrop-blur-none focus-visible:ring-0",
+                COMPOSER_FIELD_BOX_CLASS,
+                painted && "text-transparent caret-foreground"
+              )}
               data-testid="chat-composer-input"
             />
             {/* Same box, same text: "@path" tokens painted in color over the field. */}
             <ComposerHighlights
+              ref={highlightsRef}
               text={text}
-              scrollTop={scrollTop}
-              className="max-h-48 min-h-10 px-2 py-2.5 text-sm"
+              disabled={disabled}
             />
           </div>
           <Button

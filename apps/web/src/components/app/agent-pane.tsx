@@ -84,8 +84,6 @@ export function AgentViewToggle({
 }: AgentViewToggleProps): JSX.Element {
   const showUnread =
     !harnessEnabled && view === "console" && chatUnreadCount > 0;
-  // Two segments either way: Harness | Console, or Chat | Console.
-  const position = view === "console" ? 1 : 0;
   const filtersLabel = showChildAgents
     ? "Chat filters"
     : "Chat filters, child-agent messages hidden";
@@ -120,7 +118,7 @@ export function AgentViewToggle({
         />
         {harnessEnabled ? (
           <ToggleGroupItem
-            value="harness"
+            value="chat"
             aria-label="Chat"
             data-testid="agent-view-harness"
             className="relative z-10 h-5 rounded-full px-2.5 text-[11px] transition-colors duration-200 data-[state=on]:bg-transparent data-[state=on]:text-foreground data-[state=on]:shadow-none pointer-coarse:h-11 pointer-coarse:px-2.5"
@@ -299,12 +297,9 @@ export function AgentPane({
   onOpenReview,
   isMobile,
 }: AgentPaneProps): JSX.Element {
-  // For a harness agent the Harness view stands in for Chat: a stored
-  // "chat" preference (or the default) lands on Harness.
-  const harnessShown = chatEnabled && harnessEnabled && view !== "console";
-  const chatShown = chatEnabled && !harnessEnabled && view === "chat";
-  // The feed layer (Chat, or Harness standing in for it) is up; else the Console.
-  const feedShown = harnessShown || chatShown;
+  // The feed layer is up, else the Console. For a harness agent the feed
+  // layer holds the Harness view, which is that agent's Chat.
+  const feedShown = chatEnabled && view === "chat";
   const reduceMotion = useReducedMotion();
   // The chat-surface flag resolves after the first paint, so the pane can go
   // from "bare terminal" to "Chat over Console" a tick in. That is hydration
@@ -364,23 +359,21 @@ export function AgentPane({
              * /agents/b transition must not carry them across.
              */}
             {harnessEnabled ? (
-              <div className="h-full" data-testid="agent-pane-harness">
-                <HarnessPane
-                  key={agentId ?? "none"}
-                  agentId={agentId}
-                  agent={agent}
-                  active={active && harnessShown}
-                  isMobile={isMobile}
-                  openLightbox={openLightbox}
-                />
-              </div>
+              <HarnessPane
+                key={agentId ?? "none"}
+                agentId={agentId}
+                agent={agent}
+                active={active && feedShown}
+                isMobile={isMobile}
+                openLightbox={openLightbox}
+              />
             ) : (
               <ChatPane
                 key={agentId ?? "none"}
                 agentId={agentId}
                 agent={agent}
                 terminalMode={terminalMode}
-                active={active && chatShown}
+                active={active && feedShown}
                 showChildAgents={showChildAgents}
                 childAgentIds={childAgentIds}
                 onShowChildAgentsChange={onShowChildAgentsChange}
@@ -400,7 +393,7 @@ export function AgentPane({
           // Always a defined target, chat surface or not: handing framer
           // `undefined` leaves it with no baseline to animate from, and the
           // first flip after the flag resolves snaps instead of fading.
-          // With the surface off `chatShown` is always false, which is the
+          // With the surface off `feedShown` is always false, which is the
           // bare-terminal mode's "fully shown" anyway.
           animate={paneFade(!feedShown)}
           transition={paneTransition(!feedShown, instant)}
