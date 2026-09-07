@@ -60,6 +60,7 @@ import { isAcceptedUploadFile } from "@/lib/media-upload";
 import { chatDraftAtomFamily } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+import { ComposerHighlights } from "./composer-highlights";
 import { ComposerMenu } from "./composer-menu";
 import { useComposerHistory } from "./use-composer-history";
 
@@ -362,6 +363,8 @@ export function ChatComposer({
   const [menuDismissed, setMenuDismissed] = useState<string | null>(null);
   const [menuIndex, setMenuIndex] = useState(0);
   const [caret, setCaret] = useState<number | null>(null);
+  // The field's scroll offset, so the highlight layer follows it.
+  const [scrollTop, setScrollTop] = useState(0);
   const syncCaret = useCallback(
     (event: SyntheticEvent<HTMLTextAreaElement>) => {
       setCaret(event.currentTarget.selectionStart);
@@ -1147,32 +1150,41 @@ export function ChatComposer({
               <Paperclip className="h-4 w-4" />
             </Button>
           </div>
-          <Textarea
-            ref={textareaRef}
-            value={text}
-            onChange={(event) => {
-              setText(event.target.value);
-              setCaret(event.target.selectionStart);
-              // Typing turns a recalled entry into a fresh draft.
-              historyKeys.reset();
-            }}
-            onKeyDown={onKeyDown}
-            onKeyUp={syncCaret}
-            onClick={syncCaret}
-            onSelect={syncCaret}
-            onPaste={onPaste}
-            disabled={disabled}
-            rows={1}
-            maxLength={CHAT_MESSAGE_MAX_CHARS}
-            autoFocus={autoFocus}
-            placeholder={
-              disabled ? "" : replyContext ? "Type your answer…" : placeholder
-            }
-            aria-label="Message the agent"
-            // The box around it is the border; the field itself is bare.
-            className="max-h-48 min-h-10 flex-1 resize-none border-0 bg-transparent px-2 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
-            data-testid="chat-composer-input"
-          />
+          <div className="relative min-w-0 flex-1">
+            <Textarea
+              ref={textareaRef}
+              value={text}
+              onChange={(event) => {
+                setText(event.target.value);
+                setCaret(event.target.selectionStart);
+                // Typing turns a recalled entry into a fresh draft.
+                historyKeys.reset();
+              }}
+              onKeyDown={onKeyDown}
+              onKeyUp={syncCaret}
+              onClick={syncCaret}
+              onSelect={syncCaret}
+              onPaste={onPaste}
+              onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+              disabled={disabled}
+              rows={1}
+              maxLength={CHAT_MESSAGE_MAX_CHARS}
+              autoFocus={autoFocus}
+              placeholder={
+                disabled ? "" : replyContext ? "Type your answer…" : placeholder
+              }
+              aria-label="Message the agent"
+              // The box around it is the border; the field itself is bare.
+              className="max-h-48 min-h-10 w-full resize-none border-0 bg-transparent px-2 py-2.5 text-sm shadow-none backdrop-blur-none focus-visible:ring-0"
+              data-testid="chat-composer-input"
+            />
+            {/* Same box, same text: "@path" tokens painted in color over the field. */}
+            <ComposerHighlights
+              text={text}
+              scrollTop={scrollTop}
+              className="max-h-48 min-h-10 px-2 py-2.5 text-sm"
+            />
+          </div>
           <Button
             type="submit"
             size="icon"

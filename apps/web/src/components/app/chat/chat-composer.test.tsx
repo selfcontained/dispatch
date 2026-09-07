@@ -244,6 +244,10 @@ describe("ChatComposer path picker", () => {
     // A directory pick keeps the token open one level down; the menu
     // shows again once the host answers for the new prefix.
     expect(input.value).toBe("look at @apps/");
+    // The filled path reads as a token: painted over the field in color.
+    expect(
+      screen.getAllByTestId("chat-composer-token").map((t) => t.textContent)
+    ).toEqual(["@apps/"]);
     expect(onAtQuery).toHaveBeenLastCalledWith("apps/");
     expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
     expect(onSend).not.toHaveBeenCalled();

@@ -178,9 +178,20 @@ test.describe("dsh agent", () => {
     await expect(items).toHaveCount(1, { timeout: 30_000 });
     await input.press("Enter");
     await expect(input).toHaveValue("look at @src/");
+    // The picked path is painted as a token over the field.
+    await expect(harness.getByTestId("chat-composer-token")).toHaveText(
+      "@src/"
+    );
     await expect(items.first()).toContainText("src/index.ts", {
       timeout: 30_000,
     });
+    // The active row is visibly marked; ArrowUp wraps to the last row.
+    await expect(items.first()).toHaveAttribute("aria-selected", "true");
+    if (shotDir) {
+      await page.screenshot({
+        path: path.join(shotDir, "harness-at-token.png"),
+      });
+    }
     // A file pick ends the token.
     await input.press("Tab");
     await expect(input).toHaveValue("look at @src/index.ts ");

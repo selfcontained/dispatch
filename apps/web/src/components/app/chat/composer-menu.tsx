@@ -72,12 +72,23 @@ export function ComposerMenu<T>({
           onMouseEnter={() => onHover(i)}
           className={cn(
             "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs pointer-coarse:min-h-11 pointer-coarse:py-2.5",
-            i === activeIndex ? "bg-accent text-accent-foreground" : ""
+            // The accent token is a hair off the popover in the dark
+            // themes, so the active row takes the working color instead:
+            // a tint plus a bar at the left edge.
+            i === activeIndex
+              ? "bg-status-working/15 text-foreground shadow-[inset_2px_0_0_hsl(var(--status-working))]"
+              : ""
           )}
         >
           {renderItem(item)}
         </button>
       ))}
+      <div
+        aria-hidden="true"
+        className="sticky bottom-0 border-t border-border/60 bg-popover px-2.5 py-1 text-[10.5px] text-muted-foreground"
+      >
+        ↑↓ move · Enter picks · Esc closes
+      </div>
     </div>
   );
 }
