@@ -212,6 +212,63 @@ describe("ChatComposer", () => {
   });
 });
 
+describe("ChatComposer path picker", () => {
+  const paths = [
+    { path: "apps", kind: "dir" as const },
+    { path: "docs", kind: "dir" as const },
+    { path: "README.md", kind: "file" as const },
+  ];
+
+  it("reports the query after @, lists the host's paths, and descends into a directory", () => {
+    const onAtQuery = vi.fn();
+    const { onSend, input } = renderComposer({ atItems: paths, onAtQuery });
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+    expect(onAtQuery).toHaveBeenLastCalledWith(null);
+    fireEvent.change(input, { target: { value: "look at @ap" } });
+    expect(onAtQuery).toHaveBeenLastCalledWith("ap");
+    const options = screen.getAllByTestId("chat-composer-at-item");
+    expect(options.map((o) => o.textContent)).toEqual([
+      "apps/",
+      "docs/",
+      "README.md",
+    ]);
+    expect(options[0].getAttribute("data-kind")).toBe("dir");
+    fireEvent.keyDown(input, { key: "Enter" });
+    // A directory pick keeps the picker open one level down.
+    expect(input.value).toBe("look at @apps/");
+    expect(onAtQuery).toHaveBeenLastCalledWith("apps/");
+    expect(screen.getAllByTestId("chat-composer-at-item")).toHaveLength(3);
+    expect(onSend).not.toHaveBeenCalled();
+  });
+
+  it("ends the token after a file pick, and closes on Escape", () => {
+    const { input } = renderComposer({ atItems: paths, onAtQuery: vi.fn() });
+    fireEvent.change(input, { target: { value: "@" } });
+    fireEvent.keyDown(input, { key: "ArrowUp" });
+    const options = screen.getAllByTestId("chat-composer-at-item");
+    expect(options[2].getAttribute("aria-selected")).toBe("true");
+    fireEvent.keyDown(input, { key: "Tab" });
+    expect(input.value).toBe("@README.md ");
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+    fireEvent.change(input, { target: { value: "@README.md @d" } });
+    expect(screen.getAllByTestId("chat-composer-at-item")).toHaveLength(3);
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+  });
+
+  it("stays closed without a host, and for an @ inside a word", () => {
+    const onAtQuery = vi.fn();
+    const { input } = renderComposer({ atItems: paths, onAtQuery });
+    fireEvent.change(input, { target: { value: "mail me@example" } });
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+    expect(onAtQuery).toHaveBeenLastCalledWith(null);
+    cleanup();
+    const bare = renderComposer({ atItems: paths });
+    fireEvent.change(bare.input, { target: { value: "@" } });
+    expect(screen.queryByTestId("chat-composer-at-menu")).toBeNull();
+  });
+});
+
 describe("ChatComposer slash menu", () => {
   const items = [
     { name: "brain", description: "Shared memory" },

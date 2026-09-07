@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { test, expect, type APIRequestContext } from "@playwright/test";
@@ -34,6 +34,8 @@ async function setChatSurface(
 function makeRepo(): string {
   const dir = mkdtempSync(path.join(os.tmpdir(), "dsh-e2e-repo-"));
   writeFileSync(path.join(dir, "README.md"), "# dsh e2e\n");
+  mkdirSync(path.join(dir, "src"));
+  writeFileSync(path.join(dir, "src", "index.ts"), "export {};\n");
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: dir, stdio: "ignore" });
   git("init", "-q", "-b", "main");
@@ -133,6 +135,56 @@ test.describe("dsh agent", () => {
         { timeout: 30_000 }
       )
       .toBe("idle");
+  });
+
+  test("offers paths under the working tree from an @ in the composer", async ({
+    page,
+    request,
+  }) => {
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
+    await setChatSurface(request, true);
+    const repo = makeRepo();
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dsh-paths-${Date.now()}`,
+      type: "dispatch",
+      cwd: repo,
+      useWorktree: true,
+    });
+    expect(agent.status).toBe("running");
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const harness = page.getByTestId("harness-pane");
+    await expect(harness).toBeVisible();
+    const input = harness.getByTestId("chat-composer-input");
+    await expect(input).toBeEnabled({ timeout: 30_000 });
+
+    // "@" lists the worktree root: directories first, then files.
+    await input.fill("look at @");
+    const items = harness.getByTestId("chat-composer-at-item");
+    await expect(items).toHaveCount(2, { timeout: 30_000 });
+    await expect(items.nth(0)).toContainText("src/");
+    await expect(items.nth(1)).toContainText("README.md");
+    const shotDir = process.env.E2E_SCREENSHOT_DIR;
+    if (shotDir) {
+      await page.screenshot({
+        path: path.join(shotDir, "harness-at-picker.png"),
+      });
+    }
+
+    // Typing narrows; picking a directory descends into it.
+    await input.type("s");
+    await expect(items).toHaveCount(1, { timeout: 30_000 });
+    await input.press("Enter");
+    await expect(input).toHaveValue("look at @src/");
+    await expect(items.first()).toContainText("src/index.ts", {
+      timeout: 30_000,
+    });
+    // A file pick ends the token.
+    await input.press("Tab");
+    await expect(input).toHaveValue("look at @src/index.ts ");
+    await expect(items).toHaveCount(0);
   });
 
   test("shows messages queued behind a running turn, with Send now and Remove", async ({

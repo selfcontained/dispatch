@@ -34,6 +34,7 @@ import {
   useSetHarnessConfig,
 } from "./use-harness-config";
 import { useHarnessInterrupt, useHarnessQueue } from "./use-harness-queue";
+import { useHarnessPaths } from "./use-harness-paths";
 import { useHarnessSkills } from "./use-harness-skills";
 import { harnessTurnsQueryKey, useHarnessTurns } from "./use-harness-turns";
 
@@ -102,6 +103,8 @@ export function HarnessPane({
   const { mutateAsync: sendAsync } = send;
   const { mutateAsync: answerAsync } = answer;
   const skills = useHarnessSkills(agentId);
+  const [atQuery, setAtQuery] = useState<string | null>(null);
+  const atItems = useHarnessPaths(agentId, atQuery);
   const config = useHarnessConfig(agentId);
   const setConfig = useSetHarnessConfig(agentId);
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -506,6 +509,8 @@ export function HarnessPane({
           hint={composerHint(streaming, queued.length)}
           history={promptHistory}
           recallQueued={recallQueued}
+          atItems={atItems}
+          onAtQuery={setAtQuery}
           onInterrupt={streaming ? onStop : undefined}
           dropTargetRef={dropRef}
           onDropZoneDragging={setDraggingFiles}

@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 import type {
   HarnessConfigResponse,
   HarnessConfigUpdateRequest,
+  HarnessPathsResponse,
   HarnessSkillsResponse,
   HarnessSubagentResponse,
   HarnessTurnsResponse,
@@ -11,6 +12,7 @@ import {
   findSessionLog,
   readSessionHeader,
 } from "../../agents/dsh/session-log.js";
+import { listDshPaths } from "../../agents/dsh/paths.js";
 import { listDshSkills } from "../../agents/dsh/skills.js";
 import { shapeSubagent } from "../../agents/dsh/subagents.js";
 import { loadQueued, loadTurns } from "../../agents/dsh/turns.js";
@@ -19,7 +21,7 @@ import type { AgentRouteDeps } from "./shared.js";
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
 
-/** The Harness view's routes: turns and the queue, session config, subagents, skills. */
+/** The Harness view's routes: turns and the queue, session config, subagents, skills, paths. */
 export async function registerAgentHarnessRoutes(
   app: FastifyInstance,
   deps: Pick<AgentRouteDeps, "pool" | "dshHome" | "harness" | "subagentLogs">
@@ -203,6 +205,29 @@ export async function registerAgentHarnessRoutes(
       skills: await listDshSkills({
         cwd: agent.worktree_path ?? agent.cwd,
         dshHome: deps.dshHome,
+      }),
+    };
+    return response;
+  });
+
+  // Paths under the working tree (or "~/…", or absolute), for the
+  // composer's "@" picker: what was typed after the "@" is the query.
+  app.get("/api/v1/agents/:id/harness/paths", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    const q = (request.query as { q?: unknown }).q;
+    const query = typeof q === "string" ? q : "";
+    const row = await deps.pool.query<{
+      cwd: string;
+      worktree_path: string | null;
+    }>(
+      "SELECT cwd, worktree_path FROM agents WHERE id = $1 AND deleted_at IS NULL",
+      [id]
+    );
+    const agent = row.rows[0];
+    if (!agent) return reply.code(404).send({ error: "Agent not found." });
+    const response: HarnessPathsResponse = {
+      paths: await listDshPaths(query, {
+        cwd: agent.worktree_path ?? agent.cwd,
       }),
     };
     return response;

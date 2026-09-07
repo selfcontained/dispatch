@@ -12,9 +12,20 @@ import {
   useState,
   type SyntheticEvent,
 } from "react";
-import { CHAT_ATTACHMENTS_MAX, CHAT_MESSAGE_MAX_CHARS } from "@dispatch/shared";
+import {
+  CHAT_ATTACHMENTS_MAX,
+  CHAT_MESSAGE_MAX_CHARS,
+  type HarnessPath,
+} from "@dispatch/shared";
 import { atom, useAtom } from "jotai";
-import { CornerDownRight, Paperclip, SendHorizontal, X } from "lucide-react";
+import {
+  CornerDownRight,
+  File,
+  Folder,
+  Paperclip,
+  SendHorizontal,
+  X,
+} from "lucide-react";
 
 import {
   type ChatUserAttachmentInput,
@@ -128,6 +139,13 @@ export type ChatComposerProps = {
    * removed it from the queue) or null when nothing is queued.
    */
   recallQueued?: () => Promise<string | null>;
+  /**
+   * Completions for the "@" path picker, answering the query `onAtQuery`
+   * last reported. A composer given neither prop never opens the picker.
+   */
+  atItems?: HarnessPath[];
+  /** The text after an open "@" token, or null once no picker is open. */
+  onAtQuery?: (query: string | null) => void;
 };
 
 export type SlashItem = {
@@ -141,6 +159,7 @@ export type SlashItem = {
 };
 
 const SLASH_MENU_MAX = 8;
+const AT_MENU_MAX = 12;
 
 /** The "/partial" token the caret sits at the end of. */
 export type SlashToken = {
@@ -163,6 +182,22 @@ export function slashTokenAt(text: string, caret: number): SlashToken | null {
   let start = end - 1;
   while (start >= 0 && !/[\s/]/.test(text[start])) start -= 1;
   if (start < 0 || text[start] !== "/") return null;
+  if (start > 0 && !/\s/.test(text[start - 1])) return null;
+  return { query: text.slice(start + 1, end), start, end };
+}
+
+/**
+ * The "@partial/path" token under the caret, if the path picker should be
+ * open: an "@" at the start of the text or after whitespace, then no
+ * whitespace up to the caret (slashes are the point), and nothing glued on
+ * after the caret. An email-like "a@b" does not count.
+ */
+export function atTokenAt(text: string, caret: number): SlashToken | null {
+  const end = Math.max(0, Math.min(caret, text.length));
+  if (end < text.length && !/\s/.test(text[end])) return null;
+  let start = end - 1;
+  while (start >= 0 && !/[\s@]/.test(text[start])) start -= 1;
+  if (start < 0 || text[start] !== "@") return null;
   if (start > 0 && !/\s/.test(text[start - 1])) return null;
   return { query: text.slice(start + 1, end), start, end };
 }
@@ -282,6 +317,8 @@ export function ChatComposer({
   history,
   recallQueued,
   onInterrupt,
+  atItems,
+  onAtQuery,
 }: ChatComposerProps): JSX.Element {
   // No agent: an atom of this mount's own, so nothing outlives the composer.
   const [localDraftAtom] = useState(() =>
@@ -347,6 +384,49 @@ export function ChatComposer({
   }, [slashOpen, slashItems, slashToken]);
   const slashActive =
     slashMatches.length > 0 ? slashIndex % slashMatches.length : 0;
+  // Path picker: the same popup for an "@<partial path>" token, fed by the
+  // host through `onAtQuery` → `atItems`. Escape dismisses it the same way.
+  const atToken =
+    onAtQuery && slashToken === null
+      ? atTokenAt(text, caret ?? text.length)
+      : null;
+  const atOpen = atToken !== null && slashDismissed !== text;
+  const atQuery = atOpen && atToken ? atToken.query : null;
+  useEffect(() => {
+    onAtQuery?.(atQuery);
+  }, [atQuery, onAtQuery]);
+  const atMatches = useMemo(
+    () => (atOpen ? (atItems ?? []).slice(0, AT_MENU_MAX) : []),
+    [atOpen, atItems]
+  );
+  // One index serves whichever menu is open; the two never open together.
+  const menuCount =
+    slashMatches.length > 0 ? slashMatches.length : atMatches.length;
+  const menuActive = menuCount > 0 ? slashIndex % menuCount : 0;
+  const pickAt = useCallback(
+    (item: HarnessPath) => {
+      const token = atToken ?? { start: 0, end: text.length };
+      const after = text.slice(token.end);
+      // A directory keeps the picker open one level down; a file ends the
+      // token with a space (reusing one already there mid-message).
+      const spaced = after.startsWith(" ");
+      const insert =
+        item.kind === "dir"
+          ? `@${item.path}/`
+          : `@${item.path}${spaced ? "" : " "}`;
+      const next =
+        token.start + insert.length + (item.kind === "file" && spaced ? 1 : 0);
+      setText(text.slice(0, token.start) + insert + after);
+      setCaret(next);
+      setSlashIndex(0);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        el?.focus();
+        el?.setSelectionRange(next, next);
+      });
+    },
+    [atToken, setText, text]
+  );
   const pickSlash = useCallback(
     (item: SlashItem) => {
       if (item.command && onSlashCommand?.(item.name)) {
@@ -803,22 +883,21 @@ export function ChatComposer({
 
   const onKeyDown = useCallback(
     (event: KeyboardEvent<HTMLTextAreaElement>) => {
-      if (slashMatches.length > 0) {
+      if (menuCount > 0) {
         if (event.key === "ArrowDown") {
           event.preventDefault();
-          setSlashIndex((i) => (i + 1) % slashMatches.length);
+          setSlashIndex((i) => (i + 1) % menuCount);
           return;
         }
         if (event.key === "ArrowUp") {
           event.preventDefault();
-          setSlashIndex(
-            (i) => (i - 1 + slashMatches.length) % slashMatches.length
-          );
+          setSlashIndex((i) => (i - 1 + menuCount) % menuCount);
           return;
         }
         if (event.key === "Tab" || (event.key === "Enter" && !event.shiftKey)) {
           event.preventDefault();
-          pickSlash(slashMatches[slashActive]);
+          if (slashMatches.length > 0) pickSlash(slashMatches[slashActive]);
+          else pickAt(atMatches[menuActive]);
           return;
         }
         if (event.key === "Escape") {
@@ -851,8 +930,12 @@ export function ChatComposer({
       submit();
     },
     [
+      atMatches,
       historyKeys,
+      menuActive,
+      menuCount,
       onInterrupt,
+      pickAt,
       pickSlash,
       slashActive,
       slashMatches,
@@ -920,6 +1003,43 @@ export function ChatComposer({
                     {item.description}
                   </span>
                 ) : null}
+              </button>
+            ))}
+          </div>
+        ) : atMatches.length > 0 ? (
+          <div
+            role="listbox"
+            aria-label="Paths"
+            data-testid="chat-composer-at-menu"
+            className="absolute bottom-full left-0 z-20 mb-1 max-h-72 w-full max-w-md overflow-y-auto rounded-md border border-border bg-popover text-popover-foreground shadow-md"
+          >
+            {atMatches.map((item, i) => (
+              <button
+                key={item.path}
+                type="button"
+                role="option"
+                aria-selected={i === menuActive}
+                data-testid="chat-composer-at-item"
+                data-kind={item.kind}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  pickAt(item);
+                }}
+                onMouseEnter={() => setSlashIndex(i)}
+                className={cn(
+                  "flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-xs",
+                  i === menuActive ? "bg-accent text-accent-foreground" : ""
+                )}
+              >
+                {item.kind === "dir" ? (
+                  <Folder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                ) : (
+                  <File className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                )}
+                <span className="min-w-0 truncate font-terminal">
+                  {item.path}
+                  {item.kind === "dir" ? "/" : ""}
+                </span>
               </button>
             ))}
           </div>

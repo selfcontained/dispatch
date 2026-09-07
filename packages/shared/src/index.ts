@@ -79,6 +79,8 @@ export type {
   HarnessTurnsResponse,
   HarnessSkill,
   HarnessSkillsResponse,
+  HarnessPath,
+  HarnessPathsResponse,
   HarnessConfigChoice,
   HarnessConfigGroup,
   HarnessConfigOption,

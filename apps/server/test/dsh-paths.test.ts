@@ -1,0 +1,96 @@
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+
+import { listDshPaths, resolvePathQuery } from "../src/agents/dsh/paths.js";
+
+let root: string;
+let cwd: string;
+let home: string;
+
+beforeAll(async () => {
+  root = await mkdtemp(path.join(os.tmpdir(), "dsh-paths-"));
+  cwd = path.join(root, "repo");
+  home = path.join(root, "home");
+  await mkdir(path.join(cwd, "apps", "web"), { recursive: true });
+  await mkdir(path.join(cwd, "apps", "server"), { recursive: true });
+  await mkdir(path.join(cwd, "docs"), { recursive: true });
+  await mkdir(path.join(cwd, ".dispatch"), { recursive: true });
+  await writeFile(path.join(cwd, "README.md"), "# hi\n");
+  await writeFile(path.join(cwd, "apps", "notes.txt"), "n\n");
+  await writeFile(path.join(cwd, ".env"), "x=1\n");
+  await symlink(path.join(cwd, "docs"), path.join(cwd, "docs-link"));
+  await mkdir(path.join(home, "src"), { recursive: true });
+});
+
+afterAll(async () => {
+  await rm(root, { recursive: true, force: true });
+});
+
+describe("resolvePathQuery", () => {
+  it("resolves relative, home, and absolute prefixes", () => {
+    expect(resolvePathQuery("ap", { cwd, home })).toEqual({
+      dir: cwd,
+      typedDir: "",
+      segment: "ap",
+    });
+    expect(resolvePathQuery("apps/we", { cwd, home })).toEqual({
+      dir: path.join(cwd, "apps/"),
+      typedDir: "apps/",
+      segment: "we",
+    });
+    expect(resolvePathQuery("~/sr", { cwd, home })).toEqual({
+      dir: path.join(home, ""),
+      typedDir: "~/",
+      segment: "sr",
+    });
+    expect(resolvePathQuery("/tmp/x", { cwd, home })).toEqual({
+      dir: "/tmp/",
+      typedDir: "/tmp/",
+      segment: "x",
+    });
+  });
+
+  it("refuses NUL bytes and over-long queries", () => {
+    expect(resolvePathQuery("a\0b", { cwd, home })).toBeNull();
+    expect(resolvePathQuery("x".repeat(2000), { cwd, home })).toBeNull();
+  });
+});
+
+describe("listDshPaths", () => {
+  it("lists the working tree, directories first, hidden entries only when asked", async () => {
+    expect(await listDshPaths("", { cwd, home })).toEqual([
+      { path: "apps", kind: "dir" },
+      { path: "docs", kind: "dir" },
+      { path: "docs-link", kind: "dir" },
+      { path: "README.md", kind: "file" },
+    ]);
+    expect(await listDshPaths(".", { cwd, home })).toEqual([
+      { path: ".dispatch", kind: "dir" },
+      { path: ".env", kind: "file" },
+    ]);
+  });
+
+  it("matches the last segment case-insensitively and keeps the typed prefix", async () => {
+    expect(await listDshPaths("apps/S", { cwd, home })).toEqual([
+      { path: "apps/server", kind: "dir" },
+    ]);
+    expect(await listDshPaths("apps/", { cwd, home })).toEqual([
+      { path: "apps/server", kind: "dir" },
+      { path: "apps/web", kind: "dir" },
+      { path: "apps/notes.txt", kind: "file" },
+    ]);
+    expect(await listDshPaths("~/s", { cwd, home })).toEqual([
+      { path: "~/src", kind: "dir" },
+    ]);
+    expect(await listDshPaths("~", { cwd, home })).toEqual([
+      { path: "~", kind: "dir" },
+    ]);
+  });
+
+  it("answers nothing for a directory that does not exist", async () => {
+    expect(await listDshPaths("nope/x", { cwd, home })).toEqual([]);
+    expect(await listDshPaths("a\0b", { cwd, home })).toEqual([]);
+  });
+});

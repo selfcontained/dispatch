@@ -122,6 +122,14 @@ export type HarnessSkill = {
 
 export type HarnessSkillsResponse = { skills: HarnessSkill[] };
 
+/** One completion of the composer's "@" path picker, spelled as the user typed the prefix. */
+export type HarnessPath = {
+  path: string;
+  kind: "dir" | "file";
+};
+
+export type HarnessPathsResponse = { paths: HarnessPath[] };
+
 /** One selectable value of a session config option. */
 export type HarnessConfigChoice = {
   value: string;
