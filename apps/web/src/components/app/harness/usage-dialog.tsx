@@ -1,4 +1,5 @@
 import type {
+  HarnessSubscriptionUsage,
   HarnessTokenCounts,
   HarnessUsageProvider,
 } from "@dispatch/shared";
@@ -78,6 +79,55 @@ function BudgetBar({
   );
 }
 
+/** "resets in 2h 10m", from an ISO time; null when unknown or past. */
+export function resetsIn(iso: string | null, now = Date.now()): string | null {
+  if (!iso) return null;
+  const ms = new Date(iso).getTime() - now;
+  if (!Number.isFinite(ms) || ms <= 0) return null;
+  const minutes = Math.ceil(ms / 60_000);
+  if (minutes < 60) return `resets in ${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 48) return `resets in ${hours}h ${minutes % 60}m`;
+  return `resets in ${Math.round(hours / 24)}d`;
+}
+
+/** A plan's windows as bars: the share used of each, not a dollar figure. */
+function SubscriptionBars({
+  subscription,
+  label,
+}: {
+  subscription: HarnessSubscriptionUsage;
+  label: string;
+}): JSX.Element {
+  return (
+    <div className="space-y-1.5" data-testid="harness-usage-subscription">
+      {subscription.windows.length === 0 ? (
+        <p className="text-[11px] text-muted-foreground">
+          The plan reported no rate-limit windows.
+        </p>
+      ) : null}
+      {subscription.windows.map((w) => {
+        const reset = resetsIn(w.resetsAt);
+        return (
+          <div key={w.id}>
+            <div className="mb-0.5 flex items-baseline justify-between text-[11px] text-muted-foreground">
+              <span>{w.label}</span>
+              <span className="tabular-nums">
+                {w.usedPercent}% used{reset ? ` · ${reset}` : ""}
+              </span>
+            </div>
+            <BudgetBar
+              spent={w.usedPercent}
+              budget={100}
+              label={`${label} ${w.label}`}
+            />
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
 function ProviderRow({
   provider,
 }: {
@@ -85,6 +135,7 @@ function ProviderRow({
 }): JSX.Element {
   const spend = spendOf(provider);
   const budget = provider.budgetUsd;
+  const plan = provider.subscription;
   return (
     <div
       className="rounded-md border border-border/60 px-3 py-2.5"
@@ -97,15 +148,24 @@ function ProviderRow({
           {provider.label}
         </span>
         <span className="min-w-0 truncate font-terminal text-[10.5px] text-muted-foreground">
-          {provider.keyEnv}
+          {provider.keyEnv ?? "ChatGPT sign-in"}
           {provider.hasKey ? "" : " · not set"}
+          {plan?.plan ? ` · ${plan.plan}` : ""}
         </span>
         <span
           className="ml-auto whitespace-nowrap text-sm tabular-nums text-foreground"
           data-testid="harness-usage-spend"
         >
-          {spend.usd === null ? "—" : formatUsd(spend.usd)}
-          {budget ? (
+          {plan
+            ? plan.limitReached
+              ? "limit reached"
+              : plan.windows.length > 0
+                ? `${Math.max(...plan.windows.map((w) => w.usedPercent))}% used`
+                : "—"
+            : spend.usd === null
+              ? "—"
+              : formatUsd(spend.usd)}
+          {budget && !plan ? (
             <span className="text-muted-foreground">
               {" "}
               of {formatUsd(budget)}
@@ -114,7 +174,9 @@ function ProviderRow({
         </span>
       </div>
       <div className="mt-1.5">
-        {budget && spend.usd !== null ? (
+        {plan ? (
+          <SubscriptionBars subscription={plan} label={provider.label} />
+        ) : budget && spend.usd !== null ? (
           <BudgetBar spent={spend.usd} budget={budget} label={provider.label} />
         ) : (
           <p className="text-[11px] text-muted-foreground">
@@ -126,10 +188,27 @@ function ProviderRow({
       </div>
       <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
         <span>
-          {spend.source === "billed"
-            ? "Billed by the provider"
-            : "Estimated from the harness logs"}
+          {plan
+            ? "Included in the plan"
+            : spend.source === "billed"
+              ? "Billed by the provider"
+              : "Estimated from the harness logs"}
         </span>
+        {plan && provider.logged.usd !== null && provider.logged.usd > 0 ? (
+          <span data-testid="harness-usage-api-equivalent">
+            ≈ {formatUsd(provider.logged.usd)} at API rates
+          </span>
+        ) : null}
+        {plan?.credits ? (
+          <span>
+            Credits{" "}
+            {plan.credits.unlimited
+              ? "unlimited"
+              : plan.credits.balance === null
+                ? "available"
+                : formatUsd(plan.credits.balance)}
+          </span>
+        ) : null}
         {provider.balance ? (
           <span data-testid="harness-usage-balance">
             Balance {formatUsd(provider.balance.total)}{" "}
@@ -198,7 +277,7 @@ export function UsageDialog({
           <DialogTitle>API usage</DialogTitle>
           <DialogDescription>
             {month ? `Spend since the start of ${month}` : "Spend this month"},
-            per provider key the harness can use.
+            per provider key or plan the harness can use.
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-2">
@@ -212,7 +291,8 @@ export function UsageDialog({
             </p>
           ) : usage.data?.providers.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No provider keys are set in the server environment.
+              No provider keys are set in the server environment, and no
+              ChatGPT sign-in is stored.
             </p>
           ) : (
             usage.data?.providers.map((p) => (

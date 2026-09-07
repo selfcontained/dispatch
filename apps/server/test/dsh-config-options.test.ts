@@ -72,6 +72,54 @@ describe("filterConfigOptionsByKeys", () => {
   });
 });
 
+describe("filterConfigOptionsByKeys with stored sign-ins", () => {
+  const withCodex: HarnessConfigOption[] = [
+    {
+      ...options[0],
+      options: [
+        ...options[0].options,
+        {
+          group: "openai-codex",
+          name: "ChatGPT (Codex)",
+          options: [
+            { value: '["openai-codex","gpt-5.4"]', name: "GPT-5.4" },
+            { value: '["openai-codex","gpt-5.6-sol"]', name: "GPT-5.6 Sol" },
+          ],
+        },
+      ],
+    },
+  ];
+  const names = (out: HarnessConfigOption[]) =>
+    (out[0].options as { name: string }[]).map((g) => g.name);
+
+  it("hides the ChatGPT route until its sign-in is stored", () => {
+    expect(names(filterConfigOptionsByKeys(withCodex, {}))).toEqual([
+      "Mystery",
+    ]);
+    expect(
+      names(
+        filterConfigOptionsByKeys(
+          withCodex,
+          {},
+          new Set(["llm-pi-ai/openai-codex"])
+        )
+      )
+    ).toEqual(["Mystery", "ChatGPT (Codex)"]);
+  });
+
+  it("offers only the current generation on the ChatGPT route", () => {
+    const out = filterConfigOptionsByKeys(
+      withCodex,
+      {},
+      new Set(["llm-pi-ai/openai-codex"])
+    );
+    const codex = (out[0].options as { name: string; options: { name: string }[] }[]).find(
+      (g) => g.name === "ChatGPT (Codex)"
+    );
+    expect(codex?.options.map((c) => c.name)).toEqual(["GPT-5.6 Sol"]);
+  });
+});
+
 describe("catalogFromConfigOptions", () => {
   it("flattens groups into provider/model rows with the group in the label", () => {
     expect(

@@ -367,6 +367,14 @@ describe("defaultModelFor", () => {
     expect(defaultModelFor({ OPENAI_API_KEY: "y" })).toBe("openai/gpt-5.6-sol");
     expect(defaultModelFor({})).toBeNull();
   });
+
+  it("puts a stored ChatGPT sign-in ahead of every key", () => {
+    const grants = new Set(["llm-pi-ai/openai-codex"]);
+    expect(
+      defaultModelFor({ DEEPSEEK_API_KEY: "x", OPENAI_API_KEY: "y" }, grants)
+    ).toBe("openai-codex/gpt-5.6-sol");
+    expect(defaultModelFor({}, new Set(["llm-pi-ai/other"]))).toBeNull();
+  });
 });
 
 describe("buildChildEnv", () => {

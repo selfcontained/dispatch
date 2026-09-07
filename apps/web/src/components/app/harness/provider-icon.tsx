@@ -36,6 +36,7 @@ const MARKS: Record<string, { viewBox: string; paths: string[] }> = {
 /** dsh names DeepSeek's default route "deepseek-official"; the mark is the same. */
 const ALIASES: Record<string, string> = {
   "deepseek-official": "deepseek",
+  "openai-codex": "openai",
   gemini: "google",
 };
 

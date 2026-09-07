@@ -168,13 +168,20 @@ export type HarnessTokenCounts = {
 
 /** One provider key the harness can use, with what is known of its usage. */
 export type HarnessUsageProvider = {
-  /** dsh's provider route id: openai, deepseek, … */
+  /** dsh's provider route id: openai, deepseek, openai-codex, … */
   id: string;
   label: string;
-  /** The env var holding the key. */
-  keyEnv: string;
-  /** Whether the key is set in the server environment. */
+  /** The env var holding the key; null for a route that runs on a stored sign-in. */
+  keyEnv: string | null;
+  /** Whether the key is set in the server environment (or the sign-in is stored). */
   hasKey: boolean;
+  /**
+   * A plan's rate-limit windows, for a route billed by subscription
+   * (ChatGPT for the openai-codex route): each bar is a share used, not a
+   * dollar figure. `logged.usd` then reads as what the tokens would have
+   * cost at API rates.
+   */
+  subscription?: HarnessSubscriptionUsage;
   /** Monthly budget from Settings, in USD; null when none is set. */
   budgetUsd: number | null;
   /** Month-to-date cost from the provider's own billing API, when it has one we can read. */
@@ -197,6 +204,26 @@ export type HarnessUsageProvider = {
   };
   /** Why the billing call gave nothing, when it failed. */
   error?: string;
+};
+
+export type HarnessSubscriptionWindow = {
+  /** "primary" is the short window (5h on ChatGPT), "secondary" the weekly one. */
+  id: "primary" | "secondary";
+  label: string;
+  usedPercent: number;
+  windowSeconds: number | null;
+  /** ISO time the window resets; null when the plan did not say. */
+  resetsAt: string | null;
+};
+
+export type HarnessSubscriptionUsage = {
+  /** The plan name the provider reports (plus, pro, team…); null when unknown. */
+  plan: string | null;
+  windows: HarnessSubscriptionWindow[];
+  /** Pay-as-you-go credits beside the plan, when the provider reports them. */
+  credits: { balance: number | null; unlimited: boolean } | null;
+  /** True when the provider says the plan's limit is currently hit. */
+  limitReached: boolean;
 };
 
 export type HarnessUsageResponse = {

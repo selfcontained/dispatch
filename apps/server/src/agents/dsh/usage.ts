@@ -3,12 +3,14 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import {
   HARNESS_USAGE_PROVIDERS,
+  type HarnessSubscriptionUsage,
   type HarnessTokenCounts,
   type HarnessUsageProvider,
   type HarnessUsageResponse,
   type UsageBudgets,
 } from "@dispatch/shared";
 
+import { readCodexGrant, type CodexGrant } from "./credentials.js";
 import { resolveExecutable, type DriverLogger } from "./driver.js";
 import { listSessionLogs, readSessionLog } from "./session-log.js";
 
@@ -35,6 +37,12 @@ const PROVIDERS = HARNESS_USAGE_PROVIDERS;
 const PROVIDER_ALIASES: Record<string, string> = {
   "deepseek-official": "deepseek",
 };
+
+/** The ChatGPT route: billed by the plan behind the stored sign-in, not a key. */
+const CODEX_PROVIDER = { id: "openai-codex", label: "ChatGPT (Codex)" };
+
+/** Where the ChatGPT backend reports a plan's rate-limit windows (Codex's own client reads it). */
+const CODEX_USAGE_URL = "https://chatgpt.com/backend-api/wham/usage";
 
 export function monthStartUtc(now = new Date()): Date {
   return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1));
@@ -183,6 +191,127 @@ export async function fetchDeepSeekBalance(
 }
 
 // ---- prices --------------------------------------------------------------
+
+type CodexWindow = {
+  used_percent?: number;
+  limit_window_seconds?: number;
+  reset_after_seconds?: number;
+  reset_at?: number;
+};
+type CodexUsageBody = {
+  plan_type?: string;
+  rate_limit?: {
+    allowed?: boolean;
+    limit_reached?: boolean;
+    primary_window?: CodexWindow | null;
+    secondary_window?: CodexWindow | null;
+  } | null;
+  credits?: {
+    has_credits?: boolean;
+    unlimited?: boolean;
+    balance?: string | number | null;
+  } | null;
+};
+
+function windowLabel(id: "primary" | "secondary", seconds: number | null): string {
+  if (seconds !== null && seconds > 0) {
+    if (seconds % 86_400 === 0) {
+      const days = seconds / 86_400;
+      return days === 7 ? "Weekly" : `${days}-day`;
+    }
+    if (seconds % 3_600 === 0) return `${seconds / 3_600}-hour`;
+  }
+  return id === "primary" ? "Short window" : "Long window";
+}
+
+function shapeWindow(
+  id: "primary" | "secondary",
+  raw: CodexWindow | null | undefined,
+  now: Date
+): HarnessSubscriptionUsage["windows"][number] | null {
+  if (!raw || typeof raw.used_percent !== "number") return null;
+  const seconds =
+    typeof raw.limit_window_seconds === "number"
+      ? raw.limit_window_seconds
+      : null;
+  let resetsAt: string | null = null;
+  if (typeof raw.reset_at === "number") {
+    resetsAt = new Date(raw.reset_at * 1000).toISOString();
+  } else if (typeof raw.reset_after_seconds === "number") {
+    resetsAt = new Date(
+      now.getTime() + raw.reset_after_seconds * 1000
+    ).toISOString();
+  }
+  return {
+    id,
+    label: windowLabel(id, seconds),
+    usedPercent: Math.max(0, Math.min(100, Math.round(raw.used_percent))),
+    windowSeconds: seconds,
+    resetsAt,
+  };
+}
+
+/**
+ * The ChatGPT plan's rate-limit windows for the signed-in account: the
+ * same call Codex's own client makes for its usage view, with the headers
+ * pi-ai sends on the route's model calls. The access token in the store is
+ * used as is; dsh refreshes it under the store's lock on its own calls, so
+ * an expired one here means the harness has not run for a while.
+ */
+export async function fetchCodexUsage(
+  grant: CodexGrant,
+  fetchFn: FetchLike,
+  signal: AbortSignal = AbortSignal.timeout(PROVIDER_DEADLINE_MS),
+  now = new Date()
+): Promise<HarnessSubscriptionUsage> {
+  if (typeof grant.expires === "number" && grant.expires <= now.getTime()) {
+    throw new Error(
+      "The ChatGPT sign-in has expired; the next harness turn on the ChatGPT route renews it."
+    );
+  }
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${grant.access}`,
+    originator: "pi",
+    Accept: "application/json",
+  };
+  if (grant.accountId) headers["chatgpt-account-id"] = grant.accountId;
+  const res = await fetchFn(CODEX_USAGE_URL, { headers, signal });
+  if (res.status === 401 || res.status === 403) {
+    throw new Error(
+      "ChatGPT answered 401: the stored sign-in was refused; sign in again from the harness home."
+    );
+  }
+  if (!res.ok) throw new Error(`ChatGPT answered ${res.status}.`);
+  const body = await readJson<CodexUsageBody>(res, "ChatGPT");
+  const windows: HarnessSubscriptionUsage["windows"] = [];
+  const primary = shapeWindow("primary", body.rate_limit?.primary_window, now);
+  const secondary = shapeWindow(
+    "secondary",
+    body.rate_limit?.secondary_window,
+    now
+  );
+  if (primary) windows.push(primary);
+  if (secondary) windows.push(secondary);
+  const credits = body.credits;
+  const balance =
+    typeof credits?.balance === "number"
+      ? credits.balance
+      : typeof credits?.balance === "string" && credits.balance.trim() !== ""
+        ? Number(credits.balance)
+        : null;
+  return {
+    plan: typeof body.plan_type === "string" ? body.plan_type : null,
+    windows,
+    credits:
+      credits && (credits.has_credits || credits.unlimited)
+        ? {
+            balance: balance !== null && Number.isFinite(balance) ? balance : null,
+            unlimited: credits.unlimited === true,
+          }
+        : null,
+    limitReached: body.rate_limit?.limit_reached === true,
+  };
+}
 
 /** USD per million tokens, as pi-ai's catalog lists them. */
 export type ModelPrice = {
@@ -438,12 +567,51 @@ export async function buildUsageReport(
   const now = deps.now?.() ?? new Date();
   const since = monthStartUtc(now);
   const fetchFn = deps.fetchFn ?? (fetch as unknown as FetchLike);
-  const [table, logged, budgets] = await Promise.all([
+  const [table, logged, budgets, codexGrant] = await Promise.all([
     loadPriceTable(deps.dshBin, deps.env, deps.logger),
     loggedUsage(deps.dshHome, since, deps.logCache),
     deps.budgets(),
+    readCodexGrant(deps.dshHome),
   ]);
   const providers: HarnessUsageProvider[] = [];
+  /** Logged usage under this provider id and its aliases, priced where the table can. */
+  const foldLogged = (row: HarnessUsageProvider) => {
+    let priced = true;
+    let usd = 0;
+    for (const [provider, byModel] of logged.usage) {
+      if ((PROVIDER_ALIASES[provider] ?? provider) !== row.id) continue;
+      for (const [model, tokens] of byModel) {
+        add(row.logged.tokens, tokens);
+        const price = priceOf(table, provider, model);
+        const modelUsd = price ? costUsd(tokens, price) : null;
+        if (modelUsd === null) priced = false;
+        else usd += modelUsd;
+        row.logged.models.push({ model, tokens, usd: modelUsd });
+      }
+    }
+    row.logged.usd =
+      row.logged.models.length > 0 && priced ? usd : priced ? 0 : null;
+    row.logged.models.sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0));
+  };
+  // The ChatGPT route first when signed in: it is the plan the harness
+  // runs on by default, and its figure is a share of the plan, not dollars.
+  if (codexGrant) {
+    const row: HarnessUsageProvider = {
+      id: CODEX_PROVIDER.id,
+      label: CODEX_PROVIDER.label,
+      keyEnv: null,
+      hasKey: true,
+      budgetUsd: null,
+      logged: {
+        since: since.toISOString(),
+        tokens: zero(),
+        usd: null,
+        models: [],
+      },
+    };
+    foldLogged(row);
+    providers.push(row);
+  }
   for (const spec of PROVIDERS) {
     const hasKey = !!deps.env[spec.keyEnv];
     const budgetUsd = budgets[spec.id] ?? null;
@@ -462,23 +630,7 @@ export async function buildUsageReport(
         models: [],
       },
     };
-    // Logged usage under this provider and its aliases.
-    let priced = true;
-    let usd = 0;
-    for (const [provider, byModel] of logged.usage) {
-      if ((PROVIDER_ALIASES[provider] ?? provider) !== spec.id) continue;
-      for (const [model, tokens] of byModel) {
-        add(row.logged.tokens, tokens);
-        const price = priceOf(table, provider, model);
-        const modelUsd = price ? costUsd(tokens, price) : null;
-        if (modelUsd === null) priced = false;
-        else usd += modelUsd;
-        row.logged.models.push({ model, tokens, usd: modelUsd });
-      }
-    }
-    row.logged.usd =
-      row.logged.models.length > 0 && priced ? usd : priced ? 0 : null;
-    row.logged.models.sort((a, b) => (b.usd ?? 0) - (a.usd ?? 0));
+    foldLogged(row);
     if (!hasKey) {
       row.error = `${spec.keyEnv} is not set in the server environment.`;
     }
@@ -492,9 +644,18 @@ export async function buildUsageReport(
     providers
       .filter((row) => row.hasKey)
       .map(async (row) => {
-        const key = deps.env[row.keyEnv]!;
         const signal = AbortSignal.timeout(PROVIDER_DEADLINE_MS);
         try {
+          if (row.id === CODEX_PROVIDER.id) {
+            row.subscription = await fetchCodexUsage(
+              codexGrant!,
+              fetchFn,
+              signal,
+              now
+            );
+            return;
+          }
+          const key = deps.env[row.keyEnv ?? ""]!;
           if (row.id === "openai") {
             const admin = deps.env.OPENAI_ADMIN_KEY;
             if (!admin) {
@@ -541,7 +702,9 @@ export async function buildUsageReport(
 /** Our own status messages pass through; anything else becomes one fixed line. */
 function describeBillingFailure(label: string, err: unknown): string {
   const message = err instanceof Error ? err.message : "";
-  if (/answered \d{3}|ADMIN_KEY|unreadable response/.test(message))
+  if (
+    /answered \d{3}|ADMIN_KEY|unreadable response|sign-in/.test(message)
+  )
     return message;
   if (err instanceof Error && err.name === "TimeoutError") {
     return `${label} did not answer within ${PROVIDER_DEADLINE_MS / 1000}s.`;

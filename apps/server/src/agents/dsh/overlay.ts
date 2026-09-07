@@ -23,6 +23,10 @@ export type OverlayInput = {
 const DEFAULT_PROVIDERS: Record<string, ProviderRoute> = {
   // displayName is the group header in model menus.
   openai: { apiKeyEnv: "OPENAI_API_KEY", displayName: "OpenAI" },
+  // pi-ai's ChatGPT route: no key, it authenticates with the sign-in
+  // stored in dsh's credential store (llm-pi-ai/openai-codex). Declared
+  // always; the picker hides it until a sign-in exists.
+  "openai-codex": { displayName: "ChatGPT (Codex)" },
 };
 
 export function splitModelId(model: string): {

@@ -13,6 +13,7 @@ import { resolveMediaDir } from "../../shared/media.js";
 import { dispatchMcpUrl } from "../tmux/mcp-url.js";
 import { DshDriver, type DriverEvent, type DriverLogger } from "./driver.js";
 import { appendCommandLog, commandLogPath } from "./command-log.js";
+import { CODEX_GRANT_KEY, readGrantKeys } from "./credentials.js";
 import { removeOverlay, writeOverlay } from "./overlay.js";
 import { parsePromptSource, type QueuedPrompt } from "./prompt-source.js";
 import type { AgentModelOption } from "../../shared/agent-models.js";
@@ -152,6 +153,32 @@ export const PROVIDER_KEY_ENV: Record<string, string> = {
   gemini: "GEMINI_API_KEY",
 };
 
+/**
+ * Routes that authenticate with a stored sign-in instead of a key: the
+ * record dsh's credential store must hold for the route to work. A route
+ * in this map stays listed while its record exists.
+ */
+export const PROVIDER_GRANT: Record<string, string> = {
+  "openai-codex": CODEX_GRANT_KEY,
+};
+
+const NO_GRANTS: ReadonlySet<string> = new Set();
+
+/** Whether a provider route can authenticate: a key in the env or a stored sign-in. */
+export function routeAuthenticated(
+  route: string,
+  env: NodeJS.ProcessEnv,
+  grants: ReadonlySet<string>
+): boolean {
+  const key = PROVIDER_KEY_ENV[route];
+  const grant = PROVIDER_GRANT[route];
+  if (key === undefined && grant === undefined) return true;
+  return (
+    (key !== undefined && !!env[key]) ||
+    (grant !== undefined && grants.has(grant))
+  );
+}
+
 type SelectOption = {
   value: string;
   name: string;
@@ -172,6 +199,7 @@ type SelectGroup = {
  */
 export const CATALOG_MODEL_ALLOW: Record<string, RegExp> = {
   openai: /^gpt-5\.6/,
+  "openai-codex": /^gpt-5\.6/,
 };
 
 function modelNameOf(value: string): string {
@@ -193,11 +221,14 @@ function isGroup(entry: unknown): entry is SelectGroup {
 
 /**
  * dsh's "model" option lists every route it serves; keep only the routes
- * whose API key the service has. Other options pass through untouched.
+ * the service can authenticate: an API key in the env, or a sign-in in
+ * dsh's credential store (`grants`, by record key). Other options pass
+ * through untouched.
  */
 export function filterConfigOptionsByKeys(
   options: HarnessConfigOption[],
-  env: NodeJS.ProcessEnv
+  env: NodeJS.ProcessEnv,
+  grants: ReadonlySet<string> = NO_GRANTS
 ): HarnessConfigOption[] {
   return options.map((option) => {
     if (option.id !== "model" || option.type !== "select") return option;
@@ -205,8 +236,7 @@ export function filterConfigOptionsByKeys(
     const kept = entries
       .filter((entry) => {
         if (!isGroup(entry)) return true;
-        const key = PROVIDER_KEY_ENV[groupIdOf(entry)];
-        return key === undefined || !!env[key];
+        return routeAuthenticated(groupIdOf(entry), env, grants);
       })
       .map((entry) => {
         if (!isGroup(entry)) return entry;
@@ -273,15 +303,24 @@ export function modelIdFromValue(value: string): string | null {
 const CATALOG_TTL_MS = 10 * 60_000;
 
 /**
- * With no model chosen, pick one whose provider key the service has, so a
- * first agent does not fail on the profile's DeepSeek default when only an
- * OpenAI key is configured. Null keeps the profile default.
+ * With no model chosen, pick one the service can authenticate, so a first
+ * agent does not fail on the profile's DeepSeek default when only an
+ * OpenAI key is configured. A ChatGPT sign-in wins: its plan is already
+ * paid for, so a metered key is not spent by default. Null keeps the
+ * profile default.
  */
-export function defaultModelFor(env: NodeJS.ProcessEnv): string | null {
+export function defaultModelFor(
+  env: NodeJS.ProcessEnv,
+  grants: ReadonlySet<string> = NO_GRANTS
+): string | null {
+  if (grants.has(CODEX_GRANT_KEY)) return "openai-codex/gpt-5.6-sol";
   if (env.DEEPSEEK_API_KEY) return "deepseek-official/deepseek-v4-flash";
   if (env.OPENAI_API_KEY) return "openai/gpt-5.6-sol";
   return null;
 }
+
+/** How often the credential store is re-read for new sign-ins. */
+const GRANTS_TTL_MS = 5_000;
 
 /**
  * Glue between the agent lifecycle and the ACP driver: starts dsh when an
@@ -314,6 +353,16 @@ export class DshSupervisor {
   private readonly running = new Map<string, Pending>();
   private catalog: { at: number; rows: AgentModelOption[] } | null = null;
   private catalogInFlight: Promise<AgentModelOption[]> | null = null;
+  /**
+   * Record keys in dsh's credential store, last read. Config reads are
+   * synchronous and polled, so they use the last snapshot and kick off the
+   * next read; a fresh sign-in shows up on the following poll.
+   */
+  private grants: { at: number; keys: Set<string> } = {
+    at: 0,
+    keys: new Set(),
+  };
+  private grantsInFlight: Promise<Set<string>> | null = null;
 
   constructor(private readonly deps: SupervisorDeps) {
     this.driver =
@@ -413,11 +462,37 @@ export class DshSupervisor {
     return true;
   }
 
-  /** The running session's options (model, effort), keyed providers only. */
+  /** Re-read the credential store; the snapshot is shared and rate-limited. */
+  async refreshGrants(): Promise<Set<string>> {
+    if (this.grantsInFlight) return this.grantsInFlight;
+    if (Date.now() - this.grants.at < GRANTS_TTL_MS) return this.grants.keys;
+    this.grantsInFlight = readGrantKeys(this.deps.config.dshHome)
+      .then((keys) => {
+        this.grants = { at: Date.now(), keys };
+        return keys;
+      })
+      .catch(() => this.grants.keys)
+      .finally(() => {
+        this.grantsInFlight = null;
+      });
+    return this.grantsInFlight;
+  }
+
+  /** The last-read store snapshot, refreshing in the background when stale. */
+  private grantKeys(): Set<string> {
+    if (Date.now() - this.grants.at >= GRANTS_TTL_MS) void this.refreshGrants();
+    return this.grants.keys;
+  }
+
+  /** The running session's options (model, effort), authenticated providers only. */
   getConfigOptions(agentId: string): HarnessConfigOption[] | null {
     const options = this.driver.getConfigOptions(agentId);
     return options
-      ? filterConfigOptionsByKeys(options as HarnessConfigOption[], process.env)
+      ? filterConfigOptionsByKeys(
+          options as HarnessConfigOption[],
+          process.env,
+          this.grantKeys()
+        )
       : null;
   }
 
@@ -438,7 +513,8 @@ export class DshSupervisor {
     }
     return filterConfigOptionsByKeys(
       options as HarnessConfigOption[],
-      process.env
+      process.env,
+      this.grantKeys()
     );
   }
 
@@ -451,6 +527,7 @@ export class DshSupervisor {
     if (this.catalog && now - this.catalog.at < CATALOG_TTL_MS) {
       return this.catalog.rows;
     }
+    await this.refreshGrants();
     for (const agentId of this.driver.liveAgentIds()) {
       const options = this.getConfigOptions(agentId);
       const rows = options ? catalogFromConfigOptions(options) : [];
@@ -482,7 +559,8 @@ export class DshSupervisor {
         const rows = catalogFromConfigOptions(
           filterConfigOptionsByKeys(
             options as HarnessConfigOption[],
-            process.env
+            process.env,
+            this.grants.keys
           )
         );
         this.catalog = { at: Date.now(), rows };
@@ -513,7 +591,8 @@ export class DshSupervisor {
     if (!agent || agent.type !== "dispatch") {
       throw new Error(`${agentId} is not a dsh agent`);
     }
-    const model = agent.model ?? defaultModelFor(process.env);
+    const model =
+      agent.model ?? defaultModelFor(process.env, await this.refreshGrants());
     // Rows a previous process left open (restart mid-turn) settle first,
     // so the view never shows a turn that can no longer finish.
     await this.streams.reconcile(agentId);

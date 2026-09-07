@@ -38,6 +38,7 @@ describe("buildOverlayYaml", () => {
     expect(byId["llm-pi-ai"]).toEqual({
       providers: {
         openai: { apiKeyEnv: "OPENAI_API_KEY", displayName: "OpenAI" },
+        "openai-codex": { displayName: "ChatGPT (Codex)" },
       },
     });
     expect(byId["system-prompt"]).toEqual({

@@ -16,6 +16,7 @@ import {
   costUsd,
   createUsageReporter,
   fetchAnthropicCosts,
+  fetchCodexUsage,
   fetchDeepSeekBalance,
   fetchOpenAiCosts,
   loadPriceTable,
@@ -226,6 +227,137 @@ describe("provider billing calls", () => {
       toppedUp: 10,
       available: true,
     });
+  });
+});
+
+describe("ChatGPT plan usage", () => {
+  const grant = {
+    access: "tok",
+    expires: Date.parse("2026-09-30T00:00:00Z"),
+    accountId: "acct_1",
+  };
+  const now = new Date("2026-09-06T12:00:00Z");
+
+  it("reads the plan's windows with pi-ai's headers", async () => {
+    const fetchFn = vi.fn<FetchLike>(async () =>
+      jsonResponse(200, {
+        plan_type: "plus",
+        rate_limit: {
+          allowed: true,
+          limit_reached: false,
+          primary_window: {
+            used_percent: 12.4,
+            limit_window_seconds: 18000,
+            reset_after_seconds: 3600,
+          },
+          secondary_window: {
+            used_percent: 40,
+            limit_window_seconds: 604800,
+            reset_at: 1757548800,
+          },
+        },
+        credits: { has_credits: true, unlimited: false, balance: "12.5" },
+      })
+    );
+    const usage = await fetchCodexUsage(grant, fetchFn, undefined, now);
+    expect(usage).toEqual({
+      plan: "plus",
+      windows: [
+        {
+          id: "primary",
+          label: "5-hour",
+          usedPercent: 12,
+          windowSeconds: 18000,
+          resetsAt: "2026-09-06T13:00:00.000Z",
+        },
+        {
+          id: "secondary",
+          label: "Weekly",
+          usedPercent: 40,
+          windowSeconds: 604800,
+          resetsAt: new Date(1757548800 * 1000).toISOString(),
+        },
+      ],
+      credits: { balance: 12.5, unlimited: false },
+      limitReached: false,
+    });
+    const [url, init] = fetchFn.mock.calls[0];
+    expect(url).toBe("https://chatgpt.com/backend-api/wham/usage");
+    expect(init?.headers).toMatchObject({
+      Authorization: "Bearer tok",
+      "chatgpt-account-id": "acct_1",
+      originator: "pi",
+    });
+  });
+
+  it("refuses an expired sign-in without calling out, and names a 401", async () => {
+    const fetchFn = vi.fn<FetchLike>(async () => jsonResponse(401, {}));
+    await expect(
+      fetchCodexUsage({ access: "t", expires: 1 }, fetchFn, undefined, now)
+    ).rejects.toThrow(/expired/);
+    expect(fetchFn).not.toHaveBeenCalled();
+    await expect(
+      fetchCodexUsage(grant, fetchFn, undefined, now)
+    ).rejects.toThrow(/401/);
+  });
+
+  it("lists the ChatGPT row first when a sign-in is stored, priced at API rates", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "dsh-usage-"));
+    const bin = await fakeDshInstall(tmp);
+    const home = path.join(tmp, "home");
+    await mkdir(home, { recursive: true });
+    await writeFile(
+      path.join(home, ".credentials.yaml"),
+      `version: 1\nrecords:\n  llm-pi-ai/openai-codex:\n    kind: grant\n    payload:\n      type: oauth\n      access: tok\n      refresh: r\n      expires: ${grant.expires}\n      accountId: acct_1\n`
+    );
+    const fetchFn = vi.fn<FetchLike>(async (url) =>
+      url.includes("wham/usage")
+        ? jsonResponse(200, {
+            plan_type: "pro",
+            rate_limit: {
+              primary_window: { used_percent: 3, limit_window_seconds: 18000 },
+            },
+          })
+        : jsonResponse(500, {})
+    );
+    const report = await buildUsageReport({
+      env: { OPENAI_API_KEY: "k" },
+      dshHome: home,
+      dshBin: bin,
+      budgets: async () => ({}),
+      fetchFn,
+      now: () => now,
+    });
+    expect(report.providers.map((p) => p.id)).toEqual([
+      "openai-codex",
+      "openai",
+    ]);
+    const codex = report.providers[0];
+    expect(codex).toMatchObject({
+      label: "ChatGPT (Codex)",
+      keyEnv: null,
+      hasKey: true,
+      budgetUsd: null,
+      subscription: {
+        plan: "pro",
+        windows: [{ id: "primary", usedPercent: 3, label: "5-hour" }],
+        credits: null,
+        limitReached: false,
+      },
+    });
+    expect(codex.error).toBeUndefined();
+  });
+
+  it("has no ChatGPT row without a sign-in", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "dsh-usage-"));
+    const report = await buildUsageReport({
+      env: {},
+      dshHome: path.join(tmp, "home"),
+      dshBin: path.join(tmp, "nobin"),
+      budgets: async () => ({}),
+      fetchFn: vi.fn<FetchLike>(async () => jsonResponse(500, {})),
+    });
+    expect(report.providers).toEqual([]);
   });
 });
 
