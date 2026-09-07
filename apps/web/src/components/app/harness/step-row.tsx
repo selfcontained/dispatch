@@ -1,6 +1,6 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { cn } from "@/lib/utils";
 
@@ -45,6 +45,12 @@ export function StepRow({
   // shut instead of animating; it unmounts once the transition ends (or
   // after its duration, for a reduced-motion run that fires no event).
   const [mounted, setMounted] = useState(expanded);
+  // What the fold shows is what was open: on the settle commit the step
+  // already carries its result, and rendering that would pop the body to
+  // the settled height before easing to zero. The last expanded render
+  // is kept and shown until the fold ends.
+  const shown = useRef(step);
+  if (expanded) shown.current = step;
   useEffect(() => {
     if (expanded) {
       setMounted(true);
@@ -143,7 +149,11 @@ export function StepRow({
         }}
       >
         <div className="overflow-hidden">
-          {expanded || mounted ? <StepDetail step={step} /> : null}
+          {expanded ? (
+            <StepDetail step={step} />
+          ) : mounted ? (
+            <StepDetail step={shown.current} />
+          ) : null}
         </div>
       </div>
     </div>

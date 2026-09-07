@@ -67,8 +67,6 @@ export async function listDshPaths(
     if (dirs.length >= MAX_ENTRIES && files.length >= MAX_ENTRIES) break;
     let isDir = entry.isDirectory();
     if (entry.isSymbolicLink()) {
-      // A full file bucket needs no stat to be skipped; a dir may still fit.
-      if (files.length >= MAX_ENTRIES && dirs.length >= MAX_ENTRIES) break;
       try {
         isDir = (await stat(path.join(dir, entry.name))).isDirectory();
       } catch {
