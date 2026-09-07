@@ -1,6 +1,6 @@
 import { useAtom } from "jotai";
 
-import { Checkbox } from "@/components/ui/checkbox";
+import { ToggleSettingCard } from "@/components/app/toggle-setting-card";
 import { useOptimisticToggleSetting } from "@/hooks/use-optimistic-toggle-setting";
 import { crossRepoMessagingEnabledAtom } from "@/lib/store";
 
@@ -25,39 +25,15 @@ export function CrossRepoMessagingSettings(): JSX.Element {
   });
 
   return (
-    <div className="p-6">
-      <div className="mb-1.5 text-[10px] uppercase tracking-widest text-muted-foreground">
-        Cross-repo messaging
-      </div>
-      <p className="mb-3 max-w-2xl text-sm text-muted-foreground">
-        By default agents can only message and list other agents in the same git
-        repository. Enable this to let agents coordinate across repositories for
-        local multi-repo workflows. Applies to all agents on this Dispatch
-        server.
-      </p>
-      <div className="max-w-lg">
-        <label className="flex cursor-pointer items-center gap-3 rounded border border-border px-3 py-2.5 transition-colors hover:bg-muted/50">
-          <Checkbox
-            checked={enabled}
-            onCheckedChange={(checked) => setEnabled(checked === true)}
-            data-testid="cross-repo-messaging-toggle"
-          />
-          <div className="min-w-0">
-            <div className="text-sm font-medium text-foreground">
-              Allow messaging agents in other repositories
-            </div>
-            <div className="text-xs text-muted-foreground">
-              When on, name-based targeting can match agents across all repos —
-              use the agent ID (agt_…) to address one unambiguously.
-            </div>
-          </div>
-        </label>
-      </div>
-      {error ? (
-        <p role="alert" className="mt-3 text-sm text-destructive">
-          {error}
-        </p>
-      ) : null}
-    </div>
+    <ToggleSettingCard
+      eyebrow="Cross-repo messaging"
+      description="By default agents can only message and list other agents in the same git repository. Enable this to let agents coordinate across repositories for local multi-repo workflows. Applies to all agents on this Dispatch server."
+      label="Allow messaging agents in other repositories"
+      hint="When on, name-based targeting can match agents across all repos — use the agent ID (agt_…) to address one unambiguously."
+      testId="cross-repo-messaging-toggle"
+      checked={enabled}
+      onCheckedChange={setEnabled}
+      error={error}
+    />
   );
 }
