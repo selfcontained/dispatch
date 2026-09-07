@@ -139,8 +139,6 @@ export type FeedContext = {
   agentType?: string | null;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
-  /** Chat messages by id, used to render answer-origin replies consistently. */
-  chatMessages?: ReadonlyMap<string, ChatMessage>;
   onOpenMedia: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded. */
   onOpenReview?: (reviewId: number) => void;
@@ -908,6 +906,7 @@ export const ChatMessageView = memo(function ChatMessageView({
   ctx,
   answering,
   answersDisabled = false,
+  answeredOptionLabel = null,
   onAnswer,
 }: {
   message: ChatMessage;
@@ -919,6 +918,8 @@ export const ChatMessageView = memo(function ChatMessageView({
   answering: boolean;
   /** Answers go through the same injection as the composer; lock them together. */
   answersDisabled?: boolean;
+  /** Canonical option label when this user row answers a declared option. */
+  answeredOptionLabel?: string | null;
   onAnswer: (messageId: string, option: ChatQuestionOption) => void;
 }): JSX.Element {
   const copyAction = message.text ? (
@@ -926,12 +927,6 @@ export const ChatMessageView = memo(function ChatMessageView({
   ) : undefined;
 
   if (message.authorKind === "user") {
-    const repliedQuestion = message.replyTo
-      ? ctx.chatMessages?.get(message.replyTo)
-      : undefined;
-    const repliedOption = repliedQuestion?.question?.options.find(
-      (option) => (option.value ?? option.label) === message.text
-    );
     return (
       <Post
         author={chatMessageAuthor(message, ctx)}
@@ -957,8 +952,8 @@ export const ChatMessageView = memo(function ChatMessageView({
         ) : null}
         {message.text ? (
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-            {repliedOption ? (
-              <Markdown variant="inline">{repliedOption.label}</Markdown>
+            {answeredOptionLabel ? (
+              <Markdown variant="inline">{answeredOptionLabel}</Markdown>
             ) : (
               message.text
             )}

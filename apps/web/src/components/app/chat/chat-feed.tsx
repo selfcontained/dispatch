@@ -338,14 +338,7 @@ export function ChatFeed({
       ),
     [entries]
   );
-  const rowContext = useMemo(
-    () => ({ ...ctx, chatMessages: messageDirectory }),
-    [ctx, messageDirectory]
-  );
-  const rows = useMemo(
-    () => layoutFeed(entries, rowContext),
-    [entries, rowContext]
-  );
+  const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
   const entering = useEnteringEntries(entries);
 
   // Consecutive status lines sit as one quiet cluster between posts, so they
@@ -404,6 +397,15 @@ export function ChatFeed({
         }
         if (row.kind === "status") return null;
         const entry = row.entry;
+        const answeredOptionLabel = (() => {
+          if (entry.type !== "chat" || !entry.message.replyTo) return null;
+          const question = messageDirectory.get(entry.message.replyTo);
+          const option = question?.question?.options.find(
+            (candidate) =>
+              (candidate.value ?? candidate.label) === entry.message.text
+          );
+          return option?.label ?? null;
+        })();
         const view = (() => {
           switch (entry.type) {
             case "chat":
@@ -413,9 +415,10 @@ export function ChatFeed({
                   held={heldMessageId === entry.message.id}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={rowContext}
+                  ctx={ctx}
                   answering={answeringMessageId === entry.message.id}
                   answersDisabled={answersDisabled}
+                  answeredOptionLabel={answeredOptionLabel}
                   onAnswer={onAnswer}
                 />
               );
@@ -425,7 +428,7 @@ export function ChatFeed({
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={rowContext}
+                  ctx={ctx}
                 />
               );
             case "media":
@@ -434,7 +437,7 @@ export function ChatFeed({
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={rowContext}
+                  ctx={ctx}
                 />
               );
             case "review":
@@ -443,7 +446,7 @@ export function ChatFeed({
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={rowContext}
+                  ctx={ctx}
                 />
               );
             case "pin":
@@ -452,7 +455,7 @@ export function ChatFeed({
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={rowContext}
+                  ctx={ctx}
                 />
               );
           }
