@@ -16,7 +16,6 @@ import {
   costUsd,
   createUsageReporter,
   fetchAnthropicCosts,
-  fetchCodexUsage,
   fetchDeepSeekBalance,
   fetchOpenAiCosts,
   loadPriceTable,
@@ -24,6 +23,7 @@ import {
   monthStartUtc,
   type FetchLike,
 } from "../src/agents/dsh/usage.js";
+import { fetchCodexUsage } from "../src/agents/dsh/codex-usage.js";
 
 let tmp = "";
 afterEach(async () => {
@@ -290,7 +290,7 @@ describe("ChatGPT plan usage", () => {
     });
   });
 
-  it("refuses an expired sign-in without calling out, and names a 401", async () => {
+  it("refuses an expired sign-in without calling out, and names a 401 or 403", async () => {
     const fetchFn = vi.fn<FetchLike>(async () => jsonResponse(401, {}));
     await expect(
       fetchCodexUsage({ access: "t", expires: 1 }, fetchFn, undefined, now)
@@ -298,7 +298,11 @@ describe("ChatGPT plan usage", () => {
     expect(fetchFn).not.toHaveBeenCalled();
     await expect(
       fetchCodexUsage(grant, fetchFn, undefined, now)
-    ).rejects.toThrow(/401/);
+    ).rejects.toThrow(/401.*sign in again/);
+    const forbidden = vi.fn<FetchLike>(async () => jsonResponse(403, {}));
+    await expect(
+      fetchCodexUsage(grant, forbidden, undefined, now)
+    ).rejects.toThrow(/403.*not allowed/);
   });
 
   it("lists the ChatGPT row first when a sign-in is stored, priced at API rates", async () => {
@@ -335,8 +339,8 @@ describe("ChatGPT plan usage", () => {
     const codex = report.providers[0];
     expect(codex).toMatchObject({
       label: "ChatGPT (Codex)",
-      keyEnv: null,
-      hasKey: true,
+      auth: { kind: "grant", record: "llm-pi-ai/openai-codex" },
+      authenticated: true,
       budgetUsd: null,
       subscription: {
         plan: "pro",
@@ -518,8 +522,9 @@ describe("prices and logs", () => {
     ]);
     const [openai, deepseek, google] = report.providers;
     expect(openai.budgetUsd).toBe(50);
-    expect(openai.hasKey).toBe(true);
-    expect(google).toMatchObject({ hasKey: false, budgetUsd: 5 });
+    expect(openai.authenticated).toBe(true);
+    expect(openai.auth).toEqual({ kind: "key", env: "OPENAI_API_KEY" });
+    expect(google).toMatchObject({ authenticated: false, budgetUsd: 5 });
     expect(google.error).toMatch(/GEMINI_API_KEY/);
     expect(openai.billed).toMatchObject({ usd: 3.5, source: "openai-costs" });
     expect(openai.logged.models[0].model).toBe("gpt-5.6-sol");

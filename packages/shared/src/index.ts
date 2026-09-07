@@ -65,6 +65,10 @@ export type {
   HarnessSubagent,
   HarnessSubagentResponse,
   HarnessTokenCounts,
+  HarnessBudgetProviderId,
+  HarnessBudgetProviderSpec,
+  HarnessProviderAuth,
+  HarnessProviderSpec,
   HarnessUsageProviderId,
   UsageBudgets,
   UsageBudgetsResponse,
@@ -87,7 +91,12 @@ export type {
   HarnessConfigResponse,
   HarnessConfigUpdateRequest,
 } from "./harness-types.js";
-export { HARNESS_USAGE_PROVIDERS } from "./harness-types.js";
+export {
+  HARNESS_BUDGET_PROVIDERS,
+  HARNESS_USAGE_PROVIDERS,
+  harnessProviderLabel,
+  isHarnessBudgetProvider,
+} from "./harness-types.js";
 export { DIFF_IMAGE_MAX_BYTES } from "./diff-types.js";
 export type {
   DiffFile,

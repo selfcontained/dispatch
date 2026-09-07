@@ -1,10 +1,12 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import type { Pool } from "pg";
-import type {
-  AgentLatestEventType,
-  AgentRecord,
-  HarnessConfigOption,
+import {
+  HARNESS_USAGE_PROVIDERS,
+  isHarnessBudgetProvider,
+  type AgentLatestEventType,
+  type AgentRecord,
+  type HarnessConfigOption,
 } from "@dispatch/shared";
 
 import { createAgentMcpToken, createJobMcpToken } from "../../auth.js";
@@ -13,7 +15,11 @@ import { resolveMediaDir } from "../../shared/media.js";
 import { dispatchMcpUrl } from "../tmux/mcp-url.js";
 import { DshDriver, type DriverEvent, type DriverLogger } from "./driver.js";
 import { appendCommandLog, commandLogPath } from "./command-log.js";
-import { CODEX_GRANT_KEY, readGrantKeys } from "./credentials.js";
+import {
+  CODEX_GRANT_KEY,
+  createGrantSnapshot,
+  type GrantSnapshot,
+} from "./credentials.js";
 import { removeOverlay, writeOverlay } from "./overlay.js";
 import { parsePromptSource, type QueuedPrompt } from "./prompt-source.js";
 import type { AgentModelOption } from "../../shared/agent-models.js";
@@ -139,28 +145,38 @@ type Pending = QueuedPrompt & {
   markSettled: () => void;
 };
 
-/**
- * Which env key each dsh provider route needs. A route without its key
- * still shows in dsh's options, but every call on it would fail, so the
- * catalog and the picker drop it. Unknown routes are kept.
- */
-export const PROVIDER_KEY_ENV: Record<string, string> = {
-  "deepseek-official": "DEEPSEEK_API_KEY",
-  deepseek: "DEEPSEEK_API_KEY",
-  openai: "OPENAI_API_KEY",
-  anthropic: "ANTHROPIC_API_KEY",
-  google: "GEMINI_API_KEY",
-  gemini: "GEMINI_API_KEY",
+/** dsh route ids that name a provider under another id in the shared registry. */
+const ROUTE_ALIASES: Record<string, string> = {
+  "deepseek-official": "deepseek",
+  gemini: "google",
 };
+
+/**
+ * Which env key each dsh provider route needs, from the shared registry.
+ * A route without its key still shows in dsh's options, but every call on
+ * it would fail, so the catalog and the picker drop it. Unknown routes are
+ * kept.
+ */
+export const PROVIDER_KEY_ENV: Record<string, string> = Object.fromEntries(
+  HARNESS_USAGE_PROVIDERS.filter(isHarnessBudgetProvider).flatMap((p) => [
+    [p.id, p.auth.env],
+    ...Object.entries(ROUTE_ALIASES)
+      .filter(([, id]) => id === p.id)
+      .map(([alias]) => [alias, p.auth.env]),
+  ])
+);
 
 /**
  * Routes that authenticate with a stored sign-in instead of a key: the
  * record dsh's credential store must hold for the route to work. A route
  * in this map stays listed while its record exists.
  */
-export const PROVIDER_GRANT: Record<string, string> = {
-  "openai-codex": CODEX_GRANT_KEY,
-};
+export const PROVIDER_GRANT: Record<string, string> = Object.fromEntries(
+  HARNESS_USAGE_PROVIDERS.flatMap((p) => {
+    const auth = p.auth;
+    return auth.kind === "grant" ? [[p.id, auth.record]] : [];
+  })
+);
 
 const NO_GRANTS: ReadonlySet<string> = new Set();
 
@@ -353,18 +369,14 @@ export class DshSupervisor {
   private readonly running = new Map<string, Pending>();
   private catalog: { at: number; rows: AgentModelOption[] } | null = null;
   private catalogInFlight: Promise<AgentModelOption[]> | null = null;
-  /**
-   * Record keys in dsh's credential store, last read. Config reads are
-   * synchronous and polled, so they use the last snapshot and kick off the
-   * next read; a fresh sign-in shows up on the following poll.
-   */
-  private grants: { at: number; keys: Set<string> } = {
-    at: 0,
-    keys: new Set(),
-  };
-  private grantsInFlight: Promise<Set<string>> | null = null;
+  /** Record keys in dsh's credential store: which sign-in routes can run. */
+  private readonly grants: GrantSnapshot;
 
   constructor(private readonly deps: SupervisorDeps) {
+    this.grants = createGrantSnapshot(deps.config.dshHome, GRANTS_TTL_MS);
+    // Primed now so the first config poll after boot does not hide a
+    // signed-in route for a cycle.
+    void this.grants.refresh();
     this.driver =
       deps.driver ??
       new DshDriver({
@@ -462,28 +474,6 @@ export class DshSupervisor {
     return true;
   }
 
-  /** Re-read the credential store; the snapshot is shared and rate-limited. */
-  async refreshGrants(): Promise<Set<string>> {
-    if (this.grantsInFlight) return this.grantsInFlight;
-    if (Date.now() - this.grants.at < GRANTS_TTL_MS) return this.grants.keys;
-    this.grantsInFlight = readGrantKeys(this.deps.config.dshHome)
-      .then((keys) => {
-        this.grants = { at: Date.now(), keys };
-        return keys;
-      })
-      .catch(() => this.grants.keys)
-      .finally(() => {
-        this.grantsInFlight = null;
-      });
-    return this.grantsInFlight;
-  }
-
-  /** The last-read store snapshot, refreshing in the background when stale. */
-  private grantKeys(): Set<string> {
-    if (Date.now() - this.grants.at >= GRANTS_TTL_MS) void this.refreshGrants();
-    return this.grants.keys;
-  }
-
   /** The running session's options (model, effort), authenticated providers only. */
   getConfigOptions(agentId: string): HarnessConfigOption[] | null {
     const options = this.driver.getConfigOptions(agentId);
@@ -491,7 +481,7 @@ export class DshSupervisor {
       ? filterConfigOptionsByKeys(
           options as HarnessConfigOption[],
           process.env,
-          this.grantKeys()
+          this.grants.peek()
         )
       : null;
   }
@@ -514,7 +504,7 @@ export class DshSupervisor {
     return filterConfigOptionsByKeys(
       options as HarnessConfigOption[],
       process.env,
-      this.grantKeys()
+      this.grants.peek()
     );
   }
 
@@ -527,7 +517,7 @@ export class DshSupervisor {
     if (this.catalog && now - this.catalog.at < CATALOG_TTL_MS) {
       return this.catalog.rows;
     }
-    await this.refreshGrants();
+    await this.grants.refresh();
     for (const agentId of this.driver.liveAgentIds()) {
       const options = this.getConfigOptions(agentId);
       const rows = options ? catalogFromConfigOptions(options) : [];
@@ -560,7 +550,7 @@ export class DshSupervisor {
           filterConfigOptionsByKeys(
             options as HarnessConfigOption[],
             process.env,
-            this.grants.keys
+            this.grants.peek()
           )
         );
         this.catalog = { at: Date.now(), rows };
@@ -592,7 +582,7 @@ export class DshSupervisor {
       throw new Error(`${agentId} is not a dsh agent`);
     }
     const model =
-      agent.model ?? defaultModelFor(process.env, await this.refreshGrants());
+      agent.model ?? defaultModelFor(process.env, await this.grants.refresh());
     // Rows a previous process left open (restart mid-turn) settle first,
     // so the view never shows a turn that can no longer finish.
     await this.streams.reconcile(agentId);

@@ -16,7 +16,13 @@ vi.mock("./use-harness-usage", () => ({
   }),
 }));
 
-import { resetsIn, UsageDialog } from "./usage-dialog";
+import { resetsIn, UsageDialog, windowWarning } from "./usage-dialog";
+
+const codexAuth = {
+  kind: "grant" as const,
+  record: "llm-pi-ai/openai-codex",
+  label: "ChatGPT sign-in",
+};
 
 afterEach(cleanup);
 
@@ -25,9 +31,19 @@ describe("resetsIn", () => {
     const now = Date.parse("2026-09-06T12:00:00Z");
     expect(resetsIn("2026-09-06T12:30:00Z", now)).toBe("resets in 30m");
     expect(resetsIn("2026-09-06T15:10:00Z", now)).toBe("resets in 3h 10m");
+    expect(resetsIn("2026-09-06T13:00:00Z", now)).toBe("resets in 1h");
+    expect(resetsIn("2026-09-08T11:59:00Z", now)).toBe("resets in 2d");
     expect(resetsIn("2026-09-10T12:00:00Z", now)).toBe("resets in 4d");
     expect(resetsIn("2026-09-06T11:00:00Z", now)).toBeNull();
     expect(resetsIn(null, now)).toBeNull();
+  });
+});
+
+describe("windowWarning", () => {
+  it("names a window that is running low or nearly out", () => {
+    expect(windowWarning(12)).toBeNull();
+    expect(windowWarning(70)).toBe("running low");
+    expect(windowWarning(95)).toBe("nearly out");
   });
 });
 
@@ -40,8 +56,8 @@ describe("UsageDialog with a ChatGPT plan", () => {
         {
           id: "openai-codex",
           label: "ChatGPT (Codex)",
-          keyEnv: null,
-          hasKey: true,
+          auth: codexAuth,
+          authenticated: true,
           budgetUsd: null,
           subscription: {
             plan: "plus",
@@ -88,17 +104,55 @@ describe("UsageDialog with a ChatGPT plan", () => {
     const row = screen.getByTestId("harness-usage-provider");
     expect(row.getAttribute("data-provider")).toBe("openai-codex");
     expect(screen.getByText("ChatGPT sign-in · plus")).toBeTruthy();
-    // The headline figure is the fuller window, not a dollar amount.
+    // The headline names the fuller window; no dollar amount.
     expect(screen.getByTestId("harness-usage-spend").textContent).toBe(
-      "71% used"
+      "71% of weekly"
     );
     const bars = screen.getAllByTestId("harness-usage-bar");
     expect(bars.map((b) => b.getAttribute("data-pct"))).toEqual(["12", "71"]);
-    expect(screen.getByText(/resets in 1h 0m|resets in 59m/)).toBeTruthy();
-    expect(screen.getByTestId("harness-usage-api-equivalent").textContent).toBe(
-      "≈ $3.50 at API rates"
+    // The bar is announced as a window, not a budget.
+    expect(bars[1].getAttribute("aria-label")).toBe(
+      "ChatGPT (Codex) Weekly window: 71% used, running low"
     );
-    expect(screen.getByText("Included in the plan")).toBeTruthy();
+    expect(screen.getByText(/resets in (1h|59m)/)).toBeTruthy();
+    expect(screen.getByText(/71% used · running low/)).toBeTruthy();
+    expect(screen.getByTestId("harness-usage-api-equivalent").textContent).toBe(
+      ", ≈ $3.50 at API rates"
+    );
+    expect(screen.getByText(/Included in the plan/)).toBeTruthy();
+  });
+
+  it("stays a plan row when the usage call failed", () => {
+    usage.data = {
+      generatedAt: "2026-09-06T12:00:00Z",
+      monthStart: "2026-09-01T00:00:00Z",
+      providers: [
+        {
+          id: "openai-codex",
+          label: "ChatGPT (Codex)",
+          auth: codexAuth,
+          authenticated: true,
+          budgetUsd: null,
+          logged: {
+            since: "2026-09-01T00:00:00Z",
+            tokens: { input: 500, output: 50, cacheRead: 0, cacheWrite: 0 },
+            usd: 1.25,
+            models: [],
+          },
+          error:
+            "The ChatGPT sign-in has expired; the next harness turn on the ChatGPT route renews it.",
+        },
+      ],
+    };
+    render(<UsageDialog open onOpenChange={() => undefined} />);
+    // No dollar headline, no "estimated from the logs" caption, no bar.
+    expect(screen.getByTestId("harness-usage-spend").textContent).toBe("—");
+    expect(screen.getByText(/Included in the plan/)).toBeTruthy();
+    expect(screen.queryByText(/Estimated from the harness logs/)).toBeNull();
+    expect(screen.queryAllByTestId("harness-usage-bar")).toHaveLength(0);
+    expect(screen.getByTestId("harness-usage-error").textContent).toMatch(
+      /expired/
+    );
   });
 
   it("says when the plan's limit is hit", () => {
@@ -109,8 +163,8 @@ describe("UsageDialog with a ChatGPT plan", () => {
         {
           id: "openai-codex",
           label: "ChatGPT (Codex)",
-          keyEnv: null,
-          hasKey: true,
+          auth: codexAuth,
+          authenticated: true,
           budgetUsd: null,
           subscription: {
             plan: null,

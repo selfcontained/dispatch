@@ -72,10 +72,58 @@ export async function readCodexGrant(
   if (typeof payload?.access !== "string" || !payload.access) return null;
   return {
     access: payload.access,
-    ...(typeof payload.refresh === "string" ? { refresh: payload.refresh } : {}),
-    ...(typeof payload.expires === "number" ? { expires: payload.expires } : {}),
+    ...(typeof payload.refresh === "string"
+      ? { refresh: payload.refresh }
+      : {}),
+    ...(typeof payload.expires === "number"
+      ? { expires: payload.expires }
+      : {}),
     ...(typeof payload.accountId === "string"
       ? { accountId: payload.accountId }
       : {}),
+  };
+}
+
+export type GrantSnapshot = {
+  /** The last-read record keys; a stale read is refreshed in the background. */
+  peek(): ReadonlySet<string>;
+  /** Re-read the store when the snapshot is older than the TTL; one read at a time. */
+  refresh(): Promise<ReadonlySet<string>>;
+};
+
+/**
+ * The store's record keys as a snapshot for synchronous readers. Config
+ * reads are synchronous and polled every few seconds, so they answer from
+ * the last read and kick off the next; a fresh sign-in shows on the
+ * following poll. A read that fails keeps the last snapshot.
+ */
+export function createGrantSnapshot(
+  dshHome: string,
+  ttlMs: number
+): GrantSnapshot {
+  let at = 0;
+  let keys: ReadonlySet<string> = new Set();
+  let inFlight: Promise<ReadonlySet<string>> | null = null;
+  const refresh = (): Promise<ReadonlySet<string>> => {
+    if (inFlight) return inFlight;
+    if (Date.now() - at < ttlMs) return Promise.resolve(keys);
+    inFlight = readGrantKeys(dshHome)
+      .then((next) => {
+        at = Date.now();
+        keys = next;
+        return keys;
+      })
+      .catch(() => keys)
+      .finally(() => {
+        inFlight = null;
+      });
+    return inFlight;
+  };
+  return {
+    peek() {
+      if (Date.now() - at >= ttlMs) void refresh();
+      return keys;
+    },
+    refresh,
   };
 }

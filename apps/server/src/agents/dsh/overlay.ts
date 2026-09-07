@@ -1,5 +1,6 @@
 import { mkdir, unlink, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { harnessProviderLabel } from "@dispatch/shared";
 import { stringify } from "yaml";
 
 /** One `llm-pi-ai` provider route (see dsh's `@deepseek-ai/dsh-llm-pi-ai`). */
@@ -22,11 +23,14 @@ export type OverlayInput = {
 
 const DEFAULT_PROVIDERS: Record<string, ProviderRoute> = {
   // displayName is the group header in model menus.
-  openai: { apiKeyEnv: "OPENAI_API_KEY", displayName: "OpenAI" },
+  openai: {
+    apiKeyEnv: "OPENAI_API_KEY",
+    displayName: harnessProviderLabel("openai"),
+  },
   // pi-ai's ChatGPT route: no key, it authenticates with the sign-in
   // stored in dsh's credential store (llm-pi-ai/openai-codex). Declared
   // always; the picker hides it until a sign-in exists.
-  "openai-codex": { displayName: "ChatGPT (Codex)" },
+  "openai-codex": { displayName: harnessProviderLabel("openai-codex") },
 };
 
 export function splitModelId(model: string): {

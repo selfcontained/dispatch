@@ -89,6 +89,25 @@ describe("listDshPaths", () => {
     ]);
   });
 
+  it("keeps directories when many files sort ahead of them", async () => {
+    const big = path.join(root, "big");
+    await mkdir(big);
+    for (let i = 0; i < 120; i += 1) {
+      await writeFile(path.join(big, `a${String(i).padStart(3, "0")}.txt`), "");
+    }
+    for (let i = 0; i < 5; i += 1) await mkdir(path.join(big, `zdir${i}`));
+    const out = await listDshPaths("big/", { cwd: root });
+    expect(out).toHaveLength(50);
+    expect(out.slice(0, 5).map((p) => p.path)).toEqual([
+      "big/zdir0",
+      "big/zdir1",
+      "big/zdir2",
+      "big/zdir3",
+      "big/zdir4",
+    ]);
+    expect(out.slice(5).every((p) => p.kind === "file")).toBe(true);
+  });
+
   it("answers nothing for a directory that does not exist", async () => {
     expect(await listDshPaths("nope/x", { cwd, home })).toEqual([]);
     expect(await listDshPaths("a\0b", { cwd, home })).toEqual([]);

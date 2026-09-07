@@ -5,6 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import {
   CODEX_GRANT_KEY,
+  createGrantSnapshot,
   credentialsPath,
   readCodexGrant,
   readGrantKeys,
@@ -50,6 +51,21 @@ describe("dsh credential store", () => {
       expires: 1800000000000,
       accountId: "acct_1",
     });
+  });
+
+  it("snapshots the store: peek answers at once and refreshes past the TTL", async () => {
+    tmp = await mkdtemp(path.join(os.tmpdir(), "dsh-cred-"));
+    const snapshot = createGrantSnapshot(tmp, 50);
+    expect(snapshot.peek().size).toBe(0);
+    expect((await snapshot.refresh()).size).toBe(0);
+    await writeFile(credentialsPath(tmp), STORE);
+    // Within the TTL the old answer stands, and no read is started.
+    expect(snapshot.peek().has(CODEX_GRANT_KEY)).toBe(false);
+    await new Promise((r) => setTimeout(r, 60));
+    // Past the TTL a peek answers stale and reads behind it.
+    expect(snapshot.peek().has(CODEX_GRANT_KEY)).toBe(false);
+    expect((await snapshot.refresh()).has(CODEX_GRANT_KEY)).toBe(true);
+    expect(snapshot.peek().has(CODEX_GRANT_KEY)).toBe(true);
   });
 
   it("answers empty for a missing, malformed, or keyless store", async () => {

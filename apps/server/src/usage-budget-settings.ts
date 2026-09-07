@@ -1,7 +1,7 @@
 import type { Pool } from "pg";
 import {
-  HARNESS_USAGE_PROVIDERS,
-  type HarnessUsageProviderId,
+  HARNESS_BUDGET_PROVIDERS,
+  type HarnessBudgetProviderId,
   type UsageBudgets,
 } from "@dispatch/shared";
 
@@ -14,9 +14,10 @@ import { getSetting, setSetting } from "./db/settings.js";
  */
 const USAGE_BUDGETS_KEY = "usage_budgets";
 
-const PROVIDER_IDS = new Set<string>(HARNESS_USAGE_PROVIDERS.map((p) => p.id));
+const PROVIDER_IDS = new Set<string>(HARNESS_BUDGET_PROVIDERS.map((p) => p.id));
 
-export function isUsageProviderId(id: unknown): id is HarnessUsageProviderId {
+/** A metered provider id: the only kind a dollar budget can name. */
+export function isUsageProviderId(id: unknown): id is HarnessBudgetProviderId {
   return typeof id === "string" && PROVIDER_IDS.has(id);
 }
 

@@ -4,6 +4,7 @@ import type {
   HarnessUsageProvider,
 } from "@dispatch/shared";
 import { RefreshCw } from "lucide-react";
+import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -47,13 +48,17 @@ function BudgetBar({
   spent,
   budget,
   label,
+  describe,
 }: {
   spent: number;
   budget: number;
   label: string;
+  /** What a screen reader hears; the budget wording is the default. */
+  describe?: string;
 }): JSX.Element {
   const ratio = budget > 0 ? spent / budget : 0;
   const pct = Math.min(100, Math.round(ratio * 100));
+  const text = describe ?? `${label}: ${pct}% of budget used`;
   const tone =
     ratio >= 0.9
       ? "bg-status-blocked"
@@ -67,7 +72,8 @@ function BudgetBar({
       aria-valuemin={0}
       aria-valuemax={100}
       aria-valuenow={pct}
-      aria-label={`${label}: ${pct}% of budget used`}
+      aria-valuetext={text}
+      aria-label={text}
       data-testid="harness-usage-bar"
       data-pct={pct}
     >
@@ -79,7 +85,7 @@ function BudgetBar({
   );
 }
 
-/** "resets in 2h 10m", from an ISO time; null when unknown or past. */
+/** "resets in 2h 10m", "resets in 1h", "resets in 2d"; null when unknown or past. */
 export function resetsIn(iso: string | null, now = Date.now()): string | null {
   if (!iso) return null;
   const ms = new Date(iso).getTime() - now;
@@ -87,8 +93,28 @@ export function resetsIn(iso: string | null, now = Date.now()): string | null {
   const minutes = Math.ceil(ms / 60_000);
   if (minutes < 60) return `resets in ${minutes}m`;
   const hours = Math.floor(minutes / 60);
-  if (hours < 48) return `resets in ${hours}h ${minutes % 60}m`;
+  if (hours < 24) {
+    const rest = minutes % 60;
+    return `resets in ${hours}h${rest ? ` ${rest}m` : ""}`;
+  }
   return `resets in ${Math.round(hours / 24)}d`;
+}
+
+/** The word beside a window that is nearly used up; nothing below 70%. */
+export function windowWarning(usedPercent: number): string | null {
+  if (usedPercent >= 90) return "nearly out";
+  if (usedPercent >= 70) return "running low";
+  return null;
+}
+
+/** The clock the countdowns read, ticking while the dialog is open. */
+function useClock(intervalMs = 30_000): number {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), intervalMs);
+    return () => clearInterval(timer);
+  }, [intervalMs]);
+  return now;
 }
 
 /** A plan's windows as bars: the share used of each, not a dollar figure. */
@@ -99,6 +125,7 @@ function SubscriptionBars({
   subscription: HarnessSubscriptionUsage;
   label: string;
 }): JSX.Element {
+  const now = useClock();
   return (
     <div className="space-y-1.5" data-testid="harness-usage-subscription">
       {subscription.windows.length === 0 ? (
@@ -107,25 +134,40 @@ function SubscriptionBars({
         </p>
       ) : null}
       {subscription.windows.map((w) => {
-        const reset = resetsIn(w.resetsAt);
+        const reset = resetsIn(w.resetsAt, now);
+        const warning = windowWarning(w.usedPercent);
+        const caption = [
+          `${w.usedPercent}% used`,
+          ...(warning ? [warning] : []),
+          ...(reset ? [reset] : []),
+        ];
         return (
           <div key={w.id}>
             <div className="mb-0.5 flex items-baseline justify-between text-[11px] text-muted-foreground">
               <span>{w.label}</span>
-              <span className="tabular-nums">
-                {w.usedPercent}% used{reset ? ` · ${reset}` : ""}
-              </span>
+              <span className="tabular-nums">{caption.join(" · ")}</span>
             </div>
             <BudgetBar
               spent={w.usedPercent}
               budget={100}
               label={`${label} ${w.label}`}
+              describe={`${label} ${w.label} window: ${caption.join(", ")}`}
             />
           </div>
         );
       })}
     </div>
   );
+}
+
+/** The window nearest its limit, named: "71% of weekly". */
+function planHeadline(plan: HarnessSubscriptionUsage): string {
+  if (plan.limitReached) return "limit reached";
+  if (plan.windows.length === 0) return "—";
+  const fullest = plan.windows.reduce((a, b) =>
+    b.usedPercent > a.usedPercent ? b : a
+  );
+  return `${fullest.usedPercent}% of ${fullest.label.toLowerCase()}`;
 }
 
 function ProviderRow({
@@ -135,6 +177,8 @@ function ProviderRow({
 }): JSX.Element {
   const spend = spendOf(provider);
   const budget = provider.budgetUsd;
+  // A plan is a plan whether or not its usage call answered.
+  const isPlan = provider.auth.kind === "grant";
   const plan = provider.subscription;
   return (
     <div
@@ -148,24 +192,24 @@ function ProviderRow({
           {provider.label}
         </span>
         <span className="min-w-0 truncate font-terminal text-[10.5px] text-muted-foreground">
-          {provider.keyEnv ?? "ChatGPT sign-in"}
-          {provider.hasKey ? "" : " · not set"}
+          {provider.auth.kind === "key"
+            ? provider.auth.env
+            : provider.auth.label}
+          {provider.authenticated ? "" : " · not set"}
           {plan?.plan ? ` · ${plan.plan}` : ""}
         </span>
         <span
           className="ml-auto whitespace-nowrap text-sm tabular-nums text-foreground"
           data-testid="harness-usage-spend"
         >
-          {plan
-            ? plan.limitReached
-              ? "limit reached"
-              : plan.windows.length > 0
-                ? `${Math.max(...plan.windows.map((w) => w.usedPercent))}% used`
-                : "—"
+          {isPlan
+            ? plan
+              ? planHeadline(plan)
+              : "—"
             : spend.usd === null
               ? "—"
               : formatUsd(spend.usd)}
-          {budget && !plan ? (
+          {budget && !isPlan ? (
             <span className="text-muted-foreground">
               {" "}
               of {formatUsd(budget)}
@@ -174,8 +218,10 @@ function ProviderRow({
         </span>
       </div>
       <div className="mt-1.5">
-        {plan ? (
-          <SubscriptionBars subscription={plan} label={provider.label} />
+        {isPlan ? (
+          plan ? (
+            <SubscriptionBars subscription={plan} label={provider.label} />
+          ) : null
         ) : budget && spend.usd !== null ? (
           <BudgetBar spent={spend.usd} budget={budget} label={provider.label} />
         ) : (
@@ -188,17 +234,17 @@ function ProviderRow({
       </div>
       <div className="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] text-muted-foreground">
         <span>
-          {plan
+          {isPlan
             ? "Included in the plan"
             : spend.source === "billed"
               ? "Billed by the provider"
               : "Estimated from the harness logs"}
+          {isPlan && provider.logged.usd !== null && provider.logged.usd > 0 ? (
+            <span data-testid="harness-usage-api-equivalent">
+              {", "}≈ {formatUsd(provider.logged.usd)} at API rates
+            </span>
+          ) : null}
         </span>
-        {plan && provider.logged.usd !== null && provider.logged.usd > 0 ? (
-          <span data-testid="harness-usage-api-equivalent">
-            ≈ {formatUsd(provider.logged.usd)} at API rates
-          </span>
-        ) : null}
         {plan?.credits ? (
           <span>
             Credits{" "}
@@ -291,8 +337,8 @@ export function UsageDialog({
             </p>
           ) : usage.data?.providers.length === 0 ? (
             <p className="text-xs text-muted-foreground">
-              No provider keys are set in the server environment, and no
-              ChatGPT sign-in is stored.
+              No provider keys are set in the server environment, and no ChatGPT
+              sign-in is stored.
             </p>
           ) : (
             usage.data?.providers.map((p) => (

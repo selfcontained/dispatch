@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import {
-  HARNESS_USAGE_PROVIDERS,
-  type HarnessUsageProviderId,
+  HARNESS_BUDGET_PROVIDERS,
+  type HarnessBudgetProviderId,
   type UsageBudgets,
 } from "@dispatch/shared";
 import { X } from "lucide-react";
@@ -18,16 +18,16 @@ import {
 import { ProviderIcon } from "@/components/app/harness/provider-icon";
 import { useUsageBudgets } from "@/hooks/use-usage-budgets";
 
-type Row = { id: HarnessUsageProviderId; amount: string };
+type Row = { id: HarnessBudgetProviderId; amount: string };
 
-function labelOf(id: HarnessUsageProviderId): string {
-  return HARNESS_USAGE_PROVIDERS.find((p) => p.id === id)?.label ?? id;
+function labelOf(id: HarnessBudgetProviderId): string {
+  return HARNESS_BUDGET_PROVIDERS.find((p) => p.id === id)?.label ?? id;
 }
 
 function rowsFrom(budgets: UsageBudgets): Row[] {
-  return HARNESS_USAGE_PROVIDERS.filter((p) => budgets[p.id] !== undefined).map(
-    (p) => ({ id: p.id, amount: String(budgets[p.id]) })
-  );
+  return HARNESS_BUDGET_PROVIDERS.filter(
+    (p) => budgets[p.id] !== undefined
+  ).map((p) => ({ id: p.id, amount: String(budgets[p.id]) }));
 }
 
 /** A positive amount of dollars, or null for anything else (empty included). */
@@ -57,7 +57,7 @@ export function UsageBudgetSettings(): JSX.Element {
     edits.current += 1;
     setDirty(true);
   };
-  const [focusId, setFocusId] = useState<HarnessUsageProviderId | null>(null);
+  const [focusId, setFocusId] = useState<HarnessBudgetProviderId | null>(null);
   const saveChain = useRef<Promise<unknown>>(Promise.resolve());
   useEffect(() => {
     if (!dirty) setRows(rowsFrom(budgets));
@@ -80,7 +80,7 @@ export function UsageBudgetSettings(): JSX.Element {
       });
   };
 
-  const available = HARNESS_USAGE_PROVIDERS.filter(
+  const available = HARNESS_BUDGET_PROVIDERS.filter(
     (p) => !rows.some((r) => r.id === p.id)
   );
 
@@ -185,10 +185,10 @@ export function UsageBudgetSettings(): JSX.Element {
             value=""
             onValueChange={(id) => {
               markEdited();
-              setFocusId(id as HarnessUsageProviderId);
+              setFocusId(id as HarnessBudgetProviderId);
               setRows((current) => [
                 ...current,
-                { id: id as HarnessUsageProviderId, amount: "" },
+                { id: id as HarnessBudgetProviderId, amount: "" },
               ]);
             }}
           >

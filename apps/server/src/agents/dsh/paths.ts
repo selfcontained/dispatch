@@ -33,7 +33,11 @@ export function resolvePathQuery(
   return { dir, typedDir, segment };
 }
 
-/** Entries matching the typed prefix: directories first, then files, by name. */
+/**
+ * Entries matching the typed prefix: directories first, then files, by
+ * name. Each kind is capped on its own, so a directory whose files sort
+ * ahead of its subdirectories still lists those subdirectories.
+ */
 export async function listDshPaths(
   query: string,
   input: { cwd: string; home?: string }
@@ -60,16 +64,20 @@ export async function listDshPaths(
   const dirs: HarnessPath[] = [];
   const files: HarnessPath[] = [];
   for (const entry of matched) {
-    if (dirs.length + files.length >= MAX_ENTRIES * 2) break;
+    if (dirs.length >= MAX_ENTRIES && files.length >= MAX_ENTRIES) break;
     let isDir = entry.isDirectory();
     if (entry.isSymbolicLink()) {
+      // A full file bucket needs no stat to be skipped; a dir may still fit.
+      if (files.length >= MAX_ENTRIES && dirs.length >= MAX_ENTRIES) break;
       try {
         isDir = (await stat(path.join(dir, entry.name))).isDirectory();
       } catch {
         continue;
       }
     }
-    (isDir ? dirs : files).push({
+    const bucket = isDir ? dirs : files;
+    if (bucket.length >= MAX_ENTRIES) continue;
+    bucket.push({
       path: typedDir + entry.name,
       kind: isDir ? "dir" : "file",
     });

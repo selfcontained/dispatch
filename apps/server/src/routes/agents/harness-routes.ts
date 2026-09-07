@@ -189,9 +189,8 @@ export async function registerAgentHarnessRoutes(
     }
   );
 
-  // Skills the agent can load, for the composer's slash menu.
-  app.get("/api/v1/agents/:id/harness/skills", async (request, reply) => {
-    const id = (request.params as { id?: string }).id ?? "";
+  /** The tree the agent works in (its worktree, else its cwd); null when no such agent. */
+  const agentWorkingDir = async (id: string): Promise<string | null> => {
     const row = await deps.pool.query<{
       cwd: string;
       worktree_path: string | null;
@@ -200,12 +199,18 @@ export async function registerAgentHarnessRoutes(
       [id]
     );
     const agent = row.rows[0];
-    if (!agent) return reply.code(404).send({ error: "Agent not found." });
+    return agent ? (agent.worktree_path ?? agent.cwd) : null;
+  };
+
+  // Skills the agent can load, for the composer's slash menu.
+  app.get("/api/v1/agents/:id/harness/skills", async (request, reply) => {
+    const id = (request.params as { id?: string }).id ?? "";
+    const cwd = await agentWorkingDir(id);
+    if (cwd === null) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
     const response: HarnessSkillsResponse = {
-      skills: await listDshSkills({
-        cwd: agent.worktree_path ?? agent.cwd,
-        dshHome: deps.dshHome,
-      }),
+      skills: await listDshSkills({ cwd, dshHome: deps.dshHome }),
     };
     return response;
   });
@@ -216,19 +221,12 @@ export async function registerAgentHarnessRoutes(
     const id = (request.params as { id?: string }).id ?? "";
     const q = (request.query as { q?: unknown }).q;
     const query = typeof q === "string" ? q : "";
-    const row = await deps.pool.query<{
-      cwd: string;
-      worktree_path: string | null;
-    }>(
-      "SELECT cwd, worktree_path FROM agents WHERE id = $1 AND deleted_at IS NULL",
-      [id]
-    );
-    const agent = row.rows[0];
-    if (!agent) return reply.code(404).send({ error: "Agent not found." });
+    const cwd = await agentWorkingDir(id);
+    if (cwd === null) {
+      return reply.code(404).send({ error: "Agent not found." });
+    }
     const response: HarnessPathsResponse = {
-      paths: await listDshPaths(query, {
-        cwd: agent.worktree_path ?? agent.cwd,
-      }),
+      paths: await listDshPaths(query, { cwd }),
     };
     return response;
   });

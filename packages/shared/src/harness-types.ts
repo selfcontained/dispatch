@@ -174,15 +174,24 @@ export type HarnessTokenCounts = {
   cacheWrite: number;
 };
 
-/** One provider key the harness can use, with what is known of its usage. */
+/**
+ * How a provider route authenticates: an API key in the server environment,
+ * or a sign-in stored in dsh's credential store (a ChatGPT plan). A key is
+ * metered, so a dollar budget applies; a grant is a plan, so its usage is a
+ * share of rate-limit windows and no budget applies.
+ */
+export type HarnessProviderAuth =
+  | { kind: "key"; env: string }
+  | { kind: "grant"; record: string; label: string };
+
+/** One provider route the harness can use, with what is known of its usage. */
 export type HarnessUsageProvider = {
   /** dsh's provider route id: openai, deepseek, openai-codex, … */
   id: string;
   label: string;
-  /** The env var holding the key; null for a route that runs on a stored sign-in. */
-  keyEnv: string | null;
-  /** Whether the key is set in the server environment (or the sign-in is stored). */
-  hasKey: boolean;
+  auth: HarnessProviderAuth;
+  /** Whether the key is set in the server environment, or the sign-in is stored. */
+  authenticated: boolean;
   /**
    * A plan's rate-limit windows, for a route billed by subscription
    * (ChatGPT for the openai-codex route): each bar is a share used, not a
@@ -242,18 +251,76 @@ export type HarnessUsageResponse = {
   partial?: boolean;
 };
 
-/** The provider keys the harness can run on, as the usage dialog and budget settings list them. */
+/**
+ * The provider routes the harness can run on: the one list the model
+ * picker's auth filter, the usage dialog, and the budget settings derive
+ * from. Ids are dsh's route ids. The ChatGPT route comes first because it
+ * is the default route once its sign-in is stored.
+ */
 export const HARNESS_USAGE_PROVIDERS = [
-  { id: "openai", label: "OpenAI", keyEnv: "OPENAI_API_KEY" },
-  { id: "deepseek", label: "DeepSeek", keyEnv: "DEEPSEEK_API_KEY" },
-  { id: "anthropic", label: "Anthropic", keyEnv: "ANTHROPIC_API_KEY" },
-  { id: "google", label: "Gemini", keyEnv: "GEMINI_API_KEY" },
-] as const;
+  {
+    id: "openai-codex",
+    label: "ChatGPT (Codex)",
+    auth: {
+      kind: "grant",
+      record: "llm-pi-ai/openai-codex",
+      label: "ChatGPT sign-in",
+    },
+  },
+  {
+    id: "openai",
+    label: "OpenAI",
+    auth: { kind: "key", env: "OPENAI_API_KEY" },
+  },
+  {
+    id: "deepseek",
+    label: "DeepSeek",
+    auth: { kind: "key", env: "DEEPSEEK_API_KEY" },
+  },
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    auth: { kind: "key", env: "ANTHROPIC_API_KEY" },
+  },
+  {
+    id: "google",
+    label: "Gemini",
+    auth: { kind: "key", env: "GEMINI_API_KEY" },
+  },
+] as const satisfies readonly {
+  id: string;
+  label: string;
+  auth: HarnessProviderAuth;
+}[];
 
-export type HarnessUsageProviderId =
-  (typeof HARNESS_USAGE_PROVIDERS)[number]["id"];
+export type HarnessProviderSpec = (typeof HARNESS_USAGE_PROVIDERS)[number];
 
-/** Monthly budgets in USD by provider id; a provider without a row has none. */
-export type UsageBudgets = Partial<Record<HarnessUsageProviderId, number>>;
+export type HarnessUsageProviderId = HarnessProviderSpec["id"];
+
+/** A metered provider: the ones a dollar budget applies to. */
+export type HarnessBudgetProviderSpec = Extract<
+  HarnessProviderSpec,
+  { auth: { kind: "key" } }
+>;
+
+export type HarnessBudgetProviderId = HarnessBudgetProviderSpec["id"];
+
+/** Whether a provider is metered by a key, and so takes a dollar budget. */
+export function isHarnessBudgetProvider(
+  p: HarnessProviderSpec
+): p is HarnessBudgetProviderSpec {
+  return p.auth.kind === "key";
+}
+
+export const HARNESS_BUDGET_PROVIDERS: readonly HarnessBudgetProviderSpec[] =
+  HARNESS_USAGE_PROVIDERS.filter(isHarnessBudgetProvider);
+
+/** The display label for a provider route id; the id itself when unknown. */
+export function harnessProviderLabel(id: string): string {
+  return HARNESS_USAGE_PROVIDERS.find((p) => p.id === id)?.label ?? id;
+}
+
+/** Monthly budgets in USD by metered provider id; a provider without a row has none. */
+export type UsageBudgets = Partial<Record<HarnessBudgetProviderId, number>>;
 
 export type UsageBudgetsResponse = { budgets: UsageBudgets };
