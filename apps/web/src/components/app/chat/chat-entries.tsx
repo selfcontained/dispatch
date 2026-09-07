@@ -139,6 +139,8 @@ export type FeedContext = {
   agentType?: string | null;
   /** Other agents, for a peer post's avatar and relation; absent until loaded. */
   peers?: PeerDirectory;
+  /** Chat messages by id, used to render answer-origin replies consistently. */
+  chatMessages?: ReadonlyMap<string, ChatMessage>;
   onOpenMedia: (mediaId: number) => void;
   /** Opens a review in the Reviews sidebar, expanded. */
   onOpenReview?: (reviewId: number) => void;
@@ -924,6 +926,12 @@ export const ChatMessageView = memo(function ChatMessageView({
   ) : undefined;
 
   if (message.authorKind === "user") {
+    const repliedQuestion = message.replyTo
+      ? ctx.chatMessages?.get(message.replyTo)
+      : undefined;
+    const repliedOption = repliedQuestion?.question?.options.find(
+      (option) => (option.value ?? option.label) === message.text
+    );
     return (
       <Post
         author={chatMessageAuthor(message, ctx)}
@@ -949,7 +957,11 @@ export const ChatMessageView = memo(function ChatMessageView({
         ) : null}
         {message.text ? (
           <div className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-            {message.text}
+            {repliedOption ? (
+              <Markdown variant="inline">{repliedOption.label}</Markdown>
+            ) : (
+              message.text
+            )}
           </div>
         ) : null}
         <AttachmentList attachments={message.attachments} ctx={ctx} />

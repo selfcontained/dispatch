@@ -329,7 +329,23 @@ export function ChatFeed({
   answersDisabled = false,
   onAnswer,
 }: ChatFeedProps): JSX.Element {
-  const rows = useMemo(() => layoutFeed(entries, ctx), [entries, ctx]);
+  const messageDirectory = useMemo(
+    () =>
+      new Map(
+        entries
+          .filter((entry) => entry.type === "chat")
+          .map((entry) => [entry.message.id, entry.message] as const)
+      ),
+    [entries]
+  );
+  const rowContext = useMemo(
+    () => ({ ...ctx, chatMessages: messageDirectory }),
+    [ctx, messageDirectory]
+  );
+  const rows = useMemo(
+    () => layoutFeed(entries, rowContext),
+    [entries, rowContext]
+  );
   const entering = useEnteringEntries(entries);
 
   // Consecutive status lines sit as one quiet cluster between posts, so they
@@ -397,7 +413,7 @@ export function ChatFeed({
                   held={heldMessageId === entry.message.id}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={ctx}
+                  ctx={rowContext}
                   answering={answeringMessageId === entry.message.id}
                   answersDisabled={answersDisabled}
                   onAnswer={onAnswer}
@@ -409,7 +425,7 @@ export function ChatFeed({
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={ctx}
+                  ctx={rowContext}
                 />
               );
             case "media":
@@ -418,7 +434,7 @@ export function ChatFeed({
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={ctx}
+                  ctx={rowContext}
                 />
               );
             case "review":
@@ -427,7 +443,7 @@ export function ChatFeed({
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={ctx}
+                  ctx={rowContext}
                 />
               );
             case "pin":
@@ -436,7 +452,7 @@ export function ChatFeed({
                   entry={entry}
                   grouped={row.grouped}
                   rule={row.rule}
-                  ctx={ctx}
+                  ctx={rowContext}
                 />
               );
           }
