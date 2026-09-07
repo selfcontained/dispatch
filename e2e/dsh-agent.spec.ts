@@ -262,6 +262,65 @@ test.describe("dsh agent", () => {
     );
   });
 
+  test("shows a running step's command live, then folds it when it settles", async ({
+    page,
+    request,
+  }) => {
+    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
+    await setChatSurface(request, true);
+    const repo = makeRepo();
+    const agent = await createAgentViaAPI(request, {
+      name: `e2e-dsh-live-${Date.now()}`,
+      type: "dispatch",
+      cwd: repo,
+      useWorktree: true,
+    });
+    expect(agent.status).toBe("running");
+
+    await loadApp(page);
+    await clickAgentRow(page, agent.id);
+    await page.getByTestId("center-tab-agent").click();
+    const harness = page.getByTestId("harness-pane");
+    const input = harness.getByTestId("chat-composer-input");
+    await expect(input).toBeEnabled({ timeout: 30_000 });
+
+    // The fake holds a shell step open for a while before its output lands.
+    await input.fill("run:8000 hold the step");
+    await input.press("Enter");
+    const live = harness.getByTestId("harness-live-activity");
+    await expect(live).toBeVisible({ timeout: 30_000 });
+    const step = live.getByTestId("harness-step").filter({ hasText: "bash" });
+    // While it runs the row is open on the command it was asked to run.
+    await expect(step.getByRole("button")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+      { timeout: 10_000 }
+    );
+    await expect(step).toContainText("$ sleep 8");
+    await expect(step).not.toContainText("slept well");
+    await page.screenshot({
+      path: process.env.E2E_SCREENSHOT_DIR
+        ? `${process.env.E2E_SCREENSHOT_DIR}/harness-live-step.png`
+        : "/tmp/harness-live-step.png",
+    });
+
+    // Settled, the step folds to one line and the turn goes on.
+    const result = harness.getByTestId("harness-result").last();
+    await expect(result).toContainText("You said:", { timeout: 30_000 });
+    await harness.getByTestId("harness-activity-summary").last().click();
+    const settled = harness
+      .getByTestId("harness-step")
+      .filter({ hasText: "bash" })
+      .first();
+    await expect(settled.getByRole("button")).toHaveAttribute(
+      "aria-expanded",
+      "false"
+    );
+    await expect(settled).toContainText("sleep 8");
+    await settled.getByRole("button").click();
+    await expect(settled).toContainText("slept well");
+  });
+
   test("shows the agent's task list, expands it, and opens the usage dialog", async ({
     page,
     request,

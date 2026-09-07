@@ -336,6 +336,67 @@ describe("HarnessPane", () => {
     vi.useRealTimers();
   });
 
+  it("opens a running step on its input and collapses it once settled", () => {
+    state.turns = [
+      { id: "t3:user", role: "user", content: "run tests", timestamp: T0 },
+    ];
+    const detail = { input: { command: "pnpm test" }, terminalOutput: null };
+    state.liveTrace = {
+      startedAt: T0,
+      steps: [
+        {
+          id: "s4",
+          kind: "execute",
+          label: "bash",
+          status: "running",
+          startedAt: T0 + 100,
+          detail,
+        },
+      ],
+    };
+    state.streaming = true;
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    // While the command runs, its body is what it was asked to do.
+    const running = screen.getAllByTestId("harness-step")[0];
+    expect(running.getAttribute("data-expandable")).toBe("true");
+    expect(running.querySelector("button")?.getAttribute("aria-expanded")).toBe(
+      "true"
+    );
+    expect(running.textContent).toContain("$ pnpm test");
+
+    // Settled, the row folds to one line; the output waits under it.
+    state.liveTrace = {
+      startedAt: T0,
+      steps: [
+        {
+          id: "s4",
+          kind: "execute",
+          label: "bash",
+          status: "ok",
+          startedAt: T0 + 100,
+          endedAt: T0 + 900,
+          durMs: 800,
+          detail: { ...detail, terminalOutput: "12 passed" },
+        },
+      ],
+    };
+    cleanup();
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const settled = screen.getAllByTestId("harness-step")[0];
+    expect(settled.querySelector("button")?.getAttribute("aria-expanded")).toBe(
+      "false"
+    );
+    expect(settled.textContent).not.toContain("12 passed");
+    fireEvent.click(settled.querySelector("button")!);
+    expect(settled.textContent).toContain("12 passed");
+  });
+
   it("invites the first prompt when there are no turns", () => {
     render(
       <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,

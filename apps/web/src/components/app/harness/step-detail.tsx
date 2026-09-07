@@ -46,6 +46,10 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
   // Tools with a shape of their own, whatever kind dsh filed them under.
   if (isTodoStep(step)) return <TodoList items={todoItems(step)} />;
   if (isSubagentStep(step)) return <SubagentDetail step={step} />;
+  // A step still running has its input and nothing else: the same body
+  // the settled step gets, minus the result, so the reader watches the
+  // call it is waiting on rather than a bare label.
+  const running = step.status === "running";
   switch (step.kind) {
     case "execute": {
       const command = input?.command ?? input?.cmd;
@@ -53,6 +57,8 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
         <>
           {typeof command === "string" ? (
             <CommandLine command={command} />
+          ) : running ? (
+            <Args input={d.input} />
           ) : null}
           <OutputBlock text={d.terminalOutput} />
         </>
@@ -61,12 +67,18 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
     case "edit":
       return d.diff ? (
         <DiffBlock oldText={d.diff.oldText} newText={d.diff.newText} />
+      ) : running ? (
+        <Args input={d.input} />
       ) : (
         <Locations locations={d.locations} />
       );
     case "read": {
       if (!d.terminalOutput?.trim()) {
-        return <Locations locations={d.locations} />;
+        return d.locations?.length || !running ? (
+          <Locations locations={d.locations} />
+        ) : (
+          <Args input={d.input} />
+        );
       }
       const parsed = parseReadOutput(d.terminalOutput);
       const fileName = parsed.path ?? d.locations?.[0]?.path;
@@ -96,8 +108,10 @@ function DetailBody({ step }: { step: Step }): JSX.Element | null {
           <Locations locations={d.locations} />
           {d.terminalOutput && looksLikePathList(d.terminalOutput) ? (
             <PathList text={d.terminalOutput} />
-          ) : (
+          ) : d.terminalOutput?.trim() || !running ? (
             <OutputBlock text={d.terminalOutput} />
+          ) : (
+            <Args input={d.input} />
           )}
         </>
       );

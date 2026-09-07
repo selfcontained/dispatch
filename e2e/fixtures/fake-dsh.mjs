@@ -21,6 +21,9 @@ const cwdBySession = new Map();
 const SLEEP = /sleep:(\d+)/;
 // One resolver per sleeping session, so a cancel reaches the right turn.
 const sleeping = new Map();
+// A prompt containing "run:<ms>" starts a shell step that stays running
+// that long before its output lands, so a spec can watch the live step.
+const RUN = /run:(\d+)/;
 
 const agent = {
   async initialize() {
@@ -69,6 +72,27 @@ const agent = {
       });
       sleeping.delete(params.sessionId);
       if (cancelled) return { stopReason: "cancelled" };
+    }
+    const run = RUN.exec(text);
+    if (run) {
+      await emit({
+        sessionUpdate: "tool_call",
+        toolCallId: "run1",
+        title: "bash",
+        kind: "execute",
+        status: "in_progress",
+        rawInput: { command: `sleep ${Number(run[1]) / 1000}` },
+        content: [],
+      });
+      await new Promise((resolve) => setTimeout(resolve, Number(run[1])));
+      await emit({
+        sessionUpdate: "tool_call_update",
+        toolCallId: "run1",
+        status: "completed",
+        content: [
+          { type: "content", content: { type: "text", text: "slept well" } },
+        ],
+      });
     }
     await emit({
       sessionUpdate: "tool_call",

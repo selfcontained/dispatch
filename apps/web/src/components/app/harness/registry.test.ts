@@ -110,6 +110,35 @@ describe("hasDetail", () => {
       )
     ).toBe(true);
   });
+
+  it("shows a running step's input before any output lands", () => {
+    const detail = { input: { command: "pnpm test" }, terminalOutput: null };
+    // Settled with no output there is nothing to open; running, the
+    // command it is waiting on is the body.
+    expect(hasDetail(step({ kind: "execute", label: "bash", detail }))).toBe(
+      false
+    );
+    expect(
+      hasDetail(
+        step({ kind: "execute", label: "bash", status: "running", detail })
+      )
+    ).toBe(true);
+    expect(
+      hasDetail(
+        step({
+          kind: "edit",
+          label: "edit",
+          status: "running",
+          detail: { input: { file_path: "a.ts", new_string: "x" } },
+        })
+      )
+    ).toBe(true);
+    expect(
+      hasDetail(
+        step({ kind: "execute", label: "bash", status: "running", detail: {} })
+      )
+    ).toBe(false);
+  });
 });
 
 describe("unwrapReadOutput", () => {
