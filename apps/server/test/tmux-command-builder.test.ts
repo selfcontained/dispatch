@@ -1111,6 +1111,18 @@ describe("buildLaunchGuidance — trimmed variant", () => {
     expect(text).toContain("auto-corrected");
   });
 
+  it("requires accepted tasks to continue past plan-only turns", () => {
+    for (const agentType of ["claude", "codex"] as const) {
+      for (const trimmedGuidance of [false, true]) {
+        const text = guidance({ agentType, trimmedGuidance });
+        expect(text).toContain(
+          "do not end a turn after only announcing a plan or status"
+        );
+        expect(text).toContain("Continue into substantive work");
+      }
+    }
+  });
+
   it("folds the two pin rules into one", () => {
     const full = guidance({ agentType: "claude" });
     const text = guidance({ agentType: "claude", trimmedGuidance: true });

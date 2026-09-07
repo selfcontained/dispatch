@@ -790,7 +790,15 @@ function QuestionOptions({
         <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Check className="h-3 w-3" />
           Answered
-          <span className="truncate">· {answer.label ?? answer.value}</span>
+          <span className="flex min-w-0 items-center gap-1">
+            <span aria-hidden="true">·</span>
+            <Markdown
+              variant="caption"
+              className="line-clamp-none truncate text-[11px] leading-normal text-inherit"
+            >
+              {answer.label ?? answer.value}
+            </Markdown>
+          </span>
         </div>
       )}
       <div className="flex flex-wrap gap-1.5">
@@ -817,7 +825,12 @@ function QuestionOptions({
               onClick={() => onAnswer(option)}
             >
               {chosen ? <Check className="h-3 w-3" /> : null}
-              {option.label}
+              <Markdown
+                variant="caption"
+                className="line-clamp-none text-xs leading-normal text-inherit"
+              >
+                {option.label}
+              </Markdown>
             </Button>
           );
         })}

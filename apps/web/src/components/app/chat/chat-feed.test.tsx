@@ -887,7 +887,7 @@ describe("ChatFeed", () => {
     expect(update!.textContent).toContain("Still going");
   });
 
-  it("renders an unanswered question with clickable options", () => {
+  it("renders an unanswered question with clickable Markdown options", () => {
     const { onAnswer } = renderFeed([
       chat(
         message({
@@ -895,7 +895,10 @@ describe("ChatFeed", () => {
           kind: "question",
           text: "Which one?",
           question: {
-            options: [{ label: "Alpha", value: "a" }, { label: "Beta" }],
+            options: [
+              { label: "**Alpha** uses `a`", value: "a" },
+              { label: "Beta" },
+            ],
             allowFreeform: true,
           },
         })
@@ -906,6 +909,9 @@ describe("ChatFeed", () => {
     const options = screen.getAllByTestId("chat-question-option");
     expect(options).toHaveLength(2);
     expect(options.every((o) => !(o as HTMLButtonElement).disabled)).toBe(true);
+    expect(options[0]!.textContent).toBe("Alpha uses a");
+    expect(options[0]!.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(options[0]!.querySelector("code")?.textContent).toBe("a");
 
     fireEvent.click(options[1]!);
     expect(onAnswer).toHaveBeenCalledWith("q1", { label: "Beta" });
@@ -924,12 +930,15 @@ describe("ChatFeed", () => {
           kind: "question",
           text: "Which one?",
           question: {
-            options: [{ label: "Alpha", value: "a" }, { label: "Beta" }],
+            options: [
+              { label: "**Alpha** uses `a`", value: "a" },
+              { label: "Beta" },
+            ],
             allowFreeform: true,
           },
           answer: {
             value: "a",
-            label: "Alpha",
+            label: "**Alpha** uses `a`",
             replyMessageId: "u9",
             answeredAt: "2026-09-02T10:01:00.000Z",
           },
@@ -938,9 +947,11 @@ describe("ChatFeed", () => {
     ]);
     expect(screen.queryByTestId("chat-needs-reply")).toBeNull();
     expect(screen.queryByText("Or type a reply below.")).toBeNull();
-    expect(screen.getByTestId("chat-question-options").textContent).toContain(
-      "Answered"
-    );
+    const card = screen.getByTestId("chat-question-options");
+    expect(card.textContent).toContain("Answered");
+    expect(card.textContent).not.toContain("**Alpha**");
+    expect(card.querySelector("strong")?.textContent).toBe("Alpha");
+    expect(card.querySelector("code")?.textContent).toBe("a");
     const options = screen.getAllByTestId("chat-question-option");
     expect(options.every((o) => (o as HTMLButtonElement).disabled)).toBe(true);
     expect(options[0]!.getAttribute("aria-pressed")).toBe("true");

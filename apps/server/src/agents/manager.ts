@@ -26,6 +26,7 @@ import { getActivePersonality } from "../db/personalities.js";
 import { isTrimmedLaunchGuidanceEnabled } from "../launch-guidance-settings.js";
 import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
 import { findCodexSessionId } from "./codex-sessions.js";
+import { inspectClaudeSessionState } from "./provider-session-state.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
 import {
@@ -1203,6 +1204,34 @@ export class AgentManager {
     // Use a conditional UPDATE to avoid races from concurrent start requests.
     let cliSessionId = agent.cliSessionId;
     let shouldResume = !!cliSessionId;
+    let resumeRecoveryPrompt: string | undefined;
+    if (cliSessionId && agent.type === "claude") {
+      const effectiveCwd = agent.worktreePath ?? agent.cwd;
+      try {
+        const sessionState = await inspectClaudeSessionState(
+          effectiveCwd,
+          cliSessionId
+        );
+        if (sessionState.state === "interrupted") {
+          resumeRecoveryPrompt =
+            "Dispatch detected that the previous provider turn ended without a clean completion marker. Resume the interrupted task now. First reconcile any in-flight tool state from the transcript; do not repeat completed operations, and do not merely restate a plan.";
+          this.logger.info(
+            {
+              agentId: id,
+              provider: "claude",
+              sessionState: sessionState.state,
+              reason: sessionState.reason,
+            },
+            "Resuming interrupted provider session with recovery guidance"
+          );
+        }
+      } catch (error) {
+        this.logger.debug(
+          { err: error, agentId: id, provider: "claude" },
+          "Provider session inspection failed; preserving native resume"
+        );
+      }
+    }
     if (!cliSessionId && agent.type === "claude") {
       cliSessionId = randomUUID();
       cliSessionId = await this.claimCliSessionId(id, cliSessionId);
@@ -1257,6 +1286,7 @@ export class AgentManager {
           autoReview: !agent.persona && (agent.autoReview ?? false),
           trimmedGuidance,
           chatSurface,
+          initialPrompt: resumeRecoveryPrompt,
           personalityPrompt: personality?.prompt ?? null,
           model: agent.model ?? undefined,
         }
