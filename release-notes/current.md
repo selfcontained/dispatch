@@ -1,10 +1,6 @@
 ## What's Changed
-* feat(chat): reserve feed image space from stored dimensions by @selfcontained in https://github.com/selfcontained/dispatch/pull/1064
-* refactor(jobs): extract job detail banners from jobs-detail-pane.tsx by @selfcontained in https://github.com/selfcontained/dispatch/pull/1070
-* refactor(server): type publishUiEvent as UiEvent and widen the agent wire by @selfcontained in https://github.com/selfcontained/dispatch/pull/1071
-* perf(chat): stop re-rendering every post on each feed refetch by @selfcontained in https://github.com/selfcontained/dispatch/pull/1069
-* feat(chat): carry feed rows in SSE events instead of refetching every page by @selfcontained in https://github.com/selfcontained/dispatch/pull/1072
-* refactor(chat): give pin rows their own context; extract useChatFeedContext by @selfcontained in https://github.com/selfcontained/dispatch/pull/1073
+* refactor(web): extract ToggleSettingCard from three settings toggles by @selfcontained in https://github.com/selfcontained/dispatch/pull/1075
+* feat(models): add gpt-6-astra to the codex model catalog by @selfcontained in https://github.com/selfcontained/dispatch/pull/1076
 
 ### Dispatch Harness patch (dsh)
 
@@ -39,3 +35,5 @@
 * Harness view: a running tool step opens on its input (command, arguments, paths) until the result lands, then folds to its one-line row; the first click on an open running step closes it. Review fixes from the round: one provider registry drives the auth filter, the usage rows, and the budget list; a 403 from ChatGPT reads as 403; the path picker keeps directories when files sort ahead of them; IME composition is respected by the menus; the fold animates from the body that was open.
 
 **Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.12...v0.38.12-dsh.29
+
+**Full Changelog**: https://github.com/selfcontained/dispatch/compare/v0.38.12...v0.38.13
