@@ -21,7 +21,7 @@ const model: HarnessConfigOption = {
     },
   ],
 };
-// dsh's effort list starts with a "Provider default" whose value is "".
+// The effort list starts with a default choice whose value is "".
 const effort: HarnessConfigOption = {
   id: "reasoning_effort",
   name: "Reasoning effort",
@@ -103,6 +103,25 @@ describe("ModelPicker", () => {
     expect(
       (screen.getByRole("button", { name: /apply/i }) as HTMLButtonElement)
         .disabled
+    ).toBe(true);
+  });
+
+  it("explains and disables the model select when the engine publishes no model option", () => {
+    render(
+      <ModelPicker
+        open
+        onOpenChange={() => {}}
+        model={undefined}
+        effort={undefined}
+        running
+        saving={false}
+        error={null}
+        onApply={async () => {}}
+      />
+    );
+    expect(screen.getByText("No model option published")).toBeTruthy();
+    expect(
+      (screen.getAllByRole("combobox")[0] as HTMLButtonElement).disabled
     ).toBe(true);
   });
 });

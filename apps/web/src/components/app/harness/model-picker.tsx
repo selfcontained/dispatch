@@ -23,7 +23,7 @@ import { ProviderIcon } from "./provider-icon";
 import { configChoices, isConfigGroup } from "./use-harness-config";
 
 /**
- * dsh's effort list carries a "Provider default" choice whose value is "",
+ * Some engines' effort lists carry a default choice whose value is "",
  * which the Select cannot hold (an empty value means "nothing selected").
  * Values travel through the Select under this stand-in.
  */
@@ -129,13 +129,19 @@ export function ModelPicker({
             <Select
               value={modelValue}
               onValueChange={setModelValue}
-              disabled={!running || !!fixedReason || saving}
+              disabled={!running || !!fixedReason || saving || !model}
             >
               <SelectTrigger
                 id="harness-model"
                 data-testid="harness-model-select"
               >
-                <SelectValue placeholder="Choose a model" />
+                <SelectValue
+                  placeholder={
+                    running && !fixedReason && !model
+                      ? "No model option published"
+                      : "Choose a model"
+                  }
+                />
               </SelectTrigger>
               <SelectContent>
                 {model?.options.map((entry) =>
@@ -183,13 +189,19 @@ export function ModelPicker({
               <Select
                 value={effortValue}
                 onValueChange={setEffortValue}
-                disabled={!running || !!fixedReason || saving}
+                disabled={!running || !!fixedReason || saving || !effort}
               >
                 <SelectTrigger
                   id="harness-effort"
                   data-testid="harness-effort-select"
                 >
-                  <SelectValue placeholder="Choose an effort" />
+                  <SelectValue
+                    placeholder={
+                      running && !fixedReason && !effort
+                        ? "No effort option published"
+                        : "Choose an effort"
+                    }
+                  />
                 </SelectTrigger>
                 <SelectContent>
                   {configChoices(effort).map((c) => (
