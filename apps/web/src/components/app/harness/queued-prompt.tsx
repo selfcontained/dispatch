@@ -30,11 +30,7 @@ export function QueuedPrompt({
   const attachments = prompt.attachments ?? [];
   const excerpt = clip(prompt.text);
   return (
-    <div
-      className="mb-3.5"
-      data-testid="harness-queued"
-      data-queued-id={prompt.id}
-    >
+    <div data-testid="harness-queued" data-queued-id={prompt.id}>
       <div className="flex items-start gap-[9px]">
         <span
           aria-hidden="true"

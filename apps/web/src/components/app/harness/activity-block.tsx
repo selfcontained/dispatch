@@ -1,13 +1,14 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo, useEffect, useRef, useState, type RefObject } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 
 import { ActivityBars } from "@/components/ui/activity-bars";
 import { cn } from "@/lib/utils";
 
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
-import { burstIndex } from "./motion";
+import { arrive, burstIndex, DURATION, fadeVariants } from "./motion";
 import { hasChildren } from "./registry";
 import { computeUnaccountedMs } from "./trace";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
@@ -53,17 +54,6 @@ function ActivityBlockImpl({
     setBlockOverride(false);
   };
 
-  if (done && !open) {
-    return (
-      <CollapsedSummary
-        trace={trace}
-        label={label}
-        onExpand={handleExpand}
-        buttonRef={summaryButtonRef}
-      />
-    );
-  }
-
   const unaccountedMs = computeUnaccountedMs(trace);
   // Open while running; a subagent step stays open while the turn runs,
   // since its call returns the moment the child starts and the child's
@@ -78,53 +68,90 @@ function ActivityBlockImpl({
     setStepOverrides((prev) => ({ ...prev, [step.id]: !stepOpen(step) }));
 
   return (
-    <div
-      className={cn(
-        "rounded-md border border-border/60 px-3 py-2.5",
-        BLOCK_FILL
-      )}
-      data-testid="harness-activity"
+    <motion.div
+      layout
+      transition={arrive(DURATION.slow)}
+      data-testid="harness-activity-fold"
     >
-      <BlockHeader
-        trace={trace}
-        collapsible={done}
-        onCollapse={handleCollapse}
-        buttonRef={collapseButtonRef}
-      />
-      {/* Step rail: a 1px guide line at left:5.5px, with one row per step. */}
-      <div className="relative mt-1.5">
-        <span
-          aria-hidden="true"
-          className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border"
-        />
-        <div role="list" aria-label="activity steps" className="relative">
-          {trace.steps.map((step, i) => (
-            <StepRow
-              key={step.id}
-              step={step}
-              index={burstIndex(trace.steps, i)}
-              open={stepOpen(step)}
-              onToggle={() => toggleStep(step)}
-              maskClass={BLOCK_FILL}
+      <AnimatePresence mode="wait" initial={false}>
+        {done && !open ? (
+          <motion.div
+            key="summary"
+            variants={fadeVariants}
+            initial="hidden"
+            animate="shown"
+            exit="hidden"
+            transition={arrive(DURATION.fast)}
+          >
+            <CollapsedSummary
+              trace={trace}
+              label={label}
+              onExpand={handleExpand}
+              buttonRef={summaryButtonRef}
             />
-          ))}
-          {!done &&
-          trace.steps.length > 0 &&
-          !trace.steps.some((s) => s.status === "running") ? (
-            <ThinkingRow
-              since={trace.steps.reduce(
-                (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
-                trace.startedAt
-              )}
-              maskClass={BLOCK_FILL}
+          </motion.div>
+        ) : (
+          <motion.div
+            key="open"
+            variants={fadeVariants}
+            initial="hidden"
+            animate={{
+              opacity: 1,
+              borderColor: done
+                ? "hsl(var(--border) / 0.6)"
+                : "hsl(var(--status-working) / 0.35)",
+            }}
+            exit="hidden"
+            transition={{ ...arrive(DURATION.fast), borderColor: arrive() }}
+            className={cn(
+              "rounded-md border border-border/60 px-3 py-2.5",
+              BLOCK_FILL
+            )}
+            data-testid="harness-activity"
+          >
+            <BlockHeader
+              trace={trace}
+              collapsible={done}
+              onCollapse={handleCollapse}
+              buttonRef={collapseButtonRef}
             />
-          ) : null}
-          {unaccountedMs > 0 ? (
-            <UnaccountedRow ms={unaccountedMs} maskClass={BLOCK_FILL} />
-          ) : null}
-        </div>
-      </div>
-    </div>
+            {/* Step rail: a 1px guide line at left:5.5px, with one row per step. */}
+            <div className="relative mt-1.5">
+              <span
+                aria-hidden="true"
+                className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border"
+              />
+              <div role="list" aria-label="activity steps" className="relative">
+                {trace.steps.map((step, i) => (
+                  <StepRow
+                    key={step.id}
+                    step={step}
+                    index={burstIndex(trace.steps, i)}
+                    open={stepOpen(step)}
+                    onToggle={() => toggleStep(step)}
+                    maskClass={BLOCK_FILL}
+                  />
+                ))}
+                {!done &&
+                trace.steps.length > 0 &&
+                !trace.steps.some((s) => s.status === "running") ? (
+                  <ThinkingRow
+                    since={trace.steps.reduce(
+                      (latest, s) => Math.max(latest, s.endedAt ?? s.startedAt),
+                      trace.startedAt
+                    )}
+                    maskClass={BLOCK_FILL}
+                  />
+                ) : null}
+                {unaccountedMs > 0 ? (
+                  <UnaccountedRow ms={unaccountedMs} maskClass={BLOCK_FILL} />
+                ) : null}
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </motion.div>
   );
 }
 
@@ -174,14 +201,22 @@ function BlockHeader({
       <span className="flex w-3 justify-center text-[12px] leading-none">
         {glyph}
       </span>
-      <span
-        className={cn(
-          "text-[12px]",
-          done ? "text-foreground" : "font-medium text-status-working"
-        )}
-      >
-        {label}
-      </span>
+      <AnimatePresence mode="wait" initial={false}>
+        <motion.span
+          key={label}
+          variants={fadeVariants}
+          initial="hidden"
+          animate="shown"
+          exit="hidden"
+          transition={arrive(DURATION.fast)}
+          className={cn(
+            "text-[12px]",
+            done ? "text-foreground" : "font-medium text-status-working"
+          )}
+        >
+          {label}
+        </motion.span>
+      </AnimatePresence>
       {thinking ? (
         <span className="text-[12px] text-muted-foreground" aria-hidden="true">
           {dots}

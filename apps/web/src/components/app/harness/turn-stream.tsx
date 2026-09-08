@@ -1,6 +1,7 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { useEffect, useLayoutEffect, useRef, type ReactNode } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import type {
   ChatQuestionOption,
   HarnessQueuedPrompt,
@@ -9,6 +10,7 @@ import type {
 
 import { ActivityBlock } from "./activity-block";
 import type { Attachment, Trace, Turn } from "./contracts";
+import { arrive, exitShrink, rowVariants } from "./motion";
 import { PromptLine } from "./prompt-line";
 import { QuestionCard } from "./question-card";
 import { QueuedPrompt } from "./queued-prompt";
@@ -193,15 +195,28 @@ export function TurnStream({
       {streaming && liveQuestions?.length
         ? renderQuestions(liveQuestions)
         : null}
-      {queued?.map((prompt) => (
-        <QueuedPrompt
-          key={prompt.id}
-          prompt={prompt}
-          busy={queueBusyId === prompt.id}
-          onSendNow={onSendNow}
-          onRemove={onRemoveQueued}
-        />
-      ))}
+      <AnimatePresence initial={false}>
+        {queued?.map((prompt) => (
+          <motion.div
+            key={prompt.id}
+            layout
+            variants={rowVariants}
+            initial="hidden"
+            animate="shown"
+            exit={exitShrink}
+            transition={arrive()}
+            className="mb-3.5"
+            style={{ overflow: "hidden" }}
+          >
+            <QueuedPrompt
+              prompt={prompt}
+              busy={queueBusyId === prompt.id}
+              onSendNow={onSendNow}
+              onRemove={onRemoveQueued}
+            />
+          </motion.div>
+        ))}
+      </AnimatePresence>
     </div>
   );
 }
