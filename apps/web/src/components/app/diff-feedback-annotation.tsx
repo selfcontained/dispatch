@@ -1,13 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import { CheckCircle2, ChevronRight, Circle, XCircle } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { toast } from "sonner";
 
 import { type ReviewFeedbackItem } from "@/hooks/use-agent-reviews";
-import {
-  useAddReviewThreadMessage,
-  useSetReviewFeedbackResolution,
-} from "@/hooks/use-agent-reviews";
+import { useFeedbackItemActions } from "@/components/app/use-feedback-item-actions";
 import { cn } from "@/lib/utils";
 import { Markdown } from "@/components/ui/markdown";
 import { stickyAnnotationStyle } from "@/components/app/diff-annotation-style";
@@ -40,10 +36,18 @@ export function InlineFeedbackAnnotation({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false);
   const annotationRef = useRef<HTMLDivElement>(null);
-  const [reply, setReply] = useState("");
-  const [replying, setReplying] = useState(false);
-  const addMessage = useAddReviewThreadMessage(agentId);
-  const setResolution = useSetReviewFeedbackResolution(agentId);
+  const {
+    reply,
+    setReply,
+    replying,
+    startReply,
+    cancelReply,
+    submitReply,
+    isSendingReply,
+    updateResolution,
+    isUpdatingResolution,
+    pendingResolution,
+  } = useFeedbackItemActions(agentId, feedbackItem.id);
 
   const state = !isResolved
     ? "open"
@@ -88,35 +92,6 @@ export function InlineFeedbackAnnotation({
       window.clearTimeout(settleTimer);
     };
   }, [feedbackItem.id, focused, onFocusComplete]);
-
-  const submitReply = async (event: React.FormEvent) => {
-    event.preventDefault();
-    const body = reply.trim();
-    if (!body) return;
-    try {
-      await addMessage.mutateAsync({ itemId: feedbackItem.id, body });
-      setReply("");
-      setReplying(false);
-    } catch {
-      toast.error("Couldn't send the reply. Try again.");
-    }
-  };
-
-  const cancelReply = () => {
-    setReply("");
-    setReplying(false);
-  };
-
-  const updateResolution = async (resolution: "fixed" | "dismissed" | null) => {
-    try {
-      await setResolution.mutateAsync({
-        itemId: feedbackItem.id,
-        resolution,
-      });
-    } catch {
-      toast.error("Couldn't update the feedback state. Try again.");
-    }
-  };
 
   return (
     <TooltipProvider delayDuration={200}>
@@ -199,10 +174,10 @@ export function InlineFeedbackAnnotation({
                 <FeedbackReplyForm
                   replying={replying}
                   reply={reply}
-                  isPending={addMessage.isPending}
+                  isPending={isSendingReply}
                   variant="inline"
                   onReplyChange={setReply}
-                  onStartReply={() => setReplying(true)}
+                  onStartReply={startReply}
                   onCancelReply={cancelReply}
                   onSubmit={submitReply}
                 />
@@ -211,8 +186,8 @@ export function InlineFeedbackAnnotation({
                 state={state}
                 resolution={feedbackItem.resolution}
                 resolutionNote={feedbackItem.resolutionNote}
-                isPending={setResolution.isPending}
-                pendingResolution={setResolution.variables?.resolution}
+                isPending={isUpdatingResolution}
+                pendingResolution={pendingResolution}
                 variant="inline"
                 onUpdateResolution={(resolution) =>
                   void updateResolution(resolution)
