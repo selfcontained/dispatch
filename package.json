@@ -1,6 +1,6 @@
 {
   "name": "dispatch",
-  "version": "0.38.13-dsh.30",
+  "version": "0.38.13-harness.1",
   "private": true,
   "description": "Local-first control plane for remote Codex CLI agents with simulator media",
   "type": "module",
