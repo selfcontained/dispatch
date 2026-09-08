@@ -95,7 +95,7 @@ export function StepRow({
         <RunningDots />
       ) : summary ? (
         <span className="min-w-0 flex-1 truncate text-[11px] text-muted-foreground">
-          — {summary}
+          · {summary}
         </span>
       ) : (
         <span className="flex-1" />

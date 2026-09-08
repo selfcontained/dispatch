@@ -50,8 +50,8 @@ function titleCase(kind: string): string {
 }
 
 /**
- * Prompts Dispatch itself injects — review thread updates, persona
- * kickoffs, the rename nudge — read as a notice, not as something the
+ * Prompts Dispatch itself injects, such as review thread updates, persona
+ * kickoffs, and the rename nudge, read as a notice, not as something the
  * user typed. A `--- DISPATCH: KIND ---` block names its kind; any other
  * system-sourced prompt is a plain "System" notice.
  */

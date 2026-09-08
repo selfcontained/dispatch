@@ -6,7 +6,7 @@ import {
 } from "@/components/app/media-lightbox-syntax";
 import { cn } from "@/lib/utils";
 
-/** dsh's read tool: <path>…</path>\n<type>file</type>\n<content>\n1: …</content>. */
+/** The read tool's wrapper: <path>…</path>\n<type>file</type>\n<content>\n1: …</content>. */
 export function parseReadOutput(output: string): {
   path?: string;
   type?: string;
@@ -21,7 +21,7 @@ export function parseReadOutput(output: string): {
   const body = content ? content[1] : output;
   const lines = body.replace(/\n$/, "").split("\n");
   // "12: text" prefixes: strip them into a gutter. Lines after the last
-  // numbered one (dsh's paging note) become a footnote.
+  // numbered one (the read tool's paging note) become a footnote.
   const numbered = lines.map((line) => /^(\d+): ?(.*)$/.exec(line));
   let last = -1;
   numbered.forEach((m, i) => {
@@ -141,7 +141,7 @@ export function ExpandableBlock({
 
 /**
  * Highlighted code with an optional line-number gutter. Each line is a
- * grid row — number cell, code cell — so long lines wrap under their own
+ * grid row: number cell, code cell, so long lines wrap under their own
  * number and nothing scrolls sideways. Lines are highlighted one at a
  * time; a construct that spans lines loses its colour past the first.
  */

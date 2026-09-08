@@ -591,7 +591,7 @@ describe("HarnessPane message queue", () => {
   });
 });
 
-describe("HarnessPane tasks and subagents", () => {
+describe("HarnessPane tasks", () => {
   const plan = (status: [string, string, string]) => [
     { content: "Read the README", status: status[0], priority: "high" },
     { content: "Echo the prompt", status: status[1], priority: "medium" },

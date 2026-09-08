@@ -14,7 +14,7 @@ describe("COLLAPSED_LINES", () => {
 });
 
 describe("parseReadOutput", () => {
-  it("strips dsh's wrapper and the line-number prefixes into a start line", () => {
+  it("strips the read tool's wrapper and the line-number prefixes into a start line", () => {
     const out = parseReadOutput(
       "<path>/r/README.md</path>\n<type>file</type>\n<content>\n3: # Title\n4:\n5: body\n</content>"
     );
@@ -26,7 +26,7 @@ describe("parseReadOutput", () => {
     });
   });
 
-  it("keeps dsh's paging note out of the code, as a footnote", () => {
+  it("keeps the read tool's paging note out of the code, as a footnote", () => {
     const out = parseReadOutput(
       "<path>/r/a.ts</path>\n<type>file</type>\n<content>\n1: a\n2: b\n\n(Showing lines 1-2 of 9. Use offset=3 to continue.)\n</content>"
     );

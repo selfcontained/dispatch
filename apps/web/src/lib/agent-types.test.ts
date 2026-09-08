@@ -82,8 +82,8 @@ describe("sortAgentTypes", () => {
 });
 
 describe("sanitizeEnabledAgentTypes", () => {
-  // dsh is opt-in: it needs the harness binary and a provider key on the
-  // server, so it stays out of the fallback list.
+  // The harness agent type is opt-in: it needs an engine installed and
+  // logged in on the server, so it stays out of the fallback list.
   const defaults = AGENT_TYPES.filter((type) => type !== "dispatch");
 
   it("returns the default types for non-array input", () => {
@@ -114,7 +114,7 @@ describe("sanitizeEnabledAgentTypes", () => {
     expect(sanitizeEnabledAgentTypes(["vim", 123, null])).toEqual(defaults);
   });
 
-  it("keeps dsh when it was chosen explicitly", () => {
+  it("keeps the harness when it was chosen explicitly", () => {
     expect(sanitizeEnabledAgentTypes(["dispatch"])).toEqual(["dispatch"]);
   });
 
@@ -128,7 +128,7 @@ describe("sanitizeEnabledAgentTypes", () => {
 });
 
 describe("defaultReviewAgentType", () => {
-  it("runs the reviewer as the agent's own kind, dsh included", () => {
+  it("runs the reviewer as the agent's own kind, the harness included", () => {
     expect(defaultReviewAgentType({ type: "dispatch" })).toBe("dispatch");
     expect(defaultReviewAgentType({ type: "cursor" })).toBe("cursor");
     expect(defaultReviewAgentType({ type: "claude" })).toBe("claude");

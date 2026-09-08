@@ -30,7 +30,7 @@ export const CLI_AGENT_TYPES = [
 export type CliAgentType = (typeof CLI_AGENT_TYPES)[number];
 
 // What an install offers before anyone saves a choice. The harness stays opt-in: it
-// needs the harness binary and a provider key on the server, and a curious
+// needs an engine installed and logged in on the server, and a curious
 // click without either should not be the first thing a new install sees.
 export const DEFAULT_ENABLED_AGENT_TYPES = AGENT_TYPES.filter(
   (type) => type !== "dispatch"

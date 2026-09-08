@@ -12,8 +12,8 @@ import {
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
-// Entries from a stream-driven harness (dsh over ACP): the agent's own text
-// and its tool calls, rendered from agent_stream_events rows.
+// Entries from a stream-driven harness (an engine over ACP): the agent's own
+// text and its tool calls, rendered from agent_stream_events rows.
 
 /** Assistant text from the harness stream: the agent's own post. */
 export function AssistantEntryView({

@@ -212,7 +212,7 @@ export type HarnessUsageEngine = HarnessEngine & {
   agents: HarnessUsageAgent[];
 };
 
-/** What the engines used this month; replaces HarnessUsageResponse once plan 2 lands. */
+/** The month's usage by engine. */
 export type HarnessUsageReport = {
   generatedAt: string;
   monthStart: string;

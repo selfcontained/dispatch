@@ -33,7 +33,7 @@ function ActivityBlockImpl({
   // open = userOverride ?? !done  (open while running; collapsed when done)
   const open = blockOverride ?? !done;
   // Toggling the block swaps its toggle control between the header collapse
-  // button and the CollapsedSummary button — two different DOM nodes, so a
+  // button and the CollapsedSummary button, two different DOM nodes, so a
   // plain re-render drops focus to <body>. The effect moves focus to the
   // newly-mounted control when a click flipped it.
   const collapseButtonRef = useRef<HTMLButtonElement>(null);
@@ -288,7 +288,7 @@ function CollapsedSummary({
       ref={buttonRef}
       type="button"
       onClick={onExpand}
-      aria-label={`${verb}, ${steps}, ${formatStepDuration(dur)} — expand activity`}
+      aria-label={`${verb}, ${steps}, ${formatStepDuration(dur)}, expand activity`}
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(

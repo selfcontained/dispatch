@@ -50,23 +50,23 @@ describe("groupModelOptions", () => {
     const { groupModelOptions } = await import("./agent-model-select");
     expect(
       groupModelOptions([
-        { id: "a", label: "A", group: "OpenAI" },
+        { id: "a", label: "A", group: "Codex" },
         { id: "b", label: "B" },
-        { id: "c", label: "C", group: "DeepSeek" },
-        { id: "d", label: "D", group: "OpenAI" },
+        { id: "c", label: "C", group: "Gemini CLI" },
+        { id: "d", label: "D", group: "Codex" },
       ])
     ).toEqual([
       {
-        group: "OpenAI",
+        group: "Codex",
         options: [
-          { id: "a", label: "A", group: "OpenAI" },
-          { id: "d", label: "D", group: "OpenAI" },
+          { id: "a", label: "A", group: "Codex" },
+          { id: "d", label: "D", group: "Codex" },
         ],
       },
       { group: null, options: [{ id: "b", label: "B" }] },
       {
-        group: "DeepSeek",
-        options: [{ id: "c", label: "C", group: "DeepSeek" }],
+        group: "Gemini CLI",
+        options: [{ id: "c", label: "C", group: "Gemini CLI" }],
       },
     ]);
   });
