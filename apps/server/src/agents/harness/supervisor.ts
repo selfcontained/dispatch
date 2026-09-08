@@ -286,6 +286,12 @@ export class HarnessSupervisor {
    * timer with it: {@link onEvent}.
    */
   private readonly publishTimers = new Map<string, NodeJS.Timeout>();
+  /**
+   * Set by {@link stopAll} before it snapshots what is running, so the
+   * snapshot cannot grow behind it: {@link pump} starts nothing more once
+   * shutdown has begun.
+   */
+  private shuttingDown = false;
 
   constructor(private readonly deps: SupervisorDeps) {
     this.resolveBinary = deps.resolveBinary ?? resolveExecutable;
@@ -489,9 +495,15 @@ export class HarnessSupervisor {
     await this.deps.setCliSessionId(agentId, sessionId);
     await this.deps.setLatestEvent(agentId, {
       type: "idle",
+      // A stored session that came back as a fresh one is not a first
+      // start: the engine could not resume (Gemini CLI answers session/
+      // resume with "method not found"), so its own history is gone even
+      // though Dispatch still has every turn.
       message: resumed
         ? "Harness session resumed."
-        : "Harness session started.",
+        : agent.cliSessionId
+          ? "Harness session restarted; this engine cannot resume, so the engine's own history starts fresh (Dispatch keeps the turns)."
+          : "Harness session started.",
     });
     // The session's options exist from here: the picker can read them.
     this.deps.publishHarness(agentId, true);
@@ -685,17 +697,25 @@ export class HarnessSupervisor {
 
   /** Start the next queued prompt when nothing runs; runs itself again after. */
   private pump(agentId: string): void {
+    // Shutdown has begun: what is queued stays queued, so a chat message
+    // keeps its undelivered row for the next boot to redeliver rather than
+    // starting a turn the teardown is about to cut.
+    if (this.shuttingDown) return;
     if (this.running.has(agentId)) return;
     const list = this.pendingOf(agentId);
     const next = list.shift();
     if (list.length === 0) this.pending.delete(agentId);
     if (!next) return;
+    // The slot is claimed here, synchronously, because `isBusy` and the
+    // queue order read it. `started` is not resolved here: it waits for the
+    // engine to accept the prompt, so a chat message is never recorded as
+    // delivered to a child that has already gone away.
     this.running.set(agentId, next);
-    next.markStarted();
     void this.runTurn(
       agentId,
       next.text,
-      () => this.pendingOf(agentId).length === 0
+      () => this.pendingOf(agentId).length === 0,
+      next
     )
       .catch(() => {})
       .finally(() => {
@@ -735,7 +755,8 @@ export class HarnessSupervisor {
   private async runTurn(
     agentId: string,
     text: string,
-    isLastQueued: () => boolean
+    isLastQueued: () => boolean,
+    item?: Pending
   ): Promise<void> {
     let startedAt: string | null = null;
     const persona = this.pendingPersona.get(agentId);
@@ -750,7 +771,7 @@ export class HarnessSupervisor {
       });
       startedAt =
         (await this.deps.getAgent(agentId))?.latestEvent?.updatedAt ?? null;
-      await this.driver.prompt(agentId, text);
+      await this.driver.prompt(agentId, text, () => item?.markStarted());
       await this.drained(agentId);
       if (isLastQueued()) {
         await this.settle(agentId, startedAt, {
@@ -761,6 +782,10 @@ export class HarnessSupervisor {
     } catch (err) {
       const message = (err as Error).message;
       this.deps.logger.warn({ err, agentId }, "harness prompt failed");
+      // A prompt that never reached the engine leaves its caller a
+      // rejection, so a chat message settles as not delivered instead of
+      // waiting for ever. A no-op once the engine accepted the prompt.
+      item?.failStarted(err as Error);
       if (isLastQueued()) {
         await this.settle(agentId, startedAt, {
           type: "idle",
@@ -812,6 +837,7 @@ export class HarnessSupervisor {
   async stopAll(): Promise<void> {
     const ids = this.driver.liveAgentIds();
     if (ids.length === 0) return;
+    this.shuttingDown = true;
     // A turn still running is the restart's doing, not the agent's: mark it
     // so the next boot knows to resume it, before the exit settles it as
     // merely cancelled. Bounded: a slow database must not hold the

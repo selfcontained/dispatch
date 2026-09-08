@@ -453,8 +453,19 @@ export class HarnessDriver {
     }
   }
 
-  /** Runs one turn; resolves when the agent settles it. */
-  async prompt(agentId: string, text: string): Promise<void> {
+  /**
+   * Runs one turn; resolves when the agent settles it.
+   *
+   * `onAccepted` runs once the child is live and the request has been
+   * handed to it. Nothing before that point reached the engine, so a
+   * caller that records a prompt as delivered has to wait for this rather
+   * than for the turn being queued.
+   */
+  async prompt(
+    agentId: string,
+    text: string,
+    onAccepted?: () => void
+  ): Promise<void> {
     const entry = this.require(agentId);
     this.emit({ type: "turn", agentId, state: "started", text });
     // A child that exits mid-turn never answers the request; the pending
@@ -465,13 +476,12 @@ export class HarnessDriver {
       throw new Error("the harness exited before the turn settled");
     });
     try {
-      const res = await Promise.race([
-        entry.conn.prompt({
-          sessionId: entry.sessionId,
-          prompt: [{ type: "text", text }],
-        }),
-        gone,
-      ]);
+      const dispatched = entry.conn.prompt({
+        sessionId: entry.sessionId,
+        prompt: [{ type: "text", text }],
+      });
+      onAccepted?.();
+      const res = await Promise.race([dispatched, gone]);
       this.emit({
         type: "turn",
         agentId,

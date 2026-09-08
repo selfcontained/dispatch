@@ -132,14 +132,23 @@ kill_tree() {
   kill -"$sig" "$pid" 2>/dev/null || true
 }
 
-# Tree-kill a service PID, wait for exit, then force-kill if needed.
+# Signal a service PID, wait for exit, then tree-kill if it is stuck.
+#
+# SIGTERM goes to the top-level process only, which is what the production
+# unit does (KillMode=process): the server's own shutdown then tears its
+# children down in order, and a harness agent's engine child gets the
+# close-session teardown that marks its running turn as cut by the restart.
+# Signaling the whole tree up front kills those children out from under the
+# server, and the agent comes back needing a manual Start instead. The
+# depth-first sweep stays as the escape hatch for a process that ignores
+# the signal.
 stop_service() {
   local pid="${1:-}"
   local name="${2:-service}"
   if ! pid_alive "$pid"; then
     return 0
   fi
-  kill_tree "$pid"
+  kill -TERM "$pid" 2>/dev/null || true
   local i=0
   while [ $i -lt 10 ] && pid_alive "$pid"; do
     sleep 0.5

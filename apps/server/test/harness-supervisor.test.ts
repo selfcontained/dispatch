@@ -187,6 +187,20 @@ describe("HarnessSupervisor", () => {
     await sup.stop("agt_1");
   });
 
+  it("says the engine could not resume when it falls back to a fresh session", async () => {
+    const { sup, events } = await build({
+      cliSessionId: "sess_old",
+      resumeFails: true,
+    });
+    await sup.start("agt_1");
+    // Not a first start: the stored session came back as a fresh one, so
+    // the engine's own history is gone even though Dispatch keeps the turns.
+    expect(events.at(-1)?.message).toBe(
+      "Harness session restarted; this engine cannot resume, so the engine's own history starts fresh (Dispatch keeps the turns)."
+    );
+    await sup.stop("agt_1");
+  });
+
   it("prompt marks working, then idle when the turn settles, and publishes the chat", async () => {
     const { sup, events, deps, query } = await build({
       turn: async (_p, emit) => {
@@ -891,6 +905,18 @@ describe("HarnessSupervisor message queue", () => {
     expect(fake.seen.prompts).toEqual(["one"]);
   });
 
+  it("a chat message's start rejects when the engine cannot accept the prompt", async () => {
+    const { sup, fake } = await build();
+    // No start(), so there is no live child and the driver's liveness guard
+    // rejects the prompt. ChatService reads that rejection as delivered:
+    // false and the next boot redelivers the row; resolving it would record
+    // a turn that never reached the engine as delivered.
+    const chat = sup.enqueuePrompt("agt_1", envelope("only"));
+    await expect(chat.started).rejects.toThrow(/not running/i);
+    await chat.settled;
+    expect(fake.seen.prompts).toEqual([]);
+  });
+
   it("stop drops what is queued and fails their starts", async () => {
     const { sup, fake } = await build({
       turn: async (_p, _emit, _ask, signal) => {
@@ -927,6 +953,32 @@ describe("HarnessSupervisor restart resilience", () => {
     await sup.restoreRunning();
     await vi.waitFor(() => expect(fake.seen.prompts).toEqual([RESTART_PROMPT]));
     await sup.stopAll();
+  });
+
+  it("starts nothing more once shutdown has begun", async () => {
+    const CHAT = "0f3d2a8e-6c4b-4c1e-9b7a-1d2e3f4a5b6c";
+    const { sup, fake } = await build();
+    await sup.start("agt_1");
+    // stopAll() raises its flag synchronously, before it snapshots what is
+    // running, so a message that arrives inside the teardown window stays
+    // queued. flushQueued then leaves its chat row undelivered for the next
+    // boot, instead of the teardown cutting a turn it had just started.
+    const stopping = sup.stopAll();
+    const chat = sup.enqueuePrompt(
+      "agt_1",
+      `--- DISPATCH CHAT (id: ${CHAT}) ---\nlater\n--- END DISPATCH CHAT ---`
+    );
+    let chatSettled: "pending" | "started" | "failed" = "pending";
+    chat.started.then(
+      () => (chatSettled = "started"),
+      () => (chatSettled = "failed")
+    );
+    expect(sup.listQueued("agt_1").map((q) => q.id)).toEqual([CHAT]);
+    await stopping;
+    await chat.settled;
+    await new Promise((r) => setTimeout(r, 10));
+    expect(chatSettled).toBe("pending");
+    expect(fake.seen.prompts).toEqual([]);
   });
 
   it("does not resume when the cut is old, the agent is done, or the session is fresh", async () => {
