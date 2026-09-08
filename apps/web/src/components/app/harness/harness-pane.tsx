@@ -458,10 +458,10 @@ export function HarnessPane({
             }
           />
         </HarnessContext.Provider>
+        {/* Driven by `starting` rather than keyed on it, so the composer
+          keeps its node (and focus, draft, dialogs) across the handoff. */}
         <motion.div
-          key={starting ? "starting" : "ready"}
-          initial={{ opacity: 0, y: 6 }}
-          animate={{ opacity: 1, y: 0 }}
+          animate={starting ? { opacity: 0, y: 6 } : { opacity: 1, y: 0 }}
           transition={arrive(DURATION.slow)}
           className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2"
         >

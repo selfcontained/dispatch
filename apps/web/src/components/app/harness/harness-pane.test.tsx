@@ -443,6 +443,20 @@ describe("HarnessPane while the agent is starting", () => {
       "starting"
     );
   });
+
+  it("keeps the composer section mounted across the starting handoff", () => {
+    const creating = { ...agent, status: "creating" } as unknown as Agent;
+    const running = { ...agent, status: "running" } as unknown as Agent;
+    const { rerender } = render(
+      <HarnessPane agentId="agt_1" agent={creating} active isMobile={false} />,
+      { wrapper }
+    );
+    const chip = screen.getByTestId("harness-model-chip");
+    rerender(
+      <HarnessPane agentId="agt_1" agent={running} active isMobile={false} />
+    );
+    expect(screen.getByTestId("harness-model-chip")).toBe(chip);
+  });
 });
 
 describe("HarnessPane questions and drops", () => {

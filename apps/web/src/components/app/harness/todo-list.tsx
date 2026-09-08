@@ -21,17 +21,26 @@ export function TodoList({
   className?: string;
 }): JSX.Element | null {
   if (items.length === 0) return null;
+  // Stable keys from content (with a duplicate counter for repeats), so a
+  // reorder or mid-list removal lets `layout` animate rows into place
+  // instead of remounting them under a shifted index-based key.
+  const seen = new Map<string, number>();
+  const keyed = items.map((item) => {
+    const n = seen.get(item.content) ?? 0;
+    seen.set(item.content, n + 1);
+    return { item, key: n === 0 ? item.content : `${item.content}#${n}` };
+  });
   return (
     <ul
       className={cn("space-y-1 font-terminal text-[11.5px]", className)}
       data-testid="harness-todo-list"
     >
-      {items.map((item, i) => {
+      {keyed.map(({ item, key }) => {
         const done = item.status === "completed";
         const active = item.status === "in_progress";
         return (
           <motion.li
-            key={`${i}:${item.content}`}
+            key={key}
             layout
             transition={arrive()}
             className="flex items-start gap-2"
