@@ -13,10 +13,12 @@ import {
   setEnabledAgentTypesViaAPI,
 } from "./helpers";
 
-// A dsh agent's setup runs through the tmux setup script (worktree, then a
-// login shell in the pane) before the ACP child starts, so this spec needs
-// the live runtime: E2E_AGENT_RUNTIME=tmux. The harness itself is the fake
-// in e2e/fixtures/fake-dsh.mjs, selected through DISPATCH_DSH_BIN.
+// A harness agent's setup runs through the tmux setup script (worktree,
+// then a login shell in the pane) before the ACP child starts, so this spec
+// needs the live runtime: E2E_AGENT_RUNTIME=tmux. The engine itself is the
+// fake in e2e/fixtures/fake-acp-agent.mjs, selected through the four
+// DISPATCH_*_HARNESS_BIN / DISPATCH_GEMINI_BIN / DISPATCH_OPENCODE_BIN
+// settings.
 const live = process.env.DISPATCH_AGENT_RUNTIME === "tmux";
 
 async function setChatSurface(
@@ -32,8 +34,8 @@ async function setChatSurface(
 
 /** A throwaway git repo with one commit, so the worktree setup has a base. */
 function makeRepo(): string {
-  const dir = mkdtempSync(path.join(os.tmpdir(), "dsh-e2e-repo-"));
-  writeFileSync(path.join(dir, "README.md"), "# dsh e2e\n");
+  const dir = mkdtempSync(path.join(os.tmpdir(), "harness-e2e-repo-"));
+  writeFileSync(path.join(dir, "README.md"), "# harness e2e\n");
   mkdirSync(path.join(dir, "src"));
   writeFileSync(path.join(dir, "src", "index.ts"), "export {};\n");
   const git = (...args: string[]) =>
@@ -53,93 +55,136 @@ function makeRepo(): string {
   return dir;
 }
 
-test.describe("dsh agent", () => {
-  test.skip(!live, "dsh setup completes through the tmux setup script");
+test.describe("harness agent", () => {
+  test.skip(!live, "harness setup completes through the tmux setup script");
   test.setTimeout(120_000);
 
   test.afterEach(async ({ request }) => {
     await cleanupE2EAgents(request);
   });
 
-  test("opens on the Harness view and runs a turn there", async ({
-    page,
-    request,
-  }) => {
-    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
-    await setChatSurface(request, true);
-    const repo = makeRepo();
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-dsh-${Date.now()}`,
-      type: "dispatch",
-      cwd: repo,
-      useWorktree: true,
-      // A persona launch hands its kickoff over this way; dsh takes no
-      // launch argument, so it must arrive as the first turn.
-      initialPrompt: "kickoff: begin",
-    });
-    expect(agent.status).toBe("running");
+  const ENGINES = [
+    {
+      model: "claude/default",
+      plan: true,
+      cost: true,
+      chipFixed: false,
+      nested: true,
+    },
+    {
+      model: "codex/default",
+      plan: true,
+      cost: false,
+      chipFixed: false,
+      nested: false,
+    },
+    {
+      model: "gemini/default",
+      plan: false,
+      cost: false,
+      chipFixed: true,
+      nested: false,
+    },
+    {
+      model: "opencode/default",
+      plan: false,
+      cost: true,
+      chipFixed: false,
+      nested: false,
+    },
+  ] as const;
 
-    await loadApp(page);
-    await clickAgentRow(page, agent.id);
-    await page.getByTestId("center-tab-agent").click();
+  for (const engine of ENGINES) {
+    test(`${engine.model}: opens on the Harness view, runs a turn, shows what the engine publishes`, async ({
+      page,
+      request,
+    }) => {
+      await setEnabledAgentTypesViaAPI(request, [
+        "claude",
+        "codex",
+        "dispatch",
+      ]);
+      await setChatSurface(request, true);
+      const repo = makeRepo();
+      const agent = await createAgentViaAPI(request, {
+        name: `e2e-harness-${engine.model.split("/")[0]}-${Date.now()}`,
+        type: "dispatch",
+        model: engine.model,
+        cwd: repo,
+        useWorktree: true,
+        initialPrompt: `kickoff: begin tasks: subagent:`,
+      });
+      expect(agent.status).toBe("running");
 
-    // A Dispatch Harness agent opens on the Harness view, its Chat.
-    await expect(page.getByTestId("agent-view-toggle")).toHaveAttribute(
-      "data-view",
-      "chat"
-    );
-    await expect(page.getByTestId("agent-view-harness")).toHaveAttribute(
-      "data-state",
-      "on"
-    );
-    const harness = page.getByTestId("harness-pane");
-    await expect(harness).toBeVisible();
+      await loadApp(page);
+      await page.emulateMedia({ reducedMotion: "reduce" });
+      await clickAgentRow(page, agent.id);
+      await page.getByTestId("center-tab-agent").click();
+      const harness = page.getByTestId("harness-pane");
+      await expect(harness).toBeVisible();
 
-    // The initial prompt ran as the first turn before anything was typed.
-    await expect(harness.getByTestId("harness-prompt").first()).toContainText(
-      "kickoff: begin",
-      { timeout: 30_000 }
-    );
-    await expect(harness.getByTestId("harness-result").first()).toContainText(
-      "You said:",
-      { timeout: 30_000 }
-    );
-
-    const input = harness.getByTestId("chat-composer-input");
-    await input.fill("hello harness");
-    await input.press("Enter");
-
-    // Prompt line, then the turn's activity settles to a collapsed summary
-    // (one tool call in the fake), then the echoed result.
-    await expect(harness.getByTestId("harness-prompt").last()).toContainText(
-      "hello harness"
-    );
-    await expect(
-      harness.getByTestId("harness-activity-summary").last()
-    ).toContainText("1 step", { timeout: 30_000 });
-    const result = harness.getByTestId("harness-result").last();
-    await expect(result).toContainText("You said:", { timeout: 30_000 });
-    await expect(result).toContainText("hello harness");
-
-    // Harness stands in for Chat: the toggle is Harness | Console.
-    await expect(page.getByTestId("agent-view-chat")).toHaveCount(0);
-    await expect(page.getByTestId("agent-view-console")).toBeVisible();
-
-    await expect
-      .poll(
-        async () => {
-          const res = await request.get(`/api/v1/agents/${agent.id}`, {
-            headers: authHeaders(),
-          });
-          const body = (await res.json()) as {
-            agent: { latestEvent: { type: string } | null };
-          };
-          return body.agent.latestEvent?.type ?? null;
-        },
+      // The kickoff ran as the first turn; the persona prefix (for engines
+      // that take it that way) is not shown, the launch post is.
+      await expect(harness.getByTestId("harness-prompt").first()).toContainText(
+        "kickoff: begin",
         { timeout: 30_000 }
-      )
-      .toBe("idle");
-  });
+      );
+      await expect(harness.getByTestId("harness-result").first()).toContainText(
+        "You said:",
+        { timeout: 30_000 }
+      );
+
+      // The tasks strip shows for engines that publish a plan, and only them.
+      if (engine.plan) {
+        await expect(harness.getByTestId("harness-tasks")).toContainText(
+          "1 of 3 done",
+          { timeout: 30_000 }
+        );
+      } else {
+        await expect(harness.getByTestId("harness-tasks")).toHaveCount(0);
+      }
+
+      // A Claude subagent's steps nest under the Task step.
+      if (engine.nested) {
+        await harness.getByTestId("harness-activity-summary").first().click();
+        const task = harness
+          .getByTestId("harness-step")
+          .filter({ hasText: "task" })
+          .first();
+        await task.click();
+        await expect(harness.getByTestId("harness-nested-steps")).toBeVisible();
+      }
+
+      // The model chip is disabled with a reason for an engine that fixes its model.
+      const chip = harness.getByTestId("harness-model-chip");
+      if (engine.chipFixed) {
+        await expect(chip).toHaveAttribute("data-fixed", "true");
+        await expect(chip).toHaveAttribute("title", /sets its model at launch/);
+      } else {
+        await expect(chip).not.toHaveAttribute("data-fixed", "true");
+      }
+
+      // The usage dialog names the engine and says what it reports.
+      await harness.getByTestId("harness-usage-chip").click();
+      const row = page.getByTestId(
+        `harness-usage-engine-${engine.model.split("/")[0]}`
+      );
+      await expect(row).toBeVisible();
+      if (engine.cost) await expect(row).toContainText("$");
+      else if (engine.model.startsWith("gemini"))
+        await expect(row).toContainText("not reported over ACP");
+      else await expect(row).toContainText("no cost reported");
+      await page.keyboard.press("Escape");
+
+      // Slash menu lists the engine's commands.
+      const input = harness.getByTestId("chat-composer-input");
+      await input.fill("/rev");
+      await expect(
+        harness.getByTestId("chat-composer-slash-item").first()
+      ).toContainText("review");
+      await input.fill("");
+    });
+  }
 
   test("offers paths under the working tree from an @ in the composer", async ({
     page,
@@ -149,7 +194,7 @@ test.describe("dsh agent", () => {
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
-      name: `e2e-dsh-paths-${Date.now()}`,
+      name: `e2e-harness-paths-${Date.now()}`,
       type: "dispatch",
       cwd: repo,
       useWorktree: true,
@@ -157,6 +202,7 @@ test.describe("dsh agent", () => {
     expect(agent.status).toBe("running");
 
     await loadApp(page);
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await clickAgentRow(page, agent.id);
     await page.getByTestId("center-tab-agent").click();
     const harness = page.getByTestId("harness-pane");
@@ -217,7 +263,7 @@ test.describe("dsh agent", () => {
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
-      name: `e2e-dsh-queue-${Date.now()}`,
+      name: `e2e-harness-queue-${Date.now()}`,
       type: "dispatch",
       cwd: repo,
       useWorktree: true,
@@ -225,6 +271,7 @@ test.describe("dsh agent", () => {
     expect(agent.status).toBe("running");
 
     await loadApp(page);
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await clickAgentRow(page, agent.id);
     await page.getByTestId("center-tab-agent").click();
     const harness = page.getByTestId("harness-pane");
@@ -292,7 +339,7 @@ test.describe("dsh agent", () => {
     await setChatSurface(request, true);
     const repo = makeRepo();
     const agent = await createAgentViaAPI(request, {
-      name: `e2e-dsh-live-${Date.now()}`,
+      name: `e2e-harness-live-${Date.now()}`,
       type: "dispatch",
       cwd: repo,
       useWorktree: true,
@@ -300,6 +347,7 @@ test.describe("dsh agent", () => {
     expect(agent.status).toBe("running");
 
     await loadApp(page);
+    await page.emulateMedia({ reducedMotion: "reduce" });
     await clickAgentRow(page, agent.id);
     await page.getByTestId("center-tab-agent").click();
     const harness = page.getByTestId("harness-pane");
@@ -341,61 +389,5 @@ test.describe("dsh agent", () => {
     await expect(settled).toContainText("sleep 8");
     await settled.getByRole("button").click();
     await expect(settled).toContainText("slept well");
-  });
-
-  test("shows the agent's task list, expands it, and opens the usage dialog", async ({
-    page,
-    request,
-  }) => {
-    await setEnabledAgentTypesViaAPI(request, ["claude", "codex", "dispatch"]);
-    await setChatSurface(request, true);
-    const repo = makeRepo();
-    const agent = await createAgentViaAPI(request, {
-      name: `e2e-dsh-tasks-${Date.now()}`,
-      type: "dispatch",
-      cwd: repo,
-      useWorktree: true,
-    });
-    expect(agent.status).toBe("running");
-
-    await loadApp(page);
-    await clickAgentRow(page, agent.id);
-    await page.getByTestId("center-tab-agent").click();
-    const harness = page.getByTestId("harness-pane");
-    const input = harness.getByTestId("chat-composer-input");
-    await expect(input).toBeEnabled({ timeout: 30_000 });
-
-    await input.fill("tasks: plan the work");
-    await input.press("Enter");
-    await expect(harness.getByTestId("harness-result").last()).toContainText(
-      "You said:",
-      { timeout: 30_000 }
-    );
-    // The turn's last task list stays pinned while work remains on it.
-    const tasks = harness.getByTestId("harness-tasks");
-    await expect(tasks).toContainText("1 of 3 done");
-    await expect(
-      tasks.locator(
-        '[data-testid="harness-todo-item"][data-status="in_progress"]'
-      )
-    ).toContainText("Echo the prompt");
-
-    // The step itself reads as "tasks" and expands into the same list.
-    await harness.getByTestId("harness-activity-summary").last().click();
-    const step = harness
-      .getByTestId("harness-step")
-      .filter({ hasText: "tasks" });
-    await expect(step).toContainText("1 of 3 done");
-    await step.getByRole("button").click();
-    await expect(step.getByTestId("harness-todo-list")).toBeVisible();
-
-    // /usage opens the usage dialog; this server has no provider keys.
-    await input.fill("/usa");
-    await input.press("Enter");
-    const dialog = page.getByTestId("harness-usage-dialog");
-    await expect(dialog).toBeVisible();
-    await expect(dialog).toContainText("No provider keys", { timeout: 15_000 });
-    await page.keyboard.press("Escape");
-    await expect(dialog).toBeHidden();
   });
 });

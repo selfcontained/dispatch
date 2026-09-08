@@ -53,10 +53,10 @@ export DISPATCH_SESSION_PREFIX="$RUN_ID"
 # real engine: the fake in e2e/fixtures speaks the protocol for all four and
 # scripts one turn per prompt.
 FAKE_ACP="$PWD/e2e/fixtures/fake-acp-agent.mjs"
-export DISPATCH_CLAUDE_HARNESS_BIN="${DISPATCH_CLAUDE_HARNESS_BIN:-$FAKE_ACP}"
-export DISPATCH_CODEX_HARNESS_BIN="${DISPATCH_CODEX_HARNESS_BIN:-$FAKE_ACP}"
-export DISPATCH_GEMINI_BIN="${DISPATCH_GEMINI_BIN:-$FAKE_ACP}"
-export DISPATCH_OPENCODE_BIN="${DISPATCH_OPENCODE_BIN:-$FAKE_ACP}"
+export DISPATCH_CLAUDE_HARNESS_BIN="$FAKE_ACP"
+export DISPATCH_CODEX_HARNESS_BIN="$FAKE_ACP"
+export DISPATCH_GEMINI_BIN="$FAKE_ACP"
+export DISPATCH_OPENCODE_BIN="$FAKE_ACP"
 
 if [ "$DISPATCH_AGENT_RUNTIME" = "tmux" ] && ! command -v tmux &>/dev/null; then
   echo "Error: E2E_AGENT_RUNTIME=tmux but tmux is not on PATH." >&2

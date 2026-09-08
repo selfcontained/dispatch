@@ -74,8 +74,10 @@ export async function createAgentViaAPI(
     worktreeBranch?: string;
     /** Launch as a child of this agent (renders as a sub agent row). */
     parentAgentId?: string;
-    /** The first prompt: typed into a CLI, or a dsh agent's first turn. */
+    /** The first prompt: typed into a CLI, or a harness agent's first turn. */
     initialPrompt?: string;
+    /** The engine and model for a dispatch agent, as engine/model. */
+    model?: string;
   } = {}
 ): Promise<AgentResult> {
   const res = await request.post(`${API}/agents`, {
@@ -88,6 +90,7 @@ export async function createAgentViaAPI(
       worktreeBranch: overrides.worktreeBranch,
       parentAgentId: overrides.parentAgentId,
       initialPrompt: overrides.initialPrompt,
+      model: overrides.model,
     },
   });
   const body = (await res.json()) as { agent: AgentResult };

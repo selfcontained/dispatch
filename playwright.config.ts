@@ -61,12 +61,8 @@ export default defineConfig({
       DISPATCH_PORT: devPort,
       MEDIA_ROOT: mediaRoot,
       DISPATCH_AGENT_RUNTIME: agentRuntime,
-      // The harness specs run against the fake ACP agent, so no provider
-      // keys are needed here. scripts/e2e-isolated.sh already exports
-      // DISPATCH_CLAUDE_HARNESS_BIN, DISPATCH_CODEX_HARNESS_BIN,
-      // DISPATCH_GEMINI_BIN, and DISPATCH_OPENCODE_BIN before invoking
-      // Playwright; this block must not set them itself, or a developer's
-      // shell could leak real engine binaries into the run.
+      // The four DISPATCH_*_BIN settings are not set here: scripts/e2e-isolated.sh
+      // pins them to the fake ACP agent, and this block must not override that.
     },
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
