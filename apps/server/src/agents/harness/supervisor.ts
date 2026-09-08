@@ -151,6 +151,22 @@ function isModelOption(
 }
 
 /**
+ * How much of a Claude turn's reply is kept to test the logged-out answer
+ * against. The phrase has to open the reply, so a few hundred characters is
+ * already more than the check can use.
+ */
+const LOGIN_REPLY_MAX_CHARS = 300;
+
+/**
+ * Claude Code's logged-out answer, anchored to the start of the turn's
+ * reply. Anchored rather than matched anywhere in it because the phrase is
+ * ordinary prose: this repo's own runbook prints that command, so an agent
+ * asked about the runbook could otherwise write the phrase and have its
+ * session stopped mid-work.
+ */
+const LOGIN_REPLY_RE = /^\s*please run \/login\b/i;
+
+/**
  * True when `err` is the ACP SDK's `RequestError.authRequired` (JSON-RPC
  * code -32000) or otherwise says the engine needs a login, so a session
  * start or a boot restore can end with a message the starting screen shows
@@ -241,10 +257,16 @@ export class HarnessSupervisor {
   private readonly running = new Map<string, Pending>();
   /**
    * Claude Code has no `auth_required` error; it answers a turn with a plain
-   * "Please run /login" reply instead. Agent ids whose current turn said so,
-   * ended by the settled turn that follows: {@link onEvent}.
+   * "Please run /login" reply instead. What the current Claude turn has
+   * said, capped, and whether it called a tool: a turn that used a tool is
+   * working, not refusing to start, so the answer is only read as logged out
+   * when it opens the reply of a turn that did nothing else. Kept per turn
+   * and read when it settles: {@link onEvent}.
    */
-  private readonly loginPrompted = new Set<string>();
+  private readonly turnReply = new Map<
+    string,
+    { text: string; toolCall: boolean }
+  >();
   /**
    * Per-agent trailing timers that coalesce the publishes streamed updates
    * drive. One ACP notification arrives per token chunk, and every publish
@@ -773,6 +795,7 @@ export class HarnessSupervisor {
     );
     await this.driver.stop(agentId);
     this.context.delete(agentId);
+    this.turnReply.delete(agentId);
     this.pendingPersona.delete(agentId);
   }
 
@@ -845,24 +868,45 @@ export class HarnessSupervisor {
         this.publishCoalesced(event.agentId);
       }
       // Claude Code has no auth_required error; it answers a turn saying to
-      // run /login instead. Watch for that line before the turn settles, so
-      // the exit that stop() triggers below is not read by the
-      // unexpected-exit branch that follows.
-      if (
-        event.type === "update" &&
-        ctx?.engine === "claude" &&
-        event.update.sessionUpdate === "agent_message_chunk" &&
-        event.update.content.type === "text" &&
-        /please run \/login/i.test(event.update.content.text)
-      ) {
-        this.loginPrompted.add(event.agentId);
+      // run /login instead. Accumulate what this turn says, so the check
+      // runs against the opening of the whole reply rather than one chunk,
+      // and note a tool call, which rules the answer out.
+      if (event.type === "turn" && event.state === "started") {
+        if (ctx?.engine === "claude") {
+          this.turnReply.set(event.agentId, { text: "", toolCall: false });
+        } else {
+          this.turnReply.delete(event.agentId);
+        }
       }
+      const reply =
+        event.type === "update" ? this.turnReply.get(event.agentId) : undefined;
+      if (reply && event.type === "update") {
+        if (event.update.sessionUpdate === "tool_call") {
+          reply.toolCall = true;
+        } else if (
+          event.update.sessionUpdate === "agent_message_chunk" &&
+          event.update.content.type === "text" &&
+          reply.text.length < LOGIN_REPLY_MAX_CHARS
+        ) {
+          reply.text = (reply.text + event.update.content.text).slice(
+            0,
+            LOGIN_REPLY_MAX_CHARS
+          );
+        }
+      }
+      // Read at the boundary, before the turn's own handling below, so the
+      // exit that stop() triggers is not read by the unexpected-exit branch
+      // that follows.
+      const settledReply =
+        event.type === "turn" && event.state === "settled"
+          ? this.turnReply.get(event.agentId)
+          : undefined;
+      if (settledReply) this.turnReply.delete(event.agentId);
       if (
-        event.type === "turn" &&
-        event.state === "settled" &&
-        this.loginPrompted.has(event.agentId)
+        settledReply &&
+        !settledReply.toolCall &&
+        LOGIN_REPLY_RE.test(settledReply.text.trim())
       ) {
-        this.loginPrompted.delete(event.agentId);
         // stop() marks its live entry as stopping before it closes the
         // session, so the exit event that follows carries expected: true
         // and never reaches the unexpected-exit branch below, so this
@@ -880,6 +924,7 @@ export class HarnessSupervisor {
       }
       if (event.type === "exit" && !event.expected) {
         this.context.delete(event.agentId);
+        this.turnReply.delete(event.agentId);
         // Any unexpected exit, code 0 included: a "running" agent over a
         // dead child takes every prompt to a 409.
         const message = `The engine exited (${event.code ?? event.signal ?? "unknown"}); press Start to relaunch.`;

@@ -1081,4 +1081,36 @@ describe("HarnessSupervisor login failure", () => {
     );
     stopSpy.mockRestore();
   });
+
+  it("leaves a Claude turn alone when the phrase is prose in a working turn", async () => {
+    const { sup, deps } = await build({
+      turn: async (_prompt, emit) => {
+        await emit({
+          sessionUpdate: "tool_call",
+          toolCallId: "t1",
+          title: "Read docs/10-operations-runbook.md",
+          kind: "read",
+          status: "completed",
+        });
+        await emit({
+          sessionUpdate: "agent_message_chunk",
+          content: {
+            type: "text",
+            text: "The runbook says to please run /login as the service user.",
+          },
+        });
+        return "end_turn";
+      },
+    });
+    const markExited = vi.fn(async () => {});
+    (deps as { markExited?: typeof markExited }).markExited = markExited;
+    const stopSpy = vi.spyOn(HarnessDriver.prototype, "stop");
+    await sup.start("agt_1");
+    await sup.prompt("agt_1", "what does the runbook say");
+    expect(markExited).not.toHaveBeenCalled();
+    expect(stopSpy).not.toHaveBeenCalled();
+    expect(sup.isRunning("agt_1")).toBe(true);
+    stopSpy.mockRestore();
+    await sup.stop("agt_1");
+  });
 });
