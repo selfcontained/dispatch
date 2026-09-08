@@ -731,7 +731,7 @@ describe("providerOf", () => {
     expect(providerOf("codex/gpt-5.6-sol")).toBe("openai");
     expect(providerOf("gemini/default")).toBe("google");
     expect(providerOf("opencode/anthropic/claude-sonnet-5")).toBe("opencode");
-    expect(providerOf("deepseek/x")).toBeNull();
+    expect(providerOf("nope/x")).toBeNull();
     expect(providerOf(null)).toBeNull();
   });
 });
