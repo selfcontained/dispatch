@@ -218,6 +218,32 @@ listener_cwd() {
   fi
 }
 
+# Whether a running process was launched by this stack, by the per-stack
+# marker the launch exports into its environment: the API gets
+# DISPATCH_RELEASE_STORE_PATH and Vite gets DISPATCH_VITE_CACHE_DIR, and both
+# are under $(log_dir), which is unique per suffix. Only Linux answers: macOS
+# has no /proc and no way to read another process's environment without
+# elevation, so there the caller falls back to the cwd comparison.
+#
+# Returns 0 when the marker is there, 1 when the environment could be read
+# and it is not, 2 when it could not be read at all.
+listener_has_stack_marker() {
+  local target="${1:-}"
+  [ -z "$target" ] && return 2
+  [ -r "/proc/${target}/environ" ] || return 2
+  local api_marker="DISPATCH_RELEASE_STORE_PATH=$(log_dir)/release.json"
+  local vite_marker="DISPATCH_VITE_CACHE_DIR=$(log_dir)/vite-cache"
+  local environ
+  environ="$(tr '\0' '\n' < "/proc/${target}/environ" 2>/dev/null)" || return 2
+  if printf '%s\n' "$environ" | grep -qxF "$api_marker"; then
+    return 0
+  fi
+  if printf '%s\n' "$environ" | grep -qxF "$vite_marker"; then
+    return 0
+  fi
+  return 1
+}
+
 # Stop a dev service: the process that owns the port first, then its
 # wrappers, then force.
 #
@@ -271,18 +297,30 @@ stop_service() {
         listener_belongs=1
       fi
     else
-      # The wrapper is already gone, so there is no tree left to walk. Fall
-      # back to comparing the listener's cwd against this stack's directory.
-      # A prefix match, not equality: pnpm runs the workspace script from
-      # the package directory (apps/server), not the repo root DEV_CWD
-      # records, so the listener's cwd is a subdirectory of it, not equal.
-      local listener_cwd_path stack_cwd
-      listener_cwd_path="$(listener_cwd "$listener")"
-      stack_cwd="$(readlink -f "${DEV_CWD:-}" 2>/dev/null || true)"
-      if [ -n "$listener_cwd_path" ] && [ -n "$stack_cwd" ]; then
-        case "$listener_cwd_path/" in
-          "$stack_cwd"/*) listener_belongs=1 ;;
-        esac
+      # The wrapper is already gone, so there is no tree left to walk. The
+      # per-stack environment marker answers this exactly, which the cwd
+      # cannot: two stacks started from the same worktree (which the header
+      # above recommends) have the same cwd, so a stale state file whose
+      # port has since been recycled to the sibling stack would pass a cwd
+      # check and get the sibling's server signaled.
+      local marker_state=0
+      listener_has_stack_marker "$listener" || marker_state=$?
+      if [ "$marker_state" = "0" ]; then
+        listener_belongs=1
+      elif [ "$marker_state" = "2" ]; then
+        # The environment could not be read (no /proc: macOS). Fall back to
+        # comparing the listener's cwd against this stack's directory. A
+        # prefix match, not equality: pnpm runs the workspace script from the
+        # package directory (apps/server), not the repo root DEV_CWD records,
+        # so the listener's cwd is a subdirectory of it, not equal.
+        local listener_cwd_path stack_cwd
+        listener_cwd_path="$(listener_cwd "$listener")"
+        stack_cwd="$(readlink -f "${DEV_CWD:-}" 2>/dev/null || true)"
+        if [ -n "$listener_cwd_path" ] && [ -n "$stack_cwd" ]; then
+          case "$listener_cwd_path/" in
+            "$stack_cwd"/*) listener_belongs=1 ;;
+          esac
+        fi
       fi
     fi
     if [ "$listener_belongs" != "1" ]; then
@@ -574,8 +612,24 @@ cmd_up() {
 
   # Same honesty check as the API's: on a restart the port is reused, and a
   # listener from outside this tree is the previous Vite still serving.
-  local vite_listener
-  vite_listener="$(port_listener_pid "$DEV_VITE_PORT")"
+  #
+  # It waits for the port first. Run straight after the `sleep 1` above it
+  # found nothing listening yet on this host, the emptiness passed the check,
+  # and it covered nothing at all. 15 s, not the API's 60: Vite has no
+  # migrations or database to wait on, and a slow start here only means the
+  # check is skipped rather than the stack failing.
+  local vite_listener=""
+  local vite_waited=0
+  while [ $vite_waited -lt 30 ]; do
+    vite_listener="$(port_listener_pid "$DEV_VITE_PORT")"
+    [ -n "$vite_listener" ] && break
+    pid_alive "$DEV_VITE_PID" || break
+    vite_waited=$((vite_waited + 1))
+    sleep 0.5
+  done
+  if [ -z "$vite_listener" ]; then
+    echo "Note: port ${DEV_VITE_PORT} was not open after 15s, so its owner was not checked. See $(log_dir)/vite.log" >&2
+  fi
   if [ -n "$vite_listener" ] && ! pid_in_tree "$vite_listener" "$DEV_VITE_PID"; then
     echo "Error: port ${DEV_VITE_PORT} is held by PID ${vite_listener}, which is not part of the Vite server just started (PID ${DEV_VITE_PID})." >&2
     echo "An earlier dev server still owns the port. Stop it and retry: kill ${vite_listener}" >&2
