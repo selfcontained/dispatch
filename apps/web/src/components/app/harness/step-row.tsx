@@ -30,12 +30,15 @@ export function StepRow({
   open,
   onToggle,
   maskClass,
+  depth = 0,
 }: {
   step: Step;
   open: boolean;
   onToggle: () => void;
   /** Background class that hides the rail line behind the glyph. */
   maskClass: string;
+  /** 0 at the rail's top level; children render one deeper. */
+  depth?: number;
 }): JSX.Element {
   const running = step.status === "running";
   // Only a step with something underneath gets a toggle.
@@ -117,6 +120,7 @@ export function StepRow({
       aria-live={running ? "polite" : undefined}
       data-testid="harness-step"
       data-expandable={expandable ? "true" : "false"}
+      data-depth={depth}
     >
       {expandable ? (
         <button
@@ -150,9 +154,9 @@ export function StepRow({
       >
         <div className="overflow-hidden">
           {expanded ? (
-            <StepDetail step={step} />
+            <StepDetail step={step} depth={depth} />
           ) : mounted ? (
-            <StepDetail step={shown.current} />
+            <StepDetail step={shown.current} depth={depth} />
           ) : null}
         </div>
       </div>

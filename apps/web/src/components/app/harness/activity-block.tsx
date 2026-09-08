@@ -7,8 +7,8 @@ import { cn } from "@/lib/utils";
 
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
+import { hasChildren } from "./registry";
 import { computeUnaccountedMs } from "./trace";
-import { isSubagentStep } from "./registry";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
 import { useStreamTicker } from "./use-stream-ticker";
 
@@ -69,7 +69,7 @@ function ActivityBlockImpl({
   // progress lives under it.
   const stepOpen = (step: Step): boolean =>
     stepOverrides[step.id] ??
-    (!done && (step.status === "running" || isSubagentStep(step)));
+    (!done && (step.status === "running" || hasChildren(step)));
   // The override flips the effective state, not the stored one: a step
   // open by default (running) has no override yet, and its first click
   // must close it.

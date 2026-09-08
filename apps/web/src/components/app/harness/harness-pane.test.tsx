@@ -63,23 +63,6 @@ vi.mock("./use-harness-turns", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./use-harness-turns")>()),
   useHarnessTurns: () => state,
 }));
-const subagentState: {
-  subagent: unknown;
-  loading: boolean;
-  error: Error | null;
-} = {
-  subagent: null,
-  loading: false,
-  error: null,
-};
-vi.mock("./use-harness-subagent", () => ({
-  harnessSubagentQueryKey: (a: string | null, s: string | null) => [
-    "harness-subagent",
-    a,
-    s,
-  ],
-  useHarnessSubagent: () => subagentState,
-}));
 const runShortcut = vi.fn();
 vi.mock("@/hooks/use-pin-shortcuts", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@/hooks/use-pin-shortcuts")>()),
@@ -640,100 +623,6 @@ describe("HarnessPane tasks and subagents", () => {
       { wrapper }
     );
     expect(screen.queryByTestId("harness-tasks")).toBeNull();
-  });
-
-  it("nests a subagent's own turns under its step", () => {
-    subagentState.subagent = {
-      id: "44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
-      label: "Study skill conventions",
-      model: "openai/gpt-5.6-sol",
-      status: "finished",
-      startedAt: "2026-09-04T10:00:01.000Z",
-      endedAt: "2026-09-04T10:00:09.000Z",
-      turns: [
-        {
-          id: "sub:1",
-          prompt: { source: "chat", text: "Inspect the repo", attachments: [] },
-          trace: {
-            startedAt: "2026-09-04T10:00:01.000Z",
-            endedAt: "2026-09-04T10:00:09.000Z",
-            finalResult: "ok",
-            steps: [
-              {
-                id: "sub:1:c1",
-                kind: "search",
-                label: "glob",
-                status: "ok",
-                startedAt: "2026-09-04T10:00:02.000Z",
-                endedAt: "2026-09-04T10:00:03.000Z",
-                durMs: 1000,
-                detail: { terminalOutput: "No files found" },
-              },
-            ],
-          },
-          result: { text: "Nothing to report.", streaming: false },
-        },
-      ],
-    };
-    state.turns = [
-      { id: "t1:user", role: "user", content: "go", timestamp: T0 },
-      {
-        id: "t1:assistant",
-        role: "assistant",
-        content: "Delegated.",
-        timestamp: T0 + 9000,
-        trace: {
-          startedAt: T0,
-          endedAt: T0 + 9000,
-          finalResult: "ok",
-          steps: [
-            {
-              id: "s1",
-              kind: "other",
-              label: "subagent",
-              status: "ok",
-              startedAt: T0 + 1000,
-              endedAt: T0 + 1100,
-              durMs: 100,
-              detail: {
-                input: {
-                  prompt: "Inspect the repo",
-                  description: "Study skill conventions",
-                  run_in_background: true,
-                },
-                terminalOutput:
-                  "started subagent 44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
-                subagentSessionId: "44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
-              },
-            },
-          ],
-        },
-      },
-    ];
-    render(
-      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
-      { wrapper }
-    );
-    // Settled turns collapse; open the activity, then the step.
-    fireEvent.click(screen.getByTestId("harness-activity-summary"));
-    const step = screen.getAllByTestId("harness-step")[0];
-    expect(step.textContent).toContain("subagent");
-    expect(step.textContent).toContain("Study skill conventions");
-    fireEvent.click(step.querySelector("button")!);
-    const nested = screen.getByTestId("harness-subagent");
-    expect(nested.getAttribute("data-status")).toBe("finished");
-    expect(nested.textContent).toContain("Study skill conventions");
-    expect(nested.textContent).toContain("openai/gpt-5.6-sol");
-    const inner = nested.querySelector(
-      '[data-testid="harness-nested-stream"]'
-    )!;
-    expect(inner.textContent).toContain("Inspect the repo");
-    expect(inner.textContent).toContain("Nothing to report.");
-    expect(
-      inner.querySelector('[data-testid="harness-activity-summary"]')
-        ?.textContent
-    ).toContain("1 step");
-    subagentState.subagent = null;
   });
 });
 

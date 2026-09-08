@@ -137,7 +137,7 @@ describe("hasDetail", () => {
 });
 
 describe("unwrapReadOutput", () => {
-  it("strips dsh's path/type/content wrapper", () => {
+  it("strips the read tool's path/type/content wrapper", () => {
     const wrapped =
       "<path>/r/README.md</path>\n<type>file</type>\n<content>\n1: # Dispatch\n2: hi\n</content>";
     expect(unwrapReadOutput(wrapped)).toBe("1: # Dispatch\n2: hi\n");
