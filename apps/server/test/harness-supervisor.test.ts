@@ -196,7 +196,7 @@ describe("HarnessSupervisor", () => {
     // Not a first start: the stored session came back as a fresh one, so
     // the engine's own history is gone even though Dispatch keeps the turns.
     expect(events.at(-1)?.message).toBe(
-      "Harness session restarted; this engine cannot resume, so the engine's own history starts fresh (Dispatch keeps the turns)."
+      "Session restarted; this engine cannot resume, so Dispatch keeps the turns."
     );
     await sup.stop("agt_1");
   });
@@ -908,9 +908,12 @@ describe("HarnessSupervisor message queue", () => {
   it("a chat message's start rejects when the engine cannot accept the prompt", async () => {
     const { sup, fake } = await build();
     // No start(), so there is no live child and the driver's liveness guard
-    // rejects the prompt. ChatService reads that rejection as delivered:
-    // false and the next boot redelivers the row; resolving it would record
-    // a turn that never reached the engine as delivered.
+    // rejects the prompt. ChatService records that rejection as
+    // delivered: false, the honest answer for a turn that never reached the
+    // engine, where resolving would claim the engine had it. Redelivery at
+    // the next boot is a separate thing: listPendingDeliveries takes only
+    // rows left at delivered IS NULL, which is what the shutdown path
+    // leaves behind, not this one.
     const chat = sup.enqueuePrompt("agt_1", envelope("only"));
     await expect(chat.started).rejects.toThrow(/not running/i);
     await chat.settled;

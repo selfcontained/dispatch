@@ -132,32 +132,93 @@ kill_tree() {
   kill -"$sig" "$pid" 2>/dev/null || true
 }
 
-# Signal a service PID, wait for exit, then tree-kill if it is stuck.
+# The PID holding the listening socket on a TCP port, or empty.
 #
-# SIGTERM goes to the top-level process only, which is what the production
-# unit does (KillMode=process): the server's own shutdown then tears its
-# children down in order, and a harness agent's engine child gets the
-# close-session teardown that marks its running turn as cut by the restart.
-# Signaling the whole tree up front kills those children out from under the
-# server, and the agent comes back needing a manual Start instead. The
-# depth-first sweep stays as the escape hatch for a process that ignores
-# the signal.
+# The recorded PID for each dev service is a `pnpm` wrapper, not the server:
+# `pnpm run dev` execs node, which spawns a shell, which spawns pnpm again,
+# which finally spawns `bun --watch src/main.ts` (the process that binds the
+# port and parents the harness engine children). pnpm does not forward
+# SIGTERM, so the kernel's own answer to "who owns the port" is the only
+# reliable way to reach the server.
+port_listener_pid() {
+  local port="${1:-}"
+  [ -z "$port" ] && return 0
+  local pid=""
+  if command -v ss &>/dev/null; then
+    pid="$(ss -ltnpH "sport = :${port}" 2>/dev/null |
+      grep -oE 'pid=[0-9]+' | head -n 1 | cut -d= -f2 || true)"
+  fi
+  if [ -z "$pid" ] && command -v lsof &>/dev/null; then
+    pid="$(lsof -t -iTCP:"$port" -sTCP:LISTEN 2>/dev/null | head -n 1 || true)"
+  fi
+  echo "$pid"
+}
+
+# True when `needle` is `root` or one of its descendants.
+pid_in_tree() {
+  local needle="${1:-}"
+  local root="${2:-}"
+  [ -z "$needle" ] && return 1
+  [ -z "$root" ] && return 1
+  local p="$needle"
+  local hops=0
+  while [ -n "$p" ] && [ "$p" != "1" ] && [ $hops -lt 20 ]; do
+    [ "$p" = "$root" ] && return 0
+    p="$(ps -o ppid= -p "$p" 2>/dev/null | tr -d ' ' || true)"
+    hops=$((hops + 1))
+  done
+  return 1
+}
+
+# Stop a dev service: the process that owns the port first, then its
+# wrappers, then force.
+#
+# The server is signaled directly, which is what the production unit does
+# (KillMode=process): its own shutdown handler runs, and a harness agent's
+# engine child gets the close-session teardown that marks the running turn
+# as cut by the restart. Its children are never signaled from here, because
+# killing an engine out from under the server leaves the agent needing a
+# manual Start. The wrapper chain goes next so no pnpm or shell lingers,
+# and the depth-first SIGKILL sweep stays the escape hatch for anything
+# that ignores all of it.
 stop_service() {
   local pid="${1:-}"
   local name="${2:-service}"
-  if ! pid_alive "$pid"; then
+  local port="${3:-}"
+  local listener
+  listener="$(port_listener_pid "$port")"
+  if [ -n "$listener" ] && ! pid_alive "$listener"; then
+    listener=""
+  fi
+  if ! pid_alive "$pid" && [ -z "$listener" ]; then
     return 0
   fi
-  kill -TERM "$pid" 2>/dev/null || true
-  local i=0
-  while [ $i -lt 10 ] && pid_alive "$pid"; do
-    sleep 0.5
-    i=$((i + 1))
-  done
+
+  if [ -n "$listener" ]; then
+    kill -TERM "$listener" 2>/dev/null || true
+    local waited=0
+    while [ $waited -lt 10 ] && pid_alive "$listener"; do
+      sleep 0.5
+      waited=$((waited + 1))
+    done
+  fi
+
+  if pid_alive "$pid"; then
+    kill_tree "$pid"
+    local i=0
+    while [ $i -lt 10 ] && pid_alive "$pid"; do
+      sleep 0.5
+      i=$((i + 1))
+    done
+  fi
+
   if pid_alive "$pid"; then
     kill_tree "$pid" 9
   fi
-  echo "Stopped ${name} (PID ${pid})"
+  if [ -n "$listener" ] && pid_alive "$listener"; then
+    kill -KILL "$listener" 2>/dev/null || true
+  fi
+  echo "Stopped ${name} (PID ${pid}${listener:+, server ${listener}})"
 }
 
 # Detect docker compose command
@@ -298,6 +359,20 @@ cmd_up() {
     sleep 0.5
   done
 
+  # An open port is not proof the server we just started owns it. A restart
+  # reuses the port, so a listener from outside this tree means the old
+  # server never died: the health check below would pass against stale code
+  # and the restart would report success. Fail loudly instead.
+  if [ "$port_open" = "1" ]; then
+    local api_listener
+    api_listener="$(port_listener_pid "$DEV_API_PORT")"
+    if [ -n "$api_listener" ] && ! pid_in_tree "$api_listener" "$DEV_API_PID"; then
+      echo "Error: port ${DEV_API_PORT} is held by PID ${api_listener}, which is not part of the API server just started (PID ${DEV_API_PID})." >&2
+      echo "An earlier dev server still owns the port, so this stack would serve stale code. Stop it and retry: kill ${api_listener}" >&2
+      exit 1
+    fi
+  fi
+
   # Verify the API is actually healthy, not just listening
   if [ "$port_open" = "1" ]; then
     local health_attempts=0
@@ -365,6 +440,16 @@ cmd_up() {
     echo "Warning: Vite server exited immediately. Check $(log_dir)/vite.log" >&2
   fi
 
+  # Same honesty check as the API's: on a restart the port is reused, and a
+  # listener from outside this tree is the previous Vite still serving.
+  local vite_listener
+  vite_listener="$(port_listener_pid "$DEV_VITE_PORT")"
+  if [ -n "$vite_listener" ] && ! pid_in_tree "$vite_listener" "$DEV_VITE_PID"; then
+    echo "Error: port ${DEV_VITE_PORT} is held by PID ${vite_listener}, which is not part of the Vite server just started (PID ${DEV_VITE_PID})." >&2
+    echo "An earlier dev server still owns the port. Stop it and retry: kill ${vite_listener}" >&2
+    exit 1
+  fi
+
   save_state
 
   echo ""
@@ -385,8 +470,8 @@ cmd_down() {
     return 0
   fi
 
-  stop_service "${DEV_API_PID:-}" "API server"
-  stop_service "${DEV_VITE_PID:-}" "Vite server"
+  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}"
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}"
 
   # Stop the DB container
   if [ -n "${DEV_COMPOSE_PROJECT:-}" ] && [ "${DEV_NO_DB:-0}" != "1" ]; then
@@ -432,8 +517,8 @@ cmd_restart() {
   fi
 
   # Stop the app processes only — DB stays up.
-  stop_service "${DEV_API_PID:-}" "API server"
-  stop_service "${DEV_VITE_PID:-}" "Vite server"
+  stop_service "${DEV_API_PID:-}" "API server" "${DEV_API_PORT:-}"
+  stop_service "${DEV_VITE_PID:-}" "Vite server" "${DEV_VITE_PORT:-}"
 
   # Re-launch on the same ports so any open browser tabs reconnect
   # without a manual refresh, and so the DATABASE_URL we assemble

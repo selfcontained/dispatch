@@ -502,7 +502,7 @@ export class HarnessSupervisor {
       message: resumed
         ? "Harness session resumed."
         : agent.cliSessionId
-          ? "Harness session restarted; this engine cannot resume, so the engine's own history starts fresh (Dispatch keeps the turns)."
+          ? "Session restarted; this engine cannot resume, so Dispatch keeps the turns."
           : "Harness session started.",
     });
     // The session's options exist from here: the picker can read them.
