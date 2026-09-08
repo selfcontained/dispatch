@@ -1268,8 +1268,8 @@ type Live = {
   stopping: boolean;
   /** Session config options (model, reasoning effort) as the engine last reported. */
   config: { options: acp.SessionConfigOption[] };
-  /** Slash commands as the engine last advertised them. */
-  commands: acp.AvailableCommand[];
+  /** Slash commands as the engine last advertised them; a holder shared with the update handler, like `config`. */
+  commands: { list: acp.AvailableCommand[] };
 };
 ```
 
@@ -1489,7 +1489,7 @@ export class HarnessDriver {
     })();
 ```
 
-The `Outcome` race, the failure branch, and the `entry` construction stay as they are, with two edits: the timeout string becomes `` `the engine did not complete the ACP handshake within ${HANDSHAKE_TIMEOUT_MS / 1000}s` ``, the thrown error becomes `` `harness start failed: ${reason}${tail}` ``, and `entry` gains `commands: commands.list` with the `sessionUpdate` handler above writing into that same object (declare `const live: Live = {...}` after the race and have the handler read `commands.list`; simplest is to store the `commands` holder on the entry: `commands: commands.list` and, in the handler, `commands.list = ...` followed by `const entry = this.live.get(launch.agentId); if (entry) entry.commands = commands.list;`).
+The `Outcome` race, the failure branch, and the `entry` construction stay as they are, with three edits: the timeout string becomes `` `the engine did not complete the ACP handshake within ${HANDSHAKE_TIMEOUT_MS / 1000}s` ``; the thrown error becomes `` `harness start failed: ${reason}${tail}` ``; and `entry` gains `commands,` (the same holder object the `sessionUpdate` handler mutates, exactly as `config,` already is). Because the entry and the handler hold one object, a later `available_commands_update` is visible through `getCommands` with no extra bookkeeping.
 
 Replace `getConfigOptions` and delete `probeConfigOptions` entirely; add `getCommands`:
 
@@ -1501,7 +1501,7 @@ Replace `getConfigOptions` and delete `probeConfigOptions` entirely; add `getCom
 
   /** The slash commands the engine advertised; null when not running. */
   getCommands(agentId: string): acp.AvailableCommand[] | null {
-    return this.live.get(agentId)?.commands ?? null;
+    return this.live.get(agentId)?.commands.list ?? null;
   }
 ```
 
