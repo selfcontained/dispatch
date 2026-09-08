@@ -1,11 +1,13 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { useEffect, useRef, useState } from "react";
+import { motion } from "framer-motion";
 
 import { cn } from "@/lib/utils";
 
 import type { Step, StepStatus } from "./contracts";
 import { formatStepDuration } from "./format";
+import { arrive, rowDelay, rowVariants } from "./motion";
 import { hasDetail, stepLabel, stepSummary, toolName } from "./registry";
 import { StepDetail } from "./step-detail";
 import { useStreamTicker } from "./use-stream-ticker";
@@ -31,6 +33,7 @@ export function StepRow({
   onToggle,
   maskClass,
   depth = 0,
+  index = 0,
 }: {
   step: Step;
   open: boolean;
@@ -39,6 +42,8 @@ export function StepRow({
   maskClass: string;
   /** 0 at the rail's top level; children render one deeper. */
   depth?: number;
+  /** This row's slot within its landing burst; staggers its entrance. */
+  index?: number;
 }): JSX.Element {
   const running = step.status === "running";
   // Only a step with something underneath gets a toggle.
@@ -114,13 +119,16 @@ export function StepRow({
     </>
   );
   return (
-    <div
-      className="animate-harness-row motion-reduce:animate-none"
+    <motion.div
+      variants={rowVariants}
+      initial="hidden"
+      animate="shown"
+      transition={{ ...arrive(), delay: rowDelay(index) }}
       role="listitem"
       aria-live={running ? "polite" : undefined}
       data-testid="harness-step"
-      data-expandable={expandable ? "true" : "false"}
       data-depth={depth}
+      data-expandable={expandable ? "true" : "false"}
     >
       {expandable ? (
         <button
@@ -160,7 +168,7 @@ export function StepRow({
           ) : null}
         </div>
       </div>
-    </div>
+    </motion.div>
   );
 }
 

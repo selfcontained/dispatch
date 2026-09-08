@@ -1,11 +1,13 @@
 // Ported from @mytraai/promptkit (MytraAI/mytra-os-uis, packages/promptkit):
 // Nii Yeboah's PromptKit design. Adapted to Dispatch's tokens and shadcn.
 import { memo } from "react";
+import { motion } from "framer-motion";
 
 import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
 import type { Turn } from "./contracts";
+import { arrive, fadeVariants } from "./motion";
 
 function ResultTurnImpl({
   turn,
@@ -21,8 +23,12 @@ function ResultTurnImpl({
   const interrupted = turn.trace?.finalResult === "interrupted";
   const showContent = !!turn.content;
   return (
-    <div
-      className="animate-harness-msg space-y-2 motion-reduce:animate-none"
+    <motion.div
+      variants={fadeVariants}
+      initial="hidden"
+      animate="shown"
+      transition={arrive()}
+      className="space-y-2"
       data-testid="harness-result"
     >
       {showContent ? <ResultText content={turn.content} /> : null}
@@ -48,7 +54,7 @@ function ResultTurnImpl({
       <div className="pl-[21px] text-[10.5px] text-muted-foreground">
         {new Date(turn.timestamp).toLocaleTimeString()}
       </div>
-    </div>
+    </motion.div>
   );
 }
 

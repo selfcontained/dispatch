@@ -6,6 +6,7 @@ import type {
 } from "@dispatch/shared";
 import { harnessEngineOf } from "@dispatch/shared";
 import { useQueryClient } from "@tanstack/react-query";
+import { MotionConfig } from "framer-motion";
 import { CircleDollarSign, Cpu, Square, Upload } from "lucide-react";
 
 import {
@@ -346,205 +347,214 @@ export function HarnessPane({
     : null;
 
   return (
-    <div
-      ref={dropRef}
-      className="relative flex h-full min-h-0 min-w-0 flex-col"
-      data-testid="harness-pane"
-      data-dragging={draggingFiles ? "true" : undefined}
-    >
-      {draggingFiles ? (
-        <div
-          data-testid="harness-drop-overlay"
-          className="pointer-events-none absolute inset-0 z-40 m-2 overflow-hidden rounded-xl bg-[linear-gradient(to_right,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)))] p-[2px] saturate-[1.35] brightness-[1.05]"
-        >
-          <div className="relative grid h-full w-full place-items-center overflow-hidden rounded-[10px] bg-background/85 backdrop-blur-sm">
-            <div className="dispatch-reconnect-scan pointer-events-none absolute inset-y-0 left-0 w-1/3 animate-[reconnect-scan_1350ms_ease-in-out_infinite] bg-[linear-gradient(to_right,transparent,hsl(var(--status-working)),transparent)] opacity-25 will-change-transform motion-reduce:hidden" />
-            <div className="relative flex flex-col items-center gap-2 px-6 text-center text-foreground">
-              <Upload className="h-8 w-8" />
-              <p className="text-sm font-medium">Drop files to attach</p>
-              <p className="text-xs text-muted-foreground">
-                They go with your next message.
-              </p>
+    <MotionConfig reducedMotion="user">
+      <div
+        ref={dropRef}
+        className="relative flex h-full min-h-0 min-w-0 flex-col"
+        data-testid="harness-pane"
+        data-dragging={draggingFiles ? "true" : undefined}
+      >
+        {draggingFiles ? (
+          <div
+            data-testid="harness-drop-overlay"
+            className="pointer-events-none absolute inset-0 z-40 m-2 overflow-hidden rounded-xl bg-[linear-gradient(to_right,hsl(var(--status-blocked)),hsl(var(--status-waiting)),hsl(var(--status-working)),hsl(var(--status-done)))] p-[2px] saturate-[1.35] brightness-[1.05]"
+          >
+            <div className="relative grid h-full w-full place-items-center overflow-hidden rounded-[10px] bg-background/85 backdrop-blur-sm">
+              <div className="dispatch-reconnect-scan pointer-events-none absolute inset-y-0 left-0 w-1/3 animate-[reconnect-scan_1350ms_ease-in-out_infinite] bg-[linear-gradient(to_right,transparent,hsl(var(--status-working)),transparent)] opacity-25 will-change-transform motion-reduce:hidden" />
+              <div className="relative flex flex-col items-center gap-2 px-6 text-center text-foreground">
+                <Upload className="h-8 w-8" />
+                <p className="text-sm font-medium">Drop files to attach</p>
+                <p className="text-xs text-muted-foreground">
+                  They go with your next message.
+                </p>
+              </div>
             </div>
           </div>
-        </div>
-      ) : null}
-      <HarnessContext.Provider value={context}>
-        <TurnStream
-          turns={turns}
-          liveTrace={liveTrace}
-          liveText={liveText}
-          liveQuestions={liveQuestions}
-          streaming={streaming}
-          queued={queued}
-          queueBusyId={queueBusyId}
-          onSendNow={onSendNow}
-          onRemoveQueued={onRemoveQueued}
-          turnExtras={turnExtras}
-          liveExtras={liveExtras}
-          ariaLabel={`${agent?.name ?? "Agent"} harness conversation`}
-          onAttachmentClick={onAttachmentClick}
-          onAnswer={onAnswer}
-          answeringId={answeringId}
-          answersDisabled={disabledReason !== null}
-          emptyState={
-            starting ? (
-              <div
-                className="flex flex-col items-center gap-3 pt-10 text-center"
-                data-testid="harness-starting"
-              >
-                <ActivityBars size={28} />
-                <p className="text-xs text-foreground">Starting the harness…</p>
-                {agent?.latestEvent?.message ? (
-                  <p className="text-[11px] text-muted-foreground">
-                    {agent.latestEvent.message}
-                  </p>
-                ) : null}
-              </div>
-            ) : (
-              <>
-                <p
-                  className="pt-6 text-center text-xs text-muted-foreground"
-                  data-testid="harness-empty"
+        ) : null}
+        <HarnessContext.Provider value={context}>
+          <TurnStream
+            turns={turns}
+            liveTrace={liveTrace}
+            liveText={liveText}
+            liveQuestions={liveQuestions}
+            streaming={streaming}
+            queued={queued}
+            queueBusyId={queueBusyId}
+            onSendNow={onSendNow}
+            onRemoveQueued={onRemoveQueued}
+            turnExtras={turnExtras}
+            liveExtras={liveExtras}
+            ariaLabel={`${agent?.name ?? "Agent"} harness conversation`}
+            onAttachmentClick={onAttachmentClick}
+            onAnswer={onAnswer}
+            answeringId={answeringId}
+            answersDisabled={disabledReason !== null}
+            emptyState={
+              starting ? (
+                <div
+                  className="flex flex-col items-center gap-3 pt-10 text-center"
+                  data-testid="harness-starting"
                 >
-                  {loading
-                    ? "Loading…"
-                    : error
-                      ? `Could not load turns: ${error.message}`
-                      : "Send the first prompt."}
-                </p>
-                {agent?.status === "error" &&
-                engine &&
-                /not logged in/i.test(agent.latestEvent?.message ?? "") ? (
-                  <p
-                    className="mt-2 text-center text-[11px] text-muted-foreground"
-                    data-testid="harness-login-hint"
-                  >
-                    Run as the service user, then press Start:{" "}
-                    <code className="rounded bg-muted px-1 py-0.5 text-foreground">
-                      {engine.loginCommand}
-                    </code>
+                  <ActivityBars size={28} />
+                  <p className="text-xs text-foreground">
+                    Starting the harness…
                   </p>
-                ) : null}
-              </>
-            )
-          }
-        />
-      </HarnessContext.Provider>
-      <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
-        {tasksOpen ? (
-          <TasksStrip
-            items={currentTasks}
-            open={tasksExpanded}
-            onOpenChange={setTasksExpanded}
+                  {agent?.latestEvent?.message ? (
+                    <p className="text-[11px] text-muted-foreground">
+                      {agent.latestEvent.message}
+                    </p>
+                  ) : null}
+                </div>
+              ) : (
+                <>
+                  <p
+                    className="pt-6 text-center text-xs text-muted-foreground"
+                    data-testid="harness-empty"
+                  >
+                    {loading
+                      ? "Loading…"
+                      : error
+                        ? `Could not load turns: ${error.message}`
+                        : "Send the first prompt."}
+                  </p>
+                  {agent?.status === "error" &&
+                  engine &&
+                  /not logged in/i.test(agent.latestEvent?.message ?? "") ? (
+                    <p
+                      className="mt-2 text-center text-[11px] text-muted-foreground"
+                      data-testid="harness-login-hint"
+                    >
+                      Run as the service user, then press Start:{" "}
+                      <code className="rounded bg-muted px-1 py-0.5 text-foreground">
+                        {engine.loginCommand}
+                      </code>
+                    </p>
+                  ) : null}
+                </>
+              )
+            }
           />
-        ) : null}
-        <div className="mb-1 flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setPickerOpen(true)}
-            title={fixedReason ?? "Model and reasoning effort (or type /model)"}
-            data-testid="harness-model-chip"
-            data-fixed={fixedReason ? "true" : undefined}
-            className={cn(
-              CHIP_CLASS,
-              "max-w-full",
-              fixedReason && "opacity-70"
-            )}
-          >
-            {starting || (!config.running && agent?.status === "running") ? (
-              <ActivityBars size={10} className="shrink-0" />
-            ) : engine ? (
-              <ProviderIcon provider={engine.id} />
-            ) : (
-              <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
-            )}
-            <span className="truncate">
-              {fixedReason
-                ? `${launchModel === "default" || !launchModel ? engine?.label : launchModel} · fixed`
-                : config.running
-                  ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
-                  : starting || agent?.status === "running"
-                    ? "starting…"
-                    : "model · not running"}
-            </span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setUsageOpen(true)}
-            title="API key usage this month (or type /usage)"
-            data-testid="harness-usage-chip"
-            className={CHIP_CLASS}
-          >
-            <CircleDollarSign className="h-3 w-3 shrink-0" aria-hidden="true" />
-            usage
-          </button>
-          {/* The Stop slot is always laid out, so the row does not reflow
+        </HarnessContext.Provider>
+        <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
+          {tasksOpen ? (
+            <TasksStrip
+              items={currentTasks}
+              open={tasksExpanded}
+              onOpenChange={setTasksExpanded}
+            />
+          ) : null}
+          <div className="mb-1 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setPickerOpen(true)}
+              title={
+                fixedReason ?? "Model and reasoning effort (or type /model)"
+              }
+              data-testid="harness-model-chip"
+              data-fixed={fixedReason ? "true" : undefined}
+              className={cn(
+                CHIP_CLASS,
+                "max-w-full",
+                fixedReason && "opacity-70"
+              )}
+            >
+              {starting || (!config.running && agent?.status === "running") ? (
+                <ActivityBars size={10} className="shrink-0" />
+              ) : engine ? (
+                <ProviderIcon provider={engine.id} />
+              ) : (
+                <Cpu className="h-3 w-3 shrink-0" aria-hidden="true" />
+              )}
+              <span className="truncate">
+                {fixedReason
+                  ? `${launchModel === "default" || !launchModel ? engine?.label : launchModel} · fixed`
+                  : config.running
+                    ? `${modelName ?? "model"}${effortName ? ` · ${effortName.toLowerCase()}` : ""}`
+                    : starting || agent?.status === "running"
+                      ? "starting…"
+                      : "model · not running"}
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setUsageOpen(true)}
+              title="API key usage this month (or type /usage)"
+              data-testid="harness-usage-chip"
+              className={CHIP_CLASS}
+            >
+              <CircleDollarSign
+                className="h-3 w-3 shrink-0"
+                aria-hidden="true"
+              />
+              usage
+            </button>
+            {/* The Stop slot is always laid out, so the row does not reflow
               when a turn starts; the button only shows while one runs. */}
-          <button
-            type="button"
-            onClick={onStop}
-            disabled={interrupting || !streaming}
-            aria-hidden={!streaming}
-            tabIndex={streaming ? 0 : -1}
-            title="Stop the running turn (Ctrl+C in the field); queued messages run next"
-            data-testid="harness-stop"
-            className={cn(
-              "ml-auto inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",
-              !streaming && "invisible"
-            )}
-          >
-            <Square className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
-            {interrupting ? "Stopping…" : "Stop"}
-          </button>
-        </div>
-        <UsageDialog open={usageOpen} onOpenChange={setUsageOpen} />
-        <ModelPicker
-          open={pickerOpen}
-          onOpenChange={setPickerOpen}
-          model={config.model}
-          effort={config.effort}
-          running={config.running}
-          saving={setConfig.isPending}
-          error={configError}
-          fixedReason={fixedReason}
-          onApply={applyConfig}
-        />
-        {sendError ? (
-          <div
-            role="alert"
-            className="mb-1 truncate text-[11px] text-destructive"
-          >
-            {sendError}
+            <button
+              type="button"
+              onClick={onStop}
+              disabled={interrupting || !streaming}
+              aria-hidden={!streaming}
+              tabIndex={streaming ? 0 : -1}
+              title="Stop the running turn (Ctrl+C in the field); queued messages run next"
+              data-testid="harness-stop"
+              className={cn(
+                "ml-auto inline-flex items-center gap-1 rounded-full border border-status-blocked/50 px-2 py-0.5 text-[11px] text-status-blocked hover:bg-status-blocked/10 disabled:opacity-50 pointer-coarse:min-h-11 pointer-coarse:px-3",
+                !streaming && "invisible"
+              )}
+            >
+              <Square className="h-2.5 w-2.5 shrink-0" aria-hidden="true" />
+              {interrupting ? "Stopping…" : "Stop"}
+            </button>
           </div>
-        ) : null}
-        <ChatComposer
-          agentId={agentId}
-          onSend={onSend}
-          uploadFile={uploadFile}
-          disabledReason={disabledReason}
-          sending={send.isPending || answer.isPending}
-          autoFocus={active && !isMobile}
-          slashItems={slashItems}
-          onSlashCommand={onSlashCommand}
-          hint={composerHint(streaming, queued.length)}
-          history={promptHistory}
-          recallQueued={recallQueued}
-          atItems={pathPicker.items}
-          onAtQuery={pathPicker.onQuery}
-          onInterrupt={streaming ? onStop : undefined}
-          dropTargetRef={dropRef}
-          onDropZoneDragging={setDraggingFiles}
-          replyContext={
-            replyTarget
-              ? {
-                  excerpt: questionExcerpt(replyTarget.text),
-                  onDismiss: () => setDismissedQuestionId(replyTarget.id),
-                }
-              : null
-          }
-        />
+          <UsageDialog open={usageOpen} onOpenChange={setUsageOpen} />
+          <ModelPicker
+            open={pickerOpen}
+            onOpenChange={setPickerOpen}
+            model={config.model}
+            effort={config.effort}
+            running={config.running}
+            saving={setConfig.isPending}
+            error={configError}
+            fixedReason={fixedReason}
+            onApply={applyConfig}
+          />
+          {sendError ? (
+            <div
+              role="alert"
+              className="mb-1 truncate text-[11px] text-destructive"
+            >
+              {sendError}
+            </div>
+          ) : null}
+          <ChatComposer
+            agentId={agentId}
+            onSend={onSend}
+            uploadFile={uploadFile}
+            disabledReason={disabledReason}
+            sending={send.isPending || answer.isPending}
+            autoFocus={active && !isMobile}
+            slashItems={slashItems}
+            onSlashCommand={onSlashCommand}
+            hint={composerHint(streaming, queued.length)}
+            history={promptHistory}
+            recallQueued={recallQueued}
+            atItems={pathPicker.items}
+            onAtQuery={pathPicker.onQuery}
+            onInterrupt={streaming ? onStop : undefined}
+            dropTargetRef={dropRef}
+            onDropZoneDragging={setDraggingFiles}
+            replyContext={
+              replyTarget
+                ? {
+                    excerpt: questionExcerpt(replyTarget.text),
+                    onDismiss: () => setDismissedQuestionId(replyTarget.id),
+                  }
+                : null
+            }
+          />
+        </div>
       </div>
-    </div>
+    </MotionConfig>
   );
 }

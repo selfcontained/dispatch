@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 
 import type { Step, Trace } from "./contracts";
 import { formatStepDuration } from "./format";
+import { burstIndex } from "./motion";
 import { hasChildren } from "./registry";
 import { computeUnaccountedMs } from "./trace";
 import { LiveDuration, RunningDots, StatusGlyph, StepRow } from "./step-row";
@@ -97,10 +98,11 @@ function ActivityBlockImpl({
           className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border"
         />
         <div role="list" aria-label="activity steps" className="relative">
-          {trace.steps.map((step) => (
+          {trace.steps.map((step, i) => (
             <StepRow
               key={step.id}
               step={step}
+              index={burstIndex(trace.steps, i)}
               open={stepOpen(step)}
               onToggle={() => toggleStep(step)}
               maskClass={BLOCK_FILL}
@@ -255,7 +257,7 @@ function CollapsedSummary({
       data-testid="harness-activity-summary"
       data-final-result={trace.finalResult}
       className={cn(
-        "animate-harness-row flex w-full items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-left motion-reduce:animate-none",
+        "flex w-full items-center gap-2 rounded-md border border-border/60 px-2.5 py-1.5 text-left",
         "hover:border-border focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-status-working/50",
         BLOCK_FILL
       )}
