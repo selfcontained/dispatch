@@ -1041,6 +1041,24 @@ export async function start() {
     `Dispatch listening on ${protocol}://${config.host}:${config.port}`
   );
 
+  // The process that activated a new binary exits during the service restart,
+  // so only this newly healthy process can truthfully promote the candidate.
+  // It goes before the harness restore below and never behind it: promotion
+  // only needs a listening, healthy process, while the restore starts agents
+  // one at a time under a 30 s handshake ceiling each. Behind the restore,
+  // release.json still named the previous tag for minutes on a busy install,
+  // and an assisted update checking version convergence in that window
+  // blocked against a perfectly healthy server.
+  try {
+    const promoted = await promoteHealthyReleaseCandidate({
+      expectedTag: `v${packageVersion}`,
+      writeReleaseStore,
+    });
+    if (promoted) app.log.info("Promoted healthy release candidate");
+  } catch (err) {
+    app.log.error({ err }, "Failed to promote healthy release candidate");
+  }
+
   // Harness children died with the previous process while their agents
   // stayed "running"; bring them back on their stored session ids. This has
   // to run after listen: the harness attaches Dispatch's MCP endpoint at
@@ -1066,18 +1084,6 @@ export async function start() {
     if (harnessRestore.restored.length + harnessRestore.failed.length > 0) {
       app.log.info(harnessRestore, "Restored harness agents after restart");
     }
-  }
-
-  // The process that activated a new binary exits during the service restart,
-  // so only this newly healthy process can truthfully promote the candidate.
-  try {
-    const promoted = await promoteHealthyReleaseCandidate({
-      expectedTag: `v${packageVersion}`,
-      writeReleaseStore,
-    });
-    if (promoted) app.log.info("Promoted healthy release candidate");
-  } catch (err) {
-    app.log.error({ err }, "Failed to promote healthy release candidate");
   }
 }
 

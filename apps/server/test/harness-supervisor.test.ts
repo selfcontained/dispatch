@@ -45,6 +45,8 @@ async function build(
     lastTurnEndedAt?: Date;
     /** The stored session cannot be resumed: the engine opens a fresh one. */
     resumeFails?: boolean;
+    /** The child ignores stdin EOF, SIGTERM and SIGKILL. */
+    ignoreSignals?: boolean;
   } = {}
 ) {
   home = await mkdtemp(path.join(os.tmpdir(), "harness-sup-"));
@@ -53,6 +55,7 @@ async function build(
     resumeFails: opts.resumeFails,
     configOptions: opts.configOptions,
     commands: opts.commands,
+    ignoreSignals: opts.ignoreSignals,
   });
   const resolveBinary = async (bin: string) => {
     if (opts.startFails) {
@@ -956,6 +959,28 @@ describe("HarnessSupervisor restart resilience", () => {
     await sup.restoreRunning();
     await vi.waitFor(() => expect(fake.seen.prompts).toEqual([RESTART_PROMPT]));
     await sup.stopAll();
+  });
+
+  it("stopAll SIGKILLs a child that ignores close, EOF and SIGTERM", async () => {
+    // The engine children hold full-access permissions and a live MCP token,
+    // and the installed unit uses KillMode=process, so one that outlives the
+    // shutdown is an orphan with both. The teardown ladder alone cannot be
+    // trusted to reach its own SIGKILL inside the bound, and process.exit()
+    // right after would drop a kill still in flight.
+    const { sup, fake, deps } = await build({ ignoreSignals: true });
+    await sup.start("agt_1");
+    vi.useFakeTimers();
+    try {
+      const stopping = sup.stopAll();
+      // Past the whole budget: reconcile, then close, EOF and SIGTERM steps,
+      // then the stop race's own ceiling.
+      await vi.advanceTimersByTimeAsync(30_000);
+      await stopping;
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(fake.signals).toContain("SIGKILL");
+    expect(deps.driver.liveAgentIds()).toEqual([]);
   });
 
   it("starts nothing more once shutdown has begun", async () => {

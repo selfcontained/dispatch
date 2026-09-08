@@ -18,6 +18,7 @@ import { engineSpecFor, splitModelId, type EngineBins } from "./agent-spec.js";
 import {
   HarnessDriver,
   resolveExecutable,
+  TEARDOWN_STEP_MS,
   type DriverEvent,
   type DriverLogger,
 } from "./driver.js";
@@ -200,7 +201,13 @@ export function loginFailureMessage(
 }
 
 const MESSAGE_MAX = 200;
-const STOP_ALL_TIMEOUT_MS = 5_000;
+/**
+ * The ceiling on the stop race in {@link HarnessSupervisor.stopAll}. Derived
+ * from the driver's ladder (close, stdin EOF, SIGTERM, SIGKILL) plus a second
+ * of slack, so a well-behaved child always gets the whole ladder rather than
+ * being cut off a few hundred milliseconds short of its own SIGKILL.
+ */
+const STOP_ALL_TIMEOUT_MS = 4 * TEARDOWN_STEP_MS + 1_000;
 const RECONCILE_TIMEOUT_MS = 2_000;
 
 /**
@@ -854,6 +861,16 @@ export class HarnessSupervisor {
       Promise.allSettled(ids.map((id) => this.stop(id, { keepChat: true }))),
       new Promise((resolve) => setTimeout(resolve, STOP_ALL_TIMEOUT_MS)),
     ]);
+    // Whatever the ladder did not finish, end here and now. Returning with a
+    // child still live hands the caller's process.exit() an orphan holding
+    // full-access permissions and a live MCP token.
+    const killed = this.driver.killAll();
+    if (killed.length > 0) {
+      this.deps.logger.warn(
+        { agentIds: killed },
+        "harness children did not exit in time and were killed"
+      );
+    }
   }
 
   /** Publish now, dropping whatever an earlier update left on the timer. */

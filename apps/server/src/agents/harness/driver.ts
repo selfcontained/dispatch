@@ -88,7 +88,12 @@ type Live = {
 };
 
 const STDERR_TAIL_LINES = 20;
-const TEARDOWN_STEP_MS = 1_500;
+/**
+ * One rung of the teardown ladder in {@link HarnessDriver.stop}. Exported so
+ * the supervisor's own shutdown bound is derived from it rather than guessed
+ * alongside it.
+ */
+export const TEARDOWN_STEP_MS = 1_500;
 const HANDSHAKE_TIMEOUT_MS = 30_000;
 
 /**
@@ -531,6 +536,31 @@ export class HarnessDriver {
     if (!(await exitedWithin(TEARDOWN_STEP_MS))) entry.child.kill("SIGKILL");
     await entry.exited;
     this.live.delete(agentId);
+  }
+
+  /**
+   * SIGKILL every child still live and forget it, without waiting for an
+   * exit. The last step of a bounded shutdown: an engine child holds
+   * full-access permissions and a live MCP token, the installed service unit
+   * uses KillMode=process, and the caller is about to call process.exit(),
+   * which would drop a kill the ladder had only just started. Synchronous on
+   * purpose, so no await can be cut short between the signal and the exit.
+   */
+  killAll(): string[] {
+    const killed: string[] = [];
+    for (const [agentId, entry] of this.live) {
+      try {
+        entry.child.kill("SIGKILL");
+        killed.push(agentId);
+      } catch (err) {
+        this.opts.logger.warn(
+          { err, agentId },
+          "harness child could not be killed at shutdown"
+        );
+      }
+    }
+    this.live.clear();
+    return killed;
   }
 
   private emit(event: DriverEvent): void {

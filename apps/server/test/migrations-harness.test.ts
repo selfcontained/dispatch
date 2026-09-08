@@ -15,6 +15,39 @@ const PRERELEASE_MIGRATION_NAMES = [
   "0054_agent-type-dispatch",
 ];
 
+// The subset of those names written by the lineage whose stream-events file
+// was called `0051_agent-stream-events`, the name this branch also ships. That
+// collision is why the shipped file was skipped on such a database and its
+// `kind` CHECK never learned 'plan'.
+const LINEAGE_B_MIGRATION_NAMES = [
+  "0052_agent-stream-events-turn",
+  "0053_agent-chat-messages-delivery-text",
+  "0054_agent-type-dispatch",
+];
+
+/**
+ * Put the stream table back into the shape that lineage left it in: the
+ * narrower CHECK, and no plan rows. A database on that lineage has none
+ * because every plan write was rejected, which is the defect; the earlier
+ * tests in this file wrote one, so it goes before the constraint narrows.
+ */
+async function narrowKindCheckToExcludePlan(): Promise<void> {
+  await pool.query(`DELETE FROM agent_stream_events WHERE kind = 'plan'`);
+  await pool.query(
+    `ALTER TABLE agent_stream_events DROP CONSTRAINT IF EXISTS agent_stream_events_kind_check`
+  );
+  await pool.query(`ALTER TABLE agent_stream_events
+     ADD CONSTRAINT agent_stream_events_kind_check
+     CHECK (kind IN ('assistant', 'thought', 'tool_call', 'status', 'turn'))`);
+}
+
+// The harness migrations this branch ships, in shipped order.
+const HARNESS_MIGRATION_NAMES = [
+  "0051_agent-stream-events",
+  "0052_agent-chat-messages-delivery-text",
+  "0053_agent-stream-events-kind",
+];
+
 let pool: Pool;
 
 beforeAll(async () => {
@@ -29,20 +62,20 @@ afterAll(async () => {
 describe("harness migrations", () => {
   it("re-run their SQL against an existing schema without error (every statement is guarded)", async () => {
     // node-pg-migrate skips names already in pgmigrations, so a plain second
-    // run executes nothing. Forgetting the two rows makes it execute both
-    // files again on a database that already has their objects: the case an
-    // install upgraded from the earlier harness migrations is in.
-    await pool.query(
-      `DELETE FROM pgmigrations WHERE name IN ('0051_agent-stream-events', '0052_agent-chat-messages-delivery-text')`
-    );
+    // run executes nothing. Forgetting the three rows makes it execute all
+    // three files again on a database that already has their objects: the
+    // case an install upgraded from the earlier harness migrations is in.
+    // They go together because the runner also checks that the stored names
+    // are a prefix of the shipped ones, so a gap in the middle throws.
+    await pool.query(`DELETE FROM pgmigrations WHERE name = ANY($1::text[])`, [
+      HARNESS_MIGRATION_NAMES,
+    ]);
     await expect(runTestMigrations()).resolves.not.toThrow();
     const rows = await pool.query<{ name: string }>(
-      `SELECT name FROM pgmigrations WHERE name IN ('0051_agent-stream-events', '0052_agent-chat-messages-delivery-text') ORDER BY name`
+      `SELECT name FROM pgmigrations WHERE name = ANY($1::text[]) ORDER BY name`,
+      [HARNESS_MIGRATION_NAMES]
     );
-    expect(rows.rows.map((r) => r.name)).toEqual([
-      "0051_agent-stream-events",
-      "0052_agent-chat-messages-delivery-text",
-    ]);
+    expect(rows.rows.map((r) => r.name)).toEqual(HARNESS_MIGRATION_NAMES);
   });
 
   it("accept a plan row and a delivery_text column", async () => {
@@ -113,13 +146,12 @@ describe("harness migrations", () => {
     expect(dead.rows).toEqual([]);
     const live = await pool.query<{ name: string; count: string }>(
       `SELECT name, COUNT(*)::text AS count FROM pgmigrations
-        WHERE name IN ('0051_agent-stream-events', '0052_agent-chat-messages-delivery-text')
-        GROUP BY name ORDER BY name`
+        WHERE name = ANY($1::text[]) GROUP BY name ORDER BY name`,
+      [HARNESS_MIGRATION_NAMES]
     );
-    expect(live.rows).toEqual([
-      { name: "0051_agent-stream-events", count: "1" },
-      { name: "0052_agent-chat-messages-delivery-text", count: "1" },
-    ]);
+    expect(live.rows).toEqual(
+      HARNESS_MIGRATION_NAMES.map((name) => ({ name, count: "1" }))
+    );
     const agent = await pool.query<{
       type: string;
       review_agent_type: string;
@@ -146,5 +178,56 @@ describe("harness migrations", () => {
       { table_name: "settings", value: '["claude","dispatch","terminal"]' },
       { table_name: "templates", value: "dispatch" },
     ]);
+  });
+  it("repair a kind CHECK that predates 'plan' with no prerelease records left to key on", async () => {
+    // A database that already booted the release which forgets the prerelease
+    // bookkeeping is in this shape: the dead records are gone, so nothing is
+    // left to detect the lineage by, and the table still carries the narrow
+    // CHECK its own file created. The repair therefore has to be a migration
+    // of its own rather than a rule about which records to delete.
+    await narrowKindCheckToExcludePlan();
+    await pool.query(
+      `DELETE FROM pgmigrations WHERE name = '0053_agent-stream-events-kind'`
+    );
+
+    await expect(runTestMigrations()).resolves.not.toThrow();
+
+    await expect(
+      pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
+           VALUES ('agt_mig', 41, 'plan', 'plan:41', '{"entries":[]}'::jsonb)`
+      )
+    ).resolves.toBeDefined();
+  });
+
+  it("repair that CHECK on a database still carrying the prerelease records", async () => {
+    // The untouched lineage-B shape. `0051_agent-stream-events` is a live
+    // record because that lineage used the name this branch ships, while the
+    // delivery-text and kind files this branch ships were never run there.
+    await pool.query(
+      `DELETE FROM pgmigrations
+        WHERE name IN ('0052_agent-chat-messages-delivery-text', '0053_agent-stream-events-kind')`
+    );
+
+    await pool.query(
+      `INSERT INTO pgmigrations (name, run_on)
+        SELECT name, NOW() FROM unnest($1::text[]) AS t(name)`,
+      [LINEAGE_B_MIGRATION_NAMES]
+    );
+    await narrowKindCheckToExcludePlan();
+
+    await expect(runTestMigrations()).resolves.not.toThrow();
+
+    const dead = await pool.query<{ name: string }>(
+      `SELECT name FROM pgmigrations WHERE name = ANY($1::text[])`,
+      [LINEAGE_B_MIGRATION_NAMES]
+    );
+    expect(dead.rows).toEqual([]);
+    await expect(
+      pool.query(
+        `INSERT INTO agent_stream_events (agent_id, seq, kind, key, payload)
+           VALUES ('agt_mig', 42, 'plan', 'plan:42', '{"entries":[]}'::jsonb)`
+      )
+    ).resolves.toBeDefined();
   });
 });

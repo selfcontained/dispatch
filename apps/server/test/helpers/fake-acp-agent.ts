@@ -27,18 +27,26 @@ export function createFakeAcpAgent(
     commands?: acp.AvailableCommand[];
     /** Config options returned with the session. */
     configOptions?: acp.SessionConfigOption[];
+    /**
+     * The child ignores stdin EOF and every signal, the way a hung engine or
+     * a grandchild of one does. Signals are still recorded in `signals`.
+     */
+    ignoreSignals?: boolean;
   } = {}
 ) {
   const toAgent = new PassThrough(); // driver stdin  -> agent input
   const fromAgent = new PassThrough(); // agent output -> driver stdout
   const stderr = new PassThrough();
   const emitter = new EventEmitter();
+  const signals: (NodeJS.Signals | number)[] = [];
   const child = Object.assign(emitter, {
     stdin: toAgent,
     stdout: fromAgent,
     stderr,
     killed: false,
     kill(signal?: NodeJS.Signals | number) {
+      signals.push(signal ?? "SIGTERM");
+      if (opts.ignoreSignals) return true;
       if (child.killed) return true;
       child.killed = true;
       queueMicrotask(() => emitter.emit("exit", null, signal ?? "SIGTERM"));
@@ -48,6 +56,7 @@ export function createFakeAcpAgent(
   // A real child exits when its stdin closes; mirror that so the driver's
   // teardown ladder settles without a signal.
   toAgent.on("end", () => {
+    if (opts.ignoreSignals) return;
     if (!child.killed) {
       child.killed = true;
       queueMicrotask(() => emitter.emit("exit", 0, null));
@@ -161,5 +170,5 @@ export function createFakeAcpAgent(
     Readable.toWeb(toAgent)
   );
   connection = new acp.AgentSideConnection(() => agent, stream);
-  return { child, seen, stderr };
+  return { child, seen, signals, stderr };
 }
