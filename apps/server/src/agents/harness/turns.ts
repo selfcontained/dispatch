@@ -1,5 +1,6 @@
 import type {
   ChatMessage,
+  HarnessPlanEntry,
   HarnessPrompt,
   HarnessQueuedPrompt,
   HarnessQuestion,
@@ -9,9 +10,9 @@ import type {
 
 import { type Queryable, toChatMessage } from "../../chat/store.js";
 import type { PromptSource } from "./prompt-source.js";
-import { subagentIdFromOutput } from "./subagents.js";
 import type {
   AssistantPayload,
+  PlanPayload,
   StreamEventRow,
   ThoughtPayload,
   ToolPayload,
@@ -20,7 +21,7 @@ import type {
 
 export type TurnSourceRow = Pick<
   StreamEventRow,
-  "id" | "seq" | "kind" | "payload" | "createdAt" | "updatedAt"
+  "id" | "seq" | "kind" | "key" | "payload" | "createdAt" | "updatedAt"
 >;
 
 /** The agent's own status reports already show as status lines; in a trace they are noise. */
@@ -55,12 +56,12 @@ function promptFor(
   return { source: "system", text: source.text, attachments: [] };
 }
 
-/** dsh's read tool wraps its result as <path>…</path><type>…</type><content>…. */
+/** The engine's read tool wraps its result as <path>…</path><type>…</type><content>…. */
 const READ_PATH_TAG = /^<path>([^<]+)<\/path>/;
 
 /**
- * dsh sends no ACP `locations`; the paths live in the tool's raw input
- * (file_path, path, pattern) or, for read, in the output wrapper.
+ * The engine sends no ACP `locations`; the paths live in the tool's raw
+ * input (file_path, path, pattern) or, for read, in the output wrapper.
  */
 export function locationsFromInput(
   input: unknown,
@@ -116,11 +117,6 @@ function toolStep(row: TurnSourceRow): HarnessStep | null {
   const title = p.title ?? "";
   if (DROPPED_TOOL_TITLES.has(title)) return null;
   const settled = p.status === "completed" || p.status === "failed";
-  // dsh's subagent tool answers "started subagent <id>"; the view opens
-  // that session under the step, so the id travels as data, not as text
-  // for the view to re-parse.
-  const subagentId =
-    title === "subagent" ? subagentIdFromOutput(p.terminalOutput) : null;
   return {
     id: `stream:${row.id}`,
     kind: p.toolKind ?? "other",
@@ -147,7 +143,7 @@ function toolStep(row: TurnSourceRow): HarnessStep | null {
       terminalOutput: p.terminalOutput ?? null,
       ...(p.truncated ? { truncated: true } : {}),
       ...(p.input !== undefined ? { input: p.input } : {}),
-      ...(subagentId ? { subagentSessionId: subagentId } : {}),
+      ...(p.parentToolCallId ? { parentToolCallId: p.parentToolCallId } : {}),
     },
   };
 }
@@ -196,6 +192,34 @@ function toQuestion(message: ChatMessage): HarnessQuestion {
   };
 }
 
+/**
+ * Hang each step that names a parent under that parent, in stream order.
+ * A parent outside the turn (or dropped as a status event) leaves the child
+ * at the top level rather than losing it.
+ */
+function nestSteps(
+  flat: { step: HarnessStep; key: string | null; parent: string | null }[]
+): HarnessStep[] {
+  const byKey = new Map<string, HarnessStep>();
+  for (const { step, key } of flat) if (key) byKey.set(key, step);
+  const top: HarnessStep[] = [];
+  for (const { step, parent } of flat) {
+    const owner = parent ? byKey.get(parent) : undefined;
+    if (owner && owner !== step) (owner.children ??= []).push(step);
+    else top.push(step);
+  }
+  return top;
+}
+
+function planEntriesOf(row: TurnSourceRow): HarnessPlanEntry[] {
+  const p = row.payload as Partial<PlanPayload>;
+  return (p.entries ?? []).map((e) => ({
+    content: e.content,
+    status: e.status as HarnessPlanEntry["status"],
+    priority: e.priority as HarnessPlanEntry["priority"],
+  }));
+}
+
 /** Cut ascending stream rows into turns and shape each for the view. */
 export function assembleTurns(
   rows: TurnSourceRow[],
@@ -238,7 +262,6 @@ export function assembleTurns(
     const startedAt = anchor.createdAt.toISOString();
     const turnQuestions = byGroup.get(index);
     const settled = turnPayload?.state === "settled";
-    const steps: HarnessStep[] = [];
     let result: HarnessTurn["result"] = null;
     const assistants = group.rows.filter((r) => r.kind === "assistant");
     const last = assistants[assistants.length - 1];
@@ -249,6 +272,12 @@ export function assembleTurns(
     // The agent's own account of the turn: dispatch_event messages are
     // dropped as steps but the last one names what happened. A terminal
     // event (done, idle, …) wins over the last "working".
+    const flat: {
+      step: HarnessStep;
+      key: string | null;
+      parent: string | null;
+    }[] = [];
+    let plan: HarnessPlanEntry[] | undefined;
     let label: string | undefined;
     let labelTerminal = false;
     for (const row of group.rows) {
@@ -262,9 +291,20 @@ export function assembleTurns(
           }
         }
         const step = toolStep(row);
-        if (step) steps.push(step);
+        if (step) {
+          flat.push({
+            step,
+            key: row.key,
+            parent:
+              (row.payload as Partial<ToolPayload>).parentToolCallId ?? null,
+          });
+        }
       } else if (row.kind === "thought") {
-        steps.push(noteStep(row, "think", live && row === newest));
+        flat.push({
+          step: noteStep(row, "think", live && row === newest),
+          key: null,
+          parent: null,
+        });
       } else if (row.kind === "assistant") {
         if (row === last) {
           const p = row.payload as Partial<AssistantPayload>;
@@ -274,10 +314,13 @@ export function assembleTurns(
             ...(p.truncated ? { truncated: true } : {}),
           };
         } else {
-          steps.push(noteStep(row, "note"));
+          flat.push({ step: noteStep(row, "note"), key: null, parent: null });
         }
+      } else if (row.kind === "plan") {
+        plan = planEntriesOf(row);
       }
     }
+    const steps = nestSteps(flat);
     const error = turnPayload?.error;
     const lastRow = group.rows[group.rows.length - 1];
     const trace: HarnessTurn["trace"] = { startedAt, steps };
@@ -293,6 +336,16 @@ export function assembleTurns(
       trace.endedAt = lastRow.updatedAt.toISOString();
       trace.finalResult = "ok";
     }
+    const usage = turnPayload?.usage
+      ? {
+          used: turnPayload.usage.used,
+          size: turnPayload.usage.size,
+          costUsd:
+            turnPayload.usage.cost && turnPayload.usage.cost.currency === "USD"
+              ? turnPayload.usage.cost.amount
+              : null,
+        }
+      : undefined;
     return {
       id: group.turn ? `turn:${group.turn.id}` : `turn:pre:${index}`,
       prompt: turnPayload
@@ -303,6 +356,8 @@ export function assembleTurns(
       ...(turnQuestions ? { questions: turnQuestions } : {}),
       ...(label ? { label } : {}),
       ...(error ? { error } : {}),
+      ...(plan ? { plan } : {}),
+      ...(usage ? { usage } : {}),
     };
   });
 }
@@ -328,11 +383,12 @@ export async function loadTurns(
     id: number | string;
     seq: number;
     kind: StreamEventRow["kind"];
+    key: string | null;
     payload: Record<string, unknown>;
     created_at: Date;
     updated_at: Date;
   }>(
-    `SELECT id, seq, kind, payload, created_at, updated_at
+    `SELECT id, seq, kind, key, payload, created_at, updated_at
        FROM agent_stream_events
       WHERE agent_id = $1 AND seq >= $2
       ORDER BY seq ASC`,
@@ -342,6 +398,7 @@ export async function loadTurns(
     id: Number(r.id),
     seq: r.seq,
     kind: r.kind,
+    key: r.key,
     payload: r.payload,
     createdAt: r.created_at,
     updatedAt: r.updated_at,

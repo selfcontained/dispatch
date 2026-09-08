@@ -13,13 +13,15 @@ function row(
   kind: TurnSourceRow["kind"],
   payload: Record<string, unknown>,
   s: number,
-  settledAt?: number
+  settledAt?: number,
+  key: string | null = null
 ): TurnSourceRow {
   seq += 1;
   return {
     id: seq,
     seq,
     kind,
+    key,
     payload,
     createdAt: at(s),
     updatedAt: at(settledAt ?? s),
@@ -228,6 +230,187 @@ describe("assembleTurns", () => {
     expect(turns[0].trace.finalResult).toBe("interrupted");
     expect(turns[0].error).toBeUndefined();
     expect(turns[0].result?.text).toBe("half");
+  });
+
+  it("nests a subagent's steps under the parent Task step", () => {
+    seq = 0;
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          stopReason: "end_turn",
+          endedAt: at(9).toISOString(),
+        },
+        0,
+        9
+      ),
+      row(
+        "tool_call",
+        {
+          toolKind: "other",
+          title: "Task",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+        },
+        1,
+        8,
+        "task_1"
+      ),
+      row(
+        "tool_call",
+        {
+          toolKind: "read",
+          title: "Read",
+          status: "completed",
+          locations: [{ path: "a.ts" }],
+          diff: null,
+          terminalOutput: null,
+          parentToolCallId: "task_1",
+        },
+        2,
+        3,
+        "child_1"
+      ),
+      row(
+        "tool_call",
+        {
+          toolKind: "execute",
+          title: "bash",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: "ok",
+          parentToolCallId: "task_1",
+        },
+        4,
+        5,
+        "child_2"
+      ),
+      row(
+        "tool_call",
+        {
+          toolKind: "edit",
+          title: "Edit",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+        },
+        6,
+        7,
+        "top_2"
+      ),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.trace.steps.map((s) => s.label)).toEqual(["Task", "Edit"]);
+    expect(turn.trace.steps[0].children?.map((s) => s.label)).toEqual([
+      "Read",
+      "bash",
+    ]);
+    expect(turn.trace.steps[0].children?.[0].detail.parentToolCallId).toBe(
+      "task_1"
+    );
+    expect(turn.trace.steps[1].children).toBeUndefined();
+  });
+
+  it("keeps a child whose parent is not in the turn at the top level", () => {
+    seq = 0;
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          stopReason: "end_turn",
+          endedAt: at(2).toISOString(),
+        },
+        0,
+        2
+      ),
+      row(
+        "tool_call",
+        {
+          toolKind: "read",
+          title: "Read",
+          status: "completed",
+          locations: [],
+          diff: null,
+          terminalOutput: null,
+          parentToolCallId: "gone",
+        },
+        1,
+        1,
+        "orphan"
+      ),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.trace.steps.map((s) => s.label)).toEqual(["Read"]);
+  });
+
+  it("carries the newest plan and the turn's usage", () => {
+    seq = 0;
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          stopReason: "end_turn",
+          endedAt: at(5).toISOString(),
+          usage: {
+            used: 4200,
+            size: 200000,
+            cost: { amount: 0.5, currency: "USD" },
+          },
+        },
+        0,
+        5
+      ),
+      row(
+        "plan",
+        {
+          entries: [
+            { content: "a", status: "completed", priority: "high" },
+            { content: "b", status: "in_progress", priority: "low" },
+          ],
+        },
+        1,
+        4,
+        "plan:1"
+      ),
+      row("assistant", { text: "done", streaming: false }, 2),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.plan).toEqual([
+      { content: "a", status: "completed", priority: "high" },
+      { content: "b", status: "in_progress", priority: "low" },
+    ]);
+    expect(turn.usage).toEqual({ used: 4200, size: 200000, costUsd: 0.5 });
+    expect(turn.trace.steps).toEqual([]);
+  });
+
+  it("reports usage without cost as costUsd null", () => {
+    seq = 0;
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          stopReason: "end_turn",
+          endedAt: at(1).toISOString(),
+          usage: { used: 10, size: 100 },
+        },
+        0,
+        1
+      ),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.usage).toEqual({ used: 10, size: 100, costUsd: null });
   });
 });
 
@@ -522,37 +705,5 @@ describe("assembleTurns thinking", () => {
     );
     const think = settled[0].trace.steps[0];
     expect(think).toMatchObject({ kind: "think", status: "ok", durMs: 4000 });
-  });
-});
-
-describe("assembleTurns subagent steps", () => {
-  it("carries the child session id a subagent call reported as step data", () => {
-    seq = 0;
-    const turns = assembleTurns(
-      [
-        row(
-          "turn",
-          { state: "started", prompt: { source: "system", text: "go" } },
-          0
-        ),
-        row(
-          "tool_call",
-          {
-            toolKind: "other",
-            title: "subagent",
-            status: "completed",
-            input: { description: "look" },
-            terminalOutput:
-              "started subagent 44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
-          },
-          1,
-          2
-        ),
-      ],
-      new Map()
-    );
-    expect(turns[0].trace.steps[0].detail.subagentSessionId).toBe(
-      "44d7b69a-a278-4f0b-a7d5-2158a60b3f07"
-    );
   });
 });
