@@ -49,11 +49,14 @@ export E2E_PORT="$API_PORT"
 # each run only matches its own prefix; kill stale e2e-* sessions manually.)
 export DISPATCH_AGENT_RUNTIME="${E2E_AGENT_RUNTIME:-inert}"
 export DISPATCH_SESSION_PREFIX="$RUN_ID"
-# dsh agents talk to a harness over ACP stdio. The suite never runs the real
-# DeepSeek Harness: the fake in e2e/fixtures speaks the protocol and scripts
-# one turn, and its home stays out of ~/.dispatch.
-export DISPATCH_DSH_BIN="${DISPATCH_DSH_BIN:-$PWD/e2e/fixtures/fake-dsh.mjs}"
-export DISPATCH_DSH_HOME="/tmp/dispatch-dsh-home-${RUN_ID}"
+# Harness agents talk to an engine over ACP stdio. The suite never runs a
+# real engine: the fake in e2e/fixtures speaks the protocol for all four and
+# scripts one turn per prompt.
+FAKE_ACP="$PWD/e2e/fixtures/fake-acp-agent.mjs"
+export DISPATCH_CLAUDE_HARNESS_BIN="${DISPATCH_CLAUDE_HARNESS_BIN:-$FAKE_ACP}"
+export DISPATCH_CODEX_HARNESS_BIN="${DISPATCH_CODEX_HARNESS_BIN:-$FAKE_ACP}"
+export DISPATCH_GEMINI_BIN="${DISPATCH_GEMINI_BIN:-$FAKE_ACP}"
+export DISPATCH_OPENCODE_BIN="${DISPATCH_OPENCODE_BIN:-$FAKE_ACP}"
 
 if [ "$DISPATCH_AGENT_RUNTIME" = "tmux" ] && ! command -v tmux &>/dev/null; then
   echo "Error: E2E_AGENT_RUNTIME=tmux but tmux is not on PATH." >&2
@@ -93,7 +96,7 @@ cleanup() {
         done || true
   fi
   $COMPOSE -p "$PROJECT" down -v 2>/dev/null || true
-  rm -rf "$MEDIA_ROOT" "$DISPATCH_DSH_HOME"
+  rm -rf "$MEDIA_ROOT"
   rm -f "$DISPATCH_RELEASE_STORE_PATH" "$DISPATCH_RELEASE_CANDIDATE_STORE_PATH"
 }
 trap cleanup EXIT

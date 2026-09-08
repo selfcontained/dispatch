@@ -29,8 +29,8 @@ const serialTests = [
   "e2e/media-sidebar.spec.ts",
   // Flips the server-wide chat surface flag, which changes every agent route.
   "e2e/chat-surface.spec.ts",
-  // Also flips the chat surface flag, and enables the dsh agent type.
-  "e2e/dsh-agent.spec.ts",
+  // Also flips the chat surface flag, and enables the dispatch agent type.
+  "e2e/harness-agent.spec.ts",
 ];
 
 export default defineConfig({
@@ -61,14 +61,12 @@ export default defineConfig({
       DISPATCH_PORT: devPort,
       MEDIA_ROOT: mediaRoot,
       DISPATCH_AGENT_RUNTIME: agentRuntime,
-      // The dsh specs assume no provider keys; a developer's shell may export
-      // real ones, and the usage dialog would then call the billing APIs.
-      OPENAI_API_KEY: "",
-      OPENAI_ADMIN_KEY: "",
-      ANTHROPIC_API_KEY: "",
-      ANTHROPIC_ADMIN_KEY: "",
-      DEEPSEEK_API_KEY: "",
-      GEMINI_API_KEY: "",
+      // The harness specs run against the fake ACP agent, so no provider
+      // keys are needed here. scripts/e2e-isolated.sh already exports
+      // DISPATCH_CLAUDE_HARNESS_BIN, DISPATCH_CODEX_HARNESS_BIN,
+      // DISPATCH_GEMINI_BIN, and DISPATCH_OPENCODE_BIN before invoking
+      // Playwright; this block must not set them itself, or a developer's
+      // shell could leak real engine binaries into the run.
     },
     url: `${baseURL}/api/v1/health`,
     reuseExistingServer: false,
