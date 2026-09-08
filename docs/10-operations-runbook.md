@@ -65,30 +65,45 @@ launchctl kickstart -k "gui/$(id -u)/com.dispatch.server"
 ### Read this first: a restart cuts a running Dispatch Harness turn
 
 A restart is not free for Dispatch Harness agents (type `dispatch`) the way
-it is for CLI agents. A Claude
-or Codex agent runs inside a tmux session the service does not own, so
-`kickstart -k` leaves it working and the new process re-attaches to the pane.
-A Dispatch Harness agent runs as a **child of the service over stdio** (the
-Agent Client Protocol needs a live pipe to its client), so every restart,
-deploys included, ends the turn it was running.
+it is for CLI agents. A Claude or Codex agent in a tmux pane runs in a
+session the service does not own, so `systemctl --user restart` leaves it
+working and the new process re-attaches. A Dispatch Harness agent's engine
+runs as a **child of the service over stdio** (the Agent Client Protocol
+needs a live pipe to its client), so every restart, deploys included, ends
+the turn it was running.
 
 What the service does about it:
 
 - At shutdown the running turn is marked `interrupted by restart`; the Harness
   view shows it as interrupted.
-- At boot the agent is resumed on its stored session id. If the cut was within
-  the last hour and the agent had not already reported done, blocked, or
-  waiting, it receives a `--- DISPATCH: RESTART ---` notice and picks the task
-  up from its session log. Chat messages still queued at shutdown are
-  delivered again, in order.
-- The tasks strip stays empty until the agent writes its list again; the old
-  list is still on the interrupted turn's steps.
+- At boot the agent is resumed on its stored session id with `session/resume`.
+  If the cut was within the last hour and the agent had not already reported
+  done, blocked, or waiting, it receives a `--- DISPATCH: RESTART ---` notice
+  and picks the task up from its own history. Chat messages still queued at
+  shutdown are delivered again, in order.
 
 Before a restart, check the sidebar for a Dispatch Harness agent that is
-`Working` and either wait for the turn or accept the cut. Letting the harness
-outlive the service (a detached `dsh` behind a relay socket, so the new
-process reconnects instead of respawning) is a known limitation; the design
-sketch is in `docs/superpowers/handoffs/2026-09-05-dsh-harness-handoff.md`.
+`Working` and either wait for the turn or accept the cut.
+
+### Dispatch Harness engines
+
+The engine is the first segment of the agent's model id. Each is a host
+install the service resolves with its own `PATH`, not a login shell's, so
+set every binary to an absolute path. Each engine uses the host CLI's own
+login; Dispatch holds no provider key.
+
+| Engine      | Model id prefix | Binary setting                | Install                                                                         | Login, as the service user  |
+| ----------- | --------------- | ----------------------------- | ------------------------------------------------------------------------------- | --------------------------- |
+| Claude Code | `claude/`       | `DISPATCH_CLAUDE_HARNESS_BIN` | `npm install -g --prefix ~/.local @agentclientprotocol/claude-agent-acp@0.70.0` | `claude /login`             |
+| Codex       | `codex/`        | `DISPATCH_CODEX_HARNESS_BIN`  | `npm install -g --prefix ~/.local @agentclientprotocol/codex-acp@1.7.0`         | `codex login --device-auth` |
+| Gemini CLI  | `gemini/`       | `DISPATCH_GEMINI_BIN`         | `npm install -g --prefix ~/.local @google/gemini-cli@0.57.0`                    | `NO_BROWSER=true gemini`    |
+| OpenCode    | `opencode/`     | `DISPATCH_OPENCODE_BIN`       | `npm install -g --prefix ~/.local opencode-ai@1.18.29`                          | `opencode auth login`       |
+
+What each engine publishes over ACP differs, and the view says so where it
+matters: Gemini CLI publishes no plan, no usage, and no model option (its
+model is a launch flag, so `/model` is disabled); Codex reports tokens but
+no cost; OpenCode publishes no plan. Claude Code nests a subagent's steps;
+the others show a subagent as one step.
 
 ## Database
 
@@ -232,19 +247,22 @@ PRs must pass CI before merge.
 
 Server configuration lives in `~/.dispatch/server/.env`. Key variables:
 
-| Variable                                                  | Default                                                | Description                                                                                                                                                                                             |
-| --------------------------------------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `DISPATCH_HOST`                                           | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections.                                                                                                |
-| `DISPATCH_PORT`                                           | `6767`                                                 | HTTP port the server listens on                                                                                                                                                                         |
-| `DATABASE_URL`                                            | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                                                                                                                              |
-| `MEDIA_ROOT`                                              | `$HOME/.dispatch/media`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                                                                                                                       |
-| `DISPATCH_AGENT_RUNTIME`                                  | `tmux`                                                 | Agent runtime mode (`tmux` or `inert` for dev/test)                                                                                                                                                     |
-| `DISPATCH_COPY_DISPLAY`                                   | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                                                                                                                       |
-| `TLS_CERT`                                                | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                                                                                                                             |
-| `TLS_KEY`                                                 | —                                                      | Path to TLS private key file                                                                                                                                                                            |
-| `DISPATCH_DSH_BIN`                                        | `dsh`                                                  | DeepSeek Harness launcher for `dsh` agents. Use an absolute path: the service resolves it with its own PATH, not your login shell's, so an npm/nvm install is invisible unless the path is spelled out. |
-| `DISPATCH_DSH_HOME`                                       | `$HOME/.dispatch/dsh`                                  | `DSH_HOME` for harness sessions Dispatch launches; kept apart from a user's own `~/.dsh`.                                                                                                               |
-| `DEEPSEEK_API_KEY`, `OPENAI_API_KEY`, `ANTHROPIC_API_KEY` | —                                                      | Provider keys `dsh` agents use. Put them in `~/.dispatch/server/.env`: the harness child inherits the service's environment, not your shell exports.                                                    |
+| Variable                      | Default                                                | Description                                                                                                        |
+| ----------------------------- | ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------ |
+| `DISPATCH_HOST`               | `127.0.0.1`                                            | Interface to bind the API server to. Set `0.0.0.0` only when the machine must accept remote connections.           |
+| `DISPATCH_PORT`               | `6767`                                                 | HTTP port the server listens on                                                                                    |
+| `DATABASE_URL`                | `postgres://dispatch:dispatch@127.0.0.1:5432/dispatch` | Postgres connection string                                                                                         |
+| `MEDIA_ROOT`                  | `$HOME/.dispatch/media`                                | File upload storage path. A leading `~` is expanded, but prefer an absolute path.                                  |
+| `DISPATCH_AGENT_RUNTIME`      | `tmux`                                                 | Agent runtime mode (`tmux` or `inert` for dev/test)                                                                |
+| `DISPATCH_COPY_DISPLAY`       | —                                                      | Virtual X display for clipboard image paste on Linux (e.g. `:99`)                                                  |
+| `TLS_CERT`                    | —                                                      | Path to TLS certificate file (enables HTTPS when both cert and key are set)                                        |
+| `TLS_KEY`                     | —                                                      | Path to TLS private key file                                                                                       |
+| `DISPATCH_CLAUDE_HARNESS_BIN` | `claude-agent-acp`                                     | The Claude engine's ACP adapter. Absolute path.                                                                    |
+| `DISPATCH_CODEX_HARNESS_BIN`  | `codex-acp`                                            | The Codex engine's ACP adapter. Absolute path.                                                                     |
+| `DISPATCH_GEMINI_BIN`         | `gemini`                                               | Gemini CLI, which speaks ACP itself. Absolute path.                                                                |
+| `DISPATCH_OPENCODE_BIN`       | `opencode`                                             | OpenCode, which speaks ACP itself (`opencode acp`). Absolute path.                                                 |
+| `DISPATCH_CLAUDE_BIN`         | `claude`                                               | Existing. Also handed to the Claude adapter as `CLAUDE_CODE_EXECUTABLE`.                                           |
+| `DISPATCH_CODEX_BIN`          | `codex`                                                | Existing. Handed to the Codex adapter as `CODEX_PATH` only when set; otherwise the adapter runs its bundled Codex. |
 
 Changes to `.env` require a service restart to take effect.
 
