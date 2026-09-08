@@ -99,3 +99,62 @@ describe("configured paths expand a leading tilde", () => {
     );
   });
 });
+
+/**
+ * The engine and CLI binary settings are the same story as the paths above,
+ * with one twist: a bare command name has to survive untouched so
+ * `resolveExecutable`'s PATH lookup still finds it. Only a value that names
+ * a path gets `~` expanded.
+ */
+describe("configured executables expand a leading tilde", () => {
+  const BIN_ENV = [
+    "DISPATCH_CLAUDE_HARNESS_BIN",
+    "DISPATCH_CODEX_HARNESS_BIN",
+    "DISPATCH_GEMINI_BIN",
+    "DISPATCH_OPENCODE_BIN",
+    "DISPATCH_CLAUDE_BIN",
+    "DISPATCH_CODEX_BIN",
+    "DISPATCH_CURSOR_BIN",
+    "DATABASE_URL",
+    "DISPATCH_PORT",
+    "HOME",
+  ];
+
+  it("for every engine and CLI bin, and leaves a bare command name alone", async () => {
+    const saved = new Map(BIN_ENV.map((name) => [name, process.env[name]]));
+    const home = await mkdtemp(path.join(os.tmpdir(), "dispatch-cfg-bin-"));
+    cleanup.push(home);
+    try {
+      process.env.HOME = home;
+      // Neither the production database nor the production port: loadConfig
+      // refuses both from an agent context, and this suite runs in one.
+      process.env.DATABASE_URL =
+        "postgres://dispatch:dispatch@127.0.0.1:5433/dispatch_cfg_probe";
+      process.env.DISPATCH_PORT = "6799";
+      process.env.DISPATCH_CLAUDE_HARNESS_BIN = "~/.local/bin/claude-agent-acp";
+      process.env.DISPATCH_CODEX_HARNESS_BIN = "~/.local/bin/codex-acp";
+      process.env.DISPATCH_GEMINI_BIN = "~/.local/bin/gemini";
+      process.env.DISPATCH_OPENCODE_BIN = "~/.local/bin/opencode";
+      process.env.DISPATCH_CLAUDE_BIN = "~/.local/bin/claude";
+      process.env.DISPATCH_CURSOR_BIN = "~/.local/bin/agent";
+      // The one bare name in the set: PATH lookup, not a path.
+      process.env.DISPATCH_CODEX_BIN = "codex";
+      vi.resetModules();
+      const { loadConfig } = await import("../src/config.js");
+      const config = loadConfig();
+      const local = (name: string) => path.join(home, ".local", "bin", name);
+      expect(config.claudeHarnessBin).toBe(local("claude-agent-acp"));
+      expect(config.codexHarnessBin).toBe(local("codex-acp"));
+      expect(config.geminiBin).toBe(local("gemini"));
+      expect(config.opencodeBin).toBe(local("opencode"));
+      expect(config.claudeBin).toBe(local("claude"));
+      expect(config.cursorBin).toBe(local("agent"));
+      expect(config.codexBin).toBe("codex");
+    } finally {
+      for (const [name, value] of saved) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+});

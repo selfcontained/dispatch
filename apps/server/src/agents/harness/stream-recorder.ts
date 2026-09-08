@@ -132,9 +132,19 @@ function projectToolContent(content: readonly unknown[] | null | undefined): {
     truncated = bounded.truncated;
   }
   if (diff) {
-    const bounded = boundOutput(diff.newText, TEXT_MAX_BYTES);
-    if (bounded.truncated) {
-      diff = { ...diff, newText: bounded.text };
+    // Both halves, not just the new one: engines that write whole files
+    // (Gemini CLI's write_file, OpenCode's write tool) send the entire
+    // previous file as oldText, and the row is read back on every chat feed
+    // page, every turns read and every coalesced refetch.
+    const newBounded = boundOutput(diff.newText, TEXT_MAX_BYTES);
+    const oldBounded =
+      diff.oldText === null ? null : boundOutput(diff.oldText, TEXT_MAX_BYTES);
+    if (newBounded.truncated || oldBounded?.truncated) {
+      diff = {
+        ...diff,
+        newText: newBounded.text,
+        oldText: oldBounded ? oldBounded.text : null,
+      };
       truncated = true;
     }
   }

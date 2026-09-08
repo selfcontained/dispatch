@@ -1,3 +1,5 @@
+import { HARNESS_ENGINE_IDS, harnessEngineOf } from "@dispatch/shared";
+
 import { CLI_AGENT_TYPES, type AgentType } from "./agent-types.js";
 
 export type AgentModelOption = {
@@ -170,9 +172,33 @@ export function describeAgentModelCatalog(
   return sentences.join(" ");
 }
 
-/** Harness model ids are `engine/model`; the engine serves the catalog, so only the shape is checked here. */
-export const HARNESS_MODEL_ID =
-  /^[a-z0-9][a-z0-9._-]*\/[A-Za-z0-9][A-Za-z0-9._:-]*$/;
+/**
+ * The model half of a harness id. Slashes are allowed after the first one
+ * because OpenCode ids are `provider/model`, which is also the shape
+ * `HarnessSupervisor.setConfigOption` persists when a model is switched at
+ * runtime; a stricter rule here rejected the supervisor's own stored value
+ * the next time a job or template update path validated it.
+ */
+export const HARNESS_MODEL_HALF = /^[A-Za-z0-9][A-Za-z0-9._:/-]*$/;
+
+/**
+ * Split a harness model id the way `splitModelId` does at start time, so a
+ * typo is a 400 at create rather than "unknown engine" in the sidebar once
+ * the agent is already there. The engine catalog itself is the engine's, so
+ * the model half is only shape-checked.
+ */
+function validateHarnessModel(model: string): string {
+  const slash = model.indexOf("/");
+  const engine = slash > 0 ? model.slice(0, slash) : "";
+  const rest = slash > 0 ? model.slice(slash + 1) : "";
+  const known = (HARNESS_ENGINE_IDS as readonly string[]).includes(engine);
+  if (!known || !HARNESS_MODEL_HALF.test(rest)) {
+    throw new Error(
+      `Model "${model}" is not a harness model id. Use engine/model, where engine is one of ${HARNESS_ENGINE_IDS.join(", ")}, for example codex/gpt-5.6-sol.`
+    );
+  }
+  return model;
+}
 
 export function validateAgentModel(
   agentType: AgentType,
@@ -180,12 +206,7 @@ export function validateAgentModel(
 ): string | undefined {
   const normalizedModel = model?.trim() || undefined;
   if (normalizedModel === undefined) return undefined;
-  if (agentType === "dispatch") {
-    if (HARNESS_MODEL_ID.test(normalizedModel)) return normalizedModel;
-    throw new Error(
-      `Model "${normalizedModel}" is not a harness model id; use engine/model, e.g. codex/gpt-5.6-sol.`
-    );
-  }
+  if (agentType === "dispatch") return validateHarnessModel(normalizedModel);
   if (
     getAgentModelOptions(agentType).some(
       (option) => option.id === normalizedModel
@@ -196,6 +217,27 @@ export function validateAgentModel(
   throw new Error(
     `Model "${normalizedModel}" is not supported for ${agentType}. Choose a configured model or omit model for the CLI default.`
   );
+}
+
+/**
+ * The model a child or persona of type `dispatch` runs with when the caller
+ * named none.
+ *
+ * A harness agent's engine is the first segment of its model id, so a child
+ * that runs as its parent's own kind has to carry the parent's engine as
+ * well: left to the supervisor's own default, a Codex- or Gemini-harness
+ * parent's reviewer runs on Claude Code, which is both the wrong reasoning
+ * and the wrong account to bill. Returns undefined for anything else, which
+ * leaves the CLI default in place.
+ */
+export function inheritedHarnessModel(
+  agentType: AgentType,
+  parent: { type?: string | null; model?: string | null }
+): string | undefined {
+  if (agentType !== "dispatch" || parent.type !== "dispatch") return undefined;
+  const engine = harnessEngineOf(parent.model);
+  if (!engine) return undefined;
+  return parent.model || `${engine.id}/default`;
 }
 
 /** The agent-config fields every job/template create path defaults the same way. */

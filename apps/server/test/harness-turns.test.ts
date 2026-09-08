@@ -607,10 +607,13 @@ describe("assembleTurns labels", () => {
 
 describe("loadQueued", () => {
   it("joins chat text onto queued chat prompts and passes the rest through", async () => {
-    const message = chatMsg("m9", "second thoughts");
+    // A real chat id: the read casts these to uuid, so an ill-formed one is
+    // dropped before the query rather than handed to Postgres.
+    const CHAT_ID = "fae1f052-5d66-4039-9bde-35ac8166695d";
+    const message = chatMsg(CHAT_ID, "second thoughts");
     const db = {
       query: async (_sql: string, params?: unknown[]) => {
-        expect(params?.[0]).toEqual(["m9"]);
+        expect(params?.[0]).toEqual([CHAT_ID]);
         return {
           rows: [
             {
@@ -637,8 +640,8 @@ describe("loadQueued", () => {
     };
     const queued = await loadQueued(db as never, [
       {
-        id: "m9",
-        source: { source: "chat", chatMessageId: "m9" },
+        id: CHAT_ID,
+        source: { source: "chat", chatMessageId: CHAT_ID },
         createdAt: at(1).toISOString(),
       },
       {
@@ -654,10 +657,10 @@ describe("loadQueued", () => {
     ]);
     expect(queued).toEqual([
       {
-        id: "m9",
+        id: CHAT_ID,
         source: "chat",
         text: "second thoughts",
-        chatMessageId: "m9",
+        chatMessageId: CHAT_ID,
         attachments: [],
         createdAt: at(1).toISOString(),
       },
@@ -668,6 +671,34 @@ describe("loadQueued", () => {
         senderName: "Reviewer",
         attachments: [],
         createdAt: at(2).toISOString(),
+      },
+    ]);
+  });
+
+  it("skips the chat read when every queued chat id is ill-formed", async () => {
+    // Otherwise the `::uuid[]` cast throws and this agent's turns read 500
+    // from then on, because the offending prompt row is persisted.
+    const db = {
+      query: async () => {
+        throw new Error("should not query");
+      },
+    };
+    expect(
+      await loadQueued(db as never, [
+        {
+          id: "0".repeat(36),
+          source: { source: "chat", chatMessageId: "0".repeat(36) },
+          createdAt: at(1).toISOString(),
+        },
+      ])
+    ).toEqual([
+      {
+        id: "0".repeat(36),
+        source: "chat",
+        text: "",
+        chatMessageId: "0".repeat(36),
+        attachments: [],
+        createdAt: at(1).toISOString(),
       },
     ]);
   });

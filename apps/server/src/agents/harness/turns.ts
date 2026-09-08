@@ -8,7 +8,11 @@ import type {
   HarnessTurn,
 } from "@dispatch/shared";
 
-import { type Queryable, toChatMessage } from "../../chat/store.js";
+import {
+  isChatMessageId,
+  type Queryable,
+  toChatMessage,
+} from "../../chat/store.js";
 import type { PromptSource } from "./prompt-source.js";
 import type {
   AssistantPayload,
@@ -431,10 +435,15 @@ async function loadChatMessages(
   ids: string[]
 ): Promise<Map<string, ChatMessage>> {
   const chat = new Map<string, ChatMessage>();
-  if (ids.length === 0) return chat;
+  // The cast below is the only thing standing between a stored prompt and a
+  // permanent 500 on this agent's turns, so ids Postgres would reject are
+  // dropped here rather than sent. A dropped id reads as a prompt with no
+  // chat text behind it.
+  const valid = ids.filter((id) => isChatMessageId(id));
+  if (valid.length === 0) return chat;
   const messages = await db.query(
     `SELECT * FROM agent_chat_messages WHERE id = ANY($1::uuid[])`,
-    [ids]
+    [valid]
   );
   for (const row of messages.rows) {
     const message = toChatMessage(row as never);

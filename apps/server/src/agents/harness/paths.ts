@@ -4,6 +4,8 @@ import path from "node:path";
 
 import type { HarnessPath } from "@dispatch/shared";
 
+import { shouldSkipAutomaticMacPathProbe } from "../../shared/mac-path-privacy.js";
+
 /**
  * Completions for the Harness composer's "@" path picker: the entries of
  * the directory the typed prefix names, filtered by its last segment. The
@@ -13,6 +15,12 @@ import type { HarnessPath } from "@dispatch/shared";
 
 const MAX_QUERY_LENGTH = 1024;
 const MAX_ENTRIES = 50;
+
+/** Whether a directory is the agent's working tree or something inside it. */
+function isInsideTree(dir: string, cwd: string): boolean {
+  const rel = path.relative(cwd, dir);
+  return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+}
 
 /** Where a typed prefix points: the directory to list, and the segment to match. */
 export function resolvePathQuery(
@@ -40,13 +48,23 @@ export function resolvePathQuery(
  */
 export async function listHarnessPaths(
   query: string,
-  input: { cwd: string; home?: string }
+  input: { cwd: string; home?: string; platform?: NodeJS.Platform }
 ): Promise<HarnessPath[]> {
   const resolved = resolvePathQuery(query, input);
   if (!resolved) return [];
   const { dir, typedDir, segment } = resolved;
   // "~" alone completes to the home directory before anything is listed.
   if (typedDir === "" && segment === "~") return [{ path: "~", kind: "dir" }];
+  // On macOS a service that reads ~/Desktop, ~/Documents, ~/Downloads or
+  // iCloud Drive raises a TCC prompt no daemon can answer, so the read hangs
+  // or is denied silently. /api/v1/system/path-completions refuses these
+  // before readdir and so does this.
+  const home = input.home ?? os.homedir();
+  if (shouldSkipAutomaticMacPathProbe(dir, home, input.platform)) return [];
+  // Outside the agent's working tree only directories list, which is the
+  // posture of the completion route this parallels. Inside it, naming files
+  // is the whole point of the picker.
+  const dirsOnly = !isInsideTree(dir, input.cwd);
   const showHidden = segment.startsWith(".");
   const needle = segment.toLowerCase();
   let entries: import("node:fs").Dirent[];
@@ -73,6 +91,7 @@ export async function listHarnessPaths(
         continue;
       }
     }
+    if (!isDir && dirsOnly) continue;
     const bucket = isDir ? dirs : files;
     if (bucket.length >= MAX_ENTRIES) continue;
     bucket.push({

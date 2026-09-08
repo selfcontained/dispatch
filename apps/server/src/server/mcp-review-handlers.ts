@@ -31,7 +31,10 @@ import {
   resolveRepoRoot,
   resolveWorktreeRoot,
 } from "../shared/git/git-context.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import {
+  inheritedHarnessModel,
+  validateAgentModel,
+} from "../shared/agent-models.js";
 import { getPrStatus } from "../shared/github/pr.js";
 import { runCommand } from "../shared/lib/run-command.js";
 import {
@@ -503,7 +506,12 @@ export function createReviewHandlers(deps: CreateReviewHandlersDeps) {
         throw new Error(`${personaAgentType} agents are disabled in settings.`);
       }
 
-      const personaModel = validateAgentModel(personaAgentType, opts.model);
+      // A harness persona inherits its parent's engine along with its kind:
+      // the engine is half the model id, so "no model" would otherwise mean
+      // Claude Code no matter what the parent runs on.
+      const personaModel =
+        validateAgentModel(personaAgentType, opts.model) ??
+        inheritedHarnessModel(personaAgentType, parent);
 
       const parentCwd = parent.worktreePath ?? parent.cwd;
       let personaRoot: string;

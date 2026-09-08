@@ -128,6 +128,7 @@ async function build(
       opencodeBin: "/bin/opencode",
       claudeBin: "/bin/claude",
       codexBin: "/bin/codex",
+      dispatchBinDir: "/opt/dispatch/bin",
       port: 1,
       tls: null,
       authToken: "secret",
@@ -649,7 +650,7 @@ describe("buildChildEnv", () => {
     const env = buildChildEnv({
       agentId: "agt_1",
       mediaDir: "/media/agt_1",
-      config: { port: 6767, tls: null },
+      config: { port: 6767, tls: null, dispatchBinDir: "/opt/dispatch/bin" },
       base,
     });
     expect(env.SSH_AUTH_SOCK).toBe("/tmp/agent.sock");
@@ -679,12 +680,44 @@ describe("buildChildEnv", () => {
       config: {
         port: 6767,
         tls: { cert: Buffer.from(""), key: Buffer.from("") },
+        dispatchBinDir: "/opt/dispatch/bin",
       },
       base,
     });
     expect(env.DISPATCH_SCHEME).toBe("https");
     expect(env.NODE_EXTRA_CA_CERTS).toBe("/etc/ca.pem");
     expect(env.TLS_CA).toBeUndefined();
+  });
+  it("prepends the same PATH entries the pane launch does, deduped", () => {
+    // The service units pin PATH to
+    // /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin, so
+    // without this the child cannot find an engine installed with
+    // `npm install -g --prefix ~/.local`, which is what the runbook tells
+    // operators to do, and resolveBinary reads this same PATH.
+    const env = buildChildEnv({
+      agentId: "agt_1",
+      mediaDir: "/m",
+      config: { port: 6767, tls: null, dispatchBinDir: "/opt/dispatch/bin" },
+      base: { ...base, PATH: "/home/u/.local/bin:/usr/bin" },
+    });
+    expect(env.PATH).toBe("/opt/dispatch/bin:/home/u/.local/bin:/usr/bin");
+  });
+
+  it("pins the Claude Bash tool's working directory, and only for Claude", () => {
+    const forEngine = (engine: "claude" | "codex") =>
+      buildChildEnv({
+        agentId: "agt_1",
+        mediaDir: "/m",
+        config: { port: 6767, tls: null, dispatchBinDir: "/opt/dispatch/bin" },
+        base,
+        engine,
+      });
+    expect(forEngine("claude").CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR).toBe(
+      "1"
+    );
+    expect(
+      forEngine("codex").CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR
+    ).toBeUndefined();
   });
 });
 

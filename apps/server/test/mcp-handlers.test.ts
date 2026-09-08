@@ -48,15 +48,16 @@ vi.mock("../src/reviews/injection-prompts.js", () => ({
 }));
 
 vi.mock("../src/agent-type-settings.js", () => ({
-  CLI_AGENT_TYPES: ["claude", "codex", "cursor", "opencode"],
+  CLI_AGENT_TYPES: ["claude", "codex", "cursor", "opencode", "dispatch"],
   getEnabledAgentTypes: vi.fn(async () => [
     "claude",
     "codex",
     "cursor",
     "opencode",
+    "dispatch",
   ]),
   isCliAgentType: vi.fn((t: string) =>
-    ["claude", "codex", "cursor", "opencode"].includes(t)
+    ["claude", "codex", "cursor", "opencode", "dispatch"].includes(t)
   ),
 }));
 
@@ -1189,6 +1190,78 @@ describe("createMcpHandlers", () => {
         expect.objectContaining({
           cwd: "/repo/.dispatch/worktrees/abc",
         })
+      );
+    });
+  });
+
+  describe("harness children inherit the parent's engine", () => {
+    // The engine is the first segment of a harness model id, so a child that
+    // runs as its parent's kind with no model of its own would otherwise run
+    // on Claude Code whatever the parent runs on, and bill that account.
+    const harnessParent = {
+      id: "agt_test1",
+      name: "test-agent",
+      cwd: "/repo",
+      status: "running",
+      type: "dispatch",
+      model: "codex/gpt-5.6-sol",
+      fullAccess: true,
+      pins: [],
+      latestEvent: null,
+      worktreePath: null,
+      worktreeBranch: null,
+      baseBranch: null,
+      reviewAgentType: null,
+      mediaDir: null,
+    };
+
+    beforeEach(() => {
+      // vi.clearAllMocks() clears calls, not implementations, so an earlier
+      // test's narrower enabled-types list is still in place here.
+      vi.mocked(getEnabledAgentTypes).mockResolvedValue([
+        "claude",
+        "codex",
+        "cursor",
+        "opencode",
+        "dispatch",
+      ] as never);
+      deps.agentManager.getAgent.mockResolvedValue(harnessParent);
+    });
+
+    it("a persona review runs on the parent's engine", async () => {
+      await handlers.launchPersona("agt_test1", {
+        persona: "security",
+        context: "review this PR",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "dispatch",
+          model: "codex/gpt-5.6-sol",
+        })
+      );
+    });
+
+    it("a launched child runs on the parent's engine", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "work",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: "dispatch",
+          model: "codex/gpt-5.6-sol",
+        })
+      );
+    });
+
+    it("an explicit model still wins", async () => {
+      await handlers.launchAgent("agt_test1", {
+        name: "worker",
+        prompt: "work",
+        model: "gemini/default",
+      });
+      expect(deps.agentManager.createAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ model: "gemini/default" })
       );
     });
   });

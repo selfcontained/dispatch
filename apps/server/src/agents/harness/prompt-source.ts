@@ -8,7 +8,14 @@ export type PromptSource =
   | { source: "agent"; senderId: string; senderName: string; text: string }
   | { source: "system"; text: string };
 
-const CHAT_HEADER = /^--- DISPATCH CHAT \(id: ([0-9a-f-]{36})\) ---/m;
+// The id has to be the strict UUID shape, not 36 characters of the same
+// alphabet: it is read back through a `::uuid[]` cast, and a value Postgres
+// rejects there turns every later read of that agent's turns into a 500. The
+// header is matched on every prompt that reaches the queue, and review
+// injection prompts embed feedback bodies verbatim, so the text is not
+// always Dispatch's own.
+const CHAT_HEADER =
+  /^--- DISPATCH CHAT \(id: ([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})\) ---/m;
 const MESSAGE_BLOCK =
   /^--- DISPATCH MESSAGE ---\n([\s\S]*?)\n--- END MESSAGE ---/m;
 const SYSTEM_MAX = 500;

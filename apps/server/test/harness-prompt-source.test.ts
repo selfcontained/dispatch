@@ -16,6 +16,25 @@ describe("parsePromptSource", () => {
     });
   });
 
+  it("does not read a chat id out of a header that is not a real UUID", () => {
+    // The header is matched on every prompt that reaches the queue, review
+    // injection prompts included, and those embed feedback bodies verbatim.
+    // A captured value that is not a UUID reaches a `::uuid[]` cast and
+    // turns every later read of that agent's turns into a 500.
+    for (const id of [
+      "0".repeat(36),
+      "-".repeat(36),
+      "fae1f052-5d664039-9bde-35ac8166695dd",
+    ]) {
+      const text = [
+        `--- DISPATCH CHAT (id: ${id}) ---`,
+        "hello",
+        "--- END DISPATCH CHAT ---",
+      ].join("\n");
+      expect(parsePromptSource(text).source).toBe("system");
+    }
+  });
+
   it("reads sender and text out of a cross-agent message envelope", () => {
     const body = JSON.stringify({
       from: "Dispatch Harness Research",

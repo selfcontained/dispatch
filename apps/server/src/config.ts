@@ -4,7 +4,10 @@ import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { resolveConfiguredPath } from "./shared/lib/resolve-tilde.js";
+import {
+  resolveConfiguredPath,
+  resolveTilde,
+} from "./shared/lib/resolve-tilde.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -80,6 +83,22 @@ function resolveAgentRuntime(): "tmux" | "inert" {
   }
 }
 
+/**
+ * An executable read from configuration. A bare command name is left exactly
+ * as written, because `resolveExecutable` looks those up on PATH; anything
+ * naming a path gets its leading `~` expanded, the way every other
+ * configured path does.
+ *
+ * Neither loader of `.env` expands `~` for us: the service unit uses
+ * `EnvironmentFile` and the server uses dotenv, so a literal `~` survives to
+ * `path.resolve`, which turns the documented `~/.local/bin/...` into a
+ * subdirectory of the install directory and fails every engine start. Only
+ * `bin/dispatch-dev` was hiding this, because it sources `.env` through bash.
+ */
+function resolveConfiguredBin(value: string): string {
+  return value.includes("/") ? resolveTilde(value) : value;
+}
+
 export function loadConfig(): AppConfig {
   const config: AppConfig = {
     host: process.env.DISPATCH_HOST ?? process.env.HOST ?? "127.0.0.1",
@@ -90,21 +109,29 @@ export function loadConfig(): AppConfig {
       process.env.MEDIA_ROOT ?? path.join(os.homedir(), ".dispatch", "media")
     ),
     dispatchBinDir: path.resolve(__dirname, "..", "..", "..", "bin"),
-    codexBin:
-      process.env.DISPATCH_CODEX_BIN ?? process.env.CODEX_BIN ?? "codex",
-    claudeBin:
-      process.env.DISPATCH_CLAUDE_BIN ?? process.env.CLAUDE_BIN ?? "claude",
-    opencodeBin:
+    codexBin: resolveConfiguredBin(
+      process.env.DISPATCH_CODEX_BIN ?? process.env.CODEX_BIN ?? "codex"
+    ),
+    claudeBin: resolveConfiguredBin(
+      process.env.DISPATCH_CLAUDE_BIN ?? process.env.CLAUDE_BIN ?? "claude"
+    ),
+    opencodeBin: resolveConfiguredBin(
       process.env.DISPATCH_OPENCODE_BIN ??
-      process.env.OPENCODE_BIN ??
-      "opencode",
-    cursorBin:
-      process.env.DISPATCH_CURSOR_BIN ?? process.env.CURSOR_BIN ?? "agent",
-    claudeHarnessBin:
-      process.env.DISPATCH_CLAUDE_HARNESS_BIN ?? "claude-agent-acp",
-    codexHarnessBin: process.env.DISPATCH_CODEX_HARNESS_BIN ?? "codex-acp",
-    geminiBin:
-      process.env.DISPATCH_GEMINI_BIN ?? process.env.GEMINI_BIN ?? "gemini",
+        process.env.OPENCODE_BIN ??
+        "opencode"
+    ),
+    cursorBin: resolveConfiguredBin(
+      process.env.DISPATCH_CURSOR_BIN ?? process.env.CURSOR_BIN ?? "agent"
+    ),
+    claudeHarnessBin: resolveConfiguredBin(
+      process.env.DISPATCH_CLAUDE_HARNESS_BIN ?? "claude-agent-acp"
+    ),
+    codexHarnessBin: resolveConfiguredBin(
+      process.env.DISPATCH_CODEX_HARNESS_BIN ?? "codex-acp"
+    ),
+    geminiBin: resolveConfiguredBin(
+      process.env.DISPATCH_GEMINI_BIN ?? process.env.GEMINI_BIN ?? "gemini"
+    ),
     agentRuntime: resolveAgentRuntime(),
     sessionPrefix: process.env.DISPATCH_SESSION_PREFIX ?? "dispatch",
     tls: loadTls(),

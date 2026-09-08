@@ -14,7 +14,10 @@ import {
   CLI_AGENT_TYPES,
   getEnabledAgentTypes,
 } from "../agent-type-settings.js";
-import { validateAgentModel } from "../shared/agent-models.js";
+import {
+  inheritedHarnessModel,
+  validateAgentModel,
+} from "../shared/agent-models.js";
 import { isCrossRepoMessagingEnabled } from "../cross-repo-messaging-settings.js";
 import type { JobService } from "../jobs/service.js";
 import type { TemplateService } from "../templates/service.js";
@@ -610,10 +613,17 @@ async function handleLaunchAgent(
   const worktreeLocation = await getWorktreeLocation(deps.pool);
 
   const cliSessionId = agentType === "claude" ? randomUUID() : undefined;
-  const model = validateAgentModel(
-    agentType as (typeof CLI_AGENT_TYPES)[number],
-    input.model
-  );
+  // A harness child inherits its parent's engine when the caller named no
+  // model, for the same reason a persona does: the engine is half the id.
+  const model =
+    validateAgentModel(
+      agentType as (typeof CLI_AGENT_TYPES)[number],
+      input.model
+    ) ??
+    inheritedHarnessModel(
+      agentType as (typeof CLI_AGENT_TYPES)[number],
+      parent
+    );
 
   // Launching a template is a request for the template's own instructions —
   // without this the caller's short prompt was the agent's entire prompt and

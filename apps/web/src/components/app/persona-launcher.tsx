@@ -71,6 +71,17 @@ export function PersonaLauncher({
     useAgentModelCatalog(selectedAgentType);
   const showModelSelect = modelCatalogLoading || modelOptions.length > 0;
 
+  // A harness reviewer runs as its parent's kind, and for the harness the
+  // engine is the first segment of the model id. With nothing chosen the
+  // picker would read "Default", which for every parent means Claude Code,
+  // so the parent's own model stands in as the default instead. The server
+  // does the same for the MCP path.
+  const effectiveModel =
+    selectedModel ??
+    (selectedAgentType === "dispatch" && agent.type === "dispatch"
+      ? (agent.model ?? null)
+      : null);
+
   const { data: personas = [] } = useQuery<PersonaSummary[]>({
     queryKey: ["personas", cwd],
     queryFn: async () => {
@@ -94,8 +105,8 @@ export function PersonaLauncher({
           agentType: selectedAgentType,
           // A stored id the catalog no longer offers means "CLI default",
           // same as the select renders it.
-          model: modelOptions.some((option) => option.id === selectedModel)
-            ? selectedModel
+          model: modelOptions.some((option) => option.id === effectiveModel)
+            ? effectiveModel
             : null,
           note: note.trim() ? note.trim() : null,
         }),
@@ -240,7 +251,7 @@ export function PersonaLauncher({
         showModelSelect={showModelSelect}
         modelOptions={modelOptions}
         modelCatalogLoading={modelCatalogLoading}
-        selectedModel={selectedModel}
+        selectedModel={effectiveModel}
         setSelectedModel={setSelectedModel}
         personas={personas}
         selectedPersonas={selectedPersonas}

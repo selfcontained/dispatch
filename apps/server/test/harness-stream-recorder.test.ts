@@ -260,6 +260,44 @@ describe("StreamRecorder", () => {
     expect(payload.text).toContain("[truncated]");
   });
 
+  it("bounds both halves of a diff and marks the row truncated", async () => {
+    // Gemini CLI's write_file and OpenCode's write tool send the whole
+    // previous file as oldText, so an edit to a large file would otherwise
+    // put that file into the row, and every chat feed page and turns read
+    // pulls it back out again.
+    const rec = new StreamRecorder(store);
+    await rec.handle({
+      type: "update",
+      agentId: A,
+      update: {
+        sessionUpdate: "tool_call",
+        toolCallId: "big",
+        title: "Write x",
+        kind: "edit",
+        status: "completed",
+        content: [
+          {
+            type: "diff",
+            path: "/w/x",
+            oldText: "o".repeat(TEXT_MAX_BYTES + 10),
+            newText: "n",
+          },
+        ],
+      },
+    });
+    const row = (await store.list(A, 10)).find((r) => r.key === "big");
+    const payload = row?.payload as {
+      diff: { oldText: string; newText: string };
+      truncated?: boolean;
+    };
+    expect(payload.truncated).toBe(true);
+    expect(payload.diff.oldText).toContain("[truncated]");
+    expect(Buffer.byteLength(payload.diff.oldText, "utf8")).toBeLessThanOrEqual(
+      TEXT_MAX_BYTES + 32
+    );
+    expect(payload.diff.newText).toBe("n");
+  });
+
   it("bounds terminal output head and tail", () => {
     const out = boundOutput("a".repeat(100) + "b".repeat(100), 50);
     expect(out.truncated).toBe(true);

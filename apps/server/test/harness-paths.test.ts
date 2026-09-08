@@ -25,6 +25,8 @@ beforeAll(async () => {
   await writeFile(path.join(cwd, ".env"), "x=1\n");
   await symlink(path.join(cwd, "docs"), path.join(cwd, "docs-link"));
   await mkdir(path.join(home, "src"), { recursive: true });
+  await writeFile(path.join(home, "notes.md"), "n\n");
+  await writeFile(path.join(root, "outside.txt"), "o\n");
 });
 
 afterAll(async () => {
@@ -109,6 +111,37 @@ describe("listHarnessPaths", () => {
       "big/zdir4",
     ]);
     expect(out.slice(5).every((p) => p.kind === "file")).toBe(true);
+  });
+
+  it("lists only directories outside the agent's working tree", async () => {
+    // Parity with /api/v1/system/path-completions, which lists directories
+    // only. Inside the tree the picker is meant to name files; outside it,
+    // enumerating file names is not what the picker is for.
+    const outside = await listHarnessPaths(`${root}/`, { cwd, home });
+    expect(outside.every((entry) => entry.kind === "dir")).toBe(true);
+    expect(outside.map((entry) => entry.path)).toContain(`${root}/repo`);
+    expect(await listHarnessPaths("~/", { cwd, home })).toEqual([
+      { path: "~/src", kind: "dir" },
+    ]);
+    // Inside the tree files still list, which is the case above this one.
+    expect(await listHarnessPaths("", { cwd, home })).toContainEqual({
+      path: "README.md",
+      kind: "file",
+    });
+  });
+
+  it("does not read a macOS privacy-protected directory", async () => {
+    // A service that touches ~/Desktop and friends on macOS gets a TCC
+    // prompt no daemon can answer, or a silent denial; the existing
+    // completion route refuses these before readdir for the same reason.
+    await mkdir(path.join(home, "Desktop", "sub"), { recursive: true });
+    expect(
+      await listHarnessPaths("~/Desktop/", { cwd, home, platform: "darwin" })
+    ).toEqual([]);
+    // The same path on this platform is an ordinary directory.
+    expect(
+      await listHarnessPaths("~/Desktop/", { cwd, home, platform: "linux" })
+    ).toEqual([{ path: "~/Desktop/sub", kind: "dir" }]);
   });
 
   it("answers nothing for a directory that does not exist", async () => {

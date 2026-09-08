@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import path from "node:path";
 import type { Pool } from "pg";
 import {
   DEFAULT_HARNESS_MODEL,
@@ -37,6 +38,7 @@ export type SupervisorDeps = {
     | "opencodeBin"
     | "claudeBin"
     | "codexBin"
+    | "dispatchBinDir"
     | "port"
     | "tls"
     | "authToken"
@@ -122,8 +124,10 @@ const ENV_DENY_PREFIX = "DISPATCH_";
 export function buildChildEnv(input: {
   agentId: string;
   mediaDir: string;
-  config: Pick<AppConfig, "port" | "tls">;
+  config: Pick<AppConfig, "port" | "tls" | "dispatchBinDir">;
   base?: NodeJS.ProcessEnv;
+  /** The engine about to be launched, for the one variable that is engine-specific. */
+  engine?: HarnessEngineId;
 }): NodeJS.ProcessEnv {
   const base = input.base ?? process.env;
   const env: NodeJS.ProcessEnv = {};
@@ -142,6 +146,25 @@ export function buildChildEnv(input: {
   // launch also exports, or every Dispatch tool call fails verification.
   if (input.config.tls && base.TLS_CA && !env.NODE_EXTRA_CA_CERTS) {
     env.NODE_EXTRA_CA_CERTS = base.TLS_CA;
+  }
+  // The pane launch prepends the same two entries (command-builder.ts). The
+  // service units pin PATH to
+  // /usr/local/bin:/opt/homebrew/bin:/usr/bin:/bin:/usr/sbin:/sbin, which
+  // holds neither Dispatch's own bin/ nor the ~/.local/bin the runbook's
+  // install recipe uses, so without this an engine a pane agent launches
+  // fine is "not found on the server's PATH" here, and so is every tool the
+  // engine's shell runs. `resolveBinary` reads this same PATH.
+  const localBin = base.HOME ? path.join(base.HOME, ".local/bin") : null;
+  const entries = [input.config.dispatchBinDir, localBin]
+    .concat(env.PATH ? env.PATH.split(path.delimiter) : [])
+    .filter((entry): entry is string => Boolean(entry));
+  env.PATH = Array.from(new Set(entries)).join(path.delimiter);
+  // Pin the Bash tool's cwd to the project root after every command, as the
+  // pane launch does, so it does not drift back to the original repo root
+  // over a long conversation. Claude Code's own variable; the other engines
+  // have no equivalent.
+  if (input.engine === "claude") {
+    env.CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR = "1";
   }
   return env;
 }
@@ -453,7 +476,12 @@ export class HarnessSupervisor {
       agent.mediaDir,
       this.deps.config.mediaRoot
     );
-    const env = buildChildEnv({ agentId, mediaDir, config: this.deps.config });
+    const env = buildChildEnv({
+      agentId,
+      mediaDir,
+      config: this.deps.config,
+      engine,
+    });
     const spec = engineSpecFor(engine, model, await this.binsFor(engine, env));
     this.streams.setCwd(agentId, agent.cwd);
     let session: { sessionId: string; resumed: boolean };
