@@ -159,6 +159,16 @@ export function argsSummary(input: unknown): string | undefined {
   return parts.length ? clip(parts.join(" · ")) : undefined;
 }
 
+/**
+ * Edit summaries by the detail object they were computed from. The line
+ * diff behind one is O(old x new) and `stepSummary` runs on the render
+ * path, so a settled edit step would re-diff on every refetch while a turn
+ * streams. The key is the detail object React Query hands back, which its
+ * structural sharing keeps stable while the payload is unchanged, and the
+ * map is weak so a turn scrolled out of the window takes its entries along.
+ */
+const editSummaries = new WeakMap<object, string>();
+
 /** The one-line summary after a settled step's label; undefined for none. */
 export function stepSummary(step: Step): string | undefined {
   const d = stepDetailData(step);
@@ -172,10 +182,14 @@ export function stepSummary(step: Step): string | undefined {
       if (!d.diff) {
         return d.locations?.[0] ? basename(d.locations[0].path) : undefined;
       }
+      const cached = editSummaries.get(d);
+      if (cached !== undefined) return cached;
       const lines = diffLines(d.diff.oldText, d.diff.newText);
       const add = lines.filter((l) => l.kind === "add").length;
       const del = lines.filter((l) => l.kind === "del").length;
-      return `${basename(d.diff.path)} +${add} −${del}`;
+      const summary = `${basename(d.diff.path)} +${add} −${del}`;
+      editSummaries.set(d, summary);
+      return summary;
     }
     case "read": {
       const loc = d.locations?.[0];

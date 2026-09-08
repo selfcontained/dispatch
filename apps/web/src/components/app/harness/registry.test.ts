@@ -61,6 +61,25 @@ describe("stepSummary", () => {
     ).toBeUndefined();
   });
 
+  it("diffs an edit once per detail object", () => {
+    const detail = {
+      diff: { path: "/r/b.ts", oldText: "x\n", newText: "x\ny\n" },
+    };
+    const s = step({ kind: "edit", label: "edit", detail });
+    expect(stepSummary(s)).toBe("b.ts +1 −0");
+    // Rewriting the same object cannot change the answer: the diff ran once
+    // and its summary is held against that object, off the render path.
+    detail.diff.newText = "x\ny\nz\n";
+    expect(stepSummary(s)).toBe("b.ts +1 −0");
+    // A different detail object is a different edit, so it recomputes.
+    const next = step({
+      kind: "edit",
+      label: "edit",
+      detail: { diff: { ...detail.diff } },
+    });
+    expect(stepSummary(next)).toBe("b.ts +2 −0");
+  });
+
   it("names the file for a read step", () => {
     const s = step({
       kind: "read",

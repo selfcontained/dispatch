@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import type { HarnessCommandsResponse } from "@dispatch/shared";
 
 import type { SlashItem } from "@/components/app/chat/chat-composer";
@@ -21,10 +22,16 @@ export function useHarnessCommands(agentId: string | null): SlashItem[] {
     // minute of staleness covers that.
     staleTime: 60_000,
   });
-  return (query.data?.commands ?? []).map((c) => ({
-    name: c.name,
-    description: c.input?.hint
-      ? `${c.description} · ${c.input.hint}`
-      : c.description,
-  }));
+  // The composer takes this list as a prop, so it is memoized to keep the
+  // "/" menu out of the render path of every keystroke.
+  return useMemo(
+    () =>
+      (query.data?.commands ?? []).map((c) => ({
+        name: c.name,
+        description: c.input?.hint
+          ? `${c.description} · ${c.input.hint}`
+          : c.description,
+      })),
+    [query.data]
+  );
 }

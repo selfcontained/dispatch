@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { useMemo } from "react";
 import type {
   ChatAttachment,
   HarnessPlanEntry,
@@ -191,10 +192,21 @@ export function useHarnessTurns(agentId: string | null): {
     enabled: agentId !== null,
     staleTime: 5_000,
   });
-  const mapped = toPromptKitTurns(query.data?.turns ?? [], agentId ?? "");
+  // Memoized because three memo() components downstream take these by
+  // identity, and the mapping walks up to 50 turns and every step in them.
+  // React Query's structural sharing keeps `query.data` stable while the
+  // payload is unchanged, so a render that changed nothing costs nothing.
+  const mapped = useMemo(
+    () => toPromptKitTurns(query.data?.turns ?? [], agentId ?? ""),
+    [query.data, agentId]
+  );
+  const promptHistory = useMemo(
+    () => promptHistoryOf(mapped.turns),
+    [mapped.turns]
+  );
   return {
     ...mapped,
-    promptHistory: promptHistoryOf(mapped.turns),
+    promptHistory,
     queued: query.data?.queued ?? [],
     loading: query.isLoading,
     error: query.error,

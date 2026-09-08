@@ -1,8 +1,23 @@
 // @vitest-environment jsdom
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { renderHook, waitFor } from "@testing-library/react";
+import type { ReactNode } from "react";
 import type { HarnessTurn } from "@dispatch/shared";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { toPromptKitTurns } from "./use-harness-turns";
+import { toPromptKitTurns, useHarnessTurns } from "./use-harness-turns";
+
+const api = vi.fn();
+vi.mock("@/lib/api", () => ({ api: (...args: unknown[]) => api(...args) }));
+
+function wrapper({ children }: { children: ReactNode }) {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  return <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+}
+
+afterEach(() => api.mockReset());
 
 const settled: HarnessTurn = {
   id: "turn:1",
@@ -194,5 +209,20 @@ describe("toPromptKitTurns: plan, usage, children", () => {
     expect(livePlan).toEqual([
       { content: "a", status: "completed", priority: "high" },
     ]);
+  });
+});
+
+describe("useHarnessTurns", () => {
+  it("hands back the same turn model across a rerender with unchanged data", async () => {
+    api.mockResolvedValue({ turns: [settled], queued: [] });
+    const { result, rerender } = renderHook(() => useHarnessTurns("agt_1"), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.turns).toHaveLength(2));
+    const { turns, promptHistory } = result.current;
+    rerender();
+    // ActivityBlock, ResultTurn and PromptLine are all memo()d on these.
+    expect(result.current.turns).toBe(turns);
+    expect(result.current.promptHistory).toBe(promptHistory);
   });
 });

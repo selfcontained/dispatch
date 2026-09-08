@@ -41,6 +41,21 @@ describe("useHarnessCommands", () => {
     ]);
   });
 
+  it("hands back the same list across a rerender with unchanged data", async () => {
+    api.mockResolvedValue({
+      commands: [{ name: "review", description: "Review", input: null }],
+    });
+    const { result, rerender } = renderHook(() => useHarnessCommands("agt_1"), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current).toHaveLength(1));
+    const first = result.current;
+    rerender();
+    // The composer takes this as a prop; a fresh array every render would
+    // defeat every memo below it.
+    expect(result.current).toBe(first);
+  });
+
   it("asks nothing without an agent", () => {
     const { result } = renderHook(() => useHarnessCommands(null), { wrapper });
     expect(result.current).toEqual([]);
