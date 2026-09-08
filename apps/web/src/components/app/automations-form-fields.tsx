@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { AlwaysFullAccessNote } from "@/components/app/full-access-note";
 import { GitBranch, Paperclip } from "lucide-react";
 
 import { AgentTypeSelect } from "@/components/app/agent-type-select";
@@ -69,10 +70,14 @@ export function TemplateWorktreeOption({
 export function TemplateFullAccessOption({
   checked,
   onCheckedChange,
+  alwaysOn = false,
 }: {
   checked: boolean;
   onCheckedChange: (checked: boolean) => void;
+  /** The chosen agent type has no sandboxed mode; the note explains. */
+  alwaysOn?: boolean;
 }): JSX.Element {
+  if (alwaysOn) return <AlwaysFullAccessNote />;
   return (
     <label className="flex cursor-pointer items-start gap-3 rounded-md border border-border/70 bg-muted/20 px-3 py-3">
       <Checkbox
@@ -244,6 +249,7 @@ export function TemplateConfigFields({
           <TemplateFullAccessOption
             checked={fullAccess}
             onCheckedChange={onFullAccessChange}
+            alwaysOn={agentType === "dispatch"}
           />
         </>
       ) : null}

@@ -503,6 +503,97 @@ describe("HarnessPane while the agent is starting", () => {
   });
 });
 
+describe("HarnessPane status line", () => {
+  const loggedOut = {
+    ...agent,
+    status: "error",
+    model: "codex/default",
+    latestEvent: {
+      type: "blocked",
+      message: "Codex is not logged in on the server.",
+      updatedAt: "2026-09-07T12:00:00.000Z",
+    },
+  } as unknown as Agent;
+
+  it("shows the reason and the login command once the agent has history", () => {
+    // TurnStream renders its empty state only with no turns, so before this
+    // an engine whose login lapsed mid-life showed nothing but "The harness
+    // is not running" under the composer.
+    state.turns = [
+      { id: "t1:user", role: "user", content: "go", timestamp: T0 },
+    ];
+    render(
+      <HarnessPane agentId="agt_1" agent={loggedOut} active isMobile={false} />,
+      { wrapper }
+    );
+    expect(screen.getByTestId("harness-status-line").textContent).toContain(
+      "Codex is not logged in on the server."
+    );
+    expect(screen.getByTestId("harness-login-hint").textContent).toContain(
+      "codex login --device-auth"
+    );
+  });
+
+  it("puts the reason where the first-prompt invitation would be", () => {
+    render(
+      <HarnessPane agentId="agt_1" agent={loggedOut} active isMobile={false} />,
+      { wrapper }
+    );
+    expect(screen.getByTestId("harness-empty").textContent).toBe(
+      "Codex is not logged in on the server."
+    );
+  });
+
+  it("names what the harness is doing while it starts, whatever the turn count", () => {
+    state.turns = [
+      { id: "t1:user", role: "user", content: "go", timestamp: T0 },
+    ];
+    const creating = {
+      ...agent,
+      status: "creating",
+      latestEvent: { type: "working", message: "Installing dependencies…" },
+    } as unknown as Agent;
+    render(
+      <HarnessPane agentId="agt_1" agent={creating} active isMobile={false} />,
+      { wrapper }
+    );
+    const line = screen.getByTestId("harness-status-line");
+    expect(line.textContent).toContain("Installing dependencies…");
+    expect(line.querySelector('[role="status"]')).not.toBeNull();
+  });
+
+  it("opens nothing from the faded chips while the harness starts", () => {
+    // The footer animates to opacity 0 but stays mounted, so without this a
+    // click on blank space opened the portaled Model dialog.
+    const creating = { ...agent, status: "creating" } as unknown as Agent;
+    render(
+      <HarnessPane agentId="agt_1" agent={creating} active isMobile={false} />,
+      { wrapper }
+    );
+    const chip = screen.getByTestId("harness-model-chip");
+    expect(chip.getAttribute("tabindex")).toBe("-1");
+    fireEvent.click(chip);
+    expect(screen.queryByTestId("harness-model-picker")).toBeNull();
+    fireEvent.click(screen.getByTestId("harness-usage-chip"));
+    expect(screen.queryByTestId("harness-usage-dialog")).toBeNull();
+  });
+
+  it("lets the chip label truncate and the send error wrap", () => {
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    // Without min-w-0 the button's min-content is the whole nowrap label, so
+    // the span's `truncate` never engages and the row overflows instead.
+    expect(screen.getByTestId("harness-model-chip").className).toContain(
+      "min-w-0"
+    );
+    expect(screen.getByTestId("harness-usage-chip").getAttribute("title")).toBe(
+      "Engine usage this month (or type /usage)"
+    );
+  });
+});
+
 describe("HarnessPane questions and drops", () => {
   it("renders an agent question with its options and answers on click", async () => {
     state.turns = [
@@ -897,6 +988,18 @@ describe("composerHint", () => {
     expect(composerHint(false, 1)).toBe(
       "Message queued · ↑ edits the queued one"
     );
+  });
+
+  it("drops the key hints on a touch keyboard", async () => {
+    // Neither ArrowUp nor Ctrl+C exists there, and the four-part string wraps
+    // to three lines under a 320px field. The Stop button and the queued
+    // row's own actions cover both on touch.
+    const { composerHint } = await import("./harness-pane");
+    expect(composerHint(true, 2, true)).toBe(
+      "Agent is working · Enter queues your message"
+    );
+    expect(composerHint(false, 1, true)).toBe("Message queued");
+    expect(composerHint(false, 0, true)).toBeUndefined();
   });
 
   it("refuses to recall a queued message that carries attachments", async () => {

@@ -95,6 +95,24 @@ describe("StepRow with children", () => {
     ).toBe("1");
   });
 
+  it("puts the nested guide line under the child rows, at the parent's indent", () => {
+    // The guide line used to sit in the outer container, which put it
+    // exactly on top of the top-level rail while the child glyphs, 12px to
+    // the right, had no line behind them at all. And the branch skipped the
+    // pl-[21px] every other expanded body uses, so the Task step's own
+    // arguments sat under the glyph rather than under the label.
+    render(
+      <StepRow step={parent} open onToggle={() => {}} maskClass="bg-muted" />
+    );
+    const nested = screen.getByTestId("harness-nested-steps");
+    expect(nested.className).toContain("relative");
+    const guide = nested.querySelector("span[aria-hidden='true']");
+    expect(guide?.className).toContain("left-[5.5px]");
+    expect(screen.getByTestId("harness-step-children").className).toContain(
+      "pl-[21px]"
+    );
+  });
+
   it("shows no nested rail when closed", () => {
     render(
       <StepRow

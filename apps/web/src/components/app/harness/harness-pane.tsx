@@ -53,10 +53,18 @@ export type HarnessPaneProps = {
 const CHIP_CLASS =
   "inline-flex items-center gap-1 rounded-full border border-border/60 px-2 py-0.5 text-[11px] text-muted-foreground hover:border-border hover:text-foreground pointer-coarse:min-h-11 pointer-coarse:px-3";
 
-/** What Enter and the arrows do right now, in the composer's helper line. */
+/**
+ * What Enter and the arrows do right now, in the composer's helper line.
+ *
+ * On a touch keyboard neither ArrowUp nor Ctrl+C exists, and the full string
+ * wraps to three lines under a narrow field, so only the Enter half is worth
+ * saying there. The Stop button and the queued row's own Send now / Remove
+ * cover the rest.
+ */
 export function composerHint(
   streaming: boolean,
-  queuedCount: number
+  queuedCount: number,
+  isMobile = false
 ): string | undefined {
   if (!streaming && queuedCount === 0) return undefined;
   const parts = [
@@ -64,6 +72,7 @@ export function composerHint(
       ? "Agent is working · Enter queues your message"
       : "Message queued",
   ];
+  if (isMobile) return parts[0];
   if (queuedCount > 0) parts.push("↑ edits the queued one");
   if (streaming) parts.push("Ctrl+C stops");
   return parts.join(" · ");
@@ -353,6 +362,24 @@ export function HarnessPane({
   const answeringId = answer.isPending
     ? (answer.variables?.messageId ?? null)
     : null;
+  const statusMessage = agent?.latestEvent?.message?.trim() || null;
+  const errored = agent?.status === "error";
+  /**
+   * One compact line above the composer, outside the section that fades out
+   * while the harness starts. TurnStream renders its empty state only when
+   * there are no turns, so everything that used to live there was invisible
+   * to an agent with history: a start failure, an engine exit, and a login
+   * that lapsed after the agent had already run.
+   */
+  const statusLine = starting
+    ? (statusMessage ?? "Starting the harness…")
+    : errored
+      ? (statusMessage ?? disabledReason)
+      : null;
+  const loginCommand =
+    errored && engine && /not logged in/i.test(statusMessage ?? "")
+      ? engine.loginCommand
+      : null;
 
   return (
     <MotionConfig reducedMotion="user">
@@ -437,33 +464,59 @@ export function HarnessPane({
                         ? "Loading…"
                         : error
                           ? `Could not load turns: ${error.message}`
-                          : "Send the first prompt."}
+                          : errored && statusLine
+                            ? statusLine
+                            : "Send the first prompt."}
                     </p>
-                    {agent?.status === "error" &&
-                    engine &&
-                    /not logged in/i.test(agent.latestEvent?.message ?? "") ? (
-                      <p
-                        className="mt-2 text-center text-[11px] text-muted-foreground"
-                        data-testid="harness-login-hint"
-                      >
-                        Run as the service user, then press Start:{" "}
-                        <code className="rounded bg-muted px-1 py-0.5 text-foreground">
-                          {engine.loginCommand}
-                        </code>
-                      </p>
-                    ) : null}
                   </motion.div>
                 )}
               </AnimatePresence>
             }
           />
         </HarnessContext.Provider>
+        {statusLine ? (
+          <div
+            className="shrink-0 border-t border-border/40 px-3 pt-2 text-[11px]"
+            data-testid="harness-status-line"
+          >
+            <div className="flex items-start gap-2">
+              {starting ? (
+                <ActivityBars size={10} className="mt-px shrink-0" />
+              ) : null}
+              <span
+                className={cn(
+                  "min-w-0 break-words",
+                  errored ? "text-destructive" : "text-muted-foreground"
+                )}
+              >
+                {statusLine}
+              </span>
+            </div>
+            {loginCommand ? (
+              <p
+                className="mt-1 break-words text-muted-foreground"
+                data-testid="harness-login-hint"
+              >
+                Run as the service user, then press Start:{" "}
+                <code className="rounded bg-muted px-1 py-0.5 text-foreground">
+                  {loginCommand}
+                </code>
+              </p>
+            ) : null}
+          </div>
+        ) : null}
         {/* Driven by `starting` rather than keyed on it, so the composer
-          keeps its node (and focus, draft, dialogs) across the handoff. */}
+          keeps its node (and focus, draft, dialogs) across the handoff.
+          While it is faded out it also stops taking clicks and focus:
+          opacity alone leaves an invisible chip both clickable and
+          tabbable. */}
         <motion.div
           animate={starting ? { opacity: 0, y: 6 } : { opacity: 1, y: 0 }}
           transition={arrive(DURATION.slow)}
-          className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2"
+          className={cn(
+            "shrink-0 border-t border-border/40 px-3 pb-2 pt-2",
+            starting && "pointer-events-none"
+          )}
         >
           <AnimatePresence initial={false}>
             {tasksOpen ? (
@@ -493,9 +546,14 @@ export function HarnessPane({
               }
               data-testid="harness-model-chip"
               data-fixed={fixedReason ? "true" : undefined}
+              disabled={starting}
+              tabIndex={starting ? -1 : 0}
               className={cn(
                 CHIP_CLASS,
-                "max-w-full",
+                // min-w-0 or the button's min-content is the whole nowrap
+                // label, and the span's `truncate` never engages: the usage
+                // chip and Stop get pushed off a narrow pane instead.
+                "min-w-0 max-w-full",
                 fixedReason && "opacity-70"
               )}
             >
@@ -524,8 +582,10 @@ export function HarnessPane({
             <button
               type="button"
               onClick={() => setUsageOpen(true)}
-              title="API key usage this month (or type /usage)"
+              title="Engine usage this month (or type /usage)"
               data-testid="harness-usage-chip"
+              disabled={starting}
+              tabIndex={starting ? -1 : 0}
               className={CHIP_CLASS}
             >
               <CircleDollarSign
@@ -563,12 +623,13 @@ export function HarnessPane({
             saving={setConfig.isPending}
             error={configError}
             fixedReason={fixedReason}
+            launchModel={launchModel}
             onApply={applyConfig}
           />
           {sendError ? (
             <div
               role="alert"
-              className="mb-1 truncate text-[11px] text-destructive"
+              className="mb-1 break-words text-[11px] text-destructive"
             >
               {sendError}
             </div>
@@ -582,7 +643,7 @@ export function HarnessPane({
             autoFocus={active && !isMobile}
             slashItems={slashItems}
             onSlashCommand={onSlashCommand}
-            hint={composerHint(streaming, queued.length)}
+            hint={composerHint(streaming, queued.length, isMobile)}
             history={promptHistory}
             recallQueued={recallQueued}
             atItems={pathPicker.items}

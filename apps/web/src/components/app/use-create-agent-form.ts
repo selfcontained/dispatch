@@ -228,7 +228,9 @@ export function useCreateAgentForm({
           model: modelOptions.some((option) => option.id === createModel)
             ? createModel
             : undefined,
-          fullAccess: createFullAccess,
+          // The harness has no sandboxed mode; the dialog says so in place
+          // of the checkbox.
+          fullAccess: createType === "dispatch" ? true : createFullAccess,
           autoReview: createAutoReview,
           useWorktree: submitUseWorktree,
           createNewBranch: submitUseWorktree

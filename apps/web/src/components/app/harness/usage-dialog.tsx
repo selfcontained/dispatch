@@ -87,11 +87,20 @@ function EngineRow({ engine }: { engine: HarnessUsageEngine }): JSX.Element {
         ) : null}
       </div>
       {cost !== null && engine.budgetUsd ? (
-        <BudgetBar
-          spent={cost}
-          budget={engine.budgetUsd}
-          label={engine.label}
-        />
+        <div className="space-y-1">
+          <BudgetBar
+            spent={cost}
+            budget={engine.budgetUsd}
+            label={engine.label}
+          />
+          {/* The bar alone never says what the fraction is of. */}
+          <p
+            className="text-right text-[10.5px] tabular-nums text-muted-foreground"
+            data-testid="harness-usage-budget-caption"
+          >
+            {formatUsd(cost)} of {formatUsd(engine.budgetUsd)}
+          </p>
+        </div>
       ) : null}
       {engine.agents.length === 0 ? (
         <p className="text-[11px] text-muted-foreground">
@@ -143,7 +152,9 @@ export function UsageDialog({
         </DialogHeader>
         <div className="space-y-2">
           {usage.isLoading ? (
-            <p className="text-xs text-muted-foreground">Asking the engines…</p>
+            // The report is month-to-date turn rows out of the database, not
+            // a call to anyone.
+            <p className="text-xs text-muted-foreground">Loading usage…</p>
           ) : usage.error ? (
             <p className="text-xs text-destructive" role="alert">
               {usage.error.message}

@@ -2,6 +2,7 @@ import { Check } from "lucide-react";
 import type { ChatQuestionOption, HarnessQuestion } from "@dispatch/shared";
 
 import { Button } from "@/components/ui/button";
+import { Markdown } from "@/components/ui/markdown";
 import { cn } from "@/lib/utils";
 
 /**
@@ -44,8 +45,11 @@ export function QuestionCard({
         <div className="mb-1.5 flex items-center gap-1.5 text-[11px] font-medium text-muted-foreground">
           <Check className="h-3 w-3" />
           Answered
-          <span className="truncate">
-            · {question.answer?.label ?? question.answer?.value}
+          <span className="flex min-w-0 items-center gap-1">
+            <span aria-hidden="true">·</span>
+            <Markdown variant="inline" className="truncate">
+              {question.answer?.label ?? question.answer?.value ?? ""}
+            </Markdown>
           </span>
         </div>
       )}
@@ -63,17 +67,29 @@ export function QuestionCard({
               type="button"
               size="sm"
               variant={chosen ? "primary" : "default"}
-              className={cn("h-7 text-xs", chosen && "pointer-events-none")}
-              disabled={optionsDisabled && !chosen}
+              className={cn(
+                "h-7 gap-1 text-xs",
+                // The Chat feed's card does this: on a phone or any touch
+                // screen the option is a real tap target and its label wraps
+                // rather than being clipped.
+                "max-sm:h-auto max-sm:min-h-11 max-sm:whitespace-normal max-sm:py-2 max-sm:text-left",
+                "[@media(pointer:coarse)]:h-auto [@media(pointer:coarse)]:min-h-11 [@media(pointer:coarse)]:whitespace-normal [@media(pointer:coarse)]:py-2 [@media(pointer:coarse)]:text-left",
+                chosen && "cursor-default"
+              )}
+              // Every option, the chosen one included: left enabled it stayed
+              // in the tab order and Enter re-answered a settled question.
+              disabled={optionsDisabled}
+              aria-pressed={chosen}
               onClick={() => onAnswer(option)}
               data-testid="harness-question-option"
             >
-              {option.label}
+              {chosen ? <Check className="h-3 w-3" /> : null}
+              <Markdown variant="inline">{option.label}</Markdown>
             </Button>
           );
         })}
       </div>
-      {open && question.allowFreeform ? (
+      {open && question.allowFreeform && !disabled ? (
         <p className="mt-2 text-[10.5px] text-muted-foreground">
           Or type a reply below.
         </p>

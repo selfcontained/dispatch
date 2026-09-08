@@ -899,7 +899,14 @@ export class AgentManager {
     const id = this.newAgentId();
     const type: AgentType = input.type ?? "codex";
     const role: AgentRole = input.role ?? "standard";
-    const fullAccess = input.fullAccess ?? false;
+    // Every Dispatch Harness engine launches in its most permissive mode
+    // (skip-permissions, agent-full-access, yolo, auto-allow), so the stored
+    // flag has to say so however the agent was asked for. Left at the
+    // caller's word, the sidebar card read "Sandboxed" for the most
+    // permissive agent on the board. This is the one place every create path
+    // passes through: the HTTP route, dispatch_launch_agent, a persona
+    // review, a job and a template.
+    const fullAccess = type === "dispatch" || (input.fullAccess ?? false);
     const fullAccessArg =
       type === "claude"
         ? CLAUDE_FULL_ACCESS_ARG

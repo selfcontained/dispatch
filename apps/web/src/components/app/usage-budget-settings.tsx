@@ -64,17 +64,34 @@ export function UsageBudgetSettings(): JSX.Element {
     if (!dirty) setRows(rowsFrom(budgets));
   }, [budgets, dirty]);
 
-  const persist = (next: Row[]) => {
-    // Nothing leaves the screen while a row still needs an amount.
-    if (next.some((row) => parseAmount(row.amount) === null)) return;
+  /**
+   * Save `next`. An amount that is not yet a number holds the whole save
+   * back, so a row being typed cannot be committed half-written.
+   *
+   * `skipInvalid` lifts only that hold, for a removal: keyed off "every row
+   * is valid", the X silently did nothing whenever another row was
+   * mid-edit, and because `dirty` stays true the rows never resync, so the
+   * budget came back on the next reload with nothing on screen saying the
+   * removal had not been saved. The incomplete row is left out of the
+   * payload and stays on screen.
+   */
+  const persist = (next: Row[], skipInvalid = false) => {
+    const incomplete = next.some((row) => parseAmount(row.amount) === null);
+    if (incomplete && !skipInvalid) return;
     const payload: UsageBudgets = {};
-    for (const row of next) payload[row.id] = parseAmount(row.amount)!;
+    for (const row of next) {
+      const amount = parseAmount(row.amount);
+      if (amount !== null) payload[row.id] = amount;
+    }
     const at = edits.current;
     saveChain.current = saveChain.current
       .catch(() => {})
       .then(() => save(payload))
       .then(() => {
-        if (edits.current === at) setDirty(false);
+        // Clearing dirty hands the rows back to the server, which would drop
+        // the row that was left out of the payload, so it waits until every
+        // row has been saved.
+        if (edits.current === at && !incomplete) setDirty(false);
       })
       .catch(() => {
         // The hook reports it; the rows stay so nothing typed is lost.
@@ -162,7 +179,7 @@ export function UsageBudgetSettings(): JSX.Element {
                     const next = rows.filter((r) => r.id !== row.id);
                     markEdited();
                     setRows(next);
-                    persist(next);
+                    persist(next, true);
                   }}
                 >
                   <X className="h-3.5 w-3.5" />

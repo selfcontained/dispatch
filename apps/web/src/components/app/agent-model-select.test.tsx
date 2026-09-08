@@ -35,6 +35,27 @@ describe("AgentModelSelect", () => {
     }
   );
 
+  it("names the engine behind Default for the grouped harness catalog", () => {
+    // "Default (CLI setting)" is wrong for the harness: there is no single
+    // CLI, and the server stores claude/default, so the user got Claude Code
+    // without ever seeing the name.
+    const grouped = [
+      {
+        id: "claude/default",
+        label: "Claude Code default",
+        group: "Claude Code",
+      },
+      { id: "codex/default", label: "Codex default", group: "Codex" },
+    ];
+    render(
+      <AgentModelSelect value={null} options={grouped} onChange={vi.fn()} />
+    );
+    expect(screen.getByTestId("create-agent-model").textContent).toContain(
+      "Default (Claude Code)"
+    );
+    expect(screen.getByText("Engine and model")).toBeTruthy();
+  });
+
   it("keeps the trigger labelled while the catalog loads", () => {
     render(
       <AgentModelSelect value={null} options={[]} onChange={vi.fn()} loading />

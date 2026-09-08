@@ -147,4 +147,32 @@ describe("UsageBudgetSettings validation", () => {
     fireEvent.keyDown(amount, { key: "Enter" });
     await waitFor(() => expect(save).toHaveBeenCalledWith({ opencode: 12.5 }));
   });
+
+  it("saves a removal even while another row still needs an amount", async () => {
+    // The removal used to be dropped on the floor: persist() bailed because
+    // the other row was invalid, nothing on screen said so, and the budget
+    // came back on the next reload.
+    state.budgets = { claude: 20 };
+    render(<UsageBudgetSettings />, { wrapper });
+    fireEvent.click(screen.getByTestId("usage-budget-add"));
+    fireEvent.click(screen.getByRole("option", { name: "OpenCode" }));
+    const rows = screen.getAllByTestId("usage-budget-row");
+    expect(rows.map((r) => r.getAttribute("data-provider"))).toEqual([
+      "claude",
+      "opencode",
+    ]);
+    fireEvent.click(
+      rows[0].querySelector(
+        '[data-testid="usage-budget-remove"]'
+      ) as HTMLElement
+    );
+    await waitFor(() => expect(save).toHaveBeenCalledWith({}));
+    // The half-typed row is still on screen, and still says what it needs.
+    expect(
+      screen
+        .getAllByTestId("usage-budget-row")
+        .map((r) => r.getAttribute("data-provider"))
+    ).toEqual(["opencode"]);
+    expect(screen.getByTestId("usage-budget-invalid")).toBeTruthy();
+  });
 });

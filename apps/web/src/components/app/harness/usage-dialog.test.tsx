@@ -110,6 +110,16 @@ describe("UsageDialog", () => {
     expect(within(opencode).getByText("no agents this month")).toBeTruthy();
   });
 
+  it("says what the bar is a fraction of", () => {
+    // A bar at 73% with only the spend beside it never says 73% of what.
+    renderDialog();
+    expect(
+      within(screen.getByTestId("harness-usage-engine-claude")).getByTestId(
+        "harness-usage-budget-caption"
+      ).textContent
+    ).toBe("$14.50 of $20");
+  });
+
   it("lists the agents under an engine", () => {
     renderDialog();
     expect(

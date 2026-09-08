@@ -35,19 +35,29 @@ export function StepDetail({
   const [openIds, setOpenIds] = useState<Record<string, boolean>>({});
   const d = stepDetailData(step);
   if (hasChildren(step)) {
+    // The same pl-[21px] the plain body below uses, so the Task step's own
+    // arguments and the nested rail line up with the parent's label rather
+    // than with its glyph.
     return (
-      <div className="mt-1.5 space-y-2" data-testid="harness-step-children">
+      <div
+        className="mt-1.5 space-y-2 pl-[21px]"
+        data-testid="harness-step-children"
+      >
         <DetailBody step={step} />
-        <div className="relative pl-3">
-          <span
-            aria-hidden="true"
-            className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border/70"
-          />
+        <div className="pl-3">
+          {/* The guide line belongs inside the list, not around it: measured
+            from the outer container it landed on top of the top-level rail
+            and left the child glyphs with nothing behind them. */}
           <div
             role="list"
             aria-label="subagent steps"
             data-testid="harness-nested-steps"
+            className="relative"
           >
+            <span
+              aria-hidden="true"
+              className="absolute bottom-1 left-[5.5px] top-1 w-px bg-border/70"
+            />
             {step.children!.map((child) => (
               <StepRow
                 key={child.id}

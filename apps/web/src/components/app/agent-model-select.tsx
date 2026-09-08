@@ -1,3 +1,5 @@
+import { DEFAULT_HARNESS_MODEL, harnessEngineOf } from "@dispatch/shared";
+
 import {
   Select,
   SelectContent,
@@ -55,10 +57,19 @@ export function AgentModelSelect({
       ? value
       : DEFAULT_VALUE;
 
+  // Only the harness catalog carries groups, and for it the choice is an
+  // engine as much as a model, while "Default" is not a CLI setting: the
+  // server stores DEFAULT_HARNESS_MODEL, so the row names that engine
+  // instead of leaving the user to find out after the agent starts.
+  const grouped = options.some((option) => option.group);
+  const defaultEngine = harnessEngineOf(DEFAULT_HARNESS_MODEL)?.label;
+  const defaultQualifier =
+    grouped && defaultEngine ? defaultEngine : "CLI setting";
+
   return (
     <div className="space-y-1">
       <label className="text-sm text-muted-foreground" htmlFor={id}>
-        Model
+        {grouped ? "Engine and model" : "Model"}
       </label>
       <Select
         value={selectedValue}
@@ -76,7 +87,9 @@ export function AgentModelSelect({
         <SelectContent>
           <SelectItem value={DEFAULT_VALUE}>
             Default{" "}
-            <span className="text-xs text-muted-foreground">(CLI setting)</span>
+            <span className="text-xs text-muted-foreground">
+              ({defaultQualifier})
+            </span>
           </SelectItem>
           {groupModelOptions(options).map((bucket) =>
             bucket.group ? (

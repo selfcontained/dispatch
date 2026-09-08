@@ -106,6 +106,46 @@ describe("ModelPicker", () => {
     ).toBe(true);
   });
 
+  it("names the launch model as static text when the engine fixes it", () => {
+    // A one-line description over an empty disabled control told the user
+    // nothing; the model is known from the agent's launch id.
+    render(
+      <ModelPicker
+        open
+        onOpenChange={() => {}}
+        model={undefined}
+        effort={undefined}
+        running
+        saving={false}
+        error={null}
+        fixedReason="Gemini CLI sets its model at launch."
+        launchModel="gemini-2.5-pro"
+        onApply={async () => {}}
+      />
+    );
+    expect(screen.getByTestId("harness-model-fixed").textContent).toBe(
+      "gemini-2.5-pro · set at launch"
+    );
+    expect(screen.queryByTestId("harness-model-select")).toBeNull();
+  });
+
+  it("says Not running instead of asking for a choice", () => {
+    render(
+      <ModelPicker
+        open
+        onOpenChange={() => {}}
+        model={undefined}
+        effort={undefined}
+        running={false}
+        saving={false}
+        error={null}
+        onApply={async () => {}}
+      />
+    );
+    expect(screen.getByText("Not running")).toBeTruthy();
+    expect(screen.queryByText("Choose a model")).toBeNull();
+  });
+
   it("explains and disables the model select when the engine publishes no model option", () => {
     render(
       <ModelPicker

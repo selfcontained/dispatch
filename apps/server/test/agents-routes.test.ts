@@ -138,6 +138,25 @@ describe("POST /api/v1/agents (create)", () => {
     expect(chosen.model).toBe("codex/gpt-5.6-sol");
   });
 
+  it("stores full access for a dispatch agent however it was asked for", async () => {
+    await ctx.pool.query(
+      `INSERT INTO settings (key, value) VALUES ('enabled_agent_types', $1)
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+      [JSON.stringify(["dispatch", "claude"])]
+    );
+    // Every engine launches in its most permissive mode, so a stored false
+    // made the sidebar card read "Sandboxed" for the most permissive agent
+    // on the board.
+    expect((await createAgent({ type: "dispatch" })).fullAccess).toBe(true);
+    expect(
+      (await createAgent({ type: "dispatch", fullAccess: false })).fullAccess
+    ).toBe(true);
+    // Other kinds still do what they were asked.
+    expect(
+      (await createAgent({ type: "claude", fullAccess: false })).fullAccess
+    ).toBe(false);
+  });
+
   it("rejects missing cwd", async () => {
     const res = await authedInject("POST", "/api/v1/agents", {});
     expect(res.statusCode).toBe(400);

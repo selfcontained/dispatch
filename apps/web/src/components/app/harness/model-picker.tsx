@@ -46,6 +46,12 @@ export type ModelPickerProps = {
   error: string | null;
   /** Set when the engine fixes its model at launch; explains and disables. */
   fixedReason?: string | null;
+  /**
+   * The model half of the agent's launch id, for the engines that fix it at
+   * launch: without it the dialog is a sentence over an empty control that
+   * never says which model is in force.
+   */
+  launchModel?: string | null;
   /** Apply the changed options, in order; resolves when the session took them. */
   onApply: (changes: { configId: string; value: string }[]) => Promise<void>;
 };
@@ -65,6 +71,7 @@ export function ModelPicker({
   saving,
   error,
   fixedReason,
+  launchModel,
   onApply,
 }: ModelPickerProps): JSX.Element {
   // Held encoded (see EMPTY_VALUE); decoded at the edges.
@@ -126,52 +133,68 @@ export function ModelPicker({
             >
               Model
             </label>
-            <Select
-              value={modelValue}
-              onValueChange={setModelValue}
-              disabled={!running || !!fixedReason || saving || !model}
-            >
-              <SelectTrigger
-                id="harness-model"
-                data-testid="harness-model-select"
+            {fixedReason ? (
+              <p
+                className="rounded-md border border-border/60 bg-muted/30 px-3 py-2 text-[12px] text-foreground"
+                data-testid="harness-model-fixed"
               >
-                <SelectValue
-                  placeholder={
-                    running && !fixedReason && !model
-                      ? "No model option published"
-                      : "Choose a model"
-                  }
-                />
-              </SelectTrigger>
-              <SelectContent>
-                {model?.options.map((entry) =>
-                  isConfigGroup(entry) ? (
-                    <SelectGroup
-                      key={entry.groupId ?? entry.group ?? entry.name}
-                    >
-                      <SelectLabel className="flex items-center gap-1.5">
-                        <ProviderIcon
-                          provider={entry.groupId ?? entry.group ?? entry.name}
-                        />
+                {launchModel ?? "The engine default"} · set at launch
+              </p>
+            ) : (
+              <Select
+                value={modelValue}
+                onValueChange={setModelValue}
+                disabled={!running || saving || !model}
+              >
+                <SelectTrigger
+                  id="harness-model"
+                  data-testid="harness-model-select"
+                >
+                  <SelectValue
+                    placeholder={
+                      !running
+                        ? "Not running"
+                        : !model
+                          ? "No model option published"
+                          : "Choose a model"
+                    }
+                  />
+                </SelectTrigger>
+                <SelectContent>
+                  {model?.options.map((entry) =>
+                    isConfigGroup(entry) ? (
+                      <SelectGroup
+                        key={entry.groupId ?? entry.group ?? entry.name}
+                      >
+                        <SelectLabel className="flex items-center gap-1.5">
+                          <ProviderIcon
+                            provider={
+                              entry.groupId ?? entry.group ?? entry.name
+                            }
+                          />
+                          {entry.name}
+                        </SelectLabel>
+                        {entry.options.map((c) => (
+                          <SelectItem
+                            key={c.value}
+                            value={encodeValue(c.value)}
+                          >
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    ) : (
+                      <SelectItem
+                        key={entry.value}
+                        value={encodeValue(entry.value)}
+                      >
                         {entry.name}
-                      </SelectLabel>
-                      {entry.options.map((c) => (
-                        <SelectItem key={c.value} value={encodeValue(c.value)}>
-                          {c.name}
-                        </SelectItem>
-                      ))}
-                    </SelectGroup>
-                  ) : (
-                    <SelectItem
-                      key={entry.value}
-                      value={encodeValue(entry.value)}
-                    >
-                      {entry.name}
-                    </SelectItem>
-                  )
-                )}
-              </SelectContent>
-            </Select>
+                      </SelectItem>
+                    )
+                  )}
+                </SelectContent>
+              </Select>
+            )}
             {selectedModel?.description ? (
               <p className="text-[11px] text-muted-foreground">
                 {selectedModel.description}
@@ -196,11 +219,7 @@ export function ModelPicker({
                   data-testid="harness-effort-select"
                 >
                   <SelectValue
-                    placeholder={
-                      running && !fixedReason && !effort
-                        ? "No effort option published"
-                        : "Choose an effort"
-                    }
+                    placeholder={!running ? "Not running" : "Choose an effort"}
                   />
                 </SelectTrigger>
                 <SelectContent>
