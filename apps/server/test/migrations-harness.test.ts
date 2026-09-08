@@ -3,6 +3,18 @@ import type { Pool } from "pg";
 
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
+// The names earlier prereleases of this branch wrote into pgmigrations for
+// files this branch no longer ships (migrate.ts deletes them at boot).
+const PRERELEASE_MIGRATION_NAMES = [
+  "0048_agent-stream-events",
+  "0049_agent-stream-events-turn",
+  "0050_agent-chat-messages-delivery-text",
+  "0051_agent-type-dispatch",
+  "0052_agent-stream-events-turn",
+  "0053_agent-chat-messages-delivery-text",
+  "0054_agent-type-dispatch",
+];
+
 let pool: Pool;
 
 beforeAll(async () => {
@@ -54,11 +66,44 @@ describe("harness migrations", () => {
     expect(index.rowCount).toBe(1);
   });
 
-  it("carries no migration named after the old harness files", async () => {
-    const rows = await pool.query<{ name: string }>(
-      `SELECT name FROM pgmigrations WHERE name IN
-        ('0052_agent-stream-events-turn', '0053_agent-chat-messages-delivery-text', '0054_agent-type-dispatch')`
+  it("boot on a database that ran an earlier prerelease of this branch", async () => {
+    // The prerelease records are dated a year back on purpose. The runner
+    // reads pgmigrations ordered by (run_on, id) and compares that list
+    // against the shipped files position by position, so the dates decide
+    // where the dead names land: ahead of the files this branch does ship,
+    // where the prerelease wrote them, which is what makes the comparison
+    // throw before the first migration executes.
+    await pool.query(
+      `INSERT INTO pgmigrations (name, run_on)
+        SELECT name, NOW() - INTERVAL '1 year' FROM unnest($1::text[]) AS t(name)`,
+      [PRERELEASE_MIGRATION_NAMES]
     );
-    expect(rows.rows).toEqual([]);
+    // 'dsh' is the agent type value one of those prereleases renamed in a
+    // migration this branch does not ship.
+    await pool.query(
+      `INSERT INTO agents (id, name, cwd, status, type)
+        VALUES ('agt_prerelease', 'P', '/tmp', 'running', 'dsh')`
+    );
+
+    await expect(runTestMigrations()).resolves.not.toThrow();
+
+    const dead = await pool.query<{ name: string }>(
+      `SELECT name FROM pgmigrations WHERE name = ANY($1::text[])`,
+      [PRERELEASE_MIGRATION_NAMES]
+    );
+    expect(dead.rows).toEqual([]);
+    const live = await pool.query<{ name: string; count: string }>(
+      `SELECT name, COUNT(*)::text AS count FROM pgmigrations
+        WHERE name IN ('0051_agent-stream-events', '0052_agent-chat-messages-delivery-text')
+        GROUP BY name ORDER BY name`
+    );
+    expect(live.rows).toEqual([
+      { name: "0051_agent-stream-events", count: "1" },
+      { name: "0052_agent-chat-messages-delivery-text", count: "1" },
+    ]);
+    const agent = await pool.query<{ type: string }>(
+      `SELECT type FROM agents WHERE id = 'agt_prerelease'`
+    );
+    expect(agent.rows[0]?.type).toBe("dispatch");
   });
 });

@@ -13,6 +13,60 @@ const MIGRATION_LOCK_ID = 8675309;
 
 const TIMESTAMP_PARSE_NOISE_RE = /^Can't determine timestamp for \d+$/;
 
+/**
+ * Bookkeeping names written into `pgmigrations` by earlier prereleases of
+ * this branch, under file names this branch no longer ships. The schema
+ * those files created is the schema `0051_agent-stream-events.sql` and
+ * `0052_agent-chat-messages-delivery-text.sql` create now, and both of
+ * those files re-apply idempotently (every statement is guarded), so the
+ * dead records are deleted before the runner reads the table. No migration
+ * can repair this from the inside: node-pg-migrate compares the stored
+ * list against the shipped files position by position and throws before
+ * the first migration executes.
+ */
+const PRERELEASE_MIGRATION_NAMES = [
+  "0048_agent-stream-events",
+  "0049_agent-stream-events-turn",
+  "0050_agent-chat-messages-delivery-text",
+  "0051_agent-type-dispatch",
+  "0052_agent-stream-events-turn",
+  "0053_agent-chat-messages-delivery-text",
+  "0054_agent-type-dispatch",
+];
+
+/**
+ * Delete the prerelease bookkeeping records and, when there were any, carry
+ * over the agent type rename one of those prereleases shipped as a
+ * migration of its own. Call inside the migration advisory lock, before the
+ * runner.
+ */
+async function forgetPrereleaseMigrations(client: pg.Client): Promise<void> {
+  const table = await client.query<{ oid: string | null }>(
+    "SELECT to_regclass('pgmigrations')::text AS oid"
+  );
+  if (!table.rows[0]?.oid) return; // fresh database: nothing to forget
+
+  const forgotten = await client.query(
+    "DELETE FROM pgmigrations WHERE name = ANY($1::text[])",
+    [PRERELEASE_MIGRATION_NAMES]
+  );
+  if (!forgotten.rowCount) return;
+  console.log(
+    `[migrate] forgot ${forgotten.rowCount} prerelease migration record(s)`
+  );
+
+  // Those prereleases stored the harness agent type under an older value and
+  // renamed it in a migration this branch does not ship. 'dsh' below is that
+  // stored value, a data literal, and this is the one place in the tree
+  // where the old name appears.
+  const renamed = await client.query(
+    "UPDATE agents SET type = 'dispatch' WHERE type = 'dsh'"
+  );
+  if (renamed.rowCount) {
+    console.log(`[migrate] renamed ${renamed.rowCount} harness agent row(s)`);
+  }
+}
+
 export interface MigrationOptions {
   databaseUrl?: string;
   count?: number;
@@ -48,6 +102,7 @@ export async function runMigrations(
   const migrationsDir = await materializeEmbeddedMigrations();
   try {
     await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
+    await forgetPrereleaseMigrations(lockClient);
 
     await runner({
       databaseUrl: url,

@@ -17,11 +17,26 @@ alreadySatisfied:
     The install is already on the target tag, the local health endpoint
     returns status=ok, and release.json reports the target tag. Server boot
     runs both migrations idempotently and both changes are additive, so any
-    healthy install at the target tag has already taken them. Running
-    Dispatch Harness agents, if any existed, were resumed or marked errored
-    at boot.
+    healthy install at the target tag has already taken them. A database that
+    ran an earlier prerelease of this branch is handled at boot as well: the
+    migration runner first deletes the bookkeeping records those prereleases
+    wrote for files this release no longer ships, then re-applies the two
+    guarded migrations and carries over the harness agent type rename.
+    Running Dispatch Harness agents, if any existed, were resumed or marked
+    errored at boot.
 
 instructions:
+  - |
+    Before deploying, you can confirm whether the target database ran an
+    earlier prerelease of this branch. Any row returned means it did, which
+    needs no manual step: the migration runner deletes these records at boot
+    before the migrations run, so the service starts either way.
+
+      SELECT name FROM pgmigrations
+       WHERE name IN ('0048_agent-stream-events','0049_agent-stream-events-turn',
+                      '0050_agent-chat-messages-delivery-text','0051_agent-type-dispatch',
+                      '0052_agent-stream-events-turn','0053_agent-chat-messages-delivery-text',
+                      '0054_agent-type-dispatch');
   - Confirm the service has been restarted to the target release tag.
   - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok.
   - Confirm release.json under the install directory reports the target tag.
