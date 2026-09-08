@@ -11,35 +11,6 @@ import { migrationFiles } from "../generated/runtime-assets.js";
 // Arbitrary fixed key for pg_advisory_lock to prevent concurrent migrations.
 const MIGRATION_LOCK_ID = 8675309;
 
-/**
- * The Dispatch Harness migrations shipped as 0048-0051 in the dsh.1-27 patch
- * releases, then moved behind upstream's 0048-0050 as 0051-0054. node-pg-migrate
- * checks order: a row for a name the file list no longer carries in that
- * position fails boot. The SQL is idempotent, so an install that ran the old
- * names drops those rows here and re-runs the four as no-ops under the new
- * ones. A database that never ran them has no rows to drop.
- */
-export const LEGACY_MIGRATION_NAMES = [
-  "0048_agent-stream-events",
-  "0049_agent-stream-events-turn",
-  "0050_agent-chat-messages-delivery-text",
-  "0051_agent-type-dispatch",
-] as const;
-
-export async function forgetLegacyMigrations(
-  client: pg.Client,
-  names: readonly string[] = LEGACY_MIGRATION_NAMES
-): Promise<number> {
-  const table = await client.query<{ present: string | null }>(
-    "SELECT to_regclass('pgmigrations')::text AS present"
-  );
-  if (!table.rows[0]?.present) return 0;
-  const deleted = await client.query(
-    "DELETE FROM pgmigrations WHERE name = ANY($1::text[])",
-    [names]
-  );
-  return deleted.rowCount ?? 0;
-}
 const TIMESTAMP_PARSE_NOISE_RE = /^Can't determine timestamp for \d+$/;
 
 export interface MigrationOptions {
@@ -77,13 +48,6 @@ export async function runMigrations(
   const migrationsDir = await materializeEmbeddedMigrations();
   try {
     await lockClient.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK_ID]);
-
-    const forgotten = await forgetLegacyMigrations(lockClient);
-    if (forgotten > 0) {
-      console.log(
-        `[migrate] forgot ${forgotten} legacy Dispatch Harness migration rows; they re-run as no-ops under their new names`
-      );
-    }
 
     await runner({
       databaseUrl: url,
