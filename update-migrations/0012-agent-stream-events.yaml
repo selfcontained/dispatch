@@ -37,6 +37,15 @@ instructions:
                       '0050_agent-chat-messages-delivery-text','0051_agent-type-dispatch',
                       '0052_agent-stream-events-turn','0053_agent-chat-messages-delivery-text',
                       '0054_agent-type-dispatch');
+  - |
+    Before restarting the service, check whether a Dispatch Harness agent is
+    mid-turn. Either wait for the turn to settle, or accept the cut: the turn
+    is marked interrupted at shutdown and the agent is resumed on its stored
+    session id at boot, but the engine work in flight is lost and the agent
+    is re-prompted to continue.
+
+      SELECT id, name FROM agents
+       WHERE type = 'dispatch' AND status = 'running';
   - Confirm the service has been restarted to the target release tag.
   - Confirm $DISPATCH_API_URL/api/v1/health returns status=ok.
   - Confirm release.json under the install directory reports the target tag.
@@ -56,10 +65,30 @@ validation:
 rollback:
   - >
     The supported rollback target is the last official release, v0.38.13.
-    Roll back to it using the normal release rollback path for this host.
-    The agent_stream_events table and the agent_chat_messages.delivery_text
-    column are both additive: that release ignores them, and leaving them in
-    place is harmless and safer than dropping them.
+    The schema is safe to leave: the agent_stream_events table and the
+    agent_chat_messages.delivery_text column are both additive, that release
+    ignores them, and leaving them in place is safer than dropping them. The
+    `dispatch` agent type is not safe to leave, so do the three steps below
+    before the binary swap. They apply to any release that does not include
+    the harness, not only v0.38.13: the updater's version compare ignores the
+    prerelease suffix, so once a later official release exists the Updates UI
+    will offer it to a harness install.
+  - >
+    Step 1. Stop or archive every Dispatch Harness agent from the UI, then
+    confirm no `dispatch-<id>` session is left behind with `tmux ls`. A
+    release without the harness does not know the type: it cannot build a
+    Restart command for such an agent, and a pane left running is a plain
+    login shell that survives the swap, so the older process sees a live
+    session, keeps the agent running, and types every Chat message, agent
+    message, review injection and job prompt into that shell as a command in
+    the agent's working tree.
+  - >
+    Step 2. Retarget or disable every job and template that launches this
+    type, which the older release cannot launch at all:
+    `SELECT id, name FROM jobs WHERE agent_type = 'dispatch'` and the same
+    over `templates`. Set each to an agent type that release does know.
+  - >
+    Step 3. Roll back using the normal release rollback path for this host.
   - >
     Rolling back to an earlier prerelease of this branch is not supported.
     Boot on this release deletes the bookkeeping records those prereleases

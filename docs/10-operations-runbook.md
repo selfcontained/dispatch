@@ -88,9 +88,10 @@ Before a restart, check the sidebar for a Dispatch Harness agent that is
 ### Dispatch Harness engines
 
 The engine is the first segment of the agent's model id. Each is a host
-install the service resolves with its own `PATH`, not a login shell's, so
-set every binary to an absolute path. Each engine uses the host CLI's own
-login; Dispatch holds no provider key.
+install the service resolves with its own `PATH`, not a login shell's. Give
+each binary an absolute path, or a bare command name to leave it to that
+`PATH`; a leading `~` is expanded, the way it is for `MEDIA_ROOT`. Each
+engine uses the host CLI's own login; Dispatch holds no provider key.
 
 | Engine      | Model id prefix | Binary setting                | Install                                                                         | Login, as the service user  |
 | ----------- | --------------- | ----------------------------- | ------------------------------------------------------------------------------- | --------------------------- |
@@ -186,6 +187,25 @@ Rollback is just an `update` to an older tag. The currently deployed tag is what
 ```bash
 cat ~/.dispatch/release.json
 ```
+
+**A rollback past the Dispatch Harness needs two steps first.** A release
+that does not know the `dispatch` agent type cannot build a Restart command
+for one, and a harness agent left running keeps a tmux pane that is a plain
+login shell. That pane survives the service swap, the older process sees a
+live session and keeps the agent running, and every Chat message, agent
+message, review injection and job prompt is then typed into that shell as a
+command in the agent's working tree. So before the binary swap:
+
+1. Stop or archive every Dispatch Harness agent from the UI, then confirm no
+   `dispatch-<id>` session is left with `tmux ls`.
+2. Retarget or disable every job and template that launches the type, which
+   the older release cannot launch at all:
+   `SELECT id, name FROM jobs WHERE agent_type = 'dispatch'`, and the same
+   over `templates`.
+
+This applies to any release without the harness, not only the one before it:
+the updater's version compare ignores the prerelease suffix, so a later
+official release will be offered to a `harness.N` install.
 
 **MCP tool renames do not roll back cleanly.** Agents hold the tool list they
 fetched at session start, so after rolling back past a release that renamed an

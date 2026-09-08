@@ -11,3 +11,10 @@
 - Motion: every transition in the Harness view moves on one set of tokens and collapses under reduced motion.
 - Schema: `agent_stream_events` (additive) and `agent_chat_messages.delivery_text` (additive), both guarded.
 - Settings: **Usage budgets** takes a monthly USD amount for the engines that report cost (Claude Code, OpenCode).
+
+### Other changes
+
+These two are not about the harness, and they change agents you already have.
+
+- **Launch guidance for every CLI agent type.** One rule is now added to the launch prompt of every `claude`, `codex`, `cursor` and `opencode` agent: once a task is accepted, do not end a turn after only announcing a plan or a status, continue into the work in the same turn, or report `waiting_user` or `blocked` when you genuinely cannot proceed. Existing agents pick it up the next time their session starts.
+- **A persona review runs as its parent's own kind.** Before, a parent whose type had no saved reviewer type fell back to Codex; now it falls back to the parent's own type, so a Cursor parent's review runs on Cursor. A harness parent's review also inherits its engine, rather than defaulting to Claude Code.
