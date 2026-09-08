@@ -3065,7 +3065,7 @@ describe("loadUsageReport", () => {
     await agent("agt_b", "B", "codex/gpt-5.6-sol");
     await agent("agt_c", "C", "gemini/default");
     await tokens("agt_a", "s1", 1000, 200, NOW);
-    await tokens("agt_a", "s1", 1000, 200, new Date(Date.UTC(2026, 7, 30))); // last month, ignored
+    await tokens("agt_a", "s0", 1000, 200, new Date(Date.UTC(2026, 7, 30))); // last month, ignored (its own session: the table is unique on agent, session, model)
     await tokens("agt_b", "s2", 50, 5, NOW);
     await turn(
       "agt_a",
@@ -3431,15 +3431,19 @@ export function isUsageEngineId(id: unknown): id is HarnessEngineId {
 
 and in `parseUsageBudgets` replace `isUsageProviderId` with `isUsageEngineId` and the error text with `` `Unknown engine: ${id}.` ``. Update its test file (`grep -l usage-budget apps/server/test`) to use `claude` and `opencode` as valid ids and `deepseek` as an unknown one.
 
+- [ ] **Step 4b: Wire the routes in `server.ts`**
+
+`server.ts` calls `createUsageReporter(...)` while building the system-route deps at boot, so deleting the old usage module without this step crashes every test that boots the app (`useInjectApp()`), not only the type check. Three edits, nothing else in this file (Task 10 owns the rest): delete the `createSessionLogReader` and `createUsageReporter` imports and add `import { loadUsageReport } from "./agents/harness/usage.js";`; in the `registerSystemRoutes` deps delete `dshModels: () => harnessSupervisor.modelCatalog(),` and replace the `usageReport: createUsageReporter({...})` block with `usageReport: async () => loadUsageReport(pool, await getUsageBudgets(pool)),`; in the `registerAgentRoutes` deps delete `dshHome: config.dshHome,` and `subagentLogs: createSessionLogReader(),` and add `getCommands: (agentId) => harnessSupervisor.getCommands(agentId),` inside `harness`.
+
 - [ ] **Step 5: Run the tests to see them pass**
 
-Run: `cd apps/server && bash ../../scripts/server-tests-isolated.sh run test/harness-usage-report.test.ts test/harness-routes.test.ts`
-Expected: PASS. (`server.ts` still fails to type check until Task 10 wires `getCommands` and drops the deleted imports; that is expected here.)
+Run: `cd apps/server && bash ../../scripts/server-tests-isolated.sh run test/harness-usage-report.test.ts test/harness-routes.test.ts test/system-routes.test.ts`
+Expected: PASS; the system-routes file proves the app still boots. The type check still fails at the `supervisor.ts` config-field sites and at `server.ts`'s `config` argument until Task 10 adds the fields.
 
 - [ ] **Step 6: Commit**
 
 ```bash
-git add -A apps/server/src/agents/harness apps/server/src/routes apps/server/src/usage-budget-settings.ts apps/server/test
+git add -A apps/server/src/agents/harness apps/server/src/routes apps/server/src/usage-budget-settings.ts apps/server/src/server.ts packages/shared/src/harness-types.ts apps/server/test
 git commit -m "feat(harness): commands route and a usage report by engine
 
 /harness/commands serves the slash commands the engine advertised.
@@ -3558,29 +3562,9 @@ Remove the now-unused `path` import from that file if `path.dirname` was its onl
 
 In `apps/server/src/agents/manager.ts`: the 409 message becomes `"The harness is not running for this agent; the prompt cannot be delivered."`, the 500 becomes `"The harness supervisor is not attached."`, and `markHarnessStartFailed`'s message becomes `` `The harness did not come back after restart: ${message}`.slice(0, 200) ``. Reword the four comments that say "dsh agent" to "harness agent" and "dsh first turn" to "harness first turn".
 
-- [ ] **Step 4: Server wiring**
+- [ ] **Step 4: Server wording**
 
-In `apps/server/src/server.ts`:
-
-```ts
-import { HarnessSupervisor } from "./agents/harness/supervisor.js";
-import { loadUsageReport } from "./agents/harness/usage.js";
-```
-
-(delete the `createSessionLogReader` and `createUsageReporter` imports). The supervisor construction keeps its deps as they are. In `registerSystemRoutes` delete the `dshModels` line and replace `usageReport`:
-
-```ts
-    usageReport: () => loadUsageReport(pool, () => getUsageBudgets(pool)),
-```
-
-Wait: `loadUsageReport` takes the budgets object, not a getter. Use:
-
-```ts
-    usageReport: async () =>
-      loadUsageReport(pool, await getUsageBudgets(pool)),
-```
-
-In `registerAgentRoutes` delete `dshHome:` and `subagentLogs:` and add `getCommands: (agentId) => harnessSupervisor.getCommands(agentId),` inside `harness`. Reword the three comments and two log strings: `"Restored harness agents after restart"`, `"Stopping harness agents on shutdown failed"`, and the comments "harness children died with the previous process", "Stop harness children through their teardown ladder", "A harness prompt waits in the supervisor's turn queue".
+The route wiring in `apps/server/src/server.ts` (imports, `usageReport`, `getCommands`, the dropped `dshHome`/`subagentLogs`/`dshModels`) landed in Task 9 Step 4b, because the old usage module was called at boot. What remains here: the `config` argument type-checks once `config.ts` has the new fields (Step 1). Reword the three comments and two log strings: `"Restored harness agents after restart"`, `"Stopping harness agents on shutdown failed"`, and the comments "harness children died with the previous process", "Stop harness children through their teardown ladder", "A harness prompt waits in the supervisor's turn queue".
 
 - [ ] **Step 5: `.env.example`**
 
