@@ -484,14 +484,26 @@ cmd_up() {
   DEV_API_PID="$(cat "$(log_dir)/api.pid")"
   echo "API server starting on port ${DEV_API_PORT} (PID ${DEV_API_PID})"
 
-  # Liveness check: wait up to 60s for the port, then verify /health. This
-  # host is IO-starved enough that a cold start (52 migrations, plus
-  # whatever else main.ts does before it binds) can run well past a 10s
-  # window without anything being wrong, so the window is sized for a slow
-  # disk, not a typical local boot, and a progress line past 10s says what
-  # it's waiting on instead of looking hung.
+  # Liveness check: wait for the port, then verify /health. This host is
+  # IO-starved enough that a cold start (52 migrations, plus whatever else
+  # main.ts does before it binds) can run well past a 10s window without
+  # anything being wrong, so the window is sized for a slow disk, not a
+  # typical local boot, and a progress line partway through says what it's
+  # waiting on instead of looking hung.
+  #
+  # --no-db is the exception, and gets the shorter window. There is no
+  # database for the server to reach, so it is expected not to bind at all,
+  # and waiting a minute to say so is a minute of nothing. A stack in that
+  # shape is still worth recording (below): `status`, `url` and `down` all
+  # read the state file, and a stack you cannot tear down is worse than one
+  # whose API never came up.
   local attempts=0
   local attempts_max=120
+  local port_wait_label="60s"
+  if [ "$OPT_NO_DB" = "1" ]; then
+    attempts_max=20
+    port_wait_label="10s"
+  fi
   local port_open=0
   local port_noted=0
   while [ $attempts -lt $attempts_max ]; do
@@ -507,18 +519,24 @@ cmd_up() {
     attempts=$((attempts + 1))
     if [ $port_noted -eq 0 ] && [ $attempts -ge 20 ]; then
       port_noted=1
-      echo "Still waiting for the API server to open port ${DEV_API_PORT} (up to 60s)..."
+      echo "Still waiting for the API server to open port ${DEV_API_PORT} (up to ${port_wait_label})..."
     fi
     sleep 0.5
   done
 
   # The wrapper stayed alive for the whole wait but the port never opened.
-  # Don't fall through to seeding, Vite, and save_state as if this were a
-  # working stack. Fail now, while the log lines below still explain why.
+  # With a database of its own that is a broken stack: don't fall through to
+  # seeding, Vite and save_state as if it worked. Under --no-db it is the
+  # expected outcome, so warn and carry on to save_state, which is what
+  # keeps status, url and down working.
   if [ "$port_open" != "1" ]; then
-    echo "Error: API server did not open port ${DEV_API_PORT} within 60s. Last log lines:" >&2
+    if [ "$OPT_NO_DB" != "1" ]; then
+      echo "Error: API server did not open port ${DEV_API_PORT} within ${port_wait_label}. Last log lines:" >&2
+      tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
+      exit 1
+    fi
+    echo "Warning: API server did not open port ${DEV_API_PORT} within ${port_wait_label}; --no-db leaves it no database to reach. Last log lines:" >&2
     tail -n 20 "$(log_dir)/api.log" 2>/dev/null >&2 || true
-    exit 1
   fi
 
   # An open port is not proof the server we just started owns it. A restart
