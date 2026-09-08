@@ -1,4 +1,4 @@
-import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
+import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -7,7 +7,6 @@ import { createJobMcpToken } from "../src/auth.js";
 import { HarnessDriver } from "../src/agents/harness/driver.js";
 import {
   buildChildEnv,
-  defaultModelFor,
   HarnessSupervisor,
   RESTART_PROMPT,
 } from "../src/agents/harness/supervisor.js";
@@ -31,36 +30,45 @@ async function build(
     turn?: FakeTurn;
     cliSessionId?: string;
     launchPrompt?: string;
+    /** The agent's stored model id; claude/default when omitted. */
+    model?: string | null;
+    /** Config options the fake session publishes. */
+    configOptions?: Parameters<typeof createFakeAcpAgent>[0]["configOptions"];
+    /** Slash commands the fake session announces after it opens. */
+    commands?: Parameters<typeof createFakeAcpAgent>[0]["commands"];
     /** The binary cannot be resolved: driver.start rejects. */
     startFails?: boolean;
     /** What the newest turn row's error column says. */
     lastTurnError?: string | null;
     /** When that turn ended; defaults to now. */
     lastTurnEndedAt?: Date;
-    /** The stored session cannot be resumed: dsh opens a fresh one. */
+    /** The stored session cannot be resumed: the engine opens a fresh one. */
     resumeFails?: boolean;
   } = {}
 ) {
-  home = await mkdtemp(path.join(os.tmpdir(), "dsh-sup-"));
+  home = await mkdtemp(path.join(os.tmpdir(), "harness-sup-"));
   const fake = createFakeAcpAgent({
     turn: opts.turn,
     resumeFails: opts.resumeFails,
+    configOptions: opts.configOptions,
+    commands: opts.commands,
   });
+  const resolveBinary = async (bin: string) => {
+    if (opts.startFails) {
+      throw new Error(`${bin} was not found on the server's PATH`);
+    }
+    return bin;
+  };
   const driver = new HarnessDriver({
-    dshBin: "dsh",
-    dshHome: home,
     spawn: () => fake.child,
-    resolveBinary: async (bin) => {
-      if (opts.startFails) throw new Error("dsh not found on PATH");
-      return bin;
-    },
+    resolveBinary,
     logger,
   });
   vi.mocked(logger.warn).mockClear();
   // A pool stand-in: every query takes a tick, and INSERTs hand back a row
   // like Postgres would so the stream recorder's accumulation state works.
   let nextId = 1;
-  const query = vi.fn(async (sql: string, params?: unknown[]) => {
+  const defaultQuery = async (sql: string, params?: unknown[]) => {
     await new Promise((r) => setTimeout(r, 2));
     if (/INSERT INTO agent_stream_events/.test(sql)) {
       const id = nextId++;
@@ -81,12 +89,18 @@ async function build(
       };
     }
     return { rows: [], rowCount: 0 };
-  });
+  };
+  const query = vi.fn(defaultQuery);
   if (opts.lastTurnError !== undefined) {
     const error = opts.lastTurnError;
-    query.mockImplementation(async (sql: string) => {
-      await new Promise((r) => setTimeout(r, 2));
+    // Only the settlement query is special-cased here; everything else
+    // (INSERTs included) falls through to the default stand-in above, or
+    // the recorder's writes fail silently and every other test that also
+    // passes `lastTurnError` would show no stream rows and a swallowed
+    // "harness event handling failed" warning.
+    query.mockImplementation(async (sql: string, params?: unknown[]) => {
       if (/payload->>'error' AS error/.test(sql)) {
+        await new Promise((r) => setTimeout(r, 2));
         return {
           rows: [
             {
@@ -97,15 +111,19 @@ async function build(
           rowCount: 1,
         };
       }
-      return { rows: [], rowCount: 0 };
+      return defaultQuery(sql, params);
     });
   }
   const events: { type: string; message: string }[] = [];
   const deps = {
     pool: { query } as never,
     config: {
-      dshBin: "dsh",
-      dshHome: home,
+      claudeHarnessBin: "/bin/claude-agent-acp",
+      codexHarnessBin: "/bin/codex-acp",
+      geminiBin: "/bin/gemini",
+      opencodeBin: "/bin/opencode",
+      claudeBin: "/bin/claude",
+      codexBin: "/bin/codex",
       port: 1,
       tls: null,
       authToken: "secret",
@@ -113,12 +131,13 @@ async function build(
     },
     logger,
     driver,
+    resolveBinary,
     getAgent: vi.fn(async (id: string) => ({
       id,
       type: "dispatch",
       cwd: "/tmp/w",
       mediaDir: null,
-      model: "openai/gpt-5.2",
+      model: opts.model === undefined ? null : opts.model,
       cliSessionId: opts.cliSessionId ?? null,
     })) as never,
     setCliSessionId: vi.fn(async () => {}),
@@ -138,7 +157,7 @@ async function build(
 }
 
 describe("HarnessSupervisor", () => {
-  it("start writes the overlay, records the session id, and marks idle", async () => {
+  it("start records the session id, delivers the persona via _meta, and marks idle", async () => {
     const { sup, deps, fake, events } = await build();
     await sup.start("agt_1");
     expect(deps.setCliSessionId).toHaveBeenCalledWith("agt_1", "sess_1");
@@ -148,28 +167,22 @@ describe("HarnessSupervisor", () => {
       name: "dispatch",
       url: "http://127.0.0.1:1/api/mcp/agt_1",
     });
-    const overlay = await readFile(
-      path.join(home, "overlays", "agt_1.patch.yml"),
-      "utf8"
-    );
-    expect(overlay).toContain("PERSONA TEXT");
-    expect(overlay).toContain("gpt-5.2");
+    expect(fake.seen.newSession[0]._meta).toEqual({
+      systemPrompt: { append: "PERSONA TEXT" },
+    });
     expect(events.at(-1)).toEqual({
       type: "idle",
-      message: "dsh session started.",
+      message: "Harness session started.",
     });
     expect(sup.isRunning("agt_1")).toBe(true);
     await sup.stop("agt_1");
-    await expect(
-      readFile(path.join(home, "overlays", "agt_1.patch.yml"), "utf8")
-    ).rejects.toThrow();
   });
 
   it("resumes a stored session id", async () => {
     const { sup, fake, events } = await build({ cliSessionId: "sess_old" });
     await sup.start("agt_1");
     expect(fake.seen.resumeSession[0]?.sessionId).toBe("sess_old");
-    expect(events.at(-1)?.message).toBe("dsh session resumed.");
+    expect(events.at(-1)?.message).toBe("Harness session resumed.");
     await sup.stop("agt_1");
   });
 
@@ -207,7 +220,7 @@ describe("HarnessSupervisor", () => {
     await sup.stop("agt_1");
   });
 
-  it("refuses to start a non-dsh agent", async () => {
+  it("refuses to start a non-Dispatch Harness agent", async () => {
     const { sup, deps } = await build();
     deps.getAgent.mockResolvedValueOnce({
       id: "agt_c",
@@ -216,7 +229,9 @@ describe("HarnessSupervisor", () => {
       model: null,
       cliSessionId: null,
     } as never);
-    await expect(sup.start("agt_c")).rejects.toThrow(/not a dsh agent/);
+    await expect(sup.start("agt_c")).rejects.toThrow(
+      /not a Dispatch Harness agent/
+    );
   });
 
   it("handles a burst of stream events in order, one writer per agent", async () => {
@@ -263,7 +278,7 @@ describe("HarnessSupervisor", () => {
     expect(finalTexts).toContain("ab");
     expect(deps.logger.warn).not.toHaveBeenCalledWith(
       expect.anything(),
-      "dsh event handling failed"
+      "harness event handling failed"
     );
     await sup.stop("agt_1");
   });
@@ -329,11 +344,186 @@ describe("HarnessSupervisor", () => {
     expect(result).toEqual({ restored: ["agt_1"], failed: ["agt_2"] });
     expect(deps.markStartFailed).toHaveBeenCalledWith(
       "agt_2",
-      expect.stringContaining("not a dsh agent")
+      expect.stringContaining("not a Dispatch Harness agent")
     );
     expect(fake.seen.newSession).toHaveLength(1);
     await sup.stopAll();
     expect(sup.isRunning("agt_1")).toBe(false);
+  });
+});
+
+describe("HarnessSupervisor engines", () => {
+  it("claude: persona travels in _meta and the first prompt is the launch post alone", async () => {
+    const { sup, fake } = await build({
+      launchPrompt:
+        "--- DISPATCH CHAT (id: 11111111-1111-1111-1111-111111111111) ---\nhello",
+    });
+    await sup.start("agt_c");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.seen.newSession[0]._meta).toEqual({
+      systemPrompt: { append: "PERSONA TEXT" },
+    });
+    expect(fake.seen.prompts[0]).toMatch(/^--- DISPATCH CHAT/);
+    await sup.stop("agt_c");
+  });
+
+  it("codex: the persona is the leading block of the first prompt of a fresh session", async () => {
+    const { sup, fake } = await build({
+      model: "codex/default",
+      launchPrompt:
+        "--- DISPATCH CHAT (id: 22222222-2222-2222-2222-222222222222) ---\nhello",
+    });
+    await sup.start("agt_x");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.seen.newSession[0]._meta).toBeUndefined();
+    expect(fake.seen.prompts[0]).toBe(
+      "PERSONA TEXT\n\n--- DISPATCH CHAT (id: 22222222-2222-2222-2222-222222222222) ---\nhello"
+    );
+    // The second prompt carries no persona.
+    await sup.prompt("agt_x", "again");
+    expect(fake.seen.prompts[1]).toBe("again");
+    await sup.stop("agt_x");
+  });
+
+  it("codex: a resumed session gets no persona prefix", async () => {
+    const { sup, fake } = await build({
+      model: "codex/default",
+      cliSessionId: "sess_old",
+      // A turn already ran on this session, so its history already has the
+      // persona; only that (not merely `resumed`) should suppress it.
+      lastTurnError: null,
+    });
+    await sup.start("agt_r");
+    await sup.prompt("agt_r", "continue");
+    expect(fake.seen.prompts).toEqual(["continue"]);
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      "harness event handling failed"
+    );
+    await sup.stop("agt_r");
+  });
+
+  it("codex: a resumed session that never ran a turn still gets the persona prefix", async () => {
+    // The process stopped (or crashed) between opening the session and its
+    // first prompt: the resume has nothing in its history to carry the
+    // persona, so it must still be delivered: same as a fresh session, the
+    // launch prompt is resent as the first turn.
+    const { sup, fake } = await build({
+      model: "codex/default",
+      cliSessionId: "sess_old",
+      launchPrompt:
+        "--- DISPATCH CHAT (id: 33333333-3333-3333-3333-333333333333) ---\nhello",
+    });
+    await sup.start("agt_r");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.seen.prompts[0]).toBe(
+      "PERSONA TEXT\n\n--- DISPATCH CHAT (id: 33333333-3333-3333-3333-333333333333) ---\nhello"
+    );
+    // The second prompt carries no persona: it was already consumed.
+    await sup.prompt("agt_r", "continue");
+    expect(fake.seen.prompts[1]).toBe("continue");
+    await sup.stop("agt_r");
+  });
+
+  it("gemini: sets the yolo mode and never asks the session for a model option", async () => {
+    const { sup, fake } = await build({ model: "gemini/gemini-2.5-pro" });
+    await sup.start("agt_g");
+    expect(fake.seen.setMode).toEqual([
+      { sessionId: "sess_1", modeId: "yolo" },
+    ]);
+    expect(fake.seen.setConfig).toEqual([]);
+    // A non-default model with no config option to apply it through would
+    // normally warn; the modelFixedAtLaunch guard is what keeps this quiet.
+    expect(logger.warn).not.toHaveBeenCalledWith(
+      expect.anything(),
+      expect.stringMatching(/publishes no model option/)
+    );
+    await sup.stop("agt_g");
+  });
+
+  it("applies a non-default model through the session's model option", async () => {
+    const { sup, fake } = await build({
+      model: "opencode/anthropic/claude-sonnet-5",
+      configOptions: [
+        {
+          id: "model",
+          name: "Model",
+          category: "model",
+          type: "select",
+          currentValue: "openai/gpt-5.5",
+          options: [
+            { value: "openai/gpt-5.5", name: "GPT-5.5" },
+            { value: "anthropic/claude-sonnet-5", name: "Claude Sonnet 5" },
+          ],
+        },
+      ],
+    });
+    await sup.start("agt_o");
+    expect(fake.seen.setConfig).toEqual([
+      {
+        sessionId: "sess_1",
+        configId: "model",
+        value: "anthropic/claude-sonnet-5",
+      },
+    ]);
+    await sup.stop("agt_o");
+  });
+
+  it("warns and keeps the default when a non-default model meets no model option", async () => {
+    const { sup, fake } = await build({ model: "codex/gpt-5.6-sol" });
+    await sup.start("agt_w");
+    expect(fake.seen.setConfig).toEqual([]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      expect.objectContaining({ agentId: "agt_w", model: "gpt-5.6-sol" }),
+      expect.stringMatching(/publishes no model option/)
+    );
+    await sup.stop("agt_w");
+  });
+
+  it("rejects an agent whose model has no engine prefix", async () => {
+    const { sup } = await build({ model: "gpt-5.6-sol" });
+    await expect(sup.start("agt_bad")).rejects.toThrow(/engine\/model/);
+  });
+
+  it("records the engine, not just the model, on the token-usage row", async () => {
+    const { sup, query } = await build({
+      model: "codex/gpt-5.6-sol",
+      turn: async () => ({
+        stopReason: "end_turn",
+        usage: {
+          totalTokens: 30,
+          inputTokens: 20,
+          outputTokens: 10,
+          thoughtTokens: 0,
+          cachedReadTokens: 0,
+          cachedWriteTokens: 0,
+        },
+      }),
+    });
+    await sup.start("agt_1");
+    await sup.prompt("agt_1", "go");
+    const usageInsert = query.mock.calls.find(([sql]) =>
+      /INSERT INTO agent_token_usage/.test(String(sql))
+    );
+    expect(usageInsert?.[1]?.[2]).toBe("codex/gpt-5.6-sol");
+    await sup.stop("agt_1");
+  });
+
+  it("serves the commands the engine advertised", async () => {
+    const { sup } = await build({
+      commands: [
+        { name: "review", description: "Review the branch", input: null },
+        { name: "compact", description: "Compact", input: { hint: "focus" } },
+      ],
+    });
+    expect(sup.getCommands("agt_none")).toBeNull();
+    await sup.start("agt_1");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(sup.getCommands("agt_1")).toEqual([
+      { name: "review", description: "Review the branch" },
+      { name: "compact", description: "Compact", input: { hint: "focus" } },
+    ]);
+    await sup.stop("agt_1");
   });
 });
 
@@ -347,33 +537,32 @@ describe("HarnessSupervisor launch prompt", () => {
     await sup.stop("agt_1");
   });
 
-  it("does not resend it on resume", async () => {
+  it("does not resend it on resume once a turn has run", async () => {
     const { sup, fake } = await build({
       launchPrompt: "do the thing",
       cliSessionId: "sess_old",
+      // A turn already ran on this session, so the launch prompt already
+      // went out; only a resume that never ran a turn resends it.
+      lastTurnError: null,
     });
     await sup.start("agt_1");
     await new Promise((r) => setTimeout(r, 20));
     expect(fake.seen.prompts).toEqual([]);
     await sup.stop("agt_1");
   });
-});
 
-describe("defaultModelFor", () => {
-  it("prefers DeepSeek, then OpenAI, else the profile default", () => {
-    expect(
-      defaultModelFor({ DEEPSEEK_API_KEY: "x", OPENAI_API_KEY: "y" })
-    ).toBe("deepseek-official/deepseek-v4-flash");
-    expect(defaultModelFor({ OPENAI_API_KEY: "y" })).toBe("openai/gpt-5.6-sol");
-    expect(defaultModelFor({})).toBeNull();
-  });
-
-  it("puts a stored ChatGPT sign-in ahead of every key", () => {
-    const grants = new Set(["llm-pi-ai/openai-codex"]);
-    expect(
-      defaultModelFor({ DEEPSEEK_API_KEY: "x", OPENAI_API_KEY: "y" }, grants)
-    ).toBe("openai-codex/gpt-5.6-sol");
-    expect(defaultModelFor({}, new Set(["llm-pi-ai/other"]))).toBeNull();
+  it("resends it on a resume that never ran a turn", async () => {
+    // The process stopped (or crashed) between opening the session and its
+    // first prompt: the resume has no turn behind it, so the launch prompt
+    // never went out and must be sent now.
+    const { sup, fake } = await build({
+      launchPrompt: "do the thing",
+      cliSessionId: "sess_old",
+    });
+    await sup.start("agt_1");
+    await new Promise((r) => setTimeout(r, 20));
+    expect(fake.seen.prompts).toEqual(["do the thing"]);
+    await sup.stop("agt_1");
   });
 });
 
@@ -475,21 +664,21 @@ describe("HarnessSupervisor lifecycle edges", () => {
     const markExited = vi.fn(async () => {});
     (deps as { markExited?: typeof markExited }).markExited = markExited;
     await sup.start("agt_1");
-    // dsh quits on its own: the child exits without Dispatch asking.
+    // The engine quits on its own: the child exits without Dispatch asking.
     fake.child.kill("SIGTERM");
     await vi.waitFor(() => expect(markExited).toHaveBeenCalled());
     expect(markExited).toHaveBeenCalledWith(
       "agt_1",
-      expect.stringContaining("dsh exited")
+      expect.stringContaining("The engine exited")
     );
     expect(sup.isRunning("agt_1")).toBe(false);
   });
 
-  it("removes the overlay when the driver fails to start", async () => {
+  it("fails to start when the engine binary cannot be resolved", async () => {
     const { sup } = await build({ startFails: true });
-    await expect(sup.start("agt_1")).rejects.toThrow(/dsh not found/);
-    const overlays = await readdir(path.join(home, "overlays")).catch(() => []);
-    expect(overlays).toEqual([]);
+    await expect(sup.start("agt_1")).rejects.toThrow(
+      /was not found on the server's PATH/
+    );
   });
 
   it("settles rows a previous process left open before starting", async () => {

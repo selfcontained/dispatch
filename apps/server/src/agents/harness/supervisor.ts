@@ -1,32 +1,26 @@
 import { randomUUID } from "node:crypto";
-import path from "node:path";
 import type { Pool } from "pg";
 import {
-  HARNESS_USAGE_PROVIDERS,
-  isHarnessBudgetProvider,
+  DEFAULT_HARNESS_MODEL,
   type AgentLatestEventType,
   type AgentRecord,
+  type HarnessCommand,
   type HarnessConfigOption,
+  type HarnessEngineId,
 } from "@dispatch/shared";
 
 import { createAgentMcpToken, createJobMcpToken } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
 import { resolveMediaDir } from "../../shared/media.js";
 import { dispatchMcpUrl } from "../tmux/mcp-url.js";
+import { engineSpecFor, splitModelId, type EngineBins } from "./agent-spec.js";
 import {
   HarnessDriver,
+  resolveExecutable,
   type DriverEvent,
   type DriverLogger,
 } from "./driver.js";
-import { appendCommandLog, commandLogPath } from "./command-log.js";
-import {
-  CODEX_GRANT_KEY,
-  createGrantSnapshot,
-  type GrantSnapshot,
-} from "./credentials.js";
-import { removeOverlay, writeOverlay } from "./overlay.js";
 import { parsePromptSource, type QueuedPrompt } from "./prompt-source.js";
-import type { AgentModelOption } from "../../shared/agent-models.js";
 import { StreamRecorder } from "./stream-recorder.js";
 import { StreamStore } from "./stream-store.js";
 import { UsageRecorder } from "./usage-recorder.js";
@@ -35,11 +29,22 @@ export type SupervisorDeps = {
   pool: Pool;
   config: Pick<
     AppConfig,
-    "dshBin" | "dshHome" | "port" | "tls" | "authToken" | "mediaRoot"
+    | "claudeHarnessBin"
+    | "codexHarnessBin"
+    | "geminiBin"
+    | "opencodeBin"
+    | "claudeBin"
+    | "codexBin"
+    | "port"
+    | "tls"
+    | "authToken"
+    | "mediaRoot"
   >;
   logger: DriverLogger;
-  /** Injectable for tests; defaults to a driver over the real `dsh` binary. */
+  /** Injectable for tests; defaults to a driver that spawns the real binaries. */
   driver?: HarnessDriver;
+  /** How engine binaries are found before spawning; defaults to a PATH lookup. */
+  resolveBinary?: (bin: string, env: NodeJS.ProcessEnv) => Promise<string>;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   setCliSessionId: (id: string, sessionId: string) => Promise<void>;
   setLatestEvent: (
@@ -52,7 +57,7 @@ export type SupervisorDeps = {
    * option switch, when the session config is worth re-reading too.
    */
   publishHarness: (agentId: string, config?: boolean) => void;
-  /** Full persona text for the overlay (see persona.ts). */
+  /** Full persona text (see persona.ts). */
   personaPromptFor: (
     agent: AgentRecord,
     jobRunId: string | null
@@ -65,11 +70,11 @@ export type SupervisorDeps = {
   activeJobRunIdFor?: (agentId: string) => Promise<string | null>;
   /**
    * The agent's launch prompt, already wrapped as a chat envelope, or null.
-   * dsh takes no launch argument, so the supervisor sends it as the first
-   * turn of a fresh session.
+   * The harness takes no launch argument, so the supervisor sends it as the
+   * first turn of a fresh session.
    */
   launchPromptFor: (agentId: string) => Promise<string | null>;
-  /** dsh agents recorded as running, for {@link HarnessSupervisor.restoreRunning}. */
+  /** Harness agents recorded as running, for {@link HarnessSupervisor.restoreRunning}. */
   listRunningAgentIds: () => Promise<string[]>;
   /** Record that an agent could not be brought back at boot. */
   markStartFailed: (id: string, message: string) => Promise<void>;
@@ -83,9 +88,10 @@ export type SupervisorDeps = {
 };
 
 /**
- * What the dsh child must not inherit from the server process. Everything
- * else passes through, the same as the tmux login shell a CLI agent gets,
- * so git over SSH, gh, proxies, and locale behave the same in both.
+ * What the harness child must not inherit from the server process.
+ * Everything else passes through, the same as the tmux login shell a CLI
+ * agent gets, so git over SSH, gh, proxies, and locale behave the same in
+ * both.
  */
 const ENV_DENY_EXACT = new Set([
   "DATABASE_URL",
@@ -129,6 +135,20 @@ export function buildChildEnv(input: {
   return env;
 }
 
+/** The `model` option: by id, or by ACP category for engines that name it otherwise. */
+export function modelOptionOf(
+  options: readonly HarnessConfigOption[]
+): HarnessConfigOption | undefined {
+  return options.find((o) => o.id === "model" || o.category === "model");
+}
+
+function isModelOption(
+  options: readonly HarnessConfigOption[],
+  configId: string
+): boolean {
+  return modelOptionOf(options)?.id === configId;
+}
+
 const MESSAGE_MAX = 200;
 const STOP_ALL_TIMEOUT_MS = 5_000;
 const RECONCILE_TIMEOUT_MS = 2_000;
@@ -153,213 +173,32 @@ type Pending = QueuedPrompt & {
   markSettled: () => void;
 };
 
-/** dsh route ids that name a provider under another id in the shared registry. */
-const ROUTE_ALIASES: Record<string, string> = {
-  "deepseek-official": "deepseek",
-  gemini: "google",
-};
-
 /**
- * Which env key each dsh provider route needs, from the shared registry.
- * A route without its key still shows in dsh's options, but every call on
- * it would fail, so the catalog and the picker drop it. Unknown routes are
- * kept.
- */
-export const PROVIDER_KEY_ENV: Record<string, string> = Object.fromEntries(
-  HARNESS_USAGE_PROVIDERS.filter(isHarnessBudgetProvider).flatMap((p) => [
-    [p.id, p.auth.env],
-    ...Object.entries(ROUTE_ALIASES)
-      .filter(([, id]) => id === p.id)
-      .map(([alias]) => [alias, p.auth.env]),
-  ])
-);
-
-/**
- * Routes that authenticate with a stored sign-in instead of a key: the
- * record dsh's credential store must hold for the route to work. A route
- * in this map stays listed while its record exists.
- */
-export const PROVIDER_GRANT: Record<string, string> = Object.fromEntries(
-  HARNESS_USAGE_PROVIDERS.flatMap((p) => {
-    const auth = p.auth;
-    return auth.kind === "grant" ? [[p.id, auth.record]] : [];
-  })
-);
-
-const NO_GRANTS: ReadonlySet<string> = new Set();
-
-/** Whether a provider route can authenticate: a key in the env or a stored sign-in. */
-export function routeAuthenticated(
-  route: string,
-  env: NodeJS.ProcessEnv,
-  grants: ReadonlySet<string>
-): boolean {
-  const key = PROVIDER_KEY_ENV[route];
-  const grant = PROVIDER_GRANT[route];
-  if (key === undefined && grant === undefined) return true;
-  return (
-    (key !== undefined && !!env[key]) ||
-    (grant !== undefined && grants.has(grant))
-  );
-}
-
-type SelectOption = {
-  value: string;
-  name: string;
-  description?: string | null;
-};
-type SelectGroup = {
-  groupId?: string;
-  group?: string;
-  name: string;
-  options: SelectOption[];
-};
-
-/**
- * Which of a route's models are offered. dsh serves OpenAI's whole
- * back-catalog; only the current generation is worth a menu entry. A
- * route without an entry offers everything. The session's current value
- * always stays listed so a picker can show what is running.
- */
-export const CATALOG_MODEL_ALLOW: Record<string, RegExp> = {
-  openai: /^gpt-5\.6/,
-  "openai-codex": /^gpt-5\.6/,
-};
-
-function modelNameOf(value: string): string {
-  const id = modelIdFromValue(value);
-  return id ? id.slice(id.indexOf("/") + 1) : value;
-}
-
-function groupIdOf(group: SelectGroup): string {
-  return group.groupId ?? group.group ?? "";
-}
-
-function isGroup(entry: unknown): entry is SelectGroup {
-  return (
-    typeof entry === "object" &&
-    entry !== null &&
-    Array.isArray((entry as SelectGroup).options)
-  );
-}
-
-/**
- * dsh's "model" option lists every route it serves; keep only the routes
- * the service can authenticate: an API key in the env, or a sign-in in
- * dsh's credential store (`grants`, by record key). Other options pass
- * through untouched.
- */
-export function filterConfigOptionsByKeys(
-  options: HarnessConfigOption[],
-  env: NodeJS.ProcessEnv,
-  grants: ReadonlySet<string> = NO_GRANTS
-): HarnessConfigOption[] {
-  return options.map((option) => {
-    if (option.id !== "model" || option.type !== "select") return option;
-    const entries = option.options as unknown[];
-    const kept = entries
-      .filter((entry) => {
-        if (!isGroup(entry)) return true;
-        return routeAuthenticated(groupIdOf(entry), env, grants);
-      })
-      .map((entry) => {
-        if (!isGroup(entry)) return entry;
-        const allow = CATALOG_MODEL_ALLOW[groupIdOf(entry)];
-        if (!allow) return entry;
-        return {
-          ...entry,
-          options: entry.options.filter(
-            (c) =>
-              c.value === option.currentValue ||
-              allow.test(modelNameOf(c.value))
-          ),
-        };
-      })
-      .filter((entry) => !isGroup(entry) || entry.options.length > 0);
-    return { ...option, options: kept as HarnessConfigOption["options"] };
-  });
-}
-
-/** Flatten the "model" option into catalog rows: id `provider/model`. */
-export function catalogFromConfigOptions(
-  options: HarnessConfigOption[]
-): AgentModelOption[] {
-  const model = options.find((o) => o.id === "model" && o.type === "select");
-  if (!model) return [];
-  const rows: AgentModelOption[] = [];
-  const push = (entry: SelectOption, groupName?: string) => {
-    const id = modelIdFromValue(entry.value);
-    if (!id) return;
-    rows.push({
-      id,
-      label: entry.name,
-      ...(groupName ? { group: groupName } : {}),
-    });
-  };
-  for (const entry of model.options as unknown[]) {
-    if (isGroup(entry)) {
-      for (const option of entry.options) push(option, entry.name);
-    } else if (typeof entry === "object" && entry !== null) {
-      push(entry as SelectOption);
-    }
-  }
-  return rows;
-}
-
-/** dsh encodes a model value as the JSON pair ["provider","model"]. */
-export function modelIdFromValue(value: string): string | null {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    if (
-      Array.isArray(parsed) &&
-      parsed.length === 2 &&
-      typeof parsed[0] === "string" &&
-      typeof parsed[1] === "string"
-    ) {
-      return `${parsed[0]}/${parsed[1]}`;
-    }
-  } catch {
-    // not JSON: fall through
-  }
-  return value.includes("/") ? value : null;
-}
-
-const CATALOG_TTL_MS = 10 * 60_000;
-
-/**
- * With no model chosen, pick one the service can authenticate, so a first
- * agent does not fail on the profile's DeepSeek default when only an
- * OpenAI key is configured. A ChatGPT sign-in wins: its plan is already
- * paid for, so a metered key is not spent by default. Null keeps the
- * profile default.
- */
-export function defaultModelFor(
-  env: NodeJS.ProcessEnv,
-  grants: ReadonlySet<string> = NO_GRANTS
-): string | null {
-  if (grants.has(CODEX_GRANT_KEY)) return "openai-codex/gpt-5.6-sol";
-  if (env.DEEPSEEK_API_KEY) return "deepseek-official/deepseek-v4-flash";
-  if (env.OPENAI_API_KEY) return "openai/gpt-5.6-sol";
-  return null;
-}
-
-/** How often the credential store is re-read for new sign-ins. */
-const GRANTS_TTL_MS = 5_000;
-
-/**
- * Glue between the agent lifecycle and the ACP driver: starts dsh when an
- * agent's setup completes, turns prompts into turns with working/idle status
- * around them, folds the stream into the store and usage table, and stops
- * the child when the agent stops.
+ * Glue between the agent lifecycle and the ACP driver: picks the engine
+ * from the agent's model id, starts it when an agent's setup completes,
+ * delivers the persona the way the engine takes it, turns prompts into
+ * turns with working/idle status around them, folds the stream into the
+ * store and the usage table, and stops the child when the agent stops.
  */
 export class HarnessSupervisor {
   private readonly driver: HarnessDriver;
+  private readonly store: StreamStore;
   private readonly streams: StreamRecorder;
   private readonly usage: UsageRecorder;
+  private readonly resolveBinary: (
+    bin: string,
+    env: NodeJS.ProcessEnv
+  ) => Promise<string>;
   private readonly context = new Map<
     string,
-    { sessionId: string; model: string }
+    { sessionId: string; engine: HarnessEngineId; model: string }
   >();
+  /**
+   * Persona text an engine takes as the leading block of its first prompt
+   * (see EngineSpec.personaDelivery); set at a fresh start, or at a resume
+   * of a session that never ran a turn; consumed by the first turn.
+   */
+  private readonly pendingPersona = new Map<string, string>();
   /**
    * One writer per agent. Driver events arrive faster than their DB writes
    * settle; handled concurrently, two appends compute the same seq and one
@@ -375,27 +214,18 @@ export class HarnessSupervisor {
    */
   private readonly pending = new Map<string, Pending[]>();
   private readonly running = new Map<string, Pending>();
-  private catalog: { at: number; rows: AgentModelOption[] } | null = null;
-  private catalogInFlight: Promise<AgentModelOption[]> | null = null;
-  /** Record keys in dsh's credential store: which sign-in routes can run. */
-  private readonly grants: GrantSnapshot;
 
   constructor(private readonly deps: SupervisorDeps) {
-    this.grants = createGrantSnapshot(deps.config.dshHome, GRANTS_TTL_MS);
-    // Primed now so the first config poll after boot does not hide a
-    // signed-in route for a cycle.
-    void this.grants.refresh();
+    this.resolveBinary = deps.resolveBinary ?? resolveExecutable;
     this.driver =
       deps.driver ??
       new HarnessDriver({
-        dshBin: deps.config.dshBin,
-        dshHome: deps.config.dshHome,
         logger: deps.logger,
+        resolveBinary: this.resolveBinary,
       });
-    this.streams = new StreamRecorder(new StreamStore(deps.pool), {
-      commandLog: (agentId, entry) =>
-        appendCommandLog(commandLogPath(deps.config.dshHome, agentId), entry),
-      // A goal round dsh ran on its own settles by going quiet; the view
+    this.store = new StreamStore(deps.pool);
+    this.streams = new StreamRecorder(this.store, {
+      // A round the engine ran on its own settles by going quiet; the view
       // learns of it the same way it learns of every other stream write.
       onAutonomousSettled: (agentId) => deps.publishHarness(agentId, true),
     });
@@ -482,105 +312,39 @@ export class HarnessSupervisor {
     return true;
   }
 
-  /** The running session's options (model, effort), authenticated providers only. */
+  /** The running session's options (model, effort); null when not running. */
   getConfigOptions(agentId: string): HarnessConfigOption[] | null {
     const options = this.driver.getConfigOptions(agentId);
-    return options
-      ? filterConfigOptionsByKeys(
-          options as HarnessConfigOption[],
-          process.env,
-          this.grants.peek()
-        )
+    return options ? (options as HarnessConfigOption[]) : null;
+  }
+
+  /** The slash commands the engine advertised; null when not running. */
+  getCommands(agentId: string): HarnessCommand[] | null {
+    const commands = this.driver.getCommands(agentId);
+    return commands
+      ? commands.map((c) => ({
+          name: c.name,
+          description: c.description,
+          ...(c.input ? { input: { hint: c.input.hint } } : {}),
+        }))
       : null;
   }
 
-  /** Switch a session option; a model switch is also stored on the agent. */
+  /** Switch a session option; a model switch is also stored on the agent as engine/model. */
   async setConfigOption(
     agentId: string,
     configId: string,
     value: string
   ): Promise<HarnessConfigOption[]> {
     const options = await this.driver.setConfigOption(agentId, configId, value);
-    if (configId === "model") {
-      const model = modelIdFromValue(value);
-      if (model) {
-        const ctx = this.context.get(agentId);
-        if (ctx) ctx.model = model;
-        await this.deps.setAgentModel?.(agentId, model);
-      }
+    const ctx = this.context.get(agentId);
+    if (ctx && isModelOption(options as HarnessConfigOption[], configId)) {
+      ctx.model = value;
+      await this.deps.setAgentModel?.(agentId, `${ctx.engine}/${value}`);
     }
     // Another client's picker shows the switch without waiting for a poll.
     this.deps.publishHarness(agentId, true);
-    return filterConfigOptionsByKeys(
-      options as HarnessConfigOption[],
-      process.env,
-      this.grants.peek()
-    );
-  }
-
-  /**
-   * The models dsh serves, for the create dialog: read off a running agent
-   * when one exists, otherwise from a throwaway probe session; cached.
-   */
-  async modelCatalog(): Promise<AgentModelOption[]> {
-    const now = Date.now();
-    if (this.catalog && now - this.catalog.at < CATALOG_TTL_MS) {
-      return this.catalog.rows;
-    }
-    await this.grants.refresh();
-    for (const agentId of this.driver.liveAgentIds()) {
-      const options = this.getConfigOptions(agentId);
-      const rows = options ? catalogFromConfigOptions(options) : [];
-      if (rows.length) {
-        this.catalog = { at: now, rows };
-        return rows;
-      }
-    }
-    if (this.catalogInFlight) return this.catalogInFlight;
-    this.catalogInFlight = (async () => {
-      const overlayPath = await writeOverlay(
-        this.overlayDir(),
-        "catalog-probe",
-        {
-          model: null,
-          persona: "",
-        }
-      );
-      try {
-        const options = await this.driver.probeConfigOptions({
-          overlayPath,
-          cwd: this.deps.config.dshHome,
-          env: buildChildEnv({
-            agentId: "catalog-probe",
-            mediaDir: this.deps.config.mediaRoot,
-            config: this.deps.config,
-          }),
-        });
-        const rows = catalogFromConfigOptions(
-          filterConfigOptionsByKeys(
-            options as HarnessConfigOption[],
-            process.env,
-            this.grants.peek()
-          )
-        );
-        this.catalog = { at: Date.now(), rows };
-        return rows;
-      } catch (err) {
-        // No dsh here (or a broken one): remember briefly so a dialog that
-        // reopens does not spawn a failing child each time.
-        this.deps.logger.warn({ err }, "dsh model catalog probe failed");
-        this.catalog = { at: Date.now() - CATALOG_TTL_MS + 60_000, rows: [] };
-        return [];
-      } finally {
-        this.catalogInFlight = null;
-        await removeOverlay(this.overlayDir(), "catalog-probe");
-      }
-    })();
-    return this.catalogInFlight;
-  }
-
-  private overlayDir(): string {
-    return path.join(this.deps.config.dshHome, "overlays");
+    return options as HarnessConfigOption[];
   }
 
   /** How long after a restart cut a turn the agent is still told to resume it. */
@@ -589,60 +353,75 @@ export class HarnessSupervisor {
   async start(agentId: string): Promise<{ resumed: boolean }> {
     const agent = await this.deps.getAgent(agentId);
     if (!agent || agent.type !== "dispatch") {
-      throw new Error(`${agentId} is not a dsh agent`);
+      throw new Error(`${agentId} is not a Dispatch Harness agent`);
     }
-    const model =
-      agent.model ?? defaultModelFor(process.env, await this.grants.refresh());
+    const { engine, model } = splitModelId(
+      agent.model ?? DEFAULT_HARNESS_MODEL
+    );
     // Rows a previous process left open (restart mid-turn) settle first,
     // so the view never shows a turn that can no longer finish.
     await this.streams.reconcile(agentId);
     const jobRunId = (await this.deps.activeJobRunIdFor?.(agentId)) ?? null;
-    const overlayPath = await writeOverlay(this.overlayDir(), agentId, {
-      model,
-      persona: await this.deps.personaPromptFor(agent, jobRunId),
-    });
+    const persona = await this.deps.personaPromptFor(agent, jobRunId);
     const mediaDir = resolveMediaDir(
       agentId,
       agent.mediaDir,
       this.deps.config.mediaRoot
     );
+    const env = buildChildEnv({ agentId, mediaDir, config: this.deps.config });
+    const spec = engineSpecFor(engine, model, await this.binsFor(engine, env));
     this.streams.setCwd(agentId, agent.cwd);
-    let session: { sessionId: string; resumed: boolean };
-    try {
-      session = await this.driver.start({
-        agentId,
-        cwd: agent.cwd,
-        overlayPath,
-        mcp: {
-          url: dispatchMcpUrl(this.deps.config, agentId, jobRunId ?? undefined),
-          token: jobRunId
-            ? createJobMcpToken(this.deps.config.authToken, jobRunId, agentId)
-            : createAgentMcpToken(this.deps.config.authToken, agentId),
-        },
-        sessionId: agent.cliSessionId ?? null,
-        env: buildChildEnv({ agentId, mediaDir, config: this.deps.config }),
-      });
-    } catch (err) {
-      // The overlay holds the persona text; nothing is running to use it.
-      await removeOverlay(this.overlayDir(), agentId);
-      throw err;
-    }
+    const session = await this.driver.start({
+      agentId,
+      cwd: agent.cwd,
+      engine: spec,
+      systemPromptAppend:
+        spec.personaDelivery === "system_prompt" ? persona : null,
+      mcp: {
+        url: dispatchMcpUrl(this.deps.config, agentId, jobRunId ?? undefined),
+        token: jobRunId
+          ? createJobMcpToken(this.deps.config.authToken, jobRunId, agentId)
+          : createAgentMcpToken(this.deps.config.authToken, agentId),
+      },
+      sessionId: agent.cliSessionId ?? null,
+      env,
+    });
     const { sessionId, resumed } = session;
-    this.context.set(agentId, { sessionId, model: model ?? "default" });
+    this.context.set(agentId, { sessionId, engine, model });
+    // An engine that takes the persona in its first prompt gets it once: on a
+    // fresh session, or on a resumed session that never ran a turn (the
+    // process stopped between opening the session and its first prompt). A
+    // resumed session with a turn behind it has the persona in its history.
+    // The read is agent-scoped, not session-scoped: turn rows carry no
+    // session id, so an agent whose earlier session ran turns but whose
+    // replacement session was stopped before its first turn keeps its
+    // history and gets no persona; a deliberate trade, not an oversight.
+    const neverRan = (await this.store.lastTurnSettlement(agentId)) === null;
+    if (spec.personaDelivery === "first_prompt" && (!resumed || neverRan)) {
+      this.pendingPersona.set(agentId, persona);
+    } else {
+      this.pendingPersona.delete(agentId);
+    }
+    if (model !== "default" && !spec.modelFixedAtLaunch) {
+      await this.applyModel(agentId, model);
+    }
     await this.deps.setCliSessionId(agentId, sessionId);
     await this.deps.setLatestEvent(agentId, {
       type: "idle",
-      message: resumed ? "dsh session resumed." : "dsh session started.",
+      message: resumed
+        ? "Harness session resumed."
+        : "Harness session started.",
     });
     // The session's options exist from here: the picker can read them.
     this.deps.publishHarness(agentId, true);
-    // A fresh session gets the launch prompt as its first turn; a resumed
-    // one already had it.
-    if (!agent.cliSessionId) {
+    // A fresh session gets the launch prompt as its first turn; so does a
+    // resumed one that never ran a turn. A resumed session with a turn
+    // behind it already had it.
+    if (!agent.cliSessionId || neverRan) {
       const first = await this.deps.launchPromptFor(agentId);
       if (first) {
         this.enqueuePrompt(agentId, first).settled.catch((err: unknown) => {
-          this.deps.logger.warn({ err, agentId }, "dsh first turn failed");
+          this.deps.logger.warn({ err, agentId }, "harness first turn failed");
         });
       }
     }
@@ -650,9 +429,56 @@ export class HarnessSupervisor {
   }
 
   /**
-   * Bring back every dsh agent recorded as running after a server restart.
-   * The stored session id resumes; an agent that cannot come back is marked
-   * failed rather than left "running" with nothing behind it.
+   * The binaries a spec needs, resolved to absolute paths: an engine's
+   * adapter finds the host CLI through an env var, and the service's PATH
+   * is not a login shell's. The host codex is only named when configured.
+   */
+  private async binsFor(
+    engine: HarnessEngineId,
+    env: NodeJS.ProcessEnv
+  ): Promise<EngineBins> {
+    const c = this.deps.config;
+    return {
+      claudeHarnessBin: c.claudeHarnessBin,
+      codexHarnessBin: c.codexHarnessBin,
+      geminiBin: c.geminiBin,
+      opencodeBin: c.opencodeBin,
+      claudeBin:
+        engine === "claude"
+          ? await this.resolveBinary(c.claudeBin, env)
+          : c.claudeBin,
+      codexBin:
+        engine === "codex" && process.env.DISPATCH_CODEX_BIN
+          ? await this.resolveBinary(c.codexBin, env)
+          : null,
+    };
+  }
+
+  /** A stored model that is not the engine's default is applied through its model option. */
+  private async applyModel(agentId: string, model: string): Promise<void> {
+    const options = this.driver.getConfigOptions(agentId) ?? [];
+    const option = modelOptionOf(options as HarnessConfigOption[]);
+    if (!option) {
+      this.deps.logger.warn(
+        { agentId, model },
+        "the engine publishes no model option; keeping its default model"
+      );
+      return;
+    }
+    try {
+      await this.driver.setConfigOption(agentId, option.id, model);
+    } catch (err) {
+      this.deps.logger.warn(
+        { err, agentId, model },
+        "the engine refused the stored model; keeping its default"
+      );
+    }
+  }
+
+  /**
+   * Bring back every harness agent recorded as running after a server
+   * restart. The stored session id resumes; an agent that cannot come back
+   * is marked failed rather than left "running" with nothing behind it.
    */
   async restoreRunning(): Promise<{ restored: string[]; failed: string[] }> {
     const restored: string[] = [];
@@ -669,7 +495,7 @@ export class HarnessSupervisor {
             (err: unknown) => {
               this.deps.logger.warn(
                 { err, agentId: id },
-                "dsh restart follow-up turn failed"
+                "harness restart follow-up turn failed"
               );
             }
           );
@@ -679,7 +505,7 @@ export class HarnessSupervisor {
         const message = (err as Error).message;
         this.deps.logger.warn(
           { err, agentId: id },
-          "dsh agent could not be restored at boot"
+          "harness agent could not be restored at boot"
         );
         await this.deps
           .markStartFailed(id, message.slice(0, MESSAGE_MAX))
@@ -815,6 +641,11 @@ export class HarnessSupervisor {
     isLastQueued: () => boolean
   ): Promise<void> {
     let startedAt: string | null = null;
+    const persona = this.pendingPersona.get(agentId);
+    if (persona !== undefined) {
+      this.pendingPersona.delete(agentId);
+      text = `${persona}\n\n${text}`;
+    }
     try {
       await this.deps.setLatestEvent(agentId, {
         type: "working",
@@ -832,7 +663,7 @@ export class HarnessSupervisor {
       }
     } catch (err) {
       const message = (err as Error).message;
-      this.deps.logger.warn({ err, agentId }, "dsh prompt failed");
+      this.deps.logger.warn({ err, agentId }, "harness prompt failed");
       if (isLastQueued()) {
         await this.settle(agentId, startedAt, {
           type: "idle",
@@ -876,7 +707,7 @@ export class HarnessSupervisor {
     );
     await this.driver.stop(agentId);
     this.context.delete(agentId);
-    await removeOverlay(this.overlayDir(), agentId);
+    this.pendingPersona.delete(agentId);
   }
 
   /** Server shutdown: stop every child through the teardown ladder, bounded. */
@@ -910,7 +741,15 @@ export class HarnessSupervisor {
     try {
       await this.streams.handle(event);
       const ctx = this.context.get(event.agentId);
-      if (ctx) await this.usage.handle(event, ctx);
+      // The usage table's model column is what the token-by-model report
+      // groups on: without the engine, every engine's "default" model
+      // collapses into one row.
+      if (ctx) {
+        await this.usage.handle(event, {
+          sessionId: ctx.sessionId,
+          model: `${ctx.engine}/${ctx.model}`,
+        });
+      }
       // A turn boundary or the child going away changes the running state.
       this.deps.publishHarness(
         event.agentId,
@@ -920,7 +759,7 @@ export class HarnessSupervisor {
         this.context.delete(event.agentId);
         // Any unexpected exit, code 0 included: a "running" agent over a
         // dead child takes every prompt to a 409.
-        const message = `dsh exited (${event.code ?? event.signal ?? "unknown"}); press Start to relaunch.`;
+        const message = `The engine exited (${event.code ?? event.signal ?? "unknown"}); press Start to relaunch.`;
         if (this.deps.markExited) {
           await this.deps.markExited(event.agentId, message);
         } else {
@@ -933,7 +772,7 @@ export class HarnessSupervisor {
     } catch (err) {
       this.deps.logger.warn(
         { err, agentId: event.agentId },
-        "dsh event handling failed"
+        "harness event handling failed"
       );
     }
   }

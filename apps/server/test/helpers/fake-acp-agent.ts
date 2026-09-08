@@ -10,7 +10,9 @@ export type FakeTurn = (
   ) => Promise<acp.RequestPermissionResponse>,
   /** Fires when the client cancels the turn; a long turn should stop then. */
   signal: AbortSignal
-) => Promise<acp.StopReason>;
+) => Promise<
+  acp.StopReason | { stopReason: acp.StopReason; usage?: acp.Usage }
+>;
 
 /**
  * An in-process ACP agent wired to a ChildProcess-like object. The driver's
@@ -136,10 +138,10 @@ export function createFakeAcpAgent(
       const controller = new AbortController();
       inFlight = controller;
       try {
-        const stopReason = opts.turn
+        const result = opts.turn
           ? await opts.turn(text, emit, ask, controller.signal)
           : "end_turn";
-        return { stopReason };
+        return typeof result === "string" ? { stopReason: result } : result;
       } finally {
         if (inFlight === controller) inFlight = null;
       }
