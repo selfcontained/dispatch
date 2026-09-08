@@ -782,6 +782,19 @@ describe("HarnessPane inline shortcuts", () => {
     fireEvent.click(screen.getByTestId("harness-usage-chip"));
     expect(screen.getByTestId("harness-usage-dialog")).toBeTruthy();
   });
+
+  it("opens the usage dialog from the /usage slash command", async () => {
+    render(
+      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
+      { wrapper }
+    );
+    const input = screen.getByTestId("chat-composer-input");
+    fireEvent.change(input, { target: { value: "/usage" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    await waitFor(() => {
+      expect(screen.getByTestId("harness-usage-dialog")).toBeTruthy();
+    });
+  });
 });
 
 describe("HarnessPane stop and recall", () => {
