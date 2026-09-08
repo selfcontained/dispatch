@@ -929,7 +929,7 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 
 **Interfaces:**
 
-- Consumes: `HarnessUsageResponse { generatedAt; monthStart; engines: HarnessUsageEngine[] }`, `HARNESS_BUDGET_ENGINE_IDS`, `HARNESS_ENGINES`, `UsageBudgets` keyed by engine id.
+- Consumes: `HarnessUsageReport { generatedAt; monthStart; engines: HarnessUsageEngine[] }` (the web's `useHarnessUsage` switches its response type to it), `HARNESS_BUDGET_ENGINE_IDS`, `HARNESS_ENGINES`, `UsageBudgets` keyed by engine id.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -939,12 +939,12 @@ Replace `usage-dialog.test.tsx`'s fixtures and assertions with:
 // @vitest-environment jsdom
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, within } from "@testing-library/react";
-import type { HarnessUsageResponse } from "@dispatch/shared";
+import type { HarnessUsageReport } from "@dispatch/shared";
 import { describe, expect, it, vi } from "vitest";
 
 import { UsageDialog, formatTokens, formatUsd } from "./usage-dialog";
 
-const report: HarnessUsageResponse = {
+const report: HarnessUsageReport = {
   generatedAt: "2026-09-07T12:00:00.000Z",
   monthStart: "2026-09-01T00:00:00.000Z",
   engines: [
@@ -1135,7 +1135,7 @@ function EngineRow({ engine }: { engine: HarnessUsageEngine }): JSX.Element {
 }
 ```
 
-and the dialog content maps `data.engines` to `<EngineRow>`, with the header "Usage this month" and the description `since ${new Date(data.monthStart).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })} (UTC)`. Keep the refresh button. `use-harness-usage.ts`'s comment becomes "The engines' tokens and cost this month; fetched while the dialog is open."
+and the dialog content maps `data.engines` to `<EngineRow>`, with the header "Usage this month" and the description `since ${new Date(data.monthStart).toLocaleDateString(undefined, { month: "long", year: "numeric", timeZone: "UTC" })} (UTC)`. Keep the refresh button. `use-harness-usage.ts` types its query as `HarnessUsageReport` and its comment becomes "The engines' tokens and cost this month; fetched while the dialog is open."
 
 `usage-budget-settings.tsx`:
 
@@ -1250,7 +1250,7 @@ In `harness-pane.tsx`'s non-starting empty state, after the `<p data-testid="har
     "Dispatch Harness: Dispatch's harness view, running Claude Code, Codex, Gemini CLI, or OpenCode over the Agent Client Protocol.",
 ```
 
-`packages/shared/src/harness-types.ts`: delete `HarnessSkill`, `HarnessSkillsResponse`, `HARNESS_USAGE_PROVIDERS`, `HarnessUsageProvider`, `HarnessSubscriptionUsage`, `HarnessTokenCounts`, `harnessProviderLabel`, `isHarnessBudgetProvider`, `HARNESS_BUDGET_PROVIDERS`, `HarnessSubagent`, `HarnessSubagentResponse`, and their `@deprecated` comments; drop their lines from `packages/shared/src/index.ts`.
+`packages/shared/src/harness-types.ts`: delete every export tagged `@deprecated` in plan 1 Task 3 (`HarnessSubagent`, `HarnessSubagentResponse`, `HarnessSkill`, `HarnessSkillsResponse`, `HarnessTokenCounts`, `HarnessProviderAuth`, `HarnessUsageProvider`, `HarnessSubscriptionWindow`, `HarnessSubscriptionUsage`, `HarnessUsageResponse`, `HARNESS_USAGE_PROVIDERS`, `HarnessProviderSpec`, `HarnessUsageProviderId`, `HarnessBudgetProviderSpec`, `HarnessBudgetProviderId`, `isHarnessBudgetProvider`, `HARNESS_BUDGET_PROVIDERS`, `harnessProviderLabel`); drop their lines from `packages/shared/src/index.ts`. `UsageBudgets` stays (Task 9 re-keyed it by engine).
 
 - [ ] **Step 4: Type check everything**
 

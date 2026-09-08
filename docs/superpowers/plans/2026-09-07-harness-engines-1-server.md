@@ -156,8 +156,22 @@ afterAll(async () => {
 });
 
 describe("harness migrations", () => {
-  it("run twice without error (every statement is guarded)", async () => {
+  it("re-run their SQL against an existing schema without error (every statement is guarded)", async () => {
+    // node-pg-migrate skips names already in pgmigrations, so a plain second
+    // run executes nothing. Forgetting the two rows makes it execute both
+    // files again on a database that already has their objects: the case an
+    // install upgraded from the earlier harness migrations is in.
+    await pool.query(
+      `DELETE FROM pgmigrations WHERE name IN ('0051_agent-stream-events', '0052_agent-chat-messages-delivery-text')`
+    );
     await expect(runTestMigrations()).resolves.not.toThrow();
+    const rows = await pool.query<{ name: string }>(
+      `SELECT name FROM pgmigrations WHERE name IN ('0051_agent-stream-events', '0052_agent-chat-messages-delivery-text') ORDER BY name`
+    );
+    expect(rows.rows.map((r) => r.name)).toEqual([
+      "0051_agent-stream-events",
+      "0052_agent-chat-messages-delivery-text",
+    ]);
   });
 
   it("accept a plan row and a delivery_text column", async () => {
@@ -175,6 +189,10 @@ describe("harness migrations", () => {
         WHERE table_name = 'agent_chat_messages' AND column_name = 'delivery_text'`
     );
     expect(column.rowCount).toBe(1);
+    const index = await pool.query(
+      `SELECT 1 FROM pg_indexes WHERE indexname = 'agent_stream_events_agent_created'`
+    );
+    expect(index.rowCount).toBe(1);
   });
 
   it("carries no migration named after the old dsh files", async () => {
@@ -190,7 +208,7 @@ describe("harness migrations", () => {
 - [ ] **Step 2: Run it to see it fail**
 
 Run: `cd apps/server && bash ../../scripts/server-tests-isolated.sh run test/migrations-harness.test.ts`
-Expected: FAIL. The `plan` insert violates `agent_stream_events_kind_check`, and the third test finds `0052_agent-stream-events-turn` in `pgmigrations`.
+Expected: FAIL. The `plan` insert violates `agent_stream_events_kind_check`; the third test finds `0052_agent-stream-events-turn` in `pgmigrations`; the re-run test fails because the old `0051` re-creates its constraint without dropping it first.
 
 - [ ] **Step 3: Rewrite `0051` and rename `0053`**
 
@@ -217,6 +235,10 @@ CREATE TABLE IF NOT EXISTS agent_stream_events (
 CREATE UNIQUE INDEX IF NOT EXISTS agent_stream_events_agent_key
   ON agent_stream_events (agent_id, kind, key)
   WHERE key IS NOT NULL;
+
+-- The Chat feed reads an agent's newest rows by time (chat/feed.ts).
+CREATE INDEX IF NOT EXISTS agent_stream_events_agent_created
+  ON agent_stream_events (agent_id, created_at DESC, id DESC);
 
 ALTER TABLE agent_stream_events DROP CONSTRAINT IF EXISTS agent_stream_events_kind_check;
 ALTER TABLE agent_stream_events
@@ -412,9 +434,11 @@ describe("HARNESS_ENGINES", () => {
 Run: `cd apps/server && bash ../../scripts/server-tests-isolated.sh run test/harness-engines-shared.test.ts`
 Expected: FAIL, `HARNESS_ENGINES` is not exported by `@dispatch/shared`.
 
-- [ ] **Step 3: Add the types**
+- [ ] **Step 3: Add the types beside the old ones**
 
-In `packages/shared/src/harness-types.ts`, replace the block from `/** A skill the harness can load...` (the `HarnessSkill` and `HarnessSkillsResponse` types) with:
+Plan 1 keeps the server type check green after every task, and `supervisor.ts`, `usage-budget-settings.ts`, `routes/system.ts` and the old `agents/harness/usage.ts` still import the dsh-era types until Tasks 8 and 9 rewrite them. So this task only **adds** exports and tags the old ones `@deprecated`; it removes or reshapes nothing. Where a new type would collide with an old name, the new one gets a new name (`HarnessUsageReport`); Task 9 redefines `UsageBudgets` when it rewrites the budgets module, and plan 2 deletes the deprecated block once the web stops importing it.
+
+In `packages/shared/src/harness-types.ts`, insert after the `HarnessQueuedPrompt` type:
 
 ```ts
 /**
@@ -497,6 +521,10 @@ export function harnessEngineOf(
   return HARNESS_ENGINES.find((e) => e.id === id) ?? null;
 }
 
+/** Engines a USD budget applies to: the ones whose usage carries a cost. */
+export const HARNESS_BUDGET_ENGINE_IDS: readonly HarnessEngineId[] =
+  HARNESS_ENGINES.filter((e) => e.reportsCost).map((e) => e.id);
+
 /** A slash command the engine advertises (`available_commands_update`). */
 export type HarnessCommand = {
   name: string;
@@ -513,15 +541,29 @@ export type HarnessPlanEntry = {
   priority: "high" | "medium" | "low";
 };
 
-/** @deprecated The slash menu reads commands now; removed with the web feeds in plan 2. */
-export type HarnessSkill = {
+export type HarnessUsageAgent = {
+  agentId: string;
   name: string;
-  description: string;
-  source: "project" | "home";
+  /** Tokens this month from agent_token_usage (input + output + cache). */
+  tokens: number;
+  /** USD the engine reported for its sessions this month; null when it reports none. */
+  costUsd: number | null;
 };
 
-/** @deprecated See HarnessSkill. */
-export type HarnessSkillsResponse = { skills: HarnessSkill[] };
+export type HarnessUsageEngine = HarnessEngine & {
+  tokens: number;
+  costUsd: number | null;
+  /** From Settings, Agents, Usage budgets; only cost-reporting engines take one. */
+  budgetUsd: number | null;
+  agents: HarnessUsageAgent[];
+};
+
+/** What the engines used this month; replaces HarnessUsageResponse once plan 2 lands. */
+export type HarnessUsageReport = {
+  generatedAt: string;
+  monthStart: string;
+  engines: HarnessUsageEngine[];
+};
 ```
 
 In the `HarnessStep` type add two fields:
@@ -545,89 +587,17 @@ In the `HarnessTurn` type add, after `label?: string;`:
   usage?: { used: number; size: number; costUsd: number | null };
 ```
 
-Replace the `HarnessUsageResponse` type and everything from `/** Token counts as the harness logs them...` through `UsageBudgetsResponse` with:
+Then add a one-line `/** @deprecated Removed with the web feeds in plan 2. */` JSDoc tag (or extend the existing doc comment with `@deprecated`) on each of these existing exports, changing nothing else about them: `HarnessSubagent`, `HarnessSubagentResponse`, `HarnessSkill`, `HarnessSkillsResponse`, `HarnessTokenCounts`, `HarnessProviderAuth`, `HarnessUsageProvider`, `HarnessSubscriptionWindow`, `HarnessSubscriptionUsage`, `HarnessUsageResponse`, `HARNESS_USAGE_PROVIDERS`, `HarnessProviderSpec`, `HarnessUsageProviderId`, `HarnessBudgetProviderSpec`, `HarnessBudgetProviderId`, `isHarnessBudgetProvider`, `HARNESS_BUDGET_PROVIDERS`, `harnessProviderLabel`, `UsageBudgets` (this one: `@deprecated keyed by provider; Task 9 re-keys it by engine`).
 
-```ts
-export type HarnessUsageAgent = {
-  agentId: string;
-  name: string;
-  /** Tokens this month from agent_token_usage (input + output + cache). */
-  tokens: number;
-  /** USD the engine reported for its sessions this month; null when it reports none. */
-  costUsd: number | null;
-};
-
-export type HarnessUsageEngine = HarnessEngine & {
-  tokens: number;
-  costUsd: number | null;
-  /** From Settings, Agents, Usage budgets; only cost-reporting engines take one. */
-  budgetUsd: number | null;
-  agents: HarnessUsageAgent[];
-};
-
-export type HarnessUsageResponse = {
-  generatedAt: string;
-  monthStart: string;
-  engines: HarnessUsageEngine[];
-};
-
-/** Engines a USD budget applies to: the ones whose usage carries a cost. */
-export const HARNESS_BUDGET_ENGINE_IDS = HARNESS_ENGINES.filter(
-  (e) => e.reportsCost
-).map((e) => e.id) as readonly HarnessEngineId[];
-
-/** Monthly budgets in USD by engine id; an engine without a row has none. */
-export type UsageBudgets = Partial<Record<HarnessEngineId, number>>;
-
-export type UsageBudgetsResponse = { budgets: UsageBudgets };
-
-/** @deprecated dsh-era provider registry; removed with the web feeds in plan 2. */
-export const HARNESS_USAGE_PROVIDERS = [] as const;
-/** @deprecated */
-export type HarnessUsageProvider = never;
-/** @deprecated */
-export type HarnessSubscriptionUsage = never;
-/** @deprecated */
-export type HarnessTokenCounts = never;
-/** @deprecated */
-export function harnessProviderLabel(id: string): string {
-  return id;
-}
-/** @deprecated */
-export function isHarnessBudgetProvider(): boolean {
-  return false;
-}
-/** @deprecated */
-export const HARNESS_BUDGET_PROVIDERS = [] as const;
-```
-
-Delete the `HarnessSubagent` and `HarnessSubagentResponse` types (the route is deleted in Task 9; the web stops importing them in plan 2, so keep them as `@deprecated` aliases instead if `check:web` is required to stay green before plan 2):
-
-```ts
-/** @deprecated Subagents are nested steps now; removed in plan 2. */
-export type HarnessSubagent = {
-  id: string;
-  status: "starting" | "running" | "finished";
-  startedAt: string;
-  turns: HarnessTurn[];
-  label?: string;
-  model?: string;
-  endedAt?: string;
-  parentSession?: string;
-};
-/** @deprecated */
-export type HarnessSubagentResponse = { subagent: HarnessSubagent };
-```
-
-In `packages/shared/src/index.ts`, add to the harness exports: `HARNESS_ENGINE_IDS`, `HARNESS_ENGINES`, `DEFAULT_HARNESS_MODEL`, `harnessEngineOf`, `HARNESS_BUDGET_ENGINE_IDS`, and the types `HarnessEngineId`, `HarnessEngine`, `HarnessCommand`, `HarnessCommandsResponse`, `HarnessPlanEntry`, `HarnessUsageAgent`, `HarnessUsageEngine`. Keep the existing export lines for the deprecated names.
+In `packages/shared/src/index.ts`, add to the harness exports: `HARNESS_ENGINE_IDS`, `HARNESS_ENGINES`, `DEFAULT_HARNESS_MODEL`, `harnessEngineOf`, `HARNESS_BUDGET_ENGINE_IDS`, and the types `HarnessEngineId`, `HarnessEngine`, `HarnessCommand`, `HarnessCommandsResponse`, `HarnessPlanEntry`, `HarnessUsageAgent`, `HarnessUsageEngine`, `HarnessUsageReport`. Keep every existing export line.
 
 - [ ] **Step 4: Run the test to see it pass**
 
 Run: `cd apps/server && bash ../../scripts/server-tests-isolated.sh run test/harness-engines-shared.test.ts`
 Expected: PASS (3 tests).
 
-Run: `pnpm --filter @dispatch/shared build 2>/dev/null || pnpm --filter @dispatch/server check`
-Expected: exit 0. (`server.ts` still compiles: it imports nothing removed.)
+Run: `pnpm --filter @dispatch/server check`
+Expected: exit 0: nothing was removed or reshaped, so every existing importer still compiles.
 
 - [ ] **Step 5: Commit**
 
@@ -637,8 +607,9 @@ git commit -m "feat(shared): harness engine registry, commands, plan and usage t
 
 HARNESS_ENGINES is the one table the create dialog, usage dialog,
 budgets and starting screen read from. Turns carry plan entries and
-usage; steps carry children. The dsh-era provider and skill types stay
-as deprecated aliases until plan 2 removes their web importers.
+usage; steps carry children. Everything lands beside the dsh-era types,
+which are tagged deprecated and removed once plan 2 drops their web
+importers.
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```
@@ -2996,12 +2967,12 @@ Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 ```ts
 // agents/harness/usage.ts
 export function monthStartUtc(now?: Date): Date;
-export async function loadUsageReport(db: Queryable, budgets: UsageBudgets, now?: Date): Promise<HarnessUsageResponse>;
+export async function loadUsageReport(db: Queryable, budgets: UsageBudgets, now?: Date): Promise<HarnessUsageReport>;
 export async function loadAgentUsage(db: Queryable, agentId: string, now?: Date): Promise<HarnessUsageAgent | null>;
 // routes
 GET /api/v1/agents/:id/harness/commands -> HarnessCommandsResponse
 GET /api/v1/agents/:id/harness/usage    -> { agent: HarnessUsageAgent | null; monthStart: string }
-GET /api/v1/harness/usage               -> HarnessUsageResponse  (existing path, new shape)
+GET /api/v1/harness/usage               -> HarnessUsageReport    (existing path, new shape)
 // AgentRouteDeps.harness gains getCommands(agentId): HarnessCommand[] | null; dshHome and subagentLogs are removed
 ```
 
@@ -3219,7 +3190,7 @@ import {
   harnessEngineOf,
   type HarnessUsageAgent,
   type HarnessUsageEngine,
-  type HarnessUsageResponse,
+  type HarnessUsageReport,
   type UsageBudgets,
 } from "@dispatch/shared";
 
@@ -3288,7 +3259,7 @@ export async function loadUsageReport(
   db: Queryable,
   budgets: UsageBudgets,
   now: Date = new Date()
-): Promise<HarnessUsageResponse> {
+): Promise<HarnessUsageReport> {
   const monthStart = monthStartUtc(now);
   const result = await db.query<AgentRow>(`${AGENTS_SQL} ORDER BY a.name`, [
     monthStart,
@@ -3415,7 +3386,7 @@ app.get("/api/v1/agents/:id/harness/usage", async (request, reply) => {
 
 ```ts
   /** What the harness engines have used this month (agents/harness/usage.ts). */
-  usageReport?: () => Promise<HarnessUsageResponse>;
+  usageReport?: () => Promise<HarnessUsageReport>;
 ```
 
 ```ts
@@ -3425,6 +3396,13 @@ app.get("/api/v1/agent-models", async () => {
 ```
 
 The existing `/api/v1/harness/usage` handler at line 469 keeps calling `deps.usageReport()`; nothing else changes there.
+
+`packages/shared/src/harness-types.ts`: re-key the budgets type by engine now that the server side switches (the web follows in plan 2 Task 6):
+
+```ts
+/** Monthly budgets in USD by engine id; an engine without a row has none. */
+export type UsageBudgets = Partial<Record<HarnessEngineId, number>>;
+```
 
 `apps/server/src/usage-budget-settings.ts`: swap the registry:
 
