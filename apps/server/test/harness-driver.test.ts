@@ -1,59 +1,77 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  engineSpecFor,
+  type EngineBins,
+} from "../src/agents/harness/agent-spec.js";
+import {
   HarnessDriver,
   type DriverEvent,
+  type DriverLaunch,
 } from "../src/agents/harness/driver.js";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
 
-const logger = {
-  info: vi.fn(),
-  warn: vi.fn(),
-  error: vi.fn(),
-  debug: vi.fn(),
-};
+const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn(), debug: vi.fn() };
 
 /** The fake is spawned in-process, so skip the PATH lookup. */
 const resolveBinary = async (bin: string) => bin;
 
-function launch(agentId = "agt_1") {
+const bins: EngineBins = {
+  claudeHarnessBin: "/bin/claude-agent-acp",
+  codexHarnessBin: "/bin/codex-acp",
+  geminiBin: "/bin/gemini",
+  opencodeBin: "/bin/opencode",
+  claudeBin: "/home/u/.local/bin/claude",
+  codexBin: null,
+};
+
+function launch(
+  overrides: Partial<DriverLaunch> = {},
+  engine: Parameters<typeof engineSpecFor>[0] = "claude",
+  model = "default"
+): DriverLaunch {
   return {
-    agentId,
+    agentId: "agt_1",
     cwd: "/tmp/w",
-    overlayPath: "/tmp/w/agt_1.patch.yml",
+    engine: engineSpecFor(engine, model, bins),
+    systemPromptAppend: engine === "claude" ? "Be brief." : null,
     mcp: { url: "http://127.0.0.1:1/api/mcp/agt_1", token: "tok" },
     sessionId: null,
-    env: { PATH: "/usr/bin" },
+    env: { PATH: "/usr/bin", HOME: "/home/u" },
+    ...overrides,
   };
 }
 
+function driverWith(fake: ReturnType<typeof createFakeAcpAgent>) {
+  const spawn = vi.fn(() => fake.child);
+  return { spawn, driver: new HarnessDriver({ spawn, resolveBinary, logger }) };
+}
+
 describe("HarnessDriver", () => {
-  it("spawns dsh with the acp profile, overlay, cwd, env, and attaches the MCP server", async () => {
+  it("claude: spawns the adapter with its args and env, declares subagent transcripts, sends the persona in _meta", async () => {
     const fake = createFakeAcpAgent();
-    const spawn = vi.fn(() => fake.child);
-    const driver = new HarnessDriver({
-      dshBin: "/bin/dsh",
-      dshHome: "/home/dsh",
-      spawn,
-      resolveBinary,
-      logger,
-    });
+    const { spawn, driver } = driverWith(fake);
     const { sessionId } = await driver.start(launch());
     expect(sessionId).toBe("sess_1");
     expect(spawn).toHaveBeenCalledWith(
-      "/bin/dsh",
-      ["--profile", "acp", "--patch", "/tmp/w/agt_1.patch.yml"],
+      "/bin/claude-agent-acp",
+      ["--dangerously-skip-permissions"],
       expect.objectContaining({
         cwd: "/tmp/w",
         env: expect.objectContaining({
-          DSH_HOME: "/home/dsh",
-          DSH_PERMISSION_MODE: "danger-full-access",
+          CLAUDE_CODE_EXECUTABLE: "/home/u/.local/bin/claude",
+          HOME: "/home/u",
           PATH: "/usr/bin",
         }),
       })
     );
+    expect(spawn.mock.calls[0][2].env).not.toHaveProperty("DSH_HOME");
+    expect(fake.seen.initialize[0].clientCapabilities?._meta).toEqual({
+      "subagent-transcript": true,
+    });
     const req = fake.seen.newSession[0];
     expect(req.cwd).toBe("/tmp/w");
+    expect(req._meta).toEqual({ systemPrompt: { append: "Be brief." } });
     expect(req.mcpServers).toEqual([
       {
         type: "http",
@@ -62,7 +80,86 @@ describe("HarnessDriver", () => {
         headers: [{ name: "Authorization", value: "Bearer tok" }],
       },
     ]);
-    expect(driver.isRunning("agt_1")).toBe(true);
+    expect(fake.seen.setMode).toEqual([]);
+    await driver.stop("agt_1");
+  });
+
+  it("codex: no _meta persona, no subagent capability, full access by env", async () => {
+    const fake = createFakeAcpAgent();
+    const { spawn, driver } = driverWith(fake);
+    await driver.start(launch({}, "codex", "gpt-5.6-sol"));
+    expect(spawn).toHaveBeenCalledWith(
+      "/bin/codex-acp",
+      [],
+      expect.objectContaining({
+        env: expect.objectContaining({
+          INITIAL_AGENT_MODE: "agent-full-access",
+          NO_BROWSER: "1",
+        }),
+      })
+    );
+    expect(fake.seen.initialize[0].clientCapabilities?._meta).toBeUndefined();
+    expect(fake.seen.newSession[0]._meta).toBeUndefined();
+    await driver.stop("agt_1");
+  });
+
+  it("gemini: sets the yolo mode right after the session opens, on new and on resume", async () => {
+    const fake = createFakeAcpAgent();
+    const { spawn, driver } = driverWith(fake);
+    await driver.start(launch({}, "gemini", "gemini-2.5-pro"));
+    expect(spawn.mock.calls[0][1]).toEqual([
+      "--experimental-acp",
+      "--model",
+      "gemini-2.5-pro",
+    ]);
+    expect(fake.seen.setMode).toEqual([
+      { sessionId: "sess_1", modeId: "yolo" },
+    ]);
+    await driver.stop("agt_1");
+    const again = createFakeAcpAgent();
+    const second = driverWith(again).driver;
+    await second.start(launch({ sessionId: "sess_1" }, "gemini"));
+    expect(again.seen.resumeSession).toHaveLength(1);
+    expect(again.seen.setMode).toEqual([
+      { sessionId: "sess_1", modeId: "yolo" },
+    ]);
+    await second.stop("agt_1");
+  });
+
+  it("keeps the commands the engine advertises", async () => {
+    const fake = createFakeAcpAgent({
+      commands: [
+        { name: "review", description: "Review the branch", input: null },
+        { name: "compact", description: "Compact", input: { hint: "focus" } },
+      ],
+    });
+    const { driver } = driverWith(fake);
+    await driver.start(launch({}, "opencode"));
+    await new Promise((r) => setTimeout(r, 10));
+    expect(driver.getCommands("agt_1")?.map((c) => c.name)).toEqual([
+      "review",
+      "compact",
+    ]);
+    expect(driver.getCommands("agt_nope")).toBeNull();
+    await driver.stop("agt_1");
+  });
+
+  it("resumes over session/resume and sends the persona again for claude", async () => {
+    const fake = createFakeAcpAgent();
+    const { driver } = driverWith(fake);
+    const { sessionId, resumed } = await driver.start(
+      launch({ sessionId: "sess_prev" })
+    );
+    expect({ sessionId, resumed }).toEqual({
+      sessionId: "sess_prev",
+      resumed: true,
+    });
+    expect(fake.seen.newSession).toHaveLength(0);
+    expect(fake.seen.resumeSession[0]).toMatchObject({
+      sessionId: "sess_prev",
+      cwd: "/tmp/w",
+      _meta: { systemPrompt: { append: "Be brief." } },
+    });
     await driver.stop("agt_1");
   });
 
@@ -77,8 +174,6 @@ describe("HarnessDriver", () => {
       },
     });
     const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -97,33 +192,9 @@ describe("HarnessDriver", () => {
     await driver.stop("agt_1");
   });
 
-  it("resumes when a session id is given", async () => {
-    const fake = createFakeAcpAgent();
-    const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
-      spawn: () => fake.child,
-      resolveBinary,
-      logger,
-    });
-    const { sessionId } = await driver.start({
-      ...launch(),
-      sessionId: "sess_prev",
-    });
-    expect(sessionId).toBe("sess_prev");
-    expect(fake.seen.newSession).toHaveLength(0);
-    expect(fake.seen.resumeSession[0]).toMatchObject({
-      sessionId: "sess_prev",
-      cwd: "/tmp/w",
-    });
-    await driver.stop("agt_1");
-  });
-
   it("stop closes the session and reaps the child", async () => {
     const fake = createFakeAcpAgent();
     const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -144,8 +215,6 @@ describe("HarnessDriver", () => {
   it("refuses to start twice for one agent", async () => {
     const fake = createFakeAcpAgent();
     const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -162,8 +231,6 @@ describe("HarnessDriver", () => {
       },
     });
     const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -182,8 +249,6 @@ describe("HarnessDriver", () => {
 
   it("prompting an agent that is not running throws", async () => {
     const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
       spawn: () => createFakeAcpAgent().child,
       resolveBinary,
       logger,
@@ -192,34 +257,37 @@ describe("HarnessDriver", () => {
   });
 
   it("fails the start, not the process, when the binary cannot be spawned", async () => {
-    const driver = new HarnessDriver({
-      dshBin: "definitely-not-a-real-binary-dsh",
-      dshHome: "/h",
-      resolveBinary,
-      logger,
-    });
-    await expect(driver.start(launch())).rejects.toThrow(
-      /dsh start failed: dsh could not be spawned/
-    );
+    const driver = new HarnessDriver({ resolveBinary, logger });
+    await expect(
+      driver.start(
+        launch({
+          engine: {
+            ...engineSpecFor("claude", "default", bins),
+            bin: "definitely-not-a-real-binary-dsh",
+          },
+        })
+      )
+    ).rejects.toThrow(/harness start failed: the harness could not be spawned/);
     expect(driver.isRunning("agt_1")).toBe(false);
   });
 
   it("names the missing binary before spawning", async () => {
-    const driver = new HarnessDriver({
-      dshBin: "definitely-not-a-real-binary-dsh",
-      dshHome: "/h",
-      logger,
-    });
-    await expect(driver.start(launch())).rejects.toThrow(
-      /dsh not found on the server's PATH/
-    );
+    const driver = new HarnessDriver({ logger });
+    await expect(
+      driver.start(
+        launch({
+          engine: {
+            ...engineSpecFor("claude", "default", bins),
+            bin: "definitely-not-a-real-binary-dsh",
+          },
+        })
+      )
+    ).rejects.toThrow(/was not found on the server's PATH/);
   });
 
   it("falls back to a new session when the stored one cannot be resumed", async () => {
     const fake = createFakeAcpAgent({ resumeFails: true });
     const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -234,8 +302,6 @@ describe("HarnessDriver", () => {
   it("reports an unexpected child death as a crash", async () => {
     const fake = createFakeAcpAgent();
     const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
       spawn: () => fake.child,
       resolveBinary,
       logger,
@@ -261,8 +327,6 @@ describe("HarnessDriver", () => {
       },
     });
     const driver = new HarnessDriver({
-      dshBin: "dsh",
-      dshHome: "/h",
       spawn: () => fake.child,
       resolveBinary,
       logger,

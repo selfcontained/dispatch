@@ -18,7 +18,14 @@ export type FakeTurn = (
  * of the same pipes, so no real process is involved.
  */
 export function createFakeAcpAgent(
-  opts: { turn?: FakeTurn; resumeFails?: boolean } = {}
+  opts: {
+    turn?: FakeTurn;
+    resumeFails?: boolean;
+    /** Commands advertised right after a session opens. */
+    commands?: acp.AvailableCommand[];
+    /** Config options returned with the session. */
+    configOptions?: acp.SessionConfigOption[];
+  } = {}
 ) {
   const toAgent = new PassThrough(); // driver stdin  -> agent input
   const fromAgent = new PassThrough(); // agent output -> driver stdout
@@ -46,8 +53,11 @@ export function createFakeAcpAgent(
   });
 
   const seen = {
+    initialize: [] as acp.InitializeRequest[],
     newSession: [] as acp.NewSessionRequest[],
     resumeSession: [] as acp.ResumeSessionRequest[],
+    setMode: [] as acp.SetSessionModeRequest[],
+    setConfig: [] as acp.SetSessionConfigOptionRequest[],
     prompts: [] as string[],
     cancels: 0,
     closes: 0,
@@ -58,11 +68,25 @@ export function createFakeAcpAgent(
   // The turn in flight, so a cancel can reach it.
   let inFlight: AbortController | null = null;
 
+  const announce = (sessionId: string) => {
+    if (!opts.commands) return;
+    setTimeout(() => {
+      void connection.sessionUpdate({
+        sessionId,
+        update: {
+          sessionUpdate: "available_commands_update",
+          availableCommands: opts.commands ?? [],
+        },
+      });
+    }, 0);
+  };
+
   const agent: acp.Agent = {
-    async initialize() {
+    async initialize(params) {
+      seen.initialize.push(params);
       return {
         protocolVersion: acp.PROTOCOL_VERSION,
-        agentInfo: { name: "fake-dsh", version: "0.0.0" },
+        agentInfo: { name: "fake-acp-agent", version: "0.0.0" },
         agentCapabilities: {
           mcpCapabilities: { http: true },
           sessionCapabilities: { close: {}, resume: {} },
@@ -75,12 +99,26 @@ export function createFakeAcpAgent(
     },
     async newSession(params) {
       seen.newSession.push(params);
-      return { sessionId: `sess_${++sessionCounter}`, configOptions: [] };
+      const sessionId = `sess_${++sessionCounter}`;
+      announce(sessionId);
+      return { sessionId, configOptions: opts.configOptions ?? [] };
     },
     async resumeSession(params) {
       seen.resumeSession.push(params);
       if (opts.resumeFails) throw new Error("unknown session");
-      return { configOptions: [] };
+      announce(params.sessionId);
+      return { configOptions: opts.configOptions ?? [] };
+    },
+    async setSessionMode(params) {
+      seen.setMode.push(params);
+      return {};
+    },
+    async setSessionConfigOption(params) {
+      seen.setConfig.push(params);
+      const options = (opts.configOptions ?? []).map((o) =>
+        o.id === params.configId ? { ...o, currentValue: params.value } : o
+      );
+      return { configOptions: options };
     },
     async prompt(params) {
       const text = params.prompt

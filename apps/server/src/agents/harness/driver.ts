@@ -3,11 +3,13 @@ import { access, constants as fsConstants } from "node:fs/promises";
 import path from "node:path";
 import { Readable, Writable } from "node:stream";
 import * as acp from "@agentclientprotocol/sdk";
+import type { EngineSpec } from "./agent-spec.js";
 
 /**
- * The ACP client for DeepSeek Harness. One `dsh --profile acp` child per
- * Dispatch agent; this module is the only place in the server that speaks
- * the protocol. Everything downstream consumes {@link DriverEvent}s.
+ * The ACP client for the Dispatch Harness. One child per Dispatch agent,
+ * spawned from the agent's engine spec; this module is the only place in
+ * the server that speaks the protocol. Everything downstream consumes
+ * {@link DriverEvent}s.
  */
 
 export type DriverUpdate = acp.SessionUpdate;
@@ -16,11 +18,13 @@ export type DriverUsage = acp.Usage;
 export type DriverLaunch = {
   agentId: string;
   cwd: string;
-  /** The per-agent `--patch` overlay (see overlay.ts). */
-  overlayPath: string;
+  /** What to spawn and how it takes persona, full access, and subagents. */
+  engine: EngineSpec;
+  /** The persona, for an engine whose spec says `system_prompt`; null otherwise. */
+  systemPromptAppend: string | null;
   /** Dispatch's streamable HTTP MCP endpoint for this agent. */
   mcp: { url: string; token: string };
-  /** Resume this ACP session when set; falls back to a new one if dsh lost it. */
+  /** Resume this ACP session when set; falls back to a new one if the engine lost it. */
   sessionId: string | null;
   env: NodeJS.ProcessEnv;
 };
@@ -77,11 +81,11 @@ type Live = {
   exited: Promise<ExitInfo>;
   /** Set at the top of stop(): the exit that follows is expected. */
   stopping: boolean;
-  /** Session config options (model, reasoning effort) as dsh last reported. */
+  /** Session config options (model, reasoning effort) as the engine last reported. */
   config: { options: acp.SessionConfigOption[] };
+  /** Slash commands as the engine last advertised them; a holder shared with the update handler, like `config`. */
+  commands: { list: acp.AvailableCommand[] };
 };
-
-const PROBE_TIMEOUT_MS = 30_000;
 
 const STDERR_TAIL_LINES = 20;
 const TEARDOWN_STEP_MS = 1_500;
@@ -89,8 +93,8 @@ const HANDSHAKE_TIMEOUT_MS = 30_000;
 
 /**
  * The ACP SDK reports an agent-side exception as JSON-RPC "Internal error"
- * and keeps the real message in `data.details` (dsh itself does the same
- * for a failed turn), so surface that detail instead of the bare code.
+ * and keeps the real message in `data.details` (the harness itself does the
+ * same for a failed turn), so surface that detail instead of the bare code.
  */
 function describeRpcError(err: unknown): string {
   if (!(err instanceof Error)) return String(err);
@@ -108,9 +112,9 @@ function describeRpcError(err: unknown): string {
 }
 
 /**
- * Find the harness executable before spawning, so a missing binary is a
+ * Find the engine's executable before spawning, so a missing binary is a
  * clear message on the agent instead of a spawn error. The server resolves
- * `dsh` with its own PATH (launchd/systemd), not the user's login shell, so
+ * it with its own PATH (launchd/systemd), not the user's login shell, so
  * the message points at the setting to fix.
  */
 export async function resolveExecutable(
@@ -128,7 +132,7 @@ export async function resolveExecutable(
   if (bin.includes("/")) {
     const absolute = path.resolve(bin);
     if (await executable(absolute)) return absolute;
-    throw new Error(`dsh not found or not executable at ${absolute}`);
+    throw new Error(`${bin} is not executable at ${absolute}`);
   }
   const searchPath = env.PATH ?? process.env.PATH ?? "";
   for (const dir of searchPath.split(path.delimiter)) {
@@ -137,7 +141,7 @@ export async function resolveExecutable(
     if (await executable(candidate)) return candidate;
   }
   throw new Error(
-    `dsh not found on the server's PATH (${bin}); set DISPATCH_DSH_BIN to an absolute path`
+    `${bin} was not found on the server's PATH; set the engine's DISPATCH_*_BIN to an absolute path`
   );
 }
 
@@ -153,12 +157,12 @@ function describeExit(exit: ExitInfo): string {
   if (exit.error) {
     const code = (exit.error as NodeJS.ErrnoException).code;
     return code === "ENOENT"
-      ? `dsh could not be spawned (${exit.error.message})`
+      ? `the harness could not be spawned (${exit.error.message})`
       : exit.error.message;
   }
   return exit.code === null
-    ? `dsh exited on signal ${exit.signal}`
-    : `dsh exited with code ${exit.code}`;
+    ? `the harness exited on signal ${exit.signal}`
+    : `the harness exited with code ${exit.code}`;
 }
 
 export class HarnessDriver {
@@ -172,8 +176,6 @@ export class HarnessDriver {
 
   constructor(
     private readonly opts: {
-      dshBin: string;
-      dshHome: string;
       spawn?: SpawnFn;
       /** Injectable for tests that spawn a fake; defaults to a PATH lookup. */
       resolveBinary?: (bin: string, env: NodeJS.ProcessEnv) => Promise<string>;
@@ -203,19 +205,12 @@ export class HarnessDriver {
     launch: DriverLaunch
   ): Promise<{ sessionId: string; resumed: boolean }> {
     if (this.live.has(launch.agentId)) {
-      throw new Error(`dsh already running for ${launch.agentId}`);
+      throw new Error(`the harness is already running for ${launch.agentId}`);
     }
-    const env: NodeJS.ProcessEnv = {
-      ...launch.env,
-      DSH_HOME: this.opts.dshHome,
-      DSH_PERMISSION_MODE: "danger-full-access",
-    };
-    const bin = await this.resolveBinary(this.opts.dshBin, env);
-    const child = this.spawnFn(
-      bin,
-      ["--profile", "acp", "--patch", launch.overlayPath],
-      { cwd: launch.cwd, env }
-    );
+    const { engine } = launch;
+    const env: NodeJS.ProcessEnv = { ...launch.env, ...engine.env };
+    const bin = await this.resolveBinary(engine.bin, env);
+    const child = this.spawnFn(bin, engine.args, { cwd: launch.cwd, env });
     // Both listeners go on before any await: a spawn failure (ENOENT, EACCES,
     // missing cwd) is an `error` event with no `exit`, and an unhandled one
     // would take the whole server down.
@@ -241,10 +236,15 @@ export class HarnessDriver {
     });
 
     const config = { options: [] as acp.SessionConfigOption[] };
+    const commands: { list: acp.AvailableCommand[] } = { list: [] };
     const client: acp.Client = {
       sessionUpdate: async (params) => {
         if (params.update.sessionUpdate === "config_option_update") {
           config.options = params.update.configOptions ?? [];
+        } else if (
+          params.update.sessionUpdate === "available_commands_update"
+        ) {
+          commands.list = params.update.availableCommands ?? [];
         }
         this.emit({
           type: "update",
@@ -252,9 +252,9 @@ export class HarnessDriver {
           update: params.update,
         });
       },
-      // Permission prompts never fire under danger-full-access. If one does,
-      // allow it when the agent offers that; otherwise end the call cleanly
-      // rather than pick an arbitrary option or throw inside the handler.
+      // An engine that asks per call (OpenCode) gets the allow option; the
+      // others never ask under the full access their spec grants. With no
+      // allow option, end the call cleanly rather than pick at random.
       requestPermission: async (params) => {
         const allow = params.options.find(
           (o) => o.kind === "allow_once" || o.kind === "allow_always"
@@ -265,7 +265,7 @@ export class HarnessDriver {
               agentId: launch.agentId,
               options: params.options.map((o) => o.kind),
             },
-            "dsh permission request had no allow option; cancelling"
+            "permission request had no allow option; cancelling"
           );
           return { outcome: { outcome: "cancelled" } };
         }
@@ -274,7 +274,7 @@ export class HarnessDriver {
     };
     if (!child.stdin || !child.stdout) {
       child.kill("SIGKILL");
-      throw new Error("dsh start failed: child has no stdio pipes");
+      throw new Error("harness start failed: child has no stdio pipes");
     }
     const stream = acp.ndJsonStream(
       Writable.toWeb(child.stdin),
@@ -282,11 +282,17 @@ export class HarnessDriver {
     );
     const conn = new acp.ClientSideConnection(() => client, stream);
 
+    const sessionMeta = launch.systemPromptAppend
+      ? { _meta: { systemPrompt: { append: launch.systemPromptAppend } } }
+      : {};
     const handshake = (async () => {
       await conn.initialize({
         protocolVersion: acp.PROTOCOL_VERSION,
         clientCapabilities: {
           fs: { readTextFile: false, writeTextFile: false },
+          ...(engine.subagentTranscripts
+            ? { _meta: { "subagent-transcript": true } }
+            : {}),
         },
       });
       const mcpServers: acp.McpServer[] = [
@@ -299,28 +305,52 @@ export class HarnessDriver {
           ],
         },
       ];
+      let session: { sessionId: string; resumed: boolean } | null = null;
       if (launch.sessionId) {
         try {
+          // session/resume, not session/load: load replays the history as
+          // updates and the recorder would write every turn again.
           const resumed = await conn.resumeSession({
             sessionId: launch.sessionId,
             cwd: launch.cwd,
             mcpServers,
+            ...sessionMeta,
           });
           config.options = resumed.configOptions ?? config.options;
-          return { sessionId: launch.sessionId, resumed: true };
+          session = { sessionId: launch.sessionId, resumed: true };
         } catch (err) {
-          // dsh no longer has the session (home cleared, store pruned, or an
-          // earlier start died after the id was recorded). A fresh session
-          // beats an agent that can never start again.
+          // The engine no longer has the session (home cleared, store
+          // pruned, or an earlier start died after the id was recorded). A
+          // fresh session beats an agent that can never start again.
           this.opts.logger.warn(
             { err, agentId: launch.agentId, sessionId: launch.sessionId },
-            "dsh could not resume the stored session; starting a new one"
+            "the engine could not resume the stored session; starting a new one"
           );
         }
       }
-      const res = await conn.newSession({ cwd: launch.cwd, mcpServers });
-      config.options = res.configOptions ?? config.options;
-      return { sessionId: res.sessionId, resumed: false };
+      if (!session) {
+        const res = await conn.newSession({
+          cwd: launch.cwd,
+          mcpServers,
+          ...sessionMeta,
+        });
+        config.options = res.configOptions ?? config.options;
+        session = { sessionId: res.sessionId, resumed: false };
+      }
+      if (engine.fullAccess.kind === "set_mode") {
+        try {
+          await conn.setSessionMode({
+            sessionId: session.sessionId,
+            modeId: engine.fullAccess.modeId,
+          });
+        } catch (err) {
+          this.opts.logger.warn(
+            { err, agentId: launch.agentId, modeId: engine.fullAccess.modeId },
+            "the engine refused the full-access mode; continuing with its default"
+          );
+        }
+      }
+      return session;
     })();
 
     type Outcome =
@@ -340,7 +370,7 @@ export class HarnessDriver {
           () =>
             resolve({
               ok: false,
-              reason: `dsh did not complete the ACP handshake within ${HANDSHAKE_TIMEOUT_MS / 1000}s`,
+              reason: `the engine did not complete the ACP handshake within ${HANDSHAKE_TIMEOUT_MS / 1000}s`,
             }),
           HANDSHAKE_TIMEOUT_MS
         ).unref?.()
@@ -355,7 +385,7 @@ export class HarnessDriver {
         ? `${describeExit(settledExit)} during startup`
         : outcome.reason;
       const tail = stderrTail.length ? `\n${stderrTail.join("\n")}` : "";
-      throw new Error(`dsh start failed: ${reason}${tail}`);
+      throw new Error(`harness start failed: ${reason}${tail}`);
     }
 
     const entry: Live = {
@@ -366,6 +396,7 @@ export class HarnessDriver {
       exited,
       stopping: false,
       config,
+      commands,
     };
     this.live.set(launch.agentId, entry);
     void exited.then((exit) => {
@@ -387,7 +418,7 @@ export class HarnessDriver {
         sessionId: entry.sessionId,
         resumed: outcome.session.resumed,
       },
-      "dsh session ready"
+      "harness session ready"
     );
     return outcome.session;
   }
@@ -395,6 +426,11 @@ export class HarnessDriver {
   /** The session's config options as last reported; null when not running. */
   getConfigOptions(agentId: string): acp.SessionConfigOption[] | null {
     return this.live.get(agentId)?.config.options ?? null;
+  }
+
+  /** The slash commands the engine advertised; null when not running. */
+  getCommands(agentId: string): acp.AvailableCommand[] | null {
+    return this.live.get(agentId)?.commands.list ?? null;
   }
 
   /** Apply one session config option (model, reasoning effort) to later turns. */
@@ -417,87 +453,6 @@ export class HarnessDriver {
     }
   }
 
-  /**
-   * Open a throwaway session just to read the config options dsh serves
-   * under an overlay: the model catalog for the create dialog, before any
-   * agent runs. The session is closed and the child killed right after.
-   */
-  async probeConfigOptions(input: {
-    overlayPath: string;
-    cwd: string;
-    env: NodeJS.ProcessEnv;
-  }): Promise<acp.SessionConfigOption[]> {
-    const env: NodeJS.ProcessEnv = {
-      ...input.env,
-      DSH_HOME: this.opts.dshHome,
-      DSH_PERMISSION_MODE: "danger-full-access",
-    };
-    const bin = await this.resolveBinary(this.opts.dshBin, env);
-    const child = this.spawnFn(
-      bin,
-      ["--profile", "acp", "--patch", input.overlayPath],
-      { cwd: input.cwd, env }
-    );
-    const exited = new Promise<ExitInfo>((resolve) => {
-      child.on("exit", (code, signal) =>
-        resolve({ code, signal: signal ?? null })
-      );
-      child.on("error", (error: Error) =>
-        resolve({ code: null, signal: null, error })
-      );
-    });
-    child.stderr?.on("data", () => {});
-    if (!child.stdin || !child.stdout) {
-      child.kill("SIGKILL");
-      throw new Error("dsh probe: the child has no stdio pipes");
-    }
-    const stream = acp.ndJsonStream(
-      Writable.toWeb(child.stdin),
-      Readable.toWeb(child.stdout)
-    );
-    const conn = new acp.ClientSideConnection(
-      () => ({
-        sessionUpdate: async () => {},
-        requestPermission: async () => ({
-          outcome: { outcome: "cancelled" },
-        }),
-      }),
-      stream
-    );
-    const work = (async () => {
-      await conn.initialize({
-        protocolVersion: acp.PROTOCOL_VERSION,
-        clientCapabilities: {
-          fs: { readTextFile: false, writeTextFile: false },
-        },
-      });
-      const res = await conn.newSession({ cwd: input.cwd, mcpServers: [] });
-      const options = res.configOptions ?? [];
-      await Promise.race([
-        conn.closeSession({ sessionId: res.sessionId }).catch(() => {}),
-        new Promise((resolve) => setTimeout(resolve, TEARDOWN_STEP_MS)),
-      ]);
-      return options;
-    })();
-    try {
-      return await Promise.race([
-        work,
-        exited.then((exit) => {
-          throw new Error(`${describeExit(exit)} during probe`);
-        }),
-        new Promise<never>((_, reject) =>
-          setTimeout(
-            () => reject(new Error("dsh config probe timed out")),
-            PROBE_TIMEOUT_MS
-          ).unref?.()
-        ),
-      ]);
-    } finally {
-      work.catch(() => {});
-      child.kill("SIGKILL");
-    }
-  }
-
   /** Runs one turn; resolves when the agent settles it. */
   async prompt(agentId: string, text: string): Promise<void> {
     const entry = this.require(agentId);
@@ -507,7 +462,7 @@ export class HarnessDriver {
     let exited = false;
     const gone = entry.exited.then(() => {
       exited = true;
-      throw new Error("dsh exited before the turn settled");
+      throw new Error("the harness exited before the turn settled");
     });
     try {
       const res = await Promise.race([
@@ -553,7 +508,7 @@ export class HarnessDriver {
     } catch (err) {
       this.opts.logger.debug(
         { err, agentId },
-        "dsh session close failed; continuing teardown"
+        "harness session close failed; continuing teardown"
       );
     }
     const exitedWithin = (ms: number) =>
@@ -573,14 +528,14 @@ export class HarnessDriver {
       try {
         listener(event);
       } catch (err) {
-        this.opts.logger.warn({ err }, "dsh driver listener threw");
+        this.opts.logger.warn({ err }, "harness driver listener threw");
       }
     }
   }
 
   private require(agentId: string): Live {
     const entry = this.live.get(agentId);
-    if (!entry) throw new Error(`dsh is not running for ${agentId}`);
+    if (!entry) throw new Error(`the harness is not running for ${agentId}`);
     return entry;
   }
 }
