@@ -33,8 +33,8 @@ import {
   useSetHarnessConfig,
 } from "./use-harness-config";
 import { useHarnessInterrupt, useHarnessQueue } from "./use-harness-queue";
+import { useHarnessCommands } from "./use-harness-commands";
 import { useHarnessPathPicker } from "./use-harness-paths";
-import { useHarnessSkills } from "./use-harness-skills";
 import { harnessTurnsQueryKey, useHarnessTurns } from "./use-harness-turns";
 
 export type HarnessPaneProps = {
@@ -102,7 +102,7 @@ export function HarnessPane({
   const answer = useAnswerChatQuestion(agentId);
   const { mutateAsync: sendAsync } = send;
   const { mutateAsync: answerAsync } = answer;
-  const skills = useHarnessSkills(agentId);
+  const commands = useHarnessCommands(agentId);
   const pathPicker = useHarnessPathPicker(agentId);
   const config = useHarnessConfig(agentId);
   const setConfig = useSetHarnessConfig(agentId);
@@ -181,12 +181,12 @@ export function HarnessPane({
       },
       {
         name: "usage",
-        description: "API key usage and spend this month",
+        description: "Tokens and cost this month",
         command: true,
       },
-      ...skills,
+      ...commands,
     ],
-    [skills]
+    [commands]
   );
   const onSlashCommand = useCallback((name: string) => {
     if (name === "model") {

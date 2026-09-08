@@ -62,12 +62,12 @@ vi.mock(
     useSetHarnessConfig: () => ({ mutateAsync: vi.fn(), isPending: false }),
   })
 );
-vi.mock("@/components/app/harness/use-harness-skills", () => ({
-  harnessSkillsQueryKey: (agentId: string | null) => [
-    "harness-skills",
+vi.mock("@/components/app/harness/use-harness-commands", () => ({
+  harnessCommandsQueryKey: (agentId: string | null) => [
+    "harness-commands",
     agentId,
   ],
-  useHarnessSkills: () => [],
+  useHarnessCommands: () => [],
 }));
 vi.mock("@/components/app/harness/use-harness-turns", () => ({
   harnessTurnsQueryKey: (agentId: string | null) => ["harness-turns", agentId],
