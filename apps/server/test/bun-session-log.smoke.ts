@@ -9,7 +9,7 @@ import {
   decodeZstdFramesAsync,
   parseSessionLog,
   zstdFrameLength,
-} from "../src/agents/dsh/session-log.ts";
+} from "../src/agents/harness/session-log.ts";
 
 const CHECKSUM = { params: { [constants.ZSTD_c_checksumFlag]: 1 } };
 const frames = (batches: string[]) =>

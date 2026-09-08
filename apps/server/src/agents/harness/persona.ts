@@ -6,11 +6,11 @@ import {
 } from "../tmux/command-builder.js";
 
 /** The Harness composer's slash menu sends "/<skill> …" as plain text. */
-const DSH_SLASH_RULE =
+const HARNESS_SLASH_RULE =
   'A user message that begins with "/<name>" names a skill: load that skill with the skill tool and follow it, treating the rest of the message as its input. If no skill has that name, say so briefly.';
 
 /** How a dsh agent's output reaches the user; replaces the pane-era chat rule. */
-export const DSH_CHAT_RULE =
+export const HARNESS_CHAT_RULE =
   "The user is reading the Chat tab. Your replies appear there as you write them, so answer in plain text and do not repeat a reply through dispatch_chat_post. Use dispatch_chat_post only for a question that needs a choice (kind: question with options).";
 
 /**
@@ -23,7 +23,7 @@ export const DSH_CHAT_RULE =
  * `{{model}}` and `{{cwd}}` are dsh prompt variables; the guidance text does
  * not use them, so nothing here needs escaping.
  */
-export function buildDshPersona(input: {
+export function buildHarnessPersona(input: {
   agent: Pick<
     AgentRecord,
     "id" | "type" | "agentArgs" | "persona" | "autoReview"
@@ -53,7 +53,7 @@ export function buildDshPersona(input: {
   const { appendedSystemPrompt } = extractAppendedSystemPrompt(
     agent.agentArgs ?? []
   );
-  const sections = [guidance.trim(), DSH_CHAT_RULE, DSH_SLASH_RULE];
+  const sections = [guidance.trim(), HARNESS_CHAT_RULE, HARNESS_SLASH_RULE];
   if (appendedSystemPrompt?.trim()) sections.push(appendedSystemPrompt.trim());
   else if (input.personalityPrompt?.trim()) {
     sections.push(input.personalityPrompt.trim());

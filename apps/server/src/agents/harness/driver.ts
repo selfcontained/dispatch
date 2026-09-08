@@ -161,7 +161,7 @@ function describeExit(exit: ExitInfo): string {
     : `dsh exited with code ${exit.code}`;
 }
 
-export class DshDriver {
+export class HarnessDriver {
   private readonly live = new Map<string, Live>();
   private readonly listeners = new Set<DriverListener>();
   private readonly spawnFn: SpawnFn;

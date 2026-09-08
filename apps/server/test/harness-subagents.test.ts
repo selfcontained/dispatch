@@ -3,8 +3,8 @@ import { describe, expect, it } from "vitest";
 import {
   shapeSubagent,
   subagentIdFromOutput,
-} from "../src/agents/dsh/subagents.js";
-import type { SessionLogEvent } from "../src/agents/dsh/session-log.js";
+} from "../src/agents/harness/subagents.js";
+import type { SessionLogEvent } from "../src/agents/harness/session-log.js";
 
 const T0 = Date.UTC(2026, 8, 5, 10, 0, 0);
 const ev = (

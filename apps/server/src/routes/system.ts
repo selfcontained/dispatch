@@ -64,7 +64,7 @@ type SystemRouteDeps = {
   rewriteForColor: (color: string) => void;
   /** Dispatch Harness models as dsh serves them; the static list is the fallback. */
   dshModels?: () => Promise<AgentModelOption[]>;
-  /** What the provider keys have been used for this month (agents/dsh/usage.ts). */
+  /** What the provider keys have been used for this month (agents/harness/usage.ts). */
   usageReport?: () => Promise<HarnessUsageResponse>;
 };
 

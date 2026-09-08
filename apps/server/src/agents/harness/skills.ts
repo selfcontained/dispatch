@@ -48,7 +48,7 @@ export function parseSkillFile(
 }
 
 /** Skills the agent can load, first directory wins on a name clash. */
-export async function listDshSkills(input: {
+export async function listHarnessSkills(input: {
   cwd: string;
   dshHome: string;
 }): Promise<HarnessSkill[]> {

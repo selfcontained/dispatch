@@ -7,7 +7,7 @@ import {
   appendCommandLog,
   commandLogPath,
   formatCommandLogEntry,
-} from "../src/agents/dsh/command-log.js";
+} from "../src/agents/harness/command-log.js";
 
 let dir: string;
 afterEach(async () => {

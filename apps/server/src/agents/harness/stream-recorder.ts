@@ -147,7 +147,7 @@ function projectToolContent(content: readonly unknown[] | null | undefined): {
  * rewritten at most every {@link FLUSH_INTERVAL_MS} and on close. Tool calls
  * are keyed by toolCallId and rewritten as they settle. One instance serves
  * every agent; open-row state is per agent, and callers serialize events
- * per agent (see DshSupervisor).
+ * per agent (see HarnessSupervisor).
  */
 export class StreamRecorder {
   private readonly open = new Map<

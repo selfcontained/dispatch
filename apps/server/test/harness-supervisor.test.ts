@@ -4,13 +4,13 @@ import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { createJobMcpToken } from "../src/auth.js";
-import { DshDriver } from "../src/agents/dsh/driver.js";
+import { HarnessDriver } from "../src/agents/harness/driver.js";
 import {
   buildChildEnv,
   defaultModelFor,
-  DshSupervisor,
+  HarnessSupervisor,
   RESTART_PROMPT,
-} from "../src/agents/dsh/supervisor.js";
+} from "../src/agents/harness/supervisor.js";
 import { createFakeAcpAgent, type FakeTurn } from "./helpers/fake-acp-agent.js";
 
 const logger = {
@@ -46,7 +46,7 @@ async function build(
     turn: opts.turn,
     resumeFails: opts.resumeFails,
   });
-  const driver = new DshDriver({
+  const driver = new HarnessDriver({
     dshBin: "dsh",
     dshHome: home,
     spawn: () => fake.child,
@@ -133,11 +133,11 @@ async function build(
     listRunningAgentIds: vi.fn(async () => [] as string[]),
     markStartFailed: vi.fn(async () => {}),
   };
-  const sup = new DshSupervisor(deps);
+  const sup = new HarnessSupervisor(deps);
   return { fake, deps, events, sup, query };
 }
 
-describe("DshSupervisor", () => {
+describe("HarnessSupervisor", () => {
   it("start writes the overlay, records the session id, and marks idle", async () => {
     const { sup, deps, fake, events } = await build();
     await sup.start("agt_1");
@@ -337,7 +337,7 @@ describe("DshSupervisor", () => {
   });
 });
 
-describe("DshSupervisor launch prompt", () => {
+describe("HarnessSupervisor launch prompt", () => {
   it("sends the launch prompt as the first turn of a fresh session", async () => {
     const { sup, fake, events } = await build({ launchPrompt: "do the thing" });
     await sup.start("agt_1");
@@ -426,7 +426,7 @@ describe("buildChildEnv", () => {
   });
 });
 
-describe("DshSupervisor lifecycle edges", () => {
+describe("HarnessSupervisor lifecycle edges", () => {
   it("keeps a terminal status the agent set during the turn", async () => {
     let depsRef: {
       setLatestEvent: (
@@ -503,7 +503,7 @@ describe("DshSupervisor lifecycle edges", () => {
   });
 });
 
-describe("DshSupervisor job runs", () => {
+describe("HarnessSupervisor job runs", () => {
   it("attaches the job MCP route and token for an agent running a job", async () => {
     const { sup, deps, fake } = await build();
     (
@@ -526,7 +526,7 @@ describe("DshSupervisor job runs", () => {
   });
 });
 
-describe("DshSupervisor message queue", () => {
+describe("HarnessSupervisor message queue", () => {
   const CHAT_ID = "0f3d2a8e-6c4b-4c1e-9b7a-1d2e3f4a5b6c";
   const envelope = (text: string) =>
     `--- DISPATCH CHAT (id: ${CHAT_ID}) ---\n${text}\n--- END DISPATCH CHAT ---`;
@@ -672,7 +672,7 @@ describe("DshSupervisor message queue", () => {
   });
 });
 
-describe("DshSupervisor restart resilience", () => {
+describe("HarnessSupervisor restart resilience", () => {
   it("resumes an agent whose last turn the restart cut short", async () => {
     const { sup, deps, fake } = await build({
       cliSessionId: "sess_old",

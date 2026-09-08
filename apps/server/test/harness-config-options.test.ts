@@ -5,7 +5,7 @@ import {
   catalogFromConfigOptions,
   filterConfigOptionsByKeys,
   modelIdFromValue,
-} from "../src/agents/dsh/supervisor.js";
+} from "../src/agents/harness/supervisor.js";
 
 const options: HarnessConfigOption[] = [
   {
@@ -113,9 +113,9 @@ describe("filterConfigOptionsByKeys with stored sign-ins", () => {
       {},
       new Set(["llm-pi-ai/openai-codex"])
     );
-    const codex = (out[0].options as { name: string; options: { name: string }[] }[]).find(
-      (g) => g.name === "ChatGPT (Codex)"
-    );
+    const codex = (
+      out[0].options as { name: string; options: { name: string }[] }[]
+    ).find((g) => g.name === "ChatGPT (Codex)");
     expect(codex?.options.map((c) => c.name)).toEqual(["GPT-5.6 Sol"]);
   });
 });

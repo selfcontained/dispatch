@@ -18,9 +18,9 @@ import Fastify from "fastify";
 import * as z from "zod/v4";
 
 import { AgentManager } from "./agents/manager.js";
-import { DshSupervisor } from "./agents/dsh/supervisor.js";
-import { createSessionLogReader } from "./agents/dsh/session-log.js";
-import { createUsageReporter } from "./agents/dsh/usage.js";
+import { HarnessSupervisor } from "./agents/harness/supervisor.js";
+import { createSessionLogReader } from "./agents/harness/session-log.js";
+import { createUsageReporter } from "./agents/harness/usage.js";
 import { getUsageBudgets } from "./usage-budget-settings.js";
 import type { AgentRecord } from "./agents/manager.js";
 import {
@@ -470,14 +470,14 @@ const chatService = new ChatService({
     // A dsh prompt waits in the supervisor's turn queue, not the injection
     // gate; report that so Chat and MCP messages agree on "held".
     held: (agentId): boolean =>
-      dshSupervisor.isRunning(agentId)
-        ? dshSupervisor.isBusy(agentId)
+      harnessSupervisor.isRunning(agentId)
+        ? harnessSupervisor.isBusy(agentId)
         : injectionCoordinator.holdState(agentId).held,
   },
   log: app.log,
 });
 agentManager.attachLaunchContextRecorder(chatService);
-const dshSupervisor = new DshSupervisor({
+const harnessSupervisor = new HarnessSupervisor({
   pool,
   config,
   logger: app.log,
@@ -490,16 +490,16 @@ const dshSupervisor = new DshSupervisor({
   publishHarness: (agentId, config) =>
     chatService.publishHarnessChanged(agentId, config),
   personaPromptFor: (agent, jobRunId) =>
-    agentManager.buildDshPersonaFor(agent, jobRunId ?? undefined),
+    agentManager.buildHarnessPersonaFor(agent, jobRunId ?? undefined),
   activeJobRunIdFor: async (agentId) =>
     (await jobService.getActiveRunForAgent(agentId))?.id ?? null,
   launchPromptFor: (agentId): Promise<string | null> =>
     chatService.launchPromptFor(agentId),
-  listRunningAgentIds: () => agentManager.listRunningDshAgentIds(),
+  listRunningAgentIds: () => agentManager.listRunningHarnessAgentIds(),
   markStartFailed: (agentId, message) =>
-    agentManager.markDshStartFailed(agentId, message),
+    agentManager.markHarnessStartFailed(agentId, message),
   markExited: (agentId, message) =>
-    agentManager.markDshExited(agentId, message),
+    agentManager.markHarnessExited(agentId, message),
   setAgentModel: async (agentId, model) => {
     await pool.query("UPDATE agents SET model = $2 WHERE id = $1", [
       agentId,
@@ -507,7 +507,7 @@ const dshSupervisor = new DshSupervisor({
     ]);
   },
 });
-agentManager.attachDshSupervisor(dshSupervisor);
+agentManager.attachHarnessSupervisor(harnessSupervisor);
 jobService.setBrainStore(brainStore);
 const mcpHandlers = createMcpHandlers({
   pool,
@@ -764,7 +764,7 @@ async function registerRoutes() {
     validIconColors: VALID_ICON_COLORS,
     getCachedIconColor: staticTheme.getCachedIconColor,
     rewriteForColor: (color) => staticTheme.rewriteForColor(color as IconColor),
-    dshModels: () => dshSupervisor.modelCatalog(),
+    dshModels: () => harnessSupervisor.modelCatalog(),
     usageReport: createUsageReporter({
       env: process.env,
       dshHome: config.dshHome,
@@ -871,13 +871,16 @@ async function registerRoutes() {
     dshHome: config.dshHome,
     subagentLogs: createSessionLogReader(),
     harness: {
-      getConfigOptions: (agentId) => dshSupervisor.getConfigOptions(agentId),
+      getConfigOptions: (agentId) =>
+        harnessSupervisor.getConfigOptions(agentId),
       setConfigOption: (agentId, configId, value) =>
-        dshSupervisor.setConfigOption(agentId, configId, value),
-      listQueued: (agentId) => dshSupervisor.listQueued(agentId),
-      sendQueuedNow: (agentId, id) => dshSupervisor.sendQueuedNow(agentId, id),
-      removeQueued: (agentId, id) => dshSupervisor.removeQueued(agentId, id),
-      interrupt: (agentId) => dshSupervisor.interrupt(agentId),
+        harnessSupervisor.setConfigOption(agentId, configId, value),
+      listQueued: (agentId) => harnessSupervisor.listQueued(agentId),
+      sendQueuedNow: (agentId, id) =>
+        harnessSupervisor.sendQueuedNow(agentId, id),
+      removeQueued: (agentId, id) =>
+        harnessSupervisor.removeQueued(agentId, id),
+      interrupt: (agentId) => harnessSupervisor.interrupt(agentId),
     },
     appLog: app.log,
     agentManager,
@@ -1051,7 +1054,7 @@ export async function start() {
   // "running"; bring them back on their stored session ids. This has to run
   // after listen: the harness attaches Dispatch's MCP endpoint at resume.
   if (reconcileOnStart) {
-    const dshRestore = await dshSupervisor.restoreRunning();
+    const dshRestore = await harnessSupervisor.restoreRunning();
     // Chat messages that were queued behind a running turn when the last
     // process stopped: the boot sweep left them pending for these agents.
     for (const id of dshRestore.restored) {
@@ -1117,7 +1120,7 @@ async function cleanupAppResources(): Promise<void> {
   // Stop dsh children through their teardown ladder before the pool goes
   // away (the exit rows need it); otherwise they outlive the server with
   // full-access permissions and a stale MCP token.
-  await dshSupervisor.stopAll().catch((err: unknown) => {
+  await harnessSupervisor.stopAll().catch((err: unknown) => {
     app.log.warn({ err }, "Stopping dsh agents on shutdown failed");
   });
 

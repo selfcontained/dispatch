@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
-import { StreamStore } from "../src/agents/dsh/stream-store.js";
+import { StreamStore } from "../src/agents/harness/stream-store.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;

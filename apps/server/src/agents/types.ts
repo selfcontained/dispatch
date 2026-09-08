@@ -40,7 +40,7 @@ export type AgentTerminalAccess =
 
 /** Where a prompt for an agent is delivered (see AgentManager.getPromptTarget). */
 export type AgentPromptTarget =
-  | { kind: "dsh"; busy: boolean }
+  | { kind: "harness"; busy: boolean }
   | { kind: "tmux"; sessionName: string }
   | { kind: "inert"; message: string };
 

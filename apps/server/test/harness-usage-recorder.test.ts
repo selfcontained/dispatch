@@ -1,8 +1,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
-import type { DriverEvent } from "../src/agents/dsh/driver.js";
-import { UsageRecorder } from "../src/agents/dsh/usage-recorder.js";
+import type { DriverEvent } from "../src/agents/harness/driver.js";
+import { UsageRecorder } from "../src/agents/harness/usage-recorder.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;

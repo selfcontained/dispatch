@@ -1,14 +1,14 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { Pool } from "pg";
 
-import type { DriverEvent } from "../src/agents/dsh/driver.js";
+import type { DriverEvent } from "../src/agents/harness/driver.js";
 import {
   boundOutput,
   inferToolKind,
   StreamRecorder,
   TEXT_MAX_BYTES,
-} from "../src/agents/dsh/stream-recorder.js";
-import { StreamStore } from "../src/agents/dsh/stream-store.js";
+} from "../src/agents/harness/stream-recorder.js";
+import { StreamStore } from "../src/agents/harness/stream-store.js";
 import { runTestMigrations, setupTestDb, teardownTestDb } from "./db/setup.js";
 
 let pool: Pool;

@@ -5,7 +5,7 @@ import {
   assembleTurns,
   loadQueued,
   type TurnSourceRow,
-} from "../src/agents/dsh/turns.js";
+} from "../src/agents/harness/turns.js";
 
 let seq = 0;
 const at = (s: number) => new Date(Date.UTC(2026, 8, 4, 10, 0, s));

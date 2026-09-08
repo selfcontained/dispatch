@@ -1,6 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { DshDriver, type DriverEvent } from "../src/agents/dsh/driver.js";
+import {
+  HarnessDriver,
+  type DriverEvent,
+} from "../src/agents/harness/driver.js";
 import { createFakeAcpAgent } from "./helpers/fake-acp-agent.js";
 
 const logger = {
@@ -24,11 +27,11 @@ function launch(agentId = "agt_1") {
   };
 }
 
-describe("DshDriver", () => {
+describe("HarnessDriver", () => {
   it("spawns dsh with the acp profile, overlay, cwd, env, and attaches the MCP server", async () => {
     const fake = createFakeAcpAgent();
     const spawn = vi.fn(() => fake.child);
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "/bin/dsh",
       dshHome: "/home/dsh",
       spawn,
@@ -73,7 +76,7 @@ describe("DshDriver", () => {
         return "end_turn";
       },
     });
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => fake.child,
@@ -96,7 +99,7 @@ describe("DshDriver", () => {
 
   it("resumes when a session id is given", async () => {
     const fake = createFakeAcpAgent();
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => fake.child,
@@ -118,7 +121,7 @@ describe("DshDriver", () => {
 
   it("stop closes the session and reaps the child", async () => {
     const fake = createFakeAcpAgent();
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => fake.child,
@@ -140,7 +143,7 @@ describe("DshDriver", () => {
 
   it("refuses to start twice for one agent", async () => {
     const fake = createFakeAcpAgent();
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => fake.child,
@@ -158,7 +161,7 @@ describe("DshDriver", () => {
         throw new Error("no API key");
       },
     });
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => fake.child,
@@ -178,7 +181,7 @@ describe("DshDriver", () => {
   });
 
   it("prompting an agent that is not running throws", async () => {
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => createFakeAcpAgent().child,
@@ -189,7 +192,7 @@ describe("DshDriver", () => {
   });
 
   it("fails the start, not the process, when the binary cannot be spawned", async () => {
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "definitely-not-a-real-binary-dsh",
       dshHome: "/h",
       resolveBinary,
@@ -202,7 +205,7 @@ describe("DshDriver", () => {
   });
 
   it("names the missing binary before spawning", async () => {
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "definitely-not-a-real-binary-dsh",
       dshHome: "/h",
       logger,
@@ -214,7 +217,7 @@ describe("DshDriver", () => {
 
   it("falls back to a new session when the stored one cannot be resumed", async () => {
     const fake = createFakeAcpAgent({ resumeFails: true });
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => fake.child,
@@ -230,7 +233,7 @@ describe("DshDriver", () => {
 
   it("reports an unexpected child death as a crash", async () => {
     const fake = createFakeAcpAgent();
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => fake.child,
@@ -257,7 +260,7 @@ describe("DshDriver", () => {
           : "end_turn";
       },
     });
-    const driver = new DshDriver({
+    const driver = new HarnessDriver({
       dshBin: "dsh",
       dshHome: "/h",
       spawn: () => fake.child,

@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
-import { listDshSkills, parseSkillFile } from "../src/agents/dsh/skills.js";
+import {
+  listHarnessSkills,
+  parseSkillFile,
+} from "../src/agents/harness/skills.js";
 
 let root: string;
 
@@ -37,7 +40,7 @@ describe("parseSkillFile", () => {
   });
 });
 
-describe("listDshSkills", () => {
+describe("listHarnessSkills", () => {
   it("lists project and home skills, project first on a clash", async () => {
     const cwd = path.join(root, "repo");
     const home = path.join(root, "home");
@@ -59,7 +62,7 @@ describe("listDshSkills", () => {
     await skill(path.join(home, "skills"), "zeta", "Last one.");
     await mkdir(path.join(home, "skills", "not-a-skill"), { recursive: true });
 
-    const skills = await listDshSkills({ cwd, dshHome: home });
+    const skills = await listHarnessSkills({ cwd, dshHome: home });
     expect(skills).toEqual([
       { name: "brain", description: "project brain", source: "project" },
       { name: "jobs", description: "schedule jobs", source: "project" },
@@ -69,7 +72,7 @@ describe("listDshSkills", () => {
 
   it("is empty when no directory exists", async () => {
     expect(
-      await listDshSkills({
+      await listHarnessSkills({
         cwd: path.join(root, "nope"),
         dshHome: path.join(root, "nope2"),
       })

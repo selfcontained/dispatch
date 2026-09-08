@@ -9,7 +9,7 @@ import {
   credentialsPath,
   readCodexGrant,
   readGrantKeys,
-} from "../src/agents/dsh/credentials.js";
+} from "../src/agents/harness/credentials.js";
 
 let tmp = "";
 afterEach(async () => {

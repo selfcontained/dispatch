@@ -1,6 +1,6 @@
 import type { HarnessConfigOption } from "@dispatch/shared";
-import type { QueuedPrompt } from "../../agents/dsh/prompt-source.js";
-import type { SessionLogReader } from "../../agents/dsh/session-log.js";
+import type { QueuedPrompt } from "../../agents/harness/prompt-source.js";
+import type { SessionLogReader } from "../../agents/harness/session-log.js";
 import type { FastifyBaseLogger, FastifyReply } from "fastify";
 import type { Pool } from "pg";
 import type WebSocket from "ws";
@@ -35,7 +35,7 @@ export type AgentRouteDeps = {
       configId: string,
       value: string
     ) => Promise<HarnessConfigOption[]>;
-    /** Prompts waiting behind the running turn (DshSupervisor.listQueued). */
+    /** Prompts waiting behind the running turn (HarnessSupervisor.listQueued). */
     listQueued: (agentId: string) => QueuedPrompt[];
     /** Promote and interrupt; false when nothing queued has that id. */
     sendQueuedNow: (agentId: string, id: string) => Promise<boolean>;

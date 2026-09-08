@@ -22,8 +22,8 @@ import {
   loggedUsage,
   monthStartUtc,
   type FetchLike,
-} from "../src/agents/dsh/usage.js";
-import { fetchCodexUsage } from "../src/agents/dsh/codex-usage.js";
+} from "../src/agents/harness/usage.js";
+import { fetchCodexUsage } from "../src/agents/harness/codex-usage.js";
 
 let tmp = "";
 afterEach(async () => {

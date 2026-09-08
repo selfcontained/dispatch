@@ -14,7 +14,7 @@ import type {
 import type {
   AssistantPayload,
   ToolPayload,
-} from "../agents/dsh/stream-store.js";
+} from "../agents/harness/stream-store.js";
 import { dimensionFields, parseMediaMetadata } from "../media/metadata.js";
 
 import {
@@ -651,17 +651,25 @@ export async function composeChatFeed(
   const limit = clampFeedLimit(opts.limit);
   const cursor = opts.cursor ?? null;
   const { db } = store;
-  const [chat, status, agentMessages, media, reviews, stream, pins, unreadCount] =
-    await Promise.all([
-      listChatEntries(db, agentId, cursor, limit + 1),
-      listStatusEntries(db, agentId, cursor, limit + 1),
-      listAgentMessageEntries(db, agentId, cursor, limit + 1),
-      listMediaEntries(db, agentId, cursor, limit + 1),
-      listReviewEntries(db, agentId, cursor, limit + 1),
-      listStreamEntries(db, agentId, cursor, limit + 1),
-      listPinEntries(db, agentId, cursor, limit + 1),
-      store.countUnread(agentId),
-    ]);
+  const [
+    chat,
+    status,
+    agentMessages,
+    media,
+    reviews,
+    stream,
+    pins,
+    unreadCount,
+  ] = await Promise.all([
+    listChatEntries(db, agentId, cursor, limit + 1),
+    listStatusEntries(db, agentId, cursor, limit + 1),
+    listAgentMessageEntries(db, agentId, cursor, limit + 1),
+    listMediaEntries(db, agentId, cursor, limit + 1),
+    listReviewEntries(db, agentId, cursor, limit + 1),
+    listStreamEntries(db, agentId, cursor, limit + 1),
+    listPinEntries(db, agentId, cursor, limit + 1),
+    store.countUnread(agentId),
+  ]);
 
   const merged: Keyed<ChatFeedEntry>[] = [
     ...chat,

@@ -37,11 +37,11 @@ export function createPromptInjector(
     opts = {}
   ) => {
     const target = await agentManager.getPromptTarget(agentId);
-    if (target.kind === "dsh") {
+    if (target.kind === "harness") {
       // One turn at a time: a prompt that lands mid-turn is held until the
       // running turn settles, then delivered as the next turn. "Delivered"
       // means the turn started, which is what pane injection promises too.
-      const { started, settled } = agentManager.promptDsh(agentId, prompt);
+      const { started, settled } = agentManager.promptHarness(agentId, prompt);
       settled.catch((error) => {
         appLog.warn({ err: error, agentId }, "dsh turn failed");
       });

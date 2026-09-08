@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { buildDshPersona, DSH_CHAT_RULE } from "../src/agents/dsh/persona.js";
+import {
+  buildHarnessPersona,
+  HARNESS_CHAT_RULE,
+} from "../src/agents/harness/persona.js";
 
 const base = {
   id: "agt_p",
@@ -10,9 +13,9 @@ const base = {
   autoReview: false,
 };
 
-describe("buildDshPersona", () => {
+describe("buildHarnessPersona", () => {
   it("starts with the Dispatch launch guidance", () => {
-    const text = buildDshPersona({
+    const text = buildHarnessPersona({
       agent: base,
       personalityPrompt: null,
       trimmedGuidance: false,
@@ -20,12 +23,12 @@ describe("buildDshPersona", () => {
       suggestSessionRename: false,
     });
     expect(text).toContain("dispatch_event");
-    expect(text).toContain(DSH_CHAT_RULE);
+    expect(text).toContain(HARNESS_CHAT_RULE);
     expect(text).not.toContain("Send every user-facing reply");
   });
 
   it("appends the active personality for a standard agent", () => {
-    const text = buildDshPersona({
+    const text = buildHarnessPersona({
       agent: base,
       personalityPrompt: "Be terse.",
       trimmedGuidance: false,
@@ -36,7 +39,7 @@ describe("buildDshPersona", () => {
   });
 
   it("prefers the persona brief stored in agentArgs over a personality", () => {
-    const text = buildDshPersona({
+    const text = buildHarnessPersona({
       agent: {
         ...base,
         persona: "security-review",
@@ -52,9 +55,9 @@ describe("buildDshPersona", () => {
   });
 });
 
-describe("buildDshPersona for a job run", () => {
+describe("buildHarnessPersona for a job run", () => {
   it("names the job tools in the guidance", () => {
-    const text = buildDshPersona({
+    const text = buildHarnessPersona({
       agent: base,
       personalityPrompt: null,
       trimmedGuidance: false,

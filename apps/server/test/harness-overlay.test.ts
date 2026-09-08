@@ -8,7 +8,7 @@ import {
   buildOverlayYaml,
   splitModelId,
   writeOverlay,
-} from "../src/agents/dsh/overlay.js";
+} from "../src/agents/harness/overlay.js";
 
 type Row = { id: string; config: Record<string, unknown> };
 

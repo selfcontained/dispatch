@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { parsePromptSource } from "../src/agents/dsh/prompt-source.js";
+import { parsePromptSource } from "../src/agents/harness/prompt-source.js";
 
 describe("parsePromptSource", () => {
   it("reads the chat message id out of a chat envelope", () => {

@@ -38,7 +38,7 @@ export function resolvePathQuery(
  * name. Each kind is capped on its own, so a directory whose files sort
  * ahead of its subdirectories still lists those subdirectories.
  */
-export async function listDshPaths(
+export async function listHarnessPaths(
   query: string,
   input: { cwd: string; home?: string }
 ): Promise<HarnessPath[]> {

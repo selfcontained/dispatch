@@ -28,8 +28,8 @@ import { isChatSurfaceEnabled } from "../chat-surface-settings.js";
 import { findCodexSessionId } from "./codex-sessions.js";
 import { harvestTokenUsage } from "./token-harvester.js";
 import { errorMessage } from "../shared/lib/error-message.js";
-import { buildDshPersona } from "./dsh/persona.js";
-import type { DshSupervisor } from "./dsh/supervisor.js";
+import { buildHarnessPersona } from "./harness/persona.js";
+import type { HarnessSupervisor } from "./harness/supervisor.js";
 import type { AgentPromptTarget } from "./types.js";
 import {
   beginArchive as beginArchiveImpl,
@@ -313,7 +313,7 @@ export class AgentManager {
   private readonly runtime: AgentRuntime;
   private readonly reconciler: Reconciler;
   private diffStatsRefresher: DiffStatsRefresherHandle | null = null;
-  private dshSupervisor: DshSupervisor | null = null;
+  private harnessSupervisor: HarnessSupervisor | null = null;
   private launchContextRecorder: LaunchContextRecorder | null = null;
   private readonly agentCreatedListeners: Array<(agent: AgentRecord) => void> =
     [];
@@ -344,8 +344,8 @@ export class AgentManager {
    * collaborators; without it a dsh agent fails setup loudly rather than
    * sitting in a shell with no harness behind it.
    */
-  attachDshSupervisor(supervisor: DshSupervisor): void {
-    this.dshSupervisor = supervisor;
+  attachHarnessSupervisor(supervisor: HarnessSupervisor): void {
+    this.harnessSupervisor = supervisor;
   }
 
   /**
@@ -355,13 +355,13 @@ export class AgentManager {
   async getPromptTarget(id: string): Promise<AgentPromptTarget> {
     const agent = await this.getRequiredAgent(id);
     if (agent.type === "dispatch") {
-      if (!this.dshSupervisor?.isRunning(id)) {
+      if (!this.harnessSupervisor?.isRunning(id)) {
         throw new AgentError(
           "dsh is not running for this agent — prompt cannot be delivered.",
           409
         );
       }
-      return { kind: "dsh", busy: this.dshSupervisor.isBusy(id) };
+      return { kind: "harness", busy: this.harnessSupervisor.isBusy(id) };
     }
     const access = await this.terminalAccessFor(agent);
     return access.mode === "tmux"
@@ -371,20 +371,20 @@ export class AgentManager {
 
   /**
    * Queue one dsh turn. `started` resolves when it begins (after any turn
-   * already running), `settled` when it ends. See DshSupervisor.enqueuePrompt.
+   * already running), `settled` when it ends. See HarnessSupervisor.enqueuePrompt.
    */
-  promptDsh(
+  promptHarness(
     id: string,
     text: string
   ): { started: Promise<void>; settled: Promise<void> } {
-    if (!this.dshSupervisor) {
+    if (!this.harnessSupervisor) {
       throw new AgentError("dsh supervisor is not attached.", 500);
     }
-    return this.dshSupervisor.enqueuePrompt(id, text);
+    return this.harnessSupervisor.enqueuePrompt(id, text);
   }
 
   /** dsh agents the last process left running; the supervisor restores them at boot. */
-  async listRunningDshAgentIds(): Promise<string[]> {
+  async listRunningHarnessAgentIds(): Promise<string[]> {
     const result = await this.pool.query<{ id: string }>(
       `SELECT id FROM agents
         WHERE type = 'dispatch' AND status = 'running' AND deleted_at IS NULL
@@ -395,7 +395,7 @@ export class AgentManager {
 
   /** A dsh agent that could not be brought back at boot. */
   /** The dsh child died on its own: the agent cannot stay "running" over it. */
-  async markDshExited(id: string, message: string): Promise<void> {
+  async markHarnessExited(id: string, message: string): Promise<void> {
     await this.setAgentStatus(id, "error", message);
     await this.setSystemLatestEvent(id, {
       type: "blocked",
@@ -404,7 +404,7 @@ export class AgentManager {
     });
   }
 
-  async markDshStartFailed(id: string, message: string): Promise<void> {
+  async markHarnessStartFailed(id: string, message: string): Promise<void> {
     await this.setAgentStatus(id, "error", message);
     await this.setSystemLatestEvent(id, {
       type: "blocked",
@@ -414,12 +414,16 @@ export class AgentManager {
   }
 
   /** The system-prompt persona a dsh agent launches with (see dsh/persona.ts). */
-  async buildDshPersonaFor(
+  async buildHarnessPersonaFor(
     agent: AgentRecord,
     jobRunId?: string
   ): Promise<string> {
     const inputs = await this.launchGuidanceInputsFor(agent, jobRunId);
-    return buildDshPersona({ agent, ...inputs, jobRunId: jobRunId ?? null });
+    return buildHarnessPersona({
+      agent,
+      ...inputs,
+      jobRunId: jobRunId ?? null,
+    });
   }
 
   /**
@@ -1265,11 +1269,11 @@ export class AgentManager {
     if (agent.type === "dispatch") {
       // The pane is only a shell; the harness is the ACP child the
       // supervisor starts now that the worktree exists.
-      if (!this.dshSupervisor) {
+      if (!this.harnessSupervisor) {
         throw new AgentError("dsh supervisor is not attached.", 500);
       }
       try {
-        await this.dshSupervisor.start(id);
+        await this.harnessSupervisor.start(id);
       } catch (error) {
         const message = errorMessage(error);
         await this.setAgentStatus(id, "error", message);
@@ -1358,13 +1362,13 @@ export class AgentManager {
     if (hasSession) {
       // A dsh agent's pane is only a shell and outlives the harness child;
       // an attached shell is not a running harness. Start (or restart) it.
-      if (agent.type === "dispatch" && !this.dshSupervisor?.isRunning(id)) {
-        if (!this.dshSupervisor) {
+      if (agent.type === "dispatch" && !this.harnessSupervisor?.isRunning(id)) {
+        if (!this.harnessSupervisor) {
           throw new AgentError("dsh supervisor is not attached.", 500);
         }
         try {
           await this.setAgentStatus(id, "running", null, tmuxSession);
-          await this.dshSupervisor.start(id);
+          await this.harnessSupervisor.start(id);
         } catch (error) {
           const message = errorMessage(error);
           await this.setAgentStatus(id, "error", message);
@@ -1461,11 +1465,11 @@ export class AgentManager {
       // from external git activity gets picked up at start time).
       await this.populateGitContext(id);
       if (agent.type === "dispatch") {
-        if (!this.dshSupervisor) {
+        if (!this.harnessSupervisor) {
           throw new Error("dsh supervisor is not attached.");
         }
         // Resumes the stored session id; the supervisor sets the idle event.
-        await this.dshSupervisor.start(id);
+        await this.harnessSupervisor.start(id);
         return (await this.getAgent(id)) as AgentRecord;
       }
       await this.setSystemLatestEvent(
@@ -1561,7 +1565,7 @@ export class AgentManager {
     );
 
     try {
-      if (agent.type === "dispatch") await this.dshSupervisor?.stop(id);
+      if (agent.type === "dispatch") await this.harnessSupervisor?.stop(id);
       if (tmuxSession && (await this.runtime.hasSession(tmuxSession))) {
         await this.runtime.stopSession(tmuxSession, force);
       }
@@ -2053,7 +2057,8 @@ export class AgentManager {
       getRequiredAgent: (id) => this.getRequiredAgent(id),
       harvestAgentTokens: (agent) => this.harvestAgentTokens(agent),
       stopHarness: async (agent) => {
-        if (agent.type === "dispatch") await this.dshSupervisor?.stop(agent.id);
+        if (agent.type === "dispatch")
+          await this.harnessSupervisor?.stop(agent.id);
       },
       setAgentStatus: (id, status, lastError, tmuxSession) =>
         this.setAgentStatus(id, status, lastError, tmuxSession),

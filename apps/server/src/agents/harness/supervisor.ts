@@ -13,7 +13,11 @@ import { createAgentMcpToken, createJobMcpToken } from "../../auth.js";
 import type { AppConfig } from "../../config.js";
 import { resolveMediaDir } from "../../shared/media.js";
 import { dispatchMcpUrl } from "../tmux/mcp-url.js";
-import { DshDriver, type DriverEvent, type DriverLogger } from "./driver.js";
+import {
+  HarnessDriver,
+  type DriverEvent,
+  type DriverLogger,
+} from "./driver.js";
 import { appendCommandLog, commandLogPath } from "./command-log.js";
 import {
   CODEX_GRANT_KEY,
@@ -35,7 +39,7 @@ export type SupervisorDeps = {
   >;
   logger: DriverLogger;
   /** Injectable for tests; defaults to a driver over the real `dsh` binary. */
-  driver?: DshDriver;
+  driver?: HarnessDriver;
   getAgent: (id: string) => Promise<AgentRecord | null>;
   setCliSessionId: (id: string, sessionId: string) => Promise<void>;
   setLatestEvent: (
@@ -65,7 +69,7 @@ export type SupervisorDeps = {
    * turn of a fresh session.
    */
   launchPromptFor: (agentId: string) => Promise<string | null>;
-  /** dsh agents recorded as running, for {@link DshSupervisor.restoreRunning}. */
+  /** dsh agents recorded as running, for {@link HarnessSupervisor.restoreRunning}. */
   listRunningAgentIds: () => Promise<string[]>;
   /** Record that an agent could not be brought back at boot. */
   markStartFailed: (id: string, message: string) => Promise<void>;
@@ -348,8 +352,8 @@ const GRANTS_TTL_MS = 5_000;
  * around them, folds the stream into the store and usage table, and stops
  * the child when the agent stops.
  */
-export class DshSupervisor {
-  private readonly driver: DshDriver;
+export class HarnessSupervisor {
+  private readonly driver: HarnessDriver;
   private readonly streams: StreamRecorder;
   private readonly usage: UsageRecorder;
   private readonly context = new Map<
@@ -383,7 +387,7 @@ export class DshSupervisor {
     void this.grants.refresh();
     this.driver =
       deps.driver ??
-      new DshDriver({
+      new HarnessDriver({
         dshBin: deps.config.dshBin,
         dshHome: deps.config.dshHome,
         logger: deps.logger,
@@ -698,7 +702,10 @@ export class DshSupervisor {
   ): Promise<boolean> {
     const cutAt = await this.streams.lastTurnInterruptedByRestartAt(agentId);
     if (!cutAt) return false;
-    if (Date.now() - cutAt.getTime() > DshSupervisor.RESTART_RESUME_WINDOW_MS) {
+    if (
+      Date.now() - cutAt.getTime() >
+      HarnessSupervisor.RESTART_RESUME_WINDOW_MS
+    ) {
       return false;
     }
     return (

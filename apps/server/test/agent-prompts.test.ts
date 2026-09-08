@@ -28,7 +28,7 @@ function build(opts: { tmux?: boolean; quietMs?: number } = {}) {
         ? { kind: "inert" as const, message: "No pane." }
         : { kind: "tmux" as const, sessionName: "sess" }
     ),
-    promptDsh: vi.fn(() => ({
+    promptHarness: vi.fn(() => ({
       started: Promise.resolve(),
       settled: Promise.resolve(),
     })),
@@ -134,13 +134,16 @@ describe("enqueueAgentPrompt for dsh agents", () => {
   it("routes the prompt to the manager's dsh turn instead of the pane", async () => {
     const { enqueueAgentPrompt, agentManager } = build();
     agentManager.getPromptTarget.mockResolvedValue({
-      kind: "dsh" as const,
+      kind: "harness" as const,
       busy: false,
     });
     const { held, delivery } = await enqueueAgentPrompt("agt_d", "hello dsh");
     expect(held).toBe(false);
     await delivery;
-    expect(agentManager.promptDsh).toHaveBeenCalledWith("agt_d", "hello dsh");
+    expect(agentManager.promptHarness).toHaveBeenCalledWith(
+      "agt_d",
+      "hello dsh"
+    );
     expect(sendCommand).not.toHaveBeenCalled();
   });
 
@@ -159,11 +162,11 @@ describe("enqueueAgentPrompt for dsh agents", () => {
   it("reports a prompt as held while a turn is already running", async () => {
     const { enqueueAgentPrompt, agentManager } = build();
     agentManager.getPromptTarget.mockResolvedValue({
-      kind: "dsh" as const,
+      kind: "harness" as const,
       busy: true,
     });
     let start: () => void = () => {};
-    agentManager.promptDsh.mockReturnValue({
+    agentManager.promptHarness.mockReturnValue({
       started: new Promise<void>((r) => {
         start = r;
       }),
@@ -184,10 +187,10 @@ describe("enqueueAgentPrompt for dsh agents", () => {
   it("logs a failed turn without rejecting the enqueue", async () => {
     const { enqueueAgentPrompt, agentManager, log } = build();
     agentManager.getPromptTarget.mockResolvedValue({
-      kind: "dsh" as const,
+      kind: "harness" as const,
       busy: false,
     });
-    agentManager.promptDsh.mockReturnValue({
+    agentManager.promptHarness.mockReturnValue({
       started: Promise.resolve(),
       settled: Promise.reject(new Error("turn exploded")),
     });

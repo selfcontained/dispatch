@@ -10,7 +10,7 @@ import type { AppConfig } from "../../config.js";
 import { PLUGIN_AGENT_TYPES } from "../../shared/agent-types.js";
 import { buildCursorDispatchToolGuidance } from "../../shared/mcp/cursor-dispatch-guidance.js";
 import type { AgentPin, AgentRole, AgentType } from "../types.js";
-import { commandLogPath } from "../dsh/command-log.js";
+import { commandLogPath } from "../harness/command-log.js";
 import { dispatchMcpUrl } from "./mcp-url.js";
 import { shellEscape } from "./quoting.js";
 import { agentIdFromSessionName } from "./session-name.js";
@@ -565,7 +565,7 @@ export function buildAgentCommand(
   }
   if (type === "dispatch") {
     // The harness runs its commands in its own process; the pane shows
-    // their log (agents/dsh/command-log.ts) in a split above an
+    // their log (agents/harness/command-log.ts) in a split above an
     // interactive shell, so the Console reads as the agent's terminal.
     const log = shellEscape(commandLogPath(config.dshHome, agentId));
     const logDir = shellEscape(

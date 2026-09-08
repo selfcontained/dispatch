@@ -11,11 +11,11 @@ import type {
 import {
   findSessionLog,
   readSessionHeader,
-} from "../../agents/dsh/session-log.js";
-import { listDshPaths } from "../../agents/dsh/paths.js";
-import { listDshSkills } from "../../agents/dsh/skills.js";
-import { shapeSubagent } from "../../agents/dsh/subagents.js";
-import { loadQueued, loadTurns } from "../../agents/dsh/turns.js";
+} from "../../agents/harness/session-log.js";
+import { listHarnessPaths } from "../../agents/harness/paths.js";
+import { listHarnessSkills } from "../../agents/harness/skills.js";
+import { shapeSubagent } from "../../agents/harness/subagents.js";
+import { loadQueued, loadTurns } from "../../agents/harness/turns.js";
 import type { AgentRouteDeps } from "./shared.js";
 
 const DEFAULT_LIMIT = 50;
@@ -210,7 +210,7 @@ export async function registerAgentHarnessRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
     const response: HarnessSkillsResponse = {
-      skills: await listDshSkills({ cwd, dshHome: deps.dshHome }),
+      skills: await listHarnessSkills({ cwd, dshHome: deps.dshHome }),
     };
     return response;
   });
@@ -226,7 +226,7 @@ export async function registerAgentHarnessRoutes(
       return reply.code(404).send({ error: "Agent not found." });
     }
     const response: HarnessPathsResponse = {
-      paths: await listDshPaths(query, { cwd }),
+      paths: await listHarnessPaths(query, { cwd }),
     };
     return response;
   });

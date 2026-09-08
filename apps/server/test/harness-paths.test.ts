@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
-import { listDshPaths, resolvePathQuery } from "../src/agents/dsh/paths.js";
+import {
+  listHarnessPaths,
+  resolvePathQuery,
+} from "../src/agents/harness/paths.js";
 
 let root: string;
 let cwd: string;
@@ -58,33 +61,33 @@ describe("resolvePathQuery", () => {
   });
 });
 
-describe("listDshPaths", () => {
+describe("listHarnessPaths", () => {
   it("lists the working tree, directories first, hidden entries only when asked", async () => {
-    expect(await listDshPaths("", { cwd, home })).toEqual([
+    expect(await listHarnessPaths("", { cwd, home })).toEqual([
       { path: "apps", kind: "dir" },
       { path: "docs", kind: "dir" },
       { path: "docs-link", kind: "dir" },
       { path: "README.md", kind: "file" },
     ]);
-    expect(await listDshPaths(".", { cwd, home })).toEqual([
+    expect(await listHarnessPaths(".", { cwd, home })).toEqual([
       { path: ".dispatch", kind: "dir" },
       { path: ".env", kind: "file" },
     ]);
   });
 
   it("matches the last segment case-insensitively and keeps the typed prefix", async () => {
-    expect(await listDshPaths("apps/S", { cwd, home })).toEqual([
+    expect(await listHarnessPaths("apps/S", { cwd, home })).toEqual([
       { path: "apps/server", kind: "dir" },
     ]);
-    expect(await listDshPaths("apps/", { cwd, home })).toEqual([
+    expect(await listHarnessPaths("apps/", { cwd, home })).toEqual([
       { path: "apps/server", kind: "dir" },
       { path: "apps/web", kind: "dir" },
       { path: "apps/notes.txt", kind: "file" },
     ]);
-    expect(await listDshPaths("~/s", { cwd, home })).toEqual([
+    expect(await listHarnessPaths("~/s", { cwd, home })).toEqual([
       { path: "~/src", kind: "dir" },
     ]);
-    expect(await listDshPaths("~", { cwd, home })).toEqual([
+    expect(await listHarnessPaths("~", { cwd, home })).toEqual([
       { path: "~", kind: "dir" },
     ]);
   });
@@ -96,7 +99,7 @@ describe("listDshPaths", () => {
       await writeFile(path.join(big, `a${String(i).padStart(3, "0")}.txt`), "");
     }
     for (let i = 0; i < 5; i += 1) await mkdir(path.join(big, `zdir${i}`));
-    const out = await listDshPaths("big/", { cwd: root });
+    const out = await listHarnessPaths("big/", { cwd: root });
     expect(out).toHaveLength(50);
     expect(out.slice(0, 5).map((p) => p.path)).toEqual([
       "big/zdir0",
@@ -109,7 +112,7 @@ describe("listDshPaths", () => {
   });
 
   it("answers nothing for a directory that does not exist", async () => {
-    expect(await listDshPaths("nope/x", { cwd, home })).toEqual([]);
-    expect(await listDshPaths("a\0b", { cwd, home })).toEqual([]);
+    expect(await listHarnessPaths("nope/x", { cwd, home })).toEqual([]);
+    expect(await listHarnessPaths("a\0b", { cwd, home })).toEqual([]);
   });
 });

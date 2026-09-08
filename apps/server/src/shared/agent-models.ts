@@ -50,7 +50,7 @@ export const AGENT_MODEL_OPTIONS: Partial<
   // dsh ids are `provider/model`: the provider is a dsh LLM route name and the
   // model is that route's id. Verified against `dsh --profile acp` session
   // configOptions on 2026-09-04 (see docs/agent-model-catalog.md).
-  // Fallback only: the live list comes from dsh (DshSupervisor.modelCatalog)
+  // Fallback only: the live list comes from dsh (HarnessSupervisor.modelCatalog)
   // and is filtered to providers with keys and, for OpenAI, the 5.6 line.
   dispatch: [
     {

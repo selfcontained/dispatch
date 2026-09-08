@@ -14,7 +14,7 @@ import {
   readSessionHeader,
   readSessionLog,
   zstdFrameLength,
-} from "../src/agents/dsh/session-log.js";
+} from "../src/agents/harness/session-log.js";
 
 const CHECKSUM = { params: { [constants.ZSTD_c_checksumFlag]: 1 } };
 
