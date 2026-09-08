@@ -30,17 +30,15 @@ function BudgetBar({
   spent,
   budget,
   label,
-  describe,
 }: {
   spent: number;
   budget: number;
   label: string;
-  /** What a screen reader hears; the budget wording is the default. */
-  describe?: string;
 }): JSX.Element {
   const ratio = budget > 0 ? spent / budget : 0;
   const pct = Math.min(100, Math.round(ratio * 100));
-  const text = describe ?? `${label}: ${pct}% of budget used`;
+  /** What a screen reader hears. */
+  const text = `${label}: ${pct}% of budget used`;
   const tone =
     ratio >= 0.9
       ? "bg-status-blocked"

@@ -393,6 +393,30 @@ describe("assembleTurns", () => {
     expect(turn.trace.steps).toEqual([]);
   });
 
+  it("reports no cost for a cost the engine gave in another currency", () => {
+    seq = 0;
+    const rows = [
+      row(
+        "turn",
+        {
+          state: "settled",
+          prompt: { source: "system", text: "go" },
+          stopReason: "end_turn",
+          endedAt: at(1).toISOString(),
+          usage: {
+            used: 10,
+            size: 100,
+            cost: { amount: 2.5, currency: "EUR" },
+          },
+        },
+        0,
+        1
+      ),
+    ];
+    const [turn] = assembleTurns(rows, new Map());
+    expect(turn.usage).toEqual({ used: 10, size: 100, costUsd: null });
+  });
+
   it("reports usage without cost as costUsd null", () => {
     seq = 0;
     const rows = [
