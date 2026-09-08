@@ -575,36 +575,24 @@ describe("HarnessPane message queue", () => {
 });
 
 describe("HarnessPane tasks and subagents", () => {
-  const todoStep = (status: [string, string, string]) => ({
-    id: "todo-1",
-    kind: "edit",
-    label: "todo_write",
-    status: "ok" as const,
-    startedAt: T0 + 100,
-    endedAt: T0 + 200,
-    durMs: 100,
-    detail: {
-      input: {
-        todos: [
-          { content: "Inspect conventions", status: status[0] },
-          { content: "Write the skill", status: status[1] },
-          { content: "Run validation", status: status[2] },
-        ],
-      },
-      terminalOutput:
-        "Updated todo list: 1 pending, 1 in progress, 1 completed.",
-    },
-  });
+  const plan = (status: [string, string, string]) => [
+    { content: "Read the README", status: status[0], priority: "high" },
+    { content: "Echo the prompt", status: status[1], priority: "medium" },
+    { content: "Wrap up", status: status[2], priority: "low" },
+  ];
 
-  it("pins the live turn's task list above the composer and expands the step", () => {
+  it("pins the current task list above the composer", () => {
     state.turns = [
       { id: "t1:user", role: "user", content: "build it", timestamp: T0 },
+      {
+        id: "t1:assistant",
+        role: "assistant",
+        content: "Working on it.",
+        timestamp: T0 + 200,
+        trace: { startedAt: T0 + 100, endedAt: T0 + 200, steps: [] },
+        extra: { plan: plan(["completed", "in_progress", "pending"]) },
+      },
     ];
-    state.liveTrace = {
-      startedAt: T0,
-      steps: [todoStep(["completed", "in_progress", "pending"])],
-    };
-    state.streaming = true;
     render(
       <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
       { wrapper }
@@ -616,7 +604,7 @@ describe("HarnessPane tasks and subagents", () => {
     const items = strip.querySelectorAll('[data-testid="harness-todo-item"]');
     expect(items).toHaveLength(2);
     expect(items[0].getAttribute("data-status")).toBe("in_progress");
-    expect(items[0].textContent).toContain("Write the skill");
+    expect(items[0].textContent).toContain("Echo the prompt");
     expect(screen.getByTestId("harness-tasks-more").textContent).toBe(
       "+1 more"
     );
@@ -627,16 +615,7 @@ describe("HarnessPane tasks and subagents", () => {
     // Collapsing keeps the active task in the header line.
     fireEvent.click(screen.getByTestId("harness-tasks-toggle"));
     expect(strip.querySelector('[data-testid="harness-todo-list"]')).toBeNull();
-    expect(strip.textContent).toContain("Write the skill");
-
-    // The step reads as "tasks" with progress, and expands into the list.
-    const step = screen.getAllByTestId("harness-step")[0];
-    expect(step.textContent).toContain("tasks");
-    expect(step.getAttribute("data-expandable")).toBe("true");
-    fireEvent.click(step.querySelector("button")!);
-    expect(
-      step.querySelector('[data-testid="harness-todo-list"]')
-    ).not.toBeNull();
+    expect(strip.textContent).toContain("Echo the prompt");
   });
 
   it("drops the strip once every task is done and the turn has settled", () => {
@@ -651,8 +630,9 @@ describe("HarnessPane tasks and subagents", () => {
           startedAt: T0,
           endedAt: T0 + 900,
           finalResult: "ok",
-          steps: [todoStep(["completed", "completed", "completed"])],
+          steps: [],
         },
+        extra: { plan: plan(["completed", "completed", "completed"]) },
       },
     ];
     render(
@@ -957,55 +937,5 @@ describe("composerHint", () => {
     const input = screen.getByTestId("chat-composer-input");
     fireEvent.keyDown(input, { key: "c", ctrlKey: true });
     expect(queueInterrupt).toHaveBeenCalledTimes(1);
-  });
-});
-
-describe("HarnessPane goal strip", () => {
-  it("shows an armed goal with its round count, and the reason when blocked", () => {
-    state.turns = [
-      {
-        id: "t1:user",
-        role: "user",
-        content: "merge when green",
-        timestamp: T0,
-      },
-      {
-        id: "t1:assistant",
-        role: "assistant",
-        content: "Monitoring is armed.",
-        timestamp: T0 + 1000,
-        trace: {
-          startedAt: T0,
-          endedAt: T0 + 1000,
-          finalResult: "ok",
-          steps: [
-            {
-              id: "g1",
-              kind: "other",
-              label: "create_goal",
-              status: "ok",
-              startedAt: T0 + 100,
-              endedAt: T0 + 200,
-              durMs: 100,
-              detail: {
-                terminalOutput:
-                  '{"goal":{"id":"goal-1","objective":"Merge PR #177 when green","phase":"active","roundsStarted":2,"maxGoalRounds":8},"activation":"armed"}',
-              },
-            },
-          ],
-        },
-      },
-    ];
-    render(
-      <HarnessPane agentId="agt_1" agent={agent} active isMobile={false} />,
-      { wrapper }
-    );
-    const strip = screen.getByTestId("harness-goal");
-    expect(strip.getAttribute("data-phase")).toBe("active");
-    expect(strip.textContent).toContain("armed");
-    expect(strip.textContent).toContain("round 2 of 8");
-    expect(strip.textContent).toContain("Merge PR #177 when green");
-    fireEvent.click(screen.getByTestId("harness-goal-toggle"));
-    expect(strip.textContent).toContain("runs another round on its own");
   });
 });

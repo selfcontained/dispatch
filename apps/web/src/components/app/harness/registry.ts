@@ -8,7 +8,9 @@
 // step-detail.tsx.
 import { diffLines } from "@/components/app/chat/stream-entries";
 
-import type { Step, Trace, Turn } from "./contracts";
+import type { HarnessPlanEntry } from "@dispatch/shared";
+
+import type { Step, Turn } from "./contracts";
 
 /** What the server puts on a step's `detail` (see harness-types.ts). */
 export type StepDetailData = {
@@ -17,11 +19,11 @@ export type StepDetailData = {
   diff?: { path: string; oldText: string | null; newText: string } | null;
   terminalOutput?: string | null;
   truncated?: boolean;
-  /** The tool call's raw input; dsh sends the model's arguments. */
+  /** The tool call's raw input, as the engine sent it. */
   input?: unknown;
   text?: string;
-  /** A `subagent` step: the child session it started. */
-  subagentSessionId?: string;
+  /** A nested call: the toolCallId of the step it runs under. */
+  parentToolCallId?: string;
 };
 
 const LABELS: Record<string, string> = {
@@ -60,16 +62,6 @@ export function stepToolName(step: Step): string {
   return title ? toolName(title).name.toLowerCase() : "";
 }
 
-/** dsh's `subagent` tool: the step stands for a whole child session. */
-export function isSubagentStep(step: Step): boolean {
-  return stepToolName(step) === "subagent";
-}
-
-/** dsh's `todo_write` tool: the step carries the agent's task list. */
-export function isTodoStep(step: Step): boolean {
-  return stepToolName(step) === "todo_write";
-}
-
 export type TodoItem = {
   content: string;
   /** pending | in_progress | completed */
@@ -77,54 +69,29 @@ export type TodoItem = {
 };
 
 /**
- * The task list as the agent last wrote it: from the live turn while one
- * runs, else from the last settled turn; empty when neither has one.
+ * The task list as the engine last published it: the live turn's plan while
+ * one runs, else the newest assistant turn's; empty when neither has one.
  */
-export function latestTodoItems(
+export function latestPlanItems(
   turns: Turn[],
-  liveTrace: Trace | null,
+  livePlan: HarnessPlanEntry[] | null,
   streaming: boolean
 ): TodoItem[] {
-  let steps: Step[] = [];
-  if (streaming && liveTrace) steps = liveTrace.steps;
-  else {
-    for (let i = turns.length - 1; i >= 0; i -= 1) {
-      const trace = turns[i].trace;
-      if (turns[i].role === "assistant" && trace) {
-        steps = trace.steps;
-        break;
-      }
+  const toItems = (plan: HarnessPlanEntry[]) =>
+    plan.map((e) => ({ content: e.content, status: e.status }));
+  if (streaming && livePlan) return toItems(livePlan);
+  for (let i = turns.length - 1; i >= 0; i -= 1) {
+    const plan = turns[i].extra?.plan;
+    if (turns[i].role === "assistant" && Array.isArray(plan)) {
+      return toItems(plan as HarnessPlanEntry[]);
     }
-  }
-  for (let i = steps.length - 1; i >= 0; i -= 1) {
-    if (isTodoStep(steps[i])) return todoItems(steps[i]);
   }
   return [];
 }
 
-/** The task list a todo step wrote, when it is one. */
-export function todoItems(step: Step): TodoItem[] {
-  const input = inputRecord(stepDetailData(step).input);
-  const todos = input?.todos;
-  if (!Array.isArray(todos)) return [];
-  return todos.flatMap((t) => {
-    const record = inputRecord(t);
-    return record && typeof record.content === "string"
-      ? [
-          {
-            content: record.content,
-            status:
-              typeof record.status === "string" ? record.status : "pending",
-          },
-        ]
-      : [];
-  });
-}
-
-/** The child session a subagent step started; the server reads it off dsh's output. */
-export function subagentSessionId(step: Step): string | null {
-  const id = stepDetailData(step).subagentSessionId;
-  return typeof id === "string" && id ? id : null;
+/** Whether steps ran under this one (a subagent's work). */
+export function hasChildren(step: Step): boolean {
+  return (step.children?.length ?? 0) > 0;
 }
 
 /**
@@ -155,7 +122,6 @@ export function shortcutLabelsFromSteps(steps: Step[]): string[] {
 
 /** The row's label: the tool's own name, or the kind when there is none. */
 export function stepLabel(step: Step): string {
-  if (isTodoStep(step)) return "tasks";
   const title = step.label?.trim();
   if (!title) return kindLabel(step.kind);
   return toolName(title).name.toLowerCase();
@@ -197,18 +163,6 @@ export function argsSummary(input: unknown): string | undefined {
 export function stepSummary(step: Step): string | undefined {
   const d = stepDetailData(step);
   const input = inputRecord(d.input);
-  if (isSubagentStep(step)) {
-    const description = input?.description;
-    return typeof description === "string" ? clip(description) : undefined;
-  }
-  if (isTodoStep(step)) {
-    const items = todoItems(step);
-    if (items.length === 0) return undefined;
-    const done = items.filter((i) => i.status === "completed").length;
-    const active = items.find((i) => i.status === "in_progress");
-    const progress = `${done} of ${items.length} done`;
-    return active ? clip(`${progress} · ${active.content}`) : progress;
-  }
   switch (step.kind) {
     case "execute": {
       const command = input?.command ?? input?.cmd;
@@ -246,7 +200,7 @@ export function stepSummary(step: Step): string | undefined {
   }
 }
 
-/** dsh's read tool wraps its output as <path>…</path><type>…</type><content>…</content>. */
+/** A read tool may wrap its output as <path>…</path><type>…</type><content>…</content>. */
 export function unwrapReadOutput(output: string): string {
   const m = /<content>\n?([\s\S]*?)(?:<\/content>\s*)?$/.exec(output);
   return m ? m[1] : output;
@@ -324,8 +278,7 @@ export function hasDetail(step: Step): boolean {
 
 /** Whether the step has a result-side body: output, a diff, locations, text. */
 export function hasSettledDetail(step: Step): boolean {
-  if (isSubagentStep(step)) return true;
-  if (isTodoStep(step)) return todoItems(step).length > 0;
+  if (hasChildren(step)) return true;
   const d = stepDetailData(step);
   const output = !!d.terminalOutput?.trim();
   const locations = (d.locations?.length ?? 0) > 0;
@@ -346,63 +299,4 @@ export function hasSettledDetail(step: Step): boolean {
       return output || (!!record && Object.keys(record).length > 0);
     }
   }
-}
-
-/** dsh's goal loop, as its goal tools last reported it. */
-export type GoalState = {
-  id: string;
-  objective: string;
-  phase: string;
-  roundsStarted: number;
-  maxRounds: number;
-  blockedReason?: string;
-};
-
-const GOAL_TOOLS = new Set(["create_goal", "update_goal", "get_goal"]);
-
-/** The goal in a goal tool's output, when the output is one. */
-export function goalFromStep(step: Step): GoalState | null {
-  if (!GOAL_TOOLS.has(stepToolName(step))) return null;
-  const output = stepDetailData(step).terminalOutput;
-  if (!output) return null;
-  try {
-    const parsed = JSON.parse(output) as { goal?: Record<string, unknown> };
-    const goal = parsed.goal;
-    if (!goal || typeof goal.objective !== "string") return null;
-    const blocked = inputRecord(goal.blockedReason);
-    return {
-      id: typeof goal.id === "string" ? goal.id : "",
-      objective: goal.objective,
-      phase: typeof goal.phase === "string" ? goal.phase : "active",
-      roundsStarted:
-        typeof goal.roundsStarted === "number" ? goal.roundsStarted : 0,
-      maxRounds:
-        typeof goal.maxGoalRounds === "number" ? goal.maxGoalRounds : 0,
-      ...(typeof blocked?.message === "string"
-        ? { blockedReason: blocked.message }
-        : typeof goal.blockedReason === "string"
-          ? { blockedReason: goal.blockedReason }
-          : {}),
-    };
-  } catch {
-    return null;
-  }
-}
-
-/** The newest goal state across the turns and the live trace. */
-export function latestGoal(
-  turns: Turn[],
-  liveTrace: Trace | null
-): GoalState | null {
-  const traces: Trace[] = [];
-  for (const turn of turns) if (turn.trace) traces.push(turn.trace);
-  if (liveTrace) traces.push(liveTrace);
-  for (let t = traces.length - 1; t >= 0; t -= 1) {
-    const steps = traces[t].steps;
-    for (let i = steps.length - 1; i >= 0; i -= 1) {
-      const goal = goalFromStep(steps[i]);
-      if (goal) return goal;
-    }
-  }
-  return null;
 }

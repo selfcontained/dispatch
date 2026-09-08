@@ -1,15 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import type { Step } from "./contracts";
+import type { Step, Turn } from "./contracts";
 import {
   argsSummary,
-  goalFromStep,
   hasDetail,
-  latestGoal,
-  isSubagentStep,
-  isTodoStep,
-  subagentSessionId,
-  todoItems,
+  latestPlanItems,
   stepLabel,
   stepSummary,
   toolName,
@@ -200,103 +195,57 @@ describe("turnLabelFromSteps", () => {
   });
 });
 
-describe("todo and subagent steps", () => {
-  const base = { id: "s", status: "ok" as const, startedAt: 0 };
-  it("labels the task list with its progress and exposes the items", () => {
-    const step = {
-      ...base,
-      kind: "edit",
-      label: "todo_write",
-      detail: {
-        input: {
-          todos: [
-            { content: "a", status: "completed" },
-            { content: "b", status: "in_progress" },
-            { content: "c", status: "pending" },
-          ],
-        },
-      },
-    };
-    expect(isTodoStep(step)).toBe(true);
-    expect(stepLabel(step)).toBe("tasks");
-    expect(stepSummary(step)).toBe("1 of 3 done · b");
-    expect(hasDetail(step)).toBe(true);
-    expect(todoItems(step).map((t) => t.status)).toEqual([
-      "completed",
-      "in_progress",
-      "pending",
+const at = Date.parse("2026-09-07T10:00:00Z");
+const assistantTurn = (plan?: unknown): Turn => ({
+  id: "t:assistant",
+  role: "assistant",
+  content: "",
+  timestamp: at,
+  trace: { startedAt: at, endedAt: at + 1000, steps: [] },
+  extra: plan ? { plan } : {},
+});
+
+describe("latestPlanItems", () => {
+  const plan = [
+    { content: "a", status: "completed", priority: "high" },
+    { content: "b", status: "in_progress", priority: "low" },
+  ] as const;
+  it("prefers the live plan while streaming", () => {
+    expect(latestPlanItems([assistantTurn(plan)], [plan[1]], true)).toEqual([
+      { content: "b", status: "in_progress" },
     ]);
   });
-
-  it("summarises a subagent by its description and finds its session id", () => {
-    const step = {
-      ...base,
-      kind: "other",
-      label: "subagent",
-      detail: {
-        input: { description: "Study skill conventions", prompt: "…" },
-        terminalOutput: "started subagent 44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
-        subagentSessionId: "44d7b69a-a278-4f0b-a7d5-2158a60b3f07",
-      },
-    };
-    expect(isSubagentStep(step)).toBe(true);
-    expect(stepSummary(step)).toBe("Study skill conventions");
-    expect(hasDetail(step)).toBe(true);
-    expect(subagentSessionId(step)).toBe(
-      "44d7b69a-a278-4f0b-a7d5-2158a60b3f07"
-    );
+  it("falls back to the newest assistant turn's plan", () => {
     expect(
-      subagentSessionId({ ...step, detail: { terminalOutput: "done" } })
-    ).toBeNull();
+      latestPlanItems(
+        [
+          assistantTurn([plan[0]]),
+          { id: "u", role: "user", content: "x", timestamp: at },
+          assistantTurn(plan),
+        ],
+        null,
+        false
+      )
+    ).toEqual([
+      { content: "a", status: "completed" },
+      { content: "b", status: "in_progress" },
+    ]);
+  });
+  it("is empty when no turn carries a plan", () => {
+    expect(latestPlanItems([assistantTurn()], null, false)).toEqual([]);
   });
 });
 
-describe("goal steps", () => {
-  const goalStep = (phase: string, extra = "") => ({
-    id: "g",
-    kind: "other",
-    label: "get_goal",
-    status: "ok" as const,
-    startedAt: 0,
-    detail: {
-      terminalOutput: `{"goal":{"id":"goal-1","objective":"Merge PR #177 when green","phase":"${phase}","roundsStarted":3,"maxGoalRounds":8${extra}},"activation":"armed"}`,
-    },
-  });
-  it("reads the goal state out of a goal tool's output", () => {
-    expect(goalFromStep(goalStep("active"))).toEqual({
-      id: "goal-1",
-      objective: "Merge PR #177 when green",
-      phase: "active",
-      roundsStarted: 3,
-      maxRounds: 8,
-    });
-    expect(
-      goalFromStep(
-        goalStep(
-          "blocked",
-          ',"blockedReason":{"code":"model-reported","message":"CI is red"}'
-        )
-      )?.blockedReason
-    ).toBe("CI is red");
-    expect(goalFromStep({ ...goalStep("active"), label: "bash" })).toBeNull();
-  });
-  it("takes the newest goal across turns and the live trace", () => {
-    const older = goalStep("active");
-    const newer = { ...goalStep("blocked"), id: "g2" };
-    expect(
-      latestGoal(
-        [
-          {
-            id: "a",
-            role: "assistant",
-            content: "",
-            timestamp: 0,
-            trace: { startedAt: 0, steps: [older] },
-          },
-        ],
-        { startedAt: 1, steps: [newer] }
-      )?.phase
-    ).toBe("blocked");
-    expect(latestGoal([], null)).toBeNull();
+describe("stepLabel", () => {
+  it("no longer special-cases a todo tool", () => {
+    const step: Step = {
+      id: "s",
+      kind: "other",
+      label: "todo_write",
+      status: "ok",
+      startedAt: at,
+    };
+    expect(stepLabel(step)).toBe("todo_write");
+    expect(stepSummary(step)).toBeUndefined();
   });
 });

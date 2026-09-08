@@ -21,9 +21,8 @@ import { cn } from "@/lib/utils";
 import type { Attachment, Turn } from "./contracts";
 import { HarnessContext } from "./harness-context";
 import { ModelPicker } from "./model-picker";
-import { GoalStrip } from "./goal-strip";
 import { ProviderIcon, providerOfConfigValue } from "./provider-icon";
-import { latestGoal, latestTodoItems } from "./registry";
+import { latestPlanItems } from "./registry";
 import { TasksStrip } from "./tasks-strip";
 import { TurnShortcuts } from "./turn-shortcuts";
 import { TurnStream } from "./turn-stream";
@@ -86,6 +85,7 @@ export function HarnessPane({
     liveTrace,
     liveText,
     liveQuestions,
+    livePlan,
     streaming,
     queued,
     promptHistory,
@@ -148,11 +148,10 @@ export function HarnessPane({
       : null;
 
   const currentTasks = useMemo(
-    () => latestTodoItems(turns, liveTrace, streaming),
-    [liveTrace, streaming, turns]
+    () => latestPlanItems(turns, livePlan, streaming),
+    [livePlan, streaming, turns]
   );
   const tasksOpen = currentTasks.some((t) => t.status !== "completed");
-  const goal = useMemo(() => latestGoal(turns, liveTrace), [liveTrace, turns]);
 
   const turnExtras = useCallback(
     (turn: Turn) =>
@@ -409,7 +408,6 @@ export function HarnessPane({
         />
       </HarnessContext.Provider>
       <div className="shrink-0 border-t border-border/40 px-3 pb-2 pt-2">
-        {goal ? <GoalStrip goal={goal} /> : null}
         {tasksOpen ? (
           <TasksStrip
             items={currentTasks}
